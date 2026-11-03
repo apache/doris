@@ -30,6 +30,8 @@ import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -40,6 +42,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -415,6 +418,17 @@ class ExpressionEstimationTest {
 
         est = ExpressionEstimation.estimate(new NonNullable(a), stats);
         Assertions.assertEquals(0, est.numNulls);
+    }
+
+    @Test
+    public void testSumAndSum0Width() {
+        Statistics stats = new Statistics(1000, new HashMap<>());
+        SlotReference value = new SlotReference("v", BigIntType.INSTANCE);
+
+        // a materialized view stores COUNT as a BIGINT column and the rollup reads it back
+        // through sum0, so sum0 must be estimated as wide as the sum it replaced
+        Assertions.assertEquals(8, ExpressionEstimation.estimate(new Sum(value), stats).avgSizeByte);
+        Assertions.assertEquals(8, ExpressionEstimation.estimate(new Sum0(value), stats).avgSizeByte);
     }
 
     @Test

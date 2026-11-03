@@ -153,7 +153,7 @@ suite("test_count_on_index_2", "p0"){
         load_httplogs_data.call(indexTbName2, indexTbName2, 'true', 'json', 'documents-1000.json')
 
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true """
+        sql """ set enable_segment_limit_pushdown = true """
 
         qt_sql """ select count() from ${indexTbName1} where `@timestamp` >= 893964736 and `@timestamp` <= 893966453; """
         qt_sql """ select count() from ${indexTbName2} where `@timestamp` >= 893964736 and `@timestamp` <= 893966453; """

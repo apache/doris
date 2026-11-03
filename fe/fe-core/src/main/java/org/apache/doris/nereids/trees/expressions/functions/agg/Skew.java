@@ -35,7 +35,8 @@ import java.util.List;
  */
 
 public class Skew extends AggregateFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
+        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNullable,
+        NullIgnoringAggregateFunction {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE)

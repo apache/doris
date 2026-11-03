@@ -64,7 +64,10 @@ struct TField {
     8: optional bool initial_default_value_is_base64,
     // Version marker for authoritative Iceberg mapping semantics. Its absence preserves the
     // legacy name fallback when a new BE executes a plan produced by an older FE during rollout.
-    9: optional bool name_mapping_is_authoritative
+    9: optional bool name_mapping_is_authoritative,
+    // Table-format timestamp semantic used when the physical file encoding is ambiguous. Paimon
+    // uses this to distinguish TIMESTAMP (false) from TIMESTAMP_LTZ (true), including INT96.
+    10: optional bool timestamp_is_adjusted_to_utc
 }
 
 

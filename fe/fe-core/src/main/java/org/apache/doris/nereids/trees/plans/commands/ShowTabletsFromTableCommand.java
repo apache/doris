@@ -57,7 +57,6 @@ import org.apache.doris.qe.StmtExecutor;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -200,19 +199,20 @@ public class ShowTabletsFromTableCommand extends ShowCommand {
         Env env = Env.getCurrentEnv();
         Database db = env.getInternalCatalog().getDbOrAnalysisException(dbTableName.getDb());
         OlapTable olapTable = db.getOlapTableOrAnalysisException(dbTableName.getTbl());
+
+        // The parser passes limit = 0 when the statement carries no LIMIT clause
+        // (see LogicalPlanBuilder#visitShowTabletsFromTable), so only a positive limit
+        // bounds the result. sizeLimit is how many sorted rows have to be kept: the LIMIT
+        // rows plus the OFFSET rows that are skipped afterwards.
+        Optional<Integer> sizeLimit = Optional.empty();
+        if (limit > 0) {
+            long capped = limit + Math.max(offset, 0);
+            sizeLimit = Optional.of((int) Math.min(capped, Integer.MAX_VALUE));
+        }
+
+        List<Partition> partitions = new ArrayList<>();
         olapTable.readLock();
         try {
-            // The parser passes limit = 0 when the statement carries no LIMIT clause
-            // (see LogicalPlanBuilder#visitShowTabletsFromTable), so only a positive limit
-            // bounds the result. sizeLimit is how many sorted rows have to be kept: the LIMIT
-            // rows plus the OFFSET rows that are skipped afterwards.
-            Optional<Integer> sizeLimit = Optional.empty();
-            if (limit > 0) {
-                long capped = limit + Math.max(offset, 0);
-                sizeLimit = Optional.of((int) Math.min(capped, Integer.MAX_VALUE));
-            }
-
-            Collection<Partition> partitions = new ArrayList<Partition>();
             if (partitionNames != null) {
                 List<String> paNames = partitionNames.getPartitionNames();
                 if (!paNames.isEmpty()) {
@@ -225,21 +225,29 @@ public class ShowTabletsFromTableCommand extends ShowCommand {
                     }
                 }
             } else {
-                partitions = olapTable.getPartitions();
+                partitions.addAll(olapTable.getPartitions());
             }
+        } finally {
+            olapTable.readUnlock();
+        }
+
+        List<Long> visibleVersions = Partition.getVisibleVersions(partitions);
+        List<List<Comparable>> tabletInfos = new ArrayList<>();
+        olapTable.readLock();
+        try {
             // With an explicit ORDER BY every tablet has to be collected before the result can be
             // truncated, otherwise the sort only sees an arbitrary prefix of the scan and returns
             // the wrong rows -- the bug reported in #65871. Without ORDER BY the scan still stops
             // as soon as enough rows are gathered, as it did before: LIMIT then returns a prefix
             // of the scan, ordered by (tabletId, replicaId) among itself.
             boolean stop = false;
-            List<List<Comparable>> tabletInfos = new ArrayList<>();
-            for (Partition partition : partitions) {
+            for (int i = 0; i < partitions.size(); i++) {
                 if (stop) {
                     break;
                 }
+                Partition partition = partitions.get(i);
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
-                    TabletsProcDir procDir = new TabletsProcDir(olapTable, index);
+                    TabletsProcDir procDir = new TabletsProcDir(olapTable, index, visibleVersions.get(i));
                     tabletInfos.addAll(procDir.fetchComparableResult(
                             version, backendId, replicaState));
                     if (orderByPairs == null && sizeLimit.isPresent() && tabletInfos.size() >= sizeLimit.get()) {

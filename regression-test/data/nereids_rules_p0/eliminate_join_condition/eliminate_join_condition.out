@@ -2,50 +2,50 @@
 -- !inner_join --
 PhysicalResultSink
 --NestedLoopJoin[CROSS_JOIN]
-----PhysicalOlapScan[t]
-----PhysicalOlapScan[t]
+----PhysicalOlapScan[t(t1)]
+----PhysicalOlapScan[t(t2)]
 
 -- !left_outer_join --
 PhysicalResultSink
 --NestedLoopJoin[LEFT_OUTER_JOIN]
-----PhysicalOlapScan[t]
-----PhysicalOlapScan[t]
+----PhysicalOlapScan[t(t1)]
+----PhysicalOlapScan[t(t2)]
 
 -- !right_outer_join --
 PhysicalResultSink
 --NestedLoopJoin[RIGHT_OUTER_JOIN]
-----PhysicalOlapScan[t]
-----PhysicalOlapScan[t]
+----PhysicalOlapScan[t(t1)]
+----PhysicalOlapScan[t(t2)]
 
 -- !full_outer_join --
 PhysicalResultSink
 --NestedLoopJoin[FULL_OUTER_JOIN]
-----PhysicalOlapScan[t]
-----PhysicalOlapScan[t]
+----PhysicalOlapScan[t(t1)]
+----PhysicalOlapScan[t(t2)]
 
 -- !left_semi_join --
 PhysicalResultSink
 --NestedLoopJoin[LEFT_SEMI_JOIN]
-----PhysicalOlapScan[t]
+----PhysicalOlapScan[t(t1)]
 ----PhysicalStorageLayerAggregate[t]
 
 -- !left_anti_join --
 PhysicalResultSink
 --NestedLoopJoin[LEFT_ANTI_JOIN]
-----PhysicalOlapScan[t]
+----PhysicalOlapScan[t(t1)]
 ----PhysicalStorageLayerAggregate[t]
 
 -- !right_semi_join --
 PhysicalResultSink
 --NestedLoopJoin[RIGHT_SEMI_JOIN]
 ----PhysicalStorageLayerAggregate[t]
-----PhysicalOlapScan[t]
+----PhysicalOlapScan[t(t2)]
 
 -- !right_anti_join --
 PhysicalResultSink
 --NestedLoopJoin[RIGHT_ANTI_JOIN]
 ----PhysicalStorageLayerAggregate[t]
-----PhysicalOlapScan[t]
+----PhysicalOlapScan[t(t2)]
 
 -- !inner_join --
 1	1	a	1	1	a

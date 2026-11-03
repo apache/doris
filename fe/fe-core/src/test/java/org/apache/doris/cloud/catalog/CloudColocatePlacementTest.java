@@ -145,6 +145,7 @@ public class CloudColocatePlacementTest {
 
     @Test
     public void testDeadGraceHrwPlacementRejectsInvalidBucketIdx() throws Exception {
+        Config.enable_cloud_colocate_consistent_hash = true;
         CloudSystemInfoService infoService = Mockito.spy(new CloudSystemInfoService());
         GroupId groupId = new GroupId(1L, 100L);
         List<Backend> backends = createBackends(1L, 2L, 3L);

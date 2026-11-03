@@ -43,6 +43,7 @@
 #include "exec/common/variant_util.h"
 #include "exec/operator/olap_scan_operator.h"
 #include "exec/scan/scan_node.h"
+#include "exprs/function/search/search_predicate_collector.h"
 #include "exprs/function_filter.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -55,7 +56,8 @@
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 #include "storage/id_manager.h"
-#include "storage/index/inverted/inverted_index_profile.h"
+#include "storage/index/inverted/common/inverted_index_profile.h"
+#include "storage/index/inverted/reader/collection_statistics.h"
 #include "storage/iterator/block_reader.h"
 #include "storage/olap_common.h"
 #include "storage/olap_tuple.h"
@@ -89,7 +91,6 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                  .output_columns {},
                                  .common_expr_ctxs_push_down {},
                                  .topn_filter_source_node_ids {},
-                                 .filter_block_conjuncts {},
                                  .key_group_cluster_key_idxes {},
                                  .virtual_column_exprs {},
                                  .vir_cid_to_idx_in_block {},
@@ -98,6 +99,7 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                  .collection_statistics {},
                                  .ann_topn_runtime {},
                                  .condition_cache_digest = parent->get_condition_cache_digest()}),
+          _tablet_collection_statistics(std::move(params.tablet_collection_statistics)),
           _initial_file_cache_stats(std::move(params.initial_file_cache_stats)) {
     _tablet_reader_params.set_read_source(std::move(params.read_source),
                                           _state->skip_delete_bitmap());
@@ -153,7 +155,10 @@ static bool has_file_cache_statistics(const io::FileCacheStatistics& stats) {
            stats.inverted_index_bytes_read_from_remote != 0 ||
            stats.inverted_index_bytes_read_from_peer != 0 ||
            stats.inverted_index_local_io_timer != 0 || stats.inverted_index_remote_io_timer != 0 ||
-           stats.inverted_index_peer_io_timer != 0 || stats.inverted_index_io_timer != 0;
+           stats.inverted_index_peer_io_timer != 0 || stats.inverted_index_io_timer != 0 ||
+           stats.inverted_index_request_bytes != 0 || stats.inverted_index_read_bytes != 0 ||
+           stats.inverted_index_range_read_count != 0 ||
+           stats.inverted_index_serial_read_rounds != 0;
 }
 
 io::IOContext build_score_runtime_collection_io_context(RuntimeState* state, ReaderType reader_type,
@@ -168,6 +173,14 @@ io::IOContext build_score_runtime_collection_io_context(RuntimeState* state, Rea
     };
     if (auto* query_ctx = state->get_query_ctx(); query_ctx != nullptr) {
         io_ctx.remote_scan_cache_write_limiter = query_ctx->remote_scan_cache_write_limiter();
+    }
+    // The statistics read the index before the scan does, so they follow the query's file cache
+    // choices as the scan's reads do.
+    if (reader_type == ReaderType::READER_QUERY) {
+        const auto& query_options = state->query_options();
+        io_ctx.is_disposable = query_options.disable_file_cache;
+        io_ctx.inverted_index_snii_read_no_write_file_cache =
+                query_options.inverted_index_snii_read_no_write_file_cache;
     }
     return io_ctx;
 }
@@ -289,15 +302,36 @@ Status OlapScanner::prepare() {
 
     if (_tablet_reader_params.score_runtime) {
         SCOPED_TIMER(local_state->_statistics_collect_timer);
-        _tablet_reader_params.collection_statistics = std::make_shared<CollectionStatistics>();
+        _tablet_reader_params.collection_statistics = std::make_shared<CollectionStatistics>(
+                std::make_unique<SearchPredicateCollector>());
 
         auto io_ctx = build_score_runtime_collection_io_context(
-                _state, ReaderType::READER_QUERY, tablet->ttl_seconds(),
+                _state, ReaderType::READER_QUERY, tablet->file_cache_ttl_expiration_time(),
                 &_tablet_reader->mutable_stats()->file_cache_stats);
 
-        RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(
-                _state, _tablet_reader_params.rs_splits, _tablet_reader_params.tablet_schema,
-                _tablet_reader_params.common_expr_ctxs_push_down, &io_ctx));
+        // A merge-on-write scan leaves out rows its segments still hold, which replicas drop
+        // at different times, so the statistics count only the rows the scan returns.
+        std::optional<MowHiddenRows> hidden_rows;
+        if (_tablet_reader_params.delete_bitmap != nullptr) {
+            const auto& query_options = _state->query_options();
+            hidden_rows = MowHiddenRows {
+                    .delete_bitmap = _tablet_reader_params.delete_bitmap,
+                    .version = _tablet_reader_params.version.second,
+                    .use_segment_cache = !query_options.__isset.enable_segment_cache ||
+                                         query_options.enable_segment_cache,
+                    .use_page_cache = _state->enable_page_cache()};
+        }
+        const MowHiddenRows* hidden_rows_ptr = hidden_rows ? &*hidden_rows : nullptr;
+        if (_tablet_collection_statistics != nullptr) {
+            RETURN_IF_ERROR(_tablet_collection_statistics->copy_to(
+                    _state, _tablet_reader_params.tablet_schema,
+                    _tablet_reader_params.common_expr_ctxs_push_down, &io_ctx, hidden_rows_ptr,
+                    _tablet_reader_params.collection_statistics.get()));
+        } else {
+            RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(
+                    _state, _tablet_reader_params.rs_splits, _tablet_reader_params.tablet_schema,
+                    _tablet_reader_params.common_expr_ctxs_push_down, &io_ctx, hidden_rows_ptr));
+        }
     }
 
     _has_prepared = true;
@@ -455,23 +489,63 @@ Status OlapScanner::_init_tablet_reader_params(
             _tablet_reader_params.enable_mor_value_predicate_pushdown = true;
         }
 
-        // order by table keys optimization for topn
-        // will only read head/tail of data file since it's already sorted by keys
-        if (olap_scan_node.__isset.sort_info && !olap_scan_node.sort_info.is_asc_order.empty()) {
+        const bool has_key_topn =
+                olap_scan_node.__isset.sort_info && !olap_scan_node.sort_info.is_asc_order.empty();
+        if (has_key_topn) {
             _limit = _local_state->limit_per_scanner();
+        }
+
+        const bool no_runtime_filters = _total_rf_num == 0;
+        const bool segment_limit_enabled = _state->enable_segment_limit_pushdown();
+        const bool storage_no_merge = olap_scan_local_state->_storage_no_merge();
+        // Storage TopN compares key columns that TabletReader prepares only for DUP and
+        // merge-on-write tablets, so a MOR table read as DUP cannot use it.
+        const bool storage_topn_supported = storage_no_merge && !read_mor_as_dup;
+
+        if (_limit > 0 && no_runtime_filters && segment_limit_enabled && storage_no_merge) {
+            for (const auto& conjunct : _conjuncts) {
+                DORIS_CHECK(!VExpr::is_acting_on_a_slot(*conjunct->root()));
+            }
+        }
+
+        // Segment LIMIT has only two legal states: completely disabled, or enabled after every
+        // row-filtering conjunct has become a storage predicate or SegmentIterator common expr.
+        // A key TopN also needs storage TopN support, otherwise nothing is pushed.
+        const bool can_push_down_segment_limit =
+                _limit > 0 && no_runtime_filters && _conjuncts.empty() && segment_limit_enabled &&
+                storage_no_merge && (!has_key_topn || storage_topn_supported);
+        if (can_push_down_segment_limit) {
+            if (has_key_topn) {
+                _tablet_reader_params.read_orderby_key = true;
+                if (!olap_scan_node.sort_info.is_asc_order[0]) {
+                    _tablet_reader_params.read_orderby_key_reverse = true;
+                }
+                _tablet_reader_params.read_orderby_key_num_prefix_columns =
+                        olap_scan_node.sort_info.is_asc_order.size();
+                _tablet_reader_params.read_orderby_key_limit = _limit;
+            } else {
+                _tablet_reader_params.general_read_limit = _limit;
+            }
+        } else if (has_key_topn && !storage_no_merge && no_runtime_filters) {
+            // Tables merged on read return rows in key order (rowsets are merged by key,
+            // reversed for DESC), so each scanner can stop after its own N rows and keeps
+            // _limit. Storage TopN stays off. A late runtime filter would break the count.
             _tablet_reader_params.read_orderby_key = true;
             if (!olap_scan_node.sort_info.is_asc_order[0]) {
                 _tablet_reader_params.read_orderby_key_reverse = true;
             }
             _tablet_reader_params.read_orderby_key_num_prefix_columns =
                     olap_scan_node.sort_info.is_asc_order.size();
-            _tablet_reader_params.read_orderby_key_limit = _limit;
+        } else if (has_key_topn) {
+            // Without storage TopN the rows are not in key order, so the upper TopN needs
+            // every row from this scanner.
+            _limit = -1;
+        }
 
-            if (_tablet_reader_params.read_orderby_key_limit > 0 &&
-                olap_scan_local_state->_storage_no_merge()) {
-                _tablet_reader_params.filter_block_conjuncts = _conjuncts;
-                _conjuncts.clear();
-            }
+        if (_tablet_reader_params.read_orderby_key_limit > 0 ||
+            _tablet_reader_params.general_read_limit > 0) {
+            DORIS_CHECK(can_push_down_segment_limit);
+            DORIS_CHECK(_conjuncts.empty());
         }
 
         // set push down topn filter
@@ -762,6 +836,7 @@ void OlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_predicate_column_read_seek_counter,
                    stats.predicate_column_read_seek_num);
     COUNTER_UPDATE(local_state->_lazy_read_timer, stats.lazy_read_ns);
+    COUNTER_UPDATE(local_state->_lazy_read_pruned_timer, stats.lazy_read_pruned_ns);
     COUNTER_UPDATE(local_state->_lazy_read_seek_timer, stats.block_lazy_read_seek_ns);
     COUNTER_UPDATE(local_state->_lazy_read_seek_counter, stats.block_lazy_read_seek_num);
     COUNTER_UPDATE(local_state->_output_col_timer, stats.output_col_ns);
@@ -798,6 +873,10 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.inverted_index_query_cache_hit);
     COUNTER_UPDATE(local_state->_inverted_index_query_cache_miss_counter,
                    stats.inverted_index_query_cache_miss);
+    COUNTER_UPDATE(local_state->_inverted_index_query_cache_lookup_counter,
+                   stats.inverted_index_query_cache_lookup);
+    COUNTER_UPDATE(local_state->_inverted_index_query_cache_insert_counter,
+                   stats.inverted_index_query_cache_insert);
     COUNTER_UPDATE(local_state->_inverted_index_query_timer, stats.inverted_index_query_timer);
     COUNTER_UPDATE(local_state->_inverted_index_query_null_bitmap_timer,
                    stats.inverted_index_query_null_bitmap_timer);
@@ -817,9 +896,15 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.inverted_index_searcher_cache_miss);
     COUNTER_UPDATE(local_state->_inverted_index_downgrade_count_counter,
                    stats.inverted_index_downgrade_count);
+    COUNTER_UPDATE(local_state->_inverted_index_conjuncts_short_circuited_counter,
+                   stats.inverted_index_conjuncts_short_circuited);
+    COUNTER_UPDATE(local_state->_gram_index_filter_counter, stats.rows_gram_index_filtered);
+    COUNTER_UPDATE(local_state->_gram_index_candidate_counter, stats.gram_index_candidate_rows);
+    COUNTER_UPDATE(local_state->_gram_index_gate_gave_up_counter, stats.gram_index_gate_gave_up);
     COUNTER_UPDATE(local_state->_inverted_index_analyzer_timer,
                    stats.inverted_index_analyzer_timer);
     COUNTER_UPDATE(local_state->_inverted_index_lookup_timer, stats.inverted_index_lookup_timer);
+    local_state->_snii_prx_profile_counters.update(stats);
     COUNTER_UPDATE(local_state->_variant_scan_sparse_column_timer,
                    stats.variant_scan_sparse_column_timer_ns);
     COUNTER_UPDATE(local_state->_variant_scan_sparse_column_bytes,

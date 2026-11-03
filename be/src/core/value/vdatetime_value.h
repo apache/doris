@@ -209,6 +209,10 @@ static constexpr uint64_t MAX_DATETIME_V2 = ((uint64_t)MAX_DATE_V2 << TIME_PART_
 static constexpr uint64_t MIN_DATETIME_V2 = (uint64_t)MIN_DATE_V2 << TIME_PART_LENGTH;
 
 static constexpr uint32_t MAX_YEAR = 9999;
+// UTC 9999-12-31 23:59:59 plus one day for time zone offsets. Reject larger inputs
+// before narrowing the civil year; the converted date still needs its exact range check.
+static constexpr int64_t MAX_UNIX_TIMESTAMP_WITH_TIMEZONE =
+        253402300799LL + HOUR_PER_DAY * SECOND_PER_HOUR;
 static constexpr uint32_t MAX_MONTH = 12;
 static constexpr uint32_t MAX_HOUR = 23;
 static constexpr uint32_t MAX_MINUTE = 59;
@@ -286,7 +290,8 @@ public:
               _year(0) {} // before int128  16 bytes  --->  after int64 8 bytes
 
     const static VecDateTimeValue FIRST_DAY;
-    const static VecDateTimeValue DEFAULT_VALUE;
+    const static VecDateTimeValue DATE_DEFAULT_VALUE;
+    const static VecDateTimeValue DATETIME_DEFAULT_VALUE;
 
     // The data format of DATE/DATETIME is different in storage layer and execute layer.
     // So we should use different creator to get data from value.
@@ -723,7 +728,7 @@ public:
         return (daynr() - rhs.daynr()) * SECOND_PER_HOUR * HOUR_PER_DAY + time_part_diff(rhs);
     }
 
-    void set_type(int type);
+    void set_type(TimeType type);
 
     int type() const { return _type; }
 
@@ -762,7 +767,7 @@ public:
     bool get_date_from_daynr(uint64_t);
 
     // reset 0
-    void reset_zero_by_type(int type) { set_zero(type); }
+    void reset_zero_by_type(TimeType type) { set_zero(type); }
 
 private:
     // Used to make sure sizeof VecDateTimeValue
@@ -789,7 +794,7 @@ private:
                              bool disable_lut = false);
 
     // Helper to set max, min, zero
-    void set_zero(int type);
+    void set_zero(TimeType type);
     void set_max_time(bool neg);
 
     bool from_date_format_str(const char* format, int format_len, const char* value,
@@ -805,7 +810,7 @@ private:
     uint8_t _month;
     uint16_t _year;
 
-    VecDateTimeValue(uint8_t neg, uint8_t type, uint8_t hour, uint8_t minute, uint8_t second,
+    VecDateTimeValue(uint8_t neg, TimeType type, uint8_t hour, uint8_t minute, uint8_t second,
                      uint16_t year, uint8_t month, uint8_t day)
             : _neg(neg),
               _type(type),
@@ -821,9 +826,11 @@ static_assert(std::is_trivially_destructible_v<VecDateTimeValue>,
               "VecDateTimeValue must be trivial destructible");
 static_assert(std::is_trivially_copyable_v<VecDateTimeValue>,
               "VecDateTimeValue must be trivial copyable");
-inline const VecDateTimeValue VecDateTimeValue::FIRST_DAY(false, TYPE_DATETIME, 0, 0, 0, 1, 1, 1);
-inline const VecDateTimeValue VecDateTimeValue::DEFAULT_VALUE(false, TYPE_DATETIME, 0, 0, 0, 1970,
-                                                              1, 1);
+inline const VecDateTimeValue VecDateTimeValue::FIRST_DAY(false, TIME_DATETIME, 0, 0, 0, 1, 1, 1);
+inline const VecDateTimeValue VecDateTimeValue::DATE_DEFAULT_VALUE(false, TIME_DATE, 0, 0, 0, 1970,
+                                                                   1, 1);
+inline const VecDateTimeValue VecDateTimeValue::DATETIME_DEFAULT_VALUE(false, TIME_DATETIME, 0, 0,
+                                                                       0, 1970, 1, 1);
 
 template <typename T>
 class DateV2Value {
@@ -906,7 +913,7 @@ public:
     // so need a little big buffer and its length as max_valid_length to make sure store valid data.
     // to make sure of this. make the buffer size = <data_need_length> + SAFE_FORMAT_STRING_MARGIN. and pass this size as max_valid_length
     bool to_format_string_conservative(const char* format, size_t len, char* to,
-                                       size_t max_valid_length) const;
+                                       size_t max_valid_length, int nanosecond = -1) const;
 
     bool from_date_format_str(const char* format, size_t format_len, const char* value,
                               size_t value_len) {
@@ -1693,8 +1700,6 @@ private:
 
     static constexpr int START_YEAR = 1900; // 1900-01-01
     static constexpr int END_YEAR = 2039;   // 2039-10-24
-    static constexpr int DAY_OFFSET_CAL_START_POINT_DAYNR =
-            719528; // 1970-01-01 (start from 0000-01-01, 0000-01-01 is day 1, returns 1)
 
     static std::array<DateV2Value<DateV2ValueType>, DICT_DAYS> DATE_DAY_OFFSET_ITEMS;
     static std::array<std::array<std::array<int, 31>, 12>, 140> DATE_DAY_OFFSET_DICT;
@@ -1709,6 +1714,9 @@ private:
     date_day_offset_dict& operator=(const date_day_offset_dict&) = default;
 
 public:
+    static constexpr int DAY_OFFSET_CAL_START_POINT_DAYNR =
+            719528; // 1970-01-01 (start from 0000-01-01, 0000-01-01 is day 1, returns 1)
+
     static bool can_speed_up_calc_daynr(int year) { return year >= START_YEAR && year <= END_YEAR; }
 
     static int get_offset_by_daynr(int daynr) { return daynr - DAY_OFFSET_CAL_START_POINT_DAYNR; }
@@ -1769,6 +1777,54 @@ inline uint32_t calc_daynr(uint16_t year, uint8_t month, uint8_t day) {
     return delsum + y / 4 - y / 100 + y / 400;
 }
 
+// Doris follows MySQL's calendar, in which year 0 is NOT a leap year (see `is_leap()`): 0000-02-29
+// does not exist and `calc_daynr()` therefore numbers 0000-01-01 .. 0000-02-28 one day ahead of the
+// proleptic Gregorian calendar. Arrow `date32`, Parquet/ORC `DATE` and the Iceberg spec all define
+// their day ordinal in the proleptic Gregorian calendar, where year 0 IS a leap year. The two
+// numberings coincide from 0000-03-01 (daynr 60) onwards, so the whole difference is the missing
+// 0000-02-29. Every conversion between a Doris DATE and an external "days since 1970-01-01" value
+// must go through the two helpers below instead of adding/subtracting the epoch daynr directly.
+inline constexpr int64_t DAYNR_OF_UNIX_EPOCH =
+        date_day_offset_dict::DAY_OFFSET_CAL_START_POINT_DAYNR;
+inline constexpr int64_t DAYNR_OF_0000_03_01 = 60; // first daynr shared by both calendars
+
+// Doris daynr -> days since 1970-01-01 in the proleptic Gregorian calendar.
+inline constexpr int32_t daynr_to_epoch_days(int64_t daynr) {
+    return static_cast<int32_t>(daynr - DAYNR_OF_UNIX_EPOCH -
+                                (daynr < DAYNR_OF_0000_03_01 ? 1 : 0));
+}
+
+// The three boundaries of the external ordinal domain, derived from the daynr domain rather than
+// typed out, so a change to either calendar constant cannot leave them behind.
+inline constexpr int64_t EPOCH_DAYS_MIN = daynr_to_epoch_days(1); // 0000-01-01, smallest Doris DATE
+inline constexpr int64_t EPOCH_DAYS_0000_02_29 =
+        daynr_to_epoch_days(DAYNR_OF_0000_03_01) - 1; // exists in proleptic Gregorian only
+inline constexpr int64_t EPOCH_DAYS_MAX =
+        daynr_to_epoch_days(DATE_MAX_DAYNR); // 9999-12-31, the largest Doris DATE
+
+static_assert(DAYNR_OF_UNIX_EPOCH == 719528, "calc_daynr(1970, 1, 1)");
+static_assert(EPOCH_DAYS_MIN == -719528);
+static_assert(EPOCH_DAYS_0000_02_29 == -719469);
+static_assert(EPOCH_DAYS_MAX == 2932896);
+
+// Inverse of `daynr_to_epoch_days()`. Returns 0, which is never a valid daynr, when the value has
+// no Doris DATE representation: before 0000-01-01, after 9999-12-31, or the proleptic-only
+// 0000-02-29. Callers must reject 0 instead of feeding it to `get_date_from_daynr()`.
+inline constexpr int64_t epoch_days_to_daynr(int64_t epoch_days) {
+    if (epoch_days < EPOCH_DAYS_MIN || epoch_days > EPOCH_DAYS_MAX ||
+        epoch_days == EPOCH_DAYS_0000_02_29) {
+        return 0;
+    }
+    return epoch_days + DAYNR_OF_UNIX_EPOCH + (epoch_days < EPOCH_DAYS_0000_02_29 ? 1 : 0);
+}
+
+// Valid endpoints alone do not prove a DATE range is decodable: it may enclose the
+// Gregorian-only leap day. Metadata shortcuts require every ordinal in the range to be valid.
+inline constexpr bool epoch_days_range_is_representable(int64_t min, int64_t max) {
+    return min <= max && epoch_days_to_daynr(min) != 0 && epoch_days_to_daynr(max) != 0 &&
+           (max < EPOCH_DAYS_0000_02_29 || min > EPOCH_DAYS_0000_02_29);
+}
+
 // DAY / WEEK fast path. Real workloads hold dates that cluster in a narrow range, so the two
 // dictionary lookups below (`daynr(y, m, d)` and `daynr -> date`) are L1-resident; measured about
 // 3x faster than the generic `date_add_interval<DAY>` (no TimeInterval, no second-level
@@ -1813,7 +1869,7 @@ public:
     static bool to_format_string_without_check(const char* format, size_t len, char* to,
                                                size_t max_valid_length, int16_t year, int8_t month,
                                                int8_t day, int hour, int minute, int second,
-                                               int ms);
+                                               int microsecond, int nanosecond = -1);
 
 private:
     static uint8_t week(int16_t year, int8_t month, int8_t day, uint8_t mode);

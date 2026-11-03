@@ -114,9 +114,7 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
         boolean enableBinarySearch = ctx.getConnectContext() == null
                 || ctx.getConnectContext().getSessionVariable().enableBinarySearchFilteringPartitions;
         if (enableBinarySearch) {
-            sortedPartitionRanges = connectorFilteredPartitions
-                    ? Optional.ofNullable(SortedPartitionRanges.build(partitionItems))
-                    : (Optional) externalTable.getSortedPartitionRanges(scan);
+            sortedPartitionRanges = Optional.ofNullable(SortedPartitionRanges.build(partitionItems));
         }
         PartitionPruneResult<String> result = PartitionPruner.pruneWithResult(
                 partitionSlots, filter.getPredicate(), partitionItems, ctx,

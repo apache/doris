@@ -102,7 +102,9 @@ enum TPrimitiveType {
   UINT64 = 41,  // only used in BE to represent offsets
   FIXED_LENGTH_OBJECT = 42 // only used in BE to represent fixed-length object
   VARBINARY = 43, // represent varbinary type
-  TIMESTAMPTZ = 44 //  timestamp with time zone
+  TIMESTAMPTZ = 44, // timestamp with time zone
+  TIMESTAMP_NS = 45, // signed nanoseconds since the Unix epoch
+  UUID = 46
 }
 
 enum TTypeNodeType {
@@ -130,7 +132,8 @@ enum TInvertedIndexFileStorageFormat {
     DEFAULT = 0, // Default format, unspecified storage method.
     V1 = 1,      // Index per idx: Each index is stored separately based on its identifier.
     V2 = 2,      // Segment id per idx: Indexes are organized based on segment identifiers, grouping indexes by their associated segment.
-    V3 = 3       // Position and dictionary compression
+    V3 = 3,      // Position and dictionary compression
+    SNII = 4     // SNII native inverted index storage format
 }
 
 struct TScalarType {
@@ -767,6 +770,7 @@ enum TMetadataType {
   // 14 is STREAMS on master. Reserved to keep enum values wire-compatible
   // across maintained branches. Do not reuse this value on branch-4.1.
   LANCE_INDEX_ENTRIES = 15,
+  INDEX_DISK_USAGE = 16,
 }
 
 // deprecated

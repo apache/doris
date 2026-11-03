@@ -16,7 +16,7 @@
 // under the License.
 
 suite("insert_with_invalid_array") {
-    sql "set enable_common_expr_pushdown=true;"
+    sql "set enable_segment_limit_pushdown=true;"
     sql "drop table if exists insert_with_invalid_array"
     test {
         sql """

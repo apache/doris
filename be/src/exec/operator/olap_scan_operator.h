@@ -26,6 +26,8 @@
 #include "exec/operator/operator.h"
 #include "exec/operator/scan_operator.h"
 #include "runtime/runtime_profile.h"
+#include "storage/index/inverted/snii/snii_prx_profile.h"
+#include "storage/olap_scan_common.h"
 #include "storage/tablet/tablet_reader.h"
 
 namespace doris {
@@ -95,7 +97,7 @@ private:
             VectorizedFnCall* fn_call, VExprContext* expr_ctx, Field& constant_val,
             const std::set<std::string> fn_name) const override;
 
-    bool _should_push_down_common_expr() override;
+    bool _should_push_down_common_expr(const VExprSPtr& expr) override;
 
     bool _storage_no_merge() override;
 
@@ -131,6 +133,7 @@ private:
 
     std::unique_ptr<RuntimeProfile> _segment_profile;
     std::unique_ptr<RuntimeProfile> _index_filter_profile;
+    snii::SniiPrxRuntimeProfileCounters _snii_prx_profile_counters;
 
     RuntimeProfile::Counter* _tablet_counter = nullptr;
     RuntimeProfile::Counter* _key_range_counter = nullptr;
@@ -210,6 +213,7 @@ private:
     RuntimeProfile::Counter* _lazy_read_timer = nullptr;
     RuntimeProfile::Counter* _lazy_read_seek_timer = nullptr;
     RuntimeProfile::Counter* _lazy_read_seek_counter = nullptr;
+    RuntimeProfile::Counter* _lazy_read_pruned_timer = nullptr;
 
     // total pages read
     // used by segment v2
@@ -224,6 +228,8 @@ private:
     RuntimeProfile::Counter* _inverted_index_query_null_bitmap_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_cache_hit_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_cache_miss_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_query_cache_lookup_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_query_cache_insert_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_bitmap_copy_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_open_timer = nullptr;
@@ -233,6 +239,11 @@ private:
     RuntimeProfile::Counter* _inverted_index_searcher_cache_hit_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_cache_miss_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_downgrade_count_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_conjuncts_short_circuited_counter = nullptr;
+    // Approximate (gram) index: rows pruned / candidate rows left for expression re-verification.
+    RuntimeProfile::Counter* _gram_index_filter_counter = nullptr;
+    RuntimeProfile::Counter* _gram_index_candidate_counter = nullptr;
+    RuntimeProfile::Counter* _gram_index_gate_gave_up_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_analyzer_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_lookup_timer = nullptr;
 

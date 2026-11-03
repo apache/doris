@@ -61,6 +61,11 @@ struct RowsetWriterContext {
     RowsetTypePB rowset_type {BETA_ROWSET};
 
     TabletSchemaSPtr tablet_schema;
+    // Immutable inverted-index file format inherited from the owner tablet.
+    std::optional<InvertedIndexStorageFormatPB> inverted_index_storage_format;
+    // Whether the owner tablet persists the format in its top-level metadata.
+    // This is derived from TabletMeta and keeps rowset metadata consistent with it.
+    bool persist_inverted_index_storage_format = false;
     // PREPARED/COMMITTED for pending rowset
     // VISIBLE for non-pending rowset
     RowsetStatePB rowset_state {PREPARED};
@@ -71,6 +76,7 @@ struct RowsetWriterContext {
     int64_t txn_id {0};
     int64_t txn_expiration {0}; // For cloud mode
     PUniqueId load_id;
+    std::shared_ptr<AtomicStatus> load_cancel_status;
     TabletUid tablet_uid {0, 0};
     // indicate whether the data among segments is overlapping.
     // default is OVERLAP_UNKNOWN.
@@ -89,6 +95,17 @@ struct RowsetWriterContext {
     bool enable_unique_key_merge_on_write = false;
     // store column_unique_id to do index compaction
     std::set<int32_t> columns_to_do_index_compaction;
+    // SNII only: (column_unique_id, index_id) pairs whose postings are produced
+    // by index compaction. The segment writer raw-builds every OTHER SNII index
+    // of the column, so one eligible and one new index on the same column can
+    // coexist in a single pass. V2/V3 keep columns_to_do_index_compaction:
+    // their per-column CLucene directories cannot split an index off a column.
+    std::set<std::pair<int32_t, int64_t>> snii_indexes_to_do_compaction;
+
+    bool has_index_compaction() const {
+        return !columns_to_do_index_compaction.empty() || !snii_indexes_to_do_compaction.empty();
+    }
+
     DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
     // need to figure out the sub type of compaction
     ReaderType compaction_type = ReaderType::UNKNOWN;
@@ -104,7 +121,11 @@ struct RowsetWriterContext {
     /// begin file cache opts
     bool write_file_cache = false;
     bool is_hot_data = false;
-    uint64_t file_cache_ttl_sec = 0;
+    // Absolute timestamp (seconds since epoch) after which the cache blocks written by
+    // this rowset stop being TTL protected; 0 means no TTL. Always set it from
+    // BaseTablet::file_cache_ttl_expiration_time() so every writer agrees with the
+    // deadline BlockFileCacheTtlMgr sweeps by.
+    uint64_t file_cache_expiration_time = 0;
     uint64_t approximate_bytes_to_write = 0;
     // If true, compaction output only writes index files to file cache, not data files
     bool compaction_output_write_index_only = false;
@@ -218,9 +239,7 @@ struct RowsetWriterContext {
             append_info.tablet_id = tablet_id;
             append_info.rowset_id = rowset_id.to_string();
             append_info.txn_id = txn_id;
-            append_info.expiration_time = file_cache_ttl_sec > 0 && newest_write_timestamp > 0
-                                                  ? newest_write_timestamp + file_cache_ttl_sec
-                                                  : 0;
+            append_info.expiration_time = file_cache_expiration_time;
             fs = std::make_shared<io::PackedFileSystem>(fs, append_info);
         }
 
@@ -239,7 +258,7 @@ struct RowsetWriterContext {
     io::FileWriterOptions get_file_writer_options(FileType file_type = FileType::SEGMENT_FILE) {
         io::FileWriterOptions opts {.write_file_cache = write_file_cache,
                                     .is_cold_data = is_hot_data,
-                                    .file_cache_expiration_time = file_cache_ttl_sec,
+                                    .file_cache_expiration_time = file_cache_expiration_time,
                                     .approximate_bytes_to_write = approximate_bytes_to_write};
 
         if (config::enable_file_cache_write_index_file_only) {

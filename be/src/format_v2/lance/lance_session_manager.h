@@ -43,6 +43,18 @@ public:
         std::string lance_data_cache_path;
         int64_t lance_data_cache_disk_capacity_bytes = 0;
         int64_t lance_data_cache_read_block_size_bytes = 0;
+        int64_t lance_data_cache_memory_capacity_bytes = 0;
+
+        int64_t resolved_data_cache_memory_capacity_bytes() const {
+            return lance_data_cache_memory_capacity_bytes == 0
+                           ? lance_data_cache_read_block_size_bytes
+                           : lance_data_cache_memory_capacity_bytes;
+        }
+    };
+
+    struct CacheStatistics {
+        uint64_t index_cache_misses = 0;
+        uint64_t metadata_cache_misses = 0;
     };
 
     static LanceSessionManager& instance();
@@ -58,8 +70,12 @@ public:
     Status open_dataset(const char* uri, const char* const* storage_options, uint64_t version,
                         LanceDataset** dataset);
 
+    // A process-wide snapshot, including other readers using the shared session.
+    Status get_cache_statistics(CacheStatistics* statistics);
+
 private:
     Status _initialize();
+    Status _ensure_initialized();
 
     Config _config;
     std::once_flag _initialize_once;

@@ -33,6 +33,7 @@ import org.apache.doris.datasource.InternalCatalog;
 
 import com.google.common.base.Strings;
 
+import java.util.HashMap;
 import java.util.Map;
 
 // clause which is used to modify table properties
@@ -269,6 +270,10 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
                     "Property "
                     + PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD + " should be set to true or false");
             }
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT)) {
+            PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(new HashMap<>(properties));
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT)) {

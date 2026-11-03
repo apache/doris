@@ -17,6 +17,8 @@
 
 package org.apache.doris.common.profile;
 
+import org.apache.doris.thrift.TUnit;
+
 import java.util.LinkedList;
 
 // Counter means indicators field. The counter's name is key, the counter itself is value.
@@ -73,6 +75,9 @@ public class AggCounter extends Counter {
     }
 
     public String print() {
+        if (getType() == TUnit.NONE) {
+            return "";
+        }
         if (isTimeType()) {
             Counter avg = new Counter(sum.getType(), sum.getValue());
             avg.divValue(number);

@@ -17,14 +17,25 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchemaInitializer;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecutor;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultFileSink;
@@ -47,13 +58,142 @@ import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 public class StmtExecutorTest extends TestWithFeService {
+
+    @Test
+    public void testInsertSourceCollectionDoesNotHoldTargetLock() throws Exception {
+        assertInsertSourceCollectionFence(false);
+    }
+
+    @Test
+    public void testInsertReplansWhenNormalizationSchemaChanges() throws Exception {
+        assertInsertSourceCollectionFence(true);
+    }
+
+    private void assertInsertSourceCollectionFence(boolean changeSchema) throws Exception {
+        String targetName = changeSchema ? "hms_backport_schema_target" : "hms_backport_lock_target";
+        createTable("create table if not exists testDb.hms_backport_source (a int not null) "
+                + "duplicate key(a) distributed by hash(a) buckets 1 properties('replication_num'='1')");
+        createTable("create table if not exists testDb." + targetName + " (a int not null, "
+                + "b int not null default '2') duplicate key(a) distributed by hash(a) buckets 1 "
+                + "properties('replication_num'='1')");
+        Database database = Env.getCurrentInternalCatalog().getDbOrMetaException("testDb");
+        OlapTable target = (OlapTable) database.getTableOrMetaException(targetName);
+        TableIf source = database.getTableOrMetaException("hms_backport_source");
+        List<Column> originalSchema = target.getFullSchema();
+        String sql = "insert into testDb." + targetName + "(a) select a from testDb.hms_backport_source";
+        connectContext.setQueryId(new TUniqueId(68363L, changeSchema ? 2L : 1L));
+        AtomicInteger attempts = new AtomicInteger();
+        StatementContext statement = new StatementContext(connectContext, new OriginStatement(sql, 0)) {
+            @Override
+            public void registerExternalTableForPreload(TableIf table, Optional<TableSnapshot> snapshot,
+                    Optional<TableScanParams> scanParams) {
+                super.registerExternalTableForPreload(table, snapshot, scanParams);
+                if (table == source && attempts.incrementAndGet() == 1) {
+                    Assertions.assertTrue(target.tryWriteLock(1, TimeUnit.SECONDS),
+                            "INSERT must release its target lock before source metadata collection");
+                    try {
+                        if (changeSchema) {
+                            List<Column> changed = originalSchema.stream()
+                                    .map(Column::new).collect(Collectors.toList());
+                            changed.get(1).setDefaultValueInfo(new Column("b",
+                                    originalSchema.get(1).getType(), false, null, "9", ""));
+                            target.setNewFullSchema(changed);
+                        }
+                    } finally {
+                        target.writeUnlock();
+                    }
+                }
+            }
+        };
+        StmtExecutor executor = new StmtExecutor(connectContext, sql);
+        executor.setStatementContext(statement);
+        try {
+            InsertIntoTableCommand command = (InsertIntoTableCommand) new NereidsParser().parseSingle(sql);
+            Assertions.assertNotNull(command.initPlan(connectContext, executor, false));
+            Assertions.assertEquals(changeSchema ? 2 : 1, attempts.get());
+            Assertions.assertEquals(target.getFullSchema(), statement.getInsertTargetSchema());
+        } finally {
+            target.writeLock();
+            try {
+                target.setNewFullSchema(originalSchema);
+            } finally {
+                target.writeUnlock();
+            }
+            statement.close();
+        }
+    }
+
+    @Test
+    public void testInsertReplansAfterRealTargetReplacementBeforeBinding() throws Exception {
+        createTable("create table if not exists testDb.hms_backport_replace_source (a int not null) "
+                + "duplicate key(a) distributed by hash(a) buckets 1 properties('replication_num'='1')");
+        for (boolean beginTransaction : Arrays.asList(false, true)) {
+            String suffix = beginTransaction ? "exec" : "plan";
+            String targetName = "hms_backport_replace_target_" + suffix;
+            String replacementName = "hms_backport_replacement_" + suffix;
+            createTable("create table if not exists testDb." + targetName + " (a int not null) "
+                    + "duplicate key(a) distributed by hash(a) buckets 1 properties('replication_num'='1')");
+            createTable("create table if not exists testDb." + replacementName
+                    + " (a int not null, b int not null default '7') duplicate key(a) "
+                    + "distributed by hash(a) buckets 1 properties('replication_num'='1')");
+            Database database = Env.getCurrentInternalCatalog().getDbOrMetaException("testDb");
+            OlapTable target = (OlapTable) database.getTableOrMetaException(targetName);
+            OlapTable replacement = (OlapTable) database.getTableOrMetaException(replacementName);
+            TableIf source = database.getTableOrMetaException("hms_backport_replace_source");
+            String sql = "insert into testDb." + targetName
+                    + "(a) select a from testDb.hms_backport_replace_source";
+            connectContext.setQueryId(new TUniqueId(68363L, beginTransaction ? 4L : 3L));
+            AtomicInteger attempts = new AtomicInteger();
+            StatementContext statement = new StatementContext(connectContext, new OriginStatement(sql, 0)) {
+                @Override
+                public void registerExternalTableForPreload(TableIf table, Optional<TableSnapshot> snapshot,
+                        Optional<TableScanParams> scanParams) {
+                    super.registerExternalTableForPreload(table, snapshot, scanParams);
+                    if (table == source && attempts.incrementAndGet() == 1) {
+                        try {
+                            Assertions.assertTrue(target.tryWriteLock(1, TimeUnit.SECONDS));
+                            target.writeUnlock();
+                            Env.getCurrentEnv().getAlterInstance().processReplaceTable(
+                                    database, target, replacementName, true, false);
+                        } catch (Exception exception) {
+                            throw new IllegalStateException(exception);
+                        }
+                    }
+                }
+            };
+            StmtExecutor executor = new StmtExecutor(connectContext, sql);
+            executor.setStatementContext(statement);
+            AbstractInsertExecutor insert = null;
+            try {
+                InsertIntoTableCommand command = (InsertIntoTableCommand) new NereidsParser().parseSingle(sql);
+                insert = command.initPlan(connectContext, executor, beginTransaction);
+                Assertions.assertSame(replacement, insert.getTable());
+                Assertions.assertEquals(2, attempts.get());
+                Assertions.assertEquals(replacement.getFullSchema(), statement.getInsertTargetSchema());
+            } finally {
+                if (insert != null && insert.getTxnId() != -1) {
+                    Deencapsulation.invoke(insert, "onFail", new RuntimeException("test cleanup"));
+                }
+                if (database.getTableOrMetaException(targetName) == replacement) {
+                    Env.getCurrentEnv().getAlterInstance().processReplaceTable(
+                            database, replacement, replacementName, true, false);
+                }
+                statement.close();
+            }
+        }
+    }
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -627,5 +767,36 @@ public class StmtExecutorTest extends TestWithFeService {
             connectContext.getSessionVariable().cloudPartitionVersionCacheTtlMs = originalPartitionTtl;
             connectContext.getSessionVariable().cloudTableVersionCacheTtlMs = originalTableTtl;
         }
+    }
+
+    @Test
+    public void testSendBinaryTimestampNsResultRow() throws IOException {
+        ConnectContext mockCtx = Mockito.mock(ConnectContext.class);
+        MysqlChannel channel = Mockito.mock(MysqlChannel.class);
+        Mockito.when(mockCtx.getConnectType()).thenReturn(ConnectType.MYSQL);
+        Mockito.when(mockCtx.getMysqlChannel()).thenReturn(channel);
+        MysqlSerializer mysqlSerializer = MysqlSerializer.newInstance();
+        Mockito.when(channel.getSerializer()).thenReturn(mysqlSerializer);
+        Mockito.when(mockCtx.getSessionVariable()).thenReturn(VariableMgr.newSessionVariable());
+
+        String value = "2025-01-01 01:02:03.123456789";
+        List<List<String>> rows = Lists.newArrayList();
+        rows.add(Lists.newArrayList(value));
+        ResultSet resultSet = new CommonResultSet(
+                new CommonResultSetMetaData(Lists.newArrayList(
+                        new Column("timestamp_ns", ScalarType.createTimeStampNsType()))),
+                rows);
+        Mockito.doAnswer(invocation -> {
+            byte[] valueBytes = value.getBytes(StandardCharsets.UTF_8);
+            byte[] expected = new byte[valueBytes.length + 3];
+            expected[2] = (byte) valueBytes.length;
+            System.arraycopy(valueBytes, 0, expected, 3, valueBytes.length);
+            ByteBuffer buffer = invocation.getArgument(0);
+            Assertions.assertArrayEquals(expected, buffer.array());
+            return null;
+        }).when(channel).sendOnePacket(Mockito.any(ByteBuffer.class));
+
+        StmtExecutor executor = new StmtExecutor(mockCtx, new OriginStatement("", 1), false);
+        executor.sendBinaryResultRow(resultSet);
     }
 }

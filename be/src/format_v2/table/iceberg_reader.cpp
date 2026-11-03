@@ -24,6 +24,7 @@
 
 #include <algorithm>
 #include <deque>
+#include <limits>
 #include <memory>
 #include <sstream>
 #include <string_view>
@@ -50,8 +51,8 @@
 #include "exprs/vslot_ref.h"
 #include "format/table/deletion_vector_reader.h"
 #include "format/table/iceberg_default_value.h"
-#include "format_v2/expr/cast.h"
 #include "format_v2/expr/equality_delete_predicate.h"
+#include "format_v2/expr/evolution_cast.h"
 #include "format_v2/orc/orc_reader.h"
 #include "format_v2/parquet/parquet_reader.h"
 #include "format_v2/parquet/reader/column_reader.h"
@@ -376,6 +377,28 @@ static Status build_v2_json_map_default(const format::ColumnDefinition& field,
     return Status::OK();
 }
 
+static bool parse_non_finite_default(doris::PrimitiveType type, std::string_view value,
+                                     Field* result) {
+    DORIS_CHECK(result != nullptr);
+    if (type != TYPE_FLOAT && type != TYPE_DOUBLE) {
+        return false;
+    }
+    double parsed;
+    if (value == "NaN") {
+        parsed = std::numeric_limits<double>::quiet_NaN();
+    } else if (value == "Infinity") {
+        parsed = std::numeric_limits<double>::infinity();
+    } else if (value == "-Infinity") {
+        parsed = -std::numeric_limits<double>::infinity();
+    } else {
+        return false;
+    }
+    // Iceberg serializes non-finite defaults as strings, which generic Doris numeric parsers reject.
+    *result = type == TYPE_FLOAT ? Field::create_field<TYPE_FLOAT>(static_cast<float>(parsed))
+                                 : Field::create_field<TYPE_DOUBLE>(parsed);
+    return true;
+}
+
 static Status build_v2_json_scalar_default(const format::ColumnDefinition& field,
                                            const DataTypePtr& value_type,
                                            const rapidjson::Value& json_value,
@@ -414,6 +437,9 @@ static Status build_v2_json_scalar_default(const format::ColumnDefinition& field
                                            field.name);
         }
         *result = Field::create_field<TYPE_STRING>(std::move(serialized_value));
+        return Status::OK();
+    }
+    if (parse_non_finite_default(primitive_type, serialized_value, result)) {
         return Status::OK();
     }
     RETURN_IF_ERROR(doris::iceberg::detail::normalize_timestamp_for_doris(primitive_type, timezone,
@@ -505,6 +531,9 @@ static Status build_v2_initial_default_field(const format::ColumnDefinition& fie
     }
 
     std::string serialized_value = *field.initial_default_value;
+    if (parse_non_finite_default(primitive_type, serialized_value, result)) {
+        return Status::OK();
+    }
     RETURN_IF_ERROR(doris::iceberg::detail::normalize_timestamp_for_doris(primitive_type, timezone,
                                                                           &serialized_value));
     RETURN_IF_ERROR(value_type->get_serde()->from_fe_string(serialized_value, *result));
@@ -526,8 +555,8 @@ static Status build_initial_default_literal(const format::ColumnDefinition& tabl
     return Status::OK();
 }
 
-static Status build_initial_default_exprs(format::ColumnDefinition* column,
-                                          const cctz::time_zone* timezone) {
+Status prepare_iceberg_initial_default_exprs(format::ColumnDefinition* column,
+                                             const cctz::time_zone* timezone) {
     DORIS_CHECK(column != nullptr);
     if (column->initial_default_value.has_value()) {
         VExprSPtr literal;
@@ -535,7 +564,7 @@ static Status build_initial_default_exprs(format::ColumnDefinition* column,
         column->default_expr = VExprContext::create_shared(std::move(literal));
     }
     for (auto& child : column->children) {
-        RETURN_IF_ERROR(build_initial_default_exprs(&child, timezone));
+        RETURN_IF_ERROR(prepare_iceberg_initial_default_exprs(&child, timezone));
     }
     return Status::OK();
 }
@@ -568,7 +597,7 @@ static Status build_missing_equality_delete_key_expr(const format::ColumnDefinit
         *key_expr = std::move(literal);
         return Status::OK();
     }
-    auto cast_expr = Cast::create_shared(delete_key_type);
+    auto cast_expr = EvolutionCast::create_shared(delete_key_type);
     cast_expr->add_child(literal);
     *key_expr = std::move(cast_expr);
     return Status::OK();
@@ -850,7 +879,7 @@ Status IcebergTableReader::annotate_projected_column(const TFileScanSlotInfo& sl
     auto& schema_column = *context->schema_column;
     const cctz::time_zone* timezone =
             context->runtime_state == nullptr ? nullptr : &context->runtime_state->timezone_obj();
-    RETURN_IF_ERROR(build_initial_default_exprs(&schema_column, timezone));
+    RETURN_IF_ERROR(prepare_iceberg_initial_default_exprs(&schema_column, timezone));
     column->initial_default_value = schema_column.initial_default_value;
     column->initial_default_value_is_base64 = schema_column.initial_default_value_is_base64;
     column->is_optional = schema_column.is_optional;
@@ -1418,7 +1447,7 @@ Status IcebergTableReader::_build_missing_equality_delete_key_expr(
     DORIS_CHECK(table_leaf != nullptr);
     DORIS_CHECK(table_leaf->type != nullptr);
     if (!table_leaf->type->equals(*filter.key_types[key_idx])) {
-        auto cast_expr = Cast::create_shared(filter.key_types[key_idx]);
+        auto cast_expr = EvolutionCast::create_shared(filter.key_types[key_idx]);
         cast_expr->add_child(default_expr);
         default_expr = std::move(cast_expr);
     }
@@ -1472,7 +1501,7 @@ Status IcebergTableReader::_append_equality_delete_predicates(format::FileScanRe
             if (field->type->equals(*filter.key_types[idx])) {
                 delete_predicate->add_child(key_expr);
             } else {
-                auto cast_expr = Cast::create_shared(filter.key_types[idx]);
+                auto cast_expr = EvolutionCast::create_shared(filter.key_types[idx]);
                 cast_expr->add_child(key_expr);
                 delete_predicate->add_child(cast_expr);
             }
@@ -1517,11 +1546,12 @@ Status IcebergTableReader::_create_delete_file_reader(const TIcebergDeleteFileDe
         // Delete and data files must parse raw binary fields with the same scan-level mapping.
         *reader = std::make_unique<format::parquet::ParquetReader>(
                 system_properties, file_description, io_ctx, _scanner_profile, std::nullopt,
-                enable_mapping_timestamp_tz, enable_mapping_varbinary);
+                enable_mapping_timestamp_tz, enable_mapping_varbinary, nullptr, -1, -1, "",
+                preserve_binary_uuid(), _parquet_profile_cache);
     } else {
-        *reader = std::make_unique<format::orc::OrcReader>(system_properties, file_description,
-                                                           io_ctx, _scanner_profile, std::nullopt,
-                                                           enable_mapping_timestamp_tz);
+        *reader = std::make_unique<format::orc::OrcReader>(
+                system_properties, file_description, io_ctx, _scanner_profile, std::nullopt,
+                enable_mapping_timestamp_tz, enable_mapping_varbinary);
     }
     RETURN_IF_ERROR((*reader)->init(_runtime_state));
     return Status::OK();
@@ -1675,7 +1705,17 @@ Status IcebergTableReader::_resolve_equality_delete_fields(
             return Status::NotSupported(
                     "Iceberg equality delete does not support complex column {}", field->name);
         }
-        const auto key_type = path.size() > 1 ? make_nullable(field->type) : field->type;
+        // Equality comparison must run in the promoted (current snapshot schema) type domain.
+        // Narrowing a wider data key into a historical delete-file type is lossy: an INT overflow
+        // becomes NULL, and NULL-safe equality then matches a NULL delete key. Delete values are
+        // promoted into this same domain when the delete file is read.
+        const DataTypePtr delete_file_type =
+                path.size() > 1 ? make_nullable(field->type) : field->type;
+        DataTypePtr key_type = delete_file_type;
+        if (auto table_field = _find_table_column_by_field_id(field_id, delete_file_type, true);
+            table_field.has_value() && table_field->type != nullptr) {
+            key_type = table_field->type;
+        }
         delete_paths->push_back(std::move(path));
         result->field_ids.push_back(field_id);
         result->field_names.push_back(field->name);
@@ -1721,11 +1761,20 @@ Status IcebergTableReader::_load_equality_delete_file(const TIcebergDeleteFileDe
     std::vector<VExprContextSPtr> key_exprs;
     key_exprs.reserve(delete_paths.size());
     RowDescriptor row_desc;
-    for (const auto& path : delete_paths) {
+    for (size_t index = 0; index < delete_paths.size(); ++index) {
+        const auto& path = delete_paths[index];
         const auto root_column_id = format::LocalColumnId(path.front()->file_local_id());
         VExprSPtr key_expr;
         RETURN_IF_ERROR(build_equality_delete_key_expr(
                 path, request->local_positions.at(root_column_id).value(), &key_expr));
+        const auto& key_type = result->key_types[index];
+        if (!key_expr->data_type()->equals(*key_type)) {
+            // Historical delete values share the promoted comparison domain. DATE-to-nanos
+            // must report overflow rather than turn a non-NULL equality key into NULL.
+            auto cast_expr = EvolutionCast::create_shared(key_type);
+            cast_expr->add_child(key_expr);
+            key_expr = std::move(cast_expr);
+        }
         auto context = VExprContext::create_shared(std::move(key_expr));
         RETURN_IF_ERROR(context->prepare(_runtime_state, row_desc));
         RETURN_IF_ERROR(context->open(_runtime_state));
@@ -1768,6 +1817,11 @@ Status IcebergTableReader::_read_equality_delete_file(const TIcebergDeleteFileDe
     }
     std::ostringstream cache_key;
     cache_key << _delete_file_cache_key("iceberg_v2_equality_delete_", delete_file.path);
+    if (scan_params.__isset.current_schema_id) {
+        // The promoted comparison type depends on the current snapshot schema, so a cached filter
+        // must not be reused across schemas.
+        cache_key << ":schema=" << scan_params.current_schema_id;
+    }
     cache_key << ':' << delete_file.field_ids.size();
     for (const auto field_id : delete_file.field_ids) {
         cache_key << ':' << field_id;

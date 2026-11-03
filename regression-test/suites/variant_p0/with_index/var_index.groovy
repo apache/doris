@@ -38,7 +38,7 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
     sql """insert into var_index values(4, ${variantV2Function}('{"a" : 1234, "b" : "hello xxx world", "c" : 8181111}'))"""
     qt_sql """select * from var_index where cast(v["a"] as smallint) > 123 and cast(v["b"] as string) match 'hello' and cast(v["c"] as int) > 1024 order by k"""
     trigger_and_wait_compaction(table_name, "full", 1800)
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     sql """set enable_match_without_inverted_index = false""" 
     qt_sql """select * from var_index where cast(v["a"] as smallint) > 123 and cast(v["b"] as string) match 'hello' and cast(v["c"] as int) > 1024 order by k"""
     sql """set enable_match_without_inverted_index = true"""

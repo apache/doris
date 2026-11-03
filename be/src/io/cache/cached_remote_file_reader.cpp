@@ -104,6 +104,7 @@ bvar::PassiveStatus<int> g_active_peer_races_bvar(
 bvar::Adder<uint64_t> g_peer_race_peer_win("peer_race_peer_win");
 bvar::Adder<uint64_t> g_peer_race_s3_win("peer_race_s3_win");
 bvar::Adder<uint64_t> g_peer_race_both_fail("peer_race_both_fail");
+bvar::Adder<uint64_t> g_peer_race_s3_skipped_after_queue("peer_race_s3_skipped_after_queue");
 bvar::Adder<uint64_t> g_peer_cross_compute_group_read("peer_cross_compute_group_read");
 bvar::Adder<uint64_t> g_peer_same_compute_group_read("peer_same_compute_group_read");
 bvar::Adder<uint64_t> g_peer_lazy_fetch_triggered("peer_lazy_fetch_triggered");
@@ -121,7 +122,7 @@ CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader
         : _is_doris_table(opts.is_doris_table),
           _cache_align_mode(opts.align_mode),
           _cache_write_mode(opts.cache_write_mode),
-          _tablet_id(opts.tablet_id),
+          _tablet_id(opts.is_doris_table ? opts.tablet_id : 0),
           _storage_resource_id(opts.storage_resource_id),
           _remote_file_reader(std::move(remote_file_reader)) {
     DCHECK(!_is_doris_table || _tablet_id > 0);
@@ -328,7 +329,11 @@ Status execute_s3_read(size_t empty_start, size_t& size, std::unique_ptr<char[]>
     s3_read_counter << 1;
     SCOPED_RAW_TIMER(&stats.remote_read_timer);
     stats.from_peer_cache = false;
-    return remote_file_reader->read_at(empty_start, Slice(buffer.get(), size), &size, io_ctx);
+    auto st = remote_file_reader->read_at(empty_start, Slice(buffer.get(), size), &size, io_ctx);
+    if (st.ok()) {
+        stats.remote_physical_read_bytes += size;
+    }
+    return st;
 }
 
 CloudWarmUpManager& get_warm_up_manager() {
@@ -346,6 +351,10 @@ struct RaceState {
     Status peer_status;
     Status s3_status;
     std::unique_ptr<char[]> s3_buf;
+    // Actual bytes fetched by the winning S3 leg; merged into the caller's
+    // ReadStatistics only in the winner==1 branch of collect_race_result (the
+    // losing S3 leg may outlive the caller's stack, so it must not touch stats).
+    size_t s3_read_size = 0;
     PeerFetchResult peer_res;
     std::string peer_winner_cg_id; // compute_group_id of the winning peer candidate
     std::string peer_winner_host;  // host of the winning peer candidate
@@ -457,6 +466,20 @@ void launch_s3_race(std::shared_ptr<RaceState> race, size_t empty_start, size_t 
     // peer wins; passing nullptr is safe because S3FileReader::read_at_impl ignores it.
     auto do_s3_read = [race, empty_start, span_size, remote_reader, owner]() {
         (void)owner;
+        TEST_SYNC_POINT("CachedRemoteFileReader::_execute_winner_race::s3_task_start");
+        {
+            // The peer may win while this task waits in PeerRaceS3ThreadPool. Skip the GET
+            // before allocating the span buffer or counting an S3 read.
+            std::unique_lock<bthread::Mutex> lk(race->mtx);
+            if (race->winner == 0) {
+                race->s3_done = true;
+                race->s3_status =
+                        Status::InternalError<false>("skipped: peer won before s3 task started");
+                race->cv.notify_all();
+                g_peer_race_s3_skipped_after_queue << 1;
+                return;
+            }
+        }
         auto s3_buf = std::make_unique<char[]>(span_size);
         size_t read_size = span_size;
         s3_read_counter << 1;
@@ -469,6 +492,7 @@ void launch_s3_race(std::shared_ptr<RaceState> race, size_t empty_start, size_t 
         if (st.ok() && race->winner < 0) {
             race->winner = 1;
             race->s3_buf = std::move(s3_buf);
+            race->s3_read_size = read_size;
         }
         race->cv.notify_all();
     };
@@ -551,9 +575,11 @@ Status collect_race_result(std::shared_ptr<RaceState> race, size_t span_size,
         }
         return Status::OK();
     } else if (race->winner == 1) {
-        // S3 won.
+        // S3 won: this was a real storage GET, so account it as physical remote IO
+        // exactly like the non-race download path does.
         buffer = std::move(race->s3_buf);
         stats.from_peer_cache = false;
+        stats.remote_physical_read_bytes += race->s3_read_size;
         g_peer_race_s3_win << 1;
         if (io_ctx != nullptr && io_ctx->file_cache_stats != nullptr) {
             io_ctx->file_cache_stats->num_peer_race_s3_win++;
@@ -1041,6 +1067,8 @@ Status CachedRemoteFileReader::_read_remaining_blocks_from_cache(
                     &remote_bytes_read, io_ctx));
             indirect_read_bytes += read_size;
             source_read_breakdown.remote_bytes += remote_bytes_read;
+            // Self-heal fell back to a real storage GET; count it as physical remote IO.
+            stats.remote_physical_read_bytes += remote_bytes_read;
             DCHECK(remote_bytes_read == read_size);
         }
 
@@ -1065,6 +1093,7 @@ Status CachedRemoteFileReader::_read_from_indirect_cache(size_t offset, Slice re
             s_align_size(offset + already_read, bytes_req - already_read, size());
     CacheContext cache_context(io_ctx);
     cache_context.stats = &stats;
+    cache_context.tablet_id = _tablet_id;
     MonotonicStopWatch sw;
     sw.start();
     ConcurrencyStatsManager::instance().cached_remote_reader_get_or_set->increment();
@@ -1115,6 +1144,10 @@ Status CachedRemoteFileReader::_read_remote_only_on_cache_miss(
         *bytes_read = remote_bytes_read;
         DCHECK_EQ(*bytes_read, bytes_req);
         source_read_breakdown.remote_bytes += remote_bytes_read;
+        // This is a real storage GET, so it must count as physical remote IO just like
+        // the block-download path; otherwise profiles show scanned-from-remote bytes
+        // with zero physical reads whenever remote-only-on-miss is active.
+        stats.remote_physical_read_bytes += remote_bytes_read;
         g_read_cache_indirect_bytes << remote_bytes_read;
         g_read_cache_indirect_total_bytes << remote_bytes_read;
         return Status::OK();
@@ -1443,6 +1476,7 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
                 statis->inverted_index_remote_io_timer, statis->inverted_index_peer_io_timer,
                 statis->inverted_index_write_cache_io_timer,
                 statis->inverted_index_bytes_write_into_cache);
+        statis->inverted_index_remote_physical_read_bytes += read_stats.remote_physical_read_bytes;
         break;
     case FileCacheReadType::SEGMENT_FOOTER_INDEX:
         update_index_stats(statis->segment_footer_index_num_local_io_total,

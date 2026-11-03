@@ -43,7 +43,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
@@ -750,7 +749,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                             context.getScanContext());
                     HiveScanNode hiveScanNode = (HiveScanNode) scanNode;
                     hiveScanNode.setSelectedPartitions(
-                            materializeDeferredHivePartitions((HMSExternalTable) table, fileScan));
+                            materializeDeferredHivePartitions((HMSExternalTable) table, fileScan, context));
                     if (fileScan.getTableSample().isPresent()) {
                         hiveScanNode.setTableSample(new TableSample(fileScan.getTableSample().get().isPercent,
                                 fileScan.getTableSample().get().sampleValue, fileScan.getTableSample().get().seek));
@@ -800,14 +799,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     }
 
     private LogicalFileScan.SelectedPartitions materializeDeferredHivePartitions(
-            HMSExternalTable table, PhysicalFileScan fileScan) {
+            HMSExternalTable table, PhysicalFileScan fileScan, PlanTranslatorContext context) {
         LogicalFileScan.SelectedPartitions selectedPartitions = fileScan.getSelectedPartitions();
         if (!selectedPartitions.isDeferredPartitionPruning()) {
             return selectedPartitions;
         }
-        Map<String, PartitionItem> partitionItems =
-                table.getNameToPartitionItems(fileScan.getRelationSnapshot());
-        return new LogicalFileScan.SelectedPartitions(partitionItems.size(), partitionItems, false);
+        return context.getStatementContext().getExternalPartitionView(table, fileScan.getRelationSnapshot())
+                .orElseGet(() -> context.getStatementContext().preloadExternalPartitionView(
+                        table, fileScan.getRelationSnapshot()));
     }
 
     @Override
@@ -3066,7 +3065,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         private int typePriority(SlotDescriptor s) {
             if (s.getType().isNumericType() || s.getType().isDateType() || s.getType().isBoolean()
-                    || s.getType().isTimeType() || s.getType().isIP()) {
+                    || s.getType().isTimeType() || s.getType().isIP() || s.getType().isUuid()) {
                 return 1;
             } else if (s.getType().isStringType()) {
                 return 2;
@@ -3321,7 +3320,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         field.getTransform(),
                         field.getParam(),
                         field.getName(),
-                        field.getSourceId()));
+                        field.getSourceId(),
+                        field.getSourceFieldPath()));
             }
             return new DataPartition(TPartitionType.MERGE_PARTITIONED, operationExpr,
                     insertPartitionExprs, deletePartitionExprs, mergeSpec.isInsertRandom(),

@@ -200,4 +200,19 @@ TEST_F(StringUtilTest, normal) {
     }
 }
 
+TEST_F(StringUtilTest, safe_stoll) {
+    EXPECT_EQ(0, safe_stoll("0", "content-length").value());
+    EXPECT_EQ(-1, safe_stoll("-1", "content-length").value());
+    // beyond the range of safe_stoi
+    EXPECT_EQ(9223372036854775807LL, safe_stoll("9223372036854775807", "content-length").value());
+
+    auto invalid = safe_stoll("not_a_number", "content-length");
+    EXPECT_FALSE(invalid.has_value());
+    EXPECT_TRUE(invalid.error().is<ErrorCode::INVALID_ARGUMENT>());
+
+    auto out_of_range = safe_stoll("9223372036854775808", "content-length");
+    EXPECT_FALSE(out_of_range.has_value());
+    EXPECT_TRUE(out_of_range.error().is<ErrorCode::INVALID_ARGUMENT>());
+}
+
 } // namespace doris

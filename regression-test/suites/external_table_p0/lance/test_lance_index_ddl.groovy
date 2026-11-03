@@ -51,7 +51,8 @@ suite("test_lance_index_ddl", "p0,external") {
         // doris.vs_ivf_pq_f32 schema (all NOT NULL): embedding array<float>, row_id bigint,
         // category text, label text. Statically valid index DDL passes the section 2.4 matrix
         // and is then rejected because enable_lance_index_mutation defaults to false; the
-        // gate-on admission path is covered by test_lance_index_admission.
+        // gate-on path validates authoritatively and ends in the not-supported rejection
+        // (covered by test_lance_index_admission).
         test {
             sql """CREATE INDEX idx ON `${filesystemCatalog}`.`doris`.`vs_ivf_pq_f32` (embedding) USING ANN
                    PROPERTIES("index_type"="IVF_PQ", "metric"="l2", "num_partitions"="256", "num_sub_vectors"="16")"""

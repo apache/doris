@@ -22,12 +22,17 @@ import java.math.BigInteger;
 import java.math.RoundingMode;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.nio.ByteBuffer;
 import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.Arrays;
+import java.util.UUID;
 
 public class TypeNativeBytes {
+    private static final long NANOSECONDS_PER_SECOND = 1_000_000_000L;
+
     /**
      * Change the order of the bytes, Because JVM is Big-Endian , x86 is Little-Endian.
      */
@@ -72,6 +77,18 @@ public class TypeNativeBytes {
 
     public static byte[] getInetAddressBytes(InetAddress v) {
         return convertByteOrder(v.getAddress());
+    }
+
+    public static UUID getUuid(byte[] bytes) {
+        ByteBuffer buffer = ByteBuffer.wrap(convertByteOrder(bytes));
+        return new UUID(buffer.getLong(), buffer.getLong());
+    }
+
+    public static byte[] getUuidBytes(UUID value) {
+        ByteBuffer buffer = ByteBuffer.allocate(16);
+        buffer.putLong(value.getMostSignificantBits());
+        buffer.putLong(value.getLeastSignificantBits());
+        return convertByteOrder(buffer.array());
     }
 
     public static byte[] getDecimalBytes(BigDecimal v, int scale, int size) {
@@ -262,6 +279,21 @@ public class TypeNativeBytes {
         } catch (DateTimeException e) {
             return null;
         }
+    }
+
+    public static long convertToTimestampNs(LocalDateTime value) {
+        long epochSeconds = value.toEpochSecond(ZoneOffset.UTC);
+        if (epochSeconds >= 0) {
+            return Math.addExact(Math.multiplyExact(epochSeconds, NANOSECONDS_PER_SECOND), value.getNano());
+        }
+        return Math.subtractExact(Math.multiplyExact(epochSeconds + 1, NANOSECONDS_PER_SECOND),
+                NANOSECONDS_PER_SECOND - value.getNano());
+    }
+
+    public static LocalDateTime convertToJavaTimestampNs(long epochNanos) {
+        long epochSeconds = Math.floorDiv(epochNanos, NANOSECONDS_PER_SECOND);
+        int nanoseconds = (int) Math.floorMod(epochNanos, NANOSECONDS_PER_SECOND);
+        return LocalDateTime.ofEpochSecond(epochSeconds, nanoseconds, ZoneOffset.UTC);
     }
 
     public static Object convertToJavaDateTimeV2(long time, Class clz) {

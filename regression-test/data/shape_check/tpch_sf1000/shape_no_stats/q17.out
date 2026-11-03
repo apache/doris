@@ -8,7 +8,7 @@ PhysicalResultSink
 ----------PhysicalProject
 ------------hashJoin[INNER_JOIN colocated] hashCondition=((lineitem.l_partkey = part.p_partkey)) otherCondition=((cast(l_quantity as DECIMALV3(38, 5)) < (0.2 * avg(l_quantity)))) build RFs:RF1 l_partkey->[l_partkey,p_partkey]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN shuffle] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF0 p_partkey->[l_partkey]
+----------------hashJoin[INNER_JOIN shuffle] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF0 p_partkey->[l_partkey,l_partkey]
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[lineitem] apply RFs: RF0 RF1
 ------------------PhysicalProject
@@ -18,5 +18,5 @@ PhysicalResultSink
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------hashAgg[LOCAL]
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[lineitem]
+----------------------PhysicalOlapScan[lineitem] apply RFs: RF0
 

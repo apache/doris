@@ -77,8 +77,13 @@ public class BaseController {
             ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
             UserIdentity currentUser = checkPassword(authInfo, request);
 
-            if (Config.isCloudMode() && checkAuth) {
-                checkInstanceOverdue(currentUser);
+            // The cookie branch below requires ADMIN_OR_NODE whenever checkAuth is set, in every deployment
+            // mode, so this branch must as well: which of the two ways a caller authenticates must not change
+            // what it is allowed to reach. Only the overdue fence is specific to cloud mode.
+            if (checkAuth) {
+                if (Config.isCloudMode()) {
+                    checkInstanceOverdue(currentUser);
+                }
                 checkGlobalAuth(currentUser, PrivPredicate.ADMIN_OR_NODE);
             }
 

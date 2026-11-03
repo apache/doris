@@ -26,6 +26,7 @@ suite("test_javaudf_convertfromcamelcase") {
     File path = new File("${context.file.parent}")
     def jarPath = """${path.getParent()}/jars/java-udf-case-jar-with-dependencies.jar"""
     scp_udf_file_to_all_be(jarPath)
+    scp_udf_file_to_all_fe(jarPath)
 
     log.info("Jar path: ${jarPath}".toString())
     try {

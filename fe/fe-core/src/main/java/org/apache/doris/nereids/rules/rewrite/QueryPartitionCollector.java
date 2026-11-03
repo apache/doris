@@ -75,6 +75,13 @@ public class QueryPartitionCollector extends DefaultPlanVisitor<Void, CascadesCo
                 && ((ExternalTable) catalogRelation.getTable()).supportInternalPartitionPruned()) {
             LogicalFileScan logicalFileScan = (LogicalFileScan) catalogRelation;
             SelectedPartitions selectedPartitions = logicalFileScan.getSelectedPartitions();
+            if (selectedPartitions.isDeferredPartitionPruning()) {
+                ExternalTable externalTable = (ExternalTable) table;
+                selectedPartitions = statementContext.getExternalPartitionView(
+                        externalTable, logicalFileScan.getRelationSnapshot()).orElseGet(() ->
+                            statementContext.preloadExternalPartitionView(
+                                    externalTable, logicalFileScan.getRelationSnapshot()));
+            }
             tablePartitions.addAll(selectedPartitions.selectedPartitions.keySet());
             tableUsedPartitionNameMap.put(table.getFullQualifiers(),
                     Pair.of(catalogRelation.getRelationId(), tablePartitions));

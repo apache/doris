@@ -21,10 +21,16 @@ suite('test_snapshot_command') {
         return
     }
 
-    // create snapshot
+    // The cluster-level snapshot switch may be off by default or already enabled by another Cloud P0 suite.
     test {
         sql """ ADMIN CREATE CLUSTER SNAPSHOT PROPERTIES('ttl' = '600', 'label' = 'test_snapshot'); """
-        exception "submitJob is not implemented"
+        check { result, exception, startTime, endTime ->
+            def msg = exception?.toString()
+            assertTrue(msg != null, "Expected snapshot creation to fail, but it succeeded")
+            assertTrue(msg.contains("failed to begin snapshot, because the snapshot feature is disabled")
+                            || msg.contains("submitJob is not implemented"),
+                    "Unexpected snapshot creation failure: ${msg}".toString())
+        }
     }
 
     // snapshot feature off

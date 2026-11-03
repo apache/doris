@@ -22,7 +22,7 @@ suite("agg_variety") {
     sql "set runtime_filter_mode=OFF";
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
-
+    sql "set disable_nereids_rules='ELIMINATE_GROUP_BY_KEY'"
     sql """
     drop table if exists orders
     """

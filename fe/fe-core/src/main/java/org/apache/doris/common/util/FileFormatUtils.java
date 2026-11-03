@@ -21,15 +21,48 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeNameFormat;
 
 import com.google.common.base.Strings;
 
+import java.time.DateTimeException;
+import java.time.ZoneId;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.regex.Matcher;
 
 public class FileFormatUtils {
+
+    public static final int PARQUET_TIMESTAMP_SEMANTICS_VERSION = 1;
+
+    public static String parseHiveParquetTimeZone(String value) throws DdlException {
+        String timeZone = value.trim();
+        if (timeZone.isEmpty()) {
+            return "";
+        }
+
+        try {
+            String upperCaseTimeZone = timeZone.toUpperCase(Locale.ROOT);
+            boolean isUtcOrGmt = upperCaseTimeZone.equals("UTC") || upperCaseTimeZone.equals("GMT");
+            boolean isShortAlias = ZoneId.SHORT_IDS.containsKey(upperCaseTimeZone)
+                    || upperCaseTimeZone.equals("CST") || upperCaseTimeZone.equals("PRC");
+            if (!isUtcOrGmt && isShortAlias) {
+                throw new DateTimeException("Ambiguous short timezone aliases are not supported");
+            }
+            String standardizedTimeZone = TimeUtils.checkTimeZoneValidAndStandardize(timeZone);
+            if ((standardizedTimeZone.startsWith("UTC") || standardizedTimeZone.startsWith("GMT"))
+                    && standardizedTimeZone.length() > 3) {
+                TimeUtils.checkTimeZoneValidAndStandardize(standardizedTimeZone.substring(3));
+            }
+            return ZoneId.of(standardizedTimeZone).getId();
+        } catch (DdlException | DateTimeException e) {
+            throw new DdlException("The parameter " + FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE
+                    + " must be an IANA timezone or UTC offset in the range -12:00 to +14:00; "
+                    + "short timezone aliases are not supported, value is " + timeZone, e);
+        }
+    }
 
     public static boolean isCsv(String formatStr) {
         return FileFormatConstants.FORMAT_CSV.equalsIgnoreCase(formatStr)
@@ -95,6 +128,8 @@ public class FileFormatUtils {
                     column = new Column(name, ScalarType.createDatetimeV2Type(scale), false, null, true, null, "");
                 } else if (type.equals("string")) {
                     column = new Column(name, PrimitiveType.STRING, true);
+                } else if (type.equals("uuid")) {
+                    column = new Column(name, PrimitiveType.UUID, true);
                 } else if (type.equals("boolean")) {
                     column = new Column(name, PrimitiveType.BOOLEAN, true);
                 } else {

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_iceberg_initial_defaults", "p0,external,nonConcurrent") {
+suite("test_iceberg_initial_defaults", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable iceberg test.")
@@ -54,8 +54,8 @@ suite("test_iceberg_initial_defaults", "p0,external,nonConcurrent") {
 
     createCatalog(mappedCatalog, true, true)
     createCatalog(legacyCatalog, false, false)
-    // Exercise the legacy UUID/FIXED/BINARY carrier without also writing TIMESTAMPTZ through its
-    // unrelated legacy DATETIME physical mapping into the shared ORC fixture.
+    // Retired mapping properties must not change typed external reads or writes, including when
+    // a catalog retains a mixed combination of the old binary and timestamp settings.
     createCatalog(legacyWriteCatalog, false, true)
 
     def executeCommandWithStatus = { String cmd, int timeoutSeconds = 300,
@@ -337,7 +337,7 @@ suite("test_iceberg_initial_defaults", "p0,external,nonConcurrent") {
         CAST(default_timestamp AS STRING),
         CAST(default_timestamptz AS STRING),
         default_string,
-        HEX(default_uuid),
+        CAST(default_uuid AS STRING),
         HEX(default_fixed),
         HEX(default_binary)
     """
@@ -353,7 +353,7 @@ suite("test_iceberg_initial_defaults", "p0,external,nonConcurrent") {
         CAST(element_at(struct_col, 'struct_default_timestamp') AS STRING),
         CAST(element_at(struct_col, 'struct_default_timestamptz') AS STRING),
         element_at(struct_col, 'struct_default_string'),
-        HEX(element_at(struct_col, 'struct_default_uuid')),
+        CAST(element_at(struct_col, 'struct_default_uuid') AS STRING),
         HEX(element_at(struct_col, 'struct_default_fixed')),
         HEX(element_at(struct_col, 'struct_default_binary'))
     """
@@ -369,7 +369,7 @@ suite("test_iceberg_initial_defaults", "p0,external,nonConcurrent") {
     """
     String legacyProjection = """
         id,
-        HEX(default_uuid),
+        CAST(default_uuid AS STRING),
         HEX(default_fixed),
         HEX(default_binary),
         CAST(default_timestamptz AS STRING)
@@ -397,8 +397,8 @@ suite("test_iceberg_initial_defaults", "p0,external,nonConcurrent") {
         """
     }
 
-    // Repeat the omitted-column write through the legacy UUID/FIXED/BINARY mapping. Spark reads
-    // the physical bytes below, catching UTF-8 or hexadecimal corruption in the string carrier.
+    // Retired mapping flags must preserve UUID and binary defaults in the physical files.
+    // Spark independently validates the UUID text and raw fixed/binary bytes below.
     sql """switch ${legacyWriteCatalog}"""
     sql """use ${namespace}"""
     tableNames.each { String format, String currentTable ->
@@ -467,11 +467,13 @@ suite("test_iceberg_initial_defaults", "p0,external,nonConcurrent") {
 
             sql """switch ${mappedCatalog}"""
             sql """use ${namespace}"""
-            "order_qt_${prefix}_top_level" """
-                SELECT ${topLevelProjection}
-                FROM ${tableName}
-                ORDER BY id
-            """
+            if (enableFileScannerV2) {
+                "order_qt_${prefix}_top_level" """
+                    SELECT ${topLevelProjection}
+                    FROM ${tableName}
+                    ORDER BY id
+                """
+            }
             "order_qt_${prefix}_physical_value_precedence" """
                 SELECT
                     id,
@@ -484,11 +486,13 @@ suite("test_iceberg_initial_defaults", "p0,external,nonConcurrent") {
                 WHERE id >= 5
                 ORDER BY id
             """
-            "order_qt_${prefix}_struct_children" """
-                SELECT ${structProjection}
-                FROM ${tableName}
-                ORDER BY id
-            """
+            if (enableFileScannerV2) {
+                "order_qt_${prefix}_struct_children" """
+                    SELECT ${structProjection}
+                    FROM ${tableName}
+                    ORDER BY id
+                """
+            }
             "order_qt_${prefix}_complex_parent_nulls" """
                 SELECT ${complexShapeProjection}
                 FROM ${tableName}
@@ -528,16 +532,22 @@ suite("test_iceberg_initial_defaults", "p0,external,nonConcurrent") {
 
             sql """switch ${legacyCatalog}"""
             sql """use ${namespace}"""
-            "order_qt_${prefix}_legacy_mapping" """
-                SELECT ${legacyProjection}
-                FROM ${tableName}
-                WHERE id <= 4
-                ORDER BY id
-            """
+            // Disabling the retired toggle must preserve the zoned type and its UTC instant.
+            assertEquals("timestamptz(6)",
+                    sql("DESC ${tableName}").find { it[0] == "default_timestamptz" }[1])
+            if (enableFileScannerV2) {
+                "order_qt_${prefix}_legacy_mapping" """
+                    SELECT ${legacyProjection}
+                    FROM ${tableName}
+                    WHERE id <= 4
+                    ORDER BY id
+                """
+            }
         }
     }
 
     try {
+        // Preserve V1 coverage for non-UUID projections; native UUID decoding is a V2 contract.
         runChecks("v1", false)
         runChecks("v2", true)
     } finally {

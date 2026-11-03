@@ -31,13 +31,13 @@ PhysicalResultSink
 ------------------------------------PhysicalOlapScan[item]
 ------------------------------PhysicalProject
 --------------------------------filter((d1.d_moy = 4) and (d1.d_year = 1998))
-----------------------------------PhysicalOlapScan[date_dim]
+----------------------------------PhysicalOlapScan[date_dim(d1)]
 --------------------------PhysicalProject
 ----------------------------filter((d2.d_moy <= 7) and (d2.d_moy >= 4) and (d2.d_year = 1998))
-------------------------------PhysicalOlapScan[date_dim]
+------------------------------PhysicalOlapScan[date_dim(d2)]
 ----------------------PhysicalProject
 ------------------------filter(d_year IN (1998, 1999, 2000))
---------------------------PhysicalOlapScan[date_dim]
+--------------------------PhysicalOlapScan[date_dim(d3)]
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[store]
 

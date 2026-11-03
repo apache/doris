@@ -29,15 +29,18 @@ import org.apache.doris.thrift.TRuntimeProfileTree;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
@@ -57,6 +60,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class ExecutionProfile {
     private static final Logger LOG = LogManager.getLogger(ExecutionProfile.class);
 
+    private static final String FRAGMENT_LEVEL_PROFILE_PREFIX = "FragmentLevelProfile:";
+
     private final TUniqueId queryId;
     private long queryFinishTime = 0L;
     // The root profile of this execution task
@@ -71,6 +76,7 @@ public class ExecutionProfile {
 
     // use to merge profile from multi be
     private Map<Integer, Map<TNetworkAddress, List<RuntimeProfile>>> multiBeProfile = null;
+    private Map<Integer, Set<TNetworkAddress>> fragmentIdDoneBackends;
     private ReentrantReadWriteLock multiBeProfileLock = new ReentrantReadWriteLock();
 
     // Not serialize this property, it is only used to get profile id.
@@ -88,6 +94,7 @@ public class ExecutionProfile {
         root.addChild(fragmentsProfile, true);
         fragmentProfiles = Maps.newHashMap();
         multiBeProfile = Maps.newHashMap();
+        fragmentIdDoneBackends = Maps.newHashMap();
         fragmentIdBeNum = Maps.newHashMap();
         seqNoToFragmentId = Maps.newHashMap();
         int i = 0;
@@ -96,6 +103,7 @@ public class ExecutionProfile {
             fragmentProfiles.put(fragmentId, runtimeProfile);
             fragmentsProfile.addChild(runtimeProfile, true);
             multiBeProfile.put(fragmentId, Maps.newHashMap());
+            fragmentIdDoneBackends.put(fragmentId, new HashSet<>());
             fragmentIdBeNum.put(fragmentId, 0);
             seqNoToFragmentId.put(i, fragmentId);
             ++i;
@@ -147,12 +155,74 @@ public class ExecutionProfile {
     }
 
     protected void setMultiBeProfile(int fragmentId, TNetworkAddress backendHBAddress,
-                                List<RuntimeProfile> taskProfile) {
+            List<RuntimeProfile> taskProfile) {
         multiBeProfileLock.writeLock().lock();
         try {
             multiBeProfile.get(fragmentId).put(backendHBAddress, taskProfile);
         } finally {
             multiBeProfileLock.writeLock().unlock();
+        }
+    }
+
+    private boolean updateMultiBeProfile(int fragmentId, TNetworkAddress backendHBAddress,
+            List<RuntimeProfile> taskProfile, List<RuntimeProfile> profileNodes, boolean isDone) {
+        multiBeProfileLock.writeLock().lock();
+        try {
+            if (!isDone && fragmentIdDoneBackends.get(fragmentId).contains(backendHBAddress)) {
+                return false;
+            }
+            multiBeProfile.get(fragmentId).put(backendHBAddress, taskProfile);
+            // Publish both rendered forms before completion becomes visible to profile readers.
+            for (RuntimeProfile profileNode : profileNodes) {
+                fragmentProfiles.get(fragmentId).addChild(profileNode, true);
+            }
+            if (isDone) {
+                fragmentIdDoneBackends.get(fragmentId).add(backendHBAddress);
+            }
+            return true;
+        } finally {
+            multiBeProfileLock.writeLock().unlock();
+        }
+    }
+
+    // Fragment-level profiles are cumulative snapshots, replaced by backend address on each report.
+    // Sum only their root counters: traversing pipeline tasks would multiply the same AI work.
+    void addAIFunctionSummaryCounters(RuntimeProfile summary) {
+        multiBeProfileLock.readLock().lock();
+        try {
+            for (RuntimeProfile fragment : fragmentProfiles.values()) {
+                for (RuntimeProfile backend : fragment.getChildMap().values()) {
+                    if (!backend.getName().startsWith(FRAGMENT_LEVEL_PROFILE_PREFIX)) {
+                        continue;
+                    }
+                    for (Entry<String, Counter> entry : backend.getCounterMap().entrySet()) {
+                        if (entry.getKey().startsWith("AIFunction")) {
+                            Counter source = entry.getValue();
+                            Counter total = summary.addCounter(entry.getKey(), source.getType(),
+                                    RuntimeProfile.ROOT_COUNTER);
+                            Preconditions.checkState(total.getType() == source.getType(),
+                                    "Inconsistent units for AI counter %s", entry.getKey());
+                            total.setLevel(source.getLevel());
+                            total.addValue(source);
+                        }
+                    }
+                }
+            }
+        } finally {
+            multiBeProfileLock.readLock().unlock();
+        }
+    }
+
+    private boolean areAllBackendProfilesDone(int fragmentId, int expectedBackendNum) {
+        if (expectedBackendNum == 0) {
+            return false;
+        }
+
+        multiBeProfileLock.readLock().lock();
+        try {
+            return fragmentIdDoneBackends.get(fragmentId).size() >= expectedBackendNum;
+        } finally {
+            multiBeProfileLock.readLock().unlock();
         }
     }
 
@@ -233,6 +303,7 @@ public class ExecutionProfile {
             int fragmentId = entry.getKey();
             List<TDetailedReportParams> fragmentProfile = entry.getValue();
             int pipelineIdx = 0;
+            List<RuntimeProfile> profileNodes = Lists.newArrayList();
             List<RuntimeProfile> taskProfile = Lists.newArrayList();
             String suffix = "(host=" + backendHBAddress + ")";
             for (TDetailedReportParams pipelineProfile : fragmentProfile) {
@@ -240,7 +311,7 @@ public class ExecutionProfile {
                 boolean isFragmentLevel = (pipelineProfile.isSetIsFragmentLevel() && pipelineProfile.is_fragment_level);
                 if (isFragmentLevel) {
                     // Fragment Level profile is also represented by TDetailedReportParams.
-                    name = "FragmentLevelProfile:" + suffix;
+                    name = FRAGMENT_LEVEL_PROFILE_PREFIX + suffix;
                 } else {
                     name = "Pipeline " + pipelineIdx + suffix;
                     pipelineIdx++;
@@ -259,9 +330,11 @@ public class ExecutionProfile {
 
                 profileNode.update(pipelineProfile.profile);
                 profileNode.setIsDone(isDone);
-                fragmentProfiles.get(fragmentId).addChild(profileNode, true);
+                profileNodes.add(profileNode);
             }
-            setMultiBeProfile(fragmentId, backendHBAddress, taskProfile);
+            if (!updateMultiBeProfile(fragmentId, backendHBAddress, taskProfile, profileNodes, isDone)) {
+                continue;
+            }
         }
 
         LOG.info("Profile update finished query: {} fragments: {} isDone: {}",
@@ -277,28 +350,23 @@ public class ExecutionProfile {
     }
 
     public synchronized void addFragmentBackend(PlanFragmentId fragmentId, Long backendId) {
-        fragmentIdBeNum.put(fragmentId.asInt(), fragmentIdBeNum.get(fragmentId.asInt()) + 1);
+        addFragmentBackend(fragmentId.asInt(), backendId);
+    }
+
+    public synchronized void addFragmentBackend(int fragmentId, Long backendId) {
+        fragmentIdBeNum.put(fragmentId, fragmentIdBeNum.get(fragmentId) + 1);
     }
 
     public TUniqueId getQueryId() {
         return queryId;
     }
 
-    // Check all fragments's child, if all finished, then this execution profile is finished
+    // Check all fragments' backend reports. A backend can contribute multiple profile nodes.
     public boolean isCompleted() {
         for (Entry<Integer, RuntimeProfile> element : fragmentProfiles.entrySet()) {
-            RuntimeProfile fragmentProfile = element.getValue();
-            // If any fragment is empty, it means BE does not report the profile, then the total
-            // execution profile is not completed.
-            if (fragmentProfile.isEmpty()
-                    || fragmentProfile.getChildList().size() < fragmentIdBeNum.get(element.getKey())) {
+            int fragmentId = element.getKey();
+            if (!areAllBackendProfilesDone(fragmentId, fragmentIdBeNum.get(fragmentId))) {
                 return false;
-            }
-            for (Pair<RuntimeProfile, Boolean> runtimeProfile : fragmentProfile.getChildList()) {
-                // If any child instance profile is not ready, then return false.
-                if (!(runtimeProfile.first.getIsDone() || runtimeProfile.first.getIsCancel())) {
-                    return false;
-                }
             }
         }
         return true;

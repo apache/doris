@@ -55,8 +55,8 @@ class VCaseExpr final : public VExpr {
 public:
     VCaseExpr(const TExprNode& node);
     ~VCaseExpr() override = default;
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override;
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
@@ -92,7 +92,8 @@ private:
                       std::is_same_v<ColumnType, ColumnHLL> ||
                       std::is_same_v<ColumnType, ColumnQuantileState> ||
                       std::is_same_v<ColumnType, ColumnIPv4> ||
-                      std::is_same_v<ColumnType, ColumnIPv6>) {
+                      std::is_same_v<ColumnType, ColumnIPv6> ||
+                      std::is_same_v<ColumnType, ColumnUUID>) {
             // result_column and all then_column is not nullable.
             // can't simd when type is string.
             if (data_type()->is_nullable()) {
@@ -143,8 +144,10 @@ private:
             CASE_TYPE(TYPE_DATETIME, ColumnDateTime)
             CASE_TYPE(TYPE_DATEV2, ColumnDateV2)
             CASE_TYPE(TYPE_DATETIMEV2, ColumnDateTimeV2)
+            CASE_TYPE(TYPE_TIMESTAMP_NS, ColumnTimeStampNs)
             CASE_TYPE(TYPE_TIMESTAMPTZ, ColumnTimeStampTz)
             CASE_TYPE(TYPE_IPV6, ColumnIPv6)
+            CASE_TYPE(TYPE_UUID, ColumnUUID)
             CASE_TYPE(TYPE_IPV4, ColumnIPv4)
             CASE_TYPE(TYPE_ARRAY, ColumnArray)
             CASE_TYPE(TYPE_MAP, ColumnMap)
@@ -231,6 +234,7 @@ private:
                           std::is_same_v<ColumnType, ColumnDateTime> ||
                           std::is_same_v<ColumnType, ColumnDateV2> ||
                           std::is_same_v<ColumnType, ColumnDateTimeV2> ||
+                          std::is_same_v<ColumnType, ColumnTimeStampNs> ||
                           std::is_same_v<ColumnType, ColumnTimeStampTz>) {
                 result_raw_data[i] = ColumnType::default_value();
             } else {
@@ -251,6 +255,7 @@ private:
                           std::is_same_v<ColumnType, ColumnDateTime> ||
                           std::is_same_v<ColumnType, ColumnDateV2> ||
                           std::is_same_v<ColumnType, ColumnDateTimeV2> ||
+                          std::is_same_v<ColumnType, ColumnTimeStampNs> ||
                           std::is_same_v<ColumnType, ColumnTimeStampTz>) {
                 for (int row_idx = 0; row_idx < rows_count; row_idx++) {
                     result_raw_data[row_idx] = (then_idx[row_idx] == i) ? column_raw_data[row_idx]

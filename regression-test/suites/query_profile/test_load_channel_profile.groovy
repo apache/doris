@@ -16,10 +16,11 @@
 // under the License.
 
 import groovy.json.JsonSlurper
+import org.apache.doris.regression.util.Http
 
 def getProfileList = { masterHTTPAddr ->
     def dst = 'http://' + masterHTTPAddr
-    def conn = new URL(dst + "/rest/v1/query_profile").openConnection()
+    def conn = Http.openConnection(dst + "/rest/v1/query_profile")
     conn.setRequestMethod("GET")
     def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
             (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
@@ -30,7 +31,7 @@ def getProfileList = { masterHTTPAddr ->
 
 def getProfile = { masterHTTPAddr, id ->
     def dst = 'http://' + masterHTTPAddr
-    def conn = new URL(dst + "/api/profile/text/?query_id=$id").openConnection()
+    def conn = Http.openConnection(dst + "/api/profile/text/?query_id=$id")
     conn.setRequestMethod("GET")
     def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
             (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
@@ -136,4 +137,3 @@ suite('test_load_channel_profile') {
         sql "set enable_profile=false;"   
     }
 }
-

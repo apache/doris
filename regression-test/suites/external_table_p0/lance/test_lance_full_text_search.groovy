@@ -123,7 +123,33 @@ suite("test_lance_full_text_search", "p0,external") {
             ORDER BY _score DESC, row_id
         """
 
-        // The TVF filter runs inside Lance before FTS candidates are selected.
+        // The TVF filter defaults to postfiltering. prefilter=true applies it before FTS
+        // candidate selection; with top_k=1 this allows category='storage' row 7 to match
+        // even though it is not the highest-scoring unfiltered candidate.
+        def filteredFtsResultQuery = { String prefilterValue ->
+            String prefilterProperty = prefilterValue == null ? ""
+                    : ', "prefilter"="' + prefilterValue + '"'
+            String extra = ', "filter"="category = \'storage\'"' + prefilterProperty
+            """
+                SELECT COUNT(*) AS result_count, MIN(row_id) AS min_row_id
+                FROM ${search(fullTable, "lance", "1", "0", "strict", extra)}
+            """
+        }
+        String truePrefilterResultQuery = filteredFtsResultQuery("TRUE")
+        String falsePrefilterResultQuery = filteredFtsResultQuery("false")
+        String defaultPrefilterResultQuery = filteredFtsResultQuery(null)
+        qt_fts_prefilter_true "${truePrefilterResultQuery}"
+        qt_fts_prefilter_false "${falsePrefilterResultQuery}"
+        qt_fts_prefilter_default "${defaultPrefilterResultQuery}"
+
+        String invalidPrefilterSearch = search(fullTable, "lance", "1", "0", "strict",
+                ', "filter"="category = \'storage\'", "prefilter"="maybe"')
+        test {
+            sql "SELECT row_id FROM ${invalidPrefilterSearch}"
+            exception "'prefilter' must be 'true' or 'false'"
+        }
+
+        // Existing filter coverage uses the default postfilter behavior; row 7 is within top_k=4.
         qt_fts_filter """
             SELECT row_id
             FROM ${search(fullTable, "lance", "4", "0", "strict",

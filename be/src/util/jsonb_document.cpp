@@ -95,8 +95,7 @@ JsonbFindResult JsonbValue::findValue(JsonbPath& path) const {
             switch (path.get_leg_from_leg_vector(i)->type) {
             case MEMBER_CODE: {
                 if (LIKELY(pval->type == JsonbType::T_Object)) {
-                    if (path.get_leg_from_leg_vector(i)->leg_len == 1 &&
-                        *path.get_leg_from_leg_vector(i)->leg_ptr == WILDCARD) {
+                    if (path.get_leg_from_leg_vector(i)->is_wildcard) {
                         is_wildcard = true;
                         for (const auto& it : *pval->unpack<ObjectVal>()) {
                             results.emplace_back(it.value());
@@ -115,8 +114,7 @@ JsonbFindResult JsonbValue::findValue(JsonbPath& path) const {
                 continue;
             }
             case ARRAY_CODE: {
-                if (path.get_leg_from_leg_vector(i)->leg_len == 1 &&
-                    *path.get_leg_from_leg_vector(i)->leg_ptr == WILDCARD) {
+                if (path.get_leg_from_leg_vector(i)->is_wildcard) {
                     if (LIKELY(pval->type == JsonbType::T_Array)) {
                         is_wildcard = true;
                         for (const auto& it : *pval->unpack<ArrayVal>()) {

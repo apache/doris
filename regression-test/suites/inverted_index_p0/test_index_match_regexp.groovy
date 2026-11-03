@@ -79,7 +79,7 @@ suite("test_index_match_regexp", "nonConcurrent"){
         load_httplogs_data.call(indexTbName1, 'test_index_match_regexp', 'true', 'json', 'documents-1000.json')
 
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
         GetDebugPoint().enableDebugPointForAllBEs("VMatchPredicate.execute")
 
         qt_sql """ select count() from test_index_match_regexp where request match_regexp ''; """

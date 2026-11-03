@@ -50,7 +50,7 @@ public class OnlyFullGroupByConstantTest extends TestWithFeService {
     private void rejected(String sql) {
         AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
                 () -> PlanChecker.from(connectContext).analyze(sql).rewrite(), "should be rejected: " + sql);
-        Assertions.assertTrue(ex.getMessage().contains("not in aggregate's output"),
+        Assertions.assertTrue(ex.getMessage().contains("must appear in the GROUP BY"),
                 "unexpected message: " + ex.getMessage());
     }
 
@@ -94,9 +94,7 @@ public class OnlyFullGroupByConstantTest extends TestWithFeService {
                 () -> PlanChecker.from(connectContext).analyze(
                         "SELECT x.a, x.k, x.b2 FROM (SELECT a, 1 as k, b as b2 FROM test.t_ab) x GROUP BY x.b2")
                         .rewrite());
-        Assertions.assertTrue(ex.getMessage().contains("a not in aggregate's output"),
-                "should report 'a': " + ex.getMessage());
-        Assertions.assertFalse(ex.getMessage().contains("k not in aggregate"),
-                "should NOT report constant 'k': " + ex.getMessage());
+        Assertions.assertTrue(ex.getMessage().contains("'a'"), "should report 'a': " + ex.getMessage());
+        Assertions.assertFalse(ex.getMessage().contains("'k'"), "should NOT report constant 'k': " + ex.getMessage());
     }
 }

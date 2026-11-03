@@ -32,7 +32,7 @@
 #include "common/status.h"
 #include "service/backend_options.h"
 #include "storage/delete/delete_handler.h"
-#include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset.h"
@@ -381,7 +381,13 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         context.txn_expiration = _expiration;
         context.version = rs_reader->version();
         context.rowset_state = VISIBLE;
-        context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
+        const auto input_segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
+        // Cloud schema change rewrites remote rowsets, so the input group layout is no longer
+        // applicable. Fall back to the conservative overlap state without assuming that the
+        // rewritten segments are globally ordered.
+        context.segments_overlap = input_segments_overlap == NONOVERLAPPING_WITHIN_GROUP
+                                           ? OVERLAPPING
+                                           : input_segments_overlap;
         context.tablet_schema = _new_tablet->tablet_schema();
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
         context.storage_resource = _cloud_storage_engine.get_storage_resource(sc_params.vault_id);
@@ -391,7 +397,7 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         // like the load and compaction output does. Otherwise it is cached in the
         // NORMAL/INDEX queues here, while every warm-up path downloads it into the TTL
         // queue on the destination cluster.
-        context.file_cache_ttl_sec = _new_tablet->ttl_seconds();
+        context.file_cache_expiration_time = _new_tablet->file_cache_ttl_expiration_time();
         context.tablet = _new_tablet;
         if (!context.storage_resource) {
             return Status::InternalError("vault id not found, maybe not sync, vault id {}",

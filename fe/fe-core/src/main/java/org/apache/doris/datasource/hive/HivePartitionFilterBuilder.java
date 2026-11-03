@@ -42,7 +42,7 @@ public final class HivePartitionFilterBuilder {
     }
 
     /**
-     * Builds an HMS filter from direct equality and IN predicates. Returns null when any predicate
+     * Builds an HMS filter from direct string equality and IN predicates. Returns null when any predicate
      * or column type is outside the supported grammar, so callers can retain local pruning.
      */
     public static String build(Expression predicate, List<Column> partitionColumns,
@@ -56,7 +56,7 @@ public final class HivePartitionFilterBuilder {
                 return null;
             }
         }
-        return buildFilter(partitionColumns, partitionKeyHiveTypes, valuesByName);
+        return buildFilter(partitionColumns, valuesByName);
     }
 
     private static boolean collectValues(Expression expression, Map<String, Column> columnsByName,
@@ -125,18 +125,11 @@ public final class HivePartitionFilterBuilder {
     private static boolean literalIsSupported(Literal literal, Column column, String hiveType) {
         DataType literalType = literal.getDataType();
         String value = literal.getValue().toString();
-        if (isHmsIntegralType(hiveType)) {
-            if (!column.getType().isIntegerType()) {
-                return false;
-            }
-            return literalType.isIntegerType() && isIntegralLiteral(literal.getValue().toString());
-        }
-        return isHmsStringType(hiveType) && column.getType().isStringType() && literalType.isStringType()
-                && value.indexOf('\\') < 0 && value.indexOf('\'') < 0;
+        return isHmsStringType(hiveType) && column.getType().isStringType() && literalType.isStringLikeType()
+                && value.indexOf('\\') < 0 && value.indexOf('\'') < 0 && value.indexOf('"') < 0;
     }
 
-    private static String buildFilter(List<Column> partitionColumns, Map<String, String> partitionKeyHiveTypes,
-            Map<String, List<String>> valuesByName) {
+    private static String buildFilter(List<Column> partitionColumns, Map<String, List<String>> valuesByName) {
         List<String> filters = Lists.newArrayList();
         for (Column partitionColumn : partitionColumns) {
             List<String> values = valuesByName.get(partitionColumn.getName().toLowerCase(Locale.ROOT));
@@ -148,24 +141,11 @@ public final class HivePartitionFilterBuilder {
             }
             List<String> valueFilters = values.stream()
                     .map(value -> partitionColumn.getName() + " = "
-                            + toHmsLiteral(value, partitionKeyHiveTypes.get(
-                            partitionColumn.getName().toLowerCase(Locale.ROOT))))
+                            + "'" + value + "'")
                     .collect(Collectors.toList());
             filters.add("(" + String.join(" OR ", valueFilters) + ")");
         }
         return filters.isEmpty() ? null : String.join(" AND ", filters);
-    }
-
-    private static String toHmsLiteral(String value, String hiveType) {
-        return isHmsIntegralType(hiveType) ? value : "'" + value + "'";
-    }
-
-    private static boolean isHmsIntegralType(String hiveType) {
-        if (hiveType == null) {
-            return false;
-        }
-        String type = hiveType.toLowerCase(Locale.ROOT);
-        return type.equals("tinyint") || type.equals("smallint") || type.equals("int") || type.equals("bigint");
     }
 
     private static boolean isHmsStringType(String hiveType) {
@@ -180,6 +160,7 @@ public final class HivePartitionFilterBuilder {
         if (lowerCaseValue.equals("not") || lowerCaseValue.equals("and") || lowerCaseValue.equals("or")
                 || lowerCaseValue.equals("like") || lowerCaseValue.equals("date")
                 || lowerCaseValue.equals("const") || lowerCaseValue.equals("struct")
+                || lowerCaseValue.equals("in") || lowerCaseValue.equals("between")
                 || isAllDigits(value)) {
             return false;
         }
@@ -202,11 +183,4 @@ public final class HivePartitionFilterBuilder {
                 || value >= '0' && value <= '9';
     }
 
-    private static boolean isIntegralLiteral(String value) {
-        int start = value.startsWith("-") ? 1 : 0;
-        if (start == value.length()) {
-            return false;
-        }
-        return value.chars().skip(start).allMatch(character -> character >= '0' && character <= '9');
-    }
 }

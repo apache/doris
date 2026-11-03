@@ -65,6 +65,7 @@ size_t raw_in_value_size(PrimitiveType primitive_type) {
         RETURN_RAW_IN_SIZE(TYPE_DATETIME);
         RETURN_RAW_IN_SIZE(TYPE_DATEV2);
         RETURN_RAW_IN_SIZE(TYPE_DATETIMEV2);
+        RETURN_RAW_IN_SIZE(TYPE_TIMESTAMP_NS);
         RETURN_RAW_IN_SIZE(TYPE_TIMESTAMPTZ);
         RETURN_RAW_IN_SIZE(TYPE_TIMEV2);
         RETURN_RAW_IN_SIZE(TYPE_DECIMAL32);
@@ -74,6 +75,7 @@ size_t raw_in_value_size(PrimitiveType primitive_type) {
         RETURN_RAW_IN_SIZE(TYPE_DECIMAL256);
         RETURN_RAW_IN_SIZE(TYPE_IPV4);
         RETURN_RAW_IN_SIZE(TYPE_IPV6);
+        RETURN_RAW_IN_SIZE(TYPE_UUID);
 #undef RETURN_RAW_IN_SIZE
     default:
         return 0;
@@ -173,7 +175,9 @@ Status VInPredicate::_materialize_for_zonemap_filter(VExprContext* context) {
     // dictionary, and raw evaluation direct-slot-only while Bloom may consume a nested leaf.
     const auto data_type = remove_nullable(bloom_probe->value_type);
     DORIS_CHECK(data_type != nullptr);
-    if (is_complex_type(data_type->get_primitive_type())) {
+    // Binary IN is rejected by the SQL function; do not build storage predicates for its keys.
+    if (is_complex_type(data_type->get_primitive_type()) ||
+        data_type->get_primitive_type() == TYPE_VARBINARY) {
         return Status::OK();
     }
 
@@ -305,8 +309,9 @@ Status VInPredicate::execute_on_raw_binary_values(const StringRef* values, size_
     return Status::OK();
 }
 
-Status VInPredicate::execute_column(VExprContext* context, const Block* block, Selector* selector,
-                                    size_t count, ColumnPtr& result_column) const {
+Status VInPredicate::execute_column_impl(VExprContext* context, const Block* block,
+                                         const Selector* selector, size_t count,
+                                         ColumnPtr& result_column) const {
     if (is_const_and_have_executed()) { // const have execute in open function
         result_column = get_result_from_const(count);
         return Status::OK();

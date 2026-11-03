@@ -282,6 +282,8 @@ public class MaxComputeExternalTable extends ExternalTable {
                 return ScalarType.createDatetimeV2Type(3);
             }
             case TIMESTAMP:
+                // MaxCompute TIMESTAMP is an epoch-based instant; TIMESTAMP_NTZ is a wall clock.
+                return ScalarType.createTimeStampTzType(6);
             case TIMESTAMP_NTZ: {
                 return ScalarType.createDatetimeV2Type(6);
             }

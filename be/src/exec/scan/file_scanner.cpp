@@ -540,6 +540,8 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
                                           config::ignore_not_found_file_in_external_table)) {
                 _cur_reader_eof = true;
                 COUNTER_UPDATE(_not_found_file_counter, 1);
+                LOG(INFO) << "Skip missing file: query_id=" << print_id(_state->query_id())
+                          << ", path=" << _current_range.path << ", reason=NOT_FOUND";
                 continue;
             } else if (st.is<ErrorCode::END_OF_FILE>()) {
                 _cur_reader_eof = true;
@@ -580,6 +582,8 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
             if (st.is<ErrorCode::NOT_FOUND>() && config::ignore_not_found_file_in_external_table) {
                 _cur_reader_eof = true;
                 COUNTER_UPDATE(_not_found_file_counter, 1);
+                LOG(INFO) << "Skip missing file: query_id=" << print_id(_state->query_id())
+                          << ", path=" << _current_range.path << ", reason=NOT_FOUND";
                 continue;
             }
             RETURN_IF_ERROR(st);
@@ -1117,6 +1121,25 @@ Status FileScanner::_get_next_reader() {
                 _cur_reader = std::move(mc_reader);
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "paimon") {
+                const auto& paimon_params = range.table_format_params.paimon_params;
+                if (paimon_params.__isset.reader_type) {
+                    switch (paimon_params.reader_type) {
+                    case TPaimonReaderType::PAIMON_JNI:
+                        break;
+                    case TPaimonReaderType::PAIMON_RUST:
+                        return Status::NotSupported(
+                                "paimon rust reader requires enable_file_scanner_v2=true; the V1 "
+                                "FileScanner no longer supports PAIMON_RUST splits");
+                    case TPaimonReaderType::PAIMON_NATIVE:
+                        return Status::InternalError(
+                                "invalid PAIMON_NATIVE reader_type for paimon FORMAT_JNI split, "
+                                "possibly caused by FE/BE protocol mismatch");
+                    default:
+                        return Status::InternalError(
+                                "unknown paimon reader_type for paimon FORMAT_JNI split, possibly "
+                                "caused by FE/BE protocol mismatch");
+                    }
+                }
                 _cur_reader = PaimonJniReader::create_unique(_file_slot_descs, _state, _profile,
                                                              range, _params);
                 init_status = ((PaimonJniReader*)(_cur_reader.get()))->init_reader();
@@ -1305,6 +1328,8 @@ Status FileScanner::_get_next_reader() {
             if (can_ignore_not_found_file(_current_range,
                                           config::ignore_not_found_file_in_external_table)) {
                 COUNTER_UPDATE(_not_found_file_counter, 1);
+                LOG(INFO) << "Skip missing file: query_id=" << print_id(_state->query_id())
+                          << ", path=" << _current_range.path << ", reason=NOT_FOUND";
                 continue;
             }
             return Status::InternalError("failed to find reader, err: {}", init_status.to_string());

@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -43,7 +44,8 @@ public class DayOfYear extends ScalarFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(SmallIntType.INSTANCE).args(DateV2Type.INSTANCE),
-            FunctionSignature.ret(SmallIntType.INSTANCE).args(DateTimeV2Type.WILDCARD));
+            FunctionSignature.ret(SmallIntType.INSTANCE).args(DateTimeV2Type.WILDCARD),
+            FunctionSignature.ret(SmallIntType.INSTANCE).args(TimeStampNsType.INSTANCE));
 
     /**
      * constructor with 1 argument.

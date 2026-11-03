@@ -48,8 +48,8 @@
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "runtime/thread_context.h"
-#include "storage/index/inverted/inverted_index_cache.h"
-#include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/index/inverted/common/inverted_index_cache.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset_factory.h"
@@ -326,7 +326,13 @@ BetaRowsetWriter::BetaRowsetWriter(StorageEngine& engine)
         : _engine(engine), _segcompaction_worker(std::make_shared<SegcompactionWorker>(this)) {}
 
 BaseBetaRowsetWriter::~BaseBetaRowsetWriter() {
-    if (!_already_built && _rowset_meta->is_local()) {
+    // Finish callbacks before removing files they can still read on cancellation.
+    if (_calc_delete_bitmap_token) {
+        _calc_delete_bitmap_token->cancel();
+    }
+    if (!_already_built && _rowset_meta && _rowset_meta->is_local()) {
+        TEST_SYNC_POINT_CALLBACK("BaseBetaRowsetWriter::~BaseBetaRowsetWriter:before_file_cleanup",
+                                 this);
         // abnormal exit, remove all files generated
         auto& fs = io::global_local_filesystem();
         for (int i = _segment_start_id; i < _segment_creator.next_segment_id(); ++i) {
@@ -339,17 +345,24 @@ BaseBetaRowsetWriter::~BaseBetaRowsetWriter() {
                           fmt::format("Failed to delete file={}", seg_path));
         }
     }
-    if (_calc_delete_bitmap_token) {
-        _calc_delete_bitmap_token->cancel();
-    }
 }
 
 BetaRowsetWriter::~BetaRowsetWriter() {
+    // Bitmap callbacks capture this and can call virtual methods using derived state.
+    if (_calc_delete_bitmap_token != nullptr) {
+        _calc_delete_bitmap_token->cancel();
+    }
     /* Note that segcompaction is async and in parallel with load job. So we should handle carefully
      * when the job is cancelled. Although it is meaningless to continue segcompaction when the job
      * is cancelled, the objects involved in the job should be preserved during segcompaction to
      * avoid crashs for memory issues. */
     WARN_IF_ERROR(_wait_flying_segcompaction(), "segment compaction failed");
+}
+
+void BaseBetaRowsetWriter::cancel_calc_delete_bitmap(const Status& st) {
+    if (_calc_delete_bitmap_token != nullptr) {
+        _calc_delete_bitmap_token->cancel(st);
+    }
 }
 
 Status BaseBetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
@@ -375,6 +388,10 @@ Status BaseBetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_conte
     }
     _rowset_meta->set_tablet_uid(_context.tablet_uid);
     _rowset_meta->set_tablet_schema(_context.tablet_schema);
+    if (_context.persist_inverted_index_storage_format &&
+        _context.inverted_index_storage_format.has_value()) {
+        _rowset_meta->set_inverted_index_storage_format(*_context.inverted_index_storage_format);
+    }
     _context.segment_collector = std::make_shared<SegmentCollectorT<BaseBetaRowsetWriter>>(this);
     _context.file_writer_creator = std::make_shared<FileWriterCreatorT<BaseBetaRowsetWriter>>(this);
     return Status::OK();
@@ -428,6 +445,8 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
 
         OlapStopWatch watch;
         // Step 2: Build tmp rowset (needs file_writer to be closed)
+        TEST_SYNC_POINT_CALLBACK("BaseBetaRowsetWriter::_generate_delete_bitmap:before_build_tmp",
+                                 this);
         RowsetSharedPtr rowset_ptr;
         st = _build_tmp(rowset_ptr);
         if (!st.ok()) {
@@ -469,6 +488,7 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
                   << _context.mow_context->delete_bitmap->cardinality()
                   << ", queue_time_us: " << queue_time_us
                   << ", cost: " << watch.get_elapse_time_us() << "(us), total rows: " << total_rows;
+        TEST_SYNC_POINT_CALLBACK("BaseBetaRowsetWriter::_generate_delete_bitmap:finished", this);
         return Status::OK();
     });
 }
@@ -479,7 +499,8 @@ Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) 
         _segcompaction_worker->init_mem_tracker(rowset_writer_context);
     }
     if (_context.mow_context != nullptr) {
-        _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor_for_load()->create_token();
+        _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor_for_load()->create_token(
+                _context.load_cancel_status);
     }
     return Status::OK();
 }
@@ -699,8 +720,7 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
 
     if (_context.tablet_schema->get_inverted_index_storage_format() >=
         InvertedIndexStorageFormatPB::V2) {
-        if (_context.tablet_schema->has_inverted_index() ||
-            _context.tablet_schema->has_ann_index()) {
+        if (_context.tablet_schema->has_inverted_or_ann_index()) {
             auto src_idx_path =
                     InvertedIndexDescriptor::get_index_file_path_v2(src_index_path_prefix);
             auto dst_idx_path =
@@ -927,6 +947,10 @@ RowsetSharedPtr BaseBetaRowsetWriter::manual_build(const RowsetMetaSharedPtr& sp
 }
 
 Status BaseBetaRowsetWriter::_close_file_writers() {
+    // Index compaction runs after every segment is flushed, so its index files are still open.
+    if (_context.has_index_compaction()) {
+        RETURN_IF_ERROR(_close_inverted_index_file_writers());
+    }
     // Flush and close segment files
     RETURN_NOT_OK_STATUS_WITH_WARN(_segment_creator.close(),
                                    "failed to close segment creator when build new rowset");
@@ -995,8 +1019,7 @@ Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
     _rowset_meta->set_tablet_schema(_context.tablet_schema);
 
     // If segment compaction occurs, the idx file info will become inaccurate.
-    if ((_context.tablet_schema->has_inverted_index() || _context.tablet_schema->has_ann_index()) &&
-        _num_segcompacted == 0) {
+    if ((_context.tablet_schema->has_inverted_or_ann_index()) && _num_segcompacted == 0) {
         if (auto idx_files_info = _idx_files.inverted_index_file_info(_segment_start_id);
             !idx_files_info.has_value()) [[unlikely]] {
             LOG(ERROR) << "expected inverted index files info, but none presents: "
@@ -1171,7 +1194,7 @@ Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
     RETURN_IF_ERROR(_create_file_writer(path, file_writer, FileType::SEGMENT_FILE));
 
     IndexFileWriterPtr index_file_writer;
-    if (_context.tablet_schema->has_inverted_index() || _context.tablet_schema->has_ann_index()) {
+    if (_context.tablet_schema->has_inverted_or_ann_index()) {
         io::FileWriterPtr idx_file_writer;
         std::string prefix(InvertedIndexDescriptor::get_index_file_path_prefix(path));
         if (_context.tablet_schema->get_inverted_index_storage_format() !=

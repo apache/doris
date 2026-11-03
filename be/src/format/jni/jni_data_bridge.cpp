@@ -61,9 +61,11 @@ namespace doris {
     M(PrimitiveType::TYPE_DATEV2, ColumnDateV2, UInt32)            \
     M(PrimitiveType::TYPE_DATETIME, ColumnDateTime, Int64)         \
     M(PrimitiveType::TYPE_DATETIMEV2, ColumnDateTimeV2, UInt64)    \
+    M(PrimitiveType::TYPE_TIMESTAMP_NS, ColumnTimeStampNs, Int64)  \
     M(PrimitiveType::TYPE_TIMESTAMPTZ, ColumnTimeStampTz, UInt64)  \
     M(PrimitiveType::TYPE_IPV4, ColumnIPv4, IPv4)                  \
-    M(PrimitiveType::TYPE_IPV6, ColumnIPv6, IPv6)
+    M(PrimitiveType::TYPE_IPV6, ColumnIPv6, IPv6)                  \
+    M(PrimitiveType::TYPE_UUID, ColumnUUID, UUIDValueType)
 
 Status JniDataBridge::fill_block(Block* block, const ColumnNumbers& arguments, long table_address) {
     if (table_address == 0) {
@@ -317,6 +319,8 @@ std::string JniDataBridge::get_jni_type(const DataTypePtr& data_type) {
         return "ipv4";
     case TYPE_IPV6:
         return "ipv6";
+    case TYPE_UUID:
+        return "uuid";
     case TYPE_VARCHAR:
         [[fallthrough]];
     case TYPE_CHAR:
@@ -335,6 +339,8 @@ std::string JniDataBridge::get_jni_type(const DataTypePtr& data_type) {
         buffer << "datetimev2(" << type->get_scale() << ")";
         return buffer.str();
     }
+    case TYPE_TIMESTAMP_NS:
+        return "timestamp_ns";
     case TYPE_TIMESTAMPTZ: {
         buffer << "timestamptz(" << type->get_scale() << ")";
         return buffer.str();
@@ -423,6 +429,8 @@ std::string JniDataBridge::get_jni_type_with_different_string(const DataTypePtr&
         return "ipv4";
     case TYPE_IPV6:
         return "ipv6";
+    case TYPE_UUID:
+        return "uuid";
     case TYPE_VARCHAR: {
         buffer << "varchar("
                << assert_cast<const DataTypeString*>(remove_nullable(data_type).get())->len()
@@ -441,6 +449,8 @@ std::string JniDataBridge::get_jni_type_with_different_string(const DataTypePtr&
         buffer << "datetimev2(" << data_type->get_scale() << ")";
         return buffer.str();
     }
+    case TYPE_TIMESTAMP_NS:
+        return "timestamp_ns";
     case TYPE_TIMESTAMPTZ: {
         buffer << "timestamptz(" << data_type->get_scale() << ")";
         return buffer.str();

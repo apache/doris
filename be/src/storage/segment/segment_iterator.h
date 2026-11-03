@@ -187,6 +187,7 @@ private:
 
     // calculate row ranges that satisfy requested column conditions using various column index
     [[nodiscard]] Status _get_row_ranges_by_column_conditions();
+    [[nodiscard]] Status _apply_scan_restrictions();
     [[nodiscard]] Status _get_row_ranges_from_conditions(RowRanges* condition_row_ranges);
     [[nodiscard]] Status _apply_expr_zonemap_to_row_ranges(const VExprContextSPtrs& conjuncts,
                                                            rowid_t min_rowid,
@@ -198,6 +199,38 @@ private:
             bool* continue_apply);
     [[nodiscard]] Status _apply_ann_topn_predicate();
     [[nodiscard]] Status _apply_index_expr();
+    // Publish _row_bitmap as IndexQueryContext::candidate_rows when it is
+    // below the configured engage ratio; refreshed at conjunct boundaries as
+    // earlier index conjuncts shrink the bitmap. No-op once engaged.
+    void _refresh_candidate_pushdown();
+    // Intersect an approximate result and keep its expression for row evaluation.
+    bool _apply_approx_index_result(VExprContext* expr_ctx);
+    // G02: true iff answering the single pushed-down MATCH predicate by its
+    // match COUNT alone is indistinguishable from the row-accurate bitmap for
+    // this COUNT_ON_INDEX scan (no deletes, no other filters, full row bitmap,
+    // no row-id consumers). Gates IndexQueryContext::count_on_index_fastpath;
+    // the decision predicate itself lives in count_on_index_fastpath.h.
+    bool _count_on_index_fastpath_safe() const;
+    // G03: teardown of the G02 handshake. Captures whether the reader answered
+    // with a fabricated count bitmap into _count_fastpath_hit and clears both
+    // context flags so no later read_from_index call can observe or forge
+    // them. Runs on every exit of the index-apply scope.
+    void _capture_count_fastpath_hit();
+    // G03: true iff the per-batch defaults fill of _read_columns_by_index
+    // would apply to `cid` (the _no_need_read_key_data or _prune_column
+    // branch) AND the block column needs no storage->schema cast, i.e. the
+    // emission shortcut can reproduce the column's batch content exactly.
+    bool _column_emits_defaults_for_count(ColumnId cid);
+    // G03: fills CountEmitShortcutFacts from live iterator state at the end of
+    // _lazy_init and returns the pure-guard verdict; the decision predicate
+    // itself lives in count_on_index_fastpath.h.
+    bool _should_engage_count_emit_shortcut(const Block* block);
+    // G03: one emission-shortcut batch: min(remaining, kCountEmitBatchRows)
+    // default rows filled straight into the block (NOT-NULL defaults for
+    // nullable columns, mirroring _prune_column), then EOF once the countdown
+    // reaches zero. Replaces the whole per-rowid _next_batch_internal body for
+    // engaged scans.
+    Status _emit_count_shortcut_batch(Block* block);
 
     bool _column_has_fulltext_index(int32_t cid);
     bool _column_has_ann_index(int32_t cid);
@@ -221,13 +254,16 @@ private:
                                uint32_t nrows_read_limit);
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     uint16_t _evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
+    Status _apply_read_limit_to_selected_rows(Block* block, uint16_t& selected_size);
     void _collect_runtime_filter_predicate();
     Status _output_non_pred_columns(Block* block);
     [[nodiscard]] Status _read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
                                                  std::vector<rowid_t>& rowid_vector,
                                                  uint16_t* sel_rowid_idx, size_t select_size,
                                                  MutableColumns* mutable_columns,
-                                                 bool init_condition_cache = false);
+                                                 bool init_condition_cache = false,
+                                                 bool read_for_predicate = false);
+    [[nodiscard]] Status _read_lazy_pruned_columns(Block* block);
 
     Status copy_column_data_by_selector(IColumn* input_col_ptr, MutableColumnPtr& output_col,
                                         uint16_t* sel_rowid_idx, uint16_t select_size,
@@ -273,6 +309,7 @@ private:
     bool _can_evaluated_by_vectorized(std::shared_ptr<ColumnPredicate> predicate);
 
     [[nodiscard]] Status _extract_common_expr_columns(const VExprSPtr& expr);
+    void _mark_common_expr_column(ColumnId cid);
     // same with _extract_common_expr_columns, but only extract columns that can be used for index
     [[nodiscard]] Status _execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& selected_size,
                                               Block* block);
@@ -312,10 +349,14 @@ private:
     Status _convert_to_expected_type(const std::vector<ColumnId>& col_ids);
 
     bool _no_need_read_key_data(ColumnId cid, MutableColumnPtr& column, size_t nrows_read);
+    // Side-effect-free eligibility half of _no_need_read_key_data (no column
+    // fill); shared by the per-batch fill and the G03 engage-time per-column
+    // proof so the two can never drift.
+    bool _no_need_read_key_data_eligible(ColumnId cid);
 
     bool _has_delete_predicate(ColumnId cid);
 
-    bool _can_opt_topn_reads();
+    bool _can_opt_limit_reads();
 
     void _initialize_predicate_results();
     bool _check_all_conditions_passed_inverted_index_for_column(ColumnId cid,
@@ -371,6 +412,9 @@ private:
     bool _is_need_vec_eval = false;
     bool _is_need_short_eval = false;
     bool _is_need_expr_eval = false;
+
+    std::set<ColumnId> _support_lazy_read_pruned_columns;
+    bool _enable_prune_nested_column = false;
 
     // fields for vectorization execution
     std::vector<ColumnId>
@@ -429,6 +473,10 @@ private:
     uint16_t _selected_size;
     std::vector<uint16_t> _sel_rowid_idx;
 
+    // Rows already produced by this iterator. Used together with
+    // _opts.read_limit to compute the remaining per-batch budget.
+    size_t _rows_returned = 0;
+
     std::unique_ptr<ObjectPool> _pool;
 
     // used to collect filter information.
@@ -469,6 +517,31 @@ private:
     std::map<ColumnId, size_t> _vir_cid_to_idx_in_block;
 
     IndexQueryContextPtr _index_query_context;
+
+    // G03 count-emission shortcut state (see count_on_index_fastpath.h).
+    // _count_fastpath_hit: the reader answered the single MATCH predicate with
+    // a fabricated count bitmap (captured from the G02 handshake reply).
+    // _count_emit_shortcut: engaged at the end of _lazy_init when
+    // count_emit_shortcut_safe holds; every subsequent batch is emitted by
+    // _emit_count_shortcut_batch from _count_emit_rows_remaining (initialized
+    // to the post-apply _row_bitmap cardinality) without touching the row
+    // bitmap iterator.
+    bool _count_fastpath_hit = false;
+    bool _count_emit_shortcut = false;
+    uint64_t _count_emit_rows_remaining = 0;
+
+    // An indexed conjunct prefix emptied _row_bitmap, proving the WHOLE
+    // pushed-down conjunction false. Set by the _apply_index_expr short
+    // circuit when it consumes (clears) the remaining conjuncts, and read
+    // where an empty conjunct list would otherwise zero the condition-cache
+    // digest: the all-false result stays valid for the full conjunction, so
+    // it must remain cacheable.
+    bool _index_conjuncts_proved_empty = false;
+    // Batch size for shortcut emission: VStatisticsIterator's
+    // MAX_ROW_SIZE_IN_COUNT, the largest default-rows block shape already
+    // proven through every consumer above the segment iterator by the plain
+    // COUNT pushdown (rowset reader, collect iterator, block reader, scanner).
+    static constexpr uint64_t kCountEmitBatchRows = 65535;
 
     // key is column uid, value is the sparse column cache
     std::unordered_map<int32_t, PathToBinaryColumnCacheUPtr> _variant_sparse_column_cache;

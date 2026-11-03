@@ -28,8 +28,6 @@ import org.apache.doris.nereids.rules.exploration.join.JoinExchangeBothProject;
 import org.apache.doris.nereids.rules.exploration.join.LogicalJoinSemiJoinTransposeProject;
 import org.apache.doris.nereids.rules.exploration.join.OuterJoinAssocProject;
 import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscomProject;
-import org.apache.doris.nereids.rules.exploration.join.PushDownProjectThroughInnerOuterJoin;
-import org.apache.doris.nereids.rules.exploration.join.PushDownProjectThroughSemiJoin;
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTransposeProject;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewAggregateOnNoneAggregateRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewAggregateRule;
@@ -156,8 +154,6 @@ public class RuleSet {
             .add(OuterJoinLAsscomProject.INSTANCE)
             .add(SemiJoinSemiJoinTransposeProject.INSTANCE)
             .add(LogicalJoinSemiJoinTransposeProject.INSTANCE)
-            .add(PushDownProjectThroughInnerOuterJoin.INSTANCE)
-            .add(PushDownProjectThroughSemiJoin.INSTANCE)
             .add(TransposeAggSemiJoinProject.INSTANCE)
             .addAll(new PushDownTopNThroughJoin().buildRules())
             .addAll(new PushDownLimitDistinctThroughJoin().buildRules())

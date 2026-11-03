@@ -79,6 +79,14 @@ suite("smooth_upgrade") {
         assertTrue(result.size() == 1)
     }
 
+    def use_valid_cluster = { ->
+        sql "SET PROPERTY 'default_cloud_cluster' = ''"
+        def clusters = sql_return_maparray "show clusters"
+        def currentCluster = clusters.find { it.is_current == "TRUE" }
+        assertTrue(currentCluster != null, "No available cloud cluster for smooth upgrade load: ${clusters}")
+        sql """use @${currentCluster.cluster}"""
+    }
+
     def del_new_be = { ->
         println("delete be unique id is " + beUniqueId)
 
@@ -149,6 +157,8 @@ suite("smooth_upgrade") {
 
     sleep(10000)
     try {
+        use_valid_cluster.call()
+
         create_table_and_start_load.call()
 
         sleep(10000)

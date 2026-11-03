@@ -28,6 +28,10 @@
 #include "core/arena.h"
 #include "runtime/runtime_profile.h"
 
+namespace cctz {
+class time_zone;
+}
+
 namespace doris {
 
 struct ColumnPtrWrapper;
@@ -77,12 +81,17 @@ public:
 
     RuntimeState* state() { return _state; }
 
+    const cctz::time_zone* time_zone() const;
+    const std::string& time_zone_name() const;
+
     void set_dict_function(const TDictFunction& dict_function) { _dict_function = dict_function; }
 
     std::optional<TDictFunction>& dict_function() { return _dict_function; };
     bool check_overflow_for_decimal() const { return _check_overflow_for_decimal; }
 
     bool enable_strict_mode() const { return _enable_strict_mode; }
+
+    bool is_auto_partition_boundary_context() const { return _is_auto_partition_boundary_context; }
 
     bool set_check_overflow_for_decimal(bool check_overflow_for_decimal) {
         return _check_overflow_for_decimal = check_overflow_for_decimal;
@@ -91,6 +100,8 @@ public:
     bool set_enable_strict_mode(bool enable_strict_mode) {
         return _enable_strict_mode = enable_strict_mode;
     }
+
+    void set_auto_partition_boundary_context() { _is_auto_partition_boundary_context = true; }
 
     void set_string_as_jsonb_string(bool string_as_jsonb_string) {
         _string_as_jsonb_string = string_as_jsonb_string;
@@ -198,6 +209,7 @@ private:
     RuntimeProfile::Counter* _udf_execute_timer = nullptr;
     bool _check_overflow_for_decimal = false;
     bool _enable_strict_mode = false;
+    bool _is_auto_partition_boundary_context = false;
 
     bool _string_as_jsonb_string = false;
     bool _jsonb_string_as_string = false;

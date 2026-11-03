@@ -115,7 +115,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.rowset_id = _rowset->rowset_id();
     _read_options.version = _rowset->version();
     _read_options.tablet_id = _rowset->rowset_meta()->tablet_id();
-    _read_options.topn_limit = _topn_limit;
+    _read_options.read_limit = _topn_limit;
     if (_read_context->lower_bound_keys != nullptr) {
         for (int i = 0; i < _read_context->lower_bound_keys->size(); ++i) {
             _read_options.key_ranges.emplace_back(&_read_context->lower_bound_keys->at(i),
@@ -231,6 +231,9 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
             _read_options.io_ctx.remote_scan_cache_write_limiter =
                     query_ctx->remote_scan_cache_write_limiter();
         }
+        _read_options.io_ctx.inverted_index_snii_read_no_write_file_cache =
+                _read_context->runtime_state->query_options()
+                        .inverted_index_snii_read_no_write_file_cache;
     }
 
     if (_read_context->condition_cache_digest) {
@@ -241,13 +244,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         _read_options.condition_cache_digest = _read_context->condition_cache_digest;
     }
 
-    _read_options.io_ctx.expiration_time =
-            read_context->ttl_seconds > 0 && _rowset->rowset_meta()->newest_write_timestamp() > 0
-                    ? _rowset->rowset_meta()->newest_write_timestamp() + read_context->ttl_seconds
-                    : 0;
-    if (_read_options.io_ctx.expiration_time <= UnixSeconds()) {
-        _read_options.io_ctx.expiration_time = 0;
-    }
+    _read_options.io_ctx.expiration_time = read_context->file_cache_expiration_time;
 
     bool enable_segment_cache = true;
     auto* state = read_context->runtime_state;

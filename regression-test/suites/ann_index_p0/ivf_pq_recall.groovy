@@ -16,7 +16,7 @@
 // under the License.
 
 suite("ivf_pq_recall", "nonConcurrent") {
-    sql "set enable_common_expr_pushdown=true;"
+    sql "set enable_segment_limit_pushdown=true;"
     sql "set ivf_nprobe=8;"
 
     sql "drop table if exists ivf_pq_recall"

@@ -92,6 +92,8 @@ public class MTMV extends OlapTable {
     private MTMVCache cacheWithGuard;
     // Cache without SessionVarGuardExpr: used when query session variables match MV creation variables
     private MTMVCache cacheWithoutGuard;
+    // Increased on invalidation to reject caches built against an earlier definition or refresh.
+    private transient long rewriteCacheGeneration;
     private long schemaChangeVersion;
     @SerializedName(value = "sv")
     private Map<String, String> sessionVariables;
@@ -189,6 +191,7 @@ public class MTMV extends OlapTable {
             // only can update state, refresh state will be change by add task
             this.schemaChangeVersion++;
             this.refreshSnapshot = new MTMVRefreshSnapshot();
+            invalidateRewriteCache();
             return this.status.updateStateAndDetail(newStatus);
         } finally {
             writeMvUnlock();
@@ -196,15 +199,7 @@ public class MTMV extends OlapTable {
     }
 
     public void processBaseViewChange(String schemaChangeDetail) {
-        writeMvLock();
-        try {
-            this.schemaChangeVersion++;
-            this.status.setState(MTMVState.SCHEMA_CHANGE);
-            this.status.setSchemaChangeDetail(schemaChangeDetail);
-            this.refreshSnapshot = new MTMVRefreshSnapshot();
-        } finally {
-            writeMvUnlock();
-        }
+        alterStatus(new MTMVStatus(MTMVState.SCHEMA_CHANGE, schemaChangeDetail));
     }
 
     public boolean addTaskResult(MTMVTask task, MTMVRelation relation,
@@ -212,9 +207,16 @@ public class MTMV extends OlapTable {
         MTMVCache mtmvCacheWithGuard = null;
         MTMVCache mtmvCacheWithoutGuard = null;
         boolean needUpdateCache = false;
+        long cacheGeneration = -1;
         if (task.getStatus() == TaskStatus.SUCCESS && !Env.isCheckpointThread()
                 && !Config.enable_check_compatibility_mode) {
             needUpdateCache = true;
+            readMvLock();
+            try {
+                cacheGeneration = rewriteCacheGeneration;
+            } finally {
+                readMvUnlock();
+            }
             try {
                 // The replay thread may not have initialized the catalog yet to avoid getting stuck due
                 // to connection issues such as S3, so it is directly set to null
@@ -222,12 +224,8 @@ public class MTMV extends OlapTable {
                     ConnectContext currentContext = ConnectContext.get();
                     // shouldn't do this while holding mvWriteLock
                     // TODO: these two cache compute share something same, can be simplified in future
-                    mtmvCacheWithGuard = MTMVCache.from(this.getQuerySql(),
-                            MTMVPlanUtil.createMTMVContext(this, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE),
-                            true, true, currentContext, true);
-                    mtmvCacheWithoutGuard = MTMVCache.from(this.getQuerySql(),
-                            MTMVPlanUtil.createMTMVContext(this, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE),
-                            true, true, currentContext, false);
+                    mtmvCacheWithGuard = createRewriteCache(currentContext, true, true);
+                    mtmvCacheWithoutGuard = createRewriteCache(currentContext, true, false);
                 }
             } catch (Throwable e) {
                 mtmvCacheWithGuard = null;
@@ -245,23 +243,31 @@ public class MTMV extends OlapTable {
                         name, task.getTaskId(), task.getMtmvSchemaChangeVersion(), this.schemaChangeVersion);
                 return false;
             }
+            boolean publishCache = false;
             if (task.getStatus() == TaskStatus.SUCCESS) {
+                publishCache = needUpdateCache && cacheGeneration == rewriteCacheGeneration;
+                // A successful refresh changes the snapshot coverage and supersedes in-flight builds.
+                invalidateRewriteCache();
                 this.status.setState(MTMVState.NORMAL);
                 this.status.setSchemaChangeDetail(null);
                 this.status.setRefreshState(MTMVRefreshState.SUCCESS);
                 this.relation = relation;
-                if (needUpdateCache) {
-                    // Initialize cacheWithGuard, cacheWithoutGuard will be lazily generated when needed
-                    this.cacheWithGuard = mtmvCacheWithGuard;
-                    // Clear the other cache to ensure consistency
-                    this.cacheWithoutGuard = mtmvCacheWithoutGuard;
-                }
             } else {
                 this.status.setRefreshState(MTMVRefreshState.FAIL);
             }
             this.jobInfo.addHistoryTask(task);
             compatiblePctSnapshot(partitionSnapshots);
             this.refreshSnapshot.updateSnapshots(partitionSnapshots, getPartitionNames());
+            if (publishCache) {
+                // Publish after recording coverage: NORMAL after a partial refresh does not prove
+                // that every stored partition already uses the current definition.
+                if (mtmvCacheWithGuard != null) {
+                    this.cacheWithGuard = cacheWithValidOutputPredicates(mtmvCacheWithGuard);
+                }
+                if (mtmvCacheWithoutGuard != null) {
+                    this.cacheWithoutGuard = cacheWithValidOutputPredicates(mtmvCacheWithoutGuard);
+                }
+            }
             Env.getCurrentEnv().getMtmvService()
                     .refreshComplete(this, relation, task);
             return true;
@@ -286,6 +292,7 @@ public class MTMV extends OlapTable {
                     // snapshots so the next AUTO refresh rebuilds a complete baseline with the new rules.
                     this.schemaChangeVersion++;
                     this.refreshSnapshot = new MTMVRefreshSnapshot();
+                    invalidateRewriteCache();
                 }
             }
             return this.mvProperties;
@@ -424,36 +431,60 @@ public class MTMV extends OlapTable {
         boolean sessionVarsMatch = SessionVarGuardRewriter.checkSessionVariablesMatch(
                 currentSessionVars, this.sessionVariables);
 
-        // Select appropriate cache based on session variable match
-        readMvLock();
-        try {
-            if (sessionVarsMatch && cacheWithoutGuard != null) {
-                return cacheWithoutGuard;
+        while (true) {
+            long cacheGeneration;
+            readMvLock();
+            try {
+                MTMVCache cached = sessionVarsMatch ? cacheWithoutGuard : cacheWithGuard;
+                if (cached != null) {
+                    return cached;
+                }
+                cacheGeneration = rewriteCacheGeneration;
+            } finally {
+                readMvUnlock();
             }
-            if (!sessionVarsMatch && cacheWithGuard != null) {
-                return cacheWithGuard;
-            }
-        } finally {
-            readMvUnlock();
-        }
 
-        // Generate cache if not exists
-        // Concurrent situations may result in duplicate cache generation,
-        // but we tolerate this in order to prevent nested use of readLock and write MvLock for the table
-        MTMVCache mtmvCache = MTMVCache.from(this.getQuerySql(),
-                MTMVPlanUtil.createMTMVContext(this, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE),
-                true, false, connectionContext, !sessionVarsMatch);
+            // Build outside the MV lock to avoid nesting it with table locks during analysis.
+            MTMVCache generated = createRewriteCache(connectionContext, false, !sessionVarsMatch);
+            writeMvLock();
+            try {
+                if (cacheGeneration != rewriteCacheGeneration) {
+                    continue;
+                }
+                MTMVCache cached = sessionVarsMatch ? cacheWithoutGuard : cacheWithGuard;
+                if (cached != null) {
+                    return cached;
+                }
+                MTMVCache published = cacheWithValidOutputPredicates(generated);
+                if (sessionVarsMatch) {
+                    this.cacheWithoutGuard = published;
+                } else {
+                    this.cacheWithGuard = published;
+                }
+                return published;
+            } finally {
+                writeMvUnlock();
+            }
+        }
+    }
+
+    /** Invalidate both cache variants and reject any older build still in progress. */
+    public void invalidateRewriteCache() {
         writeMvLock();
         try {
-            if (sessionVarsMatch) {
-                this.cacheWithoutGuard = mtmvCache;
-            } else {
-                this.cacheWithGuard = mtmvCache;
-            }
-            return mtmvCache;
+            rewriteCacheGeneration++;
+            cacheWithGuard = null;
+            cacheWithoutGuard = null;
         } finally {
             writeMvUnlock();
         }
+    }
+
+    protected MTMVCache createRewriteCache(ConnectContext currentContext, boolean needLock,
+            boolean addSessionVarGuard) {
+        return MTMVCache.from(this.getQuerySql(),
+                MTMVPlanUtil.createMTMVContext(this, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE),
+                true, needLock, currentContext, addSessionVarGuard);
     }
 
     public Map<String, String> getMvProperties() {
@@ -601,6 +632,15 @@ public class MTMV extends OlapTable {
         this.mvRwLock.writeLock().unlock();
     }
 
+    private MTMVCache cacheWithValidOutputPredicates(MTMVCache cache) {
+        // Callers hold the MV lock while publishing guarantees about the stored partitions.
+        if (status.getState() == MTMVState.SCHEMA_CHANGE
+                || !refreshSnapshot.getPartitionSnapshots().keySet().containsAll(getPartitionNames())) {
+            return cache.withoutOutputPredicates();
+        }
+        return cache;
+    }
+
     // toString() is not easy to find where to call the method
     public String toInfoString() {
         final StringBuilder sb = new StringBuilder("MTMV{");
@@ -638,8 +678,8 @@ public class MTMV extends OlapTable {
             Env.getCurrentEnv().getMtmvService().registerMTMV(this, this.getDatabase().getId());
         } catch (Throwable e) {
             LOG.warn("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", getDBName(), name, e.getMessage());
-            status.setState(MTMVState.SCHEMA_CHANGE);
-            status.setSchemaChangeDetail("compatible failed, please refresh or recreate it, reason: " + e.getMessage());
+            alterStatus(new MTMVStatus(MTMVState.SCHEMA_CHANGE,
+                    "compatible failed, please refresh or recreate it, reason: " + e.getMessage()));
         }
     }
 

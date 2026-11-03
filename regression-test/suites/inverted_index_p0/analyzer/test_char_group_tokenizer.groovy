@@ -131,7 +131,7 @@ suite("test_char_group_tokenizer", "p0") {
 
     try {
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
 
         // Match queries leveraging the analyzer
         qt_sql """ select id, ch from ${tbl} where ch match 'World'; """

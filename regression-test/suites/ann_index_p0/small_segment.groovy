@@ -16,7 +16,7 @@
 // under the License.
 
 suite("small_segment") {
-    sql "set enable_common_expr_pushdown=true;"
+    sql "set enable_segment_limit_pushdown=true;"
 
     // Test that ANN index is not built when segment size is smaller than required training rows
     sql "drop table if exists tbl_small_segment"

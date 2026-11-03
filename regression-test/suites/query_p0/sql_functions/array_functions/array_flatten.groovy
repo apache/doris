@@ -43,4 +43,33 @@ suite("array_flatten") {
     qt_test """
     select k1, array_flatten(a1), array_flatten(aaa1), array_flatten(aa3), array_flatten(aa5), array_flatten(aa14) from t_array_flatten order by k1;
     """
+
+    sql """DROP TABLE IF EXISTS t_array_flatten_null_subarray"""
+    sql """
+            CREATE TABLE t_array_flatten_null_subarray (
+              `id` int,
+              `a` array<int>
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "storage_format" = "V2"
+            )
+        """
+    sql """INSERT INTO t_array_flatten_null_subarray VALUES (1, [101, 102]), (2, [201])"""
+
+    order_qt_null_subarray """
+        SELECT id,
+               array(if(id = 1, NULL, a), [9]) AS visible_array,
+               array_flatten(array(if(id = 1, NULL, a), [9])) AS flat_array,
+               array_flatten(CAST([NULL, [9]] AS ARRAY<ARRAY<INT>>)) AS literal_flat
+        FROM t_array_flatten_null_subarray
+    """
+
+    order_qt_null_subarray_nested """
+        SELECT id,
+               array_flatten(array(array(if(id = 1, NULL, a), [9]))) AS flat_array
+        FROM t_array_flatten_null_subarray
+    """
 }

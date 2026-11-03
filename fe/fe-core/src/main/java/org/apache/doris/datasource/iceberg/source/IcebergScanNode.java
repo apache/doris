@@ -40,6 +40,7 @@ import org.apache.doris.datasource.ExternalScanTaskCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalUtil;
 import org.apache.doris.datasource.FileQueryScanNode;
+import org.apache.doris.datasource.SplitAssignment;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.credentials.CredentialUtils;
 import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
@@ -48,9 +49,11 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
+import org.apache.doris.datasource.iceberg.IcebergRuntimeContext;
 import org.apache.doris.datasource.iceberg.IcebergSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergTimestampUtils;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.iceberg.cache.IcebergManifestCacheLoader;
 import org.apache.doris.datasource.iceberg.cache.ManifestCacheValue;
@@ -100,6 +103,7 @@ import org.apache.iceberg.ContentScanTask;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.DeleteFileIndex;
+import org.apache.iceberg.DorisDataTableScan;
 import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
@@ -139,6 +143,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.ByteArrayOutputStream;
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
 import java.io.OutputStream;
@@ -159,7 +164,9 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.Callable;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -193,9 +200,23 @@ public class IcebergScanNode extends FileQueryScanNode {
     private List<String> orderedPartitionMetadataKeys;
     private boolean enableMappingVarbinaryForPartitionMetadata;
     private boolean enableMappingTimestampTzForPartitionMetadata;
+    // Whether the table's CURRENT default spec is partitioned. Display/accounting only: it gates what
+    // counts as a scanned partition (selectedPartitionNum, numApproximateSplits), preserving the legacy
+    // numbers for a table that evolved to an unpartitioned spec.
     private boolean isPartitionedTable;
+    private Boolean requiresRowId;
+    // Whether ANY spec of the table is partitioned. This is the READ gate: data files written under an
+    // older partitioned spec still carry their identity values, and must keep sending them even after
+    // the default spec evolved to unpartitioned.
+    private boolean hasPartitionedSpec;
     private int formatVersion;
     private ExecutionAuthenticator preExecutionAuthenticator;
+    private IcebergRuntimeContext runtimeContext;
+    private Boolean frozenEnableMappingVarbinary;
+    private Boolean frozenEnableMappingTimestampTz;
+    // The exact generation behind the pinned frozen snapshot this node plans and scans, retained
+    // so asynchronous split planning outlives a generation owned by another statement.
+    private IcebergSnapshotCacheValue frozenGenerationSource;
     private TableScan icebergTableScan;
     private Schema querySchema;
     // Store PropertiesMap, including vended credentials or static credentials
@@ -231,6 +252,12 @@ public class IcebergScanNode extends FileQueryScanNode {
     // ReferencedDataFile path -> List<DeleteFile> / List<TIcebergDeleteFileDesc> (exclude equal delete)
     public Map<String, List<DeleteFile>> deleteFilesByReferencedDataFile = new HashMap<>();
     public Map<String, List<TIcebergDeleteFileDesc>> deleteFilesDescByReferencedDataFile = new HashMap<>();
+
+    @Override
+    protected String getHiveParquetTimeZone() {
+        // Iceberg timestamp annotations remain authoritative when the table is discovered through HMS.
+        return "";
+    }
 
     // for test
     @VisibleForTesting
@@ -297,8 +324,10 @@ public class IcebergScanNode extends FileQueryScanNode {
             icebergTable = source.getIcebergTable();
             icebergTable = useFrozenTableGeneration(icebergTable);
             partitionMapInfos = new HashMap<>();
+            getQuerySchema();
             initializePartitionMetadata();
             isPartitionedTable = icebergTable.spec().isPartitioned();
+            hasPartitionedSpec = IcebergUtils.hasPartitionedSpec(icebergTable);
             // Metadata tables (system tables) are not BaseTable instances, so we need to handle this case
             if (icebergTable instanceof BaseTable) {
                 formatVersion = ((BaseTable) icebergTable).operations().current().formatVersion();
@@ -307,12 +336,16 @@ public class IcebergScanNode extends FileQueryScanNode {
                 // These tables are always readable regardless of format version
                 formatVersion = MIN_DELETE_FILE_SUPPORT_VERSION;
             }
-            preExecutionAuthenticator = source.getCatalog().getExecutionAuthenticator();
-            storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
-                    source.getCatalog().getCatalogProperty().getMetastoreProperties(),
-                    source.getCatalog().getCatalogProperty().getStoragePropertiesMap(),
-                    icebergTable
-            );
+            if (runtimeContext == null) {
+                preExecutionAuthenticator = source.getCatalog().getExecutionAuthenticator();
+                storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
+                        source.getCatalog().getCatalogProperty().getMetastoreProperties(),
+                        source.getCatalog().getCatalogProperty().getStoragePropertiesMap(), icebergTable);
+            } else {
+                preExecutionAuthenticator = runtimeContext.getAuthenticator();
+                storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
+                        runtimeContext.getMetastoreProperties(), runtimeContext.getStorageProperties(), icebergTable);
+            }
             storagePropertiesMap = IcebergUtils.selectEffectiveStorageProperties(storagePropertiesMap);
             backendStorageProperties = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
         } finally {
@@ -485,20 +518,40 @@ public class IcebergScanNode extends FileQueryScanNode {
             orderedPartitionMetadataKeys = Collections.emptyList();
             return;
         }
+        Schema scanSchema = getPartitionMetadataScanSchema();
         enableMappingVarbinaryForPartitionMetadata = getEnableMappingVarbinary();
         enableMappingTimestampTzForPartitionMetadata = getEnableMappingTimestampTz();
-        orderedPathPartitionKeys = Collections.unmodifiableList(
-                IcebergUtils.getCommonIdentityPartitionColumns(icebergTable,
-                        enableMappingVarbinaryForPartitionMetadata,
-                        enableMappingTimestampTzForPartitionMetadata));
         if (sessionVariable.enableFileScannerV2) {
-            orderedPartitionMetadataKeys = Collections.unmodifiableList(
-                    IcebergUtils.getIdentityPartitionColumns(icebergTable,
+            // Classify every identity column of EVERY spec as a partition key, like master does. A file
+            // written under an older identity spec carries its value in the manifest only, and BE uses a
+            // split partition value just for a column FE marked as a partition key, so the intersection
+            // below would leave that value unused and the column read as NULL. Files that carry no value
+            // for the column (a spec without it) are unaffected: the v2 column mapper falls back to the
+            // physical field when the split has no partition value for a partition key.
+            orderedPathPartitionKeys = Collections.unmodifiableList(
+                    IcebergUtils.getIdentityPartitionColumns(icebergTable, scanSchema,
                             enableMappingVarbinaryForPartitionMetadata,
                             enableMappingTimestampTzForPartitionMetadata));
         } else {
-            orderedPartitionMetadataKeys = orderedPathPartitionKeys;
+            // v1 has no such per-file fallback: a partition key it cannot fill from the split is not read
+            // from the file either. Keep the columns common to all specs so those files stay readable.
+            orderedPathPartitionKeys = Collections.unmodifiableList(
+                    IcebergUtils.getCommonIdentityPartitionColumns(icebergTable, scanSchema,
+                            enableMappingVarbinaryForPartitionMetadata,
+                            enableMappingTimestampTzForPartitionMetadata));
         }
+        orderedPartitionMetadataKeys = orderedPathPartitionKeys;
+    }
+
+    private Schema getPartitionMetadataScanSchema() {
+        if (plannedScanSchema != null) {
+            return plannedScanSchema;
+        }
+        if (querySchema != null) {
+            return querySchema;
+        }
+        return Preconditions.checkNotNull(
+                icebergTable.schema(), "Schema for Iceberg scan is null");
     }
 
     @VisibleForTesting
@@ -1636,6 +1689,12 @@ public class IcebergScanNode extends FileQueryScanNode {
         try {
             return preExecutionAuthenticator.execute(() -> doGetSplits(numBackends));
         } catch (Exception e) {
+            // Authentication can wrap user errors; keep their guidance instead of only the root cause.
+            for (Throwable cause : ExceptionUtils.getThrowableList(e)) {
+                if (cause instanceof UserException) {
+                    throw (UserException) cause;
+                }
+            }
             Optional<NotSupportedException> opt = checkNotSupportedException(e);
             if (opt.isPresent()) {
                 throw opt.get();
@@ -1678,7 +1737,10 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     public void doStartSplit() throws UserException {
         TableScan scan = createTableScan();
-        CompletableFuture.runAsync(() -> {
+        ExecutorService executor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
+        Closeable generationLease = IcebergUtils.retainTableGenerationForAsyncPlanning(
+                source.getTargetTable(), frozenGenerationSource);
+        AsyncPlanningTask planningTask = new AsyncPlanningTask(executor, splitAssignment, generationLease, () -> {
             AtomicReference<CloseableIterable<FileScanTask>> taskRef = new AtomicReference<>();
             try {
                 preExecutionAuthenticator.execute(
@@ -1722,7 +1784,119 @@ public class IcebergScanNode extends FileQueryScanNode {
                     }
                 }
             }
-        }, Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor());
+        });
+        splitAssignment.addCloseable(planningTask);
+        planningTask.submit();
+    }
+
+    /** Owns the planner generation until the worker actually exits, including cancellation races. */
+    @VisibleForTesting
+    static final class AsyncPlanningTask implements Runnable, Closeable {
+        private final ExecutorService executor;
+        private final SplitAssignment splitAssignment;
+        private final Closeable generationLease;
+        private final Runnable planning;
+        private final FutureTask<Void> submission;
+        private boolean submitted;
+        private boolean started;
+        private boolean closeRequested;
+        private boolean finished;
+        private Thread runner;
+
+        AsyncPlanningTask(ExecutorService executor, SplitAssignment splitAssignment,
+                Closeable generationLease, Runnable planning) {
+            this.executor = Objects.requireNonNull(executor, "executor is null");
+            this.splitAssignment = Objects.requireNonNull(splitAssignment, "splitAssignment is null");
+            this.generationLease = Objects.requireNonNull(generationLease, "generationLease is null");
+            this.planning = Objects.requireNonNull(planning, "planning is null");
+            this.submission = new FutureTask<>(this, null);
+        }
+
+        void submit() {
+            try {
+                synchronized (this) {
+                    if (finished) {
+                        return;
+                    }
+                    submitted = true;
+                }
+                executor.execute(submission);
+                synchronized (this) {
+                    if (finished && executor instanceof ThreadPoolExecutor) {
+                        ((ThreadPoolExecutor) executor).remove(submission);
+                    }
+                }
+            } catch (RuntimeException | Error e) {
+                finish();
+                throw e;
+            }
+        }
+
+        @Override
+        public void run() {
+            boolean cancelled;
+            synchronized (this) {
+                if (finished) {
+                    return;
+                }
+                started = true;
+                runner = Thread.currentThread();
+                cancelled = closeRequested;
+            }
+            try {
+                if (!cancelled) {
+                    planning.run();
+                }
+            } finally {
+                finish();
+            }
+        }
+
+        @Override
+        public void close() {
+            Thread threadToInterrupt = null;
+            boolean finishBeforeStart = false;
+            synchronized (this) {
+                if (finished) {
+                    return;
+                }
+                closeRequested = true;
+                if (started) {
+                    threadToInterrupt = runner;
+                } else {
+                    finishBeforeStart = true;
+                    // Make cancellation visible to BlockedPolicy even if close() wins in the
+                    // submitted-but-not-yet-enqueued window.
+                    submission.cancel(false);
+                    if (submitted && executor instanceof ThreadPoolExecutor) {
+                        ((ThreadPoolExecutor) executor).remove(submission);
+                    }
+                }
+            }
+            if (threadToInterrupt != null) {
+                threadToInterrupt.interrupt();
+            }
+            if (finishBeforeStart) {
+                finish();
+            }
+        }
+
+        private void finish() {
+            synchronized (this) {
+                if (finished) {
+                    return;
+                }
+                finished = true;
+                runner = null;
+            }
+            splitAssignment.removeCloseable(this);
+            try {
+                generationLease.close();
+            } catch (IOException e) {
+                splitAssignment.setException(
+                        new UserException("Failed to release Iceberg planning generation", e));
+            }
+        }
     }
 
     @VisibleForTesting
@@ -1750,14 +1924,20 @@ public class IcebergScanNode extends FileQueryScanNode {
                         selectedSchema, "Schema %s for Iceberg scan is null", info.getSchemaId()));
             }
         }
+        if (!isSystemTable) {
+            // Iceberg 1.11 skips spec rebinding when only the schema changed, and its snapshot
+            // schema can differ from the current schema deliberately projected for a branch.
+            scan = DorisDataTableScan.wrap(scan);
+        }
         Schema scanSchema = scan.schema();
+        Set<Integer> unsafeNanosFields = IcebergTimestampUtils.unsafeNanosFields(icebergTable, scanSchema);
 
         // set filter
         List<Expression> expressions = new ArrayList<>();
         for (Expr conjunct : conjuncts) {
             // Ref/snapshot selection can change field IDs and names, so every pruning expression
             // must be bound against the schema selected by this scan rather than the current table.
-            Expression expression = IcebergUtils.convertToIcebergExpr(conjunct, scanSchema);
+            Expression expression = IcebergUtils.convertToIcebergExpr(conjunct, scanSchema, unsafeNanosFields);
             if (expression != null) {
                 expressions.add(expression);
             }
@@ -1767,30 +1947,22 @@ public class IcebergScanNode extends FileQueryScanNode {
             this.pushdownIcebergPredicates.add(predicate.toString());
         }
 
-        icebergTableScan = scan.planWith(source.getCatalog().getThreadPoolWithPreAuth());
+        icebergTableScan = scan.planWith(getPlanningExecutor());
 
         return icebergTableScan;
     }
 
     private Table useFrozenTableGeneration(Table currentTable) {
+        frozenGenerationSource = null;
         Optional<MvccSnapshot> snapshot = getPinnedRelationSnapshot();
         if (snapshot.filter(IcebergMvccSnapshot.class::isInstance).isPresent()) {
             IcebergSnapshotCacheValue cacheValue =
                     ((IcebergMvccSnapshot) snapshot.get()).getSnapshotCacheValue();
+            frozenEnableMappingVarbinary = cacheValue.isEnableMappingVarbinary();
+            frozenEnableMappingTimestampTz = cacheValue.isEnableMappingTimestampTz();
             Optional<Table> frozenTable = cacheValue.getIcebergTable();
             if (frozenTable.isPresent()) {
-                // Planning the frozen generation (regular relations and snapshot-selectable
-                // system tables alike) uses the catalog's current authenticator, storage state
-                // and pre-authenticated executor. Those are only coherent with the retained
-                // frozen operations/FileIO while the catalog still serves the generation this
-                // statement pinned; after a credential/storage ALTER the statement must fail and
-                // be retried. Count-mode values retain no frozen handle and plan the live table,
-                // so they are not fenced; values without a captured context resolve nothing here.
-                if (cacheValue.getCapturedAuthenticator() != null) {
-                    cacheValue.ensurePlannableUnder(
-                            source.getCatalog().getExecutionAuthenticator(),
-                            source.getTargetTable().getName());
-                }
+                runtimeContext = cacheValue.getRuntimeContext();
                 Table frozenBaseTable = frozenTable.get();
                 if (isSystemTable && source.getTargetTable() instanceof IcebergSysExternalTable) {
                     IcebergSysExternalTable systemTable = (IcebergSysExternalTable) source.getTargetTable();
@@ -1800,16 +1972,49 @@ public class IcebergScanNode extends FileQueryScanNode {
                                 "Unknown Iceberg system table type: %s", systemTable.getSysTableType());
                         // Snapshot-selectable metadata tables must derive their scans and schemas
                         // from the same frozen base generation as the relation's snapshot fence.
+                        frozenGenerationSource = cacheValue;
                         return MetadataTableUtils.createMetadataTableInstance(frozenBaseTable, tableType);
                     }
+                    if (systemTable.bindsToStatementGeneration()) {
+                        // ALL_* metadata tables ignore a selected snapshot id but Iceberg derives
+                        // their schema from the statement generation, so they must keep the frozen
+                        // generation and its async-planning lease.
+                        frozenGenerationSource = cacheValue;
+                        return currentTable;
+                    }
+                    // Truly static metadata tables (SNAPSHOTS/HISTORY/REFS/...) read the current
+                    // generation. Drop the pinned runtime, mapping policy and planning lease so a
+                    // G2 table is never executed with G1 resources.
+                    runtimeContext = null;
+                    frozenEnableMappingVarbinary = null;
+                    frozenEnableMappingTimestampTz = null;
                     return currentTable;
                 }
                 // Snapshot selection fences data files, but spec, properties, expiration state,
                 // and schema lookup still come from Table; keep them on the bound generation too.
+                frozenGenerationSource = cacheValue;
                 return frozenBaseTable;
             }
         }
         return currentTable;
+    }
+
+    @Override
+    protected boolean getEnableMappingVarbinary() {
+        return frozenEnableMappingVarbinary == null
+                ? super.getEnableMappingVarbinary() : frozenEnableMappingVarbinary;
+    }
+
+    @Override
+    protected boolean getEnableMappingTimestampTz() {
+        return frozenEnableMappingTimestampTz == null
+                ? super.getEnableMappingTimestampTz() : frozenEnableMappingTimestampTz;
+    }
+
+    private java.util.concurrent.ExecutorService getPlanningExecutor() {
+        return runtimeContext == null
+                ? source.getCatalog().getThreadPoolWithPreAuth()
+                : runtimeContext.getPlanningExecutor();
     }
 
     @VisibleForTesting
@@ -2217,16 +2422,17 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
         ExternalTable targetExternalTable = (ExternalTable) source.getTargetTable();
         Schema scanSchema = scan.schema();
+        Set<Integer> unsafeNanosFields = IcebergTimestampUtils.unsafeNanosFields(icebergTable, scanSchema);
 
         // Convert query conjuncts to Iceberg filter expression
         // This combines all predicates with AND logic for partition/file pruning
         Expression filterExpr = conjuncts.stream()
-                .map(conjunct -> IcebergUtils.convertToIcebergExpr(conjunct, scanSchema))
+                .map(conjunct -> IcebergUtils.convertToIcebergExpr(conjunct, scanSchema, unsafeNanosFields))
                 .filter(Objects::nonNull)
                 .reduce(Expressions.alwaysTrue(), Expressions::and);
 
         // Get all partition specs by their IDs for later use
-        Map<Integer, PartitionSpec> specsById = icebergTable.specs();
+        Map<Integer, PartitionSpec> specsById = DorisDataTableScan.specsForScan(scan);
         boolean caseSensitive = true;
 
         // Create residual evaluators for each partition spec
@@ -2261,15 +2467,20 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
             // Load delete files from cache (or from storage if not cached)
             ManifestCacheValue value = IcebergManifestCacheLoader.loadDeleteFilesWithCache(cache,
-                    targetExternalTable, manifest, icebergTable, this::recordManifestCacheAccess);
+                    targetExternalTable, manifest, icebergTable, runtimeContext, this::recordManifestCacheAccess);
             deleteFiles.addAll(value.getDeleteFiles());
         }
 
         // Build delete file index for efficient lookup of deletes applicable to each data file
-        DeleteFileIndex deleteIndex = DeleteFileIndex.builderFor(deleteFiles)
+        DeleteFileIndex.Builder deleteIndexBuilder = DeleteFileIndex.builderFor(deleteFiles)
                 .specsById(specsById)
-                .caseSensitive(caseSensitive)
-                .build();
+                .caseSensitive(caseSensitive);
+        // Equality deletes may reference fields dropped from the current schema, so resolve their
+        // field IDs against every historical schema. Other scans skip indexing the schema history.
+        if (deleteFiles.stream().anyMatch(file -> file.content() == FileContent.EQUALITY_DELETES)) {
+            deleteIndexBuilder.schemasById(icebergTable.schemas());
+        }
+        DeleteFileIndex deleteIndex = deleteIndexBuilder.build();
 
         // ========== Phase 2: Load data files and create scan tasks ==========
         List<FileScanTask> tasks = new ArrayList<>();
@@ -2294,7 +2505,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
                 // Load data files from cache (or from storage if not cached)
                 ManifestCacheValue value = IcebergManifestCacheLoader.loadDataFilesWithCache(cache,
-                        targetExternalTable, manifest, icebergTable, this::recordManifestCacheAccess);
+                        targetExternalTable, manifest, icebergTable, runtimeContext, this::recordManifestCacheAccess);
 
                 // Process each data file in the manifest
                 for (org.apache.iceberg.DataFile dataFile : value.getDataFiles()) {
@@ -2389,8 +2600,18 @@ public class IcebergScanNode extends FileQueryScanNode {
         return LocationPath.of(path, storagePropertiesMap);
     }
 
+    private boolean requiresRowId() {
+        if (requiresRowId == null) {
+            // Slots are finalized by split planning; inspect them once for all files in this scan.
+            requiresRowId = desc.getSlots().stream().anyMatch(slot -> slot.getColumn() != null
+                    && Column.ICEBERG_ROWID_COL.equalsIgnoreCase(slot.getColumn().getName()));
+        }
+        return requiresRowId;
+    }
+
     private Split createIcebergSplit(FileScanTask fileScanTask) throws UserException {
         DataFile dataFile = fileScanTask.file();
+        Schema scanSchema = getPartitionMetadataScanSchema();
         String originalPath = dataFile.path().toString();
         LocationPath locationPath = createLocationPathWithCache(originalPath);
         IcebergSplit split = new IcebergSplit(
@@ -2422,19 +2643,37 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
         split.setTableFormatType(TableFormatType.ICEBERG);
         split.setTargetSplitSize(selectFeSplitSize(fileScanTask, targetSplitSize));
-        if (isPartitionedTable) {
-            int specId = fileScanTask.file().specId();
+        // REPLACE or partition evolution can leave an unpartitioned table with historical specs.
+        // Row-level deletes must retain each file's spec instead of defaulting to historical spec 0.
+        int specId = dataFile.specId();
+        split.setPartitionSpecId(specId);
+        PartitionData partitionData = (PartitionData) dataFile.partition();
+        boolean includePartitionData = requiresRowId();
+        // Gate identity values on the table's spec HISTORY, not on the current default spec: a file written
+        // under an older identity spec keeps its partition values in the manifest, and they are the only
+        // source for an identity partition column that the physical file does not store.
+        if (partitionData != null && (includePartitionData || hasPartitionedSpec)) {
             PartitionSpec partitionSpec = icebergTable.specs().get(specId);
             Preconditions.checkNotNull(partitionSpec, "Partition spec with specId %s not found for table %s",
                     specId, icebergTable.name());
-            PartitionData partitionData = (PartitionData) fileScanTask.file().partition();
-            if (partitionData != null) {
-                split.setPartitionSpecId(specId);
-                split.setPartitionDataJson(IcebergUtils.getPartitionDataJson(
-                        partitionData, partitionSpec, sessionVariable.getTimeZone()));
+            // Only row-ID consumers need this JSON; ordinary reads still retain spec and pruning metadata.
+            if (includePartitionData) {
+                try {
+                    split.setPartitionDataJson(IcebergUtils.getPartitionDataJson(
+                            partitionData, partitionSpec, sessionVariable.getTimeZone()));
+                } catch (UnsupportedOperationException e) {
+                    // A dropped source column can leave UNKNOWN; DML must not substitute a NULL partition.
+                    throw new UserException("Cannot produce Iceberg row IDs with unsupported partition types in spec "
+                            + specId + ". Rewrite historical data files before DELETE or UPDATE.", e);
+                }
+            }
+            // The cache doubles as the scanned-partition count only for a partitioned current spec. Otherwise
+            // cache only specs with identity fields, or transformed-only old partitions would grow it uselessly.
+            if (isPartitionedTable || partitionSpec.fields().stream()
+                    .anyMatch(field -> field.transform().isIdentity())) {
                 Map<String, String> partitionInfoMap = partitionMapInfos.computeIfAbsent(
                         Pair.of(specId, partitionData), k -> IcebergUtils.getIdentityPartitionInfoMap(
-                                partitionData, partitionSpec, icebergTable, sessionVariable.getTimeZone(),
+                                partitionData, partitionSpec, scanSchema, sessionVariable.getTimeZone(),
                                 enableMappingVarbinaryForPartitionMetadata,
                                 enableMappingTimestampTzForPartitionMetadata));
                 // A spec may mix identity and transformed fields. Keep its identity values so a
@@ -2443,9 +2682,9 @@ public class IcebergScanNode extends FileQueryScanNode {
                 if (!partitionInfoMap.isEmpty()) {
                     split.setIcebergPartitionValues(partitionInfoMap);
                 }
-            } else {
-                partitionMapInfos.put(Pair.of(specId, null), Collections.emptyMap());
             }
+        } else if (partitionData == null && isPartitionedTable) {
+            partitionMapInfos.put(Pair.of(specId, null), Collections.emptyMap());
         }
         return split;
     }
@@ -2527,24 +2766,28 @@ public class IcebergScanNode extends FileQueryScanNode {
     private String getPartitionDataObjectJson(PartitionData partitionData, PartitionSpec partitionSpec,
             List<NestedField> outputPartitionFields) throws UserException {
         List<NestedField> partitionTypes = partitionData.getPartitionType().asNestedType().fields();
-        boolean enableMappingVarbinary = getEnableMappingVarbinary();
-        for (int i = 0; i < partitionTypes.size(); i++) {
-            Type type = partitionTypes.get(i).type();
-            if (partitionData.get(i) != null && (type.typeId() == Type.TypeID.BINARY
-                    || type.typeId() == Type.TypeID.FIXED
-                    || (type.typeId() == Type.TypeID.UUID && enableMappingVarbinary))) {
-                throw new UserException("Iceberg position_deletes cannot materialize non-null partition field '"
-                        + partitionTypes.get(i).name() + "' of type " + type
-                        + " without a binary-safe partition transport");
-            }
-        }
-        List<String> partitionValues = IcebergUtils.getPartitionValues(
-                partitionData, partitionSpec, sessionVariable.getTimeZone());
         Map<Integer, Object> partitionValueByFieldId = new HashMap<>();
         List<PartitionField> fields = partitionSpec.fields();
         for (int i = 0; i < fields.size(); i++) {
-            partitionValueByFieldId.put(fields.get(i).fieldId(),
-                    getPartitionJsonValue(partitionTypes.get(i).type(), partitionValues.get(i)));
+            Type type = partitionTypes.get(i).type();
+            Object value = partitionData.get(i);
+            Object jsonValue = null;
+            if (value != null) {
+                if (type.typeId() == Type.TypeID.BINARY || type.typeId() == Type.TypeID.FIXED
+                        || type.typeId() == Type.TypeID.UUID) {
+                    // JSON text must not transcode arbitrary bytes. Iceberg's conversion preserves
+                    // UUID byte order; duplicate the buffer so metadata positions remain unchanged.
+                    java.nio.ByteBuffer buffer = org.apache.iceberg.types.Conversions.toByteBuffer(type, value)
+                            .duplicate();
+                    byte[] bytes = new byte[buffer.remaining()];
+                    buffer.get(bytes);
+                    jsonValue = "0x" + BaseEncoding.base16().encode(bytes);
+                } else {
+                    jsonValue = getPartitionJsonValue(type,
+                            IcebergUtils.serializePartitionValue(type, value, sessionVariable.getTimeZone()));
+                }
+            }
+            partitionValueByFieldId.put(fields.get(i).fieldId(), jsonValue);
         }
         JsonObject partitionJson = new JsonObject();
         for (NestedField outputPartitionField : outputPartitionFields) {
@@ -2575,6 +2818,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             case UUID:
             case DATE:
             case TIME:
+            case TIMESTAMP_NANO:
             case TIMESTAMP:
                 return partitionValue;
             default:
@@ -2609,7 +2853,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             for (FileScanTask task : customFileScanTasks) {
                 splits.add(createIcebergSplit(task));
             }
-            selectedPartitionNum = partitionMapInfos.size();
+            selectedPartitionNum = scannedPartitionNum();
             recordManifestCacheProfile();
             return splits;
         }
@@ -2646,7 +2890,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
         }
 
-        selectedPartitionNum = partitionMapInfos.size();
+        selectedPartitionNum = scannedPartitionNum();
         recordManifestCacheProfile();
         return splits;
     }
@@ -2700,10 +2944,11 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
         }
         Schema scanSchema = scan.schema();
+        Set<Integer> unsafeNanosFields = IcebergTimestampUtils.unsafeNanosFields(icebergTable, scanSchema);
 
         List<Expression> expressions = new ArrayList<>();
         for (Expr conjunct : conjuncts) {
-            Expression expression = IcebergUtils.convertToIcebergExpr(conjunct, scanSchema);
+            Expression expression = IcebergUtils.convertToIcebergExpr(conjunct, scanSchema, unsafeNanosFields);
             if (expression != null) {
                 expressions.add(expression);
             }
@@ -2714,7 +2959,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
 
         long startTime = System.currentTimeMillis();
-        scan = scan.planWith(source.getCatalog().getThreadPoolWithPreAuth());
+        scan = scan.planWith(getPlanningExecutor());
         BatchScan plannedScan = scan;
         try {
             positionDeleteTasks = getOrPlanPositionDeleteTasks(plannedScan, () -> {
@@ -2822,7 +3067,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                 try (CloseableIterator<ManifestFile> matchingManifest =
                         IcebergUtils.getMatchingManifest(
                                 createTableScan().snapshot().dataManifests(icebergTable.io()),
-                                icebergTable.specs(),
+                                DorisDataTableScan.specsForScan(createTableScan()),
                                 createTableScan().filter()).iterator()) {
                     int cnt = 0;
                     while (matchingManifest.hasNext()) {
@@ -3029,9 +3274,21 @@ public class IcebergScanNode extends FileQueryScanNode {
         ((IcebergSplit) splits.get(size - 1)).setTableLevelRowCount(countPerSplit + totalCount % size);
     }
 
+    /**
+     * The number of scanned partitions reported to EXPLAIN ({@code partition=N/M}), the
+     * {@code sql_block_rule} {@code partition_num} guard and the batch-mode split estimate. A table whose
+     * CURRENT spec is unpartitioned reports no partitions at all, so the partitions that files of an older
+     * spec still carry must not start being counted — {@code partitionMapInfos} now collects them because
+     * it doubles as the per-(spec, partition) identity-value cache for the read path.
+     */
+    private int scannedPartitionNum() {
+        return isPartitionedTable ? partitionMapInfos.size() : 0;
+    }
+
     @Override
     public int numApproximateSplits() {
-        return NUM_SPLITS_PER_PARTITION * partitionMapInfos.size() > 0 ? partitionMapInfos.size() : 1;
+        int partitions = scannedPartitionNum();
+        return NUM_SPLITS_PER_PARTITION * partitions > 0 ? partitions : 1;
     }
 
     private Optional<NotSupportedException> checkNotSupportedException(Exception e) {

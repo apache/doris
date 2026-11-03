@@ -101,10 +101,12 @@
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/point_query_executor.h"
+#include "storage/adaptive_thread_pool_controller.h"
 #include "storage/cache/ann_index_ivf_list_cache.h"
 #include "storage/cache/page_cache.h"
 #include "storage/id_manager.h"
-#include "storage/index/inverted/inverted_index_cache.h"
+#include "storage/index/index_writer.h"
+#include "storage/index/inverted/common/inverted_index_cache.h"
 #include "storage/olap_define.h"
 #include "storage/options.h"
 #include "storage/segment/condition_cache.h"
@@ -807,6 +809,10 @@ Status ExecEnv::_check_deploy_mode() {
 }
 
 #ifdef BE_TEST
+void ExecEnv::set_tmp_file_dir(std::unique_ptr<segment_v2::TmpFileDirs> tmp_file_dirs) {
+    _tmp_file_dirs = std::move(tmp_file_dirs);
+}
+
 void ExecEnv::set_new_load_stream_mgr(std::unique_ptr<NewLoadStreamMgr>&& new_load_stream_mgr) {
     this->_new_load_stream_mgr = std::move(new_load_stream_mgr);
 }
@@ -850,6 +856,12 @@ void ExecEnv::destroy() {
     // _routine_load_task_executor should be stopped before _new_load_stream_mgr.
     SAFE_STOP(_routine_load_task_executor);
     SAFE_STOP(_stream_load_recorder_manager);
+    // Adaptive callbacks borrow WG/global flush pools and the S3 upload pool.
+    // Drain them before any of these dependencies can be destroyed.
+    if (_storage_engine) {
+        _storage_engine->adaptive_thread_controller()->stop();
+    }
+
     // stop workload scheduler
     SAFE_STOP(_workload_sched_mgr);
     // Stop workload group execution threads before FragmentMgr. Running pipeline tasks can still

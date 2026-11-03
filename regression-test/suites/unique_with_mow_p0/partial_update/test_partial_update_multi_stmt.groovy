@@ -16,7 +16,6 @@
 // under the License.
 
 import java.sql.Connection
-import java.sql.DriverManager
 import java.sql.Statement
 
 // Test that `set enable_unique_key_partial_update=true; insert into ...` works correctly
@@ -66,7 +65,7 @@ suite("test_partial_update_multi_stmt", "p0") {
     // ============================================================
     // Setup: create all tables with initial data (1,1,1,1),(2,2,2,2)
     // ============================================================
-    connect(context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
+    connectToDoris(context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
         sql "use ${db};"
         sql "sync;"
         createTable(tableName1)
@@ -84,8 +83,8 @@ suite("test_partial_update_multi_stmt", "p0") {
     def multiStmtUrl = "jdbc:mysql://${sql_ip}:${sql_port}/${db}?useLocalSessionState=false&allowMultiQueries=true"
     logger.info("multi-statement JDBC URL: ${multiStmtUrl}")
 
-    try (Connection conn = DriverManager.getConnection(multiStmtUrl,
-            context.config.jdbcUser, context.config.jdbcPassword)) {
+    connectToDoris(context.config.jdbcUser, context.config.jdbcPassword, multiStmtUrl) {
+        Connection conn = context.getConnection()
         Statement stmt = conn.createStatement()
 
         // Test 1: SET + INSERT VALUES as single COM_QUERY
@@ -116,8 +115,8 @@ suite("test_partial_update_multi_stmt", "p0") {
     def singleStmtUrl = "jdbc:mysql://${sql_ip}:${sql_port}/${db}?useLocalSessionState=false"
     logger.info("single-statement JDBC URL: ${singleStmtUrl}")
 
-    try (Connection conn = DriverManager.getConnection(singleStmtUrl,
-            context.config.jdbcUser, context.config.jdbcPassword)) {
+    connectToDoris(context.config.jdbcUser, context.config.jdbcPassword, singleStmtUrl) {
+        Connection conn = context.getConnection()
         Statement stmt = conn.createStatement()
 
         // Test 3: SET then INSERT VALUES as separate COM_QUERY
@@ -140,7 +139,7 @@ suite("test_partial_update_multi_stmt", "p0") {
     // ============================================================
     // Verify all results
     // ============================================================
-    connect(context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
+    connectToDoris(context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
         sql "use ${db};"
         sql "sync;"
 

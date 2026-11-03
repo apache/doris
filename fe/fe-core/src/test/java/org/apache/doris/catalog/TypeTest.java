@@ -17,14 +17,42 @@
 
 package org.apache.doris.catalog;
 
+
 import org.apache.doris.common.Config;
+import org.apache.doris.nereids.parser.NereidsParser;
 
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
 
 import java.util.ArrayList;
 
 public class TypeTest {
+
+    @Test
+    public void testTimestampTzIsNotVariantSubtype() {
+        Assert.assertFalse(Type.VARIANT.supportSubType(ScalarType.createTimeStampTzType(6)));
+        Assert.assertFalse(Type.VARIANT.supportSubType(
+                new ArrayType(ScalarType.createTimeStampTzType(3), true)));
+        Assert.assertTrue(Type.VARIANT.supportSubType(ScalarType.createDatetimeV2Type(6)));
+    }
+
+    @Test
+    public void testTimestampNsJavaUdfType() {
+        Assertions.assertEquals(1,
+                Type.PrimitiveTypeToJavaClassType.get(PrimitiveType.TIMESTAMP_NS).size());
+        Assertions.assertTrue(Type.PrimitiveTypeToJavaClassType.get(PrimitiveType.TIMESTAMP_NS)
+                .contains(java.time.LocalDateTime.class));
+        Assertions.assertFalse(Type.PrimitiveTypeToJavaClassType.get(PrimitiveType.TIMESTAMP_NS)
+                .contains(org.joda.time.LocalDateTime.class));
+        Assertions.assertFalse(Type.PrimitiveTypeToJavaClassType.get(PrimitiveType.TIMESTAMP_NS)
+                .contains(org.joda.time.DateTime.class));
+    }
+
+    @Test
+    public void testTimestampNsVariantSubtype() {
+        Assertions.assertTrue(Type.getVariantSubTypes().contains(Type.TIMESTAMP_NS));
+    }
 
     // ===================== ArrayType =====================
     @Test
@@ -163,6 +191,21 @@ public class TypeTest {
         }
     }
 
+    @Test
+    public void testVariantFieldCommentToSqlRoundTrip() {
+        String comment = "O'Reilly \"quoted\" a\\b";
+        ArrayList<VariantField> fields = new ArrayList<>();
+        fields.add(new VariantField("price", Type.INT, comment));
+        String sql = new VariantType(fields, 0, false, 10000, 1, false, 0L, 64, false).toSql();
+
+        org.apache.doris.nereids.types.VariantType parsed = (org.apache.doris.nereids.types.VariantType)
+                new NereidsParser().parseDataType(sql);
+        Assert.assertEquals(comment, parsed.getPredefinedFields().get(0).getComment());
+        org.apache.doris.nereids.types.VariantType reparsed = (org.apache.doris.nereids.types.VariantType)
+                new NereidsParser().parseDataType("variant<" + parsed.getPredefinedFields().get(0).toSql() + ">");
+        Assert.assertEquals(comment, reparsed.getPredefinedFields().get(0).getComment());
+    }
+
     // ===================== Mixed Nesting & Precision =====================
     @Test
     public void testArrayMapStructCombinationWithPrecision() {
@@ -261,5 +304,59 @@ public class TypeTest {
         Assert.assertFalse(Type.matchExactType(dtv2s3, dtv2s6, true));
         // Same scale -> match
         Assert.assertTrue(Type.matchExactType(dtv2s6, ScalarType.createDatetimeV2Type(6), false));
+
+        ScalarType timestampNs = ScalarType.createTimeStampNsType();
+        Assertions.assertNotEquals(timestampNs, dtv2s6);
+        Assertions.assertEquals(ScalarType.TIMESTAMP_NS_PRECISION, timestampNs.getScalarPrecision());
+        Assertions.assertEquals(ScalarType.TIMESTAMP_NS_SCALE, timestampNs.getScalarScale());
+        for (int invalidScale = 7; invalidScale <= 9; invalidScale++) {
+            ScalarType invalidDatetimeV2 = ScalarType.createDatetimeV2Type(invalidScale);
+            Assertions.assertTrue(invalidDatetimeV2.isDatetimeV2());
+            Assertions.assertFalse(invalidDatetimeV2.isTimeStampNs());
+            Assertions.assertNotEquals(timestampNs, invalidDatetimeV2);
+        }
+        ScalarType wildcardDatetimeV2 = ScalarType.createDatetimeV2Type(-1);
+        Assertions.assertFalse(timestampNs.matchesType(wildcardDatetimeV2));
+        Assertions.assertFalse(timestampNs.matchesType(dtv2s6));
+        Assertions.assertFalse(dtv2s6.matchesType(timestampNs));
+        Assertions.assertFalse(Type.matchExactType(timestampNs, wildcardDatetimeV2, false));
+    }
+
+    // ===================== STRUCT nested comment in DDL =====================
+
+    /** SHOW CREATE TABLE has to print the comment of every nested field. */
+    @Test
+    public void testStructDdlKeepsNestedFieldComment() {
+        StructType structType = new StructType(
+                new StructField("a", Type.INT, null, true),
+                new StructField("b", Type.STRING, "field doc", true));
+        Column column = new Column("s", structType, false, null, true, null, "top-level");
+
+        Assertions.assertEquals(
+                "`s` struct<a:int,b:text comment \"field doc\"> NULL COMMENT \"top-level\"",
+                column.toSql(false, true));
+    }
+
+    /** A nested comment has to stay a readable literal, quotes and back slashes included. */
+    @Test
+    public void testStructDdlEscapesNestedFieldComment() {
+        StructType structType = new StructType(
+                new StructField("b", Type.STRING, "owner''s \\path and \"quotes\"", true));
+        Column column = new Column("s", structType, false, null, true, null, null);
+
+        Assertions.assertEquals(
+                "`s` struct<b:text comment \"owner''s \\\\path and \"\"quotes\"\"\"> NULL",
+                column.toSql(false, true));
+    }
+
+    /** Nested comments belong to DDL, but DESCRIBE only prints them when asked for. */
+    @Test
+    public void testStructDescribeHidesNestedCommentUnlessRequested() {
+        StructType structType = new StructType(
+                new StructField("b", Type.STRING, "field doc", true));
+        Assertions.assertEquals("struct<b:text>",
+                structType.hideVersionForVersionColumn(true, false));
+        Assertions.assertEquals("struct<b:text comment \"field doc\">",
+                structType.hideVersionForVersionColumn(true, true));
     }
 }

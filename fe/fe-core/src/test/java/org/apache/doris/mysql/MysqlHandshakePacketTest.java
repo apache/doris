@@ -27,6 +27,9 @@ import org.junit.Test;
 import java.nio.ByteBuffer;
 
 public class MysqlHandshakePacketTest {
+    private static final int MULTI_RESULT_FLAGS = MysqlCapability.Flag.CLIENT_MULTI_RESULTS.getFlagBit()
+            | MysqlCapability.Flag.CLIENT_PS_MULTI_RESULTS.getFlagBit();
+
     private byte[] buf;
     private MysqlCapability capability;
 
@@ -81,6 +84,11 @@ public class MysqlHandshakePacketTest {
         MysqlCapability advertisedCapability = new MysqlCapability(flags);
         Assert.assertTrue(advertisedCapability.isConnectAttrs());
         Assert.assertTrue(advertisedCapability.isPluginAuthDataLengthEncoded());
+        // The multi-statement flags MySQL advertises, in the upper two bytes: a driver that masks
+        // what it asks for with the advertised set (Connector/J 8 and 9) keeps CLIENT_MULTI_STATEMENTS
+        // only when they are there.
+        Assert.assertTrue(advertisedCapability.isClientMultiStatements());
+        Assert.assertEquals(MULTI_RESULT_FLAGS, flags & MULTI_RESULT_FLAGS);
         // length of plugin data
         Assert.assertEquals(21, MysqlProto.readInt1(buffer));
         // length of plugin data
@@ -99,5 +107,4 @@ public class MysqlHandshakePacketTest {
         Assert.assertEquals(0, MysqlProto.readInt1(buffer));
         Assert.assertEquals(22, buffer.remaining());
     }
-
 }

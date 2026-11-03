@@ -198,6 +198,7 @@ size_t raw_comparison_value_size(PrimitiveType primitive_type) {
         RETURN_RAW_COMPARISON_SIZE(TYPE_DATETIME);
         RETURN_RAW_COMPARISON_SIZE(TYPE_DATEV2);
         RETURN_RAW_COMPARISON_SIZE(TYPE_DATETIMEV2);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_TIMESTAMP_NS);
         RETURN_RAW_COMPARISON_SIZE(TYPE_TIMESTAMPTZ);
         RETURN_RAW_COMPARISON_SIZE(TYPE_TIMEV2);
         RETURN_RAW_COMPARISON_SIZE(TYPE_DECIMAL32);
@@ -207,6 +208,7 @@ size_t raw_comparison_value_size(PrimitiveType primitive_type) {
         RETURN_RAW_COMPARISON_SIZE(TYPE_DECIMAL256);
         RETURN_RAW_COMPARISON_SIZE(TYPE_IPV4);
         RETURN_RAW_COMPARISON_SIZE(TYPE_IPV6);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_UUID);
 #undef RETURN_RAW_COMPARISON_SIZE
     default:
         return 0;
@@ -374,9 +376,9 @@ bool VectorizedFnCall::can_evaluate_bloom_filter() const {
            _function->can_evaluate_bloom_filter(_children);
 }
 
-Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block, Selector* selector,
-                                     size_t count, ColumnPtr& result_column,
-                                     ColumnPtr* arg_column) const {
+Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block,
+                                     const Selector* selector, size_t count,
+                                     ColumnPtr& result_column, ColumnPtr* arg_column) const {
     if (is_const_and_have_executed()) { // const have executed in open function
         result_column = get_result_from_const(count);
         return Status::OK();
@@ -465,9 +467,9 @@ Status VectorizedFnCall::execute_runtime_filter(VExprContext* context, const Blo
     return _do_execute(context, block, nullptr, count, result_column, arg_column);
 }
 
-Status VectorizedFnCall::execute_column(VExprContext* context, const Block* block,
-                                        Selector* selector, size_t count,
-                                        ColumnPtr& result_column) const {
+Status VectorizedFnCall::execute_column_impl(VExprContext* context, const Block* block,
+                                             const Selector* selector, size_t count,
+                                             ColumnPtr& result_column) const {
     return _do_execute(context, block, selector, count, result_column, nullptr);
 }
 
@@ -539,6 +541,7 @@ Status VectorizedFnCall::execute_on_raw_fixed_values(const uint8_t* values, size
         EXECUTE_RAW_SCALAR_COMPARISON(TYPE_DATETIME);
         EXECUTE_RAW_SCALAR_COMPARISON(TYPE_DATEV2);
         EXECUTE_RAW_SCALAR_COMPARISON(TYPE_DATETIMEV2);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_TIMESTAMP_NS);
         EXECUTE_RAW_SCALAR_COMPARISON(TYPE_TIMESTAMPTZ);
         EXECUTE_RAW_SCALAR_COMPARISON(TYPE_TIMEV2);
         EXECUTE_RAW_SCALAR_COMPARISON(TYPE_DECIMAL32);
@@ -548,6 +551,7 @@ Status VectorizedFnCall::execute_on_raw_fixed_values(const uint8_t* values, size
         EXECUTE_RAW_SCALAR_COMPARISON(TYPE_DECIMAL256);
         EXECUTE_RAW_SCALAR_COMPARISON(TYPE_IPV4);
         EXECUTE_RAW_SCALAR_COMPARISON(TYPE_IPV6);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_UUID);
 #undef EXECUTE_RAW_SCALAR_COMPARISON
     default:
         __builtin_unreachable();
@@ -662,8 +666,9 @@ bool VectorizedFnCall::can_push_down_to_index() const {
 }
 
 bool VectorizedFnCall::is_deterministic() const {
+    // array_shuffle gives the rows of a block different orders, even with a seed.
     static const std::set<std::string> NON_DETERMINISTIC_FUNCTIONS = {
-            "random", "rand", "random_bytes", "uuid", "uuid_numeric"};
+            "random", "rand", "random_bytes", "uuid", "uuid_numeric", "array_shuffle", "shuffle"};
     return !NON_DETERMINISTIC_FUNCTIONS.contains(_function_name) && VExpr::is_deterministic();
 }
 

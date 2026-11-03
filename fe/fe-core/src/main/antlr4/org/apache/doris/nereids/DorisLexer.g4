@@ -334,7 +334,6 @@ KEY: 'KEY';
 KEYS: 'KEYS';
 KILL: 'KILL';
 LABEL: 'LABEL';
-LANCE: 'LANCE';
 LARGEINT: 'LARGEINT';
 LAYOUT: 'LAYOUT';
 LAST: 'LAST';
@@ -574,6 +573,7 @@ THEN: 'THEN';
 TIME: 'TIME';
 TIMESTAMP: 'TIMESTAMP';
 TIMESTAMPTZ: 'TIMESTAMPTZ';
+TIMESTAMP_NS: 'TIMESTAMP_NS';
 TINYINT: 'TINYINT';
 TO: 'TO';
 TOKENIZER: 'TOKENIZER';
@@ -605,6 +605,7 @@ USE: 'USE';
 USER: 'USER';
 USE_MV: 'USE_MV';
 USING: 'USING';
+UUID: 'UUID';
 VALUE: 'VALUE';
 VALUES: 'VALUES';
 VARBINARY: 'VARBINARY';
@@ -667,8 +668,14 @@ ATSIGN: '@';
 DOUBLEATSIGN: '@@';
 
 STRING_LITERAL
-    :  '\'' ( {!isNoBackslashEscapes}? '\\'. | '\'\'' | {!isNoBackslashEscapes}? ~('\'' | '\\') | {isNoBackslashEscapes}? ~('\''))* '\''
-    | '"' ( {!isNoBackslashEscapes}? '\\'. | '""' | {!isNoBackslashEscapes}? ~('"'| '\\') | {isNoBackslashEscapes}? ~('"'))* '"'
+    : '\'' (
+          {!isNoBackslashEscapes}? ('\\' . | '\'\'' | ~('\'' | '\\'))*
+        | {isNoBackslashEscapes}? ('\'\'' | ~('\''))*
+      ) '\''
+    | '"' (
+          {!isNoBackslashEscapes}? ('\\' . | '""' | ~('"' | '\\'))*
+        | {isNoBackslashEscapes}? ('""' | ~('"'))*
+      ) '"'
     ;
 
 VARBINARY_LITERAL

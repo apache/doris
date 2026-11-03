@@ -34,6 +34,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.StringUtils;
@@ -137,10 +138,15 @@ public class BuildIndexOp extends AlterTableOp {
         }
 
         IndexDef.IndexType indexType = existedIdx.getIndexType();
+        OlapTable olapTable = (OlapTable) table;
+        // SNII backfills historical rowsets through the index-change flow in cloud mode.
+        boolean isSniiInvertedIndex = indexType == IndexDef.IndexType.INVERTED
+                && olapTable.getInvertedIndexFileStorageFormat() == TInvertedIndexFileStorageFormat.SNII;
         if ((Config.isNotCloudMode() && indexType == IndexDef.IndexType.NGRAM_BF)
                 || indexType == IndexDef.IndexType.BLOOMFILTER
                 || (Config.isCloudMode()
-                && indexType == IndexType.INVERTED & !existedIdx.isInvertedIndexParserNone())) {
+                && indexType == IndexType.INVERTED && !existedIdx.isInvertedIndexParserNone()
+                && !isSniiInvertedIndex)) {
             throw new AnalysisException(indexType + " index is not needed to build.");
         }
 

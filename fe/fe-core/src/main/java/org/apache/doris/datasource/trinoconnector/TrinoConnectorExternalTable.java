@@ -180,6 +180,8 @@ public class TrinoConnectorExternalTable extends ExternalTable {
             return Type.DOUBLE;
         } else if (type instanceof CharType) {
             return Type.CHAR;
+        } else if (type instanceof io.trino.spi.type.UuidType) {
+            return Type.UUID;
         } else if (type instanceof VarcharType) {
             return Type.STRING;
             // } else if (type instanceof BinaryType) {
@@ -198,7 +200,8 @@ public class TrinoConnectorExternalTable extends ExternalTable {
             return ScalarType.createDatetimeV2Type(getMaxDatetimePrecision(timestampType.getPrecision()));
         } else if (type instanceof TimestampWithTimeZoneType) {
             TimestampWithTimeZoneType timestampWithTimeZoneType = (TimestampWithTimeZoneType) type;
-            return ScalarType.createDatetimeV2Type(getMaxDatetimePrecision(timestampWithTimeZoneType.getPrecision()));
+            // The connector's logical type, not the session zone, determines instant semantics.
+            return ScalarType.createTimeStampTzType(getMaxDatetimePrecision(timestampWithTimeZoneType.getPrecision()));
         } else if (type instanceof io.trino.spi.type.ArrayType) {
             Type elementType = trinoConnectorTypeToDorisType(
                     ((io.trino.spi.type.ArrayType) type).getElementType());

@@ -93,6 +93,24 @@ public class DefaultRemoteTest {
         Assertions.assertEquals("static-sk", credentials.secretAccessKey());
     }
 
+    @Test
+    public void testNativeGcpCredentialRejectsAwsPresigning() {
+        Cloud.ObjectStoreInfoPB objInfo = Cloud.ObjectStoreInfoPB.newBuilder()
+                .setProvider(Cloud.ObjectStoreInfoPB.Provider.GCP)
+                .setBucket("gcs-bucket")
+                .setEndpoint("storage.googleapis.com")
+                .setRegion("us-east1")
+                .setCredential(Cloud.ObjectStoreCredentialPB.newBuilder()
+                        .setGcpCredential(Cloud.GcpCredentialPB.newBuilder()
+                                .setCredentialProviderType(Cloud.GcpCredentialPB.CredentialProviderType.DEFAULT)))
+                .build();
+
+        TestableS3Remote remote = new TestableS3Remote(new RemoteBase.ObjectInfo(objInfo), null);
+        UnsupportedOperationException exception = Assertions.assertThrows(
+                UnsupportedOperationException.class, () -> remote.getPresignedUrl("file"));
+        Assertions.assertTrue(exception.getMessage().contains("GCS V4 signing"));
+    }
+
     private static class TestableS3Remote extends S3Remote {
         private final StsClient stsClient;
 

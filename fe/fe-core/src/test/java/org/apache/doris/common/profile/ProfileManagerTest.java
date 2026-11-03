@@ -431,6 +431,35 @@ class ProfileManagerTest {
     }
 
     @Test
+    void testFailedSpillRemainsIncompleteAfterMemoryRelease() throws Exception {
+        UUID id = UUID.randomUUID();
+        TUniqueId queryId = new TUniqueId(id.getMostSignificantBits(), id.getLeastSignificantBits());
+        Profile profile = constructProfile(DebugUtil.printId(queryId));
+        ExecutionProfile execution = new ExecutionProfile(queryId, Lists.newArrayList(0));
+        execution.addFragmentBackend(0, 1L);
+        profile.addExecutionProfile(execution);
+        profile.markQueryFinished();
+        profile.setQueryFinishTimestamp(0);
+        profileManager.pushProfile(profile);
+        profileManager.addExecutionProfile(execution);
+        File invalidDirectory = new File(tempDir, "not_a_directory");
+        Assertions.assertTrue(invalidDirectory.createNewFile());
+        ProfileManager.PROFILE_STORAGE_PATH = invalidDirectory.getAbsolutePath();
+
+        profileManager.writeProfileToStorage();
+
+        Assertions.assertFalse(profile.profileHasBeenStored());
+        Assertions.assertTrue(profile.getExecutionProfiles().isEmpty());
+        Assertions.assertEquals("INCOMPLETE", profile.getProfileCompletionState());
+        Assertions.assertTrue(profile.getProfileByLevel().contains("Profile Completion State: INCOMPLETE"));
+        // A later successful spill cannot recreate the reports discarded after the failed write.
+        ProfileManager.PROFILE_STORAGE_PATH = tempDir.getAbsolutePath();
+        profileManager.writeProfileToStorage();
+        Assertions.assertTrue(profile.profileHasBeenStored());
+        Assertions.assertEquals("INCOMPLETE", Profile.read(profile.getProfileStoragePath()).getProfileCompletionState());
+    }
+
+    @Test
     void testWriteProfileToStorage() throws InterruptedException {
         // Create some test profile files
         for (int i = 0; i < 30; i++) {

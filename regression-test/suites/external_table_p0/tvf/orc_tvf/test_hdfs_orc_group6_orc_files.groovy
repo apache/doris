@@ -139,10 +139,21 @@ suite("test_hdfs_orc_group6_orc_files","external,hive,tvf,external_docker") {
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_orc/group6/map_decimal_date.lz4.orc"
-            order_qt_test_16 """ select * from HDFS(
-                        "uri" = "${uri}",
-                        "hadoop.username" = "${hdfsUserName}",
-                        "format" = "orc"); """
+            def scannerV2 = sql "show variables like 'enable_file_scanner_v2'"
+            try {
+                sql "set enable_file_scanner_v2 = true"
+                // The map contains ordinal -719530, below 0000-01-01. Returning 1900-01-01
+                // was an unchecked conversion failure, not a valid interpretation of the file.
+                test {
+                    sql """ select * from HDFS(
+                            "uri" = "${uri}",
+                            "hadoop.username" = "${hdfsUserName}",
+                            "format" = "orc"); """
+                    exception "DATE value -719530 is outside the Doris DATE range"
+                }
+            } finally {
+                sql "set enable_file_scanner_v2 = ${scannerV2[0][1]}"
+            }
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_orc/group6/string-2-double.orc"
@@ -174,10 +185,21 @@ suite("test_hdfs_orc_group6_orc_files","external,hive,tvf,external_docker") {
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_orc/group6/non_vec_orc_scanner.orc"
-            order_qt_test_21 """ select * from HDFS(
-                        "uri" = "${uri}",
-                        "hadoop.username" = "${hdfsUserName}",
-                        "format" = "orc"); """
+            scannerV2 = sql "show variables like 'enable_file_scanner_v2'"
+            try {
+                sql "set enable_file_scanner_v2 = true"
+                // ORC DATE stores epoch days, not YYYYMMDD. The raw ordinal 20191111 is
+                // out of range; the old 1900-01-01 result silently hid that invalid value.
+                test {
+                    sql """ select * from HDFS(
+                            "uri" = "${uri}",
+                            "hadoop.username" = "${hdfsUserName}",
+                            "format" = "orc"); """
+                    exception "DATE value 20191111 is outside the Doris DATE range"
+                }
+            } finally {
+                sql "set enable_file_scanner_v2 = ${scannerV2[0][1]}"
+            }
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_orc/group6/tinyint.orc"

@@ -126,7 +126,7 @@ suite("test_index_rqg_bug4", "test_index_rqg_bug"){
 
     try {
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
 
         qt_sql """
           select

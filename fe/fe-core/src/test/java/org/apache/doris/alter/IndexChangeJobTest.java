@@ -36,15 +36,22 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
+import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.BuildIndexOp;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateIndexOp;
+import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.FakeTransactionIDGenerator;
@@ -165,6 +172,119 @@ public class IndexChangeJobTest {
         Map<Long, IndexChangeJob> indexChangeJobMap = schemaChangeHandler.getIndexChangeJobs();
         Assert.assertEquals(1, indexChangeJobMap.size());
         Assert.assertEquals(OlapTableState.NORMAL, olapTable.getState());
+    }
+
+    // Add an inverted index with the given parser to the duplicate-key test table.
+    private OlapTable createDupTableWithInvertedIndex(String indexName, String parser) throws UserException {
+        FakeEnv.setEnv(masterEnv);
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
+        Map<String, String> properties = Maps.newHashMap();
+        if (parser != null) {
+            properties.put("parser", parser);
+        }
+        IndexDefinition indexDefinition = new IndexDefinition(indexName, false,
+                Lists.newArrayList(olapTable.getBaseSchema().get(2).getName()),
+                "INVERTED", properties, "snii build index test");
+        TableNameInfo tableNameInfo = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
+                olapTable.getName());
+        CreateIndexOp createIndexOp = new CreateIndexOp(tableNameInfo, indexDefinition, false);
+        createIndexOp.validate(new ConnectContext());
+        ArrayList<AlterClause> alterClauses = new ArrayList<>();
+        alterClauses.add(createIndexOp.translateToLegacyAlterClause());
+        Env.getCurrentEnv().getSchemaChangeHandler().process(alterClauses, db, olapTable);
+        Assert.assertEquals(1, olapTable.getIndexes().size());
+        return olapTable;
+    }
+
+    @Test
+    public void testBuildIndexAdmittedForSniiNamedIndex() throws UserException {
+        String indexName = "snii_named_index";
+        OlapTable olapTable = createDupTableWithInvertedIndex(indexName, "english");
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        TableNameInfo tableNameInfo = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
+                olapTable.getName());
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+        TInvertedIndexFileStorageFormat originalFormat = olapTable.getInvertedIndexFileStorageFormat();
+        try {
+            olapTable.setInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat.SNII);
+            BuildIndexOp buildIndexOp = new BuildIndexOp(tableNameInfo, indexName, null, false);
+            buildIndexOp.validate(new ConnectContext());
+            Assert.assertEquals(indexName, buildIndexOp.getIndex().getIndexName());
+            ArrayList<AlterClause> alterClauses = new ArrayList<>();
+            alterClauses.add(buildIndexOp.translateToLegacyAlterClause());
+            schemaChangeHandler.process(alterClauses, db, olapTable);
+            Assert.assertEquals(1, schemaChangeHandler.getIndexChangeJobs().size());
+        } finally {
+            olapTable.setInvertedIndexFileStorageFormat(originalFormat);
+        }
+    }
+
+    @Test
+    public void testBuildIndexAdmittedForSniiParsedIndexInCloudMode() throws UserException {
+        String indexName = "snii_cloud_parsed_index";
+        OlapTable olapTable = createDupTableWithInvertedIndex(indexName, "english");
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        TableNameInfo tableNameInfo = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
+                olapTable.getName());
+        TInvertedIndexFileStorageFormat originalFormat = olapTable.getInvertedIndexFileStorageFormat();
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        try {
+            olapTable.setInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat.SNII);
+            Config.cloud_unique_id = "test_cloud_snii_build_index";
+            // Cloud mode takes no index name: it builds every index of the table.
+            BuildIndexOp buildIndexOp = new BuildIndexOp(tableNameInfo, null, null, false);
+            buildIndexOp.validate(new ConnectContext());
+            Assert.assertEquals(indexName, buildIndexOp.getIndex().getIndexName());
+        } finally {
+            Config.cloud_unique_id = originalCloudUniqueId;
+            olapTable.setInvertedIndexFileStorageFormat(originalFormat);
+        }
+    }
+
+    @Test
+    public void testBuildIndexStillRejectedForParsedIndexInCloudModeWithoutSnii() throws UserException {
+        String indexName = "v3_cloud_parsed_index";
+        OlapTable olapTable = createDupTableWithInvertedIndex(indexName, "english");
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        TableNameInfo tableNameInfo = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
+                olapTable.getName());
+        TInvertedIndexFileStorageFormat originalFormat = olapTable.getInvertedIndexFileStorageFormat();
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        try {
+            olapTable.setInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat.V3);
+            Config.cloud_unique_id = "test_cloud_v3_build_index";
+            BuildIndexOp buildIndexOp = new BuildIndexOp(tableNameInfo, null, null, false);
+            buildIndexOp.validate(new ConnectContext());
+            Assert.fail("a parsed non-SNII inverted index still needs no explicit build in cloud mode");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("index is not needed to build"));
+        } finally {
+            Config.cloud_unique_id = originalCloudUniqueId;
+            olapTable.setInvertedIndexFileStorageFormat(originalFormat);
+        }
+    }
+
+    @Test
+    public void testBuildIndexForSniiReachesGenericPartitionValidation() throws UserException {
+        String indexName = "snii_partition_index";
+        OlapTable olapTable = createDupTableWithInvertedIndex(indexName, "english");
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        TableNameInfo tableNameInfo = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
+                olapTable.getName());
+        TInvertedIndexFileStorageFormat originalFormat = olapTable.getInvertedIndexFileStorageFormat();
+        try {
+            olapTable.setInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat.SNII);
+            PartitionNamesInfo partitionNamesInfo = new PartitionNamesInfo(false,
+                    Lists.newArrayList(CatalogTestUtil.testPartition2));
+            BuildIndexOp buildIndexOp = new BuildIndexOp(tableNameInfo, indexName, partitionNamesInfo, false);
+            buildIndexOp.validate(new ConnectContext());
+            Assert.fail("partitions on a non-partitioned table must be rejected");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("is not partitioned, cannot build index with partitions"));
+        } finally {
+            olapTable.setInvertedIndexFileStorageFormat(originalFormat);
+        }
     }
 
     @Test

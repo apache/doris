@@ -19,27 +19,48 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "common/consts.h"
+#include "common/exception.h"
 #include "exec/operator/file_scan_operator.h"
 #include "exec/scan/file_scanner_v2.h"
+#include "exec/scan/scanner_scheduler.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/table/hive_reader.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "storage/id_manager.h"
+#include "storage/olap_common.h"
+#include "util/countdown_latch.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
+// source_column_key() decides which projected slots collapse onto a single scanned
+// column. Two slots that name the same physical column must produce the same key, and
+// any two slots that do not must produce different ones -- a false merge drops a column
+// the result block still expects, which is the crash this keying was introduced to fix.
 class RowIdStorageReaderTest : public testing::Test {
+public:
+    static std::string key_of(const SlotDescriptor& slot, uint32_t column_idx) {
+        return RowIdStorageReader::source_column_key(slot, column_idx);
+    }
+
 protected:
     struct SlotSpec {
         std::string col_name = "c";
         int32_t slot_id = 0;
         PrimitiveType type = TYPE_INT;
         int32_t col_unique_id = 1;
+        std::vector<std::string> column_paths = {};
+        TColumnAccessPaths access_paths = {};
     };
 
     static SlotDescriptor make_slot(const SlotSpec& spec) {
@@ -51,7 +72,26 @@ protected:
                                         .build();
         tdesc.__set_id(spec.slot_id);
         tdesc.__set_col_unique_id(spec.col_unique_id);
+        tdesc.__set_column_paths(spec.column_paths);
+        if (!spec.access_paths.empty()) {
+            tdesc.__set_all_access_paths(spec.access_paths);
+        }
         return SlotDescriptor(tdesc);
+    }
+
+    static TColumnAccessPath data_path(const std::vector<std::string>& path) {
+        TColumnAccessPath access_path;
+        access_path.type = TAccessPathType::DATA;
+        TDataAccessPath data;
+        data.__set_path(path);
+        access_path.__set_data_access_path(data);
+        return access_path;
+    }
+
+    static TColumnAccessPath bare_path() {
+        TColumnAccessPath access_path;
+        access_path.type = TAccessPathType::DATA;
+        return access_path;
     }
 };
 
@@ -82,6 +122,22 @@ TEST_F(RowIdStorageReaderTest, ExternalScannerSelectionRespectsRolloutOption) {
             }
         }
     }
+}
+
+TEST_F(RowIdStorageReaderTest, IcebergOrcDefaultWithParquetRangeKeepsTimestampContract) {
+    TQueryOptions options;
+    options.__set_enable_file_scanner_v2(false);
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_ORC);
+    params.__set_iceberg_scan_semantics_version(2);
+    params.__set_parquet_timestamp_semantics_version(1);
+    TFileRangeDesc range;
+    range.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    TTableFormatFileDesc table;
+    table.__set_table_format_type("iceberg");
+    range.__set_table_format_params(table);
+    // Phase two must decode the retained Parquet range with phase one's wall-clock contract.
+    EXPECT_TRUE(RowIdStorageReader::should_use_file_scanner_v2(options, params, range));
 }
 
 TEST_F(RowIdStorageReaderTest, ExternalScannerSelectionKeepsUnsupportedFormatsOnV1) {
@@ -238,6 +294,206 @@ TEST_F(RowIdStorageReaderTest, ExternalFetchPartitionSlotsPreserveHivePositionMa
             EXPECT_TRUE(reader.validate_projected_columns(context).ok());
         }
     }
+}
+
+TEST_F(RowIdStorageReaderTest, SameSourceColumnSharesKey) {
+    // The bug case: one physical column projected twice must dedup onto one scan column.
+    const SlotDescriptor first = make_slot({});
+    const SlotDescriptor second = make_slot({});
+    EXPECT_EQ(key_of(first, 3), key_of(second, 3));
+}
+
+TEST_F(RowIdStorageReaderTest, ColumnIndexSeparatesKeys) {
+    const SlotDescriptor slot = make_slot({});
+    EXPECT_NE(key_of(slot, 3), key_of(slot, 4));
+}
+
+TEST_F(RowIdStorageReaderTest, ColumnNameSeparatesKeys) {
+    EXPECT_NE(key_of(make_slot({.col_name = "a"}), 0), key_of(make_slot({.col_name = "b"}), 0));
+}
+
+TEST_F(RowIdStorageReaderTest, UniqueIdSeparatesKeys) {
+    EXPECT_NE(key_of(make_slot({.col_unique_id = 1}), 0),
+              key_of(make_slot({.col_unique_id = 2}), 0));
+}
+
+TEST_F(RowIdStorageReaderTest, NameAndIndexBoundaryIsNotAmbiguous) {
+    // Without length prefixes, "a" + idx 12 and "a1" + idx 2 both flatten to "a12".
+    EXPECT_NE(key_of(make_slot({.col_name = "a"}), 12), key_of(make_slot({.col_name = "a1"}), 2));
+}
+
+TEST_F(RowIdStorageReaderTest, PathComponentBoundaryIsNotAmbiguous) {
+    // The concatenation hazard the length prefix exists for: ["a", "b"] and ["a:b"] are
+    // different nested columns but share the naive ':'-joined spelling.
+    EXPECT_NE(key_of(make_slot({.column_paths = {"a", "b"}}), 0),
+              key_of(make_slot({.column_paths = {"a:b"}}), 0));
+}
+
+TEST_F(RowIdStorageReaderTest, EmptyPathIsNotTheSameAsNoPath) {
+    EXPECT_NE(key_of(make_slot({.column_paths = {}}), 0),
+              key_of(make_slot({.column_paths = {""}}), 0));
+}
+
+TEST_F(RowIdStorageReaderTest, PathOrderMatters) {
+    EXPECT_NE(key_of(make_slot({.column_paths = {"a", "b"}}), 0),
+              key_of(make_slot({.column_paths = {"b", "a"}}), 0));
+}
+
+TEST_F(RowIdStorageReaderTest, EqualPathsShareKey) {
+    EXPECT_EQ(key_of(make_slot({.column_paths = {"a", "b"}}), 0),
+              key_of(make_slot({.column_paths = {"a", "b"}}), 0));
+}
+
+TEST_F(RowIdStorageReaderTest, AccessPathSeparatesKeys) {
+    EXPECT_NE(key_of(make_slot({.access_paths = {data_path({"a"})}}), 0),
+              key_of(make_slot({.access_paths = {data_path({"b"})}}), 0));
+}
+
+TEST_F(RowIdStorageReaderTest, AbsentAccessPathIsNotAnEmptyOne) {
+    // The presence bit: an unset data_access_path must not collide with one that is set
+    // but carries no components.
+    EXPECT_NE(key_of(make_slot({.access_paths = {bare_path()}}), 0),
+              key_of(make_slot({.access_paths = {data_path({})}}), 0));
+}
+
+TEST_F(RowIdStorageReaderTest, AccessPathCountSeparatesKeys) {
+    EXPECT_NE(key_of(make_slot({.access_paths = {data_path({"a"})}}), 0),
+              key_of(make_slot({.access_paths = {data_path({"a"}), data_path({"b"})}}), 0));
+}
+
+// Runs every submitted task on the submitting thread. The point of these cases is which
+// status reaches the caller, not the threading, and inline execution keeps them
+// deterministic.
+class InlineScanScheduler : public ScannerScheduler {
+public:
+    Status start(int, int, int, int) override { return Status::OK(); }
+    void stop() override {}
+    Status submit_scan_task(SimplifiedScanTask scan_task) override {
+        scan_task.scan_func();
+        return Status::OK();
+    }
+    Status submit_scan_task(SimplifiedScanTask scan_task, const std::string&) override {
+        scan_task.scan_func();
+        return Status::OK();
+    }
+    void reset_thread_num(int, int, int) override {}
+    int get_queue_size() override { return 0; }
+    int get_active_threads() override { return 0; }
+    std::vector<int> thread_debug_info() override { return {}; }
+    Status schedule_scan_task(std::shared_ptr<ScannerContext>, std::shared_ptr<ScanTask>,
+                              std::unique_lock<std::mutex>&) override {
+        return Status::OK();
+    }
+};
+
+// submit_external_scan_tasks() signals completion from a Defer, so a worker that leaves
+// without publishing its status would still wake the waiter and the caller would report
+// success over a partially filled result block.
+class SubmitExternalScanTasksTest : public RowIdStorageReaderTest {
+protected:
+    static constexpr size_t kTaskCount = 3;
+
+    static Status run_tasks(const std::function<Status(size_t)>& run_task) {
+        InlineScanScheduler scheduler;
+        std::counting_semaphore<> semaphore {kTaskCount};
+        return RowIdStorageReader::submit_external_scan_tasks(
+                &scheduler, semaphore, kTaskCount,
+                [](size_t idx) { return fmt::format("task-{}", idx); }, run_task);
+    }
+};
+
+TEST_F(SubmitExternalScanTasksTest, AllTasksSucceedingReturnsOk) {
+    size_t ran = 0;
+    EXPECT_TRUE(run_tasks([&](size_t) -> Status {
+                    ++ran;
+                    return Status::OK();
+                }).ok());
+    EXPECT_EQ(ran, kTaskCount);
+}
+
+TEST_F(SubmitExternalScanTasksTest, ReturnedErrorReachesTheCaller) {
+    const Status result = run_tasks([](size_t idx) -> Status {
+        return idx == kTaskCount - 1 ? Status::InternalError("scanner returned an error")
+                                     : Status::OK();
+    });
+    EXPECT_FALSE(result.ok());
+    EXPECT_NE(result.to_string().find("scanner returned an error"), std::string::npos);
+}
+
+TEST_F(SubmitExternalScanTasksTest, ThrownExceptionReachesTheCaller) {
+    // The last task is the interesting one: it is the completion that releases the
+    // waiter, so a status lost here is a status the caller never sees.
+    const Status result = run_tasks([](size_t idx) -> Status {
+        if (idx == kTaskCount - 1) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "scanner threw");
+        }
+        return Status::OK();
+    });
+    EXPECT_FALSE(result.ok());
+    EXPECT_NE(result.to_string().find("scanner threw"), std::string::npos);
+}
+
+// multiget_data_v2 runs read_by_rowids() on the remote scan scheduler, which by default is a
+// ThreadPool whose worker has no exception boundary. A request whose file mapping exists but
+// whose slot carries a PTypeNode this BE cannot decode makes SlotDescriptor's constructor throw;
+// the RPC helper must turn that into an error status on the response instead of letting the
+// exception leave the worker and terminate the process.
+TEST_F(RowIdStorageReaderTest, RpcHelperReportsThrownExceptionOnThreadPoolPath) {
+    IdManager id_manager;
+    ExecEnv* env = ExecEnv::GetInstance();
+    IdManager* saved_id_manager = env->get_id_manager();
+    env->set_id_manager(&id_manager);
+    Defer restore_id_manager {[&] { env->set_id_manager(saved_id_manager); }};
+
+    PMultiGetRequestV2 request;
+    request.mutable_query_id()->set_hi(68610);
+    request.mutable_query_id()->set_lo(1);
+    request.set_wg_id(1);
+    auto id_file_map = id_manager.add_id_file_map(request.query_id(), 1024);
+    const uint32_t file_id = id_file_map->get_file_mapping_id(
+            std::make_shared<FileMapping>(/*tablet_id=*/1, RowsetId(), /*segment_id=*/0));
+
+    PRequestBlockDesc* block_desc = request.add_request_block_descs();
+    block_desc->add_file_id(file_id);
+    block_desc->add_row_id(0);
+    PSlotDescriptor* slot = block_desc->add_slots();
+    slot->set_id(0);
+    slot->set_parent(0);
+    slot->set_column_pos(0);
+    slot->set_byte_offset(0);
+    slot->set_null_indicator_byte(0);
+    slot->set_null_indicator_bit(-1);
+    slot->set_col_name("c");
+    slot->set_slot_idx(0);
+    // A type node kind unknown to this BE, as a newer FE could send.
+    slot->mutable_slot_type()->add_types()->set_type(99);
+
+    // The worker captures the response and the latch by reference. Declare them before the
+    // scheduler so every exit, including a failed wait below, joins the worker in stop_scheduler
+    // before either captured object is destroyed.
+    PMultiGetResponseV2 response;
+    CountDownLatch finished(1);
+    std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl = std::make_shared<CgroupV2CpuCtl>(1);
+    ThreadPoolSimplifiedScanScheduler scheduler("rowid_rpc_test", cgroup_cpu_ctl);
+    ASSERT_TRUE(scheduler.start(1, 1, 4, 1).ok());
+    Defer stop_scheduler {[&] { scheduler.stop(); }};
+
+    ASSERT_TRUE(scheduler
+                        .submit_scan_task(SimplifiedScanTask(
+                                                  [&]() {
+                                                      RowIdStorageReader::read_by_rowids_for_rpc(
+                                                              request, &response);
+                                                      finished.count_down();
+                                                      return true;
+                                                  },
+                                                  nullptr, nullptr),
+                                          "rowid_rpc_test_task")
+                        .ok());
+    ASSERT_TRUE(finished.wait_for(std::chrono::seconds(30)));
+
+    EXPECT_NE(response.status().status_code(), 0);
+    ASSERT_EQ(response.status().error_msgs_size(), 1);
+    EXPECT_NE(response.status().error_msgs(0).find("invalid TTypeNodeType"), std::string::npos);
 }
 
 } // namespace doris

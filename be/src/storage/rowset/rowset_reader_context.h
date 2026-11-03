@@ -51,8 +51,6 @@ struct RowsetReaderContext {
     std::vector<uint32_t>* read_orderby_key_columns = nullptr;
     // limit of rows for read_orderby_key
     size_t read_orderby_key_limit = 0;
-    // filter_block arguments
-    VExprContextSPtrs filter_block_conjuncts;
     // projection columns: the set of columns rowset reader should return
     const std::vector<uint32_t>* return_columns = nullptr;
     TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
@@ -88,7 +86,10 @@ struct RowsetReaderContext {
     RowsetId rowset_id;
     // slots that cast may be eliminated in storage layer
     std::map<std::string, DataTypePtr> target_cast_type_for_variants;
-    int64_t ttl_seconds = 0;
+    // Absolute timestamp (seconds since epoch) after which cache blocks filled by this
+    // read stop being TTL protected; 0 means no TTL.
+    // See TabletMeta::file_cache_ttl_expiration_time().
+    int64_t file_cache_expiration_time = 0;
 
     std::map<ColumnId, VExprContextSPtr> virtual_column_exprs;
     std::map<ColumnId, size_t> vir_cid_to_idx_in_block;
@@ -105,6 +106,9 @@ struct RowsetReaderContext {
 
     // When true, push down value predicates for MOR tables
     bool enable_mor_value_predicate_pushdown = false;
+
+    // General LIMIT budget forwarded to SegmentIterator.
+    int64_t general_read_limit = -1;
 };
 
 } // namespace doris

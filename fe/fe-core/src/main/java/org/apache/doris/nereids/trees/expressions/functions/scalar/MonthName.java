@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
@@ -40,7 +41,8 @@ public class MonthName extends ScalarFunction
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DateV2Type.INSTANCE),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DateTimeV2Type.WILDCARD));
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DateTimeV2Type.WILDCARD),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(TimeStampNsType.INSTANCE));
 
     /**
      * constructor with 1 argument.

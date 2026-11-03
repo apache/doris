@@ -20,6 +20,7 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergHMSExternalCatalog;
@@ -29,6 +30,7 @@ import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 
+import com.google.common.util.concurrent.Uninterruptibles;
 import mockit.Mock;
 import mockit.MockUp;
 import org.junit.Assert;
@@ -39,6 +41,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
@@ -304,12 +307,40 @@ public class ExternalMetaCacheRouteResolverTest {
         mockCurrentCatalog(catalogId, catalog);
         hive.initializedCatalogIds.add(catalogId);
         Map<String, String> oldProperties = Collections.singletonMap("generation", "old");
+        CountDownLatch loadStarted = new CountDownLatch(1);
+        CountDownLatch allowLoadToFinish = new CountDownLatch(1);
+        ExternalRowCountCache.RowCountCacheLoader loader = new ExternalRowCountCache.RowCountCacheLoader() {
+            @Override
+            protected Optional<Long> doLoad(ExternalRowCountCache.RowCountKey rowCountKey) {
+                loadStarted.countDown();
+                Assert.assertTrue(Uninterruptibles.awaitUninterruptibly(
+                        allowLoadToFinish, 30, TimeUnit.SECONDS));
+                return Optional.of(100L);
+            }
+        };
+        ExecutorService loaderExecutor = Executors.newSingleThreadExecutor();
+        metaCacheMgr.replaceRowCountCacheForTest(new ExternalRowCountCache(loaderExecutor, null, loader));
+        ExecutorService caller = Executors.newSingleThreadExecutor();
+        try {
+            Future<Long> load = caller.submit(
+                    () -> metaCacheMgr.getRowCountCache().getCachedRowCount(catalogId, 2L, 3L, false));
+            Assert.assertTrue(loadStarted.await(30, TimeUnit.SECONDS));
 
-        metaCacheMgr.rollbackCatalogProperties(catalog, oldProperties);
+            metaCacheMgr.rollbackCatalogProperties(catalog, oldProperties);
+            allowLoadToFinish.countDown();
 
-        Mockito.verify(catalog).rollBackCatalogProps(oldProperties);
-        Assert.assertFalse(hive.isCatalogInitialized(catalogId));
-        Assert.assertEquals(1, hive.invalidateCatalogCalls);
+            Assert.assertEquals(TableIf.UNKNOWN_ROW_COUNT, (long) load.get(30, TimeUnit.SECONDS));
+            Assert.assertEquals(TableIf.UNKNOWN_ROW_COUNT,
+                    metaCacheMgr.getRowCountCache().getCachedRowCountIfPresent(catalogId, 2L, 3L));
+            Mockito.verify(catalog).rollBackCatalogProps(oldProperties);
+            Mockito.verify(catalog).resetToUninitialized(false);
+            Assert.assertFalse(hive.isCatalogInitialized(catalogId));
+            Assert.assertEquals(1, hive.invalidateCatalogCalls);
+        } finally {
+            allowLoadToFinish.countDown();
+            caller.shutdownNow();
+            loaderExecutor.shutdownNow();
+        }
     }
 
     @Test
@@ -408,6 +439,407 @@ public class ExternalMetaCacheRouteResolverTest {
         Assert.assertEquals(0, paimon.invalidateTableCalls);
         Assert.assertEquals(0, paimon.invalidatePartitionsCalls);
         Assert.assertEquals(0, paimon.invalidateCatalogCalls);
+    }
+
+    @Test
+    public void testEngineSpecificTableInvalidationAlsoFencesRowCount() throws Exception {
+        RecordingExternalMetaCache hive = new RecordingExternalMetaCache(
+                "hive", Collections.singletonList("hms"), catalog -> catalog instanceof HMSExternalCatalog);
+        ExternalMetaCacheMgr metaCacheMgr = newManagerWithCaches(hive);
+        ExternalRowCountCache rowCountCache = Mockito.mock(ExternalRowCountCache.class);
+        metaCacheMgr.replaceRowCountCacheForTest(rowCountCache);
+        long catalogId = 17L;
+        long dbId = 18L;
+        long tableId = 19L;
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        ExternalDatabase<?> db = Mockito.mock(ExternalDatabase.class);
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(catalog.getId()).thenReturn(catalogId);
+        Mockito.when(catalog.getDbForReplay("db1")).thenReturn(Optional.of(db));
+        Mockito.when(db.getId()).thenReturn(dbId);
+        Mockito.doReturn(Optional.of(table)).when(db).getTableForReplay("tbl1");
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
+        Mockito.when(table.getDb()).thenReturn(db);
+        Mockito.when(table.getId()).thenReturn(tableId);
+        mockCurrentCatalog(catalogId, catalog);
+        hive.initializedCatalogIds.add(catalogId);
+
+        metaCacheMgr.invalidateTableByEngine(catalogId, "hive", "db1", "tbl1");
+
+        Assert.assertEquals(1, hive.invalidateTableCalls);
+        Mockito.verify(rowCountCache, Mockito.times(2)).invalidateTable(catalogId, dbId, tableId);
+    }
+
+    @Test
+    public void testDatabaseInvalidationCanPreserveSingleBulkRowCountOwner() throws Exception {
+        RecordingExternalMetaCache hive = new RecordingExternalMetaCache(
+                "hive", Collections.singletonList("hms"), catalog -> catalog instanceof HMSExternalCatalog);
+        RecordingExternalMetaCache hudi = new RecordingExternalMetaCache(
+                "hudi", Collections.emptyList(), catalog -> catalog instanceof HMSExternalCatalog);
+        RecordingExternalMetaCache iceberg = new RecordingExternalMetaCache(
+                "iceberg", Collections.emptyList(), catalog -> catalog instanceof HMSExternalCatalog);
+        ExternalMetaCacheMgr metaCacheMgr = newManagerWithCaches(hive, hudi, iceberg);
+        ExternalRowCountCache rowCountCache = Mockito.mock(ExternalRowCountCache.class);
+        metaCacheMgr.replaceRowCountCacheForTest(rowCountCache);
+        long catalogId = 20L;
+        long dbId = 21L;
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        mockCurrentCatalog(catalogId, catalog);
+        hive.initializedCatalogIds.add(catalogId);
+        hudi.initializedCatalogIds.add(catalogId);
+        iceberg.initializedCatalogIds.add(catalogId);
+
+        metaCacheMgr.invalidateDb(catalogId, dbId, "db1", false);
+
+        Assert.assertEquals(1, hive.invalidateDbCalls);
+        Assert.assertEquals(1, hudi.invalidateDbCalls);
+        Assert.assertEquals(1, iceberg.invalidateDbCalls);
+        Mockito.verifyNoInteractions(rowCountCache);
+    }
+
+    @Test
+    public void testOperationalContextChangeFencesRowCountForEvictedDatabases() {
+        long catalogId = 24L;
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        mockCurrentCatalog(catalogId, catalog);
+        ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
+        ExternalRowCountCache rowCountCache = Mockito.mock(ExternalRowCountCache.class);
+        metaCacheMgr.replaceRowCountCacheForTest(rowCountCache);
+
+        metaCacheMgr.onCatalogOperationalContextChanged(catalogId);
+
+        Mockito.verify(rowCountCache).invalidateCatalog(catalogId);
+    }
+
+    @Test
+    public void testPermanentCatalogRemovalReleasesRowCountGenerationButRenameDoesNot() {
+        long catalogId = 29L;
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        mockCurrentCatalog(catalogId, catalog);
+        ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
+        ExternalRowCountCache rowCountCache = Mockito.mock(ExternalRowCountCache.class);
+        metaCacheMgr.replaceRowCountCacheForTest(rowCountCache);
+
+        metaCacheMgr.removeCatalog(catalogId);
+        Mockito.verify(rowCountCache, Mockito.never()).releaseCatalog(catalogId);
+        metaCacheMgr.removeCatalogPermanently(catalogId);
+        Mockito.verify(rowCountCache).releaseCatalog(catalogId);
+    }
+
+    @Test
+    public void testRollbackRetiresEngineCachesWhenResetCleanupThrows() throws Exception {
+        ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
+        ExternalRowCountCache rowCountCache = Mockito.mock(ExternalRowCountCache.class);
+        metaCacheMgr.replaceRowCountCacheForTest(rowCountCache);
+        long catalogId = 25L;
+        HMSExternalCatalog catalog = Mockito.spy(
+                new HMSExternalCatalog(catalogId, "hms", null, Collections.emptyMap(), ""));
+        mockCurrentCatalog(catalogId, catalog);
+        ExternalMetaCache hive = metaCacheMgr.hive(catalogId);
+        Assert.assertTrue(hive.isCatalogInitialized(catalogId));
+        Mockito.doThrow(new RuntimeException("close failed")).when(catalog).resetToUninitialized(false);
+
+        Assert.assertThrows(RuntimeException.class,
+                () -> metaCacheMgr.rollbackCatalogProperties(catalog, Collections.emptyMap()));
+
+        Assert.assertFalse(hive.isCatalogInitialized(catalogId));
+        Mockito.verify(rowCountCache).invalidateCatalog(catalogId);
+    }
+
+    @Test
+    public void testNameBasedInvalidationWidensToCanonicalDatabaseWhenTableCold() throws Exception {
+        long catalogId = 26L;
+        long dbId = 27L;
+        ExternalRowCountCache rowCountCache = Mockito.mock(ExternalRowCountCache.class);
+        RecordingExternalMetaCache hive = new RecordingExternalMetaCache(
+                "hive", Collections.singletonList("hms"), catalog -> catalog instanceof HMSExternalCatalog) {
+            @Override
+            public void invalidateDb(long id, String name) {
+                // Observe the opening fence while routed invalidation is still running.
+                Mockito.verify(rowCountCache, Mockito.times(2)).invalidateDb(catalogId, dbId);
+                super.invalidateDb(id, name);
+            }
+        };
+        RecordingExternalMetaCache hudi = new RecordingExternalMetaCache(
+                "hudi", Collections.emptyList(), catalog -> catalog instanceof HMSExternalCatalog);
+        RecordingExternalMetaCache iceberg = new RecordingExternalMetaCache(
+                "iceberg", Collections.emptyList(), catalog -> catalog instanceof HMSExternalCatalog);
+        ExternalMetaCacheMgr metaCacheMgr = newManagerWithCaches(hive, hudi, iceberg);
+        metaCacheMgr.replaceRowCountCacheForTest(rowCountCache);
+        HMSExternalCatalog catalog = Mockito.spy(
+                new HMSExternalCatalog(catalogId, "hms", null, Collections.emptyMap(), ""));
+        ExternalDatabase<?> db = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(db.getId()).thenReturn(dbId);
+        Mockito.when(db.getFullName()).thenReturn("MixedDb");
+        Mockito.doReturn(Optional.empty()).when(db).getTableForReplay("mixedtbl");
+        Mockito.doReturn(Optional.of(db)).when(catalog).getDbForReplay("mixeddb");
+        mockCurrentCatalog(catalogId, catalog);
+        hive.initializedCatalogIds.add(catalogId);
+        hudi.initializedCatalogIds.add(catalogId);
+        iceberg.initializedCatalogIds.add(catalogId);
+
+        metaCacheMgr.invalidateTableByNameOrWider(catalogId, "mixeddb", "mixedtbl");
+
+        Assert.assertEquals(1, hive.invalidateDbCalls);
+        Mockito.verify(rowCountCache, Mockito.times(3)).invalidateDb(catalogId, dbId);
+    }
+
+    @Test
+    public void testTypedTableInvalidationFencesBeforeEngineEviction() throws Exception {
+        long catalogId = 90L;
+        long dbId = 91L;
+        long tableId = 92L;
+        ExternalRowCountCache rowCountCache = Mockito.mock(ExternalRowCountCache.class);
+        RecordingExternalMetaCache hive = new RecordingExternalMetaCache(
+                "hive", Collections.singletonList("hms"), catalog -> catalog instanceof HMSExternalCatalog) {
+            @Override
+            public void invalidateTable(long id, String dbName, String tableName) {
+                Mockito.verify(rowCountCache).invalidateTable(catalogId, dbId, tableId);
+                super.invalidateTable(id, dbName, tableName);
+            }
+        };
+        RecordingExternalMetaCache hudi = new RecordingExternalMetaCache(
+                "hudi", Collections.emptyList(), catalog -> catalog instanceof HMSExternalCatalog);
+        RecordingExternalMetaCache iceberg = new RecordingExternalMetaCache(
+                "iceberg", Collections.emptyList(), catalog -> catalog instanceof HMSExternalCatalog);
+        ExternalMetaCacheMgr cacheMgr = newManagerWithCaches(hive, hudi, iceberg);
+        cacheMgr.replaceRowCountCacheForTest(rowCountCache);
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        Mockito.when(catalog.getId()).thenReturn(catalogId);
+        ExternalDatabase<?> db = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(db.getId()).thenReturn(dbId);
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
+        Mockito.when(table.getDb()).thenReturn(db);
+        Mockito.when(table.getId()).thenReturn(tableId);
+        Mockito.when(table.getDbName()).thenReturn("db");
+        Mockito.when(table.getName()).thenReturn("tbl");
+        mockCurrentCatalog(catalogId, catalog);
+        hive.initializedCatalogIds.add(catalogId);
+
+        cacheMgr.invalidateTableCache(table);
+
+        Assert.assertEquals(1, hive.invalidateTableCalls);
+        Mockito.verify(rowCountCache, Mockito.times(2)).invalidateTable(catalogId, dbId, tableId);
+    }
+
+    @Test
+    public void testExplicitDatabaseInvalidationFencesBeforeEngineEviction() throws Exception {
+        long catalogId = 93L;
+        long dbId = 94L;
+        ExternalRowCountCache rowCountCache = Mockito.mock(ExternalRowCountCache.class);
+        RecordingExternalMetaCache hive = new RecordingExternalMetaCache(
+                "hive", Collections.singletonList("hms"), catalog -> catalog instanceof HMSExternalCatalog) {
+            @Override
+            public void invalidateDb(long id, String name) {
+                Mockito.verify(rowCountCache).invalidateDb(catalogId, dbId);
+                super.invalidateDb(id, name);
+            }
+        };
+        RecordingExternalMetaCache hudi = new RecordingExternalMetaCache(
+                "hudi", Collections.emptyList(), catalog -> catalog instanceof HMSExternalCatalog);
+        RecordingExternalMetaCache iceberg = new RecordingExternalMetaCache(
+                "iceberg", Collections.emptyList(), catalog -> catalog instanceof HMSExternalCatalog);
+        ExternalMetaCacheMgr cacheMgr = newManagerWithCaches(hive, hudi, iceberg);
+        cacheMgr.replaceRowCountCacheForTest(rowCountCache);
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        mockCurrentCatalog(catalogId, catalog);
+        hive.initializedCatalogIds.add(catalogId);
+
+        cacheMgr.invalidateDb(catalogId, dbId, "db");
+
+        Assert.assertEquals(1, hive.invalidateDbCalls);
+        Mockito.verify(rowCountCache, Mockito.times(2)).invalidateDb(catalogId, dbId);
+    }
+
+    @Test
+    public void testCatalogInvalidationFencesBeforeEngineEviction() throws Exception {
+        long catalogId = 98L;
+        ExternalRowCountCache rowCountCache = Mockito.mock(ExternalRowCountCache.class);
+        RecordingExternalMetaCache hive = new RecordingExternalMetaCache(
+                "hive", Collections.singletonList("hms"), catalog -> catalog instanceof HMSExternalCatalog) {
+            @Override
+            public void invalidateCatalogEntries(long id) {
+                Mockito.verify(rowCountCache).invalidateCatalog(catalogId);
+                super.invalidateCatalogEntries(id);
+            }
+        };
+        RecordingExternalMetaCache hudi = new RecordingExternalMetaCache(
+                "hudi", Collections.emptyList(), catalog -> catalog instanceof HMSExternalCatalog);
+        RecordingExternalMetaCache iceberg = new RecordingExternalMetaCache(
+                "iceberg", Collections.emptyList(), catalog -> catalog instanceof HMSExternalCatalog);
+        ExternalMetaCacheMgr cacheMgr = newManagerWithCaches(hive, hudi, iceberg);
+        cacheMgr.replaceRowCountCacheForTest(rowCountCache);
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        mockCurrentCatalog(catalogId, catalog);
+        hive.initializedCatalogIds.add(catalogId);
+
+        cacheMgr.invalidateCatalog(catalogId);
+
+        Assert.assertEquals(1, hive.invalidateCatalogEntriesCalls);
+        Mockito.verify(rowCountCache, Mockito.times(2)).invalidateCatalog(catalogId);
+    }
+
+    @Test
+    public void testEngineSpecificTableInvalidationFencesBeforeEviction() throws Exception {
+        long catalogId = 95L;
+        long dbId = 96L;
+        long tableId = 97L;
+        ExternalRowCountCache rowCountCache = Mockito.mock(ExternalRowCountCache.class);
+        RecordingExternalMetaCache hive = new RecordingExternalMetaCache(
+                "hive", Collections.singletonList("hms"), catalog -> catalog instanceof HMSExternalCatalog) {
+            @Override
+            public void invalidateTable(long id, String dbName, String tableName) {
+                Mockito.verify(rowCountCache).invalidateTable(catalogId, dbId, tableId);
+                super.invalidateTable(id, dbName, tableName);
+            }
+        };
+        ExternalMetaCacheMgr cacheMgr = newManagerWithCaches(hive);
+        cacheMgr.replaceRowCountCacheForTest(rowCountCache);
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        ExternalDatabase<?> db = Mockito.mock(ExternalDatabase.class);
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(catalog.getId()).thenReturn(catalogId);
+        Mockito.doReturn(Optional.of(db)).when(catalog).getDbForReplay("db");
+        Mockito.doReturn(Optional.of(table)).when(db).getTableForReplay("tbl");
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
+        Mockito.when(table.getDb()).thenReturn(db);
+        Mockito.when(table.getId()).thenReturn(tableId);
+        Mockito.when(db.getId()).thenReturn(dbId);
+        mockCurrentCatalog(catalogId, catalog);
+        hive.initializedCatalogIds.add(catalogId);
+
+        cacheMgr.invalidateTableByEngine(catalogId, "hive", "db", "tbl");
+
+        Assert.assertEquals(1, hive.invalidateTableCalls);
+        Mockito.verify(rowCountCache, Mockito.times(2)).invalidateTable(catalogId, dbId, tableId);
+    }
+
+    @Test
+    public void testColdKnownDatabaseTableRoutesDoNotFenceUnrelatedCounts() throws Exception {
+        long catalogId = 101L;
+        long dbId = 102L;
+        RecordingExternalMetaCache hive = new RecordingExternalMetaCache(
+                "hive", Collections.singletonList("hms"), catalog -> catalog instanceof HMSExternalCatalog);
+        RecordingExternalMetaCache hudi = new RecordingExternalMetaCache(
+                "hudi", Collections.emptyList(), catalog -> catalog instanceof HMSExternalCatalog);
+        RecordingExternalMetaCache iceberg = new RecordingExternalMetaCache(
+                "iceberg", Collections.emptyList(), catalog -> catalog instanceof HMSExternalCatalog);
+        ExternalMetaCacheMgr cacheMgr = newManagerWithCaches(hive, hudi, iceberg);
+        ExternalRowCountCache rowCountCache = Mockito.mock(ExternalRowCountCache.class);
+        cacheMgr.replaceRowCountCacheForTest(rowCountCache);
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        Mockito.doReturn(Optional.empty()).when(catalog).getDbForReplay("cold_db");
+        Mockito.when(catalog.getDbIdentityForReplay("cold_db", 0L))
+                .thenReturn(Optional.of(Pair.of("ColdDb", dbId)));
+        mockCurrentCatalog(catalogId, catalog);
+        hive.initializedCatalogIds.add(catalogId);
+
+        cacheMgr.invalidateTable(catalogId, "cold_db", "tbl");
+        cacheMgr.invalidateTableByEngine(catalogId, "hive", "cold_db", "tbl");
+        cacheMgr.invalidatePartitions(catalogId, "cold_db", "tbl", Collections.singletonList("p"));
+
+        Mockito.verify(rowCountCache, Mockito.times(6)).invalidateDb(catalogId, dbId);
+        Mockito.verify(rowCountCache, Mockito.never()).invalidateCatalog(catalogId);
+    }
+
+    @Test
+    public void testNameBasedInvalidationWidensToCatalogWhenDatabaseCold() throws Exception {
+        RecordingExternalMetaCache hive = new RecordingExternalMetaCache(
+                "hive", Collections.singletonList("hms"), catalog -> catalog instanceof HMSExternalCatalog);
+        RecordingExternalMetaCache hudi = new RecordingExternalMetaCache(
+                "hudi", Collections.emptyList(), catalog -> catalog instanceof HMSExternalCatalog);
+        RecordingExternalMetaCache iceberg = new RecordingExternalMetaCache(
+                "iceberg", Collections.emptyList(), catalog -> catalog instanceof HMSExternalCatalog);
+        ExternalMetaCacheMgr metaCacheMgr = newManagerWithCaches(hive, hudi, iceberg);
+        ExternalRowCountCache rowCountCache = Mockito.mock(ExternalRowCountCache.class);
+        metaCacheMgr.replaceRowCountCacheForTest(rowCountCache);
+        long catalogId = 28L;
+        HMSExternalCatalog catalog = Mockito.spy(
+                new HMSExternalCatalog(catalogId, "hms", null, Collections.emptyMap(), ""));
+        Mockito.doReturn(Optional.empty()).when(catalog).getDbForReplay("colddb");
+        mockCurrentCatalog(catalogId, catalog);
+        hive.initializedCatalogIds.add(catalogId);
+        hudi.initializedCatalogIds.add(catalogId);
+        iceberg.initializedCatalogIds.add(catalogId);
+
+        metaCacheMgr.invalidateTableByNameOrWider(catalogId, "colddb", "tbl");
+
+        Assert.assertEquals(1, hive.invalidateCatalogEntriesCalls);
+        Mockito.verify(rowCountCache, Mockito.times(3)).invalidateCatalog(catalogId);
+    }
+
+    @Test
+    public void testNameBasedInvalidationUsesKnownColdDatabaseIdentity() throws Exception {
+        RecordingExternalMetaCache hive = new RecordingExternalMetaCache(
+                "hive", Collections.singletonList("hms"), catalog -> catalog instanceof HMSExternalCatalog);
+        RecordingExternalMetaCache hudi = new RecordingExternalMetaCache(
+                "hudi", Collections.emptyList(), catalog -> catalog instanceof HMSExternalCatalog);
+        RecordingExternalMetaCache iceberg = new RecordingExternalMetaCache(
+                "iceberg", Collections.emptyList(), catalog -> catalog instanceof HMSExternalCatalog);
+        ExternalMetaCacheMgr metaCacheMgr = newManagerWithCaches(hive, hudi, iceberg);
+        ExternalRowCountCache rowCountCache = Mockito.mock(ExternalRowCountCache.class);
+        metaCacheMgr.replaceRowCountCacheForTest(rowCountCache);
+        long catalogId = 29L;
+        long dbId = 30L;
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        Mockito.when(catalog.getDbForReplay("coldDb")).thenReturn(Optional.empty());
+        Mockito.when(catalog.getDbIdentityForReplay("coldDb", 0L))
+                .thenReturn(Optional.of(org.apache.doris.common.Pair.of("CanonicalDb", dbId)));
+        mockCurrentCatalog(catalogId, catalog);
+        hive.initializedCatalogIds.add(catalogId);
+        hudi.initializedCatalogIds.add(catalogId);
+        iceberg.initializedCatalogIds.add(catalogId);
+
+        metaCacheMgr.invalidateTableByNameOrWider(catalogId, "coldDb", "tbl");
+        metaCacheMgr.invalidateRowCountCache(catalogId, "coldDb", "tbl");
+
+        Assert.assertEquals(1, hive.invalidateDbCalls);
+        Assert.assertEquals(0, hive.invalidateCatalogEntriesCalls);
+        Mockito.verify(rowCountCache, Mockito.times(4)).invalidateDb(catalogId, dbId);
+        Mockito.verify(rowCountCache, Mockito.never()).invalidateCatalog(catalogId);
+    }
+
+    @Test
+    public void testNameBasedRowCountFenceUsesRetainedColdTableIdentity() {
+        long catalogId = 22L;
+        long dbId = 23L;
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        ExternalDatabase<?> db = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(catalog.getDbForReplay("db1")).thenReturn(Optional.of(db));
+        Mockito.when(db.getId()).thenReturn(dbId);
+        Mockito.doReturn(Optional.empty()).when(db).getTableForReplay("tbl1");
+        Mockito.when(db.getTableIdForReplay("tbl1")).thenReturn(java.util.OptionalLong.of(24L));
+        mockCurrentCatalog(catalogId, catalog);
+
+        ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
+        ExternalRowCountCache rowCountCache = Mockito.mock(ExternalRowCountCache.class);
+        metaCacheMgr.replaceRowCountCacheForTest(rowCountCache);
+
+        metaCacheMgr.invalidateRowCountCache(catalogId, "db1", "tbl1");
+
+        Mockito.verify(rowCountCache).invalidateTable(catalogId, dbId, 24L);
+        Mockito.verify(rowCountCache, Mockito.never()).invalidateDb(catalogId, dbId);
+    }
+
+    @Test
+    public void testNameBasedRowCountFenceWidensWhenColdTableNameIsLost() {
+        long catalogId = 22L;
+        long dbId = 23L;
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        ExternalDatabase<?> db = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(catalog.getDbForReplay("db1")).thenReturn(Optional.of(db));
+        Mockito.when(db.getId()).thenReturn(dbId);
+        Mockito.doReturn(Optional.empty()).when(db).getTableForReplay("tbl1");
+        mockCurrentCatalog(catalogId, catalog);
+
+        ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
+        ExternalRowCountCache rowCountCache = Mockito.mock(ExternalRowCountCache.class);
+        metaCacheMgr.replaceRowCountCacheForTest(rowCountCache);
+
+        metaCacheMgr.invalidateRowCountCache(catalogId, "db1", "tbl1");
+
+        Mockito.verify(rowCountCache).invalidateDb(catalogId, dbId);
     }
 
     @SuppressWarnings("unchecked")

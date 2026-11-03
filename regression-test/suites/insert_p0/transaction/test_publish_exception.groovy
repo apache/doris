@@ -16,6 +16,11 @@
 // under the License.
 
 suite("test_publish_exception", "nonConcurrent") {
+    // This injection belongs to the local PublishVersionDaemon path. Cloud transactions
+    // publish through CloudGlobalTransactionMgr/meta service and cannot exercise it.
+    if (isCloudMode()) {
+        return
+    }
     def tableName = "test_publish_exception"
     // test txn X inverted index
     sql "DROP TABLE IF EXISTS ${tableName}"

@@ -66,5 +66,21 @@ TEST(SchemaTest, test_find_field) {
     EXPECT_EQ(found_field2->field_id(), 2);
 }
 
+TEST(SchemaTest, FindNestedFieldPath) {
+    std::vector<NestedField> children;
+    children.emplace_back(true, 2, "part", std::make_unique<IntegerType>(), std::nullopt);
+    std::vector<NestedField> columns;
+    columns.emplace_back(true, 1, "payload", std::make_unique<StructType>(std::move(children)),
+                         std::nullopt);
+    Schema schema(1, std::move(columns));
+
+    const auto* path = schema.find_field_path(2);
+    ASSERT_NE(path, nullptr);
+    ASSERT_EQ(path->size(), 2);
+    EXPECT_EQ((*path)[0]->field_id(), 1);
+    EXPECT_EQ((*path)[1]->field_id(), 2);
+    EXPECT_EQ(schema.find_type(2)->type_id(), TypeID::INTEGER);
+}
+
 } // namespace iceberg
 } // namespace doris

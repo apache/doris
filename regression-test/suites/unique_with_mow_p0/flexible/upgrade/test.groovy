@@ -20,6 +20,25 @@ suite('test_flexible_partial_update_upgrade', 'p0,restart_fe') {
     for (def use_row_store : [false, true]) {
         logger.info("current params: use_row_store: ${use_row_store}")
         def tableName = "test_f_upgrade_${use_row_store}"
+        if (context.config.withOutLoadData) {
+            // The initial run leaves this final fixture for every rolling-upgrade stage.
+            // Check it before any writes, without recreating the table or replaying the load.
+            check_sqls_result_equal(
+                "select k,v1,v2,v3,v4,v5 from ${tableName} order by k",
+                """select 0 as k, 0 as v1, 0 as v2, 0 as v3, 0 as v4, 0 as v5
+                    union all select 1, 999, 111, 999, 1, 999
+                    union all select 2, 888, 20, 888, 222, 888
+                    union all select 3, 10, 10, 10, 10, 10
+                    union all select 4, 12, 12, 12, 12, 12
+                    union all select 7, 7, 7, 7, 7, 7
+                    union all select 8, 8, 8, 8, 8, 8
+                    union all select 9, 9, 9, 9, 9, 9
+                    union all select 20, 555, 9876, 555, 1234, 555
+                    union all select 30, 11, 11, 11, 11, 11 order by k""")
+            def persistedSchema = sql "show create table ${tableName}"
+            assertTrue(persistedSchema.toString().contains('"enable_unique_key_skip_bitmap_column" = "true"'))
+            continue
+        }
         sql """alter table ${tableName} enable feature "UPDATE_FLEXIBLE_COLUMNS"; """
         def show_res = sql "show create table ${tableName}"
         assertTrue(show_res.toString().contains('"enable_unique_key_skip_bitmap_column" = "true"'))

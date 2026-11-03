@@ -135,6 +135,8 @@ public class EliminateGroupByKeyByUniformTest extends TestWithFeService implemen
                 .analyze("select  t1.b,t2.b from eli_gbk_by_uniform_t t1 left join eli_gbk_by_uniform_t t2 on t1.b=t2.b and t1.b=100 group by t1.b,t2.b,t2.c;")
                 .rewrite()
                 .printlnTree()
+                // branch-4.2 keeps all three keys here: the upstream expectation (2 keys) relies on
+                // uniform-trait derivation for outer-join outputs that master has and branch-4.2 does not.
                 .matches(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 3));
     }
 
@@ -144,6 +146,8 @@ public class EliminateGroupByKeyByUniformTest extends TestWithFeService implemen
                 .analyze("select  t1.b,t2.b from eli_gbk_by_uniform_t t1 left join eli_gbk_by_uniform_t t2 on t1.b=t2.b where t1.b=100 group by t1.b,t2.b,t2.c;")
                 .rewrite()
                 .printlnTree()
+                // branch-4.2 keeps two keys here: the upstream expectation (only "c") relies on
+                // uniform-trait derivation for outer-join outputs that master has and branch-4.2 does not.
                 .matches(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 2));
     }
 

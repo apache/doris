@@ -69,6 +69,9 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
     case TPrimitiveType::DATETIMEV2:
         return TYPE_DATETIMEV2;
 
+    case TPrimitiveType::TIMESTAMP_NS:
+        return TYPE_TIMESTAMP_NS;
+
     case TPrimitiveType::TIMEV2:
         return TYPE_TIMEV2;
 
@@ -89,6 +92,9 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
 
     case TPrimitiveType::IPV6:
         return TYPE_IPV6;
+
+    case TPrimitiveType::UUID:
+        return TYPE_UUID;
 
     case TPrimitiveType::DECIMALV2:
         return TYPE_DECIMALV2;
@@ -191,6 +197,9 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
     case TYPE_DATETIMEV2:
         return TPrimitiveType::DATETIMEV2;
 
+    case TYPE_TIMESTAMP_NS:
+        return TPrimitiveType::TIMESTAMP_NS;
+
     case TYPE_TIMEV2:
         return TPrimitiveType::TIMEV2;
 
@@ -214,6 +223,9 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
 
     case TYPE_IPV6:
         return TPrimitiveType::IPV6;
+
+    case TYPE_UUID:
+        return TPrimitiveType::UUID;
 
     case TYPE_DECIMALV2:
         return TPrimitiveType::DECIMALV2;
@@ -305,6 +317,9 @@ std::string type_to_string(PrimitiveType t) {
     case TYPE_DATETIMEV2:
         return "DATETIMEV2";
 
+    case TYPE_TIMESTAMP_NS:
+        return "TIMESTAMP_NS";
+
     case TYPE_TIMEV2:
         return "TIMEV2";
 
@@ -325,6 +340,9 @@ std::string type_to_string(PrimitiveType t) {
 
     case TYPE_IPV6:
         return "IPV6";
+
+    case TYPE_UUID:
+        return "UUID";
 
     case TYPE_DECIMALV2:
         return "DECIMALV2";

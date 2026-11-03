@@ -31,6 +31,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
     sql """
     CREATE CATALOG ${catalog_name} PROPERTIES (
         'type'='iceberg',
+        'enable.mapping.varbinary'='true',
         'iceberg.catalog.type'='rest',
         'uri' = 'http://${externalEnvIp}:${rest_port}',
         "s3.access_key" = "admin",
@@ -47,6 +48,44 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
     sql """ drop database if exists ${db1} force"""
     sql """ create database ${db1} """
     sql """ use ${db1} """
+
+    // Binary partition values must retain their bytes across dynamic, full-static and hybrid writes.
+    String binaryTable = "binary_partition_overwrite"
+    spark_iceberg """
+        CREATE TABLE demo.${db1}.${binaryTable} (id INT, part_key BINARY, region STRING)
+        USING iceberg PARTITIONED BY (part_key, region)
+        TBLPROPERTIES ('write.format.default'='parquet')
+    """
+    sql """ INSERT INTO ${binaryTable} VALUES
+        (1, X'DEAD', 'a'), (2, X'DEAD', 'b'), (3, X'00FF', 'a') """
+    sql """ INSERT OVERWRITE TABLE ${binaryTable}
+        PARTITION (part_key=X'DEAD', region='a') SELECT 10 """
+    assertEquals([[2, "DEAD", "b"], [3, "00FF", "a"], [10, "DEAD", "a"]],
+            sql("SELECT id, hex(part_key), region FROM ${binaryTable} ORDER BY id"))
+    sql """ INSERT OVERWRITE TABLE ${binaryTable}
+        PARTITION (part_key=X'DEAD') SELECT 20, 'c' """
+    def binaryRows = sql("SELECT id, hex(part_key), region FROM ${binaryTable} ORDER BY id")
+    assertEquals([[3, "00FF", "a"], [20, "DEAD", "c"]], binaryRows)
+    spark_iceberg "REFRESH TABLE demo.${db1}.${binaryTable}"
+    assertSparkDorisResultEquals(spark_iceberg("""
+        SELECT id, hex(part_key), region FROM demo.${db1}.${binaryTable} ORDER BY id
+    """), binaryRows)
+
+    // NULL and empty bytes must select distinct partitions in both full-static and hybrid overwrite.
+    sql """ INSERT INTO ${binaryTable} VALUES
+        (21, NULL, 'a'), (22, NULL, 'b'), (23, X'', 'a') """
+    sql """ INSERT OVERWRITE TABLE ${binaryTable}
+        PARTITION (part_key=NULL, region='a') SELECT 31 """
+    assertEquals([[22, "NULL", "b"], [23, "", "a"], [31, "NULL", "a"]],
+            sql("SELECT id, coalesce(hex(part_key), 'NULL'), region FROM ${binaryTable} WHERE id >= 21 ORDER BY id"))
+    sql """ INSERT OVERWRITE TABLE ${binaryTable}
+        PARTITION (part_key=NULL) SELECT 32, 'c' """
+    def nullPartitionRows = sql("SELECT id, coalesce(hex(part_key), 'NULL'), region FROM ${binaryTable} ORDER BY id")
+    assertEquals([[3, "00FF", "a"], [20, "DEAD", "c"], [23, "", "a"], [32, "NULL", "c"]], nullPartitionRows)
+    spark_iceberg "REFRESH TABLE demo.${db1}.${binaryTable}"
+    assertSparkDorisResultEquals(spark_iceberg("""
+        SELECT id, coalesce(hex(part_key), 'NULL'), region FROM demo.${db1}.${binaryTable} ORDER BY id
+    """), nullPartitionRows)
 
     // Test Case 1: Full static partition overwrite (all partition columns specified)
     // Test overwriting a specific partition with all partition columns specified
@@ -994,7 +1033,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
             PARTITION (category='food')
             SELECT 10, 'Eve'
         """
-        exception "Unknown partition column"
+        exception "Cannot use static partition syntax for non-identity partition field"
     }
     // Using correct partition field name should trigger non-identity error
     test {
@@ -1027,7 +1066,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
             PARTITION (description='hello')
             SELECT 10, 'Eve'
         """
-        exception "Unknown partition column"
+        exception "Cannot use static partition syntax for non-identity partition field"
     }
     // Using correct partition field name should trigger non-identity error
     test {
@@ -1060,7 +1099,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
             PARTITION (ts='2025-01-25 10:00:00')
             SELECT 10, 'Eve'
         """
-        exception "Unknown partition column"
+        exception "Cannot use static partition syntax for non-identity partition field"
     }
     // Using correct partition field name should trigger non-identity error
     test {
@@ -1093,7 +1132,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
             PARTITION (event_date='2024-06-15')
             SELECT 10, 'Eve'
         """
-        exception "Unknown partition column"
+        exception "Cannot use static partition syntax for non-identity partition field"
     }
     // Using correct partition field name should trigger non-identity error
     test {
@@ -1126,7 +1165,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
             PARTITION (event_date='2025-01-15')
             SELECT 10, 'Eve'
         """
-        exception "Unknown partition column"
+        exception "Cannot use static partition syntax for non-identity partition field"
     }
     // Using correct partition field name should trigger non-identity error
     test {
@@ -1159,7 +1198,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
             PARTITION (ts='2025-01-25 10:00:00')
             SELECT 10, 'Eve'
         """
-        exception "Unknown partition column"
+        exception "Cannot use static partition syntax for non-identity partition field"
     }
     // Using correct partition field name should trigger non-identity error
     test {
@@ -1194,7 +1233,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
             PARTITION (id=1)
             SELECT 'Eve', 'bj'
         """
-        exception "Unknown partition column"
+        exception "Cannot use static partition syntax for non-identity partition field"
     }
     // Using correct partition field name should trigger non-identity error
     test {
@@ -1227,7 +1266,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
             PARTITION (amount=100)
             SELECT 10, 'Eve'
         """
-        exception "Unknown partition column"
+        exception "Cannot use static partition syntax for non-identity partition field"
     }
     // Using correct partition field name should trigger non-identity error
     test {
@@ -1260,7 +1299,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
             PARTITION (user_id=1001)
             SELECT 10, 'Eve'
         """
-        exception "Unknown partition column"
+        exception "Cannot use static partition syntax for non-identity partition field"
     }
     // Using correct partition field name should trigger non-identity error
     test {
@@ -1301,7 +1340,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
             PARTITION (ts='2025-01-25 10:00:00')
             SELECT 10, 'Eve', 'bj'
         """
-        exception "Unknown partition column"
+        exception "Cannot use static partition syntax for non-identity partition field"
     }
     // Using correct partition field name should trigger non-identity error
     test {
@@ -1311,5 +1350,40 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
             SELECT 10, 'Eve', 'bj'
         """
         exception "Cannot use static partition syntax for non-identity partition field"
+    }
+
+    // Test Case 39: an identity partition field renamed away from its source column.
+    // Spark resolves the static partition by the source column and materializes the literal there.
+    String tb_renamed = db1 + "_renamed_identity"
+    sql """ DROP TABLE IF EXISTS ${tb_renamed} """
+    sql """
+        CREATE TABLE ${tb_renamed} (
+            id BIGINT,
+            value STRING,
+            metric INT
+        ) ENGINE=iceberg
+    """
+    sql """ ALTER TABLE ${tb_renamed} ADD PARTITION KEY id AS id_identity """
+    sql """ INSERT INTO ${tb_renamed} VALUES (1, 'a', 1), (2, 'b', 2) """
+
+    // Only id=2 is replaced, and the partition literal is materialized into the row's id column.
+    sql """
+        INSERT OVERWRITE TABLE ${tb_renamed}
+        PARTITION (id = 2) (value, metric) VALUES ('b2', 22)
+    """
+    order_qt_renamed_static_source_column """ SELECT id, value, metric FROM ${tb_renamed} ORDER BY id """
+    def renamedRows = sql("SELECT id, value, metric FROM ${tb_renamed} ORDER BY id")
+    spark_iceberg "REFRESH TABLE demo.${db1}.${tb_renamed}"
+    assertSparkDorisResultEquals(spark_iceberg("""
+        SELECT id, value, metric FROM demo.${db1}.${tb_renamed} ORDER BY id
+    """), renamedRows)
+
+    // The partition FIELD name is not a table column. Report the source column to use instead.
+    test {
+        sql """
+            INSERT OVERWRITE TABLE ${tb_renamed}
+            PARTITION (id_identity = 2) (value, metric) VALUES ('b3', 33)
+        """
+        exception "is a partition field name, not a table column"
     }
 }

@@ -50,6 +50,7 @@ import org.apache.doris.datasource.es.EsUtil;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.lance.LanceExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.info.TableNameInfo;
@@ -120,6 +121,7 @@ public class CreateTableInfo {
     public static final String ENGINE_BROKER = "broker";
     public static final String ENGINE_HIVE = "hive";
     public static final String ENGINE_ICEBERG = "iceberg";
+    public static final String ENGINE_LANCE = "lance";
     public static final String ENGINE_PAIMON = "paimon";
     public static final String ENGINE_MAXCOMPUTE = "maxcompute";
     private static final ImmutableSet<AggregateType> GENERATED_COLUMN_ALLOW_AGG_TYPE =
@@ -387,6 +389,8 @@ public class CreateTableInfo {
             throw new AnalysisException("Hms type catalog can only use `hive` engine.");
         } else if (catalog instanceof IcebergExternalCatalog && !engineName.equals(ENGINE_ICEBERG)) {
             throw new AnalysisException("Iceberg type catalog can only use `iceberg` engine.");
+        } else if (catalog instanceof LanceExternalCatalog && !engineName.equals(ENGINE_LANCE)) {
+            throw new AnalysisException("Lance type catalog can only use `lance` engine.");
         } else if (catalog instanceof PaimonExternalCatalog && !engineName.equals(ENGINE_PAIMON)) {
             throw new AnalysisException("Paimon type catalog can only use `paimon` engine.");
         } else if (catalog instanceof MaxComputeExternalCatalog && !engineName.equals(ENGINE_MAXCOMPUTE)) {
@@ -472,13 +476,6 @@ public class CreateTableInfo {
             }
             if (columnDef.getType().isVarBinaryType()) {
                 throw new AnalysisException("doris do not support varbinary create table, could use it by catalog");
-            }
-            if (columnDef.getType().isVariantType()) {
-                if (columnNameUpperCase.indexOf('.') != -1) {
-                    throw new AnalysisException(
-                        "Disable to create table of `VARIANT` type column named with a `.` character: "
-                                + columnNameUpperCase);
-                }
             }
             if (columnDef.getType().isDateType() && Config.disable_datev1) {
                 throw new AnalysisException(
@@ -835,14 +832,23 @@ public class CreateTableInfo {
         columns.forEach(c -> c.validate(engineName.equals(ENGINE_OLAP), keysSet, orderKeySet, finalEnableMergeOnWrite,
                 keysType));
 
+        try {
+            invertedIndexFileStorageFormat =
+                    PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(new HashMap<>(properties));
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage(), e.getCause());
+        }
+
         // validate index
         if (!indexes.isEmpty()) {
             Set<String> distinct = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-            try {
-                invertedIndexFileStorageFormat = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
-                        new HashMap<>(properties));
-            } catch (Exception e) {
-                throw new AnalysisException(e.getMessage(), e.getCause());
+            if (invertedIndexFileStorageFormat == null) {
+                try {
+                    invertedIndexFileStorageFormat = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
+                            new HashMap<>(properties));
+                } catch (Exception e) {
+                    throw new AnalysisException(e.getMessage(), e.getCause());
+                }
             }
 
             for (IndexDefinition indexDef : indexes) {
@@ -854,7 +860,8 @@ public class CreateTableInfo {
                 if (indexDef.getIndexType() == IndexType.ANN) {
                     if (invertedIndexFileStorageFormat != null
                             && invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1) {
-                        throw new AnalysisException("ANN index is not supported in index format V1");
+                        throw new AnalysisException("ANN index is not supported in index format "
+                                + invertedIndexFileStorageFormat);
                     }
                 }
                 for (String indexColName : indexDef.getColumnNames()) {
@@ -900,6 +907,8 @@ public class CreateTableInfo {
                 engineName = ENGINE_HIVE;
             } else if (catalog instanceof IcebergExternalCatalog) {
                 engineName = ENGINE_ICEBERG;
+            } else if (catalog instanceof LanceExternalCatalog) {
+                engineName = ENGINE_LANCE;
             } else if (catalog instanceof PaimonExternalCatalog) {
                 engineName = ENGINE_PAIMON;
             } else if (catalog instanceof MaxComputeExternalCatalog) {
@@ -917,6 +926,9 @@ public class CreateTableInfo {
                                             ConnectContext ctx) {
         String catalogName = qualifierTableName.get(0);
         paddingEngineName(catalogName, ctx);
+        if (engineName.equals(ENGINE_LANCE)) {
+            throw new AnalysisException("CREATE TABLE AS SELECT is not supported for Lance catalogs");
+        }
         this.columns = Utils.copyRequiredMutableList(columns);
         // bucket num is hard coded 10 to be consistent with legacy planner
         if (engineName.equals(ENGINE_OLAP) && this.distribution == null) {
@@ -934,6 +946,7 @@ public class CreateTableInfo {
         if (engineName.equals(ENGINE_MYSQL) || engineName.equals(ENGINE_ODBC) || engineName.equals(ENGINE_BROKER)
                 || engineName.equals(ENGINE_ELASTICSEARCH) || engineName.equals(ENGINE_HIVE)
                 || engineName.equals(ENGINE_ICEBERG) || engineName.equals(ENGINE_JDBC)
+                || engineName.equals(ENGINE_LANCE)
                 || engineName.equals(ENGINE_PAIMON) || engineName.equals(ENGINE_MAXCOMPUTE)) {
             if (!isExternal) {
                 // this is for compatibility
@@ -1130,6 +1143,9 @@ public class CreateTableInfo {
      * analyzeEngine
      */
     public void analyzeEngine() {
+        if (isExternal) {
+            partitionTableInfo.validateExternalPartition(engineName);
+        }
         this.partitionDesc = partitionTableInfo.convertToPartitionDesc(isExternal);
         this.distributionDesc =
             distribution != null ? distribution.translateToCatalogStyle() : null;
@@ -1145,12 +1161,6 @@ public class CreateTableInfo {
                     && distributionDesc != null) {
                 throw new AnalysisException("Create " + engineName
                     + " table should not contain distribution desc");
-            }
-            if (!engineName.equals(ENGINE_HIVE) && !engineName.equals(ENGINE_ICEBERG)
-                    && !engineName.equals(ENGINE_PAIMON) && !engineName.equals(ENGINE_MAXCOMPUTE)
-                    && partitionDesc != null) {
-                throw new AnalysisException("Create " + engineName
-                    + " table should not contain partition desc");
             }
         }
     }

@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.lance;
 
-import org.apache.doris.datasource.lance.job.LanceIndexSchemaContract;
 
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;

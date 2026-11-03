@@ -19,12 +19,14 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
 
 #include "common/config.h"
+#include "cpp/sync_point.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
@@ -41,6 +43,8 @@
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
+#include "util/debug_points.h"
+#include "util/defer_op.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -114,6 +118,10 @@ public:
     }
 
     void TearDown() {
+        auto* sync_point = SyncPoint::get_instance();
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+        sync_point->clear_trace();
         config::enable_segcompaction = false;
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
         l_engine = nullptr;
@@ -287,6 +295,55 @@ private:
     std::unique_ptr<DataDir> _data_dir;
     std::unique_ptr<InvertedIndexSearcherCache> _inverted_index_searcher_cache;
 };
+
+// A segcompaction failure that is not one of the retryable ones (out of memory, reader or
+// writer init) terminates the write job, and build() must surface that instead of returning
+// a rowset built on top of a failed compaction. The row-count check is the cheapest fatal
+// failure to provoke: SegcompactionWorker::_check_correctness reports CHECK_LINES_ERROR,
+// which falls through to the fatal branch of SegcompactionWorker::compact_segments.
+//
+// build() reports SEGCOMPACTION_FAILED rather than CHECK_LINES_ERROR because the worker
+// hands the writer a bare error code, losing the original status. That is existing
+// behavior; this test pins the failure reaching build(), not the code it arrives as.
+TEST_F(SegCompactionTest, FatalSegcompactionFailsBuild) {
+    config::segcompaction_candidate_max_rows = 10;
+    config::segcompaction_batch_size = 2;
+
+    const auto origin_enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add("SegcompactionWorker._check_correctness_wrong_sum_src_row");
+    Defer defer([origin_enable_debug_points]() {
+        DebugPoints::instance()->remove("SegcompactionWorker._check_correctness_wrong_sum_src_row");
+        config::enable_debug_points = origin_enable_debug_points;
+    });
+
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    create_tablet_schema(tablet_schema, DUP_KEYS);
+
+    RowsetWriterContext writer_context;
+    create_rowset_writer_context(10046, tablet_schema, &writer_context);
+    auto writer_result = RowsetFactory::create_rowset_writer(*l_engine, writer_context, false);
+    ASSERT_TRUE(writer_result.has_value()) << writer_result.error();
+    auto rowset_writer = std::move(writer_result).value();
+
+    for (int segment_id = 0; segment_id < 3; ++segment_id) {
+        Block block = tablet_schema->create_block();
+        auto columns = std::move(block).mutate_columns();
+        for (uint32_t column_id = 0; column_id < columns.size(); ++column_id) {
+            const uint32_t value = segment_id + column_id;
+            columns[column_id]->insert_data(reinterpret_cast<const char*>(&value), sizeof(value));
+        }
+        ASSERT_TRUE(add_block_with_columns(rowset_writer.get(), &block, &columns).ok());
+        ASSERT_TRUE(rowset_writer->flush().ok());
+    }
+
+    RowsetSharedPtr rowset;
+    // build() waits for the inflight segcompaction, so the failure is visible by the time it
+    // returns; no polling is needed.
+    const auto status = rowset_writer->build(rowset);
+    EXPECT_FALSE(status.ok()) << "expected the fatal segcompaction to fail the build";
+    EXPECT_EQ(status.code(), SEGCOMPACTION_FAILED) << status;
+}
 
 TEST_F(SegCompactionTest, SegCompactionThenRead) {
     config::enable_segcompaction = true;

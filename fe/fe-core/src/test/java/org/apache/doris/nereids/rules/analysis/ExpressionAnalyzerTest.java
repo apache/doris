@@ -21,6 +21,7 @@ import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.BoundStar;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -36,14 +37,87 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 
 public class ExpressionAnalyzerTest {
+
+    @Test
+    void testTimestampNsIntervalArithmeticPreservesType() {
+        NereidsParser parser = new NereidsParser();
+        for (boolean nullable : new boolean[] {false, true}) {
+            SlotReference slot = new SlotReference(new ExprId(1), "ts", TimeStampNsType.INSTANCE,
+                    nullable, ImmutableList.of());
+            ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null,
+                    new Scope(ImmutableList.of(slot)), null, true, true);
+            for (String unit : ImmutableList.of("YEAR", "MONTH", "WEEK", "DAY", "HOUR", "MINUTE", "SECOND")) {
+                for (String format : ImmutableList.of("ts + INTERVAL 1 %s", "INTERVAL 1 %s + ts",
+                        "ts - INTERVAL 1 %s")) {
+                    String sql = String.format(format, unit);
+                    Expression analyzed = analyzer.analyze(parser.parseExpression(sql));
+                    Assertions.assertEquals(TimeStampNsType.INSTANCE, analyzed.getDataType(), sql);
+                    Assertions.assertEquals(slot, analyzed.child(0), sql);
+                    Assertions.assertEquals(nullable, analyzed.nullable(), sql);
+                }
+            }
+        }
+    }
+
+    @Test
+    void testSkipQualifierOccupancyForLocalBindingHit() {
+        SlotReference localSlot = new SlotReference(
+                new ExprId(1), "c", BigIntType.INSTANCE, true, ImmutableList.of("t"));
+        Scope outerScope = new Scope(ImmutableList.of());
+        Scope localScope = new Scope(Optional.of(outerScope), ImmutableList.of(localSlot)) {
+            @Override
+            public Set<List<String>> findRelationQualifiersIgnoreCase(String relationName) {
+                throw new AssertionError("Qualifier occupancy should not be evaluated for a binding hit");
+            }
+        };
+        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, localScope, null, true, true);
+
+        Assertions.assertEquals(localSlot, analyzer.analyze(new UnboundSlot("t", "c")));
+    }
+
+    @Test
+    void testOuterRelationProbeDoesNotEvaluateQualifierOccupancy() {
+        SlotReference outerSlot = new SlotReference(
+                new ExprId(1), "c", BigIntType.INSTANCE, true, ImmutableList.of("t"));
+        Scope outerScope = new Scope(ImmutableList.of(outerSlot)) {
+            @Override
+            public Set<List<String>> findRelationQualifiersIgnoreCase(String relationName) {
+                throw new AssertionError("Outer relation probe should only bind slots");
+            }
+        };
+        Scope localScope = new Scope(Optional.of(outerScope), ImmutableList.of());
+        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, localScope, null, true, true);
+
+        Assertions.assertEquals(outerSlot, analyzer.analyze(new UnboundSlot("t", "c")));
+        Assertions.assertEquals(ImmutableList.of(outerSlot), ImmutableList.copyOf(outerScope.getCorrelatedSlots()));
+    }
+
+    @Test
+    void testKeepQualifierOccupancyLazyInExactBinding() {
+        Scope scope = new Scope(ImmutableList.of()) {
+            @Override
+            public Set<List<String>> findRelationQualifiersIgnoreCase(String relationName) {
+                throw new AssertionError("Exact binding should preserve lazy qualifier occupancy");
+            }
+        };
+        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, scope, null, true, true);
+
+        ExpressionAnalyzer.SlotBinding binding = Assertions.assertDoesNotThrow(
+                () -> analyzer.bindExactSlotsByThisScope(new UnboundSlot("t", "c"), scope, true));
+        Assertions.assertTrue(binding.getBoundSlots().isEmpty());
+        Assertions.assertThrows(AssertionError.class, binding::isRelationQualifierOccupied);
+    }
 
     @Test
     void testPreProcessUnboundFunctionForThreeArgsDataTimeFunction() {

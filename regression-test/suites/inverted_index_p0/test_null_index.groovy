@@ -44,7 +44,7 @@ suite("test_null_index", "p0"){
  	    "replication_allocation" = "tag.location.default: 1"
 	);
     """
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     sql "INSERT INTO $indexTblName VALUES (1, 'a', null, [null], [1]), (2, 'b', 'b', ['b'], [2]), (3, 'c', 'c', ['c'], [3]);"
     qt_sql "SELECT * FROM $indexTblName WHERE str match null order by id;"
     qt_sql "SELECT * FROM $indexTblName WHERE str_null match null order by id;"
@@ -70,7 +70,7 @@ suite("test_null_index", "p0"){
             "replication_allocation" = "tag.location.default: 1"
 	);
     """
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     sql "INSERT INTO $indexTblName2 VALUES (1, 'a', null, [null], [1]), (2, 'b', 'b', ['b'], [2]), (3, 'c', 'c', ['c'], [3]);"
     qt_sql "SELECT * FROM $indexTblName2 WHERE str match null order by id;"
     qt_sql "SELECT * FROM $indexTblName2 WHERE str_null match null order by id;"

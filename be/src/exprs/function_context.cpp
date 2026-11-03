@@ -31,6 +31,14 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 
+const cctz::time_zone* FunctionContext::time_zone() const {
+    return _state ? &_state->timezone_obj() : nullptr;
+}
+
+const std::string& FunctionContext::time_zone_name() const {
+    return _state->timezone();
+}
+
 static const int MAX_WARNINGS = 1000;
 
 std::unique_ptr<doris::FunctionContext> FunctionContext::create_context(
@@ -57,6 +65,7 @@ std::unique_ptr<FunctionContext> FunctionContext::clone() {
     new_context->_fragment_local_fn_state = _fragment_local_fn_state;
     new_context->_check_overflow_for_decimal = _check_overflow_for_decimal;
     new_context->_enable_strict_mode = _enable_strict_mode;
+    new_context->_is_auto_partition_boundary_context = _is_auto_partition_boundary_context;
     new_context->_string_as_jsonb_string = _string_as_jsonb_string;
     new_context->_jsonb_string_as_string = _jsonb_string_as_string;
     return new_context;

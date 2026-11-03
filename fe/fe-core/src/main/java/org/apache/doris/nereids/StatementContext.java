@@ -33,6 +33,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.ExternalScanTaskCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
+import org.apache.doris.datasource.mvcc.EmptyMvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
@@ -60,6 +61,7 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.TableId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
@@ -93,6 +95,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -109,6 +112,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.function.ToLongFunction;
+import java.util.stream.Collectors;
 import javax.annotation.concurrent.GuardedBy;
 
 /**
@@ -155,6 +159,9 @@ public class StatementContext implements Closeable {
     private boolean isDelete = false;
     private boolean hasNondeterministic = false;
 
+    // Alias UDF calls disappear after expansion; retain their definition dependency.
+    private boolean hasAliasUdf = false;
+
     // hasUnknownColStats true if any column stats in the tables used by this sql is
     // unknown
     // the algorithm to derive plan when column stats are unknown is implemented in
@@ -183,6 +190,11 @@ public class StatementContext implements Closeable {
     private final Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup = new HashMap<>();
     private final Map<CTEId, LogicalPlan> rewrittenCteProducer = new HashMap<>();
     private final Map<CTEId, LogicalPlan> rewrittenCteConsumer = new HashMap<>();
+    // The exprIds which a rule renamed while it rewrote the body of a CTE producer, keyed by the previous exprId.
+    // The consumers of that CTE map their slots to the outputs of the producer by exprId and are rewritten before
+    // the producer subtree, so every rule which renames an output of a producer body has to publish it here, and
+    // RewriteCteChildren refreshes the consumer maps with it. ConstantPropagation is currently the only publisher.
+    private final Map<CTEId, Map<ExprId, ExprId>> producerExprIdRemap = new HashMap<>();
     private final Set<String> viewDdlSqlSet = Sets.newHashSet();
     private final SqlCacheContext sqlCacheContext;
 
@@ -208,6 +220,11 @@ public class StatementContext implements Closeable {
 
     // table locks
     private final Stack<CloseableResource> plannerResources = new Stack<>();
+    // Resources that must outlive planning and remain valid until the statement itself finishes.
+    // Keep these separate from plannerResources: NereidsPlanner releases planner resources as soon as
+    // physical planning completes, while external split planning can still use statement-scoped objects.
+    private final Map<Object, CloseableResource> statementResources = new LinkedHashMap<>();
+    private boolean statementResourcesClosed;
 
     // placeholder params for prepared statement
     private List<Placeholder> placeholders = new ArrayList<>();
@@ -277,12 +294,15 @@ public class StatementContext implements Closeable {
     private Backend groupCommitMergeBackend;
 
     private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
+    private final Map<MvccTableInfo, MvccSnapshot> injectedSnapshots = Maps.newHashMap();
     private final Map<MvccTableInfo, MvccSnapshot> latestSnapshots = Maps.newHashMap();
     private final Map<MvccTableInfo, MvccSnapshot> latestSnapshotFences = Maps.newHashMap();
     private final Map<MvccTableInfo, Map<String, String>> resolvedSnapshotScanParams = Maps.newHashMap();
     private final Map<MvccTableInfo, MvccSnapshot> tableMetadataSnapshots = Maps.newHashMap();
     // Record external tables that can be preloaded before internal table locks are acquired.
     private final Map<Long, ExternalTablePreloadInfo> externalTablePreloadInfos = new LinkedHashMap<>();
+    private final Map<ExternalTable, Map<Optional<MvccSnapshot>, Pair<List<Column>, SelectedPartitions>>>
+            externalPartitionViews = new IdentityHashMap<>();
     private ExternalMetadataPreloadResult externalMetadataPreloadResult;
 
     // Present while analyzing an Iceberg INSERT, UPDATE, or MERGE so DEFAULT(column)
@@ -343,6 +363,9 @@ public class StatementContext implements Closeable {
     private boolean hasNestedColumns;
 
     private final Set<CTEId> mustInlineCTE = new HashSet<>();
+
+    // CTEs that must be materialized (e.g., containing non-deterministic functions)
+    private final Set<CTEId> forceMaterializeCTEs = new HashSet<>();
     private final Set<String> usedAIResourceNames = new LinkedHashSet<>();
 
     private final Map<String, Integer> lowerCaseTableNamesCache = Maps.newHashMap();
@@ -536,6 +559,14 @@ public class StatementContext implements Closeable {
         return hasNondeterministic;
     }
 
+    public void recordAliasUdf() {
+        hasAliasUdf = true;
+    }
+
+    public boolean hasAliasUdf() {
+        return hasAliasUdf;
+    }
+
     public ConnectContext getConnectContext() {
         return connectContext;
     }
@@ -580,6 +611,43 @@ public class StatementContext implements Closeable {
         } else {
             preloadInfo.markLatestRelation();
         }
+    }
+
+    /**
+     * Capture partition column types before materializing a complete view and validate them afterwards.
+     * A metastore schema change during loading must not relabel old partition keys with the new types.
+     */
+    public SelectedPartitions preloadExternalPartitionView(ExternalTable table, Optional<MvccSnapshot> snapshot) {
+        List<Column> partitionColumns = ImmutableList.copyOf(table.getPartitionColumns(snapshot).stream()
+                .map(Column::new).collect(Collectors.toList()));
+        SelectedPartitions partitions = table.preloadPartitionView(snapshot);
+        com.google.common.base.Preconditions.checkState(
+                partitionColumns.equals(table.getPartitionColumns(snapshot)),
+                "External partition schema changed while preloading: %s", table.getName());
+        externalPartitionViews.computeIfAbsent(table, ignored -> Maps.newHashMap())
+                .put(partitionViewSnapshot(snapshot), Pair.of(partitionColumns, Objects.requireNonNull(partitions)));
+        return partitions;
+    }
+
+    /**
+     * Reuse a complete partition view captured before locking or during MV dependency collection.
+     * Historical aliases must match their snapshot; an EmptyMvccSnapshot carries no version selector.
+     * Reject a changed partition schema rather than pruning old partition keys with new column types.
+     */
+    public Optional<SelectedPartitions> getExternalPartitionView(
+            ExternalTable table, Optional<MvccSnapshot> snapshot) {
+        return Optional.ofNullable(externalPartitionViews.get(table))
+                .map(views -> views.get(partitionViewSnapshot(snapshot)))
+                .map(view -> {
+                    com.google.common.base.Preconditions.checkState(
+                            view.first.equals(table.getPartitionColumns(snapshot)),
+                            "External partition schema changed after preloading: %s", table.getName());
+                    return view.second;
+                });
+    }
+
+    private Optional<MvccSnapshot> partitionViewSnapshot(Optional<MvccSnapshot> snapshot) {
+        return snapshot.filter(value -> !(value instanceof EmptyMvccSnapshot));
     }
 
     public void setOriginStatement(OriginStatement originStatement) {
@@ -763,6 +831,19 @@ public class StatementContext implements Closeable {
         return rewrittenCteConsumer;
     }
 
+    /**
+     * Record that a rule renamed exprIds while it rewrote the body of a CTE producer. Rules may rename more than
+     * once, so the mappings are accumulated instead of replaced, and a reader has to follow the chain to its end.
+     */
+    public void addProducerExprIdRemap(CTEId cteId, Map<ExprId, ExprId> renamedExprIds) {
+        producerExprIdRemap.computeIfAbsent(cteId, k -> new HashMap<>()).putAll(renamedExprIds);
+    }
+
+    /** The exprIds renamed while rewriting the body of a CTE producer, keyed by their previous exprId. */
+    public Map<ExprId, ExprId> getProducerExprIdRemap(CTEId cteId) {
+        return producerExprIdRemap.getOrDefault(cteId, Collections.emptyMap());
+    }
+
     /** Clear CTE-related rewrite and memo state before rebuilding it from a new plan tree. */
     public void clearCteEnvironment() {
         cteIdToConsumers.clear();
@@ -773,6 +854,7 @@ public class StatementContext implements Closeable {
         cteIdToConsumerGroup.clear();
         rewrittenCteProducer.clear();
         rewrittenCteConsumer.clear();
+        producerExprIdRemap.clear();
     }
 
     /**
@@ -787,7 +869,8 @@ public class StatementContext implements Closeable {
                 new HashMap<>(consumerIdToLimitRows),
                 copyMapOfLists(cteIdToConsumerGroup),
                 new HashMap<>(rewrittenCteProducer),
-                new HashMap<>(rewrittenCteConsumer));
+                new HashMap<>(rewrittenCteConsumer),
+                copyMapOfMaps(producerExprIdRemap));
     }
 
     /** Restore CTE-related environment from snapshot. */
@@ -815,6 +898,17 @@ public class StatementContext implements Closeable {
 
         rewrittenCteConsumer.clear();
         rewrittenCteConsumer.putAll(snapshot.rewrittenCteConsumer);
+
+        producerExprIdRemap.clear();
+        producerExprIdRemap.putAll(snapshot.producerExprIdRemap);
+    }
+
+    private static <K, V, W> Map<K, Map<V, W>> copyMapOfMaps(Map<K, Map<V, W>> source) {
+        Map<K, Map<V, W>> copied = new HashMap<>();
+        for (Map.Entry<K, Map<V, W>> entry : source.entrySet()) {
+            copied.put(entry.getKey(), new HashMap<>(entry.getValue()));
+        }
+        return copied;
     }
 
     private static <K, V> Map<K, Set<V>> copyMapOfSets(Map<K, Set<V>> source) {
@@ -843,6 +937,7 @@ public class StatementContext implements Closeable {
         private final Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup;
         private final Map<CTEId, LogicalPlan> rewrittenCteProducer;
         private final Map<CTEId, LogicalPlan> rewrittenCteConsumer;
+        private final Map<CTEId, Map<ExprId, ExprId>> producerExprIdRemap;
 
         /**
          * cte related structures in StatementContext
@@ -855,7 +950,8 @@ public class StatementContext implements Closeable {
                 Map<RelationId, Long> consumerIdToLimitRows,
                 Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup,
                 Map<CTEId, LogicalPlan> rewrittenCteProducer,
-                Map<CTEId, LogicalPlan> rewrittenCteConsumer) {
+                Map<CTEId, LogicalPlan> rewrittenCteConsumer,
+                Map<CTEId, Map<ExprId, ExprId>> producerExprIdRemap) {
             this.cteIdToConsumers = cteIdToConsumers;
             this.cteIdToOutputIds = cteIdToOutputIds;
             this.cteIdToProducer = cteIdToProducer;
@@ -864,6 +960,7 @@ public class StatementContext implements Closeable {
             this.cteIdToConsumerGroup = cteIdToConsumerGroup;
             this.rewrittenCteProducer = rewrittenCteProducer;
             this.rewrittenCteConsumer = rewrittenCteConsumer;
+            this.producerExprIdRemap = producerExprIdRemap;
         }
     }
 
@@ -993,11 +1090,56 @@ public class StatementContext implements Closeable {
         }
     }
 
+    /**
+     * Returns one closeable resource per statement key and closes it when this statement is closed.
+     * The supplier is invoked at most once for a key. This is intentionally independent from planner locks,
+     * whose lifetime ends at the end of Nereids planning.
+     */
+    @SuppressWarnings("unchecked")
+    public synchronized <T extends Closeable> T getOrRegisterStatementResource(
+            Object resourceKey, java.util.function.Supplier<T> supplier) {
+        if (statementResourcesClosed) {
+            throw new IllegalStateException("Statement resources are already closed");
+        }
+        CloseableResource existing = statementResources.get(resourceKey);
+        if (existing != null) {
+            return (T) existing.resource;
+        }
+        T resource = supplier.get();
+        statementResources.put(resourceKey, new CloseableResource(
+                String.valueOf(resourceKey), Thread.currentThread().getName(),
+                originStatement == null ? null : originStatement.originStmt, resource));
+        return resource;
+    }
+
+    private synchronized void releaseStatementResources() {
+        if (statementResourcesClosed) {
+            return;
+        }
+        statementResourcesClosed = true;
+        Throwable throwable = null;
+        List<CloseableResource> resources = new ArrayList<>(statementResources.values());
+        statementResources.clear();
+        for (int i = resources.size() - 1; i >= 0; i--) {
+            try {
+                resources.get(i).close();
+            } catch (Throwable t) {
+                if (throwable == null) {
+                    throwable = t;
+                }
+            }
+        }
+        if (throwable != null) {
+            Throwables.throwIfInstanceOf(throwable, RuntimeException.class);
+            throw new IllegalStateException("Release statement resource failed", throwable);
+        }
+    }
+
     // CHECKSTYLE OFF
     @Override
     protected void finalize() throws Throwable {
-        if (!plannerResources.isEmpty()) {
-            String msg = "Resources leak: " + plannerResources;
+        if (!plannerResources.isEmpty() || !statementResources.isEmpty()) {
+            String msg = "Resources leak: planner=" + plannerResources + ", statement=" + statementResources;
             LOG.error(msg);
             throw new IllegalStateException(msg);
         }
@@ -1007,7 +1149,12 @@ public class StatementContext implements Closeable {
     @Override
     public void close() {
         clearExternalScanTasks();
-        releasePlannerResources();
+        try {
+            releaseStatementResources();
+        } finally {
+            releasePlannerResources();
+            externalPartitionViews.clear();
+        }
     }
 
     public List<Placeholder> getPlaceholders() {
@@ -1105,6 +1252,8 @@ public class StatementContext implements Closeable {
      * to one EXECUTE only; carrying it forward would make a later commit permanently invisible.
      */
     public void resetMvccSnapshots() {
+        externalPartitionViews.clear();
+        injectedSnapshots.clear();
         snapshots.clear();
         latestSnapshots.clear();
         latestSnapshotFences.clear();
@@ -1117,6 +1266,14 @@ public class StatementContext implements Closeable {
         // PREPARE keeps preload candidates, but completion belongs to one analysis pass and must
         // not suppress preloading after the next EXECUTE resets its snapshot generation.
         externalMetadataPreloadResult = null;
+    }
+
+    public void resetMvccSnapshotsForRetry() {
+        // MTMV refresh partitions and rewrite inputs were selected against these task-owned fences.
+        // Only planner-loaded metadata may advance when the same execution retries planning.
+        Map<MvccTableInfo, MvccSnapshot> preservedSnapshots = Maps.newHashMap(injectedSnapshots);
+        resetMvccSnapshots();
+        preservedSnapshots.forEach(this::setSnapshot);
     }
 
     /**
@@ -1206,6 +1363,7 @@ public class StatementContext implements Closeable {
      * @param snapshot      snapshot
      */
     public void setSnapshot(MvccTableInfo mvccTableInfo, MvccSnapshot snapshot) {
+        injectedSnapshots.put(mvccTableInfo, snapshot);
         // Injected snapshots are execution fences (for example MTMV refresh); an unqualified
         // relation must reuse that fence instead of treating the latest-snapshot cache as empty.
         latestSnapshots.put(mvccTableInfo, snapshot);
@@ -1769,6 +1927,18 @@ public class StatementContext implements Closeable {
 
     public Set<CTEId> getMustInlineCTEs() {
         return mustInlineCTE;
+    }
+
+    public void addForceMaterializeCTE(CTEId cteId) {
+        forceMaterializeCTEs.add(cteId);
+    }
+
+    public boolean isForceMaterializeCTE(CTEId cteId) {
+        return forceMaterializeCTEs.contains(cteId);
+    }
+
+    public Set<CTEId> getForceMaterializeCTEs() {
+        return forceMaterializeCTEs;
     }
 
     public Optional<IcebergWriteSchemaContext> getIcebergWriteSchemaContext() {

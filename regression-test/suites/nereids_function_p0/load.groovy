@@ -378,6 +378,7 @@ suite("load") {
             `kdtmv2s1` datetimev2(0) null,
             `kdtmv2s2` datetimev2(4) null,
             `kdtmv2s3` datetimev2(6) null,
+            `ktsns` timestamp_ns null,
             `kabool` array<boolean> null,
             `katint` array<tinyint(4)> null,
             `kasint` array<smallint(6)> null,
@@ -390,6 +391,7 @@ suite("load") {
             `kadtm` array<datetime> null,
             `kadtv2` array<datev2> null,
             `kadtmv2` array<datetimev2(6)> null,
+            `katsns` array<timestamp_ns> null,
             `kachr` array<char(50)> null,
             `kavchr` array<varchar(50)> null,
             `kastr` array<string> null,
@@ -419,6 +421,7 @@ suite("load") {
             `km_str_tint` map<string, tinyint> null,
             `km_date_tint` map<date, tinyint> null,
             `km_dtm_tint` map<datetime, tinyint> null,
+            `km_tsns_tint` map<timestamp_ns, tinyint> null,
             `km_tint_bool` map<tinyint, boolean> null,
             `km_int_int` map<int, int> null,
             `km_tint_sint` map<tinyint, smallint> null,
@@ -433,8 +436,10 @@ suite("load") {
             `km_tint_str` map<tinyint, string> null,
             `km_tint_date` map<tinyint, date> null,
             `km_tint_dtm` map<tinyint, datetime> null,
+            `km_tint_tsns` map<tinyint, timestamp_ns> null,
             `kjson` JSON null,
-            `kstruct` STRUCT<id: int> null
+            `kstruct` STRUCT<id: int> null,
+            `kstruct_tsns` STRUCT<ts: timestamp_ns> null
         ) engine=olap
         DISTRIBUTED BY HASH(`id`) BUCKETS 4
         properties("replication_num" = "1")
@@ -479,6 +484,7 @@ suite("load") {
             `kdtmv2s1` datetimev2(0) not null,
             `kdtmv2s2` datetimev2(4) not null,
             `kdtmv2s3` datetimev2(6) not null,
+            `ktsns` timestamp_ns not null,
             `kabool` array<boolean> not null,
             `katint` array<tinyint(4)> not null,
             `kasint` array<smallint(6)> not null,
@@ -491,6 +497,7 @@ suite("load") {
             `kadtm` array<datetime> not null,
             `kadtv2` array<datev2> not null,
             `kadtmv2` array<datetimev2(6)> not null,
+            `katsns` array<timestamp_ns> not null,
             `kachr` array<char(50)> not null,
             `kavchr` array<varchar(50)> not null,
             `kastr` array<string> not null,
@@ -520,6 +527,7 @@ suite("load") {
             `km_str_tint` map<string, tinyint> not null,
             `km_date_tint` map<date, tinyint> not null,
             `km_dtm_tint` map<datetime, tinyint> not null,
+            `km_tsns_tint` map<timestamp_ns, tinyint> not null,
             `km_tint_bool` map<tinyint, boolean> not null,
             `km_int_int` map<int, int> not null,
             `km_tint_sint` map<tinyint, smallint> not null,
@@ -534,8 +542,10 @@ suite("load") {
             `km_tint_str` map<tinyint, string> not null,
             `km_tint_date` map<tinyint, date> not null,
             `km_tint_dtm` map<tinyint, datetime> not null,
+            `km_tint_tsns` map<tinyint, timestamp_ns> not null,
             `kjson` JSON not null,
-            `kstruct` STRUCT<id: int> not null
+            `kstruct` STRUCT<id: int> not null,
+            `kstruct_tsns` STRUCT<ts: timestamp_ns> not null
         ) engine=olap
         DISTRIBUTED BY HASH(`id`) BUCKETS 4
         properties("replication_num" = "1")
@@ -551,6 +561,10 @@ suite("load") {
     """
     // ddl end
 
+    // Scalar, array, map, and struct TIMESTAMP_NS columns cover the signed
+    // epoch-nanosecond boundaries (id 0/5), -1ns, epoch, ordinary nanoseconds,
+    // and an ordinary value whose nanosecond part is zero.
+    // Range-changing function tests exclude id 0/5 when the operation would overflow.
     streamLoad {
         table "fn_test"
         db "regression_test_nereids_function_p0"
@@ -558,13 +572,14 @@ suite("load") {
         set 'columns', '''
             id, kbool, ktint, ksint, kint, kbint, klint, kfloat, kdbl, kdcmls1, kdcmls2, kdcmls3,
             kdcmlv3s1, kdcmlv3s2, kdcmlv3s3, kchrs1, kchrs2, kchrs3, kvchrs1, kvchrs2, kvchrs3, kstr,
-            kdt, kdtv2, kdtm, kdtmv2s1, kdtmv2s2, kdtmv2s3, kabool, katint, kasint, kaint,
-            kabint, kalint, kafloat, kadbl, kadt, kadtm, kadtv2, kadtmv2, kachr, kavchr, kastr, kadcml,
+            kdt, kdtv2, kdtm, kdtmv2s1, kdtmv2s2, kdtmv2s3, ktsns, kabool, katint, kasint, kaint,
+            kabint, kalint, kafloat, kadbl, kadt, kadtm, kadtv2, kadtmv2, katsns, kachr, kavchr, kastr, kadcml,
             st_point_str, st_point_vc, x_lng, x_lat, y_lng, y_lat, z_lng, z_lat, radius, linestring_wkt, polygon_wkt,
             km_bool_tint, km_tint_tint, km_sint_tint, km_int_tint, km_bint_tint, km_lint_tint, km_float_tint,
-            km_dbl_tint, km_dcml_tint, km_chr_tint, km_vchr_tint, km_str_tint, km_date_tint, km_dtm_tint,
+            km_dbl_tint, km_dcml_tint, km_chr_tint, km_vchr_tint, km_str_tint, km_date_tint, km_dtm_tint, km_tsns_tint,
             km_tint_bool, km_int_int, km_tint_sint, km_tint_int, km_tint_bint, km_tint_lint, km_tint_float,
-            km_tint_dbl, km_tint_dcml, km_tint_chr, km_tint_vchr, km_tint_str, km_tint_date, km_tint_dtm, kjson, kstruct
+            km_tint_dbl, km_tint_dcml, km_tint_chr, km_tint_vchr, km_tint_str, km_tint_date, km_tint_dtm, km_tint_tsns,
+            kjson, kstruct, kstruct_tsns
             '''
         file "fn_test.dat"
     }
@@ -589,6 +604,7 @@ suite("load") {
             `kadtv2` array<datev2> not null default '[]',
             `kadtmv2_` array<datetimev2(0)> not null default '[]',
             `kadtmv2` array<datetimev2(6)> not null default '[]',
+            `katsns` array<timestamp_ns> not null default '[]',
             `kachr` array<char(255)> not null default '[]',
             `kavchr` array<varchar(65533)> not null default '[]',
             `kastr` array<string> not null default '[]',
@@ -621,6 +637,7 @@ suite("load") {
             `kadtv2` array<datev2> null,
             `kadtmv2_` array<datetimev2(0)> null,
             `kadtmv2` array<datetimev2(6)> null,
+            `katsns` array<timestamp_ns> null,
             `kachr` array<char(255)> null,
             `kavchr` array<varchar(65533)> null,
             `kastr` array<string> null,
@@ -653,6 +670,7 @@ suite("load") {
             `kadtv2` array<datev2> null,
             `kadtmv2_` array<datetimev2(0)> null,
             `kadtmv2` array<datetimev2(6)> null,
+            `katsns` array<timestamp_ns> null,
             `kachr` array<char(255)> null,
             `kavchr` array<varchar(65533)> null,
             `kastr` array<string> null,
@@ -685,6 +703,7 @@ suite("load") {
             `kadtv2` array<datev2> not null default '[]',
             `kadtmv2_` array<datetimev2(0)> not null default '[]',
             `kadtmv2` array<datetimev2(6)> not null default '[]',
+            `katsns` array<timestamp_ns> not null default '[]',
             `kachr` array<char(255)> not null default '[]',
             `kavchr` array<varchar(65533)> not null default '[]',
             `kastr` array<string> not null default '[]',
@@ -767,6 +786,7 @@ suite("load") {
                                 "kadtv2",
                                 "kadtmv2",
                                 "kadtmv2_",
+                                "katsns",
                                 "kachr",
                                 "kavchr",
                                 "kastr",
@@ -792,6 +812,7 @@ suite("load") {
             "array/test_array_date.csv",
             "array/test_array_date.csv",
             "array/test_array_datetimev2(6).csv",
+            "array/test_array_timestamp_ns.csv",
             "array/test_array_char(255).csv",
             "array/test_array_varchar(65535).csv",
             "array/test_array_varchar(65535).csv",

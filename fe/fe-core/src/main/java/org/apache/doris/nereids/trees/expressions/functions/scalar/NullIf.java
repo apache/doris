@@ -65,7 +65,7 @@ public class NullIf extends ScalarFunction
         Optional<DataType> commonType;
         try {
             commonType = TypeCoercionUtils.findWiderTypeForTwoByVariable(
-                    getArgumentType(0), getArgumentType(1), false, true);
+                    child(0), child(1), false, true);
         } catch (Exception e) {
             SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
             return null;

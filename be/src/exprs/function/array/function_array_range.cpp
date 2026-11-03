@@ -41,6 +41,7 @@
 #include "core/pod_array_fwd.h"
 #include "core/types.h"
 #include "core/value/vdatetime_value.h"
+#include "exec/common/util.hpp"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/function/function.h"
 #include "exprs/function/function_date_or_datetime_computation.h"
@@ -79,6 +80,10 @@ public:
         return make_nullable(res);
     }
 
+    // range_execute skips the rows with a NULL argument. The default NULL handling would build a
+    // range from the value under the NULL, which can be larger than the array size limit.
+    bool use_default_implementation_for_nulls() const override { return false; }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         return Impl::execute_impl(context, block, arguments, result, input_rows_count);
@@ -93,8 +98,9 @@ struct RangeImplUtil {
     static DataTypePtr get_data_type() { return std::make_shared<DataType>(); }
 
     static constexpr const char* get_function_name() {
-        if constexpr (std::is_same_v<SourceDataType, DateV2Value<DateTimeV2ValueType>> &&
-                      !std::is_same_v<TimeUnitOrVoid, void>) {
+        if constexpr ((std::is_same_v<SourceDataType, DateV2Value<DateTimeV2ValueType>> ||
+                       std::is_same_v<SourceDataType,
+                                      TimeStampNsValue>)&&!std::is_same_v<TimeUnitOrVoid, void>) {
             if constexpr (std::is_same_v<TimeUnitOrVoid,
                                          std::integral_constant<TimeUnit, TimeUnit::YEAR>>) {
                 return "array_range_year_unit";
@@ -147,6 +153,13 @@ struct RangeImplUtil {
         for (int i = 0; i < 3; ++i) {
             argument_columns[i] =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
+            if (const auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[i])) {
+                // Read the null map before replacing the column, because the replacement can free
+                // the nullable column.
+                VectorizedUtils::update_null_map(args_null_map->get_data(),
+                                                 nullable->get_null_map_data());
+                argument_columns[i] = nullable->get_nested_column_ptr();
+            }
         }
         auto start_column =
                 assert_cast<const ColumnVector<SourceDataPType>*>(argument_columns[0].get());
@@ -216,11 +229,8 @@ private:
                     dest_offsets.push_back(new_offset);
                 }
             } else {
-                const auto& idx_0 = reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(idx);
-                const auto& end_row_cast =
-                        reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(end_row);
-                bool is_null = !idx_0.is_valid_date();
-                bool is_end_row_invalid = !end_row_cast.is_valid_date();
+                bool is_null = !idx.is_valid_date();
+                bool is_end_row_invalid = !end_row.is_valid_date();
                 if (args_null_map_row || step_row <= 0 || is_null || is_end_row_invalid) {
                     args_null_map[row] = 1;
                     dest_offsets.push_back(dest_offsets.back());
@@ -231,9 +241,9 @@ private:
                                                     std::integral_constant<TimeUnit, TimeUnit::DAY>,
                                                     TimeUnitOrVoid>;
                     int move = 0;
-                    while (doris::datetime_diff<UNIT::value, DateTimeV2ValueType,
-                                                DateTimeV2ValueType>(idx, end_row) > 0) {
-                        if (move > max_array_size_as_field) {
+                    // A value below end belongs to the range even if less than one unit remains.
+                    while (idx < end_row) {
+                        if (move >= max_array_size_as_field) {
                             return Status::InvalidArgument("Array size exceeds the limit {}",
                                                            max_array_size_as_field);
                         }
@@ -241,8 +251,23 @@ private:
                         dest_nested_null_map.push_back(0);
                         offset++;
                         move++;
-                        idx = doris::date_time_add<UNIT::value, TYPE_DATETIMEV2, Int32>(idx,
-                                                                                        step_row);
+                        auto next = idx;
+                        bool advanced;
+                        if constexpr (SourceDataPType != TYPE_TIMESTAMP_NS &&
+                                      (UNIT::value == TimeUnit::DAY ||
+                                       UNIT::value == TimeUnit::WEEK)) {
+                            const Int64 days = static_cast<Int64>(step_row) *
+                                               (UNIT::value == TimeUnit::WEEK ? 7 : 1);
+                            advanced = next.template date_add_days<false>(days);
+                        } else {
+                            advanced = next.template date_add_interval<UNIT::value>(
+                                    TimeInterval(UNIT::value, step_row, false));
+                        }
+                        // The successor can exceed the date range after emitting a valid value.
+                        if (!advanced) {
+                            break;
+                        }
+                        idx = next;
                     }
                     dest_offsets.push_back(offset);
                 }
@@ -320,6 +345,7 @@ void register_function_array_range(SimpleFunctionFactory& factory) {
     /// Two arguments, for Int32 and DateTimeV2 without Interval
     factory.register_function<FunctionArrayRange<RangeTwoImpl<TYPE_INT>>>();
     factory.register_function<FunctionArrayRange<RangeTwoImpl<TYPE_DATETIMEV2>>>();
+    factory.register_function<FunctionArrayRange<RangeTwoImpl<TYPE_TIMESTAMP_NS>>>();
 
     /// Three arguments, for Int32 and DateTimeV2 with YEAR to SECOND Interval
     factory.register_function<FunctionArrayRange<RangeThreeImpl<TYPE_INT>>>();
@@ -339,6 +365,22 @@ void register_function_array_range(SimpleFunctionFactory& factory) {
             RangeThreeImpl<TYPE_DATETIMEV2, std::integral_constant<TimeUnit, TimeUnit::MINUTE>>>>();
     factory.register_function<FunctionArrayRange<
             RangeThreeImpl<TYPE_DATETIMEV2, std::integral_constant<TimeUnit, TimeUnit::SECOND>>>>();
+    factory.register_function<FunctionArrayRange<
+            RangeThreeImpl<TYPE_TIMESTAMP_NS, std::integral_constant<TimeUnit, TimeUnit::YEAR>>>>();
+    factory.register_function<FunctionArrayRange<RangeThreeImpl<
+            TYPE_TIMESTAMP_NS, std::integral_constant<TimeUnit, TimeUnit::QUARTER>>>>();
+    factory.register_function<FunctionArrayRange<RangeThreeImpl<
+            TYPE_TIMESTAMP_NS, std::integral_constant<TimeUnit, TimeUnit::MONTH>>>>();
+    factory.register_function<FunctionArrayRange<
+            RangeThreeImpl<TYPE_TIMESTAMP_NS, std::integral_constant<TimeUnit, TimeUnit::WEEK>>>>();
+    factory.register_function<FunctionArrayRange<
+            RangeThreeImpl<TYPE_TIMESTAMP_NS, std::integral_constant<TimeUnit, TimeUnit::DAY>>>>();
+    factory.register_function<FunctionArrayRange<
+            RangeThreeImpl<TYPE_TIMESTAMP_NS, std::integral_constant<TimeUnit, TimeUnit::HOUR>>>>();
+    factory.register_function<FunctionArrayRange<RangeThreeImpl<
+            TYPE_TIMESTAMP_NS, std::integral_constant<TimeUnit, TimeUnit::MINUTE>>>>();
+    factory.register_function<FunctionArrayRange<RangeThreeImpl<
+            TYPE_TIMESTAMP_NS, std::integral_constant<TimeUnit, TimeUnit::SECOND>>>>();
 
     // alias
     factory.register_alias("array_range", "sequence");

@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 
@@ -39,16 +40,66 @@ public class HivePartitionFilterBuilderTest {
     @Test
     public void testBuildsEqualityAndInFilter() {
         Column city = new Column("city", Type.STRING, true);
-        Column day = new Column("day", Type.INT, true);
+        Column day = new Column("day", Type.STRING, true);
         SlotReference citySlot = new SlotReference("city", StringType.INSTANCE);
-        SlotReference daySlot = new SlotReference("day", IntegerType.INSTANCE);
+        SlotReference daySlot = new SlotReference("day", StringType.INSTANCE);
         List<org.apache.doris.nereids.trees.expressions.Expression> predicates = Arrays.asList(
                 new EqualTo(citySlot, new StringLiteral("shanghai")),
-                new InPredicate(daySlot, Arrays.asList(new IntegerLiteral(1), new IntegerLiteral(2))));
+                new InPredicate(daySlot, Arrays.asList(new StringLiteral("01"), new StringLiteral("02"))));
 
-        Assertions.assertEquals("(city = 'shanghai') AND (day = 1 OR day = 2)",
+        Assertions.assertEquals("(city = 'shanghai') AND (day = '01' OR day = '02')",
                 HivePartitionFilterBuilder.build(new And(predicates), Arrays.asList(city, day),
-                        ImmutableMap.of("city", "string", "day", "int")));
+                        ImmutableMap.of("city", "string", "day", "string")));
+    }
+
+    @Test
+    public void testIntegralFiltersRetainNoncanonicalPartitionFallback() {
+        Column day = new Column("day", Type.INT, true);
+        SlotReference daySlot = new SlotReference("day", IntegerType.INSTANCE);
+        for (String nativeType : Arrays.asList("tinyint", "smallint", "int", "bigint")) {
+            Assertions.assertNull(HivePartitionFilterBuilder.build(
+                    new EqualTo(daySlot, new IntegerLiteral(1)), Arrays.asList(day),
+                    ImmutableMap.of("day", nativeType)));
+            Assertions.assertNull(HivePartitionFilterBuilder.build(
+                    new InPredicate(daySlot, Arrays.asList(new IntegerLiteral(1), new IntegerLiteral(2))),
+                    Arrays.asList(day), ImmutableMap.of("day", nativeType)));
+        }
+    }
+
+    @Test
+    public void testOrdinaryVarcharLiteralsUseStringPartitionFilters() {
+        Column city = new Column("city", Type.STRING, true);
+        SlotReference citySlot = new SlotReference("city", StringType.INSTANCE);
+        Assertions.assertEquals("(city = 'shanghai')", HivePartitionFilterBuilder.build(
+                new EqualTo(citySlot, new VarcharLiteral("shanghai")), Arrays.asList(city),
+                ImmutableMap.of("city", "string")));
+        Assertions.assertEquals("(city = 'shanghai' OR city = 'beijing')", HivePartitionFilterBuilder.build(
+                new InPredicate(citySlot, Arrays.asList(
+                        new VarcharLiteral("shanghai"), new VarcharLiteral("beijing"))),
+                Arrays.asList(city), ImmutableMap.of("city", "string")));
+    }
+
+    @Test
+    public void testGlueQuoteRewritingCannotChangeFilterSemantics() {
+        Column city = new Column("city", Type.STRING, true);
+        SlotReference citySlot = new SlotReference("city", StringType.INSTANCE);
+        Assertions.assertNull(HivePartitionFilterBuilder.build(
+                new EqualTo(citySlot, new VarcharLiteral("a\" OR city = \"b")), Arrays.asList(city),
+                ImmutableMap.of("city", "string")));
+        Assertions.assertNull(HivePartitionFilterBuilder.build(
+                new InPredicate(citySlot, Arrays.asList(new VarcharLiteral("safe"),
+                        new VarcharLiteral("a\" OR city = \"b"))),
+                Arrays.asList(city), ImmutableMap.of("city", "string")));
+    }
+
+    @Test
+    public void testRejectsAdditionalHiveGrammarKeywords() {
+        for (String name : Arrays.asList("in", "between", "IN", "BETWEEN")) {
+            Column column = new Column(name, Type.STRING, true);
+            Assertions.assertNull(HivePartitionFilterBuilder.build(
+                    new EqualTo(new SlotReference(name, StringType.INSTANCE), new StringLiteral("x")),
+                    Arrays.asList(column), ImmutableMap.of(name.toLowerCase(java.util.Locale.ROOT), "string")));
+        }
     }
 
     @Test

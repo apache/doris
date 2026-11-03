@@ -245,8 +245,12 @@ Status read_decoded_field(const ParquetColumnSchema& column_schema, DecodedColum
     view.decimal_precision = column_schema.type_descriptor.decimal_precision;
     view.decimal_scale = column_schema.type_descriptor.decimal_scale;
     view.fixed_length = column_schema.type_descriptor.fixed_length;
-    view.timestamp_is_adjusted_to_utc = column_schema.type_descriptor.timestamp_is_adjusted_to_utc;
-    view.timezone = timezone;
+    view.timestamp_is_adjusted_to_utc = column_schema.timestamp_is_adjusted_to_utc.value_or(
+            column_schema.type_descriptor.timestamp_is_adjusted_to_utc);
+    view.timezone = column_schema.timestamp_is_adjusted_to_utc.has_value() &&
+                                    !*column_schema.timestamp_is_adjusted_to_utc
+                            ? nullptr
+                            : timezone;
     // Statistics are pruning proofs, not row materialization. A malformed non-NULL bound must
     // disable pruning instead of being converted to NULL under permissive scan semantics.
     view.enable_strict_mode = true;
@@ -900,11 +904,8 @@ void add_slot_zonemap(ZoneMapEvalContext* ctx, int slot_index, const DataTypePtr
                       std::shared_ptr<segment_v2::ZoneMap> zone_map) {
     DORIS_CHECK(ctx != nullptr);
     ZoneMapEvalContext::SlotZoneMap slot_zone_map;
-    slot_zone_map.data_type = data_type;
+    slot_zone_map.set_data_type_from_parquet(data_type);
     slot_zone_map.zone_map = std::move(zone_map);
-    const auto primitive_type = remove_nullable(data_type)->get_primitive_type();
-    slot_zone_map.floating_nan_count_unknown =
-            primitive_type == TYPE_FLOAT || primitive_type == TYPE_DOUBLE;
     ctx->slots.emplace(slot_index, std::move(slot_zone_map));
 }
 
@@ -1229,8 +1230,9 @@ ParquetRowGroupPruneReason native_dictionary_prune_reason(
         const auto status = NativeColumnReader::create(
                 *column_schema, projection, file_context->native_file,
                 file_context->native_metadata, row_group_idx, ranges, offset_indexes, timezone,
-                file_context->native_io_ctx, nullptr, file_context->native_page_cache_enabled,
-                file_context->native_page_cache_file_key, true, column_reader_profile, &reader);
+                std::nullopt, file_context->native_io_ctx, nullptr,
+                file_context->native_page_cache_enabled, file_context->native_page_cache_file_key,
+                true, column_reader_profile, &reader);
         if (!status.ok() || reader == nullptr) {
             continue;
         }
@@ -1656,6 +1658,16 @@ bool set_native_page_scalar_min_max(const tparquet::ColumnIndex& column_index,
     }
     const auto min_value = unaligned_load<ValueType>(column_index.min_values[page_idx].data());
     const auto max_value = unaligned_load<ValueType>(column_index.max_values[page_idx].data());
+    if constexpr (std::is_same_v<ValueType, int32_t>) {
+        if (remove_nullable(column_schema.type)->get_primitive_type() == TYPE_DATEV2 &&
+            !epoch_days_range_is_representable(min_value, max_value)) {
+            // An invalid interior DATE errors in strict mode and becomes NULL otherwise.
+            // Neither min/max nor physical null counts prove the materialized result here.
+            // Retain this page without discarding usable statistics on the other pages.
+            *page_statistics = {};
+            return true;
+        }
+    }
     if constexpr (std::is_integral_v<ValueType>) {
         if (remove_nullable(column_schema.type)->get_primitive_type() == TYPE_TIMEV2) {
             int64_t units_per_day = 0;

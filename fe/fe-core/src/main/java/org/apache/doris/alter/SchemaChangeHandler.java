@@ -2508,10 +2508,35 @@ public class SchemaChangeHandler extends AlterHandler {
             skip = Boolean.parseBoolean(skipWriteIndexOnLoad) ? 1 : 0;
         }
 
-        for (Partition partition : partitions) {
-            updatePartitionProperties(db, olapTable.getName(), partition.getName(), storagePolicyId, isInMemory,
-                                    null, compactionPolicy, timeSeriesCompactionConfig, skip,
-                                    disableAutoCompaction, verticalCompactionNumColumnsPerGroup);
+        // Only iterate partitions when there are properties that actually need to be
+        // dispatched to each partition's tablets. Pure catalog-level metadata properties
+        // such as partition.retention_count do not require per-partition updates, and
+        // iterating over a stale partition snapshot can race with concurrent partition
+        // drops (e.g., by DynamicPartitionScheduler when retention_count or dynamic_partition
+        // is enabled) and fail with "Partition does not exist".
+        boolean needPerPartitionUpdate = isInMemory >= 0 || storagePolicyId >= 0
+                || compactionPolicy != null || !timeSeriesCompactionConfig.isEmpty()
+                || skip >= 0 || disableAutoCompaction >= 0
+                || verticalCompactionNumColumnsPerGroup >= 0;
+        if (needPerPartitionUpdate) {
+            for (Partition partition : partitions) {
+                try {
+                    updatePartitionProperties(db, olapTable.getName(), partition.getName(),
+                            storagePolicyId, isInMemory, null, compactionPolicy, timeSeriesCompactionConfig,
+                            skip, disableAutoCompaction,
+                            verticalCompactionNumColumnsPerGroup);
+                } catch (DdlException e) {
+                    // The partition may have been dropped concurrently (e.g., by
+                    // DynamicPartitionScheduler). It is safe to skip the meta dispatch
+                    // for a partition that no longer exists.
+                    if (olapTable.getPartition(partition.getName()) == null) {
+                        LOG.info("partition {} of table {} was dropped concurrently, "
+                                + "skip updating its properties", partition.getName(), olapTable.getName());
+                        continue;
+                    }
+                    throw e;
+                }
+            }
         }
 
         olapTable.writeLockOrDdlException();
@@ -2837,6 +2862,9 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         }
 
+        // checkColumn may add gram defaults after alterIndex is created.
+        indexDef.applyPropertiesTo(alterIndex);
+
         // the column name in CreateIndexClause is not check case sensitivity,
         // when send index description to BE, there maybe cannot find column by name,
         // so here update column name in CreateIndexClause after checkColumn for indexDef,
@@ -2867,6 +2895,12 @@ public class SchemaChangeHandler extends AlterHandler {
                     Column column = olapTable.getColumn(columnName);
                     if (column != null && (column.getType().isStringType() || column.getType().isVariantType())) {
                         if (index.getIndexType() == IndexType.INVERTED) {
+                            if (InvertedIndexUtil.hasSameNonIkAnalyzerSelector(
+                                    index.getProperties(), indexDef.getProperties())) {
+                                throw new DdlException(indexDef.getIndexType()
+                                        + " index for column (" + columnName
+                                        + ") with the same analyzer selector already exists.");
+                            }
                             String existingIdentity = index.getAnalyzerIdentity();
                             String newIdentity = indexDef.getAnalyzerIdentity();
                             if (Objects.equals(existingIdentity, newIdentity)) {

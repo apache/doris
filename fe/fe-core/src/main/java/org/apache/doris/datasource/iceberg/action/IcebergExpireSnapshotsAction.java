@@ -148,9 +148,7 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
     }
 
     @Override
-    protected List<String> executeAction(TableIf table) throws UserException {
-        Table icebergTable = getWritableIcebergTable(table);
-
+    protected List<String> executeIcebergAction(TableIf table, Table icebergTable) throws UserException {
         // Parse parameters
         String olderThan = namedArguments.getString(OLDER_THAN);
         Integer retainLast = namedArguments.getInt(RETAIN_LAST);

@@ -19,8 +19,10 @@ package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalScanTaskCacheKey;
 import org.apache.doris.datasource.ExternalTable;
@@ -28,9 +30,11 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
+import org.apache.doris.datasource.mvcc.EmptyMvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.nereids.rules.analysis.PreloadExternalMetadata;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
@@ -41,6 +45,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 import org.mockito.Mockito;
 
+import java.io.Closeable;
 import java.util.AbstractList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -57,6 +62,99 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class StatementContextTest {
+
+    @Test
+    public void testPreloadedPartitionViewSurvivesPlainHiveBindingAndResets() {
+        StatementContext statement = new StatementContext();
+        HMSExternalTable table = Mockito.mock(HMSExternalTable.class);
+        Column partition = new Column("p", Type.STRING, true);
+        Mockito.when(table.getPartitionColumns(Mockito.any())).thenReturn(Collections.singletonList(partition));
+        SelectedPartitions view = new SelectedPartitions(0, ImmutableMap.of(), false);
+        Mockito.when(table.preloadPartitionView(Mockito.any())).thenReturn(view);
+        statement.preloadExternalPartitionView(table, Optional.empty());
+        org.junit.jupiter.api.Assertions.assertSame(view, statement.getExternalPartitionView(
+                table, Optional.of(new EmptyMvccSnapshot())).get());
+        HMSExternalTable replacement = Mockito.mock(HMSExternalTable.class);
+        org.junit.jupiter.api.Assertions.assertFalse(
+                statement.getExternalPartitionView(replacement, Optional.empty()).isPresent());
+        statement.resetMvccSnapshots();
+        org.junit.jupiter.api.Assertions.assertFalse(
+                statement.getExternalPartitionView(table, Optional.empty()).isPresent());
+        statement.preloadExternalPartitionView(table, Optional.empty());
+        statement.close();
+        org.junit.jupiter.api.Assertions.assertFalse(
+                statement.getExternalPartitionView(table, Optional.empty()).isPresent());
+    }
+
+    @Test
+    public void testPreloadedPartitionViewsKeepHistoricalAliasesSeparate() {
+        StatementContext statement = new StatementContext();
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getPartitionColumns(Mockito.any())).thenReturn(Collections.emptyList());
+        MvccSnapshot latest = Mockito.mock(MvccSnapshot.class);
+        MvccSnapshot historical = Mockito.mock(MvccSnapshot.class);
+        SelectedPartitions view = new SelectedPartitions(0, ImmutableMap.of(), false);
+        Mockito.when(table.preloadPartitionView(Mockito.any())).thenReturn(view);
+        statement.preloadExternalPartitionView(table, Optional.of(latest));
+        org.junit.jupiter.api.Assertions.assertSame(view,
+                statement.getExternalPartitionView(table, Optional.of(latest)).get());
+        org.junit.jupiter.api.Assertions.assertFalse(
+                statement.getExternalPartitionView(table, Optional.of(historical)).isPresent());
+    }
+
+    @Test
+    public void testPreloadedPartitionViewRejectsChangedPartitionSchema() {
+        StatementContext statement = new StatementContext();
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getPartitionColumns(Mockito.any()))
+                .thenReturn(Collections.singletonList(new Column("p", Type.STRING, true)));
+        Mockito.when(table.preloadPartitionView(Mockito.any()))
+                .thenReturn(new SelectedPartitions(0, ImmutableMap.of(), false));
+        statement.preloadExternalPartitionView(table, Optional.empty());
+        Mockito.when(table.getPartitionColumns(Mockito.any()))
+                .thenReturn(Collections.singletonList(new Column("p", Type.INT, true)));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> statement.getExternalPartitionView(table, Optional.empty()));
+    }
+
+    @Test
+    public void testPartitionSchemaChangedDuringLoadingIsNeverRecordedAsTheNewSchema() {
+        StatementContext statement = new StatementContext();
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Column column = new Column("p", Type.STRING, true);
+        Mockito.when(table.getPartitionColumns(Mockito.any())).thenReturn(Collections.singletonList(column));
+        Mockito.when(table.preloadPartitionView(Mockito.any())).thenAnswer(invocation -> {
+            column.setType(Type.INT);
+            return new SelectedPartitions(0, ImmutableMap.of(), false);
+        });
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> statement.preloadExternalPartitionView(table, Optional.empty()));
+        org.junit.jupiter.api.Assertions.assertFalse(
+                statement.getExternalPartitionView(table, Optional.empty()).isPresent());
+    }
+
+    @Test
+    public void testStatementResourceOutlivesPlannerResources() {
+        StatementContext statementContext = new StatementContext();
+        AtomicInteger closed = new AtomicInteger();
+        Closeable first = statementContext.getOrRegisterStatementResource("iceberg:1:db:tbl",
+                () -> closed::incrementAndGet);
+        Closeable second = statementContext.getOrRegisterStatementResource("iceberg:1:db:tbl",
+                () -> {
+                    throw new AssertionError("same statement resource must be reused");
+                });
+
+        org.junit.jupiter.api.Assertions.assertSame(first, second);
+        statementContext.releasePlannerResources();
+        org.junit.jupiter.api.Assertions.assertEquals(0, closed.get());
+
+        statementContext.close();
+        org.junit.jupiter.api.Assertions.assertEquals(1, closed.get());
+        statementContext.close();
+        org.junit.jupiter.api.Assertions.assertEquals(1, closed.get());
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> statementContext.getOrRegisterStatementResource("late", () -> () -> { }));
+    }
 
     @Test
     public void testPreloadExternalTablesBeforeLock() {
@@ -85,7 +183,7 @@ public class StatementContextTest {
                 .thenReturn(mvccSnapshot);
         Mockito.when(hmsExternalTable.getBaseSchema()).thenReturn(Collections.emptyList());
         Mockito.when(hmsExternalTable.supportInternalPartitionPruned()).thenReturn(true);
-        Mockito.when(hmsExternalTable.preloadPartitionView(Mockito.any())).thenReturn(null);
+        Mockito.when(hmsExternalTable.preloadPartitionView(Mockito.any())).thenReturn(SelectedPartitions.NOT_PRUNED);
 
         StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
         try {
@@ -130,7 +228,7 @@ public class StatementContextTest {
         Mockito.when(hmsExternalTable.getDlaType()).thenReturn(DLAType.HIVE);
         Mockito.when(hmsExternalTable.getBaseSchema()).thenReturn(Collections.emptyList());
         Mockito.when(hmsExternalTable.supportInternalPartitionPruned()).thenReturn(true);
-        Mockito.when(hmsExternalTable.preloadPartitionView(Mockito.any())).thenReturn(null);
+        Mockito.when(hmsExternalTable.preloadPartitionView(Mockito.any())).thenReturn(SelectedPartitions.NOT_PRUNED);
 
         StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
         try {
@@ -525,7 +623,7 @@ public class StatementContextTest {
                 .thenReturn(mvccSnapshot);
         Mockito.when(paimonExternalTable.getBaseSchema()).thenReturn(Collections.emptyList());
         Mockito.when(paimonExternalTable.supportInternalPartitionPruned()).thenReturn(true);
-        Mockito.when(paimonExternalTable.preloadPartitionView(Mockito.any())).thenReturn(null);
+        Mockito.when(paimonExternalTable.preloadPartitionView(Mockito.any())).thenReturn(SelectedPartitions.NOT_PRUNED);
 
         StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
         try {
@@ -572,7 +670,7 @@ public class StatementContextTest {
                 .thenReturn(mvccSnapshot);
         Mockito.when(paimonExternalTable.getBaseSchema()).thenReturn(Collections.emptyList());
         Mockito.when(paimonExternalTable.supportInternalPartitionPruned()).thenReturn(true);
-        Mockito.when(paimonExternalTable.preloadPartitionView(Mockito.any())).thenReturn(null);
+        Mockito.when(paimonExternalTable.preloadPartitionView(Mockito.any())).thenReturn(SelectedPartitions.NOT_PRUNED);
 
         StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
         try {

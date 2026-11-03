@@ -89,12 +89,14 @@ public class LanceSharedSessionTest {
             Assertions.assertEquals(6, group.getCounterMap().get("MetadataReadCalls").getValue());
             Assertions.assertEquals(1, group.getCounterMap().get("MetadataReadFailures").getValue());
             Assertions.assertEquals(6, group.getCounterMap().get("TableAccessResolveCalls").getValue());
-            Assertions.assertEquals(6, group.getCounterMap().get("DatasetOpenCalls").getValue());
+            // FOR TIME AS OF checks the selected version out of the open latest dataset, which
+            // counts as version resolution rather than a second open.
+            Assertions.assertEquals(5, group.getCounterMap().get("DatasetOpenCalls").getValue());
             Assertions.assertEquals(5, group.getCounterMap().get("SchemaReadCalls").getValue());
             Assertions.assertEquals(4, group.getCounterMap().get("FragmentMetadataReadCalls").getValue());
             Assertions.assertEquals(3, group.getCounterMap().get("FieldIdsReadCalls").getValue());
             Assertions.assertEquals(3, group.getCounterMap().get("IndexMetadataReadCalls").getValue());
-            Assertions.assertEquals(1, group.getCounterMap().get("VersionResolveCalls").getValue());
+            Assertions.assertEquals(2, group.getCounterMap().get("VersionResolveCalls").getValue());
             Assertions.assertFalse(group.getCounterMap().containsKey("SplitPlanningTime"));
         } finally {
             catalog.onClose();
@@ -171,8 +173,9 @@ public class LanceSharedSessionTest {
                 freshUuid = fresh.getIndexes().get(0).getSegments().get(0).getUuid();
             }
             Assertions.assertNotEquals(oldUuid, freshUuid);
-            // The padded manifest prevents open() from opportunistically replacing the cached index list.
-            Assertions.assertEquals(oldUuid,
+            // Lance keys its index metadata cache on the manifest's etag (lance#8904, in lance-core
+            // 12), so the recreated dataset's indexes are read even before the catalog is refreshed.
+            Assertions.assertEquals(freshUuid,
                     catalog.loadTableMetadata("default", "table").getIndexes().get(0).getSegments().get(0).getUuid());
             catalog.onRefreshCache(true);
             Assertions.assertEquals(freshUuid,

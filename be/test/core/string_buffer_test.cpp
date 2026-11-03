@@ -118,6 +118,15 @@ TEST(StringBufferTest, TestWriteReadBinary) {
     ASSERT_EQ(str_ref_val.to_string(), read_str_ref_val.to_string());
 }
 
+TEST(StringBufferTest, HasRemaining) {
+    StringRef ref("doris", 5);
+    BufferReadable reader(ref);
+
+    EXPECT_TRUE(reader.has_remaining());
+    reader.read(5);
+    EXPECT_FALSE(reader.has_remaining());
+}
+
 // This test may fail due to a bug in read_var_uint, where it can read out of bounds.
 // The loop condition `i < 9` should probably be `i < len`.
 //TEST(StringBufferTest, TestVarUInt) {

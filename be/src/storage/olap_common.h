@@ -39,7 +39,8 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "io/io_common.h"
-#include "storage/index/inverted/inverted_index_stats.h"
+#include "storage/index/inverted/common/inverted_index_stats.h"
+#include "storage/index/inverted/common/snii_query_stats.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/rowset_fwd.h"
 #include "util/hash_util.hpp"
@@ -170,6 +171,8 @@ enum class FieldType {
     OLAP_FIELD_TYPE_IPV4 = 38,
     OLAP_FIELD_TYPE_IPV6 = 39,
     OLAP_FIELD_TYPE_TIMESTAMPTZ = 40,
+    OLAP_FIELD_TYPE_TIMESTAMP_NS = 41,
+    OLAP_FIELD_TYPE_UUID = 42,
 };
 
 // Define all aggregation methods supported by TabletColumn
@@ -226,6 +229,7 @@ constexpr bool field_is_numeric_type(const FieldType& field_type) {
            field_type == FieldType::OLAP_FIELD_TYPE_DATEV2 ||
            field_type == FieldType::OLAP_FIELD_TYPE_DATETIME ||
            field_type == FieldType::OLAP_FIELD_TYPE_DATETIMEV2 ||
+           field_type == FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS ||
            field_type == FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ ||
            field_type == FieldType::OLAP_FIELD_TYPE_LARGEINT ||
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL ||
@@ -235,7 +239,8 @@ constexpr bool field_is_numeric_type(const FieldType& field_type) {
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL256 ||
            field_type == FieldType::OLAP_FIELD_TYPE_BOOL ||
            field_type == FieldType::OLAP_FIELD_TYPE_IPV4 ||
-           field_type == FieldType::OLAP_FIELD_TYPE_IPV6;
+           field_type == FieldType::OLAP_FIELD_TYPE_IPV6 ||
+           field_type == FieldType::OLAP_FIELD_TYPE_UUID;
 }
 
 // <start_version_id, end_version_id>, such as <100, 110>
@@ -335,6 +340,7 @@ struct OlapReaderStatistics {
     int64_t lazy_read_ns = 0;
     int64_t block_lazy_read_seek_num = 0;
     int64_t block_lazy_read_seek_ns = 0;
+    int64_t lazy_read_pruned_ns = 0;
 
     int64_t raw_rows_read = 0;
 
@@ -384,6 +390,8 @@ struct OlapReaderStatistics {
     int64_t inverted_index_query_timer = 0;
     int64_t inverted_index_query_cache_hit = 0;
     int64_t inverted_index_query_cache_miss = 0;
+    int64_t inverted_index_query_cache_lookup = 0;
+    int64_t inverted_index_query_cache_insert = 0;
     int64_t inverted_index_query_null_bitmap_timer = 0;
     int64_t inverted_index_query_bitmap_copy_timer = 0;
     int64_t inverted_index_searcher_open_timer = 0;
@@ -393,8 +401,23 @@ struct OlapReaderStatistics {
     int64_t inverted_index_searcher_cache_hit = 0;
     int64_t inverted_index_searcher_cache_miss = 0;
     int64_t inverted_index_downgrade_count = 0;
+    // Pushed-down conjuncts skipped (never index-evaluated) because the row
+    // bitmap was already empty when their turn came.
+    int64_t inverted_index_conjuncts_short_circuited = 0;
+    // Rows pruned by the approximate (gram) index: rows removed when the candidate bitmap is
+    // intersected with _row_bitmap.
+    int64_t rows_gram_index_filtered = 0;
+    // Candidate rows produced by the approximate (gram) index: rows that still need expression
+    // re-verification after the intersection.
+    int64_t gram_index_candidate_rows = 0;
+    // Query nodes the gram index's cost gate widened to the whole segment rather than read. A
+    // non-zero count is why the two numbers above can show an index that eliminated nothing: it
+    // was not consulted for those nodes, by a cost decision rather than because no gram matched.
+    int64_t gram_index_gate_gave_up = 0;
     int64_t inverted_index_analyzer_timer = 0;
     int64_t inverted_index_lookup_timer = 0;
+    // See snii_query_stats.h: one field here instead of one per SNII counter.
+    snii::SniiQueryStats snii_stats;
     InvertedIndexStatistics inverted_index_stats;
 
     int64_t ann_index_load_ns = 0;

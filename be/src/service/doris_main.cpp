@@ -326,10 +326,18 @@ struct Checker {
 // running the leak check on this abnormal-exit path reports them as false-positive
 // leaks. enable_graceful_exit_check is honored so memleak-check mode still runs LSAN.
 [[noreturn]] static void exit_on_startup_failure() {
-    google::FlushLogFiles(google::GLOG_INFO);
     if (!doris::config::enable_graceful_exit_check) {
+        google::FlushLogFiles(google::GLOG_INFO);
         _exit(1);
     }
+
+    // exit() starts destroying function-local statics while background threads are still
+    // running. Tear down ExecEnv first so StorageEngine workers are stopped and joined before
+    // they can race with those destructors.
+    if (doris::ExecEnv::ready()) {
+        doris::ExecEnv::GetInstance()->destroy();
+    }
+    google::FlushLogFiles(google::GLOG_INFO);
     exit(1);
 }
 
@@ -404,6 +412,8 @@ int main(int argc, char** argv) {
         fprintf(stderr, "error read custom config file. \n");
         return -1;
     }
+
+    doris::init_be_version_metrics();
 
     // ATTN: Callers that want to override default gflags variables should do so before calling this method
     google::ParseCommandLineFlags(&argc, &argv, true);
@@ -635,11 +645,38 @@ int main(int argc, char** argv) {
     doris::ThriftRpcHelper::setup(exec_env);
     // 1. thrift server with be_port
     std::shared_ptr<doris::BaseBackendService> service;
+    std::unique_ptr<doris::server::IServerStarter> backend_thrift_starter;
+    std::unique_ptr<doris::server::IServerStarter> brpc_starter;
+    std::unique_ptr<doris::server::IServerStarter> http_starter;
+    std::unique_ptr<doris::server::IServerStarter> heartbeat_thrift_starter;
+    std::unique_ptr<doris::server::IServerStarter> flight_starter;
+    bool backend_thrift_started = false;
+    bool brpc_started = false;
+    bool http_started = false;
+    bool heartbeat_thrift_started = false;
+    bool flight_started = false;
+    auto stop_and_join_server = [](std::unique_ptr<doris::server::IServerStarter>& starter,
+                                   bool started) {
+        if (starter != nullptr) {
+            if (started) {
+                starter->stop();
+            }
+            starter->join();
+        }
+    };
     std::function<void(Status&, std::string_view)> stop_work_if_error = [&](Status& status,
                                                                             std::string_view msg) {
         if (!status.ok()) {
             std::cerr << msg << '\n';
             service->stop_works();
+            if (doris::config::enable_graceful_exit_check) {
+                stop_and_join_server(flight_starter, flight_started);
+                stop_and_join_server(heartbeat_thrift_starter, heartbeat_thrift_started);
+                stop_and_join_server(http_starter, http_started);
+                stop_and_join_server(backend_thrift_starter, backend_thrift_started);
+                stop_and_join_server(brpc_starter, brpc_started);
+                service.reset();
+            }
             exit_on_startup_failure();
         }
     };
@@ -652,44 +689,48 @@ int main(int argc, char** argv) {
                                                           exec_env);
     }
 
-    std::unique_ptr<doris::server::IServerStarter> backend_thrift_starter;
-    EXIT_IF_ERROR(doris::server::create_backend_thrift_starter(exec_env, doris::config::be_port,
-                                                               service, &backend_thrift_starter));
+    status = doris::server::create_backend_thrift_starter(exec_env, doris::config::be_port, service,
+                                                          &backend_thrift_starter);
+    stop_work_if_error(status, "Failed to create BE server, exiting");
     status = backend_thrift_starter->start();
+    backend_thrift_started = status.ok();
     stop_work_if_error(status, "Doris BE server did not start correctly, exiting");
 
     // 2. brpc service
-    std::unique_ptr<doris::server::IServerStarter> brpc_starter;
-    EXIT_IF_ERROR(doris::server::create_brpc_starter(
-            exec_env, doris::config::brpc_port, doris::config::brpc_num_threads, &brpc_starter));
+    status = doris::server::create_brpc_starter(exec_env, doris::config::brpc_port,
+                                                doris::config::brpc_num_threads, &brpc_starter);
+    stop_work_if_error(status, "Failed to create BRPC service, exiting");
     status = brpc_starter->start();
+    brpc_started = status.ok();
     stop_work_if_error(status, "BRPC service did not start correctly, exiting");
 
     // 3. http service
-    std::unique_ptr<doris::server::IServerStarter> http_starter;
-    EXIT_IF_ERROR(doris::server::create_http_starter(exec_env, doris::config::webserver_port,
-                                                     doris::config::webserver_num_workers,
-                                                     &http_starter));
+    status =
+            doris::server::create_http_starter(exec_env, doris::config::webserver_port,
+                                               doris::config::webserver_num_workers, &http_starter);
+    stop_work_if_error(status, "Failed to create BE HTTP service, exiting");
     status = http_starter->start();
+    http_started = status.ok();
     stop_work_if_error(status, "Doris Be http service did not start correctly, exiting");
 
     // 4. heart beat server
     doris::ClusterInfo* cluster_info = exec_env->cluster_info();
-    std::unique_ptr<doris::server::IServerStarter> heartbeat_thrift_starter;
     status = doris::server::create_heartbeat_thrift_starter(
             exec_env, doris::config::heartbeat_service_port,
             doris::config::heartbeat_service_thread_count, cluster_info, &heartbeat_thrift_starter);
     stop_work_if_error(status, "Heartbeat services did not start correctly, exiting");
 
     status = heartbeat_thrift_starter->start();
+    heartbeat_thrift_started = status.ok();
     stop_work_if_error(status, "Doris BE HeartBeat Service did not start correctly, exiting: " +
                                        status.to_string());
 
     // 5. arrow flight service
-    std::unique_ptr<doris::server::IServerStarter> flight_starter;
-    EXIT_IF_ERROR(doris::server::create_flight_starter(doris::config::arrow_flight_sql_port,
-                                                       &flight_starter));
+    status = doris::server::create_flight_starter(doris::config::arrow_flight_sql_port,
+                                                  &flight_starter);
+    stop_work_if_error(status, "Failed to create Arrow Flight service, exiting");
     status = flight_starter->start();
+    flight_started = status.ok();
     stop_work_if_error(
             status, "Arrow Flight Service did not start correctly, exiting, " + status.to_string());
 

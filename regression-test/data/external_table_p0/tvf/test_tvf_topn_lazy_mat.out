@@ -21,6 +21,24 @@
 1.0	user1	1
 2.0	user2	2
 
+-- !dup_col_twice --
+user1	user1
+user2	user2
+user3	user3
+
+-- !dup_col_nullable --
+0.5	0.5
+1	1
+1.5	1.5
+2	2
+2.5	2.5
+
+-- !dup_col_mixed --
+1	user1	0.5	user1	0.5
+2	user2	1	user2	1
+3	user3	1.5	user3	1.5
+4	user4	2	user4	2
+
 -- !test_basic --
 1	user1	1.0	false	0.5
 2	user2	2.0	true	1.0
@@ -110,6 +128,24 @@
 -- !4 --
 1.0	user1	1
 2.0	user2	2
+
+-- !dup_col_twice --
+user1	user1
+user2	user2
+user3	user3
+
+-- !dup_col_nullable --
+0.5	0.5
+1	1
+1.5	1.5
+2	2
+2.5	2.5
+
+-- !dup_col_mixed --
+1	user1	0.5	user1	0.5
+2	user2	1	user2	1
+3	user3	1.5	user3	1.5
+4	user4	2	user4	2
 
 -- !test_basic --
 1	user1	1.0	false	0.5
@@ -235,6 +271,24 @@
 1.0	user1	1
 2.0	user2	2
 
+-- !dup_col_twice --
+user1	user1
+user2	user2
+user3	user3
+
+-- !dup_col_nullable --
+0.5	0.5
+1	1
+1.5	1.5
+2	2
+2.5	2.5
+
+-- !dup_col_mixed --
+1	user1	0.5	user1	0.5
+2	user2	1	user2	1
+3	user3	1.5	user3	1.5
+4	user4	2	user4	2
+
 -- !test_basic --
 1	user1	1.0	false	0.5
 2	user2	2.0	true	1.0
@@ -324,6 +378,24 @@
 -- !4 --
 1.0	user1	1
 2.0	user2	2
+
+-- !dup_col_twice --
+user1	user1
+user2	user2
+user3	user3
+
+-- !dup_col_nullable --
+0.5	0.5
+1	1
+1.5	1.5
+2	2
+2.5	2.5
+
+-- !dup_col_mixed --
+1	user1	0.5	user1	0.5
+2	user2	1	user2	1
+3	user3	1.5	user3	1.5
+4	user4	2	user4	2
 
 -- !test_basic --
 1	user1	1.0	false	0.5

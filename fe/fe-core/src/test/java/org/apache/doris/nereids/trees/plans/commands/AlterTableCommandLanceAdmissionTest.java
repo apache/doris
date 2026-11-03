@@ -38,15 +38,10 @@ import org.apache.doris.datasource.lance.LanceExternalTable;
 import org.apache.doris.datasource.lance.LanceIndexAdmissionSnapshot;
 import org.apache.doris.datasource.lance.LanceIndexAdmissionSnapshot.PhysicalIndexInfo;
 import org.apache.doris.datasource.lance.index.LanceShowIndexInfo;
-import org.apache.doris.datasource.lance.job.LanceIndexJob;
-import org.apache.doris.datasource.lance.job.LanceIndexJobManager;
-import org.apache.doris.datasource.lance.job.LanceIndexJobMutationType;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.ResultSet;
-import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
 
 import org.apache.arrow.vector.types.FloatingPointPrecision;
@@ -58,7 +53,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.lance.schema.LanceField;
-import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -66,14 +60,14 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Command rewiring coverage for Lance index admission: with the gate off the typed rejection is
  * 5102 from {@code validate()} without any metadata read or id allocation; with the gate on the
  * top-level CREATE/DROP INDEX op bypasses the generic op loop and {@code alterTable}, runs
- * admission in {@code run()}, and answers a single-column {@code JobId} result set (one row when
- * admitted, zero rows on an IF no-op). The 3A static-validation and REST/alter=true rejections
+ * admission in {@code run()}, completes an IF preflight no-op as a plain success, and rejects a
+ * mutation that would be admitted with the shared not-supported error (the synchronous
+ * execution path has not landed). The 3A static-validation and REST/alter=true rejections
  * are unchanged in both modes.
  */
 public class AlterTableCommandLanceAdmissionTest {
@@ -109,19 +103,9 @@ public class AlterTableCommandLanceAdmissionTest {
         ConnectContext.remove();
     }
 
-    /** Edit-log seam: captures durable records instead of writing the journal (3B pattern). */
-    private static class TestManager extends LanceIndexJobManager {
-        private final List<LanceIndexJob> editLog = new ArrayList<>();
-
-        @Override
-        protected void writeEditLog(LanceIndexJob job) {
-            editLog.add(job);
-        }
-    }
-
     /**
      * The 3A LanceFixture, extended for admission: remote/local names, the snapshot loader
-     * entry point, real catalog/job managers behind the Env mock, and a mocked id allocator.
+     * entry point, and a real catalog manager behind the Env mock.
      */
     private static class LanceFixture implements AutoCloseable {
         private final MockedStatic<Env> mockedEnv;
@@ -130,8 +114,6 @@ public class AlterTableCommandLanceAdmissionTest {
         private final LanceExternalCatalog catalog;
         private final LanceExternalDatabase database;
         private final LanceExternalTable table;
-        private final TestManager manager;
-        private final AtomicLong idAllocator;
         private final StmtExecutor executor;
 
         LanceFixture(boolean restCatalog) throws Exception {
@@ -142,8 +124,6 @@ public class AlterTableCommandLanceAdmissionTest {
             catalog = Mockito.mock(LanceExternalCatalog.class);
             database = Mockito.mock(LanceExternalDatabase.class);
             table = Mockito.mock(LanceExternalTable.class);
-            manager = new TestManager();
-            idAllocator = new AtomicLong(100L);
             executor = Mockito.mock(StmtExecutor.class);
 
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
@@ -162,8 +142,6 @@ public class AlterTableCommandLanceAdmissionTest {
             Mockito.when(database.getFullName()).thenReturn(DB);
             Mockito.when(table.getRemoteName()).thenReturn(REMOTE_TBL);
             Mockito.when(table.getName()).thenReturn(TBL);
-            Mockito.when(env.getNextId()).thenAnswer(invocation -> idAllocator.incrementAndGet());
-            Mockito.when(env.getLanceIndexJobManager()).thenReturn(manager);
             Mockito.when(table.getColumn(Mockito.anyString())).thenAnswer(invocation -> {
                 String name = invocation.getArgument(0);
                 if ("v".equalsIgnoreCase(name)) {
@@ -294,11 +272,6 @@ public class AlterTableCommandLanceAdmissionTest {
         return command;
     }
 
-    private static void assertSingleJobIdColumn(ResultSet resultSet) {
-        Assertions.assertEquals(1, resultSet.getMetaData().getColumnCount());
-        Assertions.assertEquals("JobId", resultSet.getMetaData().getColumns().get(0).getName());
-    }
-
     // ------------------------------------------------------------------
     // Gate off: 5102 from validate(), no metadata read, no id allocation
     // ------------------------------------------------------------------
@@ -322,8 +295,6 @@ public class AlterTableCommandLanceAdmissionTest {
                     .loadTableIndexAdmissionSnapshot(Mockito.anyString(), Mockito.anyString());
             Mockito.verify(fixture.env, Mockito.never()).getNextId();
             Mockito.verify(fixture.executor, Mockito.never()).sendResultSet(Mockito.any());
-            Assertions.assertEquals(0, fixture.manager.getJobCount());
-            Assertions.assertTrue(fixture.manager.editLog.isEmpty());
         }
     }
 
@@ -337,8 +308,6 @@ public class AlterTableCommandLanceAdmissionTest {
                             "CREATE OR REPLACE INDEX idx ON " + CTL + "." + DB + "." + TBL
                                     + " (c) USING BTREE"));
             Mockito.verify(fixture.env, Mockito.never()).getNextId();
-            Assertions.assertEquals(0, fixture.manager.getJobCount());
-            Assertions.assertTrue(fixture.manager.editLog.isEmpty());
         }
     }
 
@@ -353,47 +322,63 @@ public class AlterTableCommandLanceAdmissionTest {
                     runAndGetMessage(fixture.executor,
                             "DROP INDEX IF EXISTS idx ON " + CTL + "." + DB + "." + TBL));
             Mockito.verify(fixture.env, Mockito.never()).getNextId();
-            Assertions.assertEquals(0, fixture.manager.getJobCount());
-            Assertions.assertTrue(fixture.manager.editLog.isEmpty());
         }
     }
 
     // ------------------------------------------------------------------
-    // Gate on: admission in run(), JobId result set, alterTable bypassed
+    // Gate on: admission in run(), IF no-ops complete, mutations reject as
+    // unsupported, alterTable bypassed
     // ------------------------------------------------------------------
 
     @Test
-    public void gateOnCreateIndexAdmitsAndReturnsJobId() throws Exception {
+    public void gateOnCreateIndexValidatesThenRejectsAsUnsupported() throws Exception {
         Config.enable_lance_index_mutation = true;
         try (LanceFixture fixture = new LanceFixture(false)) {
             fixture.respondWithSnapshot(Collections.emptyList(), Collections.emptyList());
 
-            run(fixture.executor, "CREATE INDEX MyIdx ON " + CTL + "." + DB + "." + TBL
-                    + " (v) USING ANN " + VALID_ANN_PROPERTIES);
+            AnalysisException exception = runAndGetCommonAnalysisException(fixture.executor,
+                    "CREATE INDEX MyIdx ON " + CTL + "." + DB + "." + TBL
+                            + " (v) USING ANN " + VALID_ANN_PROPERTIES);
+            Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_OPERATION_NOT_SUPPORTED,
+                    exception.getMysqlErrorCode());
+            Assertions.assertEquals("CREATE INDEX is not supported for Lance catalog tables",
+                    exception.getDetailMessage());
 
-            ArgumentCaptor<ResultSet> captor = ArgumentCaptor.forClass(ResultSet.class);
-            Mockito.verify(fixture.executor, Mockito.times(1)).sendResultSet(captor.capture());
-            assertSingleJobIdColumn(captor.getValue());
-            Assertions.assertEquals(1, captor.getValue().getResultRows().size());
-            long jobId = fixture.idAllocator.get();
-            Assertions.assertEquals(String.valueOf(jobId),
-                    captor.getValue().getResultRows().get(0).get(0));
-
-            // Admission short-circuits the generic alter path entirely.
+            // The full preflight ran against the pinned snapshot, then rejected without any
+            // result set, id allocation, or generic alter path.
+            Mockito.verify(fixture.catalog, Mockito.times(1))
+                    .loadTableIndexAdmissionSnapshot(REMOTE_DB, REMOTE_TBL);
+            Mockito.verify(fixture.executor, Mockito.never()).sendResultSet(Mockito.any());
+            Mockito.verify(fixture.env, Mockito.never()).getNextId();
             Mockito.verify(fixture.env, Mockito.never()).alterTable(Mockito.any());
-            Mockito.verify(fixture.env, Mockito.times(1)).getNextId();
-            Assertions.assertEquals(1, fixture.manager.getJobCount());
-            Assertions.assertEquals(1, fixture.manager.editLog.size());
-            LanceIndexJob job = fixture.manager.getJob(jobId);
-            Assertions.assertEquals(LanceIndexJobMutationType.CREATE, job.getMutationType());
-            Assertions.assertEquals("MyIdx", job.getDisplayIndexName());
-            Assertions.assertEquals(DB, job.getDbName());
-            Assertions.assertEquals(TBL, job.getTableName());
         }
     }
 
     @Test
-    public void gateOnCreateIfNotExistsMatchingReturnsZeroRows() throws Exception {
+    public void gateOnDropIndexValidatesThenRejectsAsUnsupported() throws Exception {
+        Config.enable_lance_index_mutation = true;
+        try (LanceFixture fixture = new LanceFixture(false)) {
+            fixture.respondWithSnapshot(
+                    Collections.singletonList(new LanceShowIndexInfo("idx",
+                            Collections.singletonList("c"), "BTREE", "{}")),
+                    Collections.singletonList(
+                            new PhysicalIndexInfo("idx", "uuid-1", DATASET_VERSION, "SCALAR")));
+
+            AnalysisException exception = runAndGetCommonAnalysisException(fixture.executor,
+                    "DROP INDEX idx ON " + CTL + "." + DB + "." + TBL);
+            Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_OPERATION_NOT_SUPPORTED,
+                    exception.getMysqlErrorCode());
+            Assertions.assertEquals("DROP INDEX is not supported for Lance catalog tables",
+                    exception.getDetailMessage());
+            Mockito.verify(fixture.catalog, Mockito.times(1))
+                    .loadTableIndexAdmissionSnapshot(REMOTE_DB, REMOTE_TBL);
+            Mockito.verify(fixture.env, Mockito.never()).getNextId();
+            Mockito.verify(fixture.env, Mockito.never()).alterTable(Mockito.any());
+        }
+    }
+
+    @Test
+    public void gateOnCreateIfNotExistsMatchingIsANoop() throws Exception {
         Config.enable_lance_index_mutation = true;
         try (LanceFixture fixture = new LanceFixture(false)) {
             fixture.respondWithSnapshot(
@@ -405,32 +390,24 @@ public class AlterTableCommandLanceAdmissionTest {
             run(fixture.executor, "CREATE INDEX IF NOT EXISTS idx ON " + CTL + "." + DB + "." + TBL
                     + " (v) USING ANN " + VALID_ANN_PROPERTIES);
 
-            ArgumentCaptor<ResultSet> captor = ArgumentCaptor.forClass(ResultSet.class);
-            Mockito.verify(fixture.executor, Mockito.times(1)).sendResultSet(captor.capture());
-            assertSingleJobIdColumn(captor.getValue());
-            // The IF no-op creates no job: same schema, zero rows.
-            Assertions.assertTrue(captor.getValue().getResultRows().isEmpty());
+            // The IF no-op completes as a plain success: no result set, no id, no alter path.
+            Mockito.verify(fixture.executor, Mockito.never()).sendResultSet(Mockito.any());
             Mockito.verify(fixture.env, Mockito.never()).alterTable(Mockito.any());
             Mockito.verify(fixture.env, Mockito.never()).getNextId();
-            Assertions.assertEquals(0, fixture.manager.getJobCount());
-            Assertions.assertTrue(fixture.manager.editLog.isEmpty());
         }
     }
 
     @Test
-    public void gateOnDropIfExistsAbsentReturnsZeroRows() throws Exception {
+    public void gateOnDropIfExistsAbsentIsANoop() throws Exception {
         Config.enable_lance_index_mutation = true;
         try (LanceFixture fixture = new LanceFixture(false)) {
             fixture.respondWithSnapshot(Collections.emptyList(), Collections.emptyList());
 
             run(fixture.executor, "DROP INDEX IF EXISTS idx ON " + CTL + "." + DB + "." + TBL);
 
-            ArgumentCaptor<ResultSet> captor = ArgumentCaptor.forClass(ResultSet.class);
-            Mockito.verify(fixture.executor, Mockito.times(1)).sendResultSet(captor.capture());
-            assertSingleJobIdColumn(captor.getValue());
-            Assertions.assertTrue(captor.getValue().getResultRows().isEmpty());
+            Mockito.verify(fixture.executor, Mockito.never()).sendResultSet(Mockito.any());
             Mockito.verify(fixture.env, Mockito.never()).getNextId();
-            Assertions.assertEquals(0, fixture.manager.getJobCount());
+            Mockito.verify(fixture.env, Mockito.never()).alterTable(Mockito.any());
         }
     }
 
@@ -451,31 +428,6 @@ public class AlterTableCommandLanceAdmissionTest {
             Mockito.verify(fixture.executor, Mockito.never()).sendResultSet(Mockito.any());
             Mockito.verify(fixture.env, Mockito.never()).getNextId();
             Mockito.verify(fixture.env, Mockito.never()).alterTable(Mockito.any());
-            Assertions.assertEquals(0, fixture.manager.getJobCount());
-            Assertions.assertTrue(fixture.manager.editLog.isEmpty());
-        }
-    }
-
-    @Test
-    public void gateOnProxyExecutionUsesTheProxyResultSet() throws Exception {
-        Config.enable_lance_index_mutation = true;
-        try (LanceFixture fixture = new LanceFixture(false)) {
-            fixture.respondWithSnapshot(
-                    Collections.singletonList(new LanceShowIndexInfo("idx",
-                            Collections.singletonList("c"), "BTREE", "{}")),
-                    Collections.singletonList(
-                            new PhysicalIndexInfo("idx", "uuid-1", DATASET_VERSION, "SCALAR")));
-            Mockito.when(fixture.executor.isProxy()).thenReturn(true);
-
-            run(fixture.executor, "DROP INDEX idx ON " + CTL + "." + DB + "." + TBL);
-
-            ArgumentCaptor<ShowResultSet> captor = ArgumentCaptor.forClass(ShowResultSet.class);
-            Mockito.verify(fixture.executor, Mockito.times(1)).setProxyShowResultSet(captor.capture());
-            Mockito.verify(fixture.executor, Mockito.never()).sendResultSet(Mockito.any());
-            assertSingleJobIdColumn(captor.getValue());
-            Assertions.assertEquals(1, captor.getValue().getResultRows().size());
-            Assertions.assertEquals(String.valueOf(fixture.idAllocator.get()),
-                    captor.getValue().getResultRows().get(0).get(0));
         }
     }
 
@@ -581,11 +533,20 @@ public class AlterTableCommandLanceAdmissionTest {
         Config.enable_lance_index_mutation = true;
         try (LanceFixture fixture = new LanceFixture(false)) {
             fixture.respondWithSnapshot(Collections.emptyList(), Collections.emptyList());
-            AlterTableCommand command = run(fixture.executor,
+            // The first run of a fresh command reaches admission (exactly one snapshot read)
+            // and ends in the shared not-supported rejection; a second run of the same
+            // command object re-validates, collects a second op, and trips the
+            // exactly-one-op precondition before any further metadata read.
+            AlterTableCommand command = (AlterTableCommand) parser.parseSingle(
                     "CREATE INDEX idx ON " + CTL + "." + DB + "." + TBL + " (c) USING BTREE");
+            AnalysisException first = Assertions.assertThrows(AnalysisException.class,
+                    () -> command.run(connectContext, fixture.executor));
+            Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_OPERATION_NOT_SUPPORTED,
+                    first.getMysqlErrorCode());
             Assertions.assertThrows(IllegalStateException.class,
                     () -> command.run(connectContext, fixture.executor));
-            Mockito.verify(fixture.env, Mockito.times(1)).getNextId();
+            Mockito.verify(fixture.catalog, Mockito.times(1))
+                    .loadTableIndexAdmissionSnapshot(REMOTE_DB, REMOTE_TBL);
         }
     }
 
@@ -620,8 +581,6 @@ public class AlterTableCommandLanceAdmissionTest {
             Mockito.verify(fixture.catalog, Mockito.never())
                     .loadTableIndexAdmissionSnapshot(Mockito.anyString(), Mockito.anyString());
             Mockito.verify(fixture.executor, Mockito.never()).sendResultSet(Mockito.any());
-            Assertions.assertEquals(0, fixture.manager.getJobCount());
-            Assertions.assertTrue(fixture.manager.editLog.isEmpty());
         }
     }
 }

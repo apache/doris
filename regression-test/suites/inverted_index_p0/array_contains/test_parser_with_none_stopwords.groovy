@@ -21,8 +21,7 @@ suite("test_parser_with_none_stopwords", "array_contains_inverted_index"){
     def indexTblName = "unicode_test1_arr_no_stopwords"
     sql """ set enable_profile = true; """
     sql """ set enable_inverted_index_query=true; """
-    sql """ set enable_common_expr_pushdown=true; """
-    sql """ set enable_common_expr_pushdown_for_inverted_index=true; """
+    sql """ set enable_segment_limit_pushdown=true; """
     sql "DROP TABLE IF EXISTS ${indexTblName}"
     sql """
 	CREATE TABLE IF NOT EXISTS ${indexTblName}(

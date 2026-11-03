@@ -113,8 +113,6 @@ static void get_missing_and_include_cids(const TabletSchema& schema,
     }
 }
 
-constexpr static int s_preallocted_blocks_num = 32;
-
 static void extract_slot_ref(const VExprSPtr& expr, TupleDescriptor* tuple_desc,
                              std::vector<SlotDescriptor*>& slots) {
     const auto& children = expr->children();
@@ -204,8 +202,9 @@ void Reusable::return_block(std::unique_ptr<Block>& block) {
     }
     block->clear_column_data();
     _block_pool.push_back(std::move(block));
-    if (_block_pool.size() > s_preallocted_blocks_num) {
-        _block_pool.resize(s_preallocted_blocks_num);
+    const auto block_pool_size = config::get_lookup_connection_cache_block_pool_size();
+    if (_block_pool.size() > block_pool_size) {
+        _block_pool.resize(block_pool_size);
     }
 }
 
@@ -342,15 +341,10 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
                     reinterpret_cast<const uint8_t*>(request->query_options().data()), &len, false,
                     &t_query_options));
         }
+        RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, t_query_options,
+                                           *_tablet->tablet_schema(), 1));
         if (uuid != 0) {
-            // could be reused by requests after, pre allocte more blocks
-            RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, t_query_options,
-                                               *_tablet->tablet_schema(),
-                                               s_preallocted_blocks_num));
             LookupConnectionCache::instance()->add(uuid, reusable_ptr);
-        } else {
-            RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, t_query_options,
-                                               *_tablet->tablet_schema(), 1));
         }
     }
     _init_remote_scan_cache_write_limiter();
@@ -590,15 +584,33 @@ Status PointQueryExecutor::_lookup_row_data() {
                 const auto& segment = *it;
                 for (int cid : _reusable->missing_col_uids()) {
                     int pos = _reusable->get_col_uid_to_idx().at(cid);
-                    auto row_id = static_cast<segment_v2::rowid_t>(row_loc.row_id);
+                    std::vector<segment_v2::rowid_t> row_ids {
+                            static_cast<segment_v2::rowid_t>(row_loc.row_id)};
                     auto& column = result_columns[pos];
                     std::unique_ptr<ColumnIterator> iter;
                     SlotDescriptor* slot = _reusable->tuple_desc()->slots()[pos];
+                    if (slot->col_unique_id() >= 0 &&
+                        _tablet->tablet_schema()->field_index(slot->col_unique_id()) < 0) {
+                        // Light schema change can reach FE before a load updates the BE schema.
+                        // Use the same FE defaults as the row-store decoder for new columns.
+                        const auto& default_value = _reusable->get_col_default_values()[pos];
+                        if (default_value.empty()) {
+                            column->insert_default();
+                        } else {
+                            Slice input(default_value.data(), default_value.size());
+                            DataTypeSerDe::FormatOptions options;
+                            options.converted_from_string = true;
+                            RETURN_IF_ERROR(_reusable->get_data_type_serdes()[pos]
+                                                    ->deserialize_one_cell_from_json(*column, input,
+                                                                                     options));
+                        }
+                        continue;
+                    }
                     StorageReadOptions storage_read_options;
                     storage_read_options.stats = &_read_stats;
                     storage_read_options.io_ctx = io_ctx;
                     RETURN_IF_ERROR(segment->seek_and_read_by_rowid(*_tablet->tablet_schema(), slot,
-                                                                    row_id, column,
+                                                                    row_ids, column,
                                                                     storage_read_options, iter));
                 }
             }

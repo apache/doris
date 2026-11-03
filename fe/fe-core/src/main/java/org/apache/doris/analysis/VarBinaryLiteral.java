@@ -92,33 +92,9 @@ public class VarBinaryLiteral extends LiteralExpr {
     @Override
     public int compareLiteral(LiteralExpr other) {
         if (other instanceof VarBinaryLiteral) {
-            byte[] thisBytes = this.value;
-            byte[] otherBytes = ((VarBinaryLiteral) other).value;
-
-            int minLength = Math.min(thisBytes.length, otherBytes.length);
-            int i = 0;
-            for (i = 0; i < minLength; i++) {
-                if (Byte.toUnsignedInt(thisBytes[i]) < Byte.toUnsignedInt(otherBytes[i])) {
-                    return -1;
-                } else if (Byte.toUnsignedInt(thisBytes[i]) > Byte.toUnsignedInt(otherBytes[i])) {
-                    return 1;
-                }
-            }
-            if (thisBytes.length > otherBytes.length) {
-                if (thisBytes[i] == 0x00) {
-                    return 0;
-                } else {
-                    return 1;
-                }
-            } else if (thisBytes.length < otherBytes.length) {
-                if (otherBytes[i] == 0x00) {
-                    return 0;
-                } else {
-                    return -1;
-                }
-            } else {
-                return 0;
-            }
+            // VARBINARY is length-sensitive: trailing zero bytes are data, not string padding.
+            return com.google.common.primitives.UnsignedBytes.lexicographicalComparator()
+                    .compare(value, ((VarBinaryLiteral) other).value);
         }
         if (other instanceof NullLiteral) {
             return 1;

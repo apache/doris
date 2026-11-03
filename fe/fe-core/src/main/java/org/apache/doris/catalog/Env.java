@@ -111,7 +111,7 @@ import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
-import org.apache.doris.datasource.lance.job.LanceIndexJobManager;
+import org.apache.doris.datasource.lance.LanceExternalTable;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
 import org.apache.doris.deploy.DeployManager;
@@ -572,8 +572,6 @@ public class Env {
 
     private InsertOverwriteManager insertOverwriteManager;
 
-    private LanceIndexJobManager lanceIndexJobManager;
-
     private DNSCache dnsCache;
 
     private final NereidsSqlCacheManager sqlCacheManager;
@@ -859,7 +857,6 @@ public class Env {
         this.mtmvService = new MTMVService();
         this.eventProcessor = new EventProcessor(mtmvService);
         this.insertOverwriteManager = new InsertOverwriteManager();
-        this.lanceIndexJobManager = new LanceIndexJobManager();
         this.dnsCache = new DNSCache();
         this.sqlCacheManager = new NereidsSqlCacheManager();
         this.sortedPartitionsCacheManager = new NereidsSortedPartitionsCacheManager();
@@ -983,10 +980,6 @@ public class Env {
 
     public InsertOverwriteManager getInsertOverwriteManager() {
         return insertOverwriteManager;
-    }
-
-    public LanceIndexJobManager getLanceIndexJobManager() {
-        return lanceIndexJobManager;
     }
 
     public TabletScheduler getTabletScheduler() {
@@ -1823,12 +1816,12 @@ public class Env {
             // so no need to check 'isReady' flag in this method
             postProcessAfterMetadataReplayed(false);
 
-            insertOverwriteManager.allTaskFail();
+            // Replicate legacy type mapping markers before queries/checkpoints can expose a local-only
+            // upgrade. Followers consume the ordinary ALTER records even on older binaries.
+            toMasterProgress = "migrate catalog type mappings";
+            catalogMgr.migrateVarbinaryMappingProperties();
 
-            // A durable RUNNING Lance index job at this point may have lost its result with the
-            // old master: sweep it to UNKNOWN (and refresh RUNNING back to REQUIRED) before any
-            // master-only dispatcher could start.
-            lanceIndexJobManager.onTransferToMaster();
+            insertOverwriteManager.allTaskFail();
 
             toMasterProgress = "start daemon threads";
 
@@ -2058,7 +2051,7 @@ public class Env {
         splitSourceManager.start();
     }
 
-    private void transferToNonMaster(FrontendNodeType newType) {
+    private boolean transferToNonMaster(FrontendNodeType newType) {
         isReady.set(false);
 
         try {
@@ -2068,7 +2061,7 @@ public class Env {
                 // not set canRead here, leave canRead as what is was.
                 // if meta out of date, canRead will be set to false in replayer thread.
                 metaReplayState.setTransferToUnknown();
-                return;
+                return true;
             }
 
             // transfer from INIT/UNKNOWN to OBSERVER/FOLLOWER
@@ -2080,8 +2073,11 @@ public class Env {
 
             // 'isReady' will be set to true in 'setCanRead()' method
             if (!postProcessAfterMetadataReplayed(true)) {
-                // the state has changed, exit early.
-                return;
+                // A newer BDB state is already waiting in typeTransferQueue. Abort this stale transition so the
+                // state listener can process the newer state instead of waiting indefinitely for this node to
+                // become ready as a non-master. The caller must not publish newType to feType in this case:
+                // none of the non-master initialization below, including MetricRepo.init(), has completed yet.
+                return false;
             }
 
             checkLowerCaseTableNames();
@@ -2098,11 +2094,13 @@ public class Env {
                 followerColumnSender = new FollowerColumnSender();
                 followerColumnSender.start();
             }
+            return true;
         } catch (Throwable e) {
             // When failed to transfer to non-master, we need to exit the process.
             // Otherwise, the process will be in an unknown state.
             LOG.error("failed to transfer to non-master.", e);
             System.exit(-1);
+            return false;
         }
     }
 
@@ -2675,18 +2673,6 @@ public class Env {
         return checksum;
     }
 
-    public long loadLanceIndexJobManager(DataInputStream in, long checksum) throws IOException {
-        this.lanceIndexJobManager = LanceIndexJobManager.read(in);
-        LOG.info("finished replay lance index job manager from image");
-        return checksum;
-    }
-
-    public long saveLanceIndexJobManager(CountingDataOutputStream out, long checksum) throws IOException {
-        this.lanceIndexJobManager.write(out);
-        LOG.info("finished save lance index job manager to image");
-        return checksum;
-    }
-
     // Only called by checkpoint thread
     // return the latest image file's absolute path
     public String saveImage() throws IOException {
@@ -3125,6 +3111,8 @@ public class Env {
                         return;
                     }
 
+                    boolean transferCompleted = true;
+
                     /*
                      * INIT -> MASTER: transferToMaster
                      * INIT -> FOLLOWER/OBSERVER: transferToNonMaster
@@ -3142,7 +3130,7 @@ public class Env {
                                 }
                                 case FOLLOWER:
                                 case OBSERVER: {
-                                    transferToNonMaster(newType);
+                                    transferCompleted = transferToNonMaster(newType);
                                     break;
                                 }
                                 case UNKNOWN:
@@ -3160,7 +3148,7 @@ public class Env {
                                 }
                                 case FOLLOWER:
                                 case OBSERVER: {
-                                    transferToNonMaster(newType);
+                                    transferCompleted = transferToNonMaster(newType);
                                     break;
                                 }
                                 default:
@@ -3175,7 +3163,7 @@ public class Env {
                                     break;
                                 }
                                 case UNKNOWN: {
-                                    transferToNonMaster(newType);
+                                    transferCompleted = transferToNonMaster(newType);
                                     break;
                                 }
                                 default:
@@ -3186,7 +3174,7 @@ public class Env {
                         case OBSERVER: {
                             switch (newType) {
                                 case UNKNOWN: {
-                                    transferToNonMaster(newType);
+                                    transferCompleted = transferToNonMaster(newType);
                                     break;
                                 }
                                 default:
@@ -3206,6 +3194,17 @@ public class Env {
                             break;
                     } // end switch formerFeType
 
+                    if (!transferCompleted) {
+                        // feType represents the last fully initialized FE state, not merely the latest state
+                        // reported by BDB. A non-master transition can be interrupted when a newer BDB state is
+                        // queued while it waits for metadata to become ready. Committing newType after that early
+                        // return would make a repeated FOLLOWER/OBSERVER event look redundant and skip the
+                        // incomplete initialization permanently. Keep the previous committed state so the queued
+                        // event is evaluated against the state that was actually initialized and can retry the
+                        // transition or take a different path.
+                        LOG.info("skip committing incomplete FE type transfer from {} to {}", feType, newType);
+                        continue;
+                    }
                     feType = newType;
                     LOG.info("finished to transfer FE type to {}", feType);
                 }
@@ -3557,7 +3556,7 @@ public class Env {
         } else {
             ExternalCatalog externalCatalog = (ExternalCatalog) catalogMgr.getCatalog(info.getCtlName());
             if (externalCatalog != null) {
-                externalCatalog.replayDropDb(info.getDbName());
+                externalCatalog.replayDropDb(info.getDbName(), info.getResolvedDbName());
             }
         }
     }
@@ -3649,8 +3648,18 @@ public class Env {
                                              boolean writeEditLog,
                                              List<Pair<PartitionPersistInfo, Partition>> batchPartitions)
             throws DdlException {
+        addPartition(db, tableName, addPartitionClause, isCreateTable, generatedPartitionId,
+                writeEditLog, batchPartitions, false);
+    }
+
+    public void addPartition(Database db, String tableName, AddPartitionClause addPartitionClause,
+                                             boolean isCreateTable, long generatedPartitionId,
+                                             boolean writeEditLog,
+                                             List<Pair<PartitionPersistInfo, Partition>> batchPartitions,
+                                             boolean enforceAutoPartitionLimit)
+            throws DdlException {
         getInternalCatalog().addPartition(db, tableName, addPartitionClause,
-                isCreateTable, generatedPartitionId, writeEditLog, batchPartitions);
+                isCreateTable, generatedPartitionId, writeEditLog, batchPartitions, enforceAutoPartitionLimit);
     }
 
     public void addMultiPartitions(Database db, String tableName, AlterMultiPartitionClause multiPartitionClause)
@@ -3874,6 +3883,13 @@ public class Env {
         // inverted index storage type
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT).append("\" = \"");
         sb.append(olapTable.getInvertedIndexFileStorageFormat()).append("\"");
+        if (olapTable.getTableProperty() != null
+                && olapTable.getTableProperty().getPartitionInvertedIndexFileStorageFormat() != null) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT)
+                    .append("\" = \"")
+                    .append(olapTable.getTableProperty().getPartitionInvertedIndexFileStorageFormat())
+                    .append("\"");
+        }
 
         // compression type
         if (olapTable.getCompressionType() != TCompressionType.valueOf(Config.default_compression_type)) {
@@ -4574,7 +4590,9 @@ public class Env {
             }
         }
         sb.append("\n) ENGINE=");
-        sb.append(table.getType().name());
+        sb.append(table.getType() == TableType.LANCE_EXTERNAL_TABLE
+                ? "LANCE"
+                : table.getType().name());
 
         if (table instanceof OlapTable) {
             OlapTable olapTable = (OlapTable) table;
@@ -4878,6 +4896,28 @@ public class Env {
                 }
             }
             sb.append("\n)");
+        } else if (table.getType() == TableType.LANCE_EXTERNAL_TABLE) {
+            Map<String, String> properties = new TreeMap<>(
+                    ((LanceExternalTable) table).getTableProperties());
+            String tableComment = properties.remove("comment");
+            if (StringUtils.isNotBlank(tableComment)) {
+                sb.append("\nCOMMENT ").append(SqlLiteralUtils.quoteStringLiteral(tableComment));
+            }
+            if (!properties.isEmpty()) {
+                sb.append("\nPROPERTIES (\n");
+                Iterator<Entry<String, String>> iterator = properties.entrySet().iterator();
+                while (iterator.hasNext()) {
+                    Entry<String, String> property = iterator.next();
+                    String value = hidePassword && PrintableMap.SENSITIVE_KEY.contains(property.getKey())
+                            ? PrintableMap.PASSWORD_MASK : String.valueOf(property.getValue());
+                    sb.append("  ").append(SqlLiteralUtils.quoteStringLiteral(property.getKey()))
+                            .append(" = ").append(SqlLiteralUtils.quoteStringLiteral(value));
+                    if (iterator.hasNext()) {
+                        sb.append(",\n");
+                    }
+                }
+                sb.append("\n)");
+            }
         }
 
         createTableStmt.add(sb + ";");
@@ -6102,6 +6142,14 @@ public class Env {
         try {
             String colName = renameClause.getColName();
             String newColName = renameClause.getNewColName();
+            Column column = table.getColumn(colName);
+            if (column == null) {
+                throw new DdlException("Column[" + colName + "] does not exists");
+            }
+            if (column.getType().isVariantType() && newColName.indexOf('.') != -1) {
+                throw new DdlException(
+                        "Cannot use `VARIANT` type column named with a `.` character: " + newColName);
+            }
             Map<Long, Integer> indexIdToSchemaVersion = new HashMap<Long, Integer>();
             renameColumn(db, table, colName, newColName, indexIdToSchemaVersion, false);
         } finally {

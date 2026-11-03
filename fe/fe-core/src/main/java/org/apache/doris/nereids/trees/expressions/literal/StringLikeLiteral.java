@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.qe.SessionVariable;
@@ -144,9 +145,10 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             if (DateTimeChecker.hasTimeZone(value)) {
                 return new TimestampTzLiteral(timeStampTzType, value);
             }
-            DateTimeV2Literal datetime = (DateTimeV2Literal) castToDateTime(DateTimeV2Type.MAX, strictCast);
+            DateTimeV2Literal datetime = (DateTimeV2Literal) castToDateTime(
+                    DateTimeV2Type.MAX, strictCast);
             return TimestampTzLiteral.fromSessionTimeZone(timeStampTzType, datetime);
-        } else if (targetType.isDateTimeV2Type()) {
+        } else if (targetType.isTimeStampNsType() || targetType.isDateTimeV2Type()) {
             return castToDateTime(targetType, strictCast);
         } else if (targetType.isFloatType()) {
             return castToFloat();
@@ -162,6 +164,8 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             return new IPv4Literal(value);
         } else if (targetType.isIPv6Type()) {
             return new IPv6Literal(value);
+        } else if (targetType.isUuidType()) {
+            return new UuidLiteral(value);
         } else if (targetType.isTimeType()) {
             if (this.dataType.isStringLikeType()) { // could parse in FE
                 return new TimeV2Literal((TimeV2Type) targetType, value);
@@ -376,6 +380,12 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
         } else if (targetType.isDateTimeType()) {
             try {
                 return new DateTimeLiteral(format);
+            } catch (AnalysisException e) {
+                throw new CastException(e.getMessage(), e);
+            }
+        } else if (targetType instanceof TimeStampNsType) {
+            try {
+                return new TimeStampNsLiteral(format);
             } catch (AnalysisException e) {
                 throw new CastException(e.getMessage(), e);
             }

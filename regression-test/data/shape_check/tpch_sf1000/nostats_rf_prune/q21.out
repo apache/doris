@@ -15,14 +15,14 @@ PhysicalResultSink
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_suppkey = l1.l_suppkey)) otherCondition=() build RFs:RF2 s_suppkey->[l_suppkey]
 --------------------------hashJoin[RIGHT_SEMI_JOIN colocated] hashCondition=((l2.l_orderkey = l1.l_orderkey)) otherCondition=(( not (l_suppkey = l_suppkey))) build RFs:RF1 l_orderkey->[l_orderkey]
 ----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[lineitem] apply RFs: RF1 RF3
+------------------------------PhysicalOlapScan[lineitem(l2)] apply RFs: RF1 RF3
 ----------------------------hashJoin[RIGHT_ANTI_JOIN colocated] hashCondition=((l3.l_orderkey = l1.l_orderkey)) otherCondition=(( not (l_suppkey = l_suppkey))) build RFs:RF0 l_orderkey->[l_orderkey]
 ------------------------------PhysicalProject
 --------------------------------filter((l3.l_receiptdate > l3.l_commitdate))
-----------------------------------PhysicalOlapScan[lineitem] apply RFs: RF0
+----------------------------------PhysicalOlapScan[lineitem(l3)] apply RFs: RF0
 ------------------------------PhysicalProject
 --------------------------------filter((l1.l_receiptdate > l1.l_commitdate))
-----------------------------------PhysicalOlapScan[lineitem] apply RFs: RF2 RF3
+----------------------------------PhysicalOlapScan[lineitem(l1)] apply RFs: RF2 RF3
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[supplier] apply RFs: RF4
 ----------------------PhysicalProject

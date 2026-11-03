@@ -24,6 +24,8 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.datasource.CatalogIf;
@@ -122,6 +124,17 @@ public class ShowDatabasesCommand extends ShowCommand {
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
+        CatalogIf catalogIf = ctx.getCatalog(catalog);
+        if (catalogIf == null) {
+            throw new AnalysisException("No catalog found with name " + catalog);
+        }
+        // SHOW includes visibility inherited from database/table/column grants. Check it before either
+        // listing remote databases or planning the WHERE form, which can initialize external metadata too.
+        if (!catalogIf.isInternalCatalog() && !Env.getCurrentEnv().getAccessManager()
+                .checkCtlPriv(ctx, catalog, PrivPredicate.SHOW)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
+                    ctx.getQualifiedUser(), catalog);
+        }
         if (whereClause != null) {
             Expression rewrited = whereClause.accept(new ReplaceColumnNameVisitor(), null);
             String whereCondition = " WHERE `CATALOG_NAME` = '" + catalog
@@ -129,10 +142,6 @@ public class ShowDatabasesCommand extends ShowCommand {
             return execute(ctx, executor, whereCondition);
         }
         List<List<String>> rows = Lists.newArrayList();
-        CatalogIf catalogIf = ctx.getCatalog(catalog);
-        if (catalogIf == null) {
-            throw new AnalysisException("No catalog found with name " + catalog);
-        }
         List<String> dbNames = catalogIf.getDbNames();
         PatternMatcher matcher = null;
         if (likePattern != null) {
@@ -147,7 +156,7 @@ public class ShowDatabasesCommand extends ShowCommand {
                 continue;
             }
 
-            if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), catalog,
+            if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ctx, catalog,
                     fullName, PrivPredicate.SHOW)) {
                 continue;
             }

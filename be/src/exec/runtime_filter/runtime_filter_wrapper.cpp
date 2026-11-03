@@ -75,7 +75,7 @@ Status RuntimeFilterWrapper::init(const size_t real_size) {
     if (get_real_type() == RuntimeFilterType::IN_FILTER && real_size > _max_in_num) {
         set_state(RuntimeFilterWrapper::State::DISABLED, "reach max in num");
     }
-    if (_bloom_filter_func) {
+    if (get_real_type() == RuntimeFilterType::BLOOM_FILTER) {
         RETURN_IF_ERROR(_bloom_filter_func->init_with_fixed_length(real_size));
     }
     return Status::OK();
@@ -285,6 +285,8 @@ Status RuntimeFilterWrapper::_assign(const PInFilter& in_filter, bool contain_nu
     }
     case TYPE_TIMESTAMPTZ:
         [[fallthrough]];
+    case TYPE_TIMESTAMP_NS:
+        [[fallthrough]];
     case TYPE_DATETIMEV2: {
         batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column) {
             auto date_v2_val = column.longval();
@@ -378,6 +380,21 @@ Status RuntimeFilterWrapper::_assign(const PInFilter& in_filter, bool contain_nu
         });
         break;
     }
+    case TYPE_UUID: {
+        batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column) {
+            const auto string_val = column.stringval();
+            StringParser::ParseResult result;
+            const auto value = StringParser::string_to_int<uint128_t>(string_val.c_str(),
+                                                                      string_val.length(), &result);
+            if (result != StringParser::PARSE_SUCCESS) {
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "Failed to parse UUID value '{}' in runtime filter assign",
+                                string_val);
+            }
+            set->insert(&value);
+        });
+        break;
+    }
     default: {
         return Status::InternalError("not support assign to in filter, type: " +
                                      type_to_string(_column_return_type));
@@ -450,6 +467,8 @@ Status RuntimeFilterWrapper::_assign(const PMinMaxFilter& minmax_filter, bool co
         return _minmax_func->assign(&min_val, &max_val);
     }
     case TYPE_TIMESTAMPTZ:
+        [[fallthrough]];
+    case TYPE_TIMESTAMP_NS:
         [[fallthrough]];
     case TYPE_DATETIMEV2: {
         int64_t min_val = minmax_filter.min_val().longval();
@@ -532,6 +551,22 @@ Status RuntimeFilterWrapper::_assign(const PMinMaxFilter& minmax_filter, bool co
         auto max_val = StringParser::string_to_int<uint128_t>(max_string_val.c_str(),
                                                               max_string_val.length(), &result);
         DCHECK(result == StringParser::PARSE_SUCCESS);
+        return _minmax_func->assign(&min_val, &max_val);
+    }
+    case TYPE_UUID: {
+        const auto min_string_val = minmax_filter.min_val().stringval();
+        const auto max_string_val = minmax_filter.max_val().stringval();
+        StringParser::ParseResult result;
+        auto min_val = StringParser::string_to_int<uint128_t>(min_string_val.c_str(),
+                                                              min_string_val.length(), &result);
+        if (result != StringParser::PARSE_SUCCESS) {
+            return Status::InternalError("Failed to parse UUID min value '{}'", min_string_val);
+        }
+        auto max_val = StringParser::string_to_int<uint128_t>(max_string_val.c_str(),
+                                                              max_string_val.length(), &result);
+        if (result != StringParser::PARSE_SUCCESS) {
+            return Status::InternalError("Failed to parse UUID max value '{}'", max_string_val);
+        }
         return _minmax_func->assign(&min_val, &max_val);
     }
     default:

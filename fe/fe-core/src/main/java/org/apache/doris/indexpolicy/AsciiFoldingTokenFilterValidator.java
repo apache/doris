@@ -25,7 +25,8 @@ import java.util.Map;
 import java.util.Set;
 
 public class AsciiFoldingTokenFilterValidator extends BasePolicyValidator {
-    private static final Set<String> ALLOWED_PROPS = ImmutableSet.of("type");
+    private static final Set<String> ALLOWED_PROPS =
+            ImmutableSet.of("type", "preserve_original");
 
     public AsciiFoldingTokenFilterValidator() {
         super(ALLOWED_PROPS);

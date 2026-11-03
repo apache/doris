@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.lance;
 
 import org.apache.doris.analysis.TableSnapshot;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogProperty;
@@ -26,10 +27,11 @@ import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.lance.index.LancePhysicalIndexEntry;
 import org.apache.doris.datasource.lance.index.LanceShowIndexInfo;
-import org.apache.doris.datasource.lance.job.LanceIndexDatasetLocator;
 import org.apache.doris.datasource.lance.metadata.LanceMetadataLoader;
+import org.apache.doris.datasource.lance.metadata.LanceRefSelector;
 import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
 import org.apache.doris.datasource.lance.storage.LanceStorageOptions;
+import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractLanceProperties;
 import org.apache.doris.datasource.property.metastore.LanceFileSystemMetastoreProperties;
 import org.apache.doris.datasource.property.metastore.LanceRestMetastoreProperties;
@@ -40,6 +42,7 @@ import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.lance.namespace.LanceNamespace;
+import org.lance.namespace.model.DescribeTableResponse;
 import org.lance.namespace.model.ListNamespacesRequest;
 import org.lance.namespace.model.ListTablesRequest;
 
@@ -49,7 +52,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
 
-/** Read-only Lance Directory or REST Namespace catalog. */
+/** Lance Directory or REST Namespace catalog. */
 public class LanceExternalCatalog extends ExternalCatalog {
     public static final String LANCE_CATALOG_TYPE = AbstractLanceProperties.LANCE_CATALOG_TYPE;
     public static final String LANCE_FILESYSTEM = AbstractLanceProperties.LANCE_FILESYSTEM;
@@ -78,31 +81,6 @@ public class LanceExternalCatalog extends ExternalCatalog {
         indexTargetVersion++;
     }
 
-    /**
-     * Resolves the dataset the given (db, table) names currently point at, through the
-     * same table-access resolution the readers use, and returns its durable locator form
-     * ({@link LanceIndexDatasetLocator#normalize}).
-     *
-     * <p>This exists for SHOW-authorization revalidation of persisted Lance index jobs:
-     * once a job reaches a terminal state and releases its guard, a legitimate catalog
-     * ALTER can repoint the same db.table names at a different dataset, and the job must
-     * stop being readable through table-level SHOW on the new target. Any failure - the
-     * catalog is not initialized, the provider is unreachable, credentials expired, or
-     * the names no longer resolve - yields {@code null}; callers must treat null as
-     * "not resolved" (the orphan, ADMIN-only visibility rule), never as an authorization
-     * grant.
-     *
-     * @return the normalized locator of the dataset the names currently point at, or
-     *         null when it cannot be resolved
-     */
-    public String resolveCurrentIndexJobLocator(String dbName, String tableName) {
-        try {
-            return withClient(current -> current.resolveCurrentIndexJobLocator(dbName, tableName));
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
     public LanceExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
             String comment) {
         super(catalogId, name, InitCatalogLog.Type.LANCE, comment);
@@ -112,6 +90,7 @@ public class LanceExternalCatalog extends ExternalCatalog {
     @Override
     protected void initLocalObjectsImpl() {
         client = createClient();
+        metadataOps = ExternalMetadataOperations.newLanceMetadataOps(this);
     }
 
     @VisibleForTesting
@@ -209,20 +188,36 @@ public class LanceExternalCatalog extends ExternalCatalog {
         return withClient(current -> current.tableExists(dbName, tableName));
     }
 
+    public DescribeTableResponse describeTable(String dbName, String tableName) {
+        return withClient(current -> current.describeTable(dbName, tableName));
+    }
+
     public LanceTableMetadata loadTableMetadata(String dbName, String tableName) {
         return loadTableMetadata(dbName, tableName, Optional.empty());
     }
 
     public LanceTableMetadata loadTableMetadata(String dbName, String tableName, Optional<TableSnapshot> snapshot) {
-        return withClient(current -> current.loadTableMetadata(dbName, tableName, snapshot));
+        return loadTableMetadata(dbName, tableName, LanceRefSelector.snapshot(snapshot));
+    }
+
+    public LanceTableMetadata loadTableMetadata(String dbName, String tableName, LanceRefSelector selector) {
+        return withClient(current -> current.loadTableMetadata(dbName, tableName, selector));
     }
 
     public LanceTableMetadata loadTableMetadataForSearch(String dbName, String tableName) {
-        return withClient(current -> current.loadTableMetadataForSearch(dbName, tableName));
+        return loadTableMetadataForSearch(dbName, tableName, LanceRefSelector.latest());
+    }
+
+    public LanceTableMetadata loadTableMetadataForSearch(String dbName, String tableName, LanceRefSelector selector) {
+        return withClient(current -> current.loadTableMetadataForSearch(dbName, tableName, selector));
     }
 
     public LanceTableMetadata loadBasicTableMetadata(String dbName, String tableName) {
-        return withClient(current -> current.loadBasicTableMetadata(dbName, tableName));
+        return loadBasicTableMetadata(dbName, tableName, LanceRefSelector.latest());
+    }
+
+    public LanceTableMetadata loadBasicTableMetadata(String dbName, String tableName, LanceRefSelector selector) {
+        return withClient(current -> current.loadBasicTableMetadata(dbName, tableName, selector));
     }
 
     public Schema loadTableSchema(String dbName, String tableName) {
@@ -280,6 +275,7 @@ public class LanceExternalCatalog extends ExternalCatalog {
     @Override
     public void unregisterDatabase(String dbName) {
         // Dropping a namespace is a semantic change, unlike routine local DB-object eviction.
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(getId());
         invalidateTableAccessCache();
         super.unregisterDatabase(dbName);
     }
@@ -291,9 +287,26 @@ public class LanceExternalCatalog extends ExternalCatalog {
         }
     }
 
+    public void invalidateDatabaseCachesAfterDrop() {
+        invalidateTableAccessCache();
+        try {
+            // Cascade drops delete descendants, but the replay hook only carries the parent name.
+            retireAllDatabaseObjectsWithoutEngineInvalidation();
+        } finally {
+            try {
+                // Object retirement alone leaves name-keyed schema entries for recreated tables.
+                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(getId());
+            } finally {
+                resetMetaCacheNames();
+            }
+        }
+    }
+
     @Override
     public void onRefreshCache(boolean invalidCache) {
         if (invalidCache) {
+            // A new Session can resolve a replacement dataset before the catalog reset below.
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(getId());
             refreshSessionCache();
         }
         super.onRefreshCache(invalidCache);

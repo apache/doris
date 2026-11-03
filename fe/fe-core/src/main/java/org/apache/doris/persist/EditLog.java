@@ -64,7 +64,6 @@ import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.MetaIdMappingsLog;
-import org.apache.doris.datasource.lance.job.LanceIndexJob;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.indexpolicy.DropIndexPolicyLog;
@@ -395,7 +394,7 @@ public class EditLog {
                         ExternalCatalog ctl = (ExternalCatalog) Env.getCurrentEnv().getCatalogMgr()
                                 .getCatalog(info.getCtl());
                         if (ctl != null) {
-                            ctl.replayDropTable(info.getDb(), info.getTableName());
+                            ctl.replayDropTable(info.getDb(), info.getTableName(), info.getResolvedDb());
                         }
                     }
                     break;
@@ -1445,11 +1444,6 @@ public class EditLog {
                     env.getKeyManager().replayKeyOperation(info);
                     break;
                 }
-                case OperationType.OP_LANCE_INDEX_JOB_UPSERT: {
-                    LanceIndexJob job = (LanceIndexJob) journal.getData();
-                    env.getLanceIndexJobManager().replayUpsertJob(job);
-                    break;
-                }
                 case OperationType.OP_BEGIN_SNAPSHOT: {
                     // SnapshotState info = (SnapshotState) journal.getData();
                     // TODO: implement
@@ -1458,6 +1452,11 @@ public class EditLog {
                 case OperationType.OP_META_SYNC_POINT: {
                     // CloudMetaSyncPoint info = (CloudMetaSyncPoint) journal.getData();
                     // This log is only used to keep FE/MS cut point in journal timeline.
+                    break;
+                }
+                case OperationType.OP_LANCE_INDEX_JOB_UPSERT: {
+                    // Consumed and ignored by JournalEntity: payload of the removed durable
+                    // Lance index job framework; nothing to replay.
                     break;
                 }
                 default: {
@@ -2108,6 +2107,10 @@ public class EditLog {
         logEdit(OperationType.OP_UPDATE_SCHEDULER_JOB, job);
     }
 
+    public void logUpdateJob(String serializedJob) {
+        logEdit(OperationType.OP_UPDATE_SCHEDULER_JOB, out -> Text.writeString(out, serializedJob));
+    }
+
     public void logDeleteJob(AbstractJob job) {
         logEdit(OperationType.OP_DELETE_SCHEDULER_JOB, job);
     }
@@ -2367,10 +2370,6 @@ public class EditLog {
 
     public void logDropIndexPolicy(DropIndexPolicyLog policy) {
         logEdit(OperationType.OP_DROP_INDEX_POLICY, policy);
-    }
-
-    public void logLanceIndexJob(LanceIndexJob job) {
-        logEdit(OperationType.OP_LANCE_INDEX_JOB_UPSERT, job);
     }
 
     public void logCatalogLog(short id, CatalogLog log) {

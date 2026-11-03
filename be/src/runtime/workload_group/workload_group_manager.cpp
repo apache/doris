@@ -964,7 +964,14 @@ Status WorkloadGroupMgr::create_internal_wg() {
     WorkloadGroupInfo wg_info = WorkloadGroupInfo::parse_topic_info(twg_info);
     auto normal_wg = std::make_shared<WorkloadGroup>(wg_info);
 
-    RETURN_IF_ERROR(normal_wg->upsert_task_scheduler(&wg_info));
+    auto status = normal_wg->upsert_task_scheduler(&wg_info);
+    if (!status.ok()) {
+        // A later pool may have started and registered an adaptive callback even
+        // when an earlier scheduler failed. This WG is not owned by the manager
+        // yet, so drain its callbacks before the local shared_ptr releases it.
+        normal_wg->try_stop_schedulers();
+        return status;
+    }
 
     {
         std::lock_guard<std::shared_mutex> w_lock(_group_mutex);

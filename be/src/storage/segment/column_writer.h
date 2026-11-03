@@ -36,7 +36,7 @@
 #include "core/column/column_variant.h"
 #include "storage/index/ann/ann_index_writer.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
-#include "storage/index/inverted/inverted_index_writer.h"
+#include "storage/index/inverted/clucene/inverted_index_writer.h"
 #include "storage/segment/common.h"
 #include "storage/segment/options.h"
 #include "storage/segment/variant/nested_group_provider.h"
@@ -86,6 +86,13 @@ struct ColumnWriterOptions {
     BloomFilterOptions bf_options;
     std::vector<const TabletIndex*> inverted_indexes;
     IndexFileWriter* index_file_writer = nullptr;
+    // The owning segment serves a direct load (stream/broker load,
+    // DataWriteType::TYPE_DIRECT) rather than compaction / schema change. Set
+    // once by the segment writer and propagated to variant subcolumn writers;
+    // forwarded to every created IndexColumnWriter via set_direct_load() so
+    // SNII can select its direct-load PRX zstd level without plumbing
+    // DataWriteType itself down here.
+    bool is_direct_load = false;
 
     SegmentFooterPB* footer = nullptr;
     io::FileWriter* file_writer = nullptr;
@@ -205,6 +212,8 @@ public:
     virtual uint64_t get_raw_data_bytes() const = 0;
     virtual uint64_t get_total_uncompressed_data_pages_bytes() const = 0;
     virtual uint64_t get_total_compressed_data_pages_bytes() const = 0;
+    // Points to one of the three data bytes getters above.
+    using DataBytesGetter = uint64_t (ColumnWriter::*)() const;
 
     // used for append not null data.
     virtual Status append_data(const uint8_t** ptr, size_t num_rows) = 0;
@@ -506,7 +515,8 @@ private:
     }
 
 private:
-    Status write_null_column(size_t num_rows, bool is_null); // 写入num_rows个null标记
+    Status write_null_column(size_t num_rows,
+                             bool is_null); // U+5199 U+5165 num_rowsU+4E2A nullU+6807 U+8BB0
     bool has_empty_items() const { return _item_writer->get_next_rowid() == 0; }
 
 private:
@@ -615,15 +625,15 @@ public:
     ordinal_t get_next_rowid() const override { return _next_rowid; }
 
     uint64_t get_raw_data_bytes() const override {
-        return 0; // TODO
+        return _writer == nullptr ? 0 : _writer->get_raw_data_bytes();
     }
 
     uint64_t get_total_uncompressed_data_pages_bytes() const override {
-        return 0; // TODO
+        return _writer == nullptr ? 0 : _writer->get_total_uncompressed_data_pages_bytes();
     }
 
     uint64_t get_total_compressed_data_pages_bytes() const override {
-        return 0; // TODO
+        return _writer == nullptr ? 0 : _writer->get_total_compressed_data_pages_bytes();
     }
 
     Status append_nulls(size_t num_rows) override {
@@ -637,6 +647,14 @@ public:
 
     size_t get_non_null_size() const { return none_null_size; }
 
+#ifdef BE_TEST
+    // Force small chunk budgets so tests can exercise multi-chunk flushes cheaply.
+    static void set_chunk_bytes_for_test(size_t bytes);
+    static void set_chunk_values_for_test(size_t values);
+    size_t num_chunks_for_test() const;
+    size_t max_chunk_bytes_for_test() const;
+#endif
+
     Status finalize();
 
 private:
@@ -645,6 +663,17 @@ private:
                       std::span<const uint8_t> outer_nulls);
     Status _ensure_input_format(const VariantColumnData& column);
     Status _initialize_v2_builder();
+    Status _promote_chunks(DataTypePtr* inferred_type);
+    Status _seal_chunk();
+    // Bounded value chunks; each chunk is finalized and flushed independently so the writer never
+    // holds a segment-sized ColumnString.
+    struct ValueChunk {
+        std::unique_ptr<VariantPathBuilder> builder;
+        size_t row_begin = 0;
+        size_t rows = 0;
+    };
+    static constexpr size_t kChunkBytes = 256ULL << 20;
+    static constexpr size_t kChunkValues = 4ULL << 20;
     bool is_finalized() const;
     bool _is_finalized = false;
     ordinal_t _next_rowid = 0;
@@ -652,6 +681,12 @@ private:
     VariantWriterInputFormat _input_format = VariantWriterInputFormat::UNSET;
     ColumnVariant::MutablePtr _v1_column;
     std::unique_ptr<VariantPathBuilder> _v2_builder;
+    std::vector<ValueChunk> _chunks;
+    size_t _chunk_row_begin = 0;
+    size_t _chunk_rows = 0;
+    // Type carried into the next chunk. Inferred promotions also check and update sealed chunks
+    // so fallback follows the same sequence as one uninterrupted builder.
+    DataTypePtr _running_type;
     size_t _num_rows = 0;
     ColumnWriterOptions _opts;
     std::unique_ptr<ColumnWriter> _writer;
@@ -683,17 +718,11 @@ public:
     Status write_bloom_filter_index() override;
     ordinal_t get_next_rowid() const override { return _next_rowid; }
 
-    uint64_t get_raw_data_bytes() const override {
-        return 0; // TODO
-    }
+    uint64_t get_raw_data_bytes() const override;
 
-    uint64_t get_total_uncompressed_data_pages_bytes() const override {
-        return 0; // TODO
-    }
+    uint64_t get_total_uncompressed_data_pages_bytes() const override;
 
-    uint64_t get_total_compressed_data_pages_bytes() const override {
-        return 0; // TODO
-    }
+    uint64_t get_total_compressed_data_pages_bytes() const override;
 
     Status append_nulls(size_t num_rows) override {
         return Status::NotSupported("variant writer can not append_nulls");

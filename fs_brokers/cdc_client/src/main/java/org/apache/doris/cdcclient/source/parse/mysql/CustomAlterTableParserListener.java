@@ -139,24 +139,26 @@ final class CustomAlterTableParserListener extends MySqlParserBaseListener {
     @Override
     public void enterAlterByChangeColumn(MySqlParser.AlterByChangeColumnContext ctx) {
         changes.add(
-                MySqlSchemaChange.unsupported(
-                        currentTableId, "CHANGE", "CHANGE COLUMN is not supported"));
+                MySqlSchemaChange.change(
+                        currentTableId,
+                        parser.parseName(ctx.oldColumn),
+                        parser.parseName(ctx.newColumn)));
         super.enterAlterByChangeColumn(ctx);
     }
 
     @Override
     public void enterAlterByModifyColumn(MySqlParser.AlterByModifyColumnContext ctx) {
-        changes.add(
-                MySqlSchemaChange.unsupported(
-                        currentTableId, "MODIFY", "MODIFY COLUMN is not supported"));
+        changes.add(MySqlSchemaChange.modify(currentTableId, parser.parseName(ctx.uid(0))));
         super.enterAlterByModifyColumn(ctx);
     }
 
     @Override
     public void enterAlterByRenameColumn(MySqlParser.AlterByRenameColumnContext ctx) {
         changes.add(
-                MySqlSchemaChange.unsupported(
-                        currentTableId, "RENAME", "RENAME COLUMN is not supported"));
+                MySqlSchemaChange.rename(
+                        currentTableId,
+                        parser.parseName(ctx.oldColumn),
+                        parser.parseName(ctx.newColumn)));
         super.enterAlterByRenameColumn(ctx);
     }
 }

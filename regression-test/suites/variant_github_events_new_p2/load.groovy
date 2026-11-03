@@ -90,11 +90,11 @@ suite("regression_test_variant_github_events_p2", "p2"){
 
     // test array index
     sql """insert into github_events_arr select k, cast(v['payload']['pull_request']['head']['repo']['topics'] as array<text>) from github_events"""
-    sql "set enable_common_expr_pushdown = true; "
+    sql "set enable_segment_limit_pushdown = true; "
     qt_sql """select count() from github_events_arr where array_contains(v, 'css');"""
-    sql "set enable_common_expr_pushdown = false; "
+    sql "set enable_segment_limit_pushdown = false; "
     qt_sql """select count() from github_events_arr where array_contains(v, 'css');"""
-    sql "set enable_common_expr_pushdown = true; "
+    sql "set enable_segment_limit_pushdown = true; "
 
     // TODO fix compaction issue, this case could be stable
     qt_sql """select cast(v["payload"]["pull_request"]["additions"] as int)  from github_events where cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1;"""
@@ -152,8 +152,7 @@ suite("regression_test_variant_github_events_p2", "p2"){
     // query and filterd by inverted index
     if (!enable_typed_paths_to_sparse) {
         profile("test_profile_1") {
-            sql """ set enable_common_expr_pushdown = true; """
-            sql """ set enable_common_expr_pushdown_for_inverted_index = true; """
+            sql """ set enable_segment_limit_pushdown = true; """
             sql """ set enable_pipeline_x_engine = true;"""
             sql """ set enable_profile = true;"""
             sql """ set profile_level = 2;"""
@@ -177,7 +176,6 @@ suite("regression_test_variant_github_events_p2", "p2"){
         }
     }
     
-    sql """ set enable_common_expr_pushdown = true; """
-    sql """ set enable_common_expr_pushdown_for_inverted_index = true; """
+    sql """ set enable_segment_limit_pushdown = true; """
     qt_sql_inv """select count() from github_events where arrays_overlap(cast(v['payload']['pull_request']['head']['repo']['topics'] as array<text>), ['javascript', 'css'] )"""
 }

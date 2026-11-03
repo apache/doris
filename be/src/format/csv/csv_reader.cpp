@@ -345,6 +345,14 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
 
     bool success = false;
     bool is_remove_bom = false;
+    if (_range.start_offset != 0 && _skip_lines > 0 && _enclose == 0 &&
+        _file_format_type == TFileFormatType::FORMAT_CSV_PLAIN) {
+        auto* text_reader = assert_cast<NewPlainTextLineReader*>(_line_reader.get());
+        RETURN_IF_ERROR(text_reader->skip_split_prefix(_range.start_offset, _line_delimiter,
+                                                       &_line_reader_eof, _io_ctx));
+        _skip_lines = 0;
+        is_remove_bom = true;
+    }
     if (_push_down_agg_type == TPushAggOp::type::COUNT) {
         while (rows < batch_size && !_line_reader_eof) {
             const uint8_t* ptr = nullptr;

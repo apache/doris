@@ -167,7 +167,7 @@ suite("test_build_index_multi_analyzer_order") {
     sql "sync"
 
     // Pin fuzzy variable: search() requires common expr pushdown to work
-    sql "SET enable_common_expr_pushdown = true"
+    sql "SET enable_segment_limit_pushdown = true"
 
     // === Verification: regex /\d\d\d\d/ should match exactly 4-digit tokens ===
     // With edge_ngram analyzer, "11921" produces tokens: "119", "1192", "11921"

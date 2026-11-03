@@ -49,7 +49,8 @@ void build_json_from_vec(rapidjson::StringBuffer& buffer,
         rapidjson::Value obj_cbe(rapidjson::kObjectType);
         std::unordered_map<std::string, uint64_t> unordered_map = data_vec[idx].cbe;
         for (auto it : unordered_map) {
-            rapidjson::Value key_cbe(it.first.c_str(), allocator);
+            rapidjson::Value key_cbe(it.first.data(),
+                                     static_cast<rapidjson::SizeType>(it.first.size()), allocator);
             rapidjson::Value value_cbe(it.second);
             obj_cbe.AddMember(key_cbe, value_cbe, allocator);
         }

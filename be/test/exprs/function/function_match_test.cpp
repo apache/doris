@@ -27,9 +27,16 @@
 #include "core/block/block.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_string.h"
 #include "exprs/function/match.h"
 #include "runtime/runtime_state.h"
-#include "storage/index/inverted/analyzer/analyzer.h"
+#include "storage/index/index_query_context.h"
+#include "storage/index/inverted/analysis/analyzer/analyzer.h"
+#include "storage/index/inverted/analysis/analyzer/custom_analyzer.h"
+#include "storage/index/inverted/inverted_index_iterator.h"
+#include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/olap_common.h"
+#include "storage/tablet/tablet_schema.h"
 
 namespace doris {
 
@@ -603,18 +610,31 @@ TEST(FunctionMatchTest, execute_impl_structure) {
 TEST(FunctionMatchTest, custom_analyzer_handling) {
     FunctionMatchAny match_any;
 
-    auto ctx = create_inverted_index_ctx(InvertedIndexParserType::PARSER_ENGLISH);
+    segment_v2::inverted_index::CustomAnalyzerConfig::Builder builder;
+    builder.with_tokenizer_config("keyword", {});
+    builder.add_token_filter_config("lowercase", {});
+    auto provider =
+            std::make_shared<segment_v2::inverted_index::CustomAnalyzerProvider>(builder.build());
 
-    // Test without custom analyzer
-    ctx.ctx->analyzer_name = "";
-    auto tokens1 = match_any.analyse_query_str_token(ctx.ctx.get(), "test query", "test_col");
-    EXPECT_GT(tokens1.size(), 0);
+    InvertedIndexAnalyzerCtx analyzer_ctx;
+    analyzer_ctx.analyzer_name = "custom_keyword_lowercase";
+    analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_NONE;
+    analyzer_ctx.analyzer_provider = provider;
+    analyzer_ctx.analyzer = provider->get_analyzer();
 
-    // Test with custom analyzer (should be handled appropriately)
-    ctx.ctx->analyzer_name = "custom_analyzer_name";
-    auto tokens2 = match_any.analyse_query_str_token(ctx.ctx.get(), "test query", "test_col");
-    // Custom analyzer handling would depend on implementation details
-    EXPECT_GE(tokens2.size(), 0);
+    auto query_tokens = match_any.analyse_query_str_token(&analyzer_ctx, "TEST QUERY", "test_col");
+    ASSERT_EQ(query_tokens.size(), 1);
+    ASSERT_TRUE(query_tokens[0].is_single_term());
+    EXPECT_EQ(query_tokens[0].get_single_term(), "test query");
+
+    auto string_col = ColumnString::create();
+    string_col->insert_data("TEST QUERY", 10);
+    int32_t offset = 0;
+    auto data_tokens = match_any.analyse_data_token("test_col", &analyzer_ctx, string_col.get(), 0,
+                                                    nullptr, offset);
+    ASSERT_EQ(data_tokens.size(), 1);
+    ASSERT_TRUE(data_tokens[0].is_single_term());
+    EXPECT_EQ(data_tokens[0].get_single_term(), "test query");
 }
 
 // Test column type validation
@@ -860,6 +880,105 @@ TEST(FunctionMatchTest, function_registration) {
     // Note: Full testing would require access to SimpleFunctionFactory
     // This test verifies the concept exists
     EXPECT_TRUE(true);
+}
+
+namespace {
+
+// A FULLTEXT reader that answers every query with an empty result and counts the queries it
+// served, so a test can put indexes with different capabilities side by side on one column.
+class CountingFulltextReader final : public segment_v2::InvertedIndexReader {
+public:
+    static std::shared_ptr<CountingFulltextReader> create(int64_t index_id,
+                                                          const std::string& analyzer,
+                                                          bool support_phrase) {
+        TabletIndexPB pb;
+        pb.set_index_id(index_id);
+        pb.set_index_name("idx_" + analyzer);
+        pb.set_index_type(IndexType::INVERTED);
+        pb.add_col_unique_id(0);
+        (*pb.mutable_properties())["analyzer"] = analyzer;
+        (*pb.mutable_properties())["support_phrase"] = support_phrase ? "true" : "false";
+        TabletIndex index;
+        index.init_from_pb(pb);
+        return std::shared_ptr<CountingFulltextReader>(new CountingFulltextReader(index));
+    }
+
+    segment_v2::InvertedIndexReaderType type() override {
+        return segment_v2::InvertedIndexReaderType::FULLTEXT;
+    }
+    Status query(const segment_v2::IndexQueryContextPtr& /*context*/,
+                 const std::string& /*column_name*/, const Field& /*query_value*/,
+                 segment_v2::InvertedIndexQueryType /*query_type*/,
+                 std::shared_ptr<roaring::Roaring>& /*bit_map*/,
+                 const InvertedIndexAnalyzerCtx* /*analyzer_ctx*/) override {
+        ++queries;
+        return Status::OK();
+    }
+    Status try_query(const segment_v2::IndexQueryContextPtr& /*context*/,
+                     const std::string& /*column_name*/, const Field& /*query_value*/,
+                     segment_v2::InvertedIndexQueryType /*query_type*/, size_t* count) override {
+        *count = 0;
+        return Status::OK();
+    }
+    Status new_iterator(std::unique_ptr<segment_v2::IndexIterator>* /*iterator*/) override {
+        return Status::OK();
+    }
+
+    int queries = 0;
+
+private:
+    explicit CountingFulltextReader(const TabletIndex& index)
+            : segment_v2::InvertedIndexReader(&index, nullptr) {
+        // No index file stands behind this reader, so there is no null bitmap to read either.
+        set_has_null(false);
+    }
+};
+
+} // namespace
+
+// A column can carry a docs-only index -- a gram index is docs-only by default -- ahead of a
+// positional one. MATCH_PHRASE ... USING ANALYZER names the positional index and the query runs
+// on it, so phrase support has to be judged on that index. Judging it on the first FULLTEXT
+// reader rejected a valid query purely because of the order the indexes were created in.
+TEST(FunctionMatchTest, phrase_support_is_checked_on_the_index_the_analyzer_selects) {
+    auto docs_only = CountingFulltextReader::create(1, "docs_only_analyzer", false);
+    auto positional = CountingFulltextReader::create(2, "positional_analyzer", true);
+    segment_v2::InvertedIndexIterator iterator;
+    iterator.add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, docs_only);
+    iterator.add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, positional);
+    OlapReaderStatistics stats;
+    auto context = std::make_shared<segment_v2::IndexQueryContext>();
+    context->stats = &stats;
+    iterator.set_context(context);
+
+    const auto string_type = std::make_shared<DataTypeString>();
+    const ColumnsWithTypeAndName arguments {
+            {string_type->create_column_const(
+                     1, Field::create_field<TYPE_STRING>(std::string("request ok"))),
+             string_type, "query"}};
+    const std::vector<IndexFieldNameAndTypePair> columns {{"msg", string_type}};
+    InvertedIndexAnalyzerCtx analyzer_ctx;
+    analyzer_ctx.analyzer_key = "positional_analyzer";
+
+    FunctionMatchPhrase match_phrase;
+    FunctionMatchPhrasePrefix match_phrase_prefix;
+    for (const FunctionMatchBase* function :
+         std::vector<const FunctionMatchBase*> {&match_phrase, &match_phrase_prefix}) {
+        segment_v2::InvertedIndexResultBitmap bitmap;
+        const auto status = function->evaluate_inverted_index(arguments, columns, {&iterator}, 4,
+                                                              &analyzer_ctx, bitmap);
+        EXPECT_TRUE(status.ok()) << function->get_name() << ": " << status;
+    }
+    EXPECT_EQ(positional->queries, 2);
+    EXPECT_EQ(docs_only->queries, 0);
+
+    // Naming the docs-only index still gets the phrase query refused.
+    analyzer_ctx.analyzer_key = "docs_only_analyzer";
+    segment_v2::InvertedIndexResultBitmap bitmap;
+    const auto refused = match_phrase.evaluate_inverted_index(arguments, columns, {&iterator}, 4,
+                                                              &analyzer_ctx, bitmap);
+    EXPECT_TRUE(refused.is<ErrorCode::INDEX_INVALID_PARAMETERS>()) << refused;
+    EXPECT_EQ(docs_only->queries, 0);
 }
 
 } // namespace doris

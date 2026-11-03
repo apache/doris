@@ -60,8 +60,7 @@ suite("test_iceberg_arrow_flight_split_source", "p0,external") {
     String arrowFlightUser = context.config.otherConfigs.get("extArrowFlightSqlUser")
     String arrowFlightPassword = context.config.otherConfigs.get("extArrowFlightSqlPassword")
     Class.forName("org.apache.arrow.driver.jdbc.ArrowFlightJdbcDriver")
-    String arrowFlightUrl = "jdbc:arrow-flight-sql://${arrowFlightHost}:${arrowFlightPort}" +
-            "/?useServerPrepStmts=false&useSSL=false&useEncryption=false"
+    String arrowFlightUrl = context.config.getArrowFlightSqlJdbcUrl(arrowFlightHost, arrowFlightPort)
 
     String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minio_port = context.config.otherConfigs.get("iceberg_minio_port")

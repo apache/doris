@@ -28,6 +28,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.MetricsConfig;
 import org.apache.iceberg.PartitionSpec;
@@ -36,9 +37,12 @@ import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.hadoop.HadoopTables;
+import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.WriteResult;
 import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Types;
+import org.apache.thrift.TDeserializer;
+import org.apache.thrift.protocol.TJSONProtocol;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -46,8 +50,12 @@ import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mockito;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -55,6 +63,31 @@ import java.util.Map;
  * Test for IcebergWriterHelper DeleteFile conversion
  */
 public class IcebergWriterHelperTest {
+    @Test
+    public void testBinaryPartitionCommitUsesTypedValues() {
+        Schema binarySchema = new Schema(
+                Types.NestedField.optional(1, "key", Types.BinaryType.get()),
+                Types.NestedField.optional(2, "fixed_key", Types.FixedType.ofLength(2)),
+                Types.NestedField.optional(3, "uuid_key", Types.UUIDType.get()));
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(binarySchema);
+        Mockito.when(table.spec()).thenReturn(PartitionSpec.builderFor(binarySchema)
+                .identity("key").identity("fixed_key").identity("uuid_key").build());
+        Mockito.when(table.sortOrder()).thenReturn(SortOrder.unsorted());
+        Mockito.when(table.properties()).thenReturn(ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, "parquet"));
+        TIcebergCommitData commit = new TIcebergCommitData();
+        commit.setFilePath("/table/data/binary.parquet");
+        commit.setPartitionValues(ImmutableList.of("0xdead", "0xdead", "0x00112233445566778899aabbccddeeff"));
+        commit.setRowCount(1);
+        commit.setFileSize(128);
+        DataFile file = IcebergWriterHelper.convertToWriterResult(table, ImmutableList.of(commit)).dataFiles()[0];
+        Assertions.assertEquals(ByteBuffer.wrap(new byte[] {(byte) 0xde, (byte) 0xad}),
+                file.partition().get(0, ByteBuffer.class));
+        Assertions.assertEquals(file.partition().get(0, ByteBuffer.class), file.partition().get(1, ByteBuffer.class));
+        Assertions.assertEquals(java.util.UUID.fromString("00112233-4455-6677-8899-aabbccddeeff"),
+                file.partition().get(2, java.util.UUID.class));
+    }
+
 
     private Schema schema;
     private PartitionSpec unpartitionedSpec;
@@ -464,5 +497,66 @@ public class IcebergWriterHelperTest {
                 format, unpartitionedSpec, commitDataList);
 
         Assertions.assertEquals(2, deleteFiles.size());
+    }
+
+    @Test
+    public void convertToWriterResultCarriesSplitOffsetsFromCommitProtocol() throws Exception {
+        Table table = tableWith("write.format.default", "parquet", "write.metadata.metrics.default", "none");
+        TIcebergCommitData commit = new TIcebergCommitData();
+        // Decode the optional field on the wire so this also exercises compatibility with older BE fragments.
+        String fragment = "{\"1\":{\"str\":\"data.parquet\"},\"2\":{\"i64\":100},"
+                + "\"3\":{\"i64\":4096},\"15\":{\"lst\":[\"i64\",2,4,2048]}}";
+        new TDeserializer(new TJSONProtocol.Factory()).deserialize(commit, fragment.getBytes(StandardCharsets.UTF_8));
+        DataFile file = IcebergWriterHelper.convertToWriterResult(
+                table, Collections.singletonList(commit)).dataFiles()[0];
+        Assertions.assertEquals(Arrays.asList(4L, 2048L), file.splitOffsets());
+        table.newAppend().appendFile(file).commit();
+        try (CloseableIterable<FileScanTask> tasks = table.newScan().planFiles()) {
+            Assertions.assertEquals(Arrays.asList(4L, 2048L), tasks.iterator().next().file().splitOffsets());
+        }
+    }
+
+    @Test
+    public void convertToWriterResultKeepsOffsetsPerFileAndSupportsOldFragments() {
+        Table table = tableWith("write.format.default", "parquet");
+        List<TIcebergCommitData> commits = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            TIcebergCommitData commit = new TIcebergCommitData();
+            commit.setFilePath("data-" + i + ".parquet");
+            commit.setRowCount(10);
+            commit.setFileSize(4096);
+            if (i < 2) {
+                commit.setSplitOffsets(i == 0 ? Arrays.asList(4L, 1024L) : Collections.singletonList(4L));
+            }
+            commits.add(commit);
+        }
+        DataFile[] files = IcebergWriterHelper.convertToWriterResult(table, commits).dataFiles();
+        Assertions.assertEquals(Arrays.asList(4L, 1024L), files[0].splitOffsets());
+        Assertions.assertEquals(Collections.singletonList(4L), files[1].splitOffsets());
+        Assertions.assertNull(files[2].splitOffsets());
+    }
+
+    @Test
+    public void convertToWriterResultDoesNotApplyParquetOffsetsToOrc() {
+        TIcebergCommitData commit = new TIcebergCommitData();
+        commit.setFilePath("data.orc");
+        commit.setRowCount(10);
+        commit.setFileSize(4096);
+        commit.setSplitOffsets(Collections.singletonList(4L));
+        DataFile file = IcebergWriterHelper.convertToWriterResult(tableWith("write.format.default", "orc"),
+                Collections.singletonList(commit)).dataFiles()[0];
+        Assertions.assertNull(file.splitOffsets());
+    }
+
+    private Table tableWith(String... properties) {
+        org.apache.iceberg.inmemory.InMemoryCatalog catalog = new org.apache.iceberg.inmemory.InMemoryCatalog();
+        catalog.initialize("split_offsets", Collections.emptyMap());
+        catalog.createNamespace(org.apache.iceberg.catalog.Namespace.of("db"));
+        Map<String, String> options = new HashMap<>();
+        for (int i = 0; i < properties.length; i += 2) {
+            options.put(properties[i], properties[i + 1]);
+        }
+        return catalog.createTable(org.apache.iceberg.catalog.TableIdentifier.of("db", "offsets"), schema,
+                PartitionSpec.unpartitioned(), options);
     }
 }

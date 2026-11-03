@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -129,30 +128,29 @@ public final class IcebergWriteSchemaContext {
         Objects.requireNonNull(dorisTable, "dorisTable should not be null");
         Objects.requireNonNull(branchName, "branchName should not be null");
         try {
-            return dorisTable.getCatalog().getExecutionAuthenticator().execute(() -> {
-                Table table = dorisTable.getIcebergTable();
-                if (branchName.isPresent()) {
-                    validateTargetBranch(table, branchName.get(), dorisTable.getName());
-                }
-                // A branch selects only the snapshot parent/ref. Iceberg validates branch writes
-                // with the table-current schema and stamps that schema on the new snapshot.
-                Schema schema = branchName.isPresent()
-                        ? table.schema()
-                        : resolveStatementSchema(table, dorisTable);
-                int formatVersion = IcebergUtils.getFormatVersion(table);
-                TableIdentity tableIdentity = pinTableIdentity(table, formatVersion);
-                Map<String, String> properties = ImmutableMap.copyOf(table.properties());
-                return new IcebergWriteSchemaContext(
-                        dorisTable.getId(), dorisTable.getName(), schema, formatVersion, branchName,
-                        tableIdentity.uuid, tableIdentity.v1MetadataFileLocation,
-                        tableIdentity.v1MetadataTimestampMillis,
-                        bindPartitionSpec(table.spec(), schema, dorisTable.getName()),
-                        bindSortOrder(table.sortOrder(), schema, dorisTable.getName()),
-                        IcebergUtils.getFileFormat(table), MetricsConfig.forTable(table),
-                        IcebergUtils.getFileCompress(table), IcebergUtils.dataLocation(table), properties,
-                        dorisTable.getCatalog().getEnableMappingVarbinary(),
-                        dorisTable.getCatalog().getEnableMappingTimestampTz());
-            });
+            return IcebergUtils.withIcebergTableGeneration(dorisTable,
+                    (table, enableMappingVarbinary, enableMappingTimestampTz) -> {
+                        if (branchName.isPresent()) {
+                            validateTargetBranch(table, branchName.get(), dorisTable.getName());
+                        }
+                        // A branch selects only the snapshot parent/ref. Iceberg validates branch writes
+                        // with the table-current schema and stamps that schema on the new snapshot.
+                        Schema schema = branchName.isPresent()
+                                ? table.schema()
+                                : resolveStatementSchema(table, dorisTable);
+                        int formatVersion = IcebergUtils.getFormatVersion(table);
+                        TableIdentity tableIdentity = pinTableIdentity(table, formatVersion);
+                        Map<String, String> properties = ImmutableMap.copyOf(table.properties());
+                        return new IcebergWriteSchemaContext(
+                                dorisTable.getId(), dorisTable.getName(), schema, formatVersion, branchName,
+                                tableIdentity.uuid, tableIdentity.v1MetadataFileLocation,
+                                tableIdentity.v1MetadataTimestampMillis,
+                                bindPartitionSpec(table.spec(), schema, dorisTable.getName()),
+                                bindSortOrder(table.sortOrder(), schema, dorisTable.getName()),
+                                IcebergUtils.getFileFormat(table), MetricsConfig.forTable(table),
+                                IcebergUtils.getFileCompress(table), IcebergUtils.dataLocation(table), properties,
+                                enableMappingVarbinary, enableMappingTimestampTz);
+                    });
         } catch (Exception e) {
             throw new AnalysisException("Failed to pin Iceberg write schema for table "
                     + dorisTable.getName() + ": " + e.getMessage(), e);
@@ -241,20 +239,22 @@ public final class IcebergWriteSchemaContext {
                 Objects.requireNonNull(writerProperties, "writerProperties should not be null"));
         validateWriterMetadataSources(schema, partitionSpec, sortOrder, tableName);
 
+        // A writer follows the pinned Iceberg schema, independently of the catalog's read mapping.
+        // Civil timestamp or text intermediates would lose DST-fold identity or arbitrary bytes.
         List<Column> parsedColumns = IcebergUtils.parseSchema(
-                schema, enableMappingVarbinary, enableMappingTimestampTz);
+                schema, true, true);
         this.columns = ImmutableList.copyOf(parsedColumns);
         List<Column> writerColumns = new ArrayList<>(parsedColumns);
         writerColumns.add(IcebergRowId.createHiddenColumn());
         if (formatVersion >= IcebergUtils.ICEBERG_ROW_LINEAGE_MIN_VERSION) {
             Column rowIdColumn = IcebergUtils.parseField(
                     org.apache.iceberg.MetadataColumns.ROW_ID,
-                    enableMappingVarbinary, enableMappingTimestampTz);
+                    true, true);
             rowIdColumn.setIsVisible(false);
             writerColumns.add(rowIdColumn);
             Column sequenceColumn = IcebergUtils.parseField(
                     org.apache.iceberg.MetadataColumns.LAST_UPDATED_SEQUENCE_NUMBER,
-                    enableMappingVarbinary, enableMappingTimestampTz);
+                    true, true);
             sequenceColumn.setIsVisible(false);
             writerColumns.add(sequenceColumn);
         }
@@ -266,10 +266,10 @@ public final class IcebergWriteSchemaContext {
             byId.put(field.fieldId(), field);
             if (field.writeDefault() != null) {
                 DataType targetType = DataType.fromCatalogType(IcebergUtils.icebergTypeToDorisType(
-                        field.type(), enableMappingVarbinary, enableMappingTimestampTz));
+                        field.type(), true, true));
                 defaults.put(field.fieldId(), toDorisExpression(
                         field.type(), field.writeDefault(), targetType,
-                        enableMappingVarbinary, enableMappingTimestampTz));
+                        true, true));
             }
         }
         this.fieldsById = byId.build();
@@ -307,13 +307,12 @@ public final class IcebergWriteSchemaContext {
 
     private static void validateWriterMetadataSources(
             Schema schema, PartitionSpec partitionSpec, SortOrder sortOrder, String tableName) {
-        Map<Integer, Types.NestedField> topLevelFields = schema.columns().stream()
-                .collect(ImmutableMap.toImmutableMap(Types.NestedField::fieldId, field -> field));
         for (PartitionField field : partitionSpec.fields()) {
-            if (!topLevelFields.containsKey(field.sourceId())) {
+            // Iceberg permits a nested primitive partition source; its ID is schema-wide.
+            if (schema.findField(field.sourceId()) == null) {
                 throw new AnalysisException("Iceberg partition field " + field.fieldId()
                         + " references source field " + field.sourceId()
-                        + " outside pinned top-level schema " + schema.schemaId()
+                        + " outside pinned schema " + schema.schemaId()
                         + " for table " + tableName);
             }
         }
@@ -608,21 +607,25 @@ public final class IcebergWriteSchemaContext {
             case STRING:
                 return new StringLiteral((String) value);
             case UUID:
-                return binaryExpression(uuidBytes((UUID) value), targetType);
+                return new org.apache.doris.nereids.trees.expressions.literal.UuidLiteral(value.toString());
             case FIXED:
             case BINARY:
                 return binaryExpression(byteBufferBytes((ByteBuffer) value), targetType);
             case DATE:
                 LocalDate date = LocalDate.ofEpochDay(((Integer) value).longValue());
                 return new DateV2Literal(date.getYear(), date.getMonthValue(), date.getDayOfMonth());
+            case TIMESTAMP_NANO:
+                // Identity formatting retains all nine fractional digits, including negative epochs.
+                return new org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral(
+                        org.apache.iceberg.transforms.Transforms.identity(icebergType)
+                                .toHumanString(icebergType, value).replace('T', ' '));
             case TIMESTAMP:
                 long micros = (Long) value;
                 Types.TimestampType timestampType = (Types.TimestampType) icebergType;
-                ZoneId literalZone = timestampType.shouldAdjustToUTC() && !enableMappingTimestampTz
-                        ? TimeUtils.getDorisZoneId() : ZoneOffset.UTC;
-                LocalDateTime dateTime = microsToDateTime(micros, literalZone);
+                // Instant defaults use UTC components; unzoned defaults retain their civil components.
+                LocalDateTime dateTime = microsToDateTime(micros, ZoneOffset.UTC);
                 long microsecond = Math.floorMod(micros, 1_000_000L);
-                if (enableMappingTimestampTz && timestampType.shouldAdjustToUTC()) {
+                if (timestampType.shouldAdjustToUTC()) {
                     return new TimestampTzLiteral((TimeStampTzType) targetType,
                             dateTime.getYear(), dateTime.getMonthValue(),
                             dateTime.getDayOfMonth(), dateTime.getHour(), dateTime.getMinute(),
@@ -664,7 +667,7 @@ public final class IcebergWriteSchemaContext {
                     .map(Literal.class::cast).collect(ImmutableList.toImmutableList());
             return new ArrayLiteral(literalItems, targetType);
         }
-        // Legacy UUID/FIXED/BINARY mapping uses UNHEX to materialize raw bytes. Container
+        // Legacy FIXED/BINARY mapping uses UNHEX to materialize raw bytes. Container
         // literals accept literal children only, so preserve that expression in the existing
         // array function path; UNHEX remains executable by older BEs during a rolling upgrade.
         return TypeCoercionUtils.castIfNotSameType(new Array(items), targetType);
@@ -727,13 +730,6 @@ public final class IcebergWriteSchemaContext {
         }
         return TypeCoercionUtils.castIfNotSameType(
                 new CreateNamedStruct(namedFields.toArray(new Expression[0])), targetType);
-    }
-
-    private static byte[] uuidBytes(UUID value) {
-        return ByteBuffer.allocate(16)
-                .putLong(value.getMostSignificantBits())
-                .putLong(value.getLeastSignificantBits())
-                .array();
     }
 
     private static Expression binaryExpression(byte[] bytes, DataType targetType) {

@@ -677,6 +677,23 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         return data.getNumRows();
     }
 
+    protected void setUuid(int parameterIndex, java.util.UUID value) throws SQLException {
+        preparedStatement.setObject(parameterIndex, value);
+    }
+
+    protected void setUuidNull(int parameterIndex) throws SQLException {
+        preparedStatement.setNull(parameterIndex, Types.OTHER);
+    }
+
+    protected void setTimestampTz(int parameterIndex, java.time.LocalDateTime value) throws SQLException {
+        // JNI supplies UTC components; valueOf would reinterpret them in the JVM timezone.
+        preparedStatement.setObject(parameterIndex, Timestamp.from(value.toInstant(java.time.ZoneOffset.UTC)));
+    }
+
+    protected void setTimestampTzNull(int parameterIndex) throws SQLException {
+        preparedStatement.setNull(parameterIndex, Types.TIMESTAMP_WITH_TIMEZONE);
+    }
+
     private void insertColumn(int rowIdx, int colIdx, VectorColumn column) throws SQLException {
         int parameterIndex = colIdx + 1;
         ColumnType.Type dorisType = column.getColumnPrimitiveType();
@@ -703,6 +720,9 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             case LARGEINT:
                 preparedStatement.setObject(parameterIndex, column.getBigInteger(rowIdx));
                 break;
+            case UUID:
+                setUuid(parameterIndex, column.getUuid(rowIdx));
+                break;
             case FLOAT:
                 preparedStatement.setFloat(parameterIndex, column.getFloat(rowIdx));
                 break;
@@ -723,8 +743,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                         parameterIndex, Timestamp.valueOf(column.getDateTime(rowIdx)));
                 break;
             case TIMESTAMPTZ:
-                preparedStatement.setObject(
-                        parameterIndex, Timestamp.valueOf(column.getTimeStampTz(rowIdx)));
+                setTimestampTz(parameterIndex, column.getTimeStampTz(rowIdx));
                 break;
             case CHAR:
             case VARCHAR:
@@ -758,6 +777,9 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             case BIGINT:
                 preparedStatement.setNull(parameterIndex, Types.BIGINT);
                 break;
+            case UUID:
+                setUuidNull(parameterIndex);
+                break;
             case LARGEINT:
                 preparedStatement.setNull(parameterIndex, Types.JAVA_OBJECT);
                 break;
@@ -780,7 +802,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 preparedStatement.setNull(parameterIndex, Types.TIMESTAMP);
                 break;
             case TIMESTAMPTZ:
-                preparedStatement.setNull(parameterIndex, Types.TIMESTAMP_WITH_TIMEZONE);
+                setTimestampTzNull(parameterIndex);
                 break;
             case CHAR:
             case VARCHAR:

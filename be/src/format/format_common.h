@@ -17,6 +17,10 @@
 
 #pragma once
 
+#include <memory>
+#include <typeindex>
+
+#include "core/data_type/primitive_type.h"
 #include "core/types.h"
 #include "exec/common/int_exp.h"
 
@@ -72,40 +76,47 @@ template <typename KType>
 class KVCache {
 public:
     KVCache() = default;
+    ~KVCache() = default;
 
-    ~KVCache() {
-        for (auto& kv : _storage) {
-            _delete_fn[kv.first](kv.second);
-        }
-    }
-
+    template <class T>
     void erase(const KType& key) {
-        std::lock_guard<std::mutex> lock(_lock);
-        auto it = _storage.find(key);
-        if (it != _storage.end()) {
-            _delete_fn[key](_storage[key]);
-            _storage.erase(key);
-            _delete_fn.erase(key);
+        std::shared_ptr<Entry> erased_entry;
+        {
+            std::lock_guard<std::mutex> lock(_lock);
+            auto key_it = _entries.find(key);
+            if (key_it == _entries.end()) {
+                return;
+            }
+            auto type_it = key_it->second.find(typeid(T));
+            if (type_it == key_it->second.end()) {
+                return;
+            }
+            erased_entry = std::move(type_it->second);
+            key_it->second.erase(type_it);
+            if (key_it->second.empty()) {
+                _entries.erase(key_it);
+            }
         }
+        // Destroy the cached value outside the shard lock.
     }
 
     template <class T>
     T* get(const KType& key, const std::function<T*()> create_func, bool* cache_hit = nullptr) {
-        std::lock_guard<std::mutex> lock(_lock);
-        auto it = _storage.find(key);
-        if (it != _storage.end()) {
+        std::shared_ptr<Entry> entry = _get_or_create_entry<T>(key);
+        std::lock_guard<std::mutex> entry_lock(entry->_lock);
+        if (entry->_value != nullptr) {
             if (cache_hit != nullptr) {
                 *cache_hit = true;
             }
-            return reinterpret_cast<T*>(it->second);
+            return static_cast<T*>(entry->_value);
         } else {
             if (cache_hit != nullptr) {
                 *cache_hit = false;
             }
             T* rawPtr = create_func();
             if (rawPtr != nullptr) {
-                _delete_fn[key] = [](void* obj) { delete reinterpret_cast<T*>(obj); };
-                _storage[key] = rawPtr;
+                entry->_delete_fn = [](void* obj) { delete static_cast<T*>(obj); };
+                entry->_value = rawPtr;
             }
             return rawPtr;
         }
@@ -114,9 +125,35 @@ public:
 private:
     using DeleteFn = void (*)(void*);
 
+    struct Entry {
+        ~Entry() {
+            if (_value != nullptr) {
+                _delete_fn(_value);
+            }
+        }
+
+        // The shard lock only protects the map. Factory calls hold this entry lock, so an
+        // unrelated key can keep loading while another key is doing remote I/O.
+        std::mutex _lock;
+        void* _value = nullptr;
+        DeleteFn _delete_fn = nullptr;
+    };
+
+    template <class T>
+    std::shared_ptr<Entry> _get_or_create_entry(const KType& key) {
+        std::lock_guard<std::mutex> lock(_lock);
+        auto key_it = _entries.try_emplace(key).first;
+        auto type_it = key_it->second.find(typeid(T));
+        if (type_it != key_it->second.end()) {
+            return type_it->second;
+        }
+        auto entry = std::make_shared<Entry>();
+        key_it->second.emplace(typeid(T), entry);
+        return entry;
+    }
+
     std::mutex _lock;
-    std::unordered_map<KType, DeleteFn> _delete_fn;
-    std::unordered_map<KType, void*> _storage;
+    std::unordered_map<KType, std::unordered_map<std::type_index, std::shared_ptr<Entry>>> _entries;
 };
 
 class ShardedKVCache {

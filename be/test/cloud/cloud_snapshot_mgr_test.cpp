@@ -101,6 +101,9 @@ TEST_F(CloudSnapshotMgrTest, TestConvertRowsets) {
     rowset_meta->set_tablet_id(1000);
     rowset_meta->set_txn_id(2000);
     rowset_meta->set_num_segments(3);
+    rowset_meta->set_segments_overlap_pb(NONOVERLAPPING_WITHIN_GROUP);
+    rowset_meta->add_segment_group_sizes(1);
+    rowset_meta->add_segment_group_sizes(2);
     rowset_meta->set_num_rows(100);
     rowset_meta->set_start_version(100);
     rowset_meta->set_end_version(101);
@@ -148,6 +151,10 @@ TEST_F(CloudSnapshotMgrTest, TestConvertRowsets) {
     EXPECT_EQ(output_meta_pb.rs_metas(0).tablet_schema().index(0).index_id(), 1001);
     EXPECT_EQ(output_meta_pb.rs_metas(0).tablet_schema().index(1).index_id(), 1002);
     EXPECT_EQ(output_meta_pb.rs_metas(0).num_segments(), 3);
+    EXPECT_EQ(output_meta_pb.rs_metas(0).segments_overlap_pb(), NONOVERLAPPING_WITHIN_GROUP);
+    ASSERT_EQ(output_meta_pb.rs_metas(0).segment_group_sizes_size(), 2);
+    EXPECT_EQ(output_meta_pb.rs_metas(0).segment_group_sizes(0), 1);
+    EXPECT_EQ(output_meta_pb.rs_metas(0).segment_group_sizes(1), 2);
     EXPECT_EQ(output_meta_pb.rs_metas(0).num_rows(), 100);
     EXPECT_EQ(output_meta_pb.rs_metas(0).start_version(), 100);
     EXPECT_EQ(output_meta_pb.rs_metas(0).end_version(), 101);

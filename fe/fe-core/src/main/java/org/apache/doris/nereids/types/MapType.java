@@ -19,7 +19,6 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.annotation.Developing;
-import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.ComplexDataType;
 
 import java.util.Objects;
@@ -66,11 +65,17 @@ public class MapType extends DataType implements ComplexDataType, NestedColumnPr
 
     @Override
     public boolean isInjectiveCastTo(DataType target) {
-        if (target instanceof MapType) {
+        // BE bypasses the MAP cast kernel for an exact type match. Every non-identity MAP cast,
+        // however, runs ColumnMap::deduplicate_keys() after converting its children. Two distinct
+        // source maps that differ only by duplicate entries can consequently produce the same
+        // result even when both child conversions are injective. Also check the children for an
+        // exact match so conservative leaf policies, such as deprecated DECIMALV2, are preserved.
+        if (equals(target)) {
             MapType mapType = (MapType) target;
-            return keyType.isInjectiveCastTo(mapType.keyType) && valueType.isInjectiveCastTo(mapType.valueType);
+            return keyType.isInjectiveCastTo(mapType.keyType)
+                    && valueType.isInjectiveCastTo(mapType.valueType);
         }
-        return target instanceof CharacterType;
+        return false;
     }
 
     @Override

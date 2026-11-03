@@ -451,9 +451,9 @@ Status VectorizedIfExpr::_execute_impl_internal(Block& block, const ColumnNumber
     }
 }
 
-Status VectorizedIfExpr::execute_column(VExprContext* context, const Block* block,
-                                        Selector* selector, size_t count,
-                                        ColumnPtr& result_column) const {
+Status VectorizedIfExpr::execute_column_impl(VExprContext* context, const Block* block,
+                                             const Selector* selector, size_t count,
+                                             ColumnPtr& result_column) const {
     DCHECK(_open_finished || block == nullptr) << debug_string();
     DCHECK_EQ(_children.size(), 3) << "IF expr must have three children";
 
@@ -492,9 +492,9 @@ Status VectorizedIfExpr::execute_column(VExprContext* context, const Block* bloc
     return Status::OK();
 }
 
-Status VectorizedIfNullExpr::execute_column(VExprContext* context, const Block* block,
-                                            Selector* selector, size_t count,
-                                            ColumnPtr& result_column) const {
+Status VectorizedIfNullExpr::execute_column_impl(VExprContext* context, const Block* block,
+                                                 const Selector* selector, size_t count,
+                                                 ColumnPtr& result_column) const {
     DCHECK(_open_finished || block == nullptr) << debug_string();
     DCHECK_EQ(_children.size(), 2) << "IFNULL expr must have two children";
 
@@ -575,6 +575,11 @@ void insert_result_data(MutableColumnPtr& result_column, ColumnPtr& argument_col
                     result_raw_data[row].to_date_int_val() +
                     column_raw_data[row].to_date_int_val() *
                             uint64_t(!(null_map_data[row] | filled_flag[row])));
+        } else if constexpr (std::is_same_v<ColumnType, ColumnTimeStampNs>) {
+            result_raw_data[row] =
+                    TimeStampNsValue(result_raw_data[row].epoch_nanos() +
+                                     column_raw_data[row].epoch_nanos() *
+                                             int64_t(!(null_map_data[row] | filled_flag[row])));
         } else if constexpr (std::is_same_v<ColumnType, ColumnTimeStampTz>) {
             result_raw_data[row] = binary_cast<uint64_t, TimestampTzValue>(
                     result_raw_data[row].to_date_int_val() +
@@ -647,9 +652,9 @@ Status filled_result_column(const DataTypePtr& data_type, MutableColumnPtr& resu
     return Status::OK();
 }
 
-Status VectorizedCoalesceExpr::execute_column(VExprContext* context, const Block* block,
-                                              Selector* selector, size_t count,
-                                              ColumnPtr& return_column) const {
+Status VectorizedCoalesceExpr::execute_column_impl(VExprContext* context, const Block* block,
+                                                   const Selector* selector, size_t count,
+                                                   ColumnPtr& return_column) const {
     DataTypePtr result_type = _data_type;
     const auto input_rows_count = count;
 

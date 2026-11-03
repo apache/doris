@@ -32,6 +32,8 @@
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/storage_field_type.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "core/value/timestamp_ns_value.h"
+#include "core/value/uuid_value.h"
 #include "core/value/variant/variant_parquet_encoding.h"
 #include "exec/common/format_ip.h"
 #include "exprs/function/parse/variant_jsonb_parse.h"
@@ -123,6 +125,8 @@ Status validate_scalar_cell(BinaryCellCursor& cursor, FieldType field_type, uint
         return cursor.skip(sizeof(IPv4), "IPv4");
     case FieldType::OLAP_FIELD_TYPE_IPV6:
         return cursor.skip(sizeof(IPv6), "IPv6");
+    case FieldType::OLAP_FIELD_TYPE_UUID:
+        return cursor.skip(sizeof(UUIDValueType), "UUID");
     case FieldType::OLAP_FIELD_TYPE_DATE:
         return cursor.skip(sizeof(VecDateTimeValue), "legacy DATE");
     case FieldType::OLAP_FIELD_TYPE_DATETIME:
@@ -133,6 +137,9 @@ Status validate_scalar_cell(BinaryCellCursor& cursor, FieldType field_type, uint
     case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
         RETURN_IF_ERROR(cursor.read(scale, "timestamp scale"));
         return cursor.skip(sizeof(UInt64), "timestamp value");
+    case FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS:
+        RETURN_IF_ERROR(cursor.read(scale, "timestamp_ns scale"));
+        return cursor.skip(sizeof(Int64), "timestamp_ns value");
     case FieldType::OLAP_FIELD_TYPE_DECIMAL:
         RETURN_IF_ERROR(cursor.read(precision, "legacy DecimalV2 precision"));
         RETURN_IF_ERROR(cursor.read(scale, "legacy DecimalV2 scale"));
@@ -291,6 +298,12 @@ Status append_binary_value(BinaryCellCursor& cursor, VariantBatchBuilder::Row& o
         output.add_string({buffer.data(), static_cast<size_t>(end - buffer.data())});
         return Status::OK();
     }
+    case FieldType::OLAP_FIELD_TYPE_UUID: {
+        UUIDValueType value {};
+        RETURN_IF_ERROR(cursor.read(&value, "UUID"));
+        output.add_uuid(UUIDValue::to_big_endian(value));
+        return Status::OK();
+    }
     case FieldType::OLAP_FIELD_TYPE_DATE: {
         VecDateTimeValue value;
         RETURN_IF_ERROR(cursor.read(&value, "legacy DATE"));
@@ -323,6 +336,15 @@ Status append_binary_value(BinaryCellCursor& cursor, VariantBatchBuilder::Row& o
             const auto value = binary_cast<UInt64, TimestampTzValue>(raw);
             output.add_timestamp_micros(storage_timestamp_micros(value, "TIMESTAMPTZ"), true);
         }
+        return Status::OK();
+    }
+    case FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS: {
+        uint8_t scale = 0;
+        Int64 raw = 0;
+        RETURN_IF_ERROR(cursor.read(&scale, "timestamp_ns scale"));
+        RETURN_IF_ERROR(cursor.read(&raw, "timestamp_ns value"));
+        DORIS_CHECK_EQ(scale, TimeStampNsValue::FRACTIONAL_DIGITS);
+        output.add_timestamp_nanos(raw, false);
         return Status::OK();
     }
     case FieldType::OLAP_FIELD_TYPE_DECIMAL: {

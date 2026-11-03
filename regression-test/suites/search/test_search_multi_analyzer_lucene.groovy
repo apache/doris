@@ -28,8 +28,8 @@
 suite("test_search_multi_analyzer_lucene") {
     def tableName = "search_multi_analyzer_lucene_test"
 
-    // Pin enable_common_expr_pushdown to prevent CI flakiness from fuzzy testing.
-    sql """ set enable_common_expr_pushdown = true """
+    // Pin enable_segment_limit_pushdown to prevent CI flakiness from fuzzy testing.
+    sql """ set enable_segment_limit_pushdown = true """
 
     sql "DROP TABLE IF EXISTS ${tableName}"
 
@@ -60,7 +60,7 @@ suite("test_search_multi_analyzer_lucene") {
 
     // Test 1: Lucene mode TERM query - should use tokenized index
     qt_lucene_term """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('hello', '{"default_field":"title", "default_operator":"AND", "mode":"lucene", "minimum_should_match": 0}')
         ORDER BY id
@@ -68,7 +68,7 @@ suite("test_search_multi_analyzer_lucene") {
 
     // Test 2: Lucene mode AND query
     qt_lucene_and """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('hello AND world', '{"default_field":"title", "default_operator":"AND", "mode":"lucene"}')
         ORDER BY id
@@ -76,7 +76,7 @@ suite("test_search_multi_analyzer_lucene") {
 
     // Test 3: Lucene mode OR query
     qt_lucene_or """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('hello OR peace', '{"default_field":"title", "default_operator":"OR", "mode":"lucene"}')
         ORDER BY id
@@ -84,7 +84,7 @@ suite("test_search_multi_analyzer_lucene") {
 
     // Test 4: Lucene mode wildcard query
     qt_lucene_wildcard """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('h*llo', '{"default_field":"title", "default_operator":"AND", "mode":"lucene", "minimum_should_match": 0}')
         ORDER BY id
@@ -92,7 +92,7 @@ suite("test_search_multi_analyzer_lucene") {
 
     // Test 5: Standard mode TERM query (non-lucene) with multi-index
     qt_standard_term """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('title:hello')
         ORDER BY id
@@ -100,7 +100,7 @@ suite("test_search_multi_analyzer_lucene") {
 
     // Test 6: Standard mode phrase query with multi-index
     qt_standard_phrase """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('title:"hello world"')
         ORDER BY id
@@ -108,7 +108,7 @@ suite("test_search_multi_analyzer_lucene") {
 
     // Test 7: Lucene mode phrase query with multi-index
     qt_lucene_phrase """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('"hello world"', '{"default_field":"title", "default_operator":"AND", "mode":"lucene"}')
         ORDER BY id
@@ -116,7 +116,7 @@ suite("test_search_multi_analyzer_lucene") {
 
     // Test 8: ANY clause with multi-index
     qt_any_multi_index """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('title:ANY(hello peace)')
         ORDER BY id
@@ -124,7 +124,7 @@ suite("test_search_multi_analyzer_lucene") {
 
     // Test 9: ALL clause with multi-index
     qt_all_multi_index """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('title:ALL(hello world)')
         ORDER BY id
@@ -167,7 +167,7 @@ suite("test_search_multi_analyzer_lucene") {
 
     // Test 10: Untokenized wildcard h*llo - no match because full string "hello world" != h*llo
     qt_untok_wildcard_no_match """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${untokTable}
         WHERE search('h*llo', '{"default_field":"title", "mode":"lucene"}')
         ORDER BY id
@@ -175,7 +175,7 @@ suite("test_search_multi_analyzer_lucene") {
 
     // Test 11: Untokenized wildcard hello* - matches full strings starting with "hello"
     qt_untok_wildcard_prefix """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${untokTable}
         WHERE search('hello*', '{"default_field":"title", "mode":"lucene"}')
         ORDER BY id
@@ -183,7 +183,7 @@ suite("test_search_multi_analyzer_lucene") {
 
     // Test 12: Untokenized wildcard *world - matches full strings ending with "world"
     qt_untok_wildcard_suffix """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${untokTable}
         WHERE search('*world', '{"default_field":"title", "mode":"lucene"}')
         ORDER BY id
@@ -191,7 +191,7 @@ suite("test_search_multi_analyzer_lucene") {
 
     // Test 13: Untokenized PREFIX hel* - matches full strings starting with "hel"
     qt_untok_prefix """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${untokTable}
         WHERE search('title:hel*', '{"mode":"lucene"}')
         ORDER BY id
@@ -199,7 +199,7 @@ suite("test_search_multi_analyzer_lucene") {
 
     // Test 14: Untokenized REGEXP hel.* - matches full strings matching regex
     qt_untok_regexp """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${untokTable}
         WHERE search('title:/hel.*/', '{"mode":"lucene"}')
         ORDER BY id
@@ -207,7 +207,7 @@ suite("test_search_multi_analyzer_lucene") {
 
     // Test 15: Untokenized exact phrase match
     qt_untok_exact """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${untokTable}
         WHERE search('title:"hello world"', '{"mode":"lucene"}')
         ORDER BY id

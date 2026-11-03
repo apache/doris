@@ -228,6 +228,9 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     case TCompressionType::LZ4F:
         schema->set_compression_type(segment_v2::LZ4F);
         break;
+    case TCompressionType::LZ4HC:
+        schema->set_compression_type(segment_v2::LZ4HC);
+        break;
     case TCompressionType::ZLIB:
         schema->set_compression_type(segment_v2::ZLIB);
         break;
@@ -248,6 +251,9 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         break;
     case TInvertedIndexFileStorageFormat::V3:
         schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
+        break;
+    case TInvertedIndexFileStorageFormat::SNII:
+        schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::SNII);
         break;
     default:
         schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
@@ -450,8 +456,8 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _time_series_compaction_empty_rowsets_threshold(
                   b._time_series_compaction_empty_rowsets_threshold),
           _time_series_compaction_level_threshold(b._time_series_compaction_level_threshold),
-          _vertical_compaction_num_columns_per_group(
-                  b._vertical_compaction_num_columns_per_group) {};
+          _vertical_compaction_num_columns_per_group(b._vertical_compaction_num_columns_per_group),
+          _inverted_index_storage_format(b._inverted_index_storage_format) {};
 
 void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
                                           ColumnPB* column) {
@@ -504,6 +510,9 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     column->set_is_nullable(tcolumn.is_allow_null);
     if (tcolumn.__isset.default_value) {
         column->set_default_value(tcolumn.default_value);
+    }
+    if (tcolumn.__isset.default_value_expr) {
+        column->set_default_value_expr(tcolumn.default_value_expr);
     }
     if (tcolumn.__isset.is_bloom_filter_column) {
         column->set_is_bf_column(tcolumn.is_bloom_filter_column);
@@ -652,6 +661,25 @@ Status TabletMeta::save_meta(DataDir* data_dir) {
     return _save_meta(data_dir);
 }
 
+int64_t TabletMeta::file_cache_ttl_expiration_time() const {
+    int64_t ttl = ttl_seconds();
+    int64_t ctime = creation_time();
+    if (ttl <= 0 || ctime <= 0) {
+        return 0;
+    }
+    // FE caps file_cache_ttl_seconds at Long.MAX_VALUE / 2, so this cannot wrap, but a tablet
+    // meta that reached us from anywhere else still must not turn a huge ttl into a past
+    // deadline that silently downgrades the tablet to normal cache.
+    if (ctime > std::numeric_limits<int64_t>::max() - ttl) {
+        return std::numeric_limits<int64_t>::max();
+    }
+    int64_t expiration_time = ctime + ttl;
+    // Already past the deadline: report no TTL at all, so callers stamp the blocks they
+    // create as NORMAL right away instead of putting them in the TTL queue for
+    // BlockFileCacheTtlMgr to take straight back out again.
+    return expiration_time > UnixSeconds() ? expiration_time : 0;
+}
+
 Status TabletMeta::_save_meta(DataDir* data_dir) {
     // check if tablet uid is valid
     if (_tablet_uid.hi == 0 && _tablet_uid.lo == 0) {
@@ -739,6 +767,10 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     _cumulative_layer_point = tablet_meta_pb.cumulative_layer_point();
     _tablet_uid = TabletUid(tablet_meta_pb.tablet_uid());
     _ttl_seconds = tablet_meta_pb.ttl_seconds();
+    _inverted_index_storage_format.reset();
+    if (tablet_meta_pb.has_inverted_index_storage_format()) {
+        _inverted_index_storage_format = tablet_meta_pb.inverted_index_storage_format();
+    }
     if (tablet_meta_pb.has_tablet_type()) {
         _tablet_type = tablet_meta_pb.tablet_type();
     } else {
@@ -769,7 +801,11 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
 
     // init _schema
     TabletSchemaSPtr schema = std::make_shared<TabletSchema>();
-    schema->init_from_pb(tablet_meta_pb.schema());
+    TabletSchemaPB schema_pb = tablet_meta_pb.schema();
+    if (_inverted_index_storage_format.has_value()) {
+        schema_pb.set_inverted_index_storage_format(*_inverted_index_storage_format);
+    }
+    schema->init_from_pb(schema_pb);
     if (_handle) {
         TabletSchemaCache::instance()->release(_handle);
     }
@@ -894,6 +930,11 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb, bool cloud_get_rowset_
     }
 
     _schema->to_schema_pb(tablet_meta_pb->mutable_schema());
+    if (_inverted_index_storage_format.has_value()) {
+        tablet_meta_pb->set_inverted_index_storage_format(*_inverted_index_storage_format);
+        tablet_meta_pb->mutable_schema()->set_inverted_index_storage_format(
+                *_inverted_index_storage_format);
+    }
 
     tablet_meta_pb->set_in_restore_mode(in_restore_mode());
 

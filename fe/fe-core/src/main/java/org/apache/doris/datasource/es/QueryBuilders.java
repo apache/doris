@@ -123,9 +123,12 @@ public final class QueryBuilders {
     }
 
     public static QueryBuilder toEsDsl(Expr expr, Map<String, String> column2typeMap) {
-        return toEsDsl(expr, new ArrayList<>(), new HashMap<>(),
+        List<Expr> residuals = new ArrayList<>();
+        QueryBuilder result = toEsDsl(expr, residuals, new HashMap<>(),
                 BuilderOptions.builder().likePushDown(Boolean.parseBoolean(EsResource.LIKE_PUSH_DOWN_DEFAULT_VALUE))
                         .build(), column2typeMap);
+        // Single-expression callers cannot enforce nested residuals independently of the parent.
+        return residuals.isEmpty() ? result : null;
     }
 
     private static TExprOpcode flipOpCode(TExprOpcode opCode) {

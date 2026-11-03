@@ -411,6 +411,7 @@ suite("test_es_query", "p2,external") {
 
         }
 
+        // The output file needs both external-table and catalog result blocks for each scroll mode.
         sql """set enable_es_parallel_scroll=true"""
         query_catalogs()
 

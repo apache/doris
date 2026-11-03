@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -102,6 +103,15 @@ public class ProjectOtherJoinConditionForNestedLoopJoin extends OneRewriteRuleFa
 
     private static class AliasReplacer extends DefaultExpressionRewriter<ReplacerContext> {
         public static AliasReplacer INSTANCE = new AliasReplacer();
+
+        @Override
+        public Expression visitLambda(Lambda lambda, ReplacerContext ctx) {
+            // A lambda body is evaluated per array item. An expression in it may reference the lambda
+            // arguments, which are not input slots and which no child of the join outputs, so it can
+            // not be evaluated in a child Project:
+            //   array_map(x -> x + t2.b, [0]) > t1.a   -- `x + t2.b` must stay inside the lambda
+            return lambda;
+        }
 
         @Override
         public Expression visit(Expression expression, ReplacerContext ctx) {

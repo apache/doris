@@ -28,6 +28,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.OptionalInt;
 
 /** Immutable metadata resolved from one already-fixed Lance dataset version. */
@@ -94,6 +95,19 @@ public class LanceTableMetadata {
 
     public long getVersion() {
         return version;
+    }
+
+    /**
+     * Whether {@link #getVersion()} was resolved through the namespace that manages the table's
+     * versions rather than from the dataset's own {@code _versions/} directory.
+     */
+    public boolean isManagedVersioning() {
+        return access.isManagedVersioning();
+    }
+
+    /** The branch {@link #getVersion()} belongs to, if the query selected one. */
+    public Optional<String> getBranch() {
+        return access.getBranch();
     }
 
     public Schema getSchema() {

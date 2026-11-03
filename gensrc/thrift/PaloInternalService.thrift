@@ -209,7 +209,7 @@ struct TQueryOptions {
 
   64: optional bool dry_run_query = false
 
-  65: optional bool enable_common_expr_pushdown = false;
+  65: optional bool enable_common_expr_pushdown = false; // deprecated
 
   66: optional i32 parallel_instance = 1
   // Indicate where useServerPrepStmts enabled
@@ -510,15 +510,30 @@ struct TQueryOptions {
 
   // Fall back to RE2 when Hyperscan cannot compile a regular expression.
   228: optional bool enable_hyperscan_fallback = true;
+  // Use paimon-rust to read Paimon splits on BE. Higher priority than
+  // enable_paimon_cpp_reader.
+  229: optional bool enable_paimon_rust_reader = false;
 
+  230: optional bool enable_prune_nested_column = false;
+
+  // Push LIMIT into SegmentIterator when safe.
+  231: optional bool enable_segment_limit_pushdown = true
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
   1000: optional bool disable_file_cache = false
   1001: optional i32 file_cache_query_limit_percent = -1
-  1002: optional bool enable_file_scanner_v2 = false
+  // Plans without session options must inherit the production-default scanner.
+  1002: optional bool enable_file_scanner_v2 = true
   1003: optional bool enable_topn_lazy_mat_phase2_no_write_file_cache = false
   1004: optional i64 file_cache_query_limit_bytes = -1
+  // SNII inverted index query reads take the REMOTE_ONLY_ON_MISS file-cache
+  // policy: cache hits are served, but a miss reads remote directly and writes
+  // nothing back into the file cache. Data (.dat) and segment-meta reads keep
+  // the normal read-through-and-write-back path, and so do CLucene (V1/V2/V3)
+  // index reads -- the two formats amplify write-back differently, so each
+  // needs its own switch.
+  1005: optional bool inverted_index_snii_read_no_write_file_cache = false
   // Whether to force a pushed-down MIN/MAX onto the zone map even when its bound is not a value
   // the data holds right now: a string bound cut at 512 bytes is a prefix, and any bound still
   // covers rows a delete predicate removed. Statistics collection sets it; every other query
@@ -679,9 +694,9 @@ enum TCompoundType {
 }
 
 struct TAIResource {
-  1: required string endpoint
-  2: required string provider_type
-  3: required string model_name
+  1: optional string endpoint
+  2: optional string provider_type
+  3: optional string model_name
   4: optional string api_key
   5: optional double temperature
   6: optional i64 max_tokens
@@ -689,6 +704,16 @@ struct TAIResource {
   8: optional i32 retry_delay_second
   9: optional string anthropic_version
   10: optional i32 dimensions
+  11: optional string embed_endpoint
+  12: optional string embed_provider_type
+  13: optional string embed_model_name
+  14: optional string embed_api_key
+  15: optional string effort
+  16: optional string embed_mm_endpoint
+  17: optional string embed_mm_provider_type
+  18: optional string embed_mm_model_name
+  19: optional string embed_mm_api_key
+  20: optional bool enable_structured_output = true
 }
 
 struct TCondition {

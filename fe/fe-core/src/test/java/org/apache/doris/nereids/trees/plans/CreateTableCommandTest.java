@@ -31,6 +31,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigException;
 import org.apache.doris.common.DdlException;
@@ -239,6 +240,27 @@ public class CreateTableCommandTest extends TestWithFeService {
         Assertions.assertSame(tbl13.getColumn(Column.SEQUENCE_COL).getAggregationType(), AggregateType.NONE);
         Assertions.assertSame(tbl13.getColumn(Column.SEQUENCE_COL).getType(), Type.INT);
         Assertions.assertEquals(tbl13.getSequenceMapCol(), "v1");
+    }
+
+    @Test
+    public void testPartitionInvertedIndexStorageFormatRejectedInLocalMode() {
+        String originDeployMode = Config.deploy_mode;
+        String originCloudUniqueId = Config.cloud_unique_id;
+        try {
+            Config.deploy_mode = "local";
+            Config.cloud_unique_id = "";
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> createTable("create table test.partition_inverted_index_storage_format_local\n"
+                            + "(k1 int, v1 varchar(10))\n"
+                            + "duplicate key(k1)\n"
+                            + "distributed by hash(k1) buckets 1\n"
+                            + "properties('replication_num' = '1', "
+                            + "'partition.inverted_index_storage_format' = 'SNII')"));
+            Assertions.assertTrue(exception.getMessage().contains("only supported in cloud mode"));
+        } finally {
+            Config.deploy_mode = originDeployMode;
+            Config.cloud_unique_id = originCloudUniqueId;
+        }
     }
 
     @Test
@@ -836,6 +858,54 @@ public class CreateTableCommandTest extends TestWithFeService {
         CreateTableInfo createTableInfo = ((CreateTableCommand) plan).getCreateTableInfo();
         createTableInfo.validate(connectContext);
         return createTableInfo.getPartitionDesc();
+    }
+
+    @Test
+    public void testExternalIdentityPartitionValidation() {
+        for (String engine : new String[] {"hive", "paimon", "maxcompute"}) {
+            String prefix = "create table partition_validation (id int, ts datetime, dt date) engine=" + engine;
+            PartitionDesc partition = getCreateTableStmt(prefix + " partition by (dt) ()");
+            Assertions.assertEquals(java.util.Collections.singletonList("dt"), partition.getPartitionColNames());
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> getCreateTableStmt(prefix + " partition by (date_trunc(ts, 'day')) ()"));
+            Assertions.assertTrue(exception.getMessage().contains("only supports partitioning by columns"));
+        }
+    }
+
+    @Test
+    public void testExternalPartitionDefinitionsRejected() {
+        for (String engine : new String[] {"hive", "paimon", "maxcompute", "iceberg"}) {
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> getCreateTableStmt("create table partition_validation (id int, dt date) engine=" + engine
+                            + " partition by list(dt) (partition p1 values in ('2026-01-01'))"));
+            String expected = engine.equals("hive") ? "Partition values expressions is not supported in hive catalog"
+                    : "does not support explicit partition definitions";
+            Assertions.assertTrue(exception.getMessage().contains(expected), exception.getMessage());
+        }
+    }
+
+    @Test
+    public void testExternalPartitionModelRestrictions() {
+        AnalysisException hiveException = Assertions.assertThrows(AnalysisException.class,
+                () -> getCreateTableStmt("create table partition_validation (id int, dt date) engine=hive"
+                        + " partition by range(dt) ()"));
+        Assertions.assertTrue(hiveException.getMessage().contains("Only support 'LIST' partition type in hive catalog"));
+
+        PartitionDesc iceberg = getCreateTableStmt("create table partition_validation (id int, ts datetime)"
+                + " engine=iceberg partition by (bucket(4, id), day(ts)) ()");
+        Assertions.assertEquals(2, iceberg.getPartitionExprs().size());
+
+        PartitionDesc elasticsearch = getCreateTableStmt("create table partition_validation (id int, dt date)"
+                + " engine=elasticsearch partition by range(dt) ()");
+        Assertions.assertEquals(java.util.Collections.singletonList("dt"), elasticsearch.getPartitionColNames());
+        Assertions.assertThrows(AnalysisException.class,
+                () -> getCreateTableStmt("create table partition_validation (id int, dt date) engine=elasticsearch"
+                        + " partition by list(dt) ()"));
+        for (String engine : new String[] {"jdbc", "odbc", "mysql", "broker"}) {
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> getCreateTableStmt("create table partition_validation (id int, dt date) engine=" + engine
+                            + " partition by list(dt) ()"));
+        }
     }
 
     @Test

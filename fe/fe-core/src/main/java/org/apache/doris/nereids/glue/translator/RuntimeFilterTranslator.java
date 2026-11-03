@@ -37,6 +37,7 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -161,6 +162,7 @@ public class RuntimeFilterTranslator {
                             scanNode, targetExpr, true, isLocalTarget));
                 }
                 origFilter.setBloomFilterSizeCalculatedByNdv(filter.isBloomFilterSizeCalculatedByNdv());
+                setWaitTimeMs(origFilter, filter.isNonBlocking(), isLocalTarget);
                 org.apache.doris.planner.RuntimeFilter finalizedFilter = finalize(origFilter);
                 scanNodeList.stream().filter(e -> e.getStatisticalType() == StatisticalType.CTE_SCAN_NODE)
                         .forEach(f -> {
@@ -186,4 +188,26 @@ public class RuntimeFilterTranslator {
         origFilter.extractTargetsPosition();
         return origFilter;
     }
+
+    private void setWaitTimeMs(org.apache.doris.planner.RuntimeFilter filter,
+            boolean isNonBlocking, boolean isLocalTarget) {
+        if (isNonBlocking) {
+            filter.setWaitTimeMs(0);
+        } else {
+            if (ConnectContext.get() != null) {
+                SessionVariable sessionVar = ConnectContext.get().getSessionVariable();
+                if (sessionVar.runtimeFilterWaitInfinitely
+                        || filter.getType() == TRuntimeFilterType.BITMAP
+                        || isLocalTarget) {
+                    // wait infinitely
+                    filter.setWaitTimeMs(sessionVar.getQueryTimeoutS() * 1000);
+                } else {
+                    filter.setWaitTimeMs(sessionVar.getRuntimeFilterWaitTimeMs());
+                }
+            } else {
+                filter.setWaitTimeMs(1000);
+            }
+        }
+    }
+
 }

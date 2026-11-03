@@ -489,13 +489,14 @@ public class Column implements GsonPostProcessable {
     // string/varchar/char/variant
     // date/datetime/datev2/datetimev2
     // decimal/decimal32/decimal64/decimal128I/decimal256
-    // ipv4/ipv6
+    // ipv4/ipv6/uuid
     public boolean isSupportBloomFilter() {
         PrimitiveType pType = getDataType();
         return (pType ==  PrimitiveType.SMALLINT || pType == PrimitiveType.INT
                 || pType == PrimitiveType.BIGINT || pType == PrimitiveType.LARGEINT)
                 || pType.isCharFamily() || pType.isDateLikeType() || pType.isVariantType()
-                || pType.isDecimalV2Type() || pType.isDecimalV3Type() || pType.isIPType();
+                || pType.isDecimalV2Type() || pType.isDecimalV3Type() || pType.isIPType()
+                || pType.isUuidType();
     }
 
     public PrimitiveType getDataType() {
@@ -661,6 +662,10 @@ public class Column implements GsonPostProcessable {
         tColumn.setIsOnUpdateCurrentTimestamp(this.hasOnUpdateDefaultValue);
         // keep compatibility
         tColumn.setDefaultValue(this.realDefaultValue == null ? this.defaultValue : this.realDefaultValue);
+        if (type.isTimeStampNs() && realDefaultValue != null && defaultValue != null
+                && !realDefaultValue.equals(defaultValue)) {
+            tColumn.setDefaultValueExpr(defaultValue);
+        }
         tColumn.setVisible(visible);
         toChildrenThrift(this, tColumn);
 
@@ -786,6 +791,7 @@ public class Column implements GsonPostProcessable {
             case DATETIME:
                 return 8;
             case DATETIMEV2:
+            case TIMESTAMP_NS:
             case TIMESTAMPTZ:
                 return 8;
             case FLOAT:
@@ -824,6 +830,7 @@ public class Column implements GsonPostProcessable {
             case IPV4:
                 return 4;
             case IPV6:
+            case UUID:
                 return 16;
             case VARIANT:
                 return stringLength + 4; // sizeof(OLAP_STRING_MAX_LENGTH)
@@ -869,8 +876,14 @@ public class Column implements GsonPostProcessable {
             builder.setAggregation("NONE");
         }
         builder.setIsNullable(this.isAllowNull);
-        if (this.defaultValue != null) {
-            builder.setDefaultValue(ByteString.copyFrom(this.defaultValue.getBytes()));
+        String storageDefaultValue = type.isTimeStampNs() && realDefaultValue != null
+                ? realDefaultValue : defaultValue;
+        if (storageDefaultValue != null) {
+            builder.setDefaultValue(ByteString.copyFrom(storageDefaultValue.getBytes()));
+        }
+        if (type.isTimeStampNs() && realDefaultValue != null && defaultValue != null
+                && !realDefaultValue.equals(defaultValue)) {
+            builder.setDefaultValueExpr(ByteString.copyFrom(defaultValue.getBytes()));
         }
         builder.setPrecision(this.getPrecision());
         builder.setFrac(this.getScale());
@@ -1089,7 +1102,7 @@ public class Column implements GsonPostProcessable {
 
         // show change datetimeV2/dateV2 to datetime/date
         if (isCompatible) {
-            sb.append(type.hideVersionForVersionColumn(true));
+            sb.append(type.hideVersionForVersionColumn(true, true));
         } else {
             sb.append(typeStr);
         }

@@ -56,16 +56,17 @@ public class FeServiceClient {
     private final String user;
     private final String password;
     private final int retryCount;
-    private final int timeout;
+    private final int timeoutMs;
 
     public FeServiceClient(String name, List<TNetworkAddress> addresses, String user, String password,
-            int retryCount, int timeout) {
+            int retryCount, int timeoutSeconds) {
         this.name = name;
         this.addresses = addresses;
         this.user = user;
         this.password = password;
         this.retryCount = retryCount;
-        this.timeout = timeout;
+        // Catalog metadata timeouts are in seconds, but pooled Thrift sockets require milliseconds.
+        this.timeoutMs = Math.multiplyExact(timeoutSeconds, 1000);
     }
 
     private List<TNetworkAddress> getAddresses() {
@@ -127,7 +128,7 @@ public class FeServiceClient {
             return result.getBackends().stream()
                     .map(b -> Backend.fromThrift(b))
                     .collect(Collectors.toList());
-        }, msg, timeout);
+        }, msg, timeoutMs);
     }
 
     public RemoteOlapTable getOlapTable(String dbName, String table, long tableId, List<Partition> partitions) {
@@ -174,7 +175,7 @@ public class FeServiceClient {
             }
             remoteOlapTable.rebuildPartitions(partitions, updatedPartitions, removedPartitions);
             return remoteOlapTable;
-        }, msg, timeout);
+        }, msg, timeoutMs);
     }
 
     private interface ThriftCall<T> {

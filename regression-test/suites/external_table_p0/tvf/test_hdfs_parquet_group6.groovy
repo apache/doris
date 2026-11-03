@@ -25,7 +25,12 @@ suite("test_hdfs_parquet_group6","external,hive,tvf,external_docker") {
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        def originalTimeZone = sql "SELECT @@time_zone"
         try {
+            // Instant-annotated timestamps now retain their timezone-aware type in TVFs.
+            // V2 schema discovery honors logical UTC annotations even in older-writer fixtures.
+            // Pin the display timezone so the golden results do not depend on the FE default.
+            sql "SET time_zone = 'Asia/Shanghai'"
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group6/upcase_field.parquet"
             order_qt_test_0 """ select * from HDFS(
                         "uri" = "${uri}",
@@ -563,12 +568,34 @@ suite("test_hdfs_parquet_group6","external,hive,tvf,external_docker") {
                         "format" = "parquet") limit 10; """
 
 
+            // V2 maps JSON/BSON annotations to text despite BYTE_ARRAY storage, so both
+            // document columns must keep textual golden results rather than VARBINARY hex.
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group6/byte_array.parquet"
             order_qt_test_74 """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet") limit 10; """
 
+
+            // ENUM is text even though its physical representation is BYTE_ARRAY.
+            for (boolean mapping : [false, true]) {
+                String enumSource = """HDFS("uri"="${uri}", "hadoop.username"="${hdfsUserName}",
+                        "format"="parquet", "enable_mapping_varbinary"="${mapping}")"""
+                def enumSchema = sql "DESC FUNCTION ${enumSource}"
+                def enumColumn = enumSchema.find { it[0].toString().toLowerCase().contains("enum") }
+                assertNotNull(enumColumn)
+                assertEquals("text", enumColumn[1].toString().toLowerCase())
+                String enumTable = "parquet_enum_ctas"
+                sql "DROP TABLE IF EXISTS ${enumTable}"
+                try {
+                    sql """CREATE TABLE ${enumTable} PROPERTIES("replication_num"="1") AS
+                           SELECT `${enumColumn[0]}` AS enum_value FROM ${enumSource}"""
+                    assertEquals(sql("SELECT `${enumColumn[0]}` FROM ${enumSource} ORDER BY 1"),
+                            sql("SELECT enum_value FROM ${enumTable} ORDER BY 1"))
+                } finally {
+                    sql "DROP TABLE IF EXISTS ${enumTable}"
+                }
+            }
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group6/07eeba07-b04d-42b5-9e31-35b1a22ea31d-0_0-89-83_20230208203804485.parquet"
             order_qt_test_75 """ select * from HDFS(
@@ -731,11 +758,20 @@ suite("test_hdfs_parquet_group6","external,hive,tvf,external_docker") {
                         "format" = "parquet") limit 10; """
 
 
+            // The first field is FIXED_LEN_BYTE_ARRAY(16) with a UUID logical annotation.
+            // V2 schema inference and decoding preserve the native UUID type and canonical text.
+            // test_107 verifies UUID stays native when the retired VARBINARY option is enabled.
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group6/fixed_len_byte_array.parquet"
             order_qt_test_98 """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
-                        "format" = "parquet") limit 10; """
+                        "format" = "parquet") order by 1,2,3 limit 10; """
+
+
+            order_qt_test_98_desc """ desc function HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "parquet"); """
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group6/int64.parquet"
@@ -811,6 +847,7 @@ suite("test_hdfs_parquet_group6","external,hive,tvf,external_docker") {
                         "format" = "parquet"); """
 
         } finally {
+            sql "SET time_zone = '${originalTimeZone[0][0]}'"
         }
     }
 }

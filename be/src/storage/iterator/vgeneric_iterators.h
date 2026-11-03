@@ -184,6 +184,20 @@ private:
     // Load next block into _block
     Status _load_next_block();
 
+    // Data type used to materialize `column` in the merge block: the FE-pruned
+    // type when the query pruned this complex column's sub-columns (so the block's
+    // struct children line up with the pruned sub-column iterators), otherwise the
+    // full storage type.
+    DataTypePtr _data_type_maybe_pruned(const TabletColumn& column) const {
+        if (_pruned_columns_data_type) {
+            auto it = _pruned_columns_data_type->find(column.unique_id());
+            if (it != _pruned_columns_data_type->end()) {
+                return it->second;
+            }
+        }
+        return Schema::get_data_type_ptr(column);
+    }
+
     RowwiseIteratorUPtr _iter;
 
     int _sequence_id_idx = -1;
@@ -203,6 +217,10 @@ private:
     // block_reset() uses _output_schema to build _block, and copy_rows() iterates over
     // _output_schema->num_column_ids() columns to copy from _block to the destination.
     const SchemaSPtr _output_schema;
+    // Column unique id -> FE-pruned type; null when no columns are pruned. The owned
+    // segment iterator retains opts.tablet_schema through its StorageReadOptions.
+    // block_reset() uses this map to match the pruned sub-column iterators.
+    const std::map<int32_t, DataTypePtr>* _pruned_columns_data_type = nullptr;
     int _num_key_columns;
     std::vector<uint32_t>* _compare_columns;
     std::vector<RowLocation> _block_row_locations;

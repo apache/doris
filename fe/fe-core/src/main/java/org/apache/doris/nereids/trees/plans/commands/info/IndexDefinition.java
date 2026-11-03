@@ -150,7 +150,32 @@ public class IndexDefinition {
         return columnType.isDateLikeType() || columnType.isDecimalLikeType()
                 || columnType.isIntegralType() || columnType.isStringLikeType()
                 || columnType.isBooleanType() || columnType.isVariantType()
-                || columnType.isIPType() || columnType.isFloatLikeType();
+                || columnType.isIPType() || columnType.isUuidType() || columnType.isFloatLikeType();
+    }
+
+    /**
+     * Scalar column types the SNII storage format can serve with its native BKD index.
+     *
+     * <p>This mirrors {@code field_is_numeric_type} on the BE side, which is what
+     * {@code IndexColumnWriter::create} and {@code ColumnReader::_load_index} route on. A one-level
+     * ARRAY of such a type is included: the BE adapter indexes each element as its own point under
+     * the row's id, so a row matches when any of its elements does. VARIANT is excluded for the
+     * reason it always was on SNII -- there is no writer for it.
+     */
+    public static boolean isSupportSniiNumericIdxType(DataType columnType) {
+        if (columnType.isArrayType()) {
+            // One level only, matching isSupportIdxType: the BE adapter indexes an
+            // array row as several points under one row id, and a nested array has
+            // no such flattening.
+            DataType itemType = ((ArrayType) columnType).getItemType();
+            return !itemType.isArrayType() && isSupportSniiNumericIdxType(itemType);
+        }
+        if (columnType.isVariantType()) {
+            return false;
+        }
+        return columnType.isDateLikeType() || columnType.isDecimalLikeType()
+                || columnType.isIntegralType() || columnType.isBooleanType()
+                || columnType.isIPType() || columnType.isUuidType() || columnType.isFloatLikeType();
     }
 
     /**
@@ -179,6 +204,10 @@ public class IndexDefinition {
                         "ANN index can only be used in DUP_KEYS table or UNIQUE_KEYS table with"
                                 + " merge-on-write enabled");
             }
+            if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1) {
+                throw new AnalysisException("ANN index is not supported in index format "
+                        + invertedIndexFileStorageFormat);
+            }
             return;
         }
 
@@ -191,6 +220,20 @@ public class IndexDefinition {
                 // TODO add colType.isAggState()
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString()
                         + " index. " + "invalid index: " + name);
+            }
+            if (indexType == IndexType.INVERTED
+                    && invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.SNII) {
+                boolean isStringIndex = colType.isStringLikeType()
+                        || (colType.isArrayType()
+                            && ((ArrayType) colType).getItemType().isStringLikeType());
+                // VARIANT carries no postings itself; its extracted sub-columns are indexed
+                // under their own suffix paths and are type-checked at write time.
+                if (!isStringIndex && !colType.isVariantType()
+                        && !isSupportSniiNumericIdxType(colType)) {
+                    throw new AnalysisException(
+                            "SNII inverted index storage format does not support index on column: "
+                                    + indexColName);
+                }
             }
 
             // In inverted index format v1, each subcolumn of a variant has its own index file, leading to high IOPS.
@@ -339,6 +382,34 @@ public class IndexDefinition {
     public Index translateToCatalogStyle() {
         return new Index(Env.getCurrentEnv().getNextId(), name, cols, indexType, properties,
                 comment);
+    }
+
+    /**
+     * Syncs the index properties (possibly completed with defaults by {@link #checkColumn}) back into
+     * an already materialized {@link Index}.
+     *
+     * <p>On the ADD INDEX / standalone CREATE INDEX path, {@code CreateIndexOp#validate}
+     * materializes the {@link Index} through {@link #translateToCatalogStyle()} before
+     * {@code checkColumn} runs, while gram-family defaults such as {@code support_phrase=false} are
+     * only written into the IndexDefinition properties by {@code checkColumn}
+     * ({@code InvertedIndexUtil#applyGramFamilyIndexDefaults}); without this write-back they would be
+     * lost from the index that is finally persisted. The CREATE TABLE path runs checkColumn before
+     * translate and is unaffected.
+     *
+     * <p>Merge rule: a key present on the IndexDefinition side overrides the Index side, and a key
+     * only the Index side has is kept -- the latter is a default filled in by the {@link Index}
+     * constructor's general rules (for example {@code lower_case=true} for a parser index) and must
+     * not be lost to this write-back. The passed instance is modified in place, because the caller
+     * may already hold the same Index reference.
+     */
+    public void applyPropertiesTo(Index index) {
+        if (index == null || properties == null || properties.isEmpty()) {
+            return;
+        }
+        Map<String, String> merged = index.getProperties() == null
+                ? new HashMap<>() : new HashMap<>(index.getProperties());
+        merged.putAll(properties);
+        index.setProperties(merged);
     }
 
     public List<String> getPartitionNames() {

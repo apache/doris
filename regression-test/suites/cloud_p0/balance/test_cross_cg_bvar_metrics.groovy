@@ -232,22 +232,26 @@ suite('test_cross_cg_bvar_metrics', 'docker') {
         assert beA2 != null : "Could not identify BE_A2"
         logger.info("T_bvar2: BE_A2 host={} brpcPort={}", beA2.Host, beA2.BrpcPort)
 
-        // Wait until BE_A2 has both accepted tablets and registered same-CG candidates.
+        // Wait until this table has at least one tablet routed to BE_A2. TabletNum and the
+        // process-wide mapping gauge may become positive before FE updates this table's route.
+        def routedTabletIds = []
         awaitUntil(120) {
-            def latest = sql_return_maparray('show backends').find {
+            def routedTablets = sql_return_maparray("SHOW TABLETS FROM ${tbl}").findAll {
                 it.BackendId.toLong() == beA2.BackendId.toLong()
             }
-            latest != null && latest.TabletNum.toInteger() > 0
+            def candidateReady =
+                getBrpcMetric(beA2.Host, beA2.BrpcPort, "balance_tablet_be_mapping_size") > 0
+            routedTabletIds = routedTablets.collect { it.TabletId.toLong() }
+            logger.info("T_bvar2 readiness: BE_A2 routed tablets={}, candidateReady={}",
+                routedTabletIds, candidateReady)
+            !routedTabletIds.isEmpty() && candidateReady
         }
-        awaitUntil(120) {
-            getBrpcMetric(beA2.Host, beA2.BrpcPort, "balance_tablet_be_mapping_size") > 0
-        }
-
-        // Give the rebalance warmup workflow a short window to submit and finish the skipped
-        // warmup tasks before query traffic starts.
-        sleep(2000)
 
         sql "use @compute_cluster"
+        // Retries must reach BE_A2 after its tablet route becomes active. Otherwise the first
+        // result can be served repeatedly from FE SQL cache without exercising same-CG reads.
+        sql "SET enable_sql_cache = false"
+        sql "SET enable_query_cache = false"
         def t2_sameBefore_A1 = getBrpcMetric(beA.Host,  beA.BrpcPort,  "peer_same_compute_group_read")
         def t2_sameBefore_A2 = getBrpcMetric(beA2.Host, beA2.BrpcPort, "peer_same_compute_group_read")
 
@@ -255,7 +259,8 @@ suite('test_cross_cg_bvar_metrics', 'docker') {
             // Run query iteratively; full-table scans should cover tablets rebalanced to BE_A2.
             // Those scans see: (a) same-CG candidate (BE_A1) registered, (b) empty local cache
             // after warmup timeout -> same-CG winner race with peer win -> peer_same_compute_group_read++.
-            sql "SELECT * FROM ${tbl} ORDER BY k1"
+            def result = sql "SELECT * FROM ${tbl} ORDER BY k1"
+            assertEquals(6, result.size(), "T_bvar2 query should return all rows")
             def sameAfterA1 = getBrpcMetric(beA.Host,  beA.BrpcPort,  "peer_same_compute_group_read")
             def sameAfterA2 = getBrpcMetric(beA2.Host, beA2.BrpcPort, "peer_same_compute_group_read")
             ((sameAfterA1 - t2_sameBefore_A1) + (sameAfterA2 - t2_sameBefore_A2)) > 0

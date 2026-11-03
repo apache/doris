@@ -18,6 +18,7 @@
 #include "service/http/http_request.h"
 
 #include <event2/http.h>
+#include <event2/http_struct.h>
 #include <gtest/gtest.h>
 
 #include <cstring>
@@ -137,6 +138,82 @@ TEST_F(HttpRequestTest, non_sensitive_headers_are_untouched) {
 
     EXPECT_NE(dumped.find("key=User-Agent, value=curl/7.76.1"), std::string::npos) << dumped;
     EXPECT_EQ(dumped.find(kMasked), std::string::npos) << dumped;
+}
+
+TEST_F(HttpRequestTest, query_credentials_are_not_exposed_in_debug_string) {
+    constexpr char uri[] = "/api/_download?token=synthetic-token-123&job_id=7";
+    auto* evhttp_req = evhttp_request_new(nullptr, nullptr);
+    evhttp_req->type = EVHTTP_REQ_GET;
+    evhttp_req->uri = const_cast<char*>(uri);
+    evhttp_req->uri_elems = evhttp_uri_parse(uri);
+
+    HttpRequest req(evhttp_req);
+    EXPECT_EQ(req.init_from_evhttp(), 0);
+    const std::string dumped = req.debug_string();
+    EXPECT_EQ(req.uri(), uri);
+    EXPECT_EQ(req.param("token"), "synthetic-token-123");
+    EXPECT_EQ(req.query_params().at("job_id"), "7");
+    EXPECT_NE(dumped.find("uri:/api/_download\n"), std::string::npos) << dumped;
+    EXPECT_NE(dumped.find("params_count:2\n"), std::string::npos) << dumped;
+    EXPECT_EQ(dumped.find("synthetic-token-123"), std::string::npos) << dumped;
+    EXPECT_EQ(dumped.find("?token="), std::string::npos) << dumped;
+    EXPECT_EQ(dumped.find("key=token"), std::string::npos) << dumped;
+    EXPECT_EQ(dumped.find("key=job_id"), std::string::npos) << dumped;
+    EXPECT_EQ(dumped.find("job_id=7"), std::string::npos) << dumped;
+
+    evhttp_uri_free(evhttp_req->uri_elems);
+    evhttp_req->uri = nullptr;
+    evhttp_req->uri_elems = nullptr;
+    evhttp_request_free(evhttp_req);
+}
+
+TEST_F(HttpRequestTest, encoded_query_and_route_params_are_not_exposed_in_debug_string) {
+    constexpr char uri[] = "/api/_download?Token=synthetic%2Bcredential&opaque=another-secret";
+    auto* evhttp_req = evhttp_request_new(nullptr, nullptr);
+    evhttp_req->type = EVHTTP_REQ_GET;
+    evhttp_req->uri = const_cast<char*>(uri);
+    evhttp_req->uri_elems = evhttp_uri_parse(uri);
+
+    HttpRequest req(evhttp_req);
+    EXPECT_EQ(req.init_from_evhttp(), 0);
+    req.params()->emplace("route_id", "private-route-value");
+    const std::string dumped = req.debug_string();
+    EXPECT_EQ(req.uri(), uri);
+    EXPECT_EQ(req.param("Token"), "synthetic+credential");
+    EXPECT_EQ(req.query_params().at("opaque"), "another-secret");
+    EXPECT_EQ(req.param("route_id"), "private-route-value");
+    EXPECT_NE(dumped.find("uri:/api/_download\n"), std::string::npos) << dumped;
+    EXPECT_NE(dumped.find("params_count:3\n"), std::string::npos) << dumped;
+    for (const std::string& secret :
+         {"synthetic%2Bcredential", "synthetic+credential", "another-secret", "Token", "opaque",
+          "route_id", "private-route-value"}) {
+        EXPECT_EQ(dumped.find(secret), std::string::npos) << dumped;
+    }
+
+    evhttp_uri_free(evhttp_req->uri_elems);
+    evhttp_req->uri = nullptr;
+    evhttp_req->uri_elems = nullptr;
+    evhttp_request_free(evhttp_req);
+}
+
+TEST_F(HttpRequestTest, request_without_query_keeps_path_in_debug_string) {
+    constexpr char uri[] = "/api/_download";
+    auto* evhttp_req = evhttp_request_new(nullptr, nullptr);
+    evhttp_req->type = EVHTTP_REQ_GET;
+    evhttp_req->uri = const_cast<char*>(uri);
+    evhttp_req->uri_elems = evhttp_uri_parse(uri);
+
+    HttpRequest req(evhttp_req);
+    EXPECT_EQ(req.init_from_evhttp(), 0);
+    const std::string dumped = req.debug_string();
+    EXPECT_EQ(req.uri(), uri);
+    EXPECT_NE(dumped.find("uri:/api/_download\n"), std::string::npos) << dumped;
+    EXPECT_NE(dumped.find("params_count:0\n"), std::string::npos) << dumped;
+
+    evhttp_uri_free(evhttp_req->uri_elems);
+    evhttp_req->uri = nullptr;
+    evhttp_req->uri_elems = nullptr;
+    evhttp_request_free(evhttp_req);
 }
 
 } // namespace doris

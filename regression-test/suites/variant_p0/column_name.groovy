@@ -66,14 +66,18 @@ suite("regression_test_variant_column_name", "p0, nonConcurrent"){
     qt_sql "select cast(Tags[''] as text) from var_column_name order by cast(Tags[''] as string)"
 
     // name with `.`
-    // When parser-side duplicate path deduplication is disabled, dotted keys and nested paths
-    // collide during Variant materialization and should report duplicated entry.
-    setBeConfigTemporary([variant_enable_duplicate_json_path_check: false]) {
-        sql "truncate table var_column_name"
+    sql "truncate table var_column_name"
+    if (enableVariantV2) {
+        // A dotted key and a nested key collide when the value is stored and fail the write.
         test {
             sql """insert into var_column_name values (7, ${variantV2Function}('{"a.b": "UPPER CASE", "a" : {"b" : 123}}'))"""
             exception "may contains duplicated entry"
         }
+    } else {
+        // The V1 parser drops the duplicated path, so the write succeeds. Reset the table so the
+        // rows below stay the same in both modes.
+        sql """insert into var_column_name values (7, ${variantV2Function}('{"a.b": "UPPER CASE", "a" : {"b" : 123}}'))"""
+        sql "truncate table var_column_name"
     }
     for (int i = 0; i < 7; i++) {
         sql """insert into var_column_name select * from var_column_name"""
@@ -83,9 +87,14 @@ suite("regression_test_variant_column_name", "p0, nonConcurrent"){
     qt_sql_cnt_3 "select count(Tags['a']['b']) from var_column_name"
     qt_sql_cnt_4 "select count(Tags['a']['c']) from var_column_name"
 
-    test {
+    if (enableVariantV2) {
+        test {
+            sql """insert into var_column_name values (7, ${variantV2Function}('{"": "UPPER CASE", "": "lower case"}'))"""
+            exception "Duplicate Variant object key"
+        }
+    } else {
+        // The V1 parser keeps the first of the duplicated keys instead of failing the write.
         sql """insert into var_column_name values (7, ${variantV2Function}('{"": "UPPER CASE", "": "lower case"}'))"""
-        exception enableVariantV2 ? "Duplicate Variant object key" : "may contains duplicated entry"
     }
 
     // test key length larger than 255 bytes

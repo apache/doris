@@ -100,7 +100,7 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
     }
 
     def run_select = { String tableName, boolean normal ->
-        def result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_common_expr_pushdown = true) */ * FROM ${tableName} WHERE name MATCH 'andy'"
+        def result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_segment_limit_pushdown = true) */ * FROM ${tableName} WHERE name MATCH 'andy'"
         assertEquals(3, result.size())
         assertEquals(1, result[0]['id'])
         assertEquals("andy", result[0]['name'])
@@ -109,7 +109,7 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
         assertEquals(3, result[2]['id'])
         assertEquals("andy", result[2]['name'])
 
-        result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_common_expr_pushdown = true) */ * FROM ${tableName} WHERE age < 11"
+        result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_segment_limit_pushdown = true) */ * FROM ${tableName} WHERE age < 11"
         assertEquals(3, result.size())
         assertEquals("andy", result[0]['name'])
         assertEquals(2, result[1]['id'])
@@ -117,7 +117,7 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
         assertEquals(3, result[2]['id'])
         assertEquals("andy", result[2]['name'])
 
-        result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_common_expr_pushdown = true) */ * FROM ${tableName} WHERE description MATCH 'sports'"
+        result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_segment_limit_pushdown = true) */ * FROM ${tableName} WHERE description MATCH 'sports'"
         assertEquals(3, result.size())
         assertEquals("andy", result[0]['name'])
         assertEquals("andy is good at sports", result[0]['description'])
@@ -127,7 +127,7 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
         assertEquals("andy is good at sports", result[2]['description'])
 
         if (normal) {
-            result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_common_expr_pushdown = true) */ * FROM ${tableName} WHERE array_contains(scores, 79)"
+            result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_segment_limit_pushdown = true) */ * FROM ${tableName} WHERE array_contains(scores, 79)"
             assertEquals(3, result.size())
             assertEquals("bason", result[0]['name'])
             assertEquals("[79, 85, 97]", result[0]['scores'])
@@ -136,10 +136,10 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
             assertEquals("bason", result[2]['name'])
             assertEquals("[79, 85, 97]", result[2]['scores'])
         } else {
-            result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_common_expr_pushdown = true) */ * FROM ${tableName} WHERE array_contains(scores, 79)"
+            result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_segment_limit_pushdown = true) */ * FROM ${tableName} WHERE array_contains(scores, 79)"
             assertEquals(0, result.size())
         }
-        result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_common_expr_pushdown = true) */ * FROM ${tableName} WHERE array_contains(hobbies, 'football')"
+        result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_segment_limit_pushdown = true) */ * FROM ${tableName} WHERE array_contains(hobbies, 'football')"
         assertEquals(3, result.size())
         assertEquals("andy", result[0]['name'])
         assertEquals('["football", "basketball"]', result[0]['hobbies'])
@@ -148,7 +148,7 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
         assertEquals("andy", result[2]['name'])
         assertEquals('["football", "basketball"]', result[2]['hobbies'])
 
-        result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_common_expr_pushdown = true) */ * FROM ${tableName} WHERE array_contains(evaluation, 'andy is so nice')"
+        result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_segment_limit_pushdown = true) */ * FROM ${tableName} WHERE array_contains(evaluation, 'andy is so nice')"
         assertEquals(3, result.size())
         assertEquals("andy", result[0]['name'])
         assertEquals('["andy has a good heart", "andy is so nice"]', result[0]['evaluation'])

@@ -69,6 +69,8 @@ under the License.
     <!-- ignore hudi disk map copied from hudi/common/util/collection/DiskMap.java -->
     <suppress files="org[\\/]apache[\\/]hudi[\\/]common[\\/]util[\\/]collection[\\/]DiskMap\.java" checks="[a-zA-Z0-9]*"/>
 
+    <!-- The scan adapter needs Iceberg package access to preserve the original scan context. -->
+    <suppress files="org[\\/]apache[\\/]iceberg[\\/]DorisDataTableScan\.java" checks="ImportControl"/>
     <!-- ignore iceberg delete file index copied from iceberg/DeleteFileIndex.java -->
     <suppress files="org[\\/]apache[\\/]iceberg[\\/]DeleteFileIndex\.java" checks="[a-zA-Z0-9]*"/>
 

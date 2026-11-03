@@ -29,9 +29,11 @@
 
 #include "core/arena.h"
 #include "core/column/column_string.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "runtime/query_context.h"
+#include "runtime/runtime_profile.h"
 #include "service/http/http_client.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
@@ -482,6 +484,50 @@ TEST_F(AggregateFunctionAIAggTest, missing_ai_resources_metadata_test) {
     }
 
     _agg_function->destroy(place);
+}
+
+TEST_F(AggregateFunctionAIAggTest, NullableInputCountsUnionWithoutCountingMerge) {
+    for (bool null_v2 : {false, true}) {
+        AggregateFunctionSimpleFactory factory;
+        register_aggregate_function_ai_agg(factory);
+        auto string_type = std::make_shared<DataTypeString>();
+        auto nullable_type = make_nullable(string_type);
+        auto function = factory.get(
+                "ai_agg", {string_type, nullable_type, nullable_type}, nullable_type, true, -1,
+                {.enable_aggregate_function_null_v2 = null_v2, .column_names = {}});
+        ASSERT_NE(function, nullptr);
+        auto statistics = std::make_shared<AIExecutionStatistics>();
+        function->set_query_context(_query_ctx.get());
+        function->set_ai_statistics(statistics);
+        auto resource = ColumnHelper::create_column<DataTypeString>(
+                std::vector<std::string>(4, "mock_resource"));
+        auto text = ColumnHelper::create_nullable_column<DataTypeString>(
+                {"first", "", "", "last"}, std::vector<UInt8> {0, 1, 1, 0});
+        auto task = ColumnHelper::create_nullable_column<DataTypeString>(
+                std::vector<std::string>(4, "summarize"), std::vector<UInt8> {0, 1, 0, 0});
+        const IColumn* columns[] = {resource.get(), text.get(), task.get()};
+        std::vector<char> place(function->size_of_data());
+        function->create(place.data());
+        function->add_batch_single_place(4, place.data(), columns, _arena);
+        EXPECT_EQ(statistics->profile()->get_counter("AIFunctionInputRows")->value(), 4);
+        EXPECT_EQ(statistics->profile()->get_counter("AIFunctionSkippedNullRows")->value(), 2);
+
+        auto serialized = function->create_serialize_column();
+        function->serialize_without_key_to_column(place.data(), *serialized);
+        std::vector<char> merged(function->size_of_data());
+        function->create(merged.data());
+        function->deserialize_and_merge_from_column(merged.data(), *serialized, _arena);
+        EXPECT_EQ(statistics->profile()->get_counter("AIFunctionInputRows")->value(), 4);
+        EXPECT_EQ(statistics->profile()->get_counter("AIFunctionRequestCount")->value(), 0);
+
+        function->reset(place.data());
+        function->add(place.data(), columns, 1, _arena);
+        function->add(place.data(), columns, 3, _arena);
+        EXPECT_EQ(statistics->profile()->get_counter("AIFunctionInputRows")->value(), 6);
+        EXPECT_EQ(statistics->profile()->get_counter("AIFunctionSkippedNullRows")->value(), 3);
+        function->destroy(merged.data());
+        function->destroy(place.data());
+    }
 }
 
 } // namespace doris

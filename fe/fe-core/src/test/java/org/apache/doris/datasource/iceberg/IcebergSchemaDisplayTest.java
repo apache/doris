@@ -55,6 +55,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Function;
 
 class IcebergSchemaDisplayTest {
     private IcebergExternalCatalog catalog;
@@ -65,6 +66,7 @@ class IcebergSchemaDisplayTest {
     private Schema schema;
     private List<Column> scanColumns;
     private ConnectContext context;
+    private MockedStatic<IcebergUtils> icebergUtils;
 
     @BeforeEach
     void setUp() {
@@ -92,6 +94,20 @@ class IcebergSchemaDisplayTest {
         table = Mockito.spy(new IcebergExternalTable(3, "required_tbl", "required_tbl", catalog, database));
         Mockito.doNothing().when(table).makeSureInitialized();
         Mockito.doReturn(new BaseTable(operations, "required_tbl")).when(table).getIcebergTable();
+        icebergUtils = Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS);
+        icebergUtils.when(() -> IcebergUtils.withIcebergTable(
+                        Mockito.eq(table), Mockito.<Function<org.apache.iceberg.Table, Object>>any()))
+                .thenAnswer(invocation -> {
+                    Function<org.apache.iceberg.Table, Object> action = invocation.getArgument(1);
+                    return action.apply(new BaseTable(operations, "required_tbl"));
+                });
+        icebergUtils.when(() -> IcebergUtils.withIcebergTableGeneration(
+                        Mockito.eq(table),
+                        Mockito.<IcebergExternalMetaCache.TableGenerationAction<Object>>any()))
+                .thenAnswer(invocation -> {
+                    IcebergExternalMetaCache.TableGenerationAction<Object> action = invocation.getArgument(1);
+                    return action.apply(new BaseTable(operations, "required_tbl"), true, false);
+                });
         // Model the cached scan schema. Displaying a table must never mutate these shared columns.
         scanColumns = IcebergUtils.parseSchema(schema, true, false);
         Mockito.doReturn(scanColumns).when(table).getFullSchema();
@@ -99,6 +115,7 @@ class IcebergSchemaDisplayTest {
 
     @AfterEach
     void tearDown() {
+        icebergUtils.close();
         ConnectContext.remove();
     }
 
@@ -111,7 +128,7 @@ class IcebergSchemaDisplayTest {
         Assertions.assertEquals("Yes", rows.get(2).get(2));
         Assertions.assertEquals("No", rows.get(3).get(2));
         Assertions.assertEquals("value doc", rows.get(1).get(6));
-        Assertions.assertTrue(rows.get(3).get(1).contains("child:int not null comment 'nested doc'"));
+        Assertions.assertEquals("struct<child:int not null comment \"nested doc\">", rows.get(3).get(1));
         Assertions.assertEquals("WITH_TIMEZONE", rows.get(4).get(5));
         Assertions.assertTrue(rows.get(5).get(1).startsWith("varbinary"));
 
@@ -158,6 +175,31 @@ class IcebergSchemaDisplayTest {
         Assertions.assertEquals("value", displayed.get(1).getName());
         Assertions.assertFalse(displayed.get(1).isAllowNull());
         Mockito.verify(operations, Mockito.times(1)).current();
+    }
+
+    @Test
+    void testDisplayUsesLogicalTypesWithLegacyGenerationFlags() {
+        icebergUtils.when(() -> IcebergUtils.withIcebergTableGeneration(
+                        Mockito.eq(table),
+                        Mockito.<IcebergExternalMetaCache.TableGenerationAction<Object>>any()))
+                .thenAnswer(invocation -> {
+                    // A reset must retain the table generation, but legacy mapping flags
+                    // cannot downgrade logical binary or instant types in display schemas.
+                    Mockito.doReturn(false).when(catalog).getEnableMappingVarbinary();
+                    Mockito.doReturn(true).when(catalog).getEnableMappingTimestampTz();
+                    IcebergExternalMetaCache.TableGenerationAction<Object> action = invocation.getArgument(1);
+                    return action.apply(new BaseTable(operations, "required_tbl"), true, false);
+                });
+        Mockito.clearInvocations(catalog);
+
+        List<Column> displayed = table.getBaseSchemaForDisplay(true);
+
+        Assertions.assertEquals(org.apache.doris.catalog.PrimitiveType.TIMESTAMPTZ,
+                displayed.get(4).getType().getPrimitiveType());
+        Assertions.assertEquals(org.apache.doris.catalog.PrimitiveType.VARBINARY,
+                displayed.get(5).getType().getPrimitiveType());
+        Mockito.verify(catalog, Mockito.never()).getEnableMappingVarbinary();
+        Mockito.verify(catalog, Mockito.never()).getEnableMappingTimestampTz();
     }
 
     @Test
@@ -224,6 +266,9 @@ class IcebergSchemaDisplayTest {
             Assertions.assertFalse(result.getColumns().get(1).getColumnDesc().isIsAllowNull());
             Assertions.assertTrue(result.getColumns().get(2).getColumnDesc().isIsAllowNull());
             Assertions.assertEquals("value doc", result.getColumns().get(1).getComment());
+            icebergUtils.verify(() -> IcebergUtils.withIcebergTableGeneration(
+                    Mockito.eq(table),
+                    Mockito.<IcebergExternalMetaCache.TableGenerationAction<Object>>any()));
         }
         Assertions.assertTrue(scanColumns.stream().allMatch(Column::isAllowNull));
         Assertions.assertTrue(scanColumns.get(3).getChildren().get(0).isAllowNull());

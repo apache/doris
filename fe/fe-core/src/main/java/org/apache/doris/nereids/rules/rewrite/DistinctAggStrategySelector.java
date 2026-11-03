@@ -103,11 +103,12 @@ public class DistinctAggStrategySelector extends DefaultPlanRewriter<DistinctSel
         // not process：
         // count(distinct a,b);
         // count(distinct a), sum(distinct a);
+        // count(distinct a,b), count(distinct b,a);
         // count(distinct a)
         // process:
         // count(distinct a,b), count(distinct a,c)
         // count(distinct a), sum(distinct b)
-        if (agg.distinctFuncNum() < 2 || agg.getDistinctArguments().size() < 2) {
+        if (AggregateUtils.distinctArgumentGroupCountUpToTwo(agg) <= 1) {
             return agg;
         }
         if (shouldUseMultiDistinct(agg)) {
@@ -118,19 +119,20 @@ public class DistinctAggStrategySelector extends DefaultPlanRewriter<DistinctSel
     }
 
     private boolean shouldUseMultiDistinct(LogicalAggregate<? extends Plan> agg) {
-        boolean mustUseCte = AggregateUtils.containsCountDistinctMultiExpr(agg);
+        boolean mustUseCte = AggregateUtils.containsNotSupportMultiDistinctFunction(agg);
         boolean mustUseMulti = agg.getSourceRepeat().isPresent();
         if (mustUseCte && mustUseMulti) {
             throw new AnalysisException(
-                    "Unsupported query: GROUPING SETS/ROLLUP/CUBE cannot be used with a combination of "
-                    + "multi-column COUNT(DISTINCT) and other COUNT(DISTINCT) expressions.\n\n"
+                    "Unsupported query: GROUPING SETS/ROLLUP/CUBE cannot be used with multiple DISTINCT "
+                    + "argument groups when any DISTINCT aggregate does not support multi-distinct execution.\n\n"
                     + "Unsupported scenarios:\n"
+                    + "• ARRAY_AGG(DISTINCT a) with ARRAY_AGG(DISTINCT b) + GROUPING\n"
                     + "• COUNT(DISTINCT a, b) with COUNT(DISTINCT a) + GROUPING\n"
                     + "• COUNT(DISTINCT a, b) with COUNT(DISTINCT a, c) + GROUPING\n\n"
                     + "Supported scenarios:\n"
-                    + "• Single COUNT(DISTINCT a, b) + GROUPING\n"
-                    + "• Multiple COUNT(DISTINCT single_column) + "
-                    + "GROUPING (e.g., COUNT(DISTINCT a), COUNT(DISTINCT b))");
+                    + "• A single DISTINCT argument group with GROUPING\n"
+                    + "• Multiple DISTINCT argument groups when all DISTINCT aggregates support "
+                    + "multi-distinct execution (e.g., COUNT(DISTINCT a), COUNT(DISTINCT b))");
         }
         if (mustUseCte) {
             return false;

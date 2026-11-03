@@ -382,7 +382,7 @@ suite("test_custom_analyzer", "p0") {
 
     try {
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
 
         qt_sql """ select * from ${indexTbName1} where ch match 'abcDEF'; """
         qt_sql """ select * from ${indexTbName1} where ch match '中'; """
@@ -407,7 +407,7 @@ suite("test_custom_analyzer", "p0") {
 
     try {
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
 
         qt_sql """ select * from ${indexTbName2} where ch match '102'; """
     } finally {
@@ -531,7 +531,7 @@ suite("test_custom_analyzer", "p0") {
 
     try {
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
 
         // Test full pinyin
         qt_sql_pinyin1 """ select * from ${indexTbName4} where name match 'liudehua' order by a; """
@@ -597,7 +597,7 @@ suite("test_custom_analyzer", "p0") {
 
     try {
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
 
         // Test joined full pinyin
         qt_sql_pinyin_joined1 """ select * from ${indexTbName5} where name match 'liudehua' order by a; """
@@ -643,7 +643,7 @@ suite("test_custom_analyzer", "p0") {
 
     try {
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
 
         // Standard tokenizer splits by space, then applies pinyin filter
         qt_sql_standard_pinyin1 """ select * from ${indexTbName6} where content match 'l' order by a; """
@@ -872,7 +872,7 @@ suite("test_custom_analyzer", "p0") {
 
     try {
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
 
         // Test queries with ignore_pinyin_offset=true
         qt_sql_table_ignore_offset_1 """ select * from ${indexTbName7} where content match 'liu' order by a; """

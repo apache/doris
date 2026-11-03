@@ -47,6 +47,9 @@ typename std::decay_t<Visitor>::ResultType apply_visitor(Visitor&& visitor, F&& 
     case PrimitiveType::TYPE_DATETIMEV2:
         return visitor.template apply<PrimitiveType::TYPE_DATETIMEV2>(
                 field.template get<TYPE_DATETIMEV2>());
+    case PrimitiveType::TYPE_TIMESTAMP_NS:
+        return visitor.template apply<PrimitiveType::TYPE_TIMESTAMP_NS>(
+                field.template get<TYPE_TIMESTAMP_NS>());
     case PrimitiveType::TYPE_TIMESTAMPTZ:
         return visitor.template apply<PrimitiveType::TYPE_TIMESTAMPTZ>(
                 field.template get<TYPE_TIMESTAMPTZ>());
@@ -93,6 +96,8 @@ typename std::decay_t<Visitor>::ResultType apply_visitor(Visitor&& visitor, F&& 
         return visitor.template apply<PrimitiveType::TYPE_IPV4>(field.template get<TYPE_IPV4>());
     case PrimitiveType::TYPE_IPV6:
         return visitor.template apply<PrimitiveType::TYPE_IPV6>(field.template get<TYPE_IPV6>());
+    case PrimitiveType::TYPE_UUID:
+        return visitor.template apply<PrimitiveType::TYPE_UUID>(field.template get<TYPE_UUID>());
     case PrimitiveType::TYPE_STRING:
         return visitor.template apply<PrimitiveType::TYPE_STRING>(
                 field.template get<TYPE_STRING>());

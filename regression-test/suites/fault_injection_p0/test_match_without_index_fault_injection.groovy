@@ -39,7 +39,7 @@ suite("test_match_without_index_fault_injection", "nonConcurrent") {
           "replication_allocation" = "tag.location.default: 1"
         );
       """
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
 
     sql """ INSERT INTO ${testTable} VALUES (123, '17.0.0.0', 'HTTP GET', '200', 20); """
     sql """ INSERT INTO ${testTable} VALUES (123, '17.0.0.0', 'Life is like a box of chocolates, you never know what you are going to get.', '200', 20); """

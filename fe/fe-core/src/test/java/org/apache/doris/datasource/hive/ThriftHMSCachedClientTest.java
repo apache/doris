@@ -37,6 +37,7 @@ import org.apache.hadoop.hive.metastore.api.Table;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.lang.reflect.Proxy;
 import java.util.ArrayDeque;
@@ -246,6 +247,50 @@ public class ThriftHMSCachedClientTest {
         Object borrowed = borrowClient(cachedClient);
         Assert.assertEquals(1, provider.createdClients.get());
         closeBorrowed(borrowed);
+    }
+
+    @Test
+    public void testClientWithoutRawCompletenessFallsBackBeforeCappedRpc() throws Exception {
+        provider.filteredPartitions = new ArrayList<>(Collections.nCopies(5000, new Partition()));
+        provider.rawFilteredPartitionCount = 5001;
+        ThriftHMSCachedClient cachedClient = newClient(1);
+        HMSClientException exception = Assert.assertThrows(HMSClientException.class,
+                () -> cachedClient.listPartitionsByFilter("db1", "tbl1", "p = 'x'"));
+        Assert.assertTrue(exception.getMessage().contains("raw partition filter completeness"));
+        Assert.assertEquals(0, provider.requestedMaxPartitions.get());
+        Assert.assertEquals(1, getPool(cachedClient).getNumIdle());
+        Assert.assertEquals(0, provider.closedClients.get());
+        Object borrowed = borrowClient(cachedClient);
+        Assert.assertEquals(1, provider.createdClients.get());
+        closeBorrowed(borrowed);
+    }
+
+    @Test
+    public void testDlfProxyCannotSupplyPostHookSizeAsRawCompleteness() throws Exception {
+        ProxyMetaStoreClient dlf = Mockito.mock(ProxyMetaStoreClient.class);
+        Mockito.when(dlf.listPartitionsByFilter("db1", "tbl1", "p = 'x'", (short) 5001))
+                .thenReturn(new ArrayList<>(Collections.nCopies(5000, new Partition())));
+        ThriftHMSCachedClient cachedClient = new ThriftHMSCachedClient(
+                new HiveConf(), 1, new ExecutionAuthenticator() { }, configuration -> dlf);
+        HMSClientException exception = Assert.assertThrows(HMSClientException.class,
+                () -> cachedClient.listPartitionsByFilter("db1", "tbl1", "p = 'x'"));
+        Assert.assertTrue(exception.getMessage().contains("raw partition filter completeness"));
+        Mockito.verify(dlf, Mockito.never()).listPartitionsByFilter(
+                Mockito.anyString(), Mockito.anyString(), Mockito.anyString(), Mockito.anyShort());
+        Assert.assertEquals(1, getPool(cachedClient).getNumIdle());
+        cachedClient.close();
+    }
+
+    @Test
+    public void testGlueClientWithoutRawCompletenessFallsBack() throws Exception {
+        AWSCatalogMetastoreClient glue = Mockito.mock(AWSCatalogMetastoreClient.class);
+        ThriftHMSCachedClient cachedClient = new ThriftHMSCachedClient(
+                new HiveConf(), 1, new ExecutionAuthenticator() { }, configuration -> glue);
+        Assert.assertThrows(HMSClientException.class,
+                () -> cachedClient.listPartitionsByFilter("db1", "tbl1", "city = 'x'"));
+        Mockito.verify(glue, Mockito.never()).listPartitionsByFilter(
+                Mockito.anyString(), Mockito.anyString(), Mockito.anyString(), Mockito.anyShort());
+        cachedClient.close();
     }
 
     @Test

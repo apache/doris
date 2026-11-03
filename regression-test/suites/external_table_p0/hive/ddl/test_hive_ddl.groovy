@@ -419,6 +419,27 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                 }
             }
 
+            // GZIP used to be rejected by the Doris Parquet writer with
+            // "Unsupported compress type GZ with parquet"; the write must succeed and land on the
+            // GZIP Parquet codec. Asserted instead of `qt_` because the expectation is one codec name.
+            if (file_format.equals("parquet") && compression.equals("gzip")) {
+                sql """ INSERT INTO tbl_${file_format}_${compression} VALUES ('doris_gzip') """
+                def gzipRows = sql """ SELECT * FROM tbl_${file_format}_${compression} ORDER BY col """
+                assertEquals(1, gzipRows.size())
+                assertEquals("doris_gzip", gzipRows[0][0].toString())
+                String hdfsPort = context.config.otherConfigs.get("hive2HdfsPort")
+                String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+                def gzipCodec = sql """
+                    SELECT DISTINCT compression
+                    FROM parquet_meta(
+                        "uri" = "hdfs://${externalEnvIp}:${hdfsPort}/user/hive/warehouse/test_hive_compress.db/tbl_parquet_gzip/*",
+                        "hadoop.username" = "doris",
+                        "mode" = "parquet_metadata"
+                    )
+                """
+                assertEquals("GZIP", gzipCodec[0][0].toString().toUpperCase())
+            }
+
             sql """DROP TABLE `tbl_${file_format}_${compression}`"""
             sql """ drop database if exists `test_hive_compress` """;
         }
@@ -487,6 +508,26 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
             sql """switch ${catalog_name}"""
             sql """ create database if not exists `test_hive_db_tbl` """;
             sql """use `${catalog_name}`.`test_hive_db_tbl`"""
+
+            // Inferred Hive engines must reject unsupported models before creating HMS metadata.
+            String rejectedTable = "partition_model_rejected_${file_format}"
+            sql """DROP TABLE IF EXISTS `${rejectedTable}`"""
+            try {
+                [
+                    ["PARTITION BY (date_trunc(ts, 'day')) ()", "Hive only supports partitioning by columns"],
+                    ["PARTITION BY RANGE(dt) ()", "Only support 'LIST' partition type in hive catalog"],
+                    ["PARTITION BY LIST(dt) (PARTITION p1 VALUES IN ('2026-01-01'))",
+                            "Partition values expressions is not supported in hive catalog"]
+                ].each { entry ->
+                    test {
+                        sql """CREATE TABLE `${rejectedTable}` (id INT, ts DATETIME, dt DATE) ${entry[0]}"""
+                        exception entry[1]
+                    }
+                    assertEquals([], sql("""SHOW TABLES LIKE '${rejectedTable}'"""))
+                }
+            } finally {
+                sql """DROP TABLE IF EXISTS `${rejectedTable}`"""
+            }
 
             sql """ drop table if exists unpart_tbl_${file_format}"""
             sql """
@@ -754,7 +795,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
             sql """set enable_fallback_to_original_planner=false;"""
             test_db(catalog_name)
             test_loc_db(externalEnvIp, hdfs_port, catalog_name)
-            def compressions = ["snappy", "zlib", "zstd", "lz4"]
+            def compressions = ["snappy", "zlib", "zstd", "lz4", "gzip"]
             for (String file_format in file_formats) {
                 logger.info("Process file format " + file_format)
                 test_loc_tbl(file_format, externalEnvIp, hdfs_port, catalog_name)
@@ -763,6 +804,10 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
 
                 for (String compression in compressions) {
                     if (file_format.equals("parquet") && compression.equals("zlib")) {
+                        continue
+                    }
+                    // ORC has no GZIP codec (it spells the same codec `zlib`), so only test it for Parquet.
+                    if (file_format.equals("orc") && compression.equals("gzip")) {
                         continue
                     }
                     logger.info("Process file compression " + compression)

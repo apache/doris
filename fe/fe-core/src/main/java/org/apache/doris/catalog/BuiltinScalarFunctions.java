@@ -167,6 +167,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateFormat;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTimeToUuidV7;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayCeil;
@@ -279,6 +280,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4Mapped;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv6String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsNan;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsUuid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsValidUtf8;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArrayIgnoreNull;
@@ -380,6 +382,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash364
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash364V2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash3U128;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash3U64V2;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NanoSecondsAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NanoSecondsDiff;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NanoSecondsSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nanosecond;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Negative;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NextDay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NgramSearch;
@@ -534,6 +540,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToJson;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToMonday;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToQuantileState;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToSeconds;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToUuidOrDefault;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToUuidOrNull;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToUuidOrZero;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tokenize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TopLevelDomain;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Translate;
@@ -556,6 +565,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidV4;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidV7;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidV7ToDateTime;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidVersion;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidtoInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Version;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Week;
@@ -955,6 +968,10 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(MurmurHash364V2.class, "murmur_hash3_64_v2"),
             scalar(MurmurHash3U128.class, "murmur_hash3_u128"),
             scalar(MurmurHash3U64V2.class, "murmur_hash3_u64_v2"),
+            scalar(Nanosecond.class, "nanosecond"),
+            scalar(NanoSecondsAdd.class, "nanoseconds_add"),
+            scalar(NanoSecondsDiff.class, "nanoseconds_diff"),
+            scalar(NanoSecondsSub.class, "nanoseconds_sub"),
             scalar(Negative.class, "negative"),
             scalar(NextDay.class, "next_day"),
             scalar(NonNullable.class, "non_nullable"),
@@ -1139,6 +1156,15 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(UtcTime.class, "utc_time"),
             scalar(UtcTimestamp.class, "utc_timestamp"),
             scalar(Uuid.class, "uuid"),
+            scalar(UuidV4.class, "uuid_v4", "generate_uuid_v4", "generateuuidv4"),
+            scalar(UuidV7.class, "uuid_v7", "generate_uuid_v7", "generateuuidv7"),
+            scalar(IsUuid.class, "is_uuid"),
+            scalar(UuidVersion.class, "uuid_version"),
+            scalar(ToUuidOrZero.class, "to_uuid_or_zero", "touuidorzero"),
+            scalar(ToUuidOrNull.class, "to_uuid_or_null", "touuidornull"),
+            scalar(ToUuidOrDefault.class, "to_uuid_or_default", "touuidordefault"),
+            scalar(UuidV7ToDateTime.class, "uuid_v7_to_datetime", "uuidv7todatetime"),
+            scalar(DateTimeToUuidV7.class, "datetime_to_uuid_v7", "datetimetouuidv7"),
             scalar(UuidNumeric.class, "uuid_numeric"),
             scalar(UuidtoInt.class, "uuid_to_int"),
             scalar(Version.class, "version"),

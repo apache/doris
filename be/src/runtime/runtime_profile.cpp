@@ -703,12 +703,40 @@ void RuntimeProfile::pretty_print(std::ostream* s, const std::string& prefix,
     }
 }
 
+std::shared_ptr<RuntimeProfile::SnapshotCallback> RuntimeProfile::add_snapshot_callback(
+        SnapshotCallback callback) {
+    auto registration = std::make_shared<SnapshotCallback>(std::move(callback));
+    std::lock_guard<std::mutex> l(_counter_map_lock);
+    _snapshot_callbacks.emplace_back(registration);
+    return registration;
+}
+
+void RuntimeProfile::_run_snapshot_callbacks() {
+    std::vector<std::shared_ptr<SnapshotCallback>> callbacks;
+    {
+        std::lock_guard<std::mutex> l(_counter_map_lock);
+        std::erase_if(_snapshot_callbacks, [&](auto& weak) {
+            if (auto callback = weak.lock()) {
+                callbacks.emplace_back(std::move(callback));
+                return false;
+            }
+            return true;
+        });
+    }
+    // A stopped scanner can remain alive in a native read after pipeline completion. Sample
+    // before the immutable final copy, without holding locks needed by counter publication.
+    for (const auto& callback : callbacks) {
+        (*callback)();
+    }
+}
+
 void RuntimeProfile::to_thrift(TRuntimeProfileTree* tree, int64_t profile_level) {
     tree->nodes.clear();
     to_thrift(&tree->nodes, profile_level);
 }
 
 void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes, int64_t profile_level) {
+    _run_snapshot_callbacks();
     size_t index = nodes->size();
     nodes->push_back(TRuntimeProfileNode());
     TRuntimeProfileNode& node = (*nodes)[index];
@@ -756,6 +784,7 @@ void RuntimeProfile::to_proto(PRuntimeProfileTree* tree, int64_t profile_level) 
 
 void RuntimeProfile::to_proto(google::protobuf::RepeatedPtrField<PRuntimeProfileNode>* nodes,
                               int64_t profile_level) {
+    _run_snapshot_callbacks();
     PRuntimeProfileNode* node = nodes->Add(); // allocate new node
     node->set_name(_name);
     node->set_metadata(_metadata);

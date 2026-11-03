@@ -91,6 +91,7 @@ import org.apache.doris.system.Backend;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections4.CollectionUtils;
@@ -103,6 +104,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -187,6 +189,15 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         return logicalQuery.orElse(originLogicalQuery);
     }
 
+    /** Rewrite the original query before planning, preserving INSERT options and the WITH clause. */
+    public InsertIntoTableCommand rewriteQuery(Function<Plan, Plan> rewrite) {
+        InsertIntoTableCommand command = new InsertIntoTableCommand(
+                (LogicalPlan) originLogicalQuery.rewriteUp(rewrite), labelName, insertCtx,
+                cte, needNormalizePlan, branchName);
+        command.setJobId(jobId);
+        return command;
+    }
+
     public Optional<Plan> getParsedPlan() {
         return parsedPlan;
     }
@@ -264,6 +275,10 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         int retryTimes = 0;
         ctx.getStatementContext().setIsInsert(true);
         while (++retryTimes < Math.max(ctx.getSessionVariable().dmlPlanRetryTimes, 3)) {
+            prepareMvccSnapshotsForPlanAttempt(ctx.getStatementContext(), retryTimes);
+            ctx.getStatementContext().getInsertTargetTables().remove(qualifiedTargetTableName);
+            ctx.getStatementContext().getTables().remove(qualifiedTargetTableName);
+            ctx.getStatementContext().getOneLevelTables().remove(qualifiedTargetTableName);
             TableIf targetTableIf = getTargetTableIf(ctx, qualifiedTargetTableName);
             DatabaseIf<?> targetDatabase = getTargetDatabase(targetTableIf);
             // check auth
@@ -280,6 +295,10 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             try {
                 // use originLogicalQuery to build logicalQuery again.
                 buildResult = initPlanOnce(ctx, stmtExecutor, targetTableIf);
+            } catch (InsertTargetSchemaChangedException exception) {
+                LOG.warn("insert plan failed {} times. query id is {}. {}",
+                        retryTimes, DebugUtil.printId(ctx.queryId()), exception.getMessage());
+                continue;
             } catch (Throwable e) {
                 Throwables.throwIfInstanceOf(e, RuntimeException.class);
                 throw new IllegalStateException(e.getMessage(), e);
@@ -341,6 +360,13 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         throw new AnalysisException("Insert plan failed. Could not get target table lock.");
     }
 
+    static void prepareMvccSnapshotsForPlanAttempt(StatementContext statementContext, int attempt) {
+        if (attempt > 1) {
+            // Refresh planner metadata while retaining the source fences selected by the caller.
+            statementContext.resetMvccSnapshotsForRetry();
+        }
+    }
+
     /**
      * Hook method to determine if auth check is needed.
      * Subclasses can override this to skip auth check, e.g., WarmupSelectCommand.
@@ -353,8 +379,10 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
 
     private BuildInsertExecutorResult initPlanOnce(ConnectContext ctx,
             StmtExecutor stmtExecutor, TableIf targetTableIf) throws Throwable {
+        List<Column> normalizedTargetSchema;
         targetTableIf.readLock();
         try {
+            normalizedTargetSchema = ImmutableList.copyOf(targetTableIf.getFullSchema());
             LogicalPlan planForAnalysis = InsertUtils.pinIcebergWriteSchema(
                     originLogicalQuery, targetTableIf, branchName, ctx.getStatementContext());
             Optional<CascadesContext> analyzeContext = Optional.of(
@@ -375,11 +403,16 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             OlapGroupCommitInsertExecutor.analyzeGroupCommit(
                     ctx, targetTableIf, this.logicalQuery.get(), this.insertCtx);
 
-            LogicalPlanAdapter logicalPlanAdapter
-                    = new LogicalPlanAdapter(logicalQuery.get(), ctx.getStatementContext());
-            return planInsertExecutor(ctx, stmtExecutor, logicalPlanAdapter, targetTableIf);
         } finally {
             targetTableIf.readUnlock();
+        }
+        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery.get(), ctx.getStatementContext());
+        return planInsertExecutor(ctx, stmtExecutor, logicalPlanAdapter, targetTableIf, normalizedTargetSchema);
+    }
+
+    private static class InsertTargetSchemaChangedException extends AnalysisException {
+        private InsertTargetSchemaChangedException(String tableName) {
+            super("INSERT target changed before binding: " + tableName);
         }
     }
 
@@ -593,8 +626,10 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
 
     private BuildInsertExecutorResult planInsertExecutor(
             ConnectContext ctx, StmtExecutor stmtExecutor,
-            LogicalPlanAdapter logicalPlanAdapter, TableIf targetTableIf) throws Throwable {
+            LogicalPlanAdapter logicalPlanAdapter, TableIf targetTableIf,
+            List<Column> normalizedTargetSchema) throws Throwable {
         LogicalPlan logicalPlan = logicalPlanAdapter.getLogicalPlan();
+        List<String> targetQualifier = InsertUtils.getTargetTableQualified(originLogicalQuery, ctx);
 
         boolean supportFastInsertIntoValues = InsertUtils.supportFastInsertIntoValues(logicalPlan, targetTableIf, ctx);
         // the key logical when use new coordinator:
@@ -610,6 +645,19 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         AtomicReference<ExecutorFactory> executorFactoryRef = new AtomicReference<>();
         FastInsertIntoValuesPlanner planner = new FastInsertIntoValuesPlanner(
                 ctx.getStatementContext(), supportFastInsertIntoValues) {
+            @Override
+            protected void analyze(boolean showPlanProcess) {
+                if (targetTableIf.needReadLockWhenPlan()) {
+                    TableIf lockedTarget = ctx.getStatementContext().getInsertTargetTables().get(targetQualifier);
+                    TableIf currentTarget = getTargetTableIf(ctx, targetQualifier);
+                    if (lockedTarget != targetTableIf || currentTarget.getId() != targetTableIf.getId()
+                            || !normalizedTargetSchema.equals(targetTableIf.getFullSchema())) {
+                        throw new InsertTargetSchemaChangedException(targetQualifier.get(targetQualifier.size() - 1));
+                    }
+                }
+                super.analyze(showPlanProcess);
+            }
+
             @Override
             protected void doDistribute(boolean canUseNereidsDistributePlanner, ExplainLevel explainLevel) {
                 // when enter this method, the step 1 already executed

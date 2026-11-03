@@ -31,9 +31,8 @@ suite("test_array_with_inverted_index_all_type"){
     def dataFile = """test_array_with_inverted_index_all_type.json"""
     def dataFileAgg = """test_array_with_inverted_index_all_type_agg.json"""
     sql """ set enable_profile = true;"""
-    // If we use common expr pass to inverted index , we should set enable_common_expr_pushdown = true
-    sql """ set enable_common_expr_pushdown = true; """
-    sql """ set enable_common_expr_pushdown_for_inverted_index = true; """
+    // Pin enable_segment_limit_pushdown to keep inverted-index pushdown stable under fuzzy testing
+    sql """ set enable_segment_limit_pushdown = true; """
 
     // duplicate key table with all type using standard parser for inverted index
     sql "DROP TABLE IF EXISTS ${indexTblNames[0]}"
@@ -277,7 +276,7 @@ suite("test_array_with_inverted_index_all_type"){
     }
 
     // query test
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
 
     for (int i = 0; i < 6; i+=1) {
         def indexTblName = indexTblNames[i]

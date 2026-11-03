@@ -32,6 +32,8 @@ import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.types.Types;
+import org.apache.thrift.TDeserializer;
+import org.apache.thrift.TSerializer;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -42,6 +44,51 @@ import java.util.Map;
 import java.util.Optional;
 
 public class IcebergTableSinkTest {
+    @Test
+    public void testStaticNullPartitionWirePreservesBinaryKinds() throws Exception {
+        for (org.apache.iceberg.types.Type type : new org.apache.iceberg.types.Type[] {
+                Types.BinaryType.get(), Types.FixedType.ofLength(16), Types.UUIDType.get()}) {
+            IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
+            CatalogProperty properties = Mockito.mock(CatalogProperty.class);
+            Mockito.when(catalog.getCatalogProperty()).thenReturn(properties);
+            Mockito.when(properties.getStoragePropertiesMap()).thenReturn(Collections.emptyMap());
+            IcebergExternalTable target = Mockito.mock(IcebergExternalTable.class);
+            Mockito.when(target.getCatalog()).thenReturn(catalog);
+            Mockito.when(target.getDbName()).thenReturn("db");
+            Mockito.when(target.getName()).thenReturn("table");
+            Schema schema = new Schema(Types.NestedField.optional(1, "key", type),
+                    Types.NestedField.optional(2, "region", Types.StringType.get()));
+            for (boolean hybrid : new boolean[] {false, true}) {
+                Table table = mockTable(schema);
+                PartitionSpec.Builder builder = PartitionSpec.builderFor(schema).identity("key");
+                if (hybrid) {
+                    builder.identity("region");
+                }
+                PartitionSpec spec = builder.build();
+                Mockito.when(table.spec()).thenReturn(spec);
+                Mockito.when(table.specs()).thenReturn(Collections.singletonMap(spec.specId(), spec));
+                IcebergInsertCommandContext context = new IcebergInsertCommandContext();
+                context.setOverwrite(true);
+                context.setStaticPartitionValues(Collections.singletonMap("key", null));
+                IcebergTableSink sink = new IcebergTableSink(target, table);
+                sink.bindDataSink(Optional.of(context));
+                TIcebergTableSink restored = new TIcebergTableSink();
+                new TDeserializer().deserialize(restored, new TSerializer().serialize(sink.tDataSink.iceberg_table_sink));
+                Assertions.assertEquals(Collections.singleton("key"), restored.getStaticPartitionNullKeys());
+                Assertions.assertEquals("null", restored.getStaticPartitionValues().get("key"));
+                // Binding the wire representation must not mutate the FE overwrite predicate's NULL.
+                Assertions.assertNull(context.getStaticPartitionValues().get("key"));
+                String bytes = "0x00112233445566778899aabbccddeeff";
+                context.setStaticPartitionValues(Collections.singletonMap("key", bytes));
+                sink.bindDataSink(Optional.of(context));
+                restored = new TIcebergTableSink();
+                new TDeserializer().deserialize(restored, new TSerializer().serialize(sink.tDataSink.iceberg_table_sink));
+                Assertions.assertFalse(restored.isSetStaticPartitionNullKeys());
+                Assertions.assertEquals(bytes, restored.getStaticPartitionValues().get("key"));
+            }
+        }
+    }
+
     @Test
     public void testBindPrefersOssDataPlanePropertiesOverGenericS3() throws Exception {
         Map<String, String> properties = new HashMap<>();

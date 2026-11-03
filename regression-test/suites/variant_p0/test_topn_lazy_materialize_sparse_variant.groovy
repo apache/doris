@@ -79,8 +79,8 @@ suite("test_topn_lazy_materialize_sparse_variant", "p0") {
         ORDER BY pk ASC
         LIMIT 128
     """
-    // V1 renders an empty object stored at the Variant root as an empty array. Keep that
-    // historical assertion on V1 and use typed subpaths for the shared V1/V2 check.
+    // Check V1 root values, including empty objects. Use typed subpaths for the shared
+    // V1/V2 check below.
     if (!enableVariantV2) {
         qt_topn_lazy_sparse_variant_v1 topnV1Query
     }

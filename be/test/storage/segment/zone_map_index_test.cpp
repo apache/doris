@@ -35,6 +35,7 @@
 #include "core/uint24.h"
 #include "core/value/decimalv2_value.h"
 #include "core/value/timestamptz_value.h"
+#include "core/value/uuid_value.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/function/cast/cast_to_string.h"
@@ -705,6 +706,46 @@ TEST_F(ColumnZoneMapTest, NormalTestIntPage) {
 
     EXPECT_EQ(true, zone_maps[2].has_null());
     EXPECT_EQ(false, zone_maps[2].has_not_null());
+}
+
+TEST_F(ColumnZoneMapTest, UuidPage) {
+    TabletColumn field;
+    field.set_name("uuid");
+    field.set_unique_id(0);
+    field.set_type(FieldType::OLAP_FIELD_TYPE_UUID);
+    field.set_length(16);
+    field.set_index_length(16);
+    field.set_is_key(true);
+    field.set_is_nullable(true);
+    auto data_type = DataTypeFactory::instance().create_data_type(TYPE_UUID, true);
+
+    std::unique_ptr<ZoneMapIndexWriter> writer;
+    ASSERT_TRUE(ZoneMapIndexWriter::create(data_type, &field, writer).ok());
+
+    uint128_t values[3];
+    ASSERT_TRUE(UUIDValue::from_string(values[0], "00112233-4455-6677-8899-aabbccddeeff"));
+    ASSERT_TRUE(UUIDValue::from_string(values[1], "00000000-0000-0000-0000-000000000001"));
+    ASSERT_TRUE(UUIDValue::from_string(values[2], "ffffffff-ffff-ffff-ffff-ffffffffffff"));
+    writer->add_values(values, 3);
+    writer->add_nulls(1);
+    ASSERT_TRUE(writer->flush().ok());
+
+    std::string filename = kTestDir + "/UuidPage";
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(_fs->create_file(filename, &file_writer).ok());
+    ColumnIndexMetaPB index_meta;
+    ASSERT_TRUE(writer->finish(file_writer.get(), &index_meta).ok());
+    ASSERT_TRUE(file_writer->close().ok());
+
+    const auto& segment_zone_map = index_meta.zone_map_index().segment_zone_map();
+    EXPECT_EQ("00000000-0000-0000-0000-000000000001", segment_zone_map.min());
+    EXPECT_EQ("ffffffff-ffff-ffff-ffff-ffffffffffff", segment_zone_map.max());
+    EXPECT_TRUE(segment_zone_map.has_null());
+
+    ZoneMap decoded;
+    ASSERT_TRUE(ZoneMap::from_proto(segment_zone_map, data_type, decoded).ok());
+    EXPECT_EQ(values[1], decoded.min_value.get<TYPE_UUID>());
+    EXPECT_EQ(values[2], decoded.max_value.get<TYPE_UUID>());
 }
 
 // Test for string
@@ -1480,6 +1521,96 @@ TEST_F(ColumnZoneMapTest, TimestamptzPage) {
     // page 5
     EXPECT_EQ(true, zone_maps[4].has_null());
     EXPECT_EQ(false, zone_maps[4].has_not_null());
+}
+
+TEST_F(ColumnZoneMapTest, TimeStampNsWriteReadFilter) {
+    auto column = std::make_shared<TabletColumn>();
+    column->_unique_id = 0;
+    column->_col_name = "timestamp_ns";
+    column->_type = FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS;
+    column->_is_key = true;
+    column->_is_nullable = true;
+    column->_length = 8;
+    column->_index_length = 8;
+
+    auto data_type = DataTypeFactory::instance().create_data_type(TYPE_TIMESTAMP_NS, false, 0, 9);
+    std::unique_ptr<ZoneMapIndexWriter> writer;
+    ASSERT_TRUE(ZoneMapIndexWriter::create(data_type, column.get(), writer).ok());
+
+    TimeStampNsValue values[] = {
+            TimeStampNsValue(std::numeric_limits<int64_t>::min()),
+            TimeStampNsValue(-1),
+            TimeStampNsValue(0),
+            TimeStampNsValue(std::numeric_limits<int64_t>::max()),
+    };
+    writer->add_nulls(2);
+    ASSERT_TRUE(writer->flush().ok());
+    writer->add_values(values, 2);
+    ASSERT_TRUE(writer->flush().ok());
+    writer->add_values(values + 2, 2);
+    writer->add_nulls(1);
+    ASSERT_TRUE(writer->flush().ok());
+    writer->add_nulls(2);
+    ASSERT_TRUE(writer->flush().ok());
+
+    const std::string file_path = kTestDir + "/timestamp_ns_zonemap";
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(_fs->create_file(file_path, &file_writer).ok());
+    ColumnIndexMetaPB index_meta;
+    ASSERT_TRUE(writer->finish(file_writer.get(), &index_meta).ok());
+    ASSERT_TRUE(file_writer->close().ok());
+
+    ZoneMap segment_zone_map;
+    ASSERT_TRUE(ZoneMap::from_proto(index_meta.zone_map_index().segment_zone_map(), data_type,
+                                    segment_zone_map)
+                        .ok());
+    EXPECT_EQ(segment_zone_map.min_value.get<TYPE_TIMESTAMP_NS>(), values[0]);
+    EXPECT_EQ(segment_zone_map.max_value.get<TYPE_TIMESTAMP_NS>(), values[3]);
+    EXPECT_TRUE(segment_zone_map.has_null);
+    EXPECT_TRUE(segment_zone_map.has_not_null);
+
+    io::FileReaderSPtr file_reader;
+    ASSERT_TRUE(_fs->open_file(file_path, &file_reader).ok());
+    ZoneMapIndexReader zone_map_reader(file_reader, index_meta.zone_map_index().page_zone_maps());
+    ASSERT_TRUE(zone_map_reader.load(true, false).ok());
+    ASSERT_EQ(zone_map_reader.num_pages(), 4);
+
+    ZoneMap leading_null_page_zone_map;
+    ASSERT_TRUE(ZoneMap::from_proto(zone_map_reader.page_zone_maps()[0], data_type,
+                                    leading_null_page_zone_map)
+                        .ok());
+    EXPECT_TRUE(leading_null_page_zone_map.has_null);
+    EXPECT_FALSE(leading_null_page_zone_map.has_not_null);
+
+    ZoneMap negative_page_zone_map;
+    ASSERT_TRUE(ZoneMap::from_proto(zone_map_reader.page_zone_maps()[1], data_type,
+                                    negative_page_zone_map)
+                        .ok());
+    EXPECT_EQ(negative_page_zone_map.min_value.get<TYPE_TIMESTAMP_NS>(), values[0]);
+    EXPECT_EQ(negative_page_zone_map.max_value.get<TYPE_TIMESTAMP_NS>(), values[1]);
+    EXPECT_FALSE(negative_page_zone_map.has_null);
+    EXPECT_TRUE(negative_page_zone_map.has_not_null);
+
+    ZoneMap nonnegative_page_zone_map;
+    ASSERT_TRUE(ZoneMap::from_proto(zone_map_reader.page_zone_maps()[2], data_type,
+                                    nonnegative_page_zone_map)
+                        .ok());
+    EXPECT_EQ(nonnegative_page_zone_map.min_value.get<TYPE_TIMESTAMP_NS>(), values[2]);
+    EXPECT_EQ(nonnegative_page_zone_map.max_value.get<TYPE_TIMESTAMP_NS>(), values[3]);
+    EXPECT_TRUE(nonnegative_page_zone_map.has_null);
+    EXPECT_TRUE(nonnegative_page_zone_map.has_not_null);
+
+    ZoneMap trailing_null_page_zone_map;
+    ASSERT_TRUE(ZoneMap::from_proto(zone_map_reader.page_zone_maps()[3], data_type,
+                                    trailing_null_page_zone_map)
+                        .ok());
+    EXPECT_TRUE(trailing_null_page_zone_map.has_null);
+    EXPECT_FALSE(trailing_null_page_zone_map.has_not_null);
+
+    const auto epoch = Field::create_field<TYPE_TIMESTAMP_NS>(TimeStampNsValue(0));
+    ComparisonPredicateBase<TYPE_TIMESTAMP_NS, PredicateType::EQ> epoch_predicate(0, "", epoch);
+    EXPECT_FALSE(epoch_predicate.evaluate_and(negative_page_zone_map));
+    EXPECT_TRUE(epoch_predicate.evaluate_and(nonnegative_page_zone_map));
 }
 
 // Regression test for "all-null page after a value page" — int variant.

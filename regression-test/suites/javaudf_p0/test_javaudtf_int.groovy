@@ -25,6 +25,7 @@ suite("test_javaudtf_int") {
     def tableName = "test_javaudtf_int"
     def jarPath = """${context.file.parent}/jars/java-udf-case-jar-with-dependencies.jar"""
     scp_udf_file_to_all_be(jarPath)
+    scp_udf_file_to_all_fe(jarPath)
 
     log.info("Jar path: ${jarPath}".toString())
     try {
@@ -69,7 +70,7 @@ suite("test_javaudtf_int") {
 
         test {
             sql """ select udtf_int(1); """
-            exception "PROJECT can not contains TableGeneratingFunction expression: udtf_int(1)"
+            exception "LOGICAL_ONE_ROW_RELATION can not contains TableGeneratingFunction expression: udtf_int(1)"
         }
     } finally {
         try_sql("DROP FUNCTION IF EXISTS udtf_int(int);")

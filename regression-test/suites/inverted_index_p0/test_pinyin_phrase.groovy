@@ -58,7 +58,7 @@ suite("test_pinyin_phrase", "p0") {
 
     try {
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
 
         qt_sql_1 """ SELECT a, ch FROM ${indexTbName} WHERE search('ch:"合作"') ORDER BY a; """
         qt_sql_2 """ SELECT a, ch FROM ${indexTbName} WHERE search('ch:"高峰论坛"') ORDER BY a; """

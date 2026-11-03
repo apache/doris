@@ -24,6 +24,10 @@ import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.options.ConfigOption;
 import org.apache.paimon.options.FallbackKey;
+import org.apache.paimon.options.Options;
+import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.ChainGroupReadTable;
+import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.snapshot.FullCompactedStartingScanner;
@@ -33,6 +37,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -41,6 +46,7 @@ import java.util.stream.Collectors;
  * Validation and application rules for relation-scoped Paimon scan parameters.
  */
 public final class PaimonScanParams {
+    private static final String INTERNAL_PREFIX = "doris.internal.paimon.";
     private static final String PINNED_FILE_CREATION_TIME =
             "doris.internal.paimon.file-creation-time-millis";
     private static final String PINNED_EMPTY_SCAN = "doris.internal.paimon.empty-scan";
@@ -73,6 +79,35 @@ public final class PaimonScanParams {
             CoreOptions.SCAN_VERSION.key());
 
     private static final Set<String> INHERITED_READ_STATE_KEYS = inheritedReadStateKeys();
+
+    private static final Set<String> SCHEMA_INDEPENDENT_READ_KEYS = ImmutableSet.<String>builder()
+            .addAll(INHERITED_READ_STATE_KEYS)
+            .add(CoreOptions.BRANCH.key())
+            .add(CoreOptions.SCAN_PRIMARY_BRANCH.key())
+            .add(CoreOptions.SCAN_FALLBACK_BRANCH.key())
+            .build();
+
+    // The selectors the pinned paimon-rust reader re-resolves in copy_with_time_travel; the
+    // inverse of isolateSnapshotRead for schema transport (see withoutTimeTravelSelectors).
+    private static final Set<String> TIME_TRAVEL_SELECTOR_KEYS = ImmutableSet.of(
+            CoreOptions.SCAN_TIMESTAMP_MILLIS.key(),
+            CoreOptions.SCAN_WATERMARK.key(),
+            CoreOptions.SCAN_VERSION.key(),
+            CoreOptions.SCAN_SNAPSHOT_ID.key(),
+            CoreOptions.SCAN_TAG_NAME.key());
+
+    // Paimon's copyInternal materializes the derived scan mode into the copied schema's
+    // options when the merged options carry a selector — a statement fence pinning
+    // scan.snapshot-id leaves a bare "scan.mode=from-snapshot" in schema.options(). Each
+    // of these modes requires a selector (the rust ReadBuilder rejects them otherwise),
+    // so withoutTimeTravelSelectors drops them together with the selector they describe.
+    private static final Set<String> SELECTOR_DEPENDENT_SCAN_MODES = ImmutableSet.of(
+            "from-snapshot",
+            "from-snapshot-full",
+            "from-timestamp",
+            "from-timestamp-full",
+            "from-file-creation-time",
+            "from-creation-timestamp");
 
     // FilesScan enumerates the latest partitions before applying its range-aware per-partition scan,
     // so it cannot safely read a range when a partition in that range has since been dropped.
@@ -136,6 +171,11 @@ public final class PaimonScanParams {
     }
 
     public static Table applyOptions(Table table, Map<String, String> options) {
+        if (table instanceof FileStoreTable && preservesBoundSchema(options)) {
+            // A statement fence pins data, while a schema-only ALTER can be newer than that snapshot.
+            // Reader tuning must preserve the bound fields instead of time-travelling them again.
+            return applyOptionsWithoutTimeTravel((FileStoreTable) table, options);
+        }
         Map<String, String> tableOptions = userOptions(options);
         validateOptions(tableOptions);
         Map<String, String> isolatedOptions = new HashMap<>(tableOptions);
@@ -146,11 +186,100 @@ public final class PaimonScanParams {
                     .filter(key -> !tableOptions.containsKey(key))
                     .forEach(key -> isolatedOptions.put(key, null));
         }
-        Table effectiveTable = PaimonReaderOptions.runtimeSafeTable(table, isolatedOptions);
+        Table effectiveTable = PaimonReaderOptions.runtimeSafeTable(
+                copyWithHistoricalSchema(table, isolatedOptions, options));
         // Validate after every copy so relation options participate in the documented
         // relation > catalog > physical precedence before the effective value is judged.
         PaimonReaderOptions.validateEffectiveTable(effectiveTable);
         return effectiveTable;
+    }
+
+    public static Table copyWithHistoricalSchema(Table table, Map<String, String> options) {
+        return copyWithHistoricalSchema(table, userOptions(options), options);
+    }
+
+    private static Table copyWithHistoricalSchema(
+            Table table, Map<String, String> dynamicOptions, Map<String, String> provenance) {
+        if (!(table instanceof FileStoreTable) || table instanceof ChainGroupReadTable
+                || PaimonTableDecorators.isChainTable(table)) {
+            // Chain groups have their own option filtering and are not ordinary fallback readers.
+            return table.copy(dynamicOptions);
+        }
+        if (table instanceof FallbackReadFileStoreTable) {
+            FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) table;
+            // Each branch has independent snapshot IDs. Keep the SDK's timestamp translation
+            // before restoring either schema; copying one historical schema onto the pair is invalid.
+            return PaimonTableDecorators.rebuildFallbackPair(pair,
+                    (FileStoreTable) copyWithHistoricalSchema(pair.wrapped(), dynamicOptions, provenance),
+                    (FileStoreTable) copyWithHistoricalSchema(pair.other(),
+                            PaimonTableDecorators.otherOptions(pair, dynamicOptions), provenance));
+        }
+        FileStoreTable dataTable = (FileStoreTable) table;
+        Map<String, String> effectiveOptions = new HashMap<>(table.options());
+        dynamicOptions.forEach((key, value) -> {
+            if (value == null) {
+                effectiveOptions.remove(key);
+            } else {
+                effectiveOptions.put(key, value);
+            }
+        });
+        Optional<Snapshot> snapshot;
+        try {
+            snapshot = TimeTravelUtil.tryTravelToSnapshot(Options.fromMap(effectiveOptions),
+                    dataTable.snapshotManager(), dataTable.tagManager());
+        } catch (Exception e) {
+            // Match the SDK's schema-selection fallback (for example a timestamp on an empty table).
+            // Its normal copy below still owns option validation and the eventual scan error.
+            return table.copy(dynamicOptions);
+        }
+        if (snapshot.isPresent() && snapshot.get().schemaId() != dataTable.schema().id()) {
+            // Paimon overlays current options onto historical columns. Restore the matching
+            // sequence/aggregation options first, or renamed fields fail before scan planning.
+            dataTable = restoreHistoricalSchema(dataTable, snapshot.get().schemaId(), provenance);
+        }
+        return dataTable.copy(dynamicOptions);
+    }
+
+    private static FileStoreTable restoreHistoricalSchema(
+            FileStoreTable table, long schemaId, Map<String, String> options) {
+        TableSchema persistedSchema = table.schemaManager().schema(table.schema().id());
+        if (table.schema().id() == schemaId) {
+            return table;
+        }
+        TableSchema bound = table.schemaManager().schema(schemaId);
+        Map<String, String> persisted = persistedSchema.options();
+        Map<String, String> merged = new HashMap<>(bound.options());
+        if (bound.primaryKeys().isEmpty() && bound.bucketKeys().isEmpty() && bound.numBuckets() > 0) {
+            // Legacy append schemas have implicit full-row bucket keys, which the current SDK rejects.
+            // Read every bucket rather than inventing a hash key and pruning valid historical files.
+            merged.put(CoreOptions.BUCKET.key(), "-1");
+            merged.remove(CoreOptions.BUCKET_KEY.key());
+        }
+        // Field-referencing options evolve with the schema (e.g. bucket-key and sequence.field
+        // on rename). Only replay the catalog/runtime delta, never another generation's options.
+        table.options().forEach((key, value) -> {
+            if (!Objects.equals(persisted.get(key), value)) {
+                merged.put(key, value);
+            }
+        });
+        // Read selectors and branch topology belong to the resolved table, not its historical schema.
+        // Preserve absent keys too: reviving an old mode can invalidate a snapshot selector, while
+        // reviving an old branch policy can change fallback priority when reader caps rebuild the pair.
+        SCHEMA_INDEPENDENT_READ_KEYS.forEach(key -> {
+            String value = table.options().get(key);
+            if (value == null) {
+                merged.remove(key);
+            } else {
+                merged.put(key, value);
+            }
+        });
+        // Explicit catalog overrides can equal old physical values; equality is not provenance.
+        options.forEach((key, value) -> {
+            if (key.startsWith(INTERNAL_PREFIX + "catalog-option.")) {
+                merged.put(key.substring((INTERNAL_PREFIX + "catalog-option.").length()), value);
+            }
+        });
+        return table.copy(bound.copy(merged));
     }
 
     public static FileStoreTable applyOptionsWithoutTimeTravel(
@@ -180,7 +309,7 @@ public final class PaimonScanParams {
                 : (FileStoreTable) applyOptions(table, options);
     }
 
-    private static Set<String> inheritedReadStateKeys() {
+    public static Set<String> inheritedReadStateKeys() {
         ImmutableSet.Builder<String> keys = ImmutableSet.builder();
         for (ConfigOption<?> option : Arrays.asList(
                 CoreOptions.SCAN_TIMESTAMP,
@@ -232,7 +361,19 @@ public final class PaimonScanParams {
                 || "full".equalsIgnoreCase(mode);
     }
 
+    public static Map<String, String> withCatalogOptions(
+            Map<String, String> options, Map<String, String> catalogOptions) {
+        Map<String, String> result = new HashMap<>(options);
+        catalogOptions.forEach((key, value) -> result.put(INTERNAL_PREFIX + "catalog-option." + key, value));
+        return result;
+    }
+
     public static Map<String, String> resolveOptions(Table table, Map<String, String> options) {
+        return resolveOptions(table, options, java.util.Collections.emptyMap());
+    }
+
+    public static Map<String, String> resolveOptions(
+            Table table, Map<String, String> options, Map<String, String> catalogOptions) {
         validateOptions(options);
         if (!hasStartupOptions(options)) {
             return options;
@@ -268,7 +409,7 @@ public final class PaimonScanParams {
             return resolveFileCreationTime(options, fileStoreTable, creationTime);
         }
 
-        Table selectedTable = applyOptions(table, options);
+        Table selectedTable = applyOptions(table, withCatalogOptions(options, catalogOptions));
         if ("compacted-full".equalsIgnoreCase(options.get(CoreOptions.SCAN_MODE.key()))) {
             Long snapshotId = compactedFullSnapshotId((FileStoreTable) selectedTable);
             return snapshotId == null
@@ -374,9 +515,13 @@ public final class PaimonScanParams {
     }
 
     private static Map<String, String> userOptions(Map<String, String> options) {
-        return options.entrySet().stream()
-                .filter(entry -> !entry.getKey().startsWith("doris.internal.paimon."))
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        Map<String, String> result = new HashMap<>();
+        options.forEach((key, value) -> {
+            if (!key.startsWith(INTERNAL_PREFIX)) {
+                result.put(key, value);
+            }
+        });
+        return result;
     }
 
     public static Optional<Long> getPinnedFileCreationTime(Map<String, String> options) {
@@ -401,6 +546,42 @@ public final class PaimonScanParams {
         INHERITED_READ_STATE_KEYS.forEach(key -> isolatedOptions.put(key, null));
         isolatedOptions.put(CoreOptions.SCAN_SNAPSHOT_ID.key(), String.valueOf(snapshotId));
         return isolatedOptions;
+    }
+
+    /**
+     * Strips the time-travel planning selectors — and any derived scan mode Paimon
+     * materialized for them — from a resolved schema's options, keeping every
+     * field and every other option intact. This is the transport-side inverse of
+     * {@link #isolateSnapshotRead(long)}: a statement fence pins the data snapshot by merging
+     * {@code scan.snapshot-id} into the schema options, but the pinned paimon-rust reader
+     * re-resolves a transported selector inside {@code copy_with_time_travel} and swaps the
+     * shipped fields for the pinned snapshot's older schema — a column added after the last
+     * data commit then fails projection before per-file schema evolution can fill it. The rust
+     * reader instead pins data through the serialized DataSplit, so these selectors are
+     * planning-only state and must not be transported.
+     */
+    public static TableSchema withoutTimeTravelSelectors(TableSchema schema) {
+        if (TIME_TRAVEL_SELECTOR_KEYS.stream().noneMatch(schema.options()::containsKey)) {
+            return schema;
+        }
+        Map<String, String> options = new HashMap<>(schema.options());
+        TIME_TRAVEL_SELECTOR_KEYS.forEach(options.keySet()::remove);
+        // Paimon's copyInternal may have materialized the derived scan mode for the
+        // stripped selector; without the selector the rust ReadBuilder validation
+        // ("from-snapshot requires one of scan.snapshot-id, ... to be set") rejects
+        // the open. The reader instead pins data through the serialized DataSplit.
+        // Paimon accepts enum option values case-insensitively but preserves the
+        // original spelling in the options map, so a table can persist
+        // scan.mode=FROM-SNAPSHOT; the mode is normalized before the membership
+        // check because the rust reader recognizes the value case-insensitively and
+        // would reject the now-bare uppercase mode for lacking its selector, while
+        // JNI accepts the original option.
+        String scanMode = options.get(CoreOptions.SCAN_MODE.key());
+        if (scanMode != null && SELECTOR_DEPENDENT_SCAN_MODES.contains(
+                scanMode.trim().toLowerCase(Locale.ROOT))) {
+            options.remove(CoreOptions.SCAN_MODE.key());
+        }
+        return schema.copy(options);
     }
 
     private static boolean isCompatibleStartupMode(String position, String mode) {

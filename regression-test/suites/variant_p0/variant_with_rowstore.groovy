@@ -95,7 +95,7 @@ suite("regression_test_variant_rowstore", "variant_type"){
             properties("replication_num" = "1", "disable_auto_compaction" = "false", "store_row_column" = "true", "enable_unique_key_merge_on_write" = "true");
     """
     sql """insert into ${table_name} select k, ${variantV2Function}(cast(v as string)), ${variantV2Function}(cast(v as string)) from var_rowstore"""
-    def result1 = connect(user, password, prepare_url) {
+    def result1 = connectToDoris(user, password, prepare_url) {
         def stmt = prepareStatement """select k, sort_json_object_keys(cast(v as json)),
             sort_json_object_keys(cast(v1 as json)) from var_rs_pq where k = ?"""
         assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
@@ -129,7 +129,7 @@ suite("regression_test_variant_rowstore", "variant_type"){
     """
     // Keep the payload valid JSON so V1 and V2 persist the same Variant string value.
     sql """insert into table_rs_invalid_json values (1, json_quote('1|[""]'))"""
-    def result2 = connect(user, password, prepare_url) {
+    def result2 = connectToDoris(user, password, prepare_url) {
         def stmt = prepareStatement """select col0, json_unquote(cast(coljson as json))
             from table_rs_invalid_json where col0 = ?"""
         stmt.setInt(1, 1)

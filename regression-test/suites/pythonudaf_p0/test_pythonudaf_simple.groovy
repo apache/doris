@@ -18,6 +18,7 @@
 suite("test_pythonudaf_simple") {
     def pyPath = """${context.file.parent}/udaf_scripts/pyudaf.zip"""
     scp_udf_file_to_all_be(pyPath)
+    scp_udf_file_to_all_fe(pyPath)
     def runtime_version = getPythonUdfRuntimeVersion()
     log.info("Python zip path: ${pyPath}".toString())
     

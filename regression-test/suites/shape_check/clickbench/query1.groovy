@@ -21,7 +21,8 @@ suite("query1") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_nereids_distribute_planner=false'
     sql 'set enable_fallback_to_original_planner=false'
-    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+    // Keep the aggregate shape stable after the exact row-count cache is populated.
+    sql "set disable_nereids_rules='PRUNE_EMPTY_PARTITION,REWRITE_SIMPLE_AGG_TO_CONSTANT'"
     sql 'set topn_opt_limit_threshold = 1024'
     def ckBench = """SELECT COUNT(*) FROM hits"""
     qt_ckbench_shape_1 """

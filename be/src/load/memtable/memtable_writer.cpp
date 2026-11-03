@@ -80,7 +80,8 @@ Status MemTableWriter::init(std::shared_ptr<RowsetWriter> rowset_writer,
     // we can make sure same keys sort in the same order in all replicas.
     RETURN_IF_ERROR(
             ExecEnv::GetInstance()->storage_engine().memtable_flush_executor()->create_flush_token(
-                    _flush_token, _rowset_writer, _req.is_high_priority, wg_sptr));
+                    _flush_token, _rowset_writer, _req.is_high_priority, wg_sptr,
+                    _req.load_cancel_status));
 
     _is_init = true;
     return Status::OK();
@@ -97,6 +98,9 @@ Status MemTableWriter::write(const Block* block, const DorisVector<uint32_t>& ro
     _lock_watch.start();
     std::lock_guard<std::mutex> l(_lock);
     _lock_watch.stop();
+    if (_req.load_cancel_status && !_req.load_cancel_status->ok()) {
+        return _req.load_cancel_status->status();
+    }
     if (_is_cancelled) {
         return _cancel_status;
     }
@@ -120,7 +124,8 @@ Status MemTableWriter::write(const Block* block, const DorisVector<uint32_t>& ro
     }
 
     _total_received_rows += row_idxs.size();
-    auto st = _mem_table->insert(block, row_idxs);
+    Status st;
+    ASSIGN_STATUS_IF_CATCH_EXCEPTION(st = _mem_table->insert(block, row_idxs), st);
 
     // Reset memtable immediately after insert failure to prevent potential flush operations.
     // This is a defensive measure because:
@@ -140,7 +145,13 @@ Status MemTableWriter::write(const Block* block, const DorisVector<uint32_t>& ro
     }
 
     if (UNLIKELY(_mem_table->need_agg() && config::enable_shrink_memory)) {
-        _mem_table->shrink_memtable_by_agg();
+        // Aggregation can replace the columns before row metadata allocation fails.
+        // Discard the failed memtable while _lock still excludes pressure flushing.
+        ASSIGN_STATUS_IF_CATCH_EXCEPTION(_mem_table->shrink_memtable_by_agg(), st);
+        if (!st.ok()) [[unlikely]] {
+            _reset_mem_table();
+            return st;
+        }
     }
     if (UNLIKELY(_mem_table->need_flush())) {
         RETURN_IF_ERROR(_flush_memtable());
@@ -179,10 +190,20 @@ Status MemTableWriter::_flush_memtable_async() {
 
 Status MemTableWriter::flush_async() {
     std::lock_guard<std::mutex> l(_lock);
-    // Three calling paths:
-    // 1. call by local, from `VTabletWriterV2::_write_memtable`.
-    // 2. call by remote, from `LoadChannelMgr::_get_load_channel`.
-    // 3. call by daemon thread, from `handle_paused_queries` -> `flush_workload_group_memtables`.
+    if (_req.load_cancel_status && !_req.load_cancel_status->ok()) {
+        // Reclaim the unsubmitted memtable even while an RPC retains this writer.
+        // Do not cancel the flush token here: pressure flushing holds the limiter
+        // lock and must not wait for running flush tasks. Leave _is_cancelled
+        // unset so the final owner's cancel still drains the token.
+        {
+            std::lock_guard<std::mutex> lm(_mem_table_ptr_lock);
+            _mem_table.reset();
+        }
+        return Status::Cancelled("Load has been cancelled: {}",
+                                 _req.load_cancel_status->status().to_string());
+    }
+    // Memory-pressure flushing can race with writer initialization or close.
+    // DeltaWriter also exposes this operation through flush_memtable_async().
     if (!_is_init || _is_closed) {
         // This writer is uninitialized or closed before flushing, do nothing.
         // We return OK instead of NOT_INITIALIZED or ALREADY_CLOSED.
@@ -237,6 +258,9 @@ Status MemTableWriter::close() {
     _lock_watch.start();
     std::lock_guard<std::mutex> l(_lock);
     _lock_watch.stop();
+    if (_req.load_cancel_status && !_req.load_cancel_status->ok()) {
+        return _req.load_cancel_status->status();
+    }
     if (_is_cancelled) {
         return _cancel_status;
     }
@@ -303,6 +327,9 @@ Status MemTableWriter::_do_close_wait() {
 }
 
 void MemTableWriter::_update_profile(RuntimeProfile* profile) {
+    if (!profile) {
+        return;
+    }
     // NOTE: MemTableWriter may be accessed when profile is out of scope, in MemTableMemoryLimiter.
     // To avoid accessing dangling pointers, we cannot make profile as a member of MemTableWriter.
     auto child =

@@ -82,7 +82,12 @@ Status CloudIndexChangeCompaction::prepare_compact() {
         _input_rowsets_total_size += rs->total_disk_size();
     }
 
-    _enable_inverted_index_compaction = false;
+    // Non-SNII compaction cannot reuse index files when the index schema changes. SNII validates
+    // each destination logical index independently and rebuilds ineligible columns from raw data.
+    _enable_inverted_index_compaction =
+            _enable_inverted_index_compaction &&
+            input_rowset->tablet_schema()->get_inverted_index_storage_format() ==
+                    InvertedIndexStorageFormatPB::SNII;
     LOG_INFO("[index_change]prepare CloudIndexChangeCompaction, tablet_id={}, range=[{}-{}]",
              _tablet->tablet_id(), _input_rowsets.front()->start_version(),
              _input_rowsets.back()->end_version())

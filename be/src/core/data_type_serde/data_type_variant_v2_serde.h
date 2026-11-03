@@ -53,9 +53,26 @@ public:
                                  const FormatOptions& options) const override;
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 
+    Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
+                                     JsonbWriter& writer,
+                                     const FormatOptions& options) const override;
+    Status serialize_column_to_jsonb_vector(
+            const IColumn& from_column, ColumnString& to_column, const FormatOptions& options,
+            const NullMap::value_type* source_null_map = nullptr) const override;
+
     Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                  const cctz::time_zone& ctz) const override;
+    Status write_column_to_paimon_arrow(const std::shared_ptr<const IDataType>& type,
+                                        const IColumn& column, const NullMap* null_map,
+                                        const std::shared_ptr<arrow::Field>& field,
+                                        arrow::ArrayBuilder* array_builder, int64_t start,
+                                        int64_t end, const cctz::time_zone& ctz) const override;
+    Status write_column_to_iceberg_arrow(const std::shared_ptr<const IDataType>& type,
+                                         const IColumn& column, const NullMap* null_map,
+                                         const std::shared_ptr<arrow::Field>& field,
+                                         arrow::ArrayBuilder* array_builder, int64_t start,
+                                         int64_t end, const cctz::time_zone& ctz) const override;
     Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
                                   int64_t end, const cctz::time_zone& ctz) const override;
     Status write_column_to_mysql_binary(const IColumn& column, MysqlRowBinaryBuffer& row_buffer,

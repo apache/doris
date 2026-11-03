@@ -71,6 +71,8 @@ public abstract class TableValuedFunctionIf {
                 return new MvInfosTableValuedFunction(params);
             case PartitionsTableValuedFunction.NAME:
                 return new PartitionsTableValuedFunction(params);
+            case IndexDiskUsageTableValuedFunction.NAME:
+                return new IndexDiskUsageTableValuedFunction(params);
             case JobsTableValuedFunction.NAME:
                 return new JobsTableValuedFunction(params);
             case TasksTableValuedFunction.NAME:
@@ -118,6 +120,10 @@ public abstract class TableValuedFunctionIf {
     public abstract List<Column> getTableColumns() throws AnalysisException;
 
     public abstract ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv);
+
+    public String getHiveParquetTimeZone() {
+        return "";
+    }
 
     public void checkAuth(ConnectContext ctx) {
 

@@ -249,6 +249,9 @@ public:
     }
     void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx);
     void set_timezone(const cctz::time_zone* timezone) { _timezone = timezone; }
+    void set_int96_timezone(std::optional<const cctz::time_zone*> timezone) {
+        _int96_timezone = timezone;
+    }
     void set_enable_strict_mode(bool enable_strict_mode) {
         _enable_strict_mode = enable_strict_mode;
     }
@@ -280,6 +283,10 @@ private:
     static constexpr size_t PROFILE_FLUSH_BATCH_INTERVAL = 16;
 
     void reset_current_row_group();
+    void prepare_topn_row_group_order(
+            const ParquetFileContext& file_context,
+            const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+            const format::FileScanRequest& request);
     void activate_pending_scan_request_at_row_group_boundary();
     void _restore_adaptive_state(const format::FileScanRequest& request);
     void _publish_adaptive_state(const format::FileScanRequest& request);
@@ -330,6 +337,10 @@ private:
 
     std::shared_ptr<RowGroupScanPlan> _scan_plan; // shared with the reader's aggregate path
     size_t _next_row_group_plan_idx = 0;          // index of the next row group to process
+    // Execution order is separate from physical plans: Condition Cache uses their file-row order.
+    std::vector<size_t> _row_group_order;
+    bool _row_group_order_prepared = false;
+    bool _topn_footer_recheck = false;
 
     bool _has_current_row_group = false;
     // Readers retain pointers into this immutable row-group map, so it must outlive both maps below.
@@ -379,6 +390,7 @@ private:
     int64_t _merge_read_slice_size = -1;
     std::optional<format::GlobalRowIdContext> _global_rowid_context;
     const cctz::time_zone* _timezone = nullptr;
+    std::optional<const cctz::time_zone*> _int96_timezone;
     bool _enable_strict_mode = false;
     bool _enable_bloom_filter = false;
     RuntimeState* _runtime_state = nullptr;

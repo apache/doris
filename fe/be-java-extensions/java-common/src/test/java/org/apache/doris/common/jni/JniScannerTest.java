@@ -18,7 +18,9 @@
 package org.apache.doris.common.jni;
 
 
+import org.apache.doris.common.jni.utils.JavaUdfDataType;
 import org.apache.doris.common.jni.utils.OffHeap;
+import org.apache.doris.common.jni.utils.TypeNativeBytes;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.VectorTable;
 
@@ -26,10 +28,97 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class JniScannerTest {
+    @Test
+    public void testOnlyJavaTimeLocalDateTimeSupportsTimestampNsUdf() {
+        Assert.assertTrue(JavaUdfDataType.getCandidateTypes(LocalDateTime.class)
+                .contains(JavaUdfDataType.TIMESTAMP_NS));
+        Assert.assertFalse(JavaUdfDataType.getCandidateTypes(org.joda.time.LocalDateTime.class)
+                .contains(JavaUdfDataType.TIMESTAMP_NS));
+        Assert.assertFalse(JavaUdfDataType.getCandidateTypes(org.joda.time.DateTime.class)
+                .contains(JavaUdfDataType.TIMESTAMP_NS));
+        Assert.assertTrue(JavaUdfDataType.getCandidateTypes(org.joda.time.LocalDateTime.class)
+                .contains(JavaUdfDataType.DATETIMEV2));
+    }
+
+    @Test
+    public void testTimestampNsVectorTableRoundTripIncludingNestedTypes() {
+        OffHeap.setTesting();
+        LocalDateTime[] values = {
+                LocalDateTime.of(1677, 9, 21, 0, 12, 43, 145224192),
+                LocalDateTime.of(1969, 12, 31, 23, 59, 59, 999999999),
+                LocalDateTime.of(1970, 1, 1, 0, 0),
+                LocalDateTime.of(2024, 2, 29, 12, 34, 56, 123456789),
+                LocalDateTime.of(2024, 2, 29, 12, 34, 56),
+                LocalDateTime.of(2262, 4, 11, 23, 47, 16, 854775807),
+                null
+        };
+        Assert.assertEquals(Long.MIN_VALUE, TypeNativeBytes.convertToTimestampNs(values[0]));
+        Assert.assertEquals(-1, TypeNativeBytes.convertToTimestampNs(values[1]));
+        Assert.assertEquals(0, TypeNativeBytes.convertToTimestampNs(values[2]));
+        Assert.assertEquals(Long.MAX_VALUE, TypeNativeBytes.convertToTimestampNs(values[5]));
+
+        ColumnType[] types = {
+                ColumnType.parseType("ts", "timestamp_ns"),
+                ColumnType.parseType("items", "array<timestamp_ns>"),
+                ColumnType.parseType("by_name", "map<string,timestamp_ns>"),
+                ColumnType.parseType("record", "struct<ts:timestamp_ns,items:array<timestamp_ns>>")
+        };
+        Assert.assertEquals(ColumnType.Type.TIMESTAMP_NS, types[0].getType());
+        Assert.assertEquals(ColumnType.Type.TIMESTAMP_NS,
+                types[1].getChildTypes().get(0).getType());
+        Assert.assertEquals(ColumnType.Type.TIMESTAMP_NS,
+                types[2].getChildTypes().get(1).getType());
+        Assert.assertEquals(ColumnType.Type.TIMESTAMP_NS,
+                types[3].getChildTypes().get(0).getType());
+
+        @SuppressWarnings("unchecked")
+        List<Object>[] arrays = (List<Object>[]) new List<?>[values.length];
+        @SuppressWarnings("unchecked")
+        Map<Object, Object>[] maps = (Map<Object, Object>[]) new Map<?, ?>[values.length];
+        @SuppressWarnings("unchecked")
+        Map<String, Object>[] structs = (Map<String, Object>[]) new Map<?, ?>[values.length];
+        for (int i = 0; i < values.length; ++i) {
+            arrays[i] = new ArrayList<>();
+            arrays[i].add(values[i]);
+            maps[i] = new HashMap<>();
+            maps[i].put("value", values[i]);
+            structs[i] = new HashMap<>();
+            structs[i].put("ts", values[i]);
+            structs[i].put("items", arrays[i]);
+        }
+
+        VectorTable writable = VectorTable.createWritableTable(
+                types, new String[] {"ts", "items", "by_name", "record"}, values.length);
+        try {
+            writable.appendData(0, values, true);
+            writable.appendData(1, arrays, true);
+            writable.appendData(2, maps, true);
+            writable.appendData(3, structs, true);
+            long scalarData = writable.getColumn(0).dataAddress();
+            Assert.assertEquals(Long.MIN_VALUE, OffHeap.getLong(null, scalarData));
+            Assert.assertEquals(-1, OffHeap.getLong(null, scalarData + Long.BYTES));
+            Assert.assertEquals(0, OffHeap.getLong(null, scalarData + 2L * Long.BYTES));
+            Assert.assertEquals(Long.MAX_VALUE, OffHeap.getLong(null, scalarData + 5L * Long.BYTES));
+            Object[][] restored = writable.getMaterializedData();
+            Assert.assertArrayEquals(values, restored[0]);
+            for (int i = 0; i < values.length; ++i) {
+                Assert.assertEquals(arrays[i], restored[1][i]);
+                Assert.assertEquals(maps[i], restored[2][i]);
+                Assert.assertEquals(structs[i], restored[3][i]);
+            }
+        } finally {
+            writable.close();
+        }
+    }
+
     @Test
     public void testUnencodedStructFieldNamesRemainLowerCase() {
         ColumnType structType = ColumnType.parseType(

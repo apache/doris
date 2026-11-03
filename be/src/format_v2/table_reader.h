@@ -57,8 +57,8 @@
 #include "format/table/deletion_vector.h"
 #include "format_v2/column_data.h"
 #include "format_v2/column_mapper.h"
-#include "format_v2/expr/cast.h"
 #include "format_v2/expr/delete_predicate.h"
+#include "format_v2/expr/evolution_cast.h"
 #include "format_v2/file_reader.h"
 #include "format_v2/file_scan_context.h"
 #include "format_v2/parquet/reader/column_reader.h"
@@ -75,6 +75,10 @@ class RuntimeState;
 } // namespace doris
 
 namespace doris::format {
+
+namespace parquet {
+class ParquetProfileCache;
+}
 
 using DeleteRows = std::vector<int64_t>;
 
@@ -149,6 +153,7 @@ struct TableReadOptions {
     std::shared_ptr<io::IOContext> io_ctx;
     RuntimeState* runtime_state;
     RuntimeProfile* scanner_profile;
+    parquet::ParquetProfileCache* parquet_profile_cache = nullptr;
     // File formats without complete self-describing metadata, such as CSV, Text, and JSON, need
     // the FE-planned physical file slots to build their file-local schema and deserialize values.
     const std::vector<SlotDescriptor*>* file_slot_descs = nullptr;
@@ -287,8 +292,7 @@ public:
     virtual Status get_block(Block* block, bool* eos) {
         SCOPED_TIMER(_profile.total_timer);
         SCOPED_TIMER(_profile.exec_timer);
-        DORIS_CHECK(block->columns() == _projected_columns.size());
-        block->clear_column_data(_projected_columns.size());
+        block->clear_column_data();
 
         while (true) {
             if (*eos) {
@@ -358,12 +362,7 @@ public:
 #ifndef NDEBUG
             RETURN_IF_ERROR(_check_file_block_columns("after file reader get_block", current_rows));
 #endif
-            DORIS_CHECK(block->columns() == _data_reader.column_mapper->mappings().size());
             RETURN_IF_ERROR(finalize_chunk(block, current_rows));
-#ifndef NDEBUG
-            RETURN_IF_ERROR(
-                    _check_table_block_columns("after finalize_chunk", block, current_rows));
-#endif
             if (current_eof) {
                 _current_reader_reached_eof = !stopped_during_read;
                 RETURN_IF_ERROR(close_current_reader());
@@ -434,6 +433,8 @@ protected:
     // concrete reader. Subclasses should not duplicate this loop.
     Status create_next_reader(bool* eos);
     virtual Status create_file_reader(std::unique_ptr<FileReader>* reader);
+    // Some table formats expose UUID as raw bytes rather than the native Doris UUID type.
+    virtual bool preserve_binary_uuid() const { return false; }
     virtual TableColumnMappingMode mapping_mode() const { return TableColumnMappingMode::BY_NAME; }
     virtual void configure_mapper_options(TableColumnMapperOptions*) const {}
     virtual Status annotate_file_schema(std::vector<ColumnDefinition>* file_schema) {
@@ -824,9 +825,12 @@ protected:
         }
     }
 
-    // Finalize file-local block to table/global schema block.
-    Status finalize_chunk(Block* block, const size_t rows) {
+    // Materialize the projected schema. Subclasses may then transform its columns and rows
+    // into their output schema; the active reader remains alive until this hook returns.
+    virtual Status finalize_chunk(Block* block, const size_t rows) {
         SCOPED_TIMER(_profile.finalize_timer);
+        DORIS_CHECK(block->columns() == _projected_columns.size());
+        DORIS_CHECK(block->columns() == _data_reader.column_mapper->mappings().size());
         size_t idx = 0;
         const auto& mappings = _data_reader.column_mapper->mappings();
         for (const auto& mapping : mappings) {
@@ -840,6 +844,10 @@ protected:
         // Enforce CHAR/VARCHAR length declared by the table schema after all file-to-table
         // materialization has finished.
         RETURN_IF_ERROR(_truncate_char_or_varchar_columns(block));
+#ifndef NDEBUG
+        // Validate the materialized schema before a subclass transforms rows or output columns.
+        RETURN_IF_ERROR(_check_table_block_columns("after table materialization", block, rows));
+#endif
         return Status::OK();
     }
 
@@ -1074,11 +1082,11 @@ protected:
         DORIS_CHECK(block != nullptr);
         DORIS_CHECK(pushed_down != nullptr);
         *pushed_down = false;
-        block->clear_column_data(_projected_columns.size());
         _aggregate_pushdown_tried = true;
         if (_row_ids.has_value() || !_supports_aggregate_pushdown(_push_down_agg_type)) {
             return Status::OK();
         }
+        block->clear_column_data(_projected_columns.size());
 
         FileAggregateRequest file_request;
         RETURN_IF_ERROR(_build_file_aggregate_request(_push_down_agg_type, &file_request));
@@ -1352,7 +1360,7 @@ protected:
         Block cast_block;
         cast_block.insert({*column, input_type, column_name});
         auto slot_ref = VSlotRef::create_shared(0, 0, -1, input_type, column_name);
-        auto cast_expr = Cast::create_shared(cast_type);
+        auto cast_expr = EvolutionCast::create_shared(cast_type);
         cast_expr->add_child(std::move(slot_ref));
         auto cast_ctx = VExprContext::create_shared(std::move(cast_expr));
         RowDescriptor row_desc;
@@ -2032,6 +2040,7 @@ protected:
     std::shared_ptr<io::IOContext> _io_ctx;
     RuntimeState* _runtime_state;
     RuntimeProfile* _scanner_profile;
+    parquet::ParquetProfileCache* _parquet_profile_cache = nullptr;
     const std::vector<SlotDescriptor*>* _file_slot_descs = nullptr;
     FileFormat _format;
     TPushAggOp::type _push_down_agg_type = TPushAggOp::type::NONE;
@@ -2071,6 +2080,9 @@ protected:
     TableColumnMapperOptions _mapper_options;
 
 private:
+    static std::optional<std::string> _get_int96_timezone_override(
+            const TFileScanRangeParams* params);
+
     static const ColumnDefinition* _find_column_definition(
             const std::vector<ColumnDefinition>& schema, LocalColumnId column_id) {
         for (const auto& field : schema) {

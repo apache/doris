@@ -38,6 +38,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Reference to Apache Spark
@@ -84,6 +85,7 @@ public class VectorColumn {
 
     public static final InetAddress DEFAULT_IPV4;
     public static final InetAddress DEFAULT_IPV6;
+    public static final UUID DEFAULT_UUID = new UUID(0, 0);
 
     static {
         try {
@@ -444,6 +446,8 @@ public class VectorColumn {
                 return appendInetAddress(DEFAULT_IPV4);
             case IPV6:
                 return appendInetAddress(DEFAULT_IPV6);
+            case UUID:
+                return appendUuid(DEFAULT_UUID);
             case FLOAT:
                 return appendFloat(0);
             case DOUBLE:
@@ -459,6 +463,8 @@ public class VectorColumn {
             case DATETIME:
             case DATETIMEV2:
                 return appendDateTime(LocalDateTime.MIN);
+            case TIMESTAMP_NS:
+                return appendTimestampNs(LocalDateTime.of(1970, 1, 1, 0, 0));
             case TIMESTAMPTZ:
                 return appendTimeStampTz(LocalDateTime.MIN);
             case CHAR:
@@ -994,6 +1000,51 @@ public class VectorColumn {
         OffHeap.copyMemory(bytes, OffHeap.BYTE_ARRAY_OFFSET, null, data + (long) rowId * typeSize, typeSize);
     }
 
+    public UUID getUuid(int rowId) {
+        byte[] bytes = new byte[columnType.getTypeSize()];
+        OffHeap.copyMemory(null, data + (long) rowId * bytes.length, bytes,
+                OffHeap.BYTE_ARRAY_OFFSET, bytes.length);
+        return TypeNativeBytes.getUuid(bytes);
+    }
+
+    public UUID[] getUuidColumn(int start, int end) {
+        UUID[] result = new UUID[end - start];
+        for (int i = start; i < end; ++i) {
+            if (!isNullAt(i)) {
+                result[i - start] = getUuid(i);
+            }
+        }
+        return result;
+    }
+
+    public int appendUuid(UUID value) {
+        reserve(appendIndex + 1);
+        putUuid(appendIndex, value);
+        return appendIndex++;
+    }
+
+    public void appendUuid(UUID[] batch, boolean isNullable) {
+        if (!isNullable) {
+            checkNullable(batch, batch.length);
+        }
+        reserve(appendIndex + batch.length);
+        for (UUID value : batch) {
+            if (value == null) {
+                putNull(appendIndex);
+                putUuid(appendIndex, DEFAULT_UUID);
+            } else {
+                putUuid(appendIndex, value);
+            }
+            appendIndex++;
+        }
+    }
+
+    private void putUuid(int rowId, UUID value) {
+        byte[] bytes = TypeNativeBytes.getUuidBytes(value);
+        OffHeap.copyMemory(bytes, OffHeap.BYTE_ARRAY_OFFSET, null,
+                data + (long) rowId * bytes.length, bytes.length);
+    }
+
     public int appendDecimal(BigDecimal v) {
         reserve(appendIndex + 1);
         putDecimal(appendIndex, v);
@@ -1180,6 +1231,46 @@ public class VectorColumn {
         OffHeap.putLong(null, data + rowId * 8L, time);
     }
 
+    public int appendTimestampNs(LocalDateTime value) {
+        reserve(appendIndex + 1);
+        putTimestampNs(appendIndex, value);
+        return appendIndex++;
+    }
+
+    public void appendTimestampNs(LocalDateTime[] batch, boolean isNullable) {
+        if (!isNullable) {
+            checkNullable(batch, batch.length);
+        }
+        reserve(appendIndex + batch.length);
+        for (LocalDateTime value : batch) {
+            if (value == null) {
+                putNull(appendIndex);
+                OffHeap.putLong(null, data + appendIndex * 8L, 0);
+            } else {
+                putTimestampNs(appendIndex, value);
+            }
+            appendIndex++;
+        }
+    }
+
+    private void putTimestampNs(int rowId, LocalDateTime value) {
+        OffHeap.putLong(null, data + rowId * 8L, TypeNativeBytes.convertToTimestampNs(value));
+    }
+
+    public LocalDateTime getTimestampNs(int rowId) {
+        return TypeNativeBytes.convertToJavaTimestampNs(OffHeap.getLong(null, data + rowId * 8L));
+    }
+
+    public LocalDateTime[] getTimestampNsColumn(int start, int end) {
+        LocalDateTime[] result = new LocalDateTime[end - start];
+        for (int i = start; i < end; ++i) {
+            if (!isNullAt(i)) {
+                result[i - start] = getTimestampNs(i);
+            }
+        }
+        return result;
+    }
+
     public int appendTimeStampTz(LocalDateTime v) {
         reserve(appendIndex + 1);
         putTimeStampTz(appendIndex, v);
@@ -1187,6 +1278,15 @@ public class VectorColumn {
     }
 
     private void putTimeStampTz(int rowId, LocalDateTime v) {
+        // SQL NULL uses an out-of-range sentinel; only real values need range validation.
+        if (isNullAt(rowId)) {
+            OffHeap.putLong(null, data + rowId * 8L, 0L);
+            return;
+        }
+        // Validate UTC components before bit packing, including values from nested containers.
+        if (v.getYear() < 0 || v.getYear() > 9999) {
+            throw new IllegalArgumentException("TIMESTAMPTZ year must be between 0 and 9999: " + v);
+        }
         // TimeStampTz use the same storage format as DateTimeV2
         long time = TypeNativeBytes.convertToDateTimeV2(v.getYear(), v.getMonthValue(), v.getDayOfMonth(), v.getHour(),
                     v.getMinute(), v.getSecond(), v.getNano() / 1000);
@@ -1697,6 +1797,8 @@ public class VectorColumn {
             case IPV4:
             case IPV6:
                 return new InetAddress[size];
+            case UUID:
+                return new UUID[size];
             case FLOAT:
                 return new Float[size];
             case DOUBLE:
@@ -1711,6 +1813,8 @@ public class VectorColumn {
                 return new LocalDate[size];
             case DATETIME:
             case DATETIMEV2:
+                return new LocalDateTime[size];
+            case TIMESTAMP_NS:
                 return new LocalDateTime[size];
             case TIMESTAMPTZ:
                 // MAYBE use LocalDateTime is not appropriate
@@ -1755,6 +1859,9 @@ public class VectorColumn {
             case IPV6:
                 appendInetAddress((InetAddress[]) batch, isNullable);
                 break;
+            case UUID:
+                appendUuid((UUID[]) batch, isNullable);
+                break;
             case FLOAT:
                 appendFloat((Float[]) batch, isNullable);
                 break;
@@ -1774,6 +1881,9 @@ public class VectorColumn {
             case DATETIME:
             case DATETIMEV2:
                 appendDateTime((LocalDateTime[]) batch, isNullable);
+                break;
+            case TIMESTAMP_NS:
+                appendTimestampNs((LocalDateTime[]) batch, isNullable);
                 break;
             case TIMESTAMPTZ:
                 // MAYBE use LocalDateTime is not appropriate
@@ -1828,6 +1938,8 @@ public class VectorColumn {
             case IPV4:
             case IPV6:
                 return getInetAddressColumn(start, end);
+            case UUID:
+                return getUuidColumn(start, end);
             case FLOAT:
                 return getFloatColumn(start, end);
             case DOUBLE:
@@ -1843,6 +1955,8 @@ public class VectorColumn {
             case DATETIME:
             case DATETIMEV2:
                 return getDateTimeColumn(start, end);
+            case TIMESTAMP_NS:
+                return getTimestampNsColumn(start, end);
             case TIMESTAMPTZ:
                 return getTimeStampTzColumn(start, end);
             case CHAR:
@@ -1889,6 +2003,9 @@ public class VectorColumn {
             case LARGEINT:
                 appendBigInteger(o.getBigInteger());
                 break;
+            case UUID:
+                appendUuid(o.getUuid());
+                break;
             case FLOAT:
                 appendFloat(o.getFloat());
                 break;
@@ -1908,6 +2025,9 @@ public class VectorColumn {
             case DATETIME:
             case DATETIMEV2:
                 appendDateTime(o.getDateTime());
+                break;
+            case TIMESTAMP_NS:
+                appendTimestampNs(o.getDateTime());
                 break;
             case TIMESTAMPTZ:
                 appendTimeStampTz(o.getTimeStampTz());
@@ -1986,6 +2106,9 @@ public class VectorColumn {
             case LARGEINT:
                 sb.append(getBigInteger(i));
                 break;
+            case UUID:
+                sb.append(getUuid(i));
+                break;
             case FLOAT:
                 sb.append(getFloat(i));
                 break;
@@ -2005,6 +2128,9 @@ public class VectorColumn {
             case DATETIME:
             case DATETIMEV2:
                 sb.append(getDateTime(i));
+                break;
+            case TIMESTAMP_NS:
+                sb.append(getTimestampNs(i));
                 break;
             case TIMESTAMPTZ:
                 sb.append(getTimeStampTz(i));

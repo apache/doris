@@ -40,7 +40,7 @@ suite("test_clear_block") {
     }
 
     sql """ set enable_match_without_inverted_index = false; """
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     // sql """ set 
     def dupTableName = "dup_httplogs"
     sql """ drop table if exists ${dupTableName} """

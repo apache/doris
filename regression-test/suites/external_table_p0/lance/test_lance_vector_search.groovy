@@ -47,13 +47,17 @@ suite("test_lance_vector_search", "p0,external") {
      *                 top_k and offset must fit in an unsigned 32-bit integer.
      *   metric        l2, cosine, dot (dot_product is an alias), or hamming. If omitted, Lance
      *                 selects its default metric.
-     *   filter        Lance SQL predicate evaluated before candidate selection (prefilter).
+     *   filter        Lance SQL predicate applied during vector search; candidate-selection
+     *                 ordering is controlled by prefilter (default false).
+     *   prefilter     true applies filter before ANN candidate selection; false applies it after
+     *                 candidate selection. Defaults to false.
      *
      * Optional Lance index tuning properties:
      *   nprobes       Positive IVF partition probe count.
      *   refine_factor Positive candidate refinement/reranking factor.
      *   ef            Positive graph-search candidate width.
      *   use_index     true allows index search; false explicitly requests a flat search.
+     *   approx_mode   fast, normal, or accurate; defaults to Lance's normal policy.
      *
      * An outer WHERE is deliberately different from the TVF filter property: it is evaluated by
      * Doris after Lance returns Top-K and can therefore reduce the final result below top_k.
@@ -99,7 +103,7 @@ suite("test_lance_vector_search", "p0,external") {
     String indexedTopTwo = """vector_search("table"="${tableName}", "column"="embedding", "query_vector"="${headQuery}", "top_k"="2", "metric"="l2", "nprobes"="4", "refine_factor"="10", "use_index"="true")"""
     String flatTopTwo = """vector_search("table"="${tableName}", "column"="embedding", "query_vector"="${headQuery}", "top_k"="2", "metric"="l2", "use_index"="false")"""
     String indexedOffset = """vector_search("table"="${tableName}", "column"="embedding", "query_vector"="${headQuery}", "top_k"="2", "offset"="1", "metric"="l2", "nprobes"="4", "refine_factor"="10", "use_index"="true")"""
-    String indexedPrefilter = """vector_search("table"="${tableName}", "column"="embedding", "query_vector"="${headQuery}", "top_k"="3", "filter"="category = 'odd'", "metric"="l2", "nprobes"="4", "refine_factor"="10", "use_index"="true")"""
+    String indexedPrefilter = """vector_search("table"="${tableName}", "column"="embedding", "query_vector"="${headQuery}", "top_k"="3", "filter"="category = 'odd'", "prefilter"="true", "metric"="l2", "nprobes"="4", "refine_factor"="10", "use_index"="true")"""
     String indexedTail = """vector_search("table"="${tableName}", "column"="embedding", "query_vector"="${tailQuery}", "top_k"="3", "metric"="l2", "nprobes"="4", "refine_factor"="10", "use_index"="true")"""
 
     sql """DROP CATALOG IF EXISTS `${catalogName}`"""
@@ -148,6 +152,46 @@ suite("test_lance_vector_search", "p0,external") {
             ORDER BY _distance, row_id
         """
 
+        def baselineRows = sql "SELECT row_id, label, _distance FROM ${indexedTopFive} ORDER BY _distance, row_id"
+        // This refined IVF_PQ fixture is a pass-through control, not a guarantee of equal
+        // recall for algorithms whose candidate selection depends on approx_mode.
+        ["fast", "normal", "accurate", " FAST "].each { mode ->
+            String modeSearch = indexedTopFive.substring(0, indexedTopFive.length() - 1) +
+                    ", \"approx_mode\"=\"${mode}\")"
+            explain {
+                sql("SELECT row_id, label, _distance FROM ${modeSearch}")
+                contains "lanceApproxMode=${mode.trim().toUpperCase(java.util.Locale.ROOT)}"
+            }
+            assertEquals(baselineRows,
+                    sql("SELECT row_id, label, _distance FROM ${modeSearch} ORDER BY _distance, row_id"))
+        }
+        ["", "invalid", "0", "1", "2"].each { mode ->
+            String modeSearch = indexedTopFive.substring(0, indexedTopFive.length() - 1) +
+                    ", \"approx_mode\"=\"${mode}\")"
+            test {
+                sql "SELECT row_id FROM ${modeSearch}"
+                exception "approx_mode"
+            }
+        }
+        [-1, 0, 1, 2, 4].each { parallelism ->
+            String parallelSearch = indexedTopFive.substring(0, indexedTopFive.length() - 1) +
+                    ", \"query_parallelism\"=\"${parallelism}\")"
+            explain {
+                sql("SELECT row_id, label, _distance FROM ${parallelSearch}")
+                contains "lanceQueryParallelism=${parallelism}"
+            }
+            assertEquals(baselineRows,
+                    sql("SELECT row_id, label, _distance FROM ${parallelSearch} ORDER BY _distance, row_id"))
+        }
+        ["-2", "2147483648", "1.5", "invalid"].each { invalid ->
+            String invalidSearch = indexedTopFive.substring(0, indexedTopFive.length() - 1) +
+                    ", \"query_parallelism\"=\"${invalid}\")"
+            test {
+                sql "SELECT row_id FROM ${invalidSearch}"
+                exception "query_parallelism"
+            }
+        }
+
         // Disable the index explicitly for the exact flat baseline.
         qt_flat_l2_topk """
             SELECT row_id, label, _distance
@@ -171,8 +215,8 @@ suite("test_lance_vector_search", "p0,external") {
             ORDER BY _distance, row_id
         """
 
-        // The TVF filter is evaluated before Lance chooses Top-K. Odd-category rows are the
-        // even row ids, so the nearest eligible rows are row_id 2, 4 and 6.
+        // With prefilter=true, the TVF filter is evaluated before Lance chooses Top-K.
+        // Odd-category rows are the even row IDs, so the nearest eligible rows are 2, 4 and 6.
         qt_indexed_pre_search_filter """
             SELECT row_id, category, _distance
             FROM ${indexedPrefilter}

@@ -37,7 +37,7 @@ import java.util.List;
  * AggregateFunction 'bitmap_agg'.
  */
 public class BitmapAgg extends NotNullableAggregateFunction
-        implements UnaryExpression, ExplicitlyCastableSignature {
+        implements UnaryExpression, ExplicitlyCastableSignature, NullIgnoringAggregateFunction {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BitmapType.INSTANCE).args(BigIntType.INSTANCE),
             FunctionSignature.ret(BitmapType.INSTANCE).args(IntegerType.INSTANCE),

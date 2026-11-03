@@ -56,8 +56,19 @@ public class JdbcSourceOffsetProviderErrorHandlingTest {
             provider.parseCdcResponseData(response, new TypeReference<List<SnapshotSplit>>() {});
             Assert.fail("a failed envelope must throw");
         } catch (JobException e) {
-            Assert.assertTrue("the real remote error must be surfaced, got: " + e.getMessage(),
-                    e.getMessage().contains(realError));
+            Assert.assertEquals(realError, e.getMessage());
+        }
+    }
+
+    @Test
+    public void testParseFailureEnvelopeFallsBackToMessageWithoutTextData() {
+        JdbcSourceOffsetProvider provider = new JdbcSourceOffsetProvider();
+        String response = "{\"code\":1,\"msg\":\"cdc_client is unavailable\",\"data\":null}";
+        try {
+            provider.parseCdcResponseData(response, new TypeReference<List<SnapshotSplit>>() {});
+            Assert.fail("a failed envelope must throw");
+        } catch (JobException e) {
+            Assert.assertEquals("cdc_client is unavailable", e.getMessage());
         }
     }
 
@@ -83,8 +94,7 @@ public class JdbcSourceOffsetProviderErrorHandlingTest {
             provider.parseCdcResponseData(response, new TypeReference<Integer>() {});
             Assert.fail("an unparseable response must throw");
         } catch (JobException e) {
-            Assert.assertTrue("the raw response must be surfaced, got: " + e.getMessage(),
-                    e.getMessage().contains("502"));
+            Assert.assertEquals(response, e.getMessage());
         }
     }
 

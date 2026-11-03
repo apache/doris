@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.NullType;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -105,12 +106,17 @@ public class ArrayLiteral extends Literal implements ComparableLiteral {
 
     @Override
     protected Expression uncheckedCastTo(DataType targetType) throws AnalysisException {
+        return uncheckedCastTo(targetType, SessionVariable.enableStrictCast());
+    }
+
+    @Override
+    protected Expression uncheckedCastTo(DataType targetType, boolean strictCast) throws AnalysisException {
         if (this.dataType.equals(targetType)) {
             return this;
         } else if (targetType instanceof ArrayType) {
             // we should pass dataType to constructor because arguments maybe empty
             return new ArrayLiteral(items.stream()
-                    .map(i -> i.checkedCastWithFallback(((ArrayType) targetType).getItemType()))
+                    .map(i -> i.checkedCastWithFallback(((ArrayType) targetType).getItemType(), strictCast))
                     .map(Literal.class::cast)
                     .collect(ImmutableList.toImmutableList()), targetType);
         } else {

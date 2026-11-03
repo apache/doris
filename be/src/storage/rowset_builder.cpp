@@ -66,7 +66,9 @@ using namespace ErrorCode;
 
 BaseRowsetBuilder::BaseRowsetBuilder(const WriteRequest& req, RuntimeProfile* profile)
         : _req(req), _tablet_schema(std::make_shared<TabletSchema>()) {
-    _init_profile(profile);
+    if (profile != nullptr) {
+        _init_profile(profile);
+    }
 }
 
 RowsetBuilder::RowsetBuilder(StorageEngine& engine, const WriteRequest& req,
@@ -74,6 +76,7 @@ RowsetBuilder::RowsetBuilder(StorageEngine& engine, const WriteRequest& req,
         : BaseRowsetBuilder(req, profile), _engine(engine) {}
 
 void BaseRowsetBuilder::_init_profile(RuntimeProfile* profile) {
+    DCHECK(profile != nullptr);
     _profile = profile->create_child(fmt::format("RowsetBuilder {}", _req.tablet_id), true, true);
     _build_rowset_timer = ADD_TIMER(_profile, "BuildRowsetTime");
     _submit_delete_bitmap_timer = ADD_TIMER(_profile, "DeleteBitmapSubmitTime");
@@ -81,6 +84,7 @@ void BaseRowsetBuilder::_init_profile(RuntimeProfile* profile) {
 }
 
 void RowsetBuilder::_init_profile(RuntimeProfile* profile) {
+    DCHECK(profile != nullptr);
     BaseRowsetBuilder::_init_profile(profile);
     _commit_txn_timer = ADD_TIMER(_profile, "CommitTxnTime");
 }
@@ -216,6 +220,7 @@ Status RowsetBuilder::init() {
     RowsetWriterContext context;
     context.txn_id = _req.txn_id;
     context.load_id = _req.load_id;
+    context.load_cancel_status = _req.load_cancel_status;
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
     context.tablet_schema = _tablet_schema;
@@ -231,7 +236,8 @@ Status RowsetBuilder::init() {
     _rowset_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
     _pending_rs_guard = _engine.pending_local_rowsets().add(context.rowset_id);
 
-    _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor()->create_token();
+    _calc_delete_bitmap_token =
+            _engine.calc_delete_bitmap_executor()->create_token(_req.load_cancel_status);
 
     _is_init = true;
     return Status::OK();
@@ -352,13 +358,17 @@ Status RowsetBuilder::commit_txn() {
     return Status::OK();
 }
 
-Status BaseRowsetBuilder::cancel() {
+Status BaseRowsetBuilder::cancel(const Status& st) {
     std::lock_guard<std::mutex> l(_lock);
     if (_is_cancelled) {
         return Status::OK();
     }
     if (_calc_delete_bitmap_token != nullptr) {
-        _calc_delete_bitmap_token->cancel();
+        _calc_delete_bitmap_token->cancel(st);
+    }
+    // Flush-time bitmap work belongs to the rowset writer, not the builder token.
+    if (_rowset_writer != nullptr) {
+        _rowset_writer->cancel_calc_delete_bitmap(st);
     }
     _is_cancelled = true;
     return Status::OK();
@@ -427,7 +437,8 @@ Status BaseRowsetBuilder::_build_current_tablet_schema(
             table_schema_param->is_strict_mode(), table_schema_param->timestamp_ms(),
             table_schema_param->nano_seconds(), table_schema_param->timezone(),
             table_schema_param->auto_increment_coulumn(),
-            table_schema_param->sequence_map_col_uid(), _max_version_in_flush_phase));
+            table_schema_param->sequence_map_col_uid(), _max_version_in_flush_phase,
+            &_req.load_id));
     return Status::OK();
 }
 #include "common/compile_check_end.h"

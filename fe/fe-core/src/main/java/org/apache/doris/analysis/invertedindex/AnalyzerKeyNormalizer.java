@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis.invertedindex;
 
+import java.util.Locale;
 import java.util.Map;
 
 public final class AnalyzerKeyNormalizer {
@@ -38,7 +39,7 @@ public final class AnalyzerKeyNormalizer {
         }
         String value = properties.get(key);
         if (value != null && !value.isEmpty()) {
-            properties.put(key, value.trim().toLowerCase());
+            properties.put(key, value.trim().toLowerCase(Locale.ROOT));
         }
     }
 }

@@ -29,16 +29,16 @@
 #include "cloud/config.h"
 #include "common/config.h"
 #include "core/block/block.h"
+#include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "io/fs/s3_file_writer.h"
-#include "io/fs/s3_obj_storage_client.h"
 #include "io/io_common.h"
 #include "runtime/exec_env.h"
-#include "storage/index/inverted/inverted_index_writer.h"
+#include "storage/index/inverted/clucene/inverted_index_writer.h"
 #include "storage/options.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_writer.h"
@@ -699,7 +699,6 @@ TEST_F(CloudFileCacheWriteIndexOnlyTest,
     auto writer_result = RowsetFactory::create_rowset_writer(*_engine, context, true);
     ASSERT_TRUE(writer_result.has_value()) << writer_result.error();
     auto rowset_writer = std::move(writer_result).value();
-
     std::vector<uint32_t> key_column_ids = {0};
     auto key_block = create_column_block(tablet_schema, key_column_ids, 8, 1);
     auto st = rowset_writer->add_columns(&key_block, key_column_ids, true, 4, false);

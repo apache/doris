@@ -317,9 +317,29 @@ public:
         _ttl_seconds = ttl_seconds;
     }
 
+    // Absolute timestamp (seconds since epoch) at which this tablet's data stops being kept
+    // in the file cache TTL queue, or 0 when the tablet has no TTL or the deadline has
+    // already passed. The deadline is anchored at the tablet creation time, so every tablet
+    // of a table shares one deadline regardless of when each rowset was written.
+    //
+    // This is the single definition of that deadline. The load, compaction, schema change,
+    // query and warm up paths all stamp the cache blocks they create with this value, and
+    // BlockFileCacheTtlMgr expires those blocks by the very same value, so a block's
+    // recorded expiration time always agrees with the sweep that acts on it.
+    int64_t file_cache_ttl_expiration_time() const;
+
     int64_t avg_rs_meta_serialize_size() const { return _avg_rs_meta_serialize_size; }
 
     EncryptionAlgorithmPB encryption_algorithm() const { return _encryption_algorithm; }
+
+    bool has_inverted_index_storage_format() const {
+        return _inverted_index_storage_format.has_value();
+    }
+
+    InvertedIndexStorageFormatPB inverted_index_storage_format() const {
+        return _inverted_index_storage_format.value_or(
+                _schema->get_inverted_index_storage_format());
+    }
 
 private:
     Status _save_meta(DataDir* data_dir);
@@ -389,6 +409,9 @@ private:
     // Persisted storage format for this tablet (e.g. V2, V3). Used to derive
     // schema-level defaults such as external ColumnMeta usage.
     TStorageFormat::type _storage_format = TStorageFormat::V2;
+    // The schema KV is shared by (index_id, schema_version). Keep the tablet's
+    // immutable file format outside that shared identity.
+    std::optional<InvertedIndexStorageFormatPB> _inverted_index_storage_format;
 
     mutable std::shared_mutex _meta_lock;
 };

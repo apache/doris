@@ -17,8 +17,13 @@
 
 #include <gtest/gtest.h>
 
+#include "core/column/column_string.h"
+#include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_timestamptz.h"
+#include "core/string_buffer.hpp"
 #include "core/types.h"
 #include "core/value/ipv4_value.h"
+#include "core/value/uuid_value.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
@@ -26,6 +31,50 @@
 #include "exprs/function/cast/cast_to_string.h"
 
 namespace doris {
+
+TEST(CastToStringTest, NullableTimestampSkipsInvalidPayload) {
+    TimestampTzValue valid;
+    valid.unchecked_set_time(2024, 1, 2, 3, 4, 5, 123456);
+    TimestampTzValue invalid;
+    // A NULL row may retain arbitrary bytes from an earlier expression's allocation.
+    invalid.unchecked_set_time(64251, 1, 1, 0, 0, 0);
+    auto input = ColumnTimeStampTz::create();
+    input->insert_value(valid);
+    input->insert_value(invalid);
+    input->insert_value(valid);
+    input->insert_value(invalid);
+    const NullMap null_map {0, 1, 0, 1};
+    ColumnPtr input_column = std::move(input);
+
+    for (size_t rows : {0, 1, 2, 3, 4}) {
+        Block block {{input_column, std::make_shared<DataTypeTimeStampTz>(6), "input"},
+                     {nullptr, std::make_shared<DataTypeString>(), "result"}};
+        ASSERT_NO_THROW({
+            ASSERT_TRUE(CastToStringFunction::execute_impl(nullptr, block, {0}, 1, rows,
+                                                           null_map.data())
+                                .ok());
+        });
+        const auto& result = assert_cast<const ColumnString&>(*block.get_by_position(1).column);
+        ASSERT_EQ(result.size(), rows);
+        for (size_t row = 0; row < rows; ++row) {
+            EXPECT_EQ(result.get_data_at(row).to_string(),
+                      null_map[row] ? "" : "2024-01-02 03:04:05.123456+00:00");
+        }
+    }
+}
+
+TEST(CastToStringTest, NonNullInvalidTimestampIsStillRejected) {
+    TimestampTzValue invalid;
+    invalid.unchecked_set_time(64251, 1, 1, 0, 0, 0);
+    auto input = ColumnTimeStampTz::create();
+    input->insert_value(invalid);
+    Block block {{std::move(input), std::make_shared<DataTypeTimeStampTz>(6), "input"},
+                 {nullptr, std::make_shared<DataTypeString>(), "result"}};
+    const NullMap null_map {0};
+    EXPECT_THROW(static_cast<void>(CastToStringFunction::execute_impl(nullptr, block, {0}, 1, 1,
+                                                                      null_map.data())),
+                 Exception);
+}
 
 TEST(CastToStringTest, test) {
     {
@@ -169,6 +218,34 @@ TEST(CastToStringTest, from_int128_overloads) {
     value.items[0] = 0x0123456789ABCDEFULL;
     value.items[1] = 0x0FEDCBA987654321ULL;
     EXPECT_EQ(CastToString::from_uint128(value), "0123456789abcdeffedcba987654321");
+}
+
+TEST(CastToStringTest, UUIDBufferAppend) {
+    const auto value = UUIDValue::from_parts(0x0011223344556677ULL, 0x8899aabbccddeeffULL);
+    const std::string text = "00112233-4455-6677-8899-aabbccddeeff";
+    EXPECT_EQ(CastToString::from_uuid(value), text);
+    auto column = ColumnString::create();
+    BufferWritable buffer(*column);
+    CastToString::push_uuid(value, buffer);
+    buffer.commit();
+    EXPECT_EQ(column->get_data_at(0).to_string(), text);
+
+    const auto nested = "[\"" + text + "\",\"" + text + "\"]";
+    for (size_t row = 1; row <= 256; ++row) {
+        buffer.write_c_string("[\"");
+        CastToString::push_uuid(value, buffer);
+        buffer.write_c_string("\",\"");
+        CastToString::push_uuid(value, buffer);
+        buffer.write_c_string("\"]");
+        buffer.commit();
+    }
+    EXPECT_EQ(column->size(), 257);
+    EXPECT_EQ(column->get_data_at(0).to_string(), text);
+    for (size_t row = 1; row < column->size(); ++row) {
+        EXPECT_EQ(column->get_data_at(row).to_string(), nested);
+        EXPECT_EQ(column->get_offsets()[row], text.size() + row * nested.size());
+    }
+    EXPECT_EQ(column->get_chars().size(), text.size() + 256 * nested.size());
 }
 
 } // namespace doris

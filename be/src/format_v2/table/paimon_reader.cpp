@@ -25,6 +25,7 @@
 #include <utility>
 
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
@@ -34,6 +35,7 @@
 #include "format/table/paimon_reader.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/jni/paimon_jni_reader.h"
+#include "format_v2/table/paimon_rust_table_reader.h"
 #include "format_v2/table/schema_history_util.h"
 #include "gen_cpp/PlanNodes_types.h"
 
@@ -179,6 +181,58 @@ Status annotate_paimon_variants(const std::vector<ColumnDefinition>& table_schem
     return Status::OK();
 }
 
+DataTypePtr nullable_like_original(const DataTypePtr& original, DataTypePtr nested) {
+    return original != nullptr && original->is_nullable() ? make_nullable(nested) : nested;
+}
+
+// Unannotated INT96 cannot distinguish Paimon TIMESTAMP from TIMESTAMP_LTZ. Apply the
+// table schema's instant marker to each timestamp leaf, then rebuild its containers so the
+// parent type agrees with the children. Preserve precision and the original nullability.
+Status apply_paimon_timestamp_semantics(format::ColumnDefinition* column) {
+    DORIS_CHECK(column != nullptr);
+    DORIS_CHECK(column->type != nullptr);
+    const auto primitive = remove_nullable(column->type)->get_primitive_type();
+    // Validate before changing children: silently skipping a malformed parent leaves stale types.
+    if ((primitive == TYPE_ARRAY && column->children.size() != 1) ||
+        (primitive == TYPE_MAP && column->children.size() != 2)) {
+        return Status::InvalidArgument("Invalid Paimon {} column '{}': {} children",
+                                       column->type->get_name(), column->name,
+                                       column->children.size());
+    }
+    if (column->timestamp_is_adjusted_to_utc.has_value() &&
+        (primitive == TYPE_DATETIMEV2 || primitive == TYPE_TIMESTAMPTZ)) {
+        const auto target =
+                *column->timestamp_is_adjusted_to_utc ? TYPE_TIMESTAMPTZ : TYPE_DATETIMEV2;
+        column->type = DataTypeFactory::instance().create_data_type(
+                target, column->type->is_nullable(), 0, column->type->get_scale());
+        return Status::OK();
+    }
+
+    std::vector<DataTypePtr> child_types;
+    child_types.reserve(column->children.size());
+    for (auto& child : column->children) {
+        RETURN_IF_ERROR(apply_paimon_timestamp_semantics(&child));
+        child_types.push_back(child.type);
+    }
+    if (primitive == TYPE_ARRAY) {
+        column->type = nullable_like_original(column->type,
+                                              std::make_shared<DataTypeArray>(child_types.front()));
+    } else if (primitive == TYPE_MAP) {
+        column->type = nullable_like_original(
+                column->type, std::make_shared<DataTypeMap>(make_nullable(child_types[0]),
+                                                            make_nullable(child_types[1])));
+    } else if (primitive == TYPE_STRUCT) {
+        Strings child_names;
+        child_names.reserve(column->children.size());
+        for (const auto& child : column->children) {
+            child_names.push_back(child.name);
+        }
+        column->type = nullable_like_original(
+                column->type, std::make_shared<DataTypeStruct>(child_types, child_names));
+    }
+    return Status::OK();
+}
+
 } // namespace
 
 Status PaimonReader::prepare_split(const format::SplitReadOptions& options) {
@@ -220,6 +274,11 @@ Status PaimonReader::annotate_file_schema(std::vector<format::ColumnDefinition>*
     if (mode == format::TableColumnMappingMode::BY_FIELD_ID) {
         RETURN_IF_ERROR(format::annotate_file_schema_from_history(_scan_params, _split_schema_id,
                                                                   file_schema));
+    }
+    if (_format == format::FileFormat::PARQUET) {
+        for (auto& column : *file_schema) {
+            RETURN_IF_ERROR(apply_paimon_timestamp_semantics(&column));
+        }
     }
     const bool projects_variant = std::ranges::any_of(_projected_columns, contains_variant_type);
     if (projects_variant && _format == format::FileFormat::PARQUET) {
@@ -268,15 +327,18 @@ Status PaimonHybridReader::prepare_split(const format::SplitReadOptions& options
     // timer around the first native or JNI child and double-count that initialization.
     RETURN_IF_ERROR(_ensure_current_split_reader(options));
     DORIS_CHECK(_current_split_reader != nullptr);
-    if (!_is_jni_split(options.current_range)) {
-        auto native_options = options;
-        // Legacy FE plans wrap native files in FORMAT_JNI; normalize the child contract so the
-        // physical reader does not overwrite its recovered Parquet/ORC format with that wrapper.
-        RETURN_IF_ERROR(
-                _to_file_format(options.current_range, &native_options.current_split_format));
-        return _current_split_reader->prepare_split(native_options);
+    // Rust splits (like JNI splits) stay on the serialized DataSplit path. They must not go
+    // through the native format normalization below: FE sets paimon_params.file_format on
+    // serialized splits too, so FORMAT_JNI would be rewritten to PARQUET and dispatched to the
+    // native child.
+    if (_is_jni_split(options.current_range) || _is_rust_split(options.current_range)) {
+        return _current_split_reader->prepare_split(options);
     }
-    return _current_split_reader->prepare_split(options);
+    auto native_options = options;
+    // Legacy FE plans wrap native files in FORMAT_JNI; normalize the child contract so the
+    // physical reader does not overwrite its recovered Parquet/ORC format with that wrapper.
+    RETURN_IF_ERROR(_to_file_format(options.current_range, &native_options.current_split_format));
+    return _current_split_reader->prepare_split(native_options);
 }
 
 Status PaimonHybridReader::build_physical_splits(const FileScanSplit& source_split,
@@ -333,6 +395,12 @@ Status PaimonHybridReader::close() {
             close_status = std::move(status);
         }
     }
+    if (_rust_reader != nullptr) {
+        auto status = _rust_reader->close();
+        if (!status.ok() && close_status.ok()) {
+            close_status = std::move(status);
+        }
+    }
     _current_split_reader = nullptr;
     return close_status;
 }
@@ -345,17 +413,36 @@ void PaimonHybridReader::set_batch_size(size_t batch_size) {
     if (_jni_reader != nullptr) {
         _jni_reader->set_batch_size(_batch_size);
     }
+    if (_rust_reader != nullptr) {
+        _rust_reader->set_batch_size(_batch_size);
+    }
 }
 
 int64_t PaimonHybridReader::condition_cache_hit_count() const {
-    // Both children survive split switches, so the wrapper must publish their cumulative totals;
+    // Child readers survive split switches, so the wrapper must publish their cumulative totals;
     // returning only the active child would make FileScannerV2's monotonic delta go backwards.
     return (_native_reader == nullptr ? 0 : _native_reader->condition_cache_hit_count()) +
-           (_jni_reader == nullptr ? 0 : _jni_reader->condition_cache_hit_count());
+           (_jni_reader == nullptr ? 0 : _jni_reader->condition_cache_hit_count()) +
+           (_rust_reader == nullptr ? 0 : _rust_reader->condition_cache_hit_count());
 }
 
 Status PaimonHybridReader::_ensure_current_split_reader(const format::SplitReadOptions& options) {
-    if (_is_jni_split(options.current_range)) {
+    if (_is_rust_split(options.current_range)) {
+        DCHECK(options.current_split_format == format::FileFormat::JNI);
+        if (_rust_reader == nullptr) {
+#ifdef BE_TEST
+            if (_test_rust_reader_factory) {
+                _rust_reader = _test_rust_reader_factory();
+            } else {
+                _rust_reader = std::make_unique<format::paimon::PaimonRustTableReader>();
+            }
+#else
+            _rust_reader = std::make_unique<format::paimon::PaimonRustTableReader>();
+#endif
+            RETURN_IF_ERROR(_init_child_reader(_rust_reader.get(), format::FileFormat::JNI));
+        }
+        _current_split_reader = _rust_reader.get();
+    } else if (_is_jni_split(options.current_range)) {
         DCHECK(options.current_split_format == format::FileFormat::JNI);
         if (_jni_reader == nullptr) {
 #ifdef BE_TEST
@@ -409,6 +496,7 @@ Status PaimonHybridReader::_init_child_reader(format::TableReader* reader,
             .io_ctx = _io_ctx,
             .runtime_state = _runtime_state,
             .scanner_profile = _scanner_profile,
+            .parquet_profile_cache = _parquet_profile_cache,
             .push_down_agg_type = _push_down_agg_type,
             .push_down_count_columns = _push_down_count_columns,
             .condition_cache_digest = _condition_cache_digest,
@@ -440,6 +528,15 @@ bool PaimonHybridReader::_is_jni_split(const TFileRangeDesc& range) {
     const auto& params = range.table_format_params.paimon_params;
     return params.__isset.paimon_split &&
            (!params.__isset.reader_type || params.reader_type == TPaimonReaderType::PAIMON_JNI);
+}
+
+bool PaimonHybridReader::_is_rust_split(const TFileRangeDesc& range) {
+    if (!range.__isset.table_format_params || !range.table_format_params.__isset.paimon_params) {
+        return false;
+    }
+    const auto& params = range.table_format_params.paimon_params;
+    return params.__isset.paimon_split && params.__isset.reader_type &&
+           params.reader_type == TPaimonReaderType::PAIMON_RUST;
 }
 
 Status PaimonHybridReader::_to_file_format(const TFileRangeDesc& range,

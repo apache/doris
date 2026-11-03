@@ -357,6 +357,7 @@ enum TPaimonReaderType {
     PAIMON_JNI = 1,
     // Deprecated wire value kept during rolling upgrades. New plans never emit it.
     PAIMON_CPP = 2,
+    PAIMON_RUST = 3,
 }
 
 struct TPaimonFileDesc {
@@ -378,6 +379,12 @@ struct TPaimonFileDesc {
     16: optional i64 schema_id; // for schema change.
     // Reader implementation for logical paimon split. Native file split uses range format type.
     17: optional TPaimonReaderType reader_type;
+    // paimon-rust: TableSchema serialized via JsonSerdeUtil.toJson(table.schema()).
+    // Consumed by paimon_table_from_schema_json on BE; skips catalog/warehouse resolution.
+    18: optional string paimon_table_schema_json
+    // paimon-rust: non-default branch name. Unset means main branch (matches
+    // upstream paimon commit 742da63: null-if-DEFAULT_MAIN_BRANCH).
+    19: optional string paimon_branch
 }
 
 struct TTrinoConnectorFileDesc {
@@ -464,6 +471,12 @@ enum TVectorMetric {
     HAMMING
 }
 
+enum TVectorApproxMode {
+    FAST = 0,
+    NORMAL = 1,
+    ACCURATE = 2
+}
+
 struct TSearchVector {
     1: optional TVectorElementType element_type
     2: optional i32 dimension
@@ -480,6 +493,9 @@ struct TVectorSearchParams {
     3: optional i64 top_k
     4: optional i64 offset
     5: optional TVectorMetric metric
+    // FLOAT bounds: inclusive lower and exclusive upper.
+    6: optional double distance_lower_bound
+    7: optional double distance_upper_bound
 }
 
 enum TFtsCoverageMode {
@@ -531,8 +547,9 @@ enum TSearchFilterFormat {
     SUBSTRAIT
 }
 
-// A search filter is evaluated before candidate selection. A normal SQL predicate above the search
-// relation remains a post-search filter and is not serialized here.
+// A TVF search filter is evaluated by the search provider. TExternalSearchRequest.prefilter
+// controls whether Lance applies it before or after vector/FTS candidate selection. A normal SQL
+// predicate above the search relation remains a Doris residual.
 struct TSearchFilter {
     1: optional TSearchFilterFormat format
     2: optional binary payload
@@ -545,6 +562,10 @@ struct TVectorSearchOptions {
     2: optional i32 refine_factor
     3: optional i32 ef
     4: optional bool use_index
+    // Lance: -1 uses available CPU parallelism, 0 selects automatically, positive values cap it.
+    5: optional i32 query_parallelism
+    // Unset preserves the vector engine's default speed/recall tradeoff.
+    6: optional TVectorApproxMode approx_mode
 }
 
 // The active union field identifies the logical search kind. A future hybrid field can contain both
@@ -561,6 +582,9 @@ struct TExternalSearchRequest {
     2: optional TExternalSearchQuery search_query
     3: optional TSearchFilter search_filter
     4: optional TVectorSearchOptions vector_search_options
+    // Applies only to search_filter. Defaults to false (postfilter); Doris WHERE predicates remain
+    // residuals regardless of this setting.
+    5: optional bool prefilter
 }
 
 // A catalog/S3 range reads fragments from a fixed snapshot. A local TVF range uses version zero
@@ -617,6 +641,8 @@ struct TTableFormatFileDesc {
     // JDBC connection parameters (used when table_format_type == "jdbc")
     11: optional map<string, string> jdbc_params
     12: optional TLanceFileDesc lance_params
+    // Keep ES field ids aligned with master for mixed-version requests.
+    13: optional map<string, string> es_params
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type
@@ -693,17 +719,27 @@ struct TFileScanRangeParams {
     // Paimon options from FE, used for jni/native scanner
     // Set at ScanNode level to avoid redundant serialization in each split
     30: optional map<string, string> paimon_options
+    31: optional map<string, string> es_properties
+    32: optional map<string, string> es_docvalue_context
+    33: optional map<string, string> es_fields_context
     // Versioned Iceberg scan semantics negotiated by FE. Absence/zero preserves legacy BE
     // behavior during a BE-first rolling upgrade; version 1 enables file-wide ID projection and
     // logical initial-default materialization.
     34: optional i32 iceberg_scan_semantics_version
     // FE-generated identity for sharing a deserialized table across JNI scanners in one scan node.
     35: optional string serialized_table_cache_key
-    // 31-33 and 36 are used in master; do not allocate them in branch-4.1.
+    // HMS catalog property hive.parquet.time-zone. Interpretation is versioned by
+    // parquet_timestamp_semantics_version.
+    36: optional string hive_parquet_time_zone
     37: optional TLanceScanParams lance_scan_params
     // Non-regular columns in the pinned full schema, including columns pruned from phase one.
     // When present, omitted names are REGULAR. Used to rebuild row-id fetch projections.
     38: optional map<string, TColumnCategory> column_name_to_category
+    // If both this marker and the timezone are absent, preserve legacy session-timezone decoding.
+    // Version 1 makes an absent/empty hive_parquet_time_zone explicitly disable INT96 conversion.
+    39: optional i32 parquet_timestamp_semantics_version
+    // Hybrid Paimon/Hudi scans keep FORMAT_JNI while individual ranges can be native Parquet.
+    40: optional bool contains_native_parquet
 }
 
 struct TFileRangeDesc {
@@ -873,6 +909,29 @@ struct TLanceIndexMetadataParams {
   3: optional string table
 }
 
+// A tablet to inspect and the partition visible version to read.
+struct TIndexDiskUsageTablet {
+  1: optional i64 tablet_id
+  2: optional i64 partition_id
+  3: optional i64 version
+  // The base or rollup index that the tablet belongs to.
+  4: optional i64 materialized_index_id
+}
+
+// Parameters of the index_disk_usage table function.
+struct TIndexDiskUsageMetadataParams {
+  // "tablet", "rowset" or "segment".
+  1: optional string level
+  // Scan SNII dictionary regions to split positions out of postings.
+  2: optional bool position_detail
+  // Empty means all indexes.
+  3: optional list<i64> index_ids
+  4: optional map<i64, string> partition_names
+  5: optional list<TIndexDiskUsageTablet> tablets
+  // Names of the base and rollup indexes, keyed by materialized index id.
+  6: optional map<i64, string> materialized_index_names
+}
+
 struct TMetaScanRange {
   1: optional Types.TMetadataType metadata_type
   2: optional TIcebergMetadataParams iceberg_params // deprecated
@@ -894,6 +953,7 @@ struct TMetaScanRange {
   16: optional list<string> serialized_splits;
   17: optional TParquetMetadataParams parquet_params;
   18: optional TLanceIndexMetadataParams lance_index_params;
+  19: optional TIndexDiskUsageMetadataParams index_disk_usage_params;
 }
 
 // Specification of an individual data range which is held in its entirety
@@ -1672,6 +1732,10 @@ struct TRuntimeFilterDesc {
   16: optional bool sync_filter_size; // Deprecated
   
   17: optional bool build_bf_by_runtime_size;
+
+  // Per-filter wait time in ms. When set, overrides query-level runtime_filter_wait_time_ms.
+  // 0 means non-blocking (don't wait for this filter).
+  18: optional i32 wait_time_ms;
 }
 
 

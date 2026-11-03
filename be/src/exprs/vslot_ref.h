@@ -42,14 +42,15 @@ public:
 #ifdef BE_TEST
     VSlotRef() = default;
     void set_slot_id(int slot_id) { _slot_id = slot_id; }
+    void set_column_name(const std::string* column_name) { _column_name = column_name; }
 #endif
     void set_column_id(int column_id) { _column_id = column_id; }
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
     Status execute(VExprContext* context, Block* block, int* result_column_id) const override;
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override;
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override;
     DataTypePtr execute_type(const Block* block) const override;
 
     const std::string& expr_name() const override;

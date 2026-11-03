@@ -23,9 +23,21 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 public class IndexTest {
+
+    @Test
+    public void testGetColumnUniqueIdsForShadowColumn() {
+        Column shadowColumn = new Column(Column.getShadowName("MiXeD_CaSe"), Type.STRING);
+        shadowColumn.setUniqueId(107);
+        Index index = new Index(12, "shadow_index", Collections.singletonList("mixed_case"),
+                IndexDef.IndexType.INVERTED, null, null);
+
+        Assert.assertEquals(Collections.singletonList(107),
+                index.getColumnUniqueIds(Collections.singletonList(shadowColumn)));
+    }
 
     @Test
     public void testGetColumnUniqueIds() {

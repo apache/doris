@@ -76,7 +76,7 @@ suite("test_bm25_score", "p0") {
         load_httplogs_data.call('test_bm25_score', 'test_bm25_score', 'true', 'json', 'documents-1000.json')
         sql "sync"
 
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
 
         def explain_result = sql """ explain verbose select *, score() as score from test_bm25_score where request match_any 'button.03.gif' order by score limit 10; """
         log.info("Explain verbose result: ${explain_result}")
@@ -102,67 +102,56 @@ suite("test_bm25_score", "p0") {
         // Test exception cases for score() function usage
         log.info("Testing exception cases for score() function...")
 
+        // score() needs a MATCH or SEARCH predicate in the WHERE clause of its own SELECT on one table.
+        def unsupportedSelect = "score() can only be used in a SELECT that reads one table"
         test {
             sql """ select score() as score from test_bm25_score limit 10; """
-            exception "score() function requires WHERE clause with MATCH function, ORDER BY and LIMIT for optimization"
+            exception unsupportedSelect
         }
 
         test {
             sql """ select score() as score from test_bm25_score where status = 200 limit 10; """
-            exception "score() function requires WHERE clause with MATCH function, ORDER BY and LIMIT for optimization"
-        }
-
-        test {
-            sql """ select score() as score from test_bm25_score where request match_any 'button.03.gif' limit 10; """
-            exception "score() function requires WHERE clause with MATCH function, ORDER BY and LIMIT for optimization"
-        }
-
-        test {
-            sql """ select score() as score from test_bm25_score where request match_any 'button.03.gif' order by score; """
-            exception "score() function requires WHERE clause with MATCH function, ORDER BY and LIMIT for optimization"
-        }
-
-        test {
-            sql """ select score() as score from test_bm25_score where request match_any 'button.03.gif' order by status limit 10; """
-            exception "ORDER BY expression must reference a score() function from SELECT clause for push down optimization"
+            exception unsupportedSelect
         }
 
         test {
             sql """ select score() from test_bm25_score; """
-            exception "score() function requires WHERE clause with MATCH function, ORDER BY and LIMIT for optimization"
+            exception unsupportedSelect
         }
 
         test {
             sql """ select * from (select score() as s from test_bm25_score where status = 200) t; """
-            exception "score() function requires WHERE clause with MATCH function, ORDER BY and LIMIT for optimization"
+            exception unsupportedSelect
         }
 
         test {
             sql """ select score() as score from test_bm25_score where request = 'button.03.gif' order by score() limit 10; """
-            exception "WHERE clause must contain at least one MATCH or SEARCH function for score() push down optimization"
+            exception unsupportedSelect
         }
 
-        test {
-            sql """ select score() as score from test_bm25_score where request match 'button.03.gif'; """
-            exception "score() function requires WHERE clause with MATCH function, ORDER BY and LIMIT for optimization"
-        }
-
+        // A scored SELECT in a subquery or set operation needs ORDER BY score() with LIMIT.
         test {
             sql """ 
                 (select score() as score from test_bm25_score where request match_any 'button.03.gif')
                 union all
                 (select score() as score from test_bm25_score where request match_any 'test');
             """
-            exception "score() function requires WHERE clause with MATCH function, ORDER BY and LIMIT for optimization"
+            exception "score() in a subquery, view, CTE or set operation requires ORDER BY score() with LIMIT"
         }
+
+        // Without a TopN on the score, the scan scores every row it returns; a TopN on the score
+        // finds the same best score.
+        qt_score_order_by_score_and_column """ select status, score() as s from test_bm25_score where request match_any 'button.03.gif' order by s desc, status limit 3; """
+        qt_score_topn_best """ select score() as score from test_bm25_score where request match_any 'button.03.gif' order by score desc limit 1; """
 
         // score() > 0.5 with ORDER BY and LIMIT is now supported after score range filter pushdown feature
         sql """ select *, score() from test_bm25_score where request match_any 'button.03.gif' and score() > 0.5 order by score() limit 10; """
 
-        test {
-            sql """ select *, score() as score from test_bm25_score where request match_any 'button.03.gif' and score() > 0.5; """
-            exception "score() function requires WHERE clause with MATCH function, ORDER BY and LIMIT for optimization"
-        }
+        // score() > 0.5 without ORDER BY and LIMIT is a supported minimum score filter. Its row count
+        // must match the score TopN path with a limit above the number of matching rows.
+        sql """ select *, score() as score from test_bm25_score where request match_any 'button.03.gif' and score() > 0.5; """
+        qt_score_range_without_topn """ select count() from test_bm25_score where request match_any 'button.03.gif' and score() > 0.5; """
+        qt_score_range_topn_control """ select count() from (select score() as s from test_bm25_score where request match_any 'button.03.gif' and score() > 0.5 order by s desc limit 1000) t; """
 
         log.info("All exception test cases completed successfully")
     } finally {
@@ -218,7 +207,7 @@ suite("test_bm25_score", "p0") {
             sql """ insert into t1 values(2, 2, '{"key": "abc hhh"}'); """
 
             sql """ sync """
-            sql """ set enable_common_expr_pushdown = true; """
+            sql """ set enable_segment_limit_pushdown = true; """
 
             sql """ alter table t1  add index idx_v(v) USING INVERTED PROPERTIES("parser"="english", "support_phrase"=true); """
             wait_for_latest_op_on_table_finish("t1", timeout)
@@ -227,7 +216,7 @@ suite("test_bm25_score", "p0") {
         }
 
         try {
-            sql """ set enable_common_expr_pushdown = true; """
+            sql """ set enable_segment_limit_pushdown = true; """
             sql """ set enable_match_without_inverted_index = false; """
             sql """ set default_variant_enable_typed_paths_to_sparse = false; """
             sql """ set default_variant_enable_doc_mode = false; """
@@ -280,7 +269,7 @@ suite("test_bm25_score", "p0") {
             sql """ insert into t2 values(4,4, "hello world"); """
 
             sql """ sync """
-            sql """ set enable_common_expr_pushdown = true; """
+            sql """ set enable_segment_limit_pushdown = true; """
 
             sql """ alter table t2 add index idx_s(s) USING INVERTED PROPERTIES("parser"="english", "support_phrase"=true); """
             wait_for_latest_op_on_table_finish("t2", timeout)

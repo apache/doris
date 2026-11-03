@@ -33,8 +33,8 @@
 suite("test_search_lucene_mode", "p0") {
     def tableName = "search_lucene_mode_test"
 
-    // Pin enable_common_expr_pushdown to prevent CI flakiness from fuzzy testing.
-    sql """ set enable_common_expr_pushdown = true """
+    // Pin enable_segment_limit_pushdown to prevent CI flakiness from fuzzy testing.
+    sql """ set enable_segment_limit_pushdown = true """
 
     sql "DROP TABLE IF EXISTS ${tableName}"
 
@@ -73,7 +73,7 @@ suite("test_search_lucene_mode", "p0") {
     // ============ Test 1: Standard mode AND behavior ============
     // In standard mode, 'apple AND banana' behaves like boolean AND
     qt_standard_and """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('title:apple AND title:banana')
         ORDER BY id
@@ -83,7 +83,7 @@ suite("test_search_lucene_mode", "p0") {
     // In Lucene mode, 'a AND b' marks both as MUST (+a +b)
     // Expected same result as standard mode for simple AND
     qt_lucene_and """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('apple AND banana', '{"default_field":"title","default_operator":"and","mode":"lucene"}')
         ORDER BY id
@@ -92,7 +92,7 @@ suite("test_search_lucene_mode", "p0") {
     // ============ Test 3: Standard mode OR behavior ============
     // In standard mode, 'apple OR date' returns any row matching either
     qt_standard_or """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('title:apple OR title:date')
         ORDER BY id
@@ -101,7 +101,7 @@ suite("test_search_lucene_mode", "p0") {
     // ============ Test 4: Lucene mode OR behavior ============
     // In Lucene mode, 'a OR b' marks both as SHOULD with minimum_should_match=1
     qt_lucene_or """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('apple OR date', '{"default_field":"title","default_operator":"or","mode":"lucene"}')
         ORDER BY id
@@ -117,7 +117,7 @@ suite("test_search_lucene_mode", "p0") {
     // So effectively: +apple only
     // Expected: rows containing 'apple' -> 1, 2, 3, 8
     qt_lucene_complex_and_or """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('apple AND banana OR cherry', '{"default_field":"title","default_operator":"and","mode":"lucene"}')
         ORDER BY id
@@ -133,7 +133,7 @@ suite("test_search_lucene_mode", "p0") {
     // So effectively: apple AND (banana OR cherry)
     // Expected: rows with 'apple' AND ('banana' OR 'cherry') -> 1, 2
     qt_lucene_min_should_match_1 """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('apple AND banana OR cherry', '{"default_field":"title","default_operator":"and","mode":"lucene","minimum_should_match":1}')
         ORDER BY id
@@ -144,7 +144,7 @@ suite("test_search_lucene_mode", "p0") {
     // This matches all documents EXCEPT those containing the negated term.
     // Expected: all docs without "apple" in title (4, 5, 6, 7)
     qt_lucene_not """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('NOT apple', '{"default_field":"title","default_operator":"and","mode":"lucene"}')
         ORDER BY id
@@ -156,7 +156,7 @@ suite("test_search_lucene_mode", "p0") {
     // - 'NOT b' makes 'b' MUST_NOT
     // Expected: rows with 'apple' but NOT 'banana'
     qt_lucene_and_not """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('apple AND NOT banana', '{"default_field":"title","default_operator":"and","mode":"lucene"}')
         ORDER BY id
@@ -168,7 +168,7 @@ suite("test_search_lucene_mode", "p0") {
     // - 'NOT b' makes 'b' MUST_NOT
     // Expected: rows with 'apple' OR (NOT 'banana')
     qt_lucene_or_not """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('apple OR NOT banana', '{"default_field":"title","default_operator":"or","mode":"lucene","minimum_should_match":1}')
         ORDER BY id
@@ -178,7 +178,7 @@ suite("test_search_lucene_mode", "p0") {
     // 'a OR b OR c' with only SHOULD clauses
     // minimum_should_match defaults to 1 (at least one must match)
     qt_lucene_or_only """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('apple OR date OR fig', '{"default_field":"title","default_operator":"or","mode":"lucene"}')
         ORDER BY id
@@ -187,7 +187,7 @@ suite("test_search_lucene_mode", "p0") {
     // ============ Test 11: Lucene mode cross-field query ============
     // Multi-field query with Lucene mode
     qt_lucene_cross_field """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, category
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title, category
         FROM ${tableName}
         WHERE search('title:apple AND category:fruit', '{"default_operator":"and","mode":"lucene"}')
         ORDER BY id
@@ -196,7 +196,7 @@ suite("test_search_lucene_mode", "p0") {
     // ============ Test 12: Standard mode for comparison ============
     // Same query in standard mode for comparison
     qt_standard_cross_field """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, category
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title, category
         FROM ${tableName}
         WHERE search('title:apple AND category:fruit')
         ORDER BY id
@@ -204,7 +204,7 @@ suite("test_search_lucene_mode", "p0") {
 
     // ============ Test 13: Lucene mode with phrase query ============
     qt_lucene_phrase """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('"apple banana"', '{"default_field":"title","default_operator":"and","mode":"lucene"}')
         ORDER BY id
@@ -212,7 +212,7 @@ suite("test_search_lucene_mode", "p0") {
 
     // ============ Test 14: Lucene mode with wildcard ============
     qt_lucene_wildcard """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('app* AND ban*', '{"default_field":"title","default_operator":"and","mode":"lucene"}')
         ORDER BY id
@@ -221,7 +221,7 @@ suite("test_search_lucene_mode", "p0") {
     // ============ Test 15: Verify standard mode unchanged ============
     // Ensure standard mode is not affected by the Lucene mode addition
     qt_standard_unchanged """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('title:apple AND title:banana')
         ORDER BY id
@@ -229,7 +229,7 @@ suite("test_search_lucene_mode", "p0") {
 
     // ============ Test 16: Lucene mode with empty options (should use standard mode) ============
     qt_empty_options """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('apple AND banana', '{"default_field":"title","default_operator":"and"}')
         ORDER BY id
@@ -239,7 +239,7 @@ suite("test_search_lucene_mode", "p0") {
     // With minimum_should_match=0 (default in filter context), SHOULD clauses are discarded
     // when MUST clauses exist
     qt_lucene_min_should_match_0 """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('apple AND banana OR date', '{"default_field":"title","default_operator":"and","mode":"lucene","minimum_should_match":0}')
         ORDER BY id

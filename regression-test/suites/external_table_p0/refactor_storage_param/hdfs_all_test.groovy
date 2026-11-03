@@ -74,9 +74,11 @@ suite("refactor_params_hdfs_all_test", "p0,external,kerberos,external_docker,ext
         assert insertResult.get(0).get(0) == 1
     }
 
+    // Explicit client properties must match the DataNode SASL protection to allow writes.
     def hdfsNonXmlParams = "\"fs.defaultFS\" = \"hdfs://${externalEnvIp}:8520\",\n" +
             "\"dfs.namenode.kerberos.principal\" = \"hdfs/hadoop-master@LABS.TERADATA.COM\",\n" +
             "\"dfs.client.use.datanode.hostname\" = \"true\",\n" +
+            "\"dfs.data.transfer.protection\" = \"authentication\",\n" +
             "\"hadoop.security.token.service.use_ip\" = \"false\",\n" +
             "\"hadoop.kerberos.min.seconds.before.relogin\" = \"5\",\n" +
             "\"hadoop.security.authentication\" = \"kerberos\",\n" +

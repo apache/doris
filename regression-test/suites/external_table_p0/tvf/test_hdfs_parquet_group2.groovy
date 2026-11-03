@@ -25,7 +25,12 @@ suite("test_hdfs_parquet_group2","external,hive,tvf,external_docker") {
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        def originalTimeZone = sql "SELECT @@time_zone"
         try {
+            // Instant-annotated timestamps now retain their timezone-aware type in TVFs.
+            // V2 schema discovery honors logical UTC annotations even in older-writer fixtures.
+            // Pin the display timezone so the golden results do not depend on the FE default.
+            sql "SET time_zone = 'Asia/Shanghai'"
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group2/decimal32-written-as-64-bit.snappy.parquet"
             order_qt_test_0 """ select * from HDFS(
                         "uri" = "${uri}",
@@ -194,6 +199,7 @@ suite("test_hdfs_parquet_group2","external,hive,tvf,external_docker") {
                         "format" = "parquet") limit 10; """
 
 
+            // ENUM is textual despite its BYTE_ARRAY storage; its expected cells must stay strings.
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group2/parquet-thrift-compat.snappy.parquet"
             order_qt_test_24 """ select * from HDFS(
                         "uri" = "${uri}",
@@ -282,11 +288,14 @@ suite("test_hdfs_parquet_group2","external,hive,tvf,external_docker") {
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group2/before_1582_timestamp_int96_dict_v2_4_6.snappy.parquet"
+            // This golden checks historical Shanghai normalization rather than raw INT96 wall time.
             order_qt_test_36 """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
-                        "format" = "parquet") limit 10; """
+                        "format" = "parquet",
+                        "hive.parquet.time-zone" = "Asia/Shanghai") limit 10; """
         } finally {
+            sql "SET time_zone = '${originalTimeZone[0][0]}'"
         }
     }
 }

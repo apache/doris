@@ -251,8 +251,7 @@ Status CloudSnapshotMgr::_create_rowset_meta(
                 file_mapping[src_index_file] = dst_index_file;
             }
         } else {
-            if (context.tablet_schema->has_inverted_index() ||
-                context.tablet_schema->has_ann_index()) {
+            if (context.tablet_schema->has_inverted_or_ann_index()) {
                 std::string src_index_file = InvertedIndexDescriptor::get_index_file_path_v2(
                         InvertedIndexDescriptor::get_index_file_path_prefix(src_segment_file));
                 std::string dst_index_file = InvertedIndexDescriptor::get_index_file_path_v2(
@@ -271,6 +270,8 @@ Status CloudSnapshotMgr::_create_rowset_meta(
     new_rowset_meta_pb->set_creation_time(time(nullptr));
     new_rowset_meta_pb->set_num_segments(source_meta_pb.num_segments());
     new_rowset_meta_pb->set_rowset_state(source_meta_pb.rowset_state());
+    new_rowset_meta_pb->mutable_segment_group_sizes()->CopyFrom(
+            source_meta_pb.segment_group_sizes());
 
     new_rowset_meta_pb->clear_segments_key_bounds();
     for (const auto& key_bound : source_meta_pb.segments_key_bounds()) {

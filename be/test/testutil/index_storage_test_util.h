@@ -116,7 +116,6 @@ struct IndexBatch {
     std::vector<std::vector<std::string>> variant_jsons_by_column;
     std::vector<ColumnPtr> variant_columns_by_column;
     bool deprecated_enable_flatten_nested = false;
-    bool check_duplicate_json_path = false;
     ParseConfig::ParseTo parse_to = ParseConfig::ParseTo::OnlySubcolumns;
 
     static IndexBatch single_text(std::vector<std::string> values, int32_t first_key = 0);

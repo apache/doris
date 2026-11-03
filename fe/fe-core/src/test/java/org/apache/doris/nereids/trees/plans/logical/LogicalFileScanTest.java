@@ -19,7 +19,11 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
@@ -29,14 +33,25 @@ import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.rewrite.QueryPartitionCollector;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Arrays;
@@ -47,6 +62,124 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class LogicalFileScanTest {
+
+    @Test
+    public void testPreloadedEmptyHiveViewDoesNotBecomeDeferredAgain() {
+        HMSExternalTable table = newDeferredHiveTable();
+        StatementContext statement = new StatementContext();
+        SelectedPartitions emptyView = new SelectedPartitions(0, ImmutableMap.of(), false);
+        Mockito.when(table.preloadPartitionView(Mockito.any())).thenReturn(emptyView);
+        statement.preloadExternalPartitionView(table, Optional.empty());
+        ConnectContext connect = Mockito.mock(ConnectContext.class);
+        Mockito.when(connect.getStatementContext()).thenReturn(statement);
+        Mockito.when(connect.getSessionVariable()).thenReturn(new SessionVariable());
+        try (MockedStatic<ConnectContext> current = Mockito.mockStatic(ConnectContext.class)) {
+            current.when(ConnectContext::get).thenReturn(connect);
+            LogicalFileScan scan = newHiveScan(table);
+            Assertions.assertSame(emptyView, scan.getSelectedPartitions());
+            Assertions.assertFalse(scan.getSelectedPartitions().isDeferredPartitionPruning());
+            Mockito.verify(table, Mockito.never()).initSelectedPartitions(Mockito.any());
+            Mockito.verify(table, Mockito.never()).getNameToPartitionItems(Mockito.any());
+        }
+    }
+
+    @Test
+    public void testInsertHiveSourceKeepsCompleteViewInsteadOfLiveFilter() {
+        HMSExternalTable table = newDeferredHiveTable();
+        Mockito.when(table.getDlaType()).thenReturn(HMSExternalTable.DLAType.HIVE);
+        SelectedPartitions view = new SelectedPartitions(1,
+                ImmutableMap.of("p=x", Mockito.mock(PartitionItem.class)), false);
+        Mockito.when(table.preloadPartitionView(Mockito.any())).thenReturn(view);
+        StatementContext statement = new StatementContext();
+        statement.setIsInsert(true);
+        ConnectContext connect = Mockito.mock(ConnectContext.class);
+        Mockito.when(connect.getStatementContext()).thenReturn(statement);
+        Mockito.when(connect.getSessionVariable()).thenReturn(new SessionVariable());
+        try (MockedStatic<ConnectContext> current = Mockito.mockStatic(ConnectContext.class)) {
+            current.when(ConnectContext::get).thenReturn(connect);
+            Assertions.assertSame(view, newHiveScan(table).getSelectedPartitions());
+            Mockito.verify(table).preloadPartitionView(Mockito.any());
+            Mockito.verify(table, Mockito.never()).getNameToPartitionItemsByFilter(Mockito.any(), Mockito.any());
+        }
+    }
+
+    @Test
+    public void testDeferredHiveMvCollectorAndPhysicalScanShareCompleteView() {
+        HMSExternalTable table = newDeferredHiveTable();
+        Mockito.when(table.supportInternalPartitionPruned()).thenReturn(true);
+        List<String> qualifiers = Arrays.asList("hms", "db", "hive_tbl");
+        Mockito.when(table.getFullQualifiers()).thenReturn(qualifiers);
+        SelectedPartitions completeView = new SelectedPartitions(1,
+                ImmutableMap.of("p=x", Mockito.mock(PartitionItem.class)), false);
+        Mockito.when(table.preloadPartitionView(Mockito.any())).thenReturn(completeView);
+        LogicalFileScan scan = newHiveScan(table);
+        StatementContext statement = newStatementContext();
+        CascadesContext cascades = CascadesContext.initContext(statement, scan, PhysicalProperties.ANY);
+        scan.accept(new QueryPartitionCollector(), cascades);
+        Assertions.assertEquals(Collections.singleton("p=x"),
+                statement.getTableUsedPartitionNameMap().get(qualifiers).iterator().next().second);
+        Assertions.assertSame(completeView, statement.getExternalPartitionView(table, Optional.empty()).get());
+
+        PhysicalFileScan physical = Mockito.mock(PhysicalFileScan.class);
+        Mockito.when(physical.getSelectedPartitions()).thenReturn(SelectedPartitions.DEFERRED_PARTITION_PRUNING);
+        Mockito.when(physical.getRelationSnapshot()).thenReturn(Optional.empty());
+        PlanTranslatorContext translatorContext = Mockito.mock(PlanTranslatorContext.class);
+        Mockito.when(translatorContext.getStatementContext()).thenReturn(statement);
+        SelectedPartitions translated = Deencapsulation.invoke(new PhysicalPlanTranslator(),
+                "materializeDeferredHivePartitions", table, physical, translatorContext);
+        Assertions.assertSame(completeView, translated);
+        Mockito.verify(table, Mockito.times(1)).preloadPartitionView(Mockito.any());
+    }
+
+    @Test
+    public void testDeferredEmptyHiveMvCollectorRecordsMaterializedEmptyView() {
+        HMSExternalTable table = newDeferredHiveTable();
+        Mockito.when(table.supportInternalPartitionPruned()).thenReturn(true);
+        List<String> qualifiers = Arrays.asList("hms", "db", "hive_tbl");
+        Mockito.when(table.getFullQualifiers()).thenReturn(qualifiers);
+        SelectedPartitions completeView = new SelectedPartitions(0, ImmutableMap.of(), false);
+        Mockito.when(table.preloadPartitionView(Mockito.any())).thenReturn(completeView);
+        LogicalFileScan scan = newHiveScan(table);
+        StatementContext statement = newStatementContext();
+        scan.accept(new QueryPartitionCollector(),
+                CascadesContext.initContext(statement, scan, PhysicalProperties.ANY));
+        Assertions.assertTrue(statement.getTableUsedPartitionNameMap().get(qualifiers)
+                .iterator().next().second.isEmpty());
+        Assertions.assertSame(completeView, statement.getExternalPartitionView(table, Optional.empty()).get());
+        Mockito.verify(table).preloadPartitionView(Mockito.any());
+    }
+
+    private HMSExternalTable newDeferredHiveTable() {
+        HMSExternalTable table = Mockito.mock(HMSExternalTable.class);
+        DatabaseIf<?> database = Mockito.mock(DatabaseIf.class);
+        CatalogIf<?> catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(catalog.getName()).thenReturn("hms");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(table.getDatabase()).thenReturn(database);
+        Mockito.when(table.initSelectedPartitions(Mockito.any()))
+                .thenReturn(SelectedPartitions.DEFERRED_PARTITION_PRUNING);
+        Mockito.when(table.getFullSchema(Mockito.any()))
+                .thenReturn(Collections.singletonList(new Column("p", Type.STRING, true)));
+        Mockito.when(table.getPartitionColumns(Mockito.any()))
+                .thenReturn(Collections.singletonList(new Column("p", Type.STRING, true)));
+        Mockito.when(table.getName()).thenReturn("hive_tbl");
+        return table;
+    }
+
+    private StatementContext newStatementContext() {
+        ConnectContext connect = Mockito.mock(ConnectContext.class);
+        Mockito.when(connect.getSessionVariable()).thenReturn(new SessionVariable());
+        StatementContext statement = new StatementContext(connect, null);
+        Mockito.when(connect.getStatementContext()).thenReturn(statement);
+        return statement;
+    }
+
+    private LogicalFileScan newHiveScan(HMSExternalTable table) {
+        return new LogicalFileScan(new RelationId(12), table,
+                Collections.singletonList("db"), Collections.emptyList(),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+    }
 
     @Test
     public void testDeferredSelectedPartitionsState() {

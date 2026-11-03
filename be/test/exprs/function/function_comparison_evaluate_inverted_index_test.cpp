@@ -17,10 +17,16 @@
 
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
+#include "core/data_type/data_type_date.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_date_time.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_timestamp_ns.h"
+#include "core/data_type/data_type_timestamptz.h"
 #include "exprs/function/functions_comparison.h"
+#include "exprs/function/simple_function_factory.h"
 #include "gtest/gtest.h"
 #include "storage/index/index_iterator.h"
 #include "storage/index/inverted/inverted_index_reader.h"
@@ -120,6 +126,40 @@ TEST(FunctionComparisonTest, evaluate_inverted_index_with_null_param) {
 
     ASSERT_EQ(bitmap_result.get_data_bitmap(), nullptr)
             << "bitmap_result should not be set when param is NULL";
+}
+
+TEST(FunctionComparisonTest, RejectMixedTimestampNsTemporalComparisons) {
+    const auto timestamp_type = std::make_shared<DataTypeTimeStampNs>();
+    const DataTypes temporal_types = {
+            std::make_shared<DataTypeDate>(), std::make_shared<DataTypeDateV2>(),
+            std::make_shared<DataTypeDateTime>(), std::make_shared<DataTypeDateTimeV2>(6),
+            std::make_shared<DataTypeTimeStampTz>(6)};
+    const auto result_type = std::make_shared<DataTypeUInt8>();
+    for (const auto& temporal_type : temporal_types) {
+        for (const bool timestamp_on_left : {false, true}) {
+            const auto& left_type = timestamp_on_left ? timestamp_type : temporal_type;
+            const auto& right_type = timestamp_on_left ? temporal_type : timestamp_type;
+            auto left_column = left_type->create_column();
+            auto right_column = right_type->create_column();
+            left_column->insert_default();
+            right_column->insert_default();
+            const ColumnsWithTypeAndName arguments = {
+                    {std::move(left_column), left_type, "left"},
+                    {std::move(right_column), right_type, "right"}};
+            for (const auto* name : {"eq", "ne", "lt", "le", "gt", "ge", "eq_for_null"}) {
+                SCOPED_TRACE(std::string(name) + " " + left_type->get_name() + " " +
+                             right_type->get_name());
+                auto function = SimpleFunctionFactory::instance().get_function(name, arguments,
+                                                                               result_type);
+                ASSERT_NE(function, nullptr);
+                Block block(arguments);
+                block.insert({nullptr, result_type, "result"});
+                const auto status = function->execute(nullptr, block, {0, 1}, 2, 1);
+                ASSERT_FALSE(status.ok());
+                EXPECT_NE(status.to_string().find("not same type in function"), std::string::npos);
+            }
+        }
+    }
 }
 
 } // namespace doris

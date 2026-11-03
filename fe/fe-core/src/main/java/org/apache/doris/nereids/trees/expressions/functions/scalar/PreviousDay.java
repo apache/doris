@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -38,6 +39,7 @@ import java.util.List;
 public class PreviousDay extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullLiteral, PropagateNullable {
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(DateV2Type.INSTANCE).args(TimeStampNsType.INSTANCE, StringType.INSTANCE),
             FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE, StringType.INSTANCE));
 
     public PreviousDay(Expression arg0, Expression arg1) {

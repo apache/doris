@@ -34,9 +34,10 @@ namespace doris {
 Status PythonUDFMeta::convert_types_to_schema(const DataTypes& types, const std::string& timezone,
                                               std::shared_ptr<arrow::Schema>* schema) {
     arrow::SchemaBuilder builder;
+    const DorisArrowSchemaConvertor schema_convertor(timezone);
     for (size_t i = 0; i < types.size(); ++i) {
         std::shared_ptr<arrow::DataType> arrow_type;
-        RETURN_IF_ERROR(convert_to_arrow_type(types[i], &arrow_type, timezone));
+        RETURN_IF_ERROR(schema_convertor.convert_to_arrow_type(types[i], &arrow_type));
         std::shared_ptr<arrow::Field> field = std::make_shared<arrow::Field>(
                 "arg" + std::to_string(i), arrow_type, types[i]->is_nullable());
         RETURN_DORIS_STATUS_IF_ERROR(builder.AddField(field));

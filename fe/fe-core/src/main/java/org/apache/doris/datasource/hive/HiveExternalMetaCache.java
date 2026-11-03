@@ -1112,6 +1112,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         private String inputFormat;
         // The values of partitions.
         protected List<String> partitionValues;
+        // Keep cache identity aligned with table-scoped invalidation.
         private long id;
 
         public FileCacheKey(long catalogId, long id, String location, String inputFormat,
@@ -1142,6 +1143,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
                 return dummyKey == ((FileCacheKey) obj).dummyKey;
             }
             return catalogId == ((FileCacheKey) obj).catalogId
+                    && id == ((FileCacheKey) obj).id
                     && location.equals(((FileCacheKey) obj).location)
                     && Objects.equals(partitionValues, ((FileCacheKey) obj).partitionValues);
         }
@@ -1155,7 +1157,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
             if (dummyKey != 0) {
                 return Objects.hash(dummyKey);
             }
-            return Objects.hash(catalogId, location, partitionValues);
+            return Objects.hash(catalogId, id, location, partitionValues);
         }
 
         @Override

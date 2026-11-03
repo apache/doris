@@ -28,6 +28,7 @@ namespace doris {
 class TupleDescriptor;
 class SlotDescriptor;
 class OlapTableSchemaParam;
+class AtomicStatus;
 
 struct WriteRequest {
     int64_t tablet_id = 0;
@@ -45,6 +46,8 @@ struct WriteRequest {
     bool write_file_cache = false;
     std::string storage_vault_id;
     bool enable_table_memtable_backpressure = false;
+    // Shared by all writers of a load; published before writers can submit work.
+    std::shared_ptr<AtomicStatus> load_cancel_status = nullptr;
 };
 
 } // namespace doris

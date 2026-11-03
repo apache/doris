@@ -180,6 +180,10 @@ protected:
         return Status::OK();
     }
 
+    static void _init_slot_value_range(
+            phmap::flat_hash_map<int, ColumnValueRangeType>& slot_id_to_value_range,
+            SlotDescriptor* slot, const DataTypePtr& type_desc);
+
     // Non-templated normalize methods, moved here to avoid re-compilation per Derived type.
     Status _eval_const_conjuncts(VExprContext* expr_ctx, PushDownType* pdt);
     Status _normalize_bloom_filter(VExprContext* expr_ctx, const VExprSPtr& root,
@@ -281,7 +285,7 @@ protected:
 
     Status _init_profile() override;
     virtual Status _process_conjuncts(RuntimeState* state) { return _normalize_conjuncts(state); }
-    virtual bool _should_push_down_common_expr() { return false; }
+    virtual bool _should_push_down_common_expr(const VExprSPtr&) { return false; }
 
     virtual bool _storage_no_merge() { return false; }
     virtual bool _is_key_column(const std::string& col_name) { return false; }

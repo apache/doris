@@ -25,9 +25,8 @@ suite("test_array_contains_with_inverted_index", "p0,nonConcurrent") {
     def resultColumns = "*"
     setFeConfigTemporary([enable_inverted_index_v1_for_variant: true]) {
 
-        // If we use common expr pass to inverted index , we should set enable_common_expr_pushdown = true
-        sql """ set enable_common_expr_pushdown = true; """
-        sql """ set enable_common_expr_pushdown_for_inverted_index = true; """
+        // Pin enable_segment_limit_pushdown to keep inverted-index pushdown stable under fuzzy testing
+        sql """ set enable_segment_limit_pushdown = true; """
         sql """ set enable_profile = true;"""
 
     sql "DROP TABLE IF EXISTS ${indexTblName}"
@@ -72,7 +71,7 @@ suite("test_array_contains_with_inverted_index", "p0,nonConcurrent") {
         sql """ INSERT INTO `${indexTblName}`(`apply_date`, `id`, `inventors`) VALUES ('2019-01-01', '0974e7a82e30d1af83205e474fadd0a2', ${variantV2Function}('{"inventors":["w"]}')); """
         sql """ INSERT INTO `${indexTblName}`(`apply_date`, `id`, `inventors`) VALUES ('2019-01-01', '26823b3995ee38bd145ddd910b2f6300', ${variantV2Function}('{"inventors":["x"]}')); """
         sql """ INSERT INTO `${indexTblName}`(`apply_date`, `id`, `inventors`) VALUES ('2019-01-01', 'ee27ee1da291e46403c408e220bed6e1', ${variantV2Function}('{"inventors":["y"]}')); """
-        sql """ set enable_common_expr_pushdown = true """
+        sql """ set enable_segment_limit_pushdown = true """
 
         qt_sql """ select count() from ${indexTblName}"""
         order_qt_typed_array """select apply_date, id, ${typedInventors} from ${indexTblName}
@@ -101,24 +100,24 @@ suite("test_array_contains_with_inverted_index", "p0,nonConcurrent") {
             def p = param[i]
             def predicate = "arrays_overlap(${typedInventors}, ${p})"
             log.info("param: ${p}")
-            order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = true)*/ ${resultColumns} from tai where ${predicate} order by id; """
-            order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = false)*/ ${resultColumns} from tai where ${predicate} order by id; """
-            order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = true)*/ ${resultColumns} from tai where ${predicate} and apply_date = '2017-01-01' order by id; """
-            order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = false)*/ ${resultColumns} from tai where ${predicate} and apply_date = '2017-01-01' order by id; """
-            order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = true)*/ ${resultColumns} from tai where ${predicate} and apply_date = '2019-01-01' order by id; """
-            order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = false)*/ ${resultColumns} from tai where ${predicate} and apply_date = '2019-01-01' order by id; """
-            order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = true)*/ ${resultColumns} from tai where ${predicate} or apply_date = '2017-01-01' order by id; """
-            order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = false)*/ ${resultColumns} from tai where ${predicate} or apply_date = '2017-01-01' order by id; """
-            order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = true)*/ ${resultColumns} from tai where !${predicate} order by id; """
-            order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = false)*/ ${resultColumns} from tai where !${predicate} order by id; """
-            order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = true)*/ ${resultColumns} from tai where !${predicate} and apply_date = '2017-01-01' order by id; """
-            order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = false)*/ ${resultColumns} from tai where !${predicate} and apply_date = '2017-01-01' order by id; """
-            order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = true)*/ ${resultColumns} from tai where !${predicate} and apply_date = '2019-01-01' order by id; """
-            order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = false)*/ ${resultColumns} from tai where !${predicate} and apply_date = '2019-01-01' order by id; """
-            order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = true)*/ ${resultColumns} from tai where !${predicate} or apply_date = '2017-01-01' order by id; """
-            order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = false)*/ ${resultColumns} from tai where !${predicate} or apply_date = '2017-01-01' order by id; """
-            order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = true)*/ ${resultColumns} from tai where (${predicate} and apply_date = '2017-01-01') or apply_date = '2019-01-01' order by id; """
-            order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = false)*/ ${resultColumns} from tai where (${predicate} and apply_date = '2017-01-01') or apply_date = '2019-01-01' order by id; """
+            order_qt_sql """ select /*+SET_VAR(enable_segment_limit_pushdown = true)*/ ${resultColumns} from tai where ${predicate} order by id; """
+            order_qt_sql """ select /*+SET_VAR(enable_segment_limit_pushdown = false)*/ ${resultColumns} from tai where ${predicate} order by id; """
+            order_qt_sql """ select /*+SET_VAR(enable_segment_limit_pushdown = true)*/ ${resultColumns} from tai where ${predicate} and apply_date = '2017-01-01' order by id; """
+            order_qt_sql """ select /*+SET_VAR(enable_segment_limit_pushdown = false)*/ ${resultColumns} from tai where ${predicate} and apply_date = '2017-01-01' order by id; """
+            order_qt_sql """ select /*+SET_VAR(enable_segment_limit_pushdown = true)*/ ${resultColumns} from tai where ${predicate} and apply_date = '2019-01-01' order by id; """
+            order_qt_sql """ select /*+SET_VAR(enable_segment_limit_pushdown = false)*/ ${resultColumns} from tai where ${predicate} and apply_date = '2019-01-01' order by id; """
+            order_qt_sql """ select /*+SET_VAR(enable_segment_limit_pushdown = true)*/ ${resultColumns} from tai where ${predicate} or apply_date = '2017-01-01' order by id; """
+            order_qt_sql """ select /*+SET_VAR(enable_segment_limit_pushdown = false)*/ ${resultColumns} from tai where ${predicate} or apply_date = '2017-01-01' order by id; """
+            order_qt_sql """ select /*+SET_VAR(enable_segment_limit_pushdown = true)*/ ${resultColumns} from tai where !${predicate} order by id; """
+            order_qt_sql """ select /*+SET_VAR(enable_segment_limit_pushdown = false)*/ ${resultColumns} from tai where !${predicate} order by id; """
+            order_qt_sql """ select /*+SET_VAR(enable_segment_limit_pushdown = true)*/ ${resultColumns} from tai where !${predicate} and apply_date = '2017-01-01' order by id; """
+            order_qt_sql """ select /*+SET_VAR(enable_segment_limit_pushdown = false)*/ ${resultColumns} from tai where !${predicate} and apply_date = '2017-01-01' order by id; """
+            order_qt_sql """ select /*+SET_VAR(enable_segment_limit_pushdown = true)*/ ${resultColumns} from tai where !${predicate} and apply_date = '2019-01-01' order by id; """
+            order_qt_sql """ select /*+SET_VAR(enable_segment_limit_pushdown = false)*/ ${resultColumns} from tai where !${predicate} and apply_date = '2019-01-01' order by id; """
+            order_qt_sql """ select /*+SET_VAR(enable_segment_limit_pushdown = true)*/ ${resultColumns} from tai where !${predicate} or apply_date = '2017-01-01' order by id; """
+            order_qt_sql """ select /*+SET_VAR(enable_segment_limit_pushdown = false)*/ ${resultColumns} from tai where !${predicate} or apply_date = '2017-01-01' order by id; """
+            order_qt_sql """ select /*+SET_VAR(enable_segment_limit_pushdown = true)*/ ${resultColumns} from tai where (${predicate} and apply_date = '2017-01-01') or apply_date = '2019-01-01' order by id; """
+            order_qt_sql """ select /*+SET_VAR(enable_segment_limit_pushdown = false)*/ ${resultColumns} from tai where (${predicate} and apply_date = '2017-01-01') or apply_date = '2019-01-01' order by id; """
         }
     }
     }

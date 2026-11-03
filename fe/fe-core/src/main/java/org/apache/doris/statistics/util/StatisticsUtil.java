@@ -18,7 +18,7 @@
 package org.apache.doris.statistics.util;
 
 import org.apache.doris.analysis.BoolLiteral;
-import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.DateLiteralUtils;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.IntLiteral;
@@ -63,6 +63,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IPv4Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IPv6Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.UuidLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.AggregateUtils;
@@ -287,8 +288,9 @@ public class StatisticsUtil {
             case DATETIME:
             case DATEV2:
             case DATETIMEV2:
+            case TIMESTAMP_NS:
             case TIMESTAMPTZ:
-                return new DateLiteral(columnValue, type);
+                return DateLiteralUtils.createLiteral(columnValue, type);
             case CHAR:
             case VARCHAR:
             case STRING:
@@ -297,6 +299,8 @@ public class StatisticsUtil {
                 return new org.apache.doris.analysis.IPv4Literal(columnValue);
             case IPV6:
                 return new org.apache.doris.analysis.IPv6Literal(columnValue);
+            case UUID:
+                return new org.apache.doris.analysis.UuidLiteral(columnValue);
             case HLL:
             case BITMAP:
             case ARRAY:
@@ -339,6 +343,7 @@ public class StatisticsUtil {
                     return literal.getDouble();
 
                 case DATETIMEV2:
+                case TIMESTAMP_NS:
                 case DATETIME:
                     DateTimeLiteral dateTimeLiteral = new DateTimeLiteral(columnValue);
                     return dateTimeLiteral.getDouble();
@@ -356,6 +361,9 @@ public class StatisticsUtil {
                 case IPV6:
                     IPv6Literal ipv6 = new IPv6Literal(columnValue);
                     return ipv6.getDouble();
+                case UUID:
+                    UuidLiteral uuid = new UuidLiteral(columnValue);
+                    return uuid.getDouble();
                 case HLL:
                 case BITMAP:
                 case ARRAY:

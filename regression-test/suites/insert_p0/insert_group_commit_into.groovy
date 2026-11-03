@@ -125,7 +125,7 @@ suite("insert_group_commit_into") {
             );
             """
 
-        connect( context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl + "&useLocalSessionState=true") {
+        connectToDoris( context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl + "&useLocalSessionState=true") {
             test {
                 sql """ set group_commit = abc; """
                 exception """ Variable 'group_commit' can't be set to the value of """
@@ -285,7 +285,7 @@ suite("insert_group_commit_into") {
             if (observer_fe != null) {
                 def url = "jdbc:mysql://${observer_fe.Host}:${observer_fe.QueryPort}/"
                 logger.info("observer url: " + url)
-                connect( context.config.jdbcUser,  context.config.jdbcPassword,  url) {
+                connectToDoris( context.config.jdbcUser,  context.config.jdbcPassword,  url) {
                     sql """ set group_commit = async_mode; """
 
                     // 1. insert into
@@ -347,7 +347,7 @@ suite("insert_group_commit_into") {
             PROPERTIES ("replication_allocation" = "tag.location.default: 1", "group_commit_interval_ms" = "200")
             """
 
-        connect( context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
+        connectToDoris( context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
             sql """ set group_commit = async_mode; """
 
             // 1. insert into
@@ -397,7 +397,7 @@ suite("insert_group_commit_into") {
             select ordernum as a1,max(dnt) as dntm from ${table}
             group by ordernum
             ORDER BY ordernum;""")
-        connect( context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
+        connectToDoris( context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
             sql """ set group_commit = async_mode; """
 
             // 1. insert into
@@ -462,7 +462,7 @@ suite("insert_group_commit_into") {
                 ); 
             """
 
-        connect( context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
+        connectToDoris( context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
             sql """ set group_commit = async_mode; """
             group_commit_insert """ insert into ${table} values(1, 'test'); """, 1
             group_commit_insert """ insert into ${table}(k1,`or`) values (2,"or"); """, 1

@@ -105,10 +105,10 @@ SNAPPY_SOURCE=snappy-1.1.10
 SNAPPY_MD5SUM="70153395ebe6d72febe2cf2e40026a44"
 
 # gperftools
-GPERFTOOLS_DOWNLOAD="https://github.com/gperftools/gperftools/releases/download/gperftools-2.10/gperftools-2.10.tar.gz"
-GPERFTOOLS_NAME=gperftools-2.10.tar.gz
-GPERFTOOLS_SOURCE=gperftools-2.10
-GPERFTOOLS_MD5SUM="62bf6c76ba855ed580de5e139bd2a483"
+GPERFTOOLS_DOWNLOAD="https://github.com/gperftools/gperftools/releases/download/gperftools-2.18.1/gperftools-2.18.1.tar.gz"
+GPERFTOOLS_NAME=gperftools-2.18.1.tar.gz
+GPERFTOOLS_SOURCE=gperftools-2.18.1
+GPERFTOOLS_MD5SUM="129c01f6f5297f0482b33d431b5ec555"
 
 # zlib
 ZLIB_DOWNLOAD="https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz"
@@ -235,10 +235,12 @@ ZSTD_SOURCE=zstd-1.5.7
 ZSTD_MD5SUM="780fc1896922b1bc52a4e90980cdda48"
 
 # brotli
-BROTLI_DOWNLOAD="https://github.com/google/brotli/archive/v1.0.9.tar.gz"
-BROTLI_NAME="brotli-1.0.9.tar.gz"
-BROTLI_SOURCE="brotli-1.0.9"
-BROTLI_MD5SUM="c2274f0c7af8470ad514637c35bcee7d"
+# Arrow builds and BE statically links this decoder, so a system library update
+# cannot replace the vulnerable code fixed in 1.0.10 (CVE-2026-111497).
+BROTLI_DOWNLOAD="https://github.com/google/brotli/archive/v1.0.10.tar.gz"
+BROTLI_NAME="brotli-1.0.10.tar.gz"
+BROTLI_SOURCE="brotli-1.0.10"
+BROTLI_MD5SUM="830ce41562b2ec8cbdfe3f70111db0fa"
 
 # flatbuffers
 FLATBUFFERS_DOWNLOAD="https://github.com/google/flatbuffers/archive/v23.5.26.tar.gz"
@@ -320,10 +322,10 @@ JEMALLOC_DORIS_SOURCE="jemalloc-5.3.0"
 JEMALLOC_DORIS_MD5SUM="09a8328574dab22a7df848eae6dbbf53"
 
 # libunwind
-LIBUNWIND_DOWNLOAD="https://github.com/libunwind/libunwind/releases/download/v1.6.2/libunwind-1.6.2.tar.gz"
-LIBUNWIND_NAME="libunwind-1.6.2.tar.gz"
-LIBUNWIND_SOURCE="libunwind-1.6.2"
-LIBUNWIND_MD5SUM="f625b6a98ac1976116c71708a73dc44a"
+LIBUNWIND_DOWNLOAD="https://github.com/libunwind/libunwind/releases/download/v1.8.3/libunwind-1.8.3.tar.gz"
+LIBUNWIND_NAME="libunwind-1.8.3.tar.gz"
+LIBUNWIND_SOURCE="libunwind-1.8.3"
+LIBUNWIND_MD5SUM="13bc7b41462ac6ea157d350eaf6c1503"
 
 # cctz
 CCTZ_DOWNLOAD="https://github.com/google/cctz/archive/refs/tags/v2.5.tar.gz"
@@ -437,6 +439,12 @@ SIMDJSON_DOWNLOAD="https://github.com/simdjson/simdjson/archive/refs/tags/v3.11.
 SIMDJSON_NAME=simdjson-3.11.6.tar.gz
 SIMDJSON_SOURCE=simdjson-3.11.6
 SIMDJSON_MD5SUM="e7d9c814a4fdd6e47119ce5cf4240f4e"
+
+# simdutf
+SIMDUTF_DOWNLOAD="https://github.com/simdutf/simdutf/archive/refs/tags/v9.2.0.tar.gz"
+SIMDUTF_NAME=simdutf-9.2.0.tar.gz
+SIMDUTF_SOURCE=simdutf-9.2.0
+SIMDUTF_MD5SUM="abeae9267c1c1caf183b8d24a39c0147"
 
 # nlohmann_json
 NLOHMANN_JSON_DOWNLOAD="https://github.com/nlohmann/json/archive/refs/tags/v3.10.1.tar.gz"
@@ -574,10 +582,17 @@ PUGIXML_SOURCE=pugixml-1.15
 PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 
 # lance-c
-LANCE_C_DOWNLOAD="https://github.com/lance-format/lance-c/archive/refs/tags/v0.1.9.tar.gz"
-LANCE_C_NAME="lance-c-v0.1.9.tar.gz"
-LANCE_C_SOURCE="lance-c-0.1.9"
-LANCE_C_MD5SUM="7138ed44e92d4bc91d5b522a6b92ed64"
+# Includes lance-c #98: bounded runtime BTree segment selection with decoded-memory guards.
+LANCE_C_DOWNLOAD="https://codeload.github.com/lance-format/lance-c/tar.gz/a51ab47a9c814a746cb1714c99fad93dd3a188b8"
+LANCE_C_NAME="lance-c-a51ab47a9c814a746cb1714c99fad93dd3a188b8.tar.gz"
+LANCE_C_SOURCE="lance-c-a51ab47a9c814a746cb1714c99fad93dd3a188b8"
+LANCE_C_MD5SUM="d1282cff3d63acfc0450db1f00d6ab6f"
+
+# paimon-rust
+PAIMON_RUST_DOWNLOAD="https://github.com/apache/paimon-rust/archive/refs/tags/v0.4.0-rc1.tar.gz"
+PAIMON_RUST_NAME="paimon-rust-v0.4.0-rc1.tar.gz"
+PAIMON_RUST_SOURCE="paimon-rust-0.4.0-rc1"
+PAIMON_RUST_MD5SUM="23cd0634692108debf77a26ef4dc20a7"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
@@ -642,6 +657,7 @@ export TP_ARCHIVES=(
     'BENCHMARK'
     'XSIMD'
     'SIMDJSON'
+    'SIMDUTF'
     'NLOHMANN_JSON'
     'GOOGLE_CLOUD_CPP'
     'LIBBACKTRACE'
@@ -665,6 +681,7 @@ export TP_ARCHIVES=(
     'JUICEFS'
     'PUGIXML'
     'LANCE_C'
+    'PAIMON_RUST'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

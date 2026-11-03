@@ -19,11 +19,19 @@
 
 #include <hs/hs.h>
 
+#include <algorithm>
+#include <cstdint>
+#include <span>
+#include <string_view>
+#include <unordered_map>
+#include <unordered_set>
+
 #include "core/field.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/index_reader_helper.h"
-#include "storage/index/inverted/analyzer/analyzer.h"
+#include "storage/index/inverted/analysis/analyzer/analyzer.h"
+#include "storage/index/inverted/query/logical/match_lowering.h"
 #include "util/debug_points.h"
 #include "util/hyperscan_util.h"
 
@@ -36,7 +44,7 @@ const InvertedIndexAnalyzerCtx* get_match_analyzer_ctx(FunctionContext* context)
     if (context == nullptr) {
         return nullptr;
     }
-    auto* analyzer_ctx = reinterpret_cast<const InvertedIndexAnalyzerCtx*>(
+    const auto* analyzer_ctx = reinterpret_cast<const InvertedIndexAnalyzerCtx*>(
             context->get_function_state(FunctionContext::THREAD_LOCAL));
     if (analyzer_ctx == nullptr) {
         analyzer_ctx = reinterpret_cast<const InvertedIndexAnalyzerCtx*>(
@@ -65,10 +73,20 @@ Status FunctionMatchBase::evaluate_inverted_index(
 
     if (function_name == MATCH_PHRASE_FUNCTION || function_name == MATCH_PHRASE_PREFIX_FUNCTION ||
         function_name == MATCH_PHRASE_EDGE_FUNCTION) {
-        auto reader = iter->get_reader(InvertedIndexReaderType::FULLTEXT);
-        if (reader && !segment_v2::IndexReaderHelper::is_support_phrase(reader)) {
-            return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
-                    "phrase queries require setting support_phrase = true");
+        // Judge phrase support on the index the query will run on: read_from_index selects it
+        // from the same column type, query type and analyzer key. The first FULLTEXT reader need
+        // not be that index -- a docs-only one (a gram index is docs-only by default) can be
+        // declared ahead of the positional index USING ANALYZER names.
+        if (auto* inverted_iter = dynamic_cast<segment_v2::InvertedIndexIterator*>(iter)) {
+            auto reader = inverted_iter->select_best_reader(
+                    data_type_with_name.second, get_query_type_from_fn_name(),
+                    analyzer_ctx != nullptr ? analyzer_ctx->analyzer_key : std::string());
+            if (reader.has_value() &&
+                segment_v2::IndexReaderHelper::is_fulltext_index(reader.value()) &&
+                !segment_v2::IndexReaderHelper::is_support_phrase(reader.value())) {
+                return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
+                        "phrase queries require setting support_phrase = true");
+            }
         }
     }
     Field param_value;
@@ -89,6 +107,8 @@ Status FunctionMatchBase::evaluate_inverted_index(
     param.query_type = get_query_type_from_fn_name();
     param.num_rows = num_rows;
     param.roaring = std::make_shared<roaring::Roaring>();
+    segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+    param.null_bitmap_cache_handle = &null_bitmap_cache_handle;
     param.analyzer_ctx = analyzer_ctx;
     if (is_string_type(param_type)) {
         RETURN_IF_ERROR(iter->read_from_index(&param));
@@ -97,11 +117,11 @@ Status FunctionMatchBase::evaluate_inverted_index(
                 "invalid params type for FunctionMatchBase::evaluate_inverted_index {}",
                 param_type);
     }
-    std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
-    if (iter->has_null()) {
-        segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-        RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
-        null_bitmap = null_bitmap_cache_handle.get_bitmap();
+    std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
+    if (null_bitmap == nullptr) {
+        // query_with_null_bitmap leaves the handle empty only when the selected reader proves that
+        // the index has no null rows.
+        null_bitmap = std::make_shared<roaring::Roaring>();
     }
     segment_v2::InvertedIndexResultBitmap result(param.roaring, null_bitmap);
     bitmap_result = result;
@@ -124,7 +144,7 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
     std::string column_name = block.get_by_position(arguments[0]).name;
     VLOG_DEBUG << "begin to execute match directly, column_name=" << column_name
                << ", match_query_str=" << match_query_str;
-    auto* analyzer_ctx = get_match_analyzer_ctx(context);
+    const auto* analyzer_ctx = get_match_analyzer_ctx(context);
     const ColumnPtr source_col =
             block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
     const auto* values = check_and_get_column<ColumnString>(source_col.get());
@@ -199,10 +219,8 @@ std::vector<segment_v2::TermInfo> FunctionMatchBase::analyse_query_str_token(
     VLOG_DEBUG << "begin to run " << get_name() << ", parser_type: "
                << inverted_index_parser_type_to_string(analyzer_ctx->parser_type);
 
-    // Decision is based on parser_type (from index properties):
-    // - PARSER_NONE: no tokenization (keyword/exact match)
-    // - Other parsers: tokenize using the analyzer
-    if (!analyzer_ctx->should_tokenize()) {
+    // Raw execution is valid only when neither a named analyzer nor a builtin parser is active.
+    if (!analyzer_ctx->requires_analysis()) {
         // Keyword index: all strings (including empty) are valid tokens for exact match.
         // Empty string is a valid value in keyword index and should be matchable.
         query_tokens.emplace_back(match_query_str);
@@ -235,15 +253,14 @@ inline std::vector<segment_v2::TermInfo> FunctionMatchBase::analyse_data_token(
         return data_tokens;
     }
 
-    // Determine tokenization strategy based on parser_type
-    const bool should_tokenize =
-            analyzer_ctx->should_tokenize() && analyzer_ctx->analyzer != nullptr;
+    const bool requires_analysis =
+            analyzer_ctx->requires_analysis() && analyzer_ctx->analyzer != nullptr;
 
     if (array_offsets) {
         for (auto next_src_array_offset = (*array_offsets)[current_block_row_idx];
              current_src_array_offset < next_src_array_offset; ++current_src_array_offset) {
             const auto& str_ref = string_col->get_data_at(current_src_array_offset);
-            if (!should_tokenize) {
+            if (!requires_analysis) {
                 data_tokens.emplace_back(str_ref.to_string());
                 continue;
             }
@@ -256,7 +273,7 @@ inline std::vector<segment_v2::TermInfo> FunctionMatchBase::analyse_data_token(
         }
     } else {
         const auto& str_ref = string_col->get_data_at(current_block_row_idx);
-        if (!should_tokenize) {
+        if (!requires_analysis) {
             data_tokens.emplace_back(str_ref.to_string());
         } else {
             auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
@@ -378,7 +395,12 @@ Status FunctionMatchPhrase::execute_match(FunctionContext* context, const std::s
                                           ColumnUInt8::Container& result) const {
     RETURN_IF_ERROR(check(context, name));
 
-    auto query_tokens = analyse_query_str_token(analyzer_ctx, match_query_str, column_name);
+    // Keyword indexes read a trailing " ~N" as the phrase slop and match the rest as one term.
+    std::string_view query = match_query_str;
+    if (analyzer_ctx != nullptr && !analyzer_ctx->requires_analysis()) {
+        index_query::logical::take_slop(&query);
+    }
+    auto query_tokens = analyse_query_str_token(analyzer_ctx, std::string(query), column_name);
     if (query_tokens.empty()) {
         VLOG_DEBUG << fmt::format(
                 "token parser result is empty for query, "

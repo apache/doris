@@ -22,10 +22,6 @@
 
 #include "common/status.h"
 
-namespace Aws::S3 {
-class S3Error;
-} // namespace Aws::S3
-
 namespace doris {
 namespace io {
 
@@ -37,7 +33,6 @@ std::string glob_err_to_str(int code);
 
 Status localfs_error(const std::error_code& ec, std::string_view msg);
 Status localfs_error(int posix_errno, std::string_view msg);
-Status s3fs_error(const Aws::S3::S3Error& err, std::string_view msg);
 
 } // namespace io
 } // namespace doris

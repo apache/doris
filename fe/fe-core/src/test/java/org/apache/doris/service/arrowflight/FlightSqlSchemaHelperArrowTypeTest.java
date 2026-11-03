@@ -17,15 +17,19 @@
 
 package org.apache.doris.service.arrowflight;
 
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.thrift.TColumnDesc;
 import org.apache.doris.thrift.TPrimitiveType;
 
 import org.apache.arrow.vector.complex.BaseRepeatedValueVector;
 import org.apache.arrow.vector.complex.MapVector;
+import org.apache.arrow.vector.extension.UuidType;
 import org.apache.arrow.vector.ipc.ReadChannel;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
 import org.apache.arrow.vector.types.DateUnit;
+import org.apache.arrow.vector.types.FloatingPointPrecision;
+import org.apache.arrow.vector.types.TimeUnit;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
@@ -71,6 +75,12 @@ public class FlightSqlSchemaHelperArrowTypeTest {
         TColumnDesc columnDesc = desc(name, type);
         columnDesc.setChildren(Arrays.asList(children));
         return columnDesc;
+    }
+
+    @Test
+    public void uuidIsDescribedAsUuidExtension() {
+        Assertions.assertEquals(UuidType.INSTANCE,
+                buildField(desc("u", TPrimitiveType.UUID)).getType());
     }
 
     private static Field buildField(TColumnDesc columnDesc) {
@@ -205,5 +215,37 @@ public class FlightSqlSchemaHelperArrowTypeTest {
         Field array = schema.getFields().get(0);
         Assertions.assertEquals(ArrowType.ArrowTypeID.List, array.getType().getTypeID());
         Assertions.assertEquals(new ArrowType.Int(32, true), array.getChildren().get(0).getType());
+    }
+
+    @Test
+    public void timeAndBinaryResultTypes() {
+        Assertions.assertEquals(new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE),
+                FlightSqlSchemaHelper.getArrowType(PrimitiveType.TIMEV2, 0, 6));
+        Assertions.assertEquals(new ArrowType.Binary(),
+                FlightSqlSchemaHelper.getArrowType(PrimitiveType.VARBINARY, 0, 0));
+    }
+
+    @Test
+    public void serializedSchemaDescribesScalarAndNestedTimestampNs() throws IOException {
+        byte[] serialized = FlightSqlSchemaHelper.getSerializedSchema(Arrays.asList(
+                buildField(desc("ts", TPrimitiveType.TIMESTAMP_NS)),
+                buildField(desc("items", TPrimitiveType.ARRAY,
+                        desc("item", TPrimitiveType.TIMESTAMP_NS))),
+                buildField(desc("by_name", TPrimitiveType.MAP,
+                        desc("key", TPrimitiveType.VARCHAR),
+                        desc("value", TPrimitiveType.TIMESTAMP_NS))),
+                buildField(desc("record", TPrimitiveType.STRUCT,
+                        desc("ts", TPrimitiveType.TIMESTAMP_NS)))));
+
+        Schema schema = MessageSerializer.deserializeSchema(
+                new ReadChannel(Channels.newChannel(new ByteArrayInputStream(serialized))));
+        ArrowType.Timestamp timestampNs = new ArrowType.Timestamp(TimeUnit.NANOSECOND, null);
+        Assertions.assertEquals(timestampNs, schema.getFields().get(0).getType());
+        Assertions.assertEquals(timestampNs,
+                schema.getFields().get(1).getChildren().get(0).getType());
+        Assertions.assertEquals(timestampNs,
+                schema.getFields().get(2).getChildren().get(0).getChildren().get(1).getType());
+        Assertions.assertEquals(timestampNs,
+                schema.getFields().get(3).getChildren().get(0).getType());
     }
 }

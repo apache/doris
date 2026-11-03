@@ -18,8 +18,8 @@
 suite("test_search_exact_basic", "p0") {
     def tableName = "exact_basic_test"
 
-    // Pin enable_common_expr_pushdown to prevent CI flakiness from fuzzy testing.
-    sql """ set enable_common_expr_pushdown = true """
+    // Pin enable_segment_limit_pushdown to prevent CI flakiness from fuzzy testing.
+    sql """ set enable_segment_limit_pushdown = true """
 
     sql "DROP TABLE IF EXISTS ${tableName}"
 
@@ -48,11 +48,11 @@ suite("test_search_exact_basic", "p0") {
     Thread.sleep(3000)
 
     // Test 1: EXACT should match the whole value
-    qt_exact_whole "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, name FROM ${tableName} WHERE search('name:EXACT(apple banana)') ORDER BY id"
+    qt_exact_whole "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, name FROM ${tableName} WHERE search('name:EXACT(apple banana)') ORDER BY id"
 
     // Test 2: EXACT should not match partial
-    qt_exact_partial "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, name FROM ${tableName} WHERE search('name:EXACT(apple)') ORDER BY id"
+    qt_exact_partial "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, name FROM ${tableName} WHERE search('name:EXACT(apple)') ORDER BY id"
 
     // Test 3: EXACT is case sensitive (without lowercase config)
-    qt_exact_case "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, name FROM ${tableName} WHERE search('name:EXACT(Apple)') ORDER BY id"
+    qt_exact_case "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, name FROM ${tableName} WHERE search('name:EXACT(Apple)') ORDER BY id"
 }

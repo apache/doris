@@ -36,7 +36,7 @@ suite("regression_test_variant_with_index", "p0"){
     """
     sql """insert into var_with_index values(1, ${variantV2Function}('{"a" : 0, "b": 3}'), 'hello world'), (2, ${variantV2Function}('{"a" : 123}'), 'world'),(3, ${variantV2Function}('{"a" : 123}'), 'hello world')"""
     sql """set enable_match_without_inverted_index = false"""
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     qt_sql_inv_1 """select v["a"] from var_with_index where inv match 'hello' order by k"""
     qt_sql_inv_2 """select v["a"] from var_with_index where inv match 'hello' and cast(v['a'] as int) > 0 order by k"""
     qt_sql_inv_3 """select * from var_with_index where inv match 'hello' and cast(v["a"] as int) > 0 order by k"""

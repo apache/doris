@@ -57,6 +57,7 @@ import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.proto.OlapCommon;
@@ -66,6 +67,7 @@ import org.apache.doris.proto.Types;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TSortType;
@@ -119,6 +121,8 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
 
         MaterializedIndex baseIndex = new MaterializedIndex(tbl.getBaseIndexId(), IndexState.NORMAL);
+        TInvertedIndexFileStorageFormat partitionInvertedIndexFileStorageFormat =
+                tbl.getPartitionInvertedIndexFileStorageFormat();
 
         LOG.info("begin create cloud partition");
         // create partition with base index
@@ -188,7 +192,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getTimeSeriesCompactionLevelThreshold(),
                         tbl.disableAutoCompaction(),
                         tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                        tbl.getInvertedIndexFileStorageFormat(),
+                        indexId == tbl.getBaseIndexId() ? partitionInvertedIndexFileStorageFormat : null,
                         tbl.rowStorePageSize(),
                         tbl.variantEnableFlattenNested(), clusterKeyUids,
                         tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),
@@ -319,6 +323,9 @@ public class CloudInternalCatalog extends InternalCatalog {
             case LZ4F:
                 schemaBuilder.setCompressionType(SegmentV2.CompressionTypePB.LZ4F);
                 break;
+            case LZ4HC:
+                schemaBuilder.setCompressionType(SegmentV2.CompressionTypePB.LZ4HC);
+                break;
             case ZLIB:
                 schemaBuilder.setCompressionType(SegmentV2.CompressionTypePB.ZLIB);
                 break;
@@ -375,11 +382,15 @@ public class CloudInternalCatalog extends InternalCatalog {
                 schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V2);
             } else if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V3) {
                 schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V3);
+            } else if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.SNII) {
+                schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.SNII);
             } else if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.DEFAULT) {
                 if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
                     schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V1);
                 } else if (Config.inverted_index_storage_format.equalsIgnoreCase("V2")) {
                     schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V2);
+                } else if (Config.inverted_index_storage_format.equalsIgnoreCase("SNII")) {
+                    schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.SNII);
                 } else {
                     schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V3);
                 }
@@ -397,6 +408,12 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         OlapFile.TabletSchemaCloudPB schema = schemaBuilder.build();
         builder.setSchema(schema);
+        // schema KV is shared by (index_id, schema_version). Persist the physical tablet format
+        // separately only after partition-level format rollout is enabled.
+        if (Config.enable_partition_inverted_index_storage_format_rollout
+                && schema.hasInvertedIndexStorageFormat()) {
+            builder.setInvertedIndexStorageFormat(schema.getInvertedIndexStorageFormat());
+        }
         if (createInitialRowset) {
             // rowset
             OlapFile.RowsetMetaCloudPB.Builder rowsetBuilder = createInitialRowset(tablet, partitionId,
@@ -433,6 +450,10 @@ public class CloudInternalCatalog extends InternalCatalog {
         rowsetBuilder.setRowsetIdV2(rowsetIdV2Str);
 
         rowsetBuilder.setTabletSchema(schema);
+        if (Config.enable_partition_inverted_index_storage_format_rollout
+                && schema.hasInvertedIndexStorageFormat()) {
+            rowsetBuilder.setInvertedIndexStorageFormat(schema.getInvertedIndexStorageFormat());
+        }
         return rowsetBuilder;
     }
 
@@ -1033,6 +1054,11 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
+    @Override
+    public void onCreateTableConflict(long dbId, OlapTable table) throws DdlException {
+        dropMaterializedIndex(dbId, table.getId(), table.getIndexIdList(), true);
+    }
+
     public void dropMaterializedIndex(long dbId, long tableId, List<Long> indexIds, boolean dropTable)
             throws DdlException {
         if (Config.enable_check_compatibility_mode) {
@@ -1141,6 +1167,83 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
+    // The three private helpers below are each independently callable (one per catalog level), so this
+    // guard is checked in every one of them rather than once at the top -- a config flip mid-sweep then
+    // takes effect at the next db/table/partition boundary instead of only on the next whole-catalog call.
+    private static boolean routeCleanupDisabled() {
+        return Config.isNotCloudMode() || !Config.enable_cloud_replica_stale_route_clean
+                || FeConstants.runningUnitTest;
+    }
+
+    /**
+     * @param systemInfo the backend set to judge staleness against. Must come from the same Env this
+     *                    catalog belongs to (the serving Env during replay/rebalancing, or the checkpoint's
+     *                    private Env while generating an image) -- never resolved internally via
+     *                    Env.getCurrentSystemInfo(), so a caller cannot accidentally sweep this catalog's
+     *                    replicas against a different Env's backend set.
+     */
+    public long removeInvalidCloudReplicaRoutes(SystemInfoService systemInfo) {
+        if (routeCleanupDisabled()) {
+            return 0;
+        }
+        long start = System.currentTimeMillis();
+        long removed = 0;
+        for (Long dbId : getDbIds()) {
+            Database db = getDbNullable(dbId);
+            if (db == null) {
+                continue; // The database can be dropped concurrently on the serving Env.
+            }
+            removed += removeInvalidCloudReplicaRoutes(db, systemInfo);
+        }
+        LOG.info("swept stale cloud routes, entries dropped {}, cost {} ms",
+                removed, System.currentTimeMillis() - start);
+        return removed;
+    }
+
+    private static long removeInvalidCloudReplicaRoutes(Database db, SystemInfoService systemInfo) {
+        if (routeCleanupDisabled()) {
+            return 0;
+        }
+        long removed = 0;
+        for (Table table : db.getTables()) {
+            removed += removeInvalidCloudReplicaRoutes(table, systemInfo);
+        }
+        return removed;
+    }
+
+    private static long removeInvalidCloudReplicaRoutes(Table table, SystemInfoService systemInfo) {
+        if (routeCleanupDisabled() || !table.isManagedTable()) {
+            return 0;
+        }
+        long removed = 0;
+        table.readLock();
+        try {
+            for (Partition partition : ((OlapTable) table).getAllPartitions()) {
+                removed += removeInvalidCloudReplicaRoutes(partition, systemInfo);
+            }
+        } finally {
+            table.readUnlock();
+        }
+        return removed;
+    }
+
+    private static long removeInvalidCloudReplicaRoutes(Partition partition, SystemInfoService systemInfo) {
+        if (routeCleanupDisabled()) {
+            return 0;
+        }
+        long removed = 0;
+        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+            for (Tablet tablet : index.getTablets()) {
+                for (Replica replica : tablet.getReplicas()) {
+                    if (replica instanceof CloudReplica) {
+                        removed += ((CloudReplica) replica).removeInvalidRoutes(systemInfo);
+                    }
+                }
+            }
+        }
+        return removed;
+    }
+
     private void unprotectUpdateCloudReplica(OlapTable olapTable, UpdateCloudReplicaInfo info) {
         Partition partition = olapTable.getPartition(info.getPartitionId());
         if (partition == null) {
@@ -1160,15 +1263,15 @@ public class CloudInternalCatalog extends InternalCatalog {
                 Replica replica = tablet.getReplicaById(info.getReplicaId());
                 Preconditions.checkNotNull(replica, info);
 
+                CloudSystemInfoService systemInfo = (CloudSystemInfoService) Env.getCurrentSystemInfo();
                 String clusterId = info.getClusterId();
-                String realClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                        .getCloudClusterIdByName(clusterId);
+                String realClusterId = systemInfo.getCloudClusterIdByName(clusterId);
                 LOG.debug("cluster Id {}, real cluster Id {}", clusterId, realClusterId);
                 if (!Strings.isNullOrEmpty(realClusterId)) {
                     clusterId = realClusterId;
                 }
 
-                ((CloudReplica) replica).updateClusterToPrimaryBe(clusterId, info.getBeId());
+                ((CloudReplica) replica).replayUpdateClusterToPrimaryBe(clusterId, info.getBeId(), systemInfo);
 
                 LOG.debug("update single cloud replica cluster {} replica {} be {}", info.getClusterId(),
                         replica.getId(), info.getBeId());
@@ -1184,9 +1287,9 @@ public class CloudInternalCatalog extends InternalCatalog {
                     }
                     Preconditions.checkNotNull(replica, info);
 
+                    CloudSystemInfoService systemInfo = (CloudSystemInfoService) Env.getCurrentSystemInfo();
                     String clusterId = info.getClusterId();
-                    String realClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                            .getCloudClusterIdByName(clusterId);
+                    String realClusterId = systemInfo.getCloudClusterIdByName(clusterId);
                     LOG.debug("cluster Id {}, real cluster Id {}", clusterId, realClusterId);
                     if (!Strings.isNullOrEmpty(realClusterId)) {
                         clusterId = realClusterId;
@@ -1194,7 +1297,8 @@ public class CloudInternalCatalog extends InternalCatalog {
 
                     LOG.debug("update cloud replica cluster {} replica {} be {}", info.getClusterId(),
                             replica.getId(), info.getBeIds().get(i));
-                    ((CloudReplica) replica).updateClusterToPrimaryBe(clusterId, info.getBeIds().get(i));
+                    ((CloudReplica) replica).replayUpdateClusterToPrimaryBe(clusterId, info.getBeIds().get(i),
+                            systemInfo);
                 }
             }
         } catch (Exception e) {

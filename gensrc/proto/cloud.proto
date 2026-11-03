@@ -287,6 +287,24 @@ enum CredProviderTypePB {
     ANONYMOUS = 8;  // AnonymousAWSCredentialsProvider
 }
 
+message GcpCredentialPB {
+    enum CredentialProviderType {
+        DEFAULT = 0;
+        COMPUTE_ENGINE = 1;
+    }
+
+    optional CredentialProviderType credential_provider_type = 1;
+    optional string impersonation_service_account = 2;
+}
+
+// Provider credentials are grouped in a regular message so older readers can
+// still observe that a credential envelope is present when a new provider is
+// added. Validation must reject multiple provider credentials and ensure the
+// selected credential matches ObjectStoreInfoPB.provider.
+message ObjectStoreCredentialPB {
+    optional GcpCredentialPB gcp_credential = 1;
+}
+
 message ObjectStoreInfoPB {
     // presigned url use
     // oss,aws,cos,obs,bos
@@ -320,6 +338,8 @@ message ObjectStoreInfoPB {
     optional CredProviderTypePB cred_provider_type = 17;
     optional string role_arn = 18;  // aws assumed role's arn
     optional string external_id = 19;  // aws assumed role's external_id if configure
+
+    optional ObjectStoreCredentialPB credential = 20;
 }
 
 // The legacy ObjectStoreInfoPB is stored in InstanceInfoPB

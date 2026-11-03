@@ -142,7 +142,9 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         }
 
         public boolean isValid() {
-            return finalTarget != null && probeSlot != null;
+            return finalTarget != null && probeSlot != null
+                    && !srcExpr.getDataType().isVariantType()
+                    && !probeExpr.getDataType().isVariantType();
         }
 
         public PushDownContext withNewProbeExpression(Expression newProbe) {
@@ -185,6 +187,9 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
 
     @Override
     public Boolean visitPhysicalRelation(PhysicalRelation scan, PushDownContext ctx) {
+        if (ctx.srcExpr.getDataType().isVariantType() || ctx.probeExpr.getDataType().isVariantType()) {
+            return false;
+        }
         if (scan instanceof PhysicalSchemaScan) {
             return false;
         }
@@ -196,6 +201,18 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
 
         if (!relation.equals(scan)) {
             return Boolean.FALSE;
+        }
+
+        // Prune decoupled RF targeting small scans: the RF cannot arrive before
+        // a small scan completes, so generating it wastes resources.
+        if (ctx.exprOrder < 0) {
+            org.apache.doris.statistics.Statistics scanStats = ((AbstractPhysicalPlan) scan).getStats();
+            if (scanStats != null && ConnectContext.get() != null) {
+                long minRows = ConnectContext.get().getSessionVariable().minDecoupledRfTargetRows;
+                if (scanStats.getRowCount() < minRows) {
+                    return false;
+                }
+            }
         }
 
         TRuntimeFilterType type = ctx.type;
@@ -238,7 +255,9 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         }
         boolean pushed = false;
 
-        if (ctx.builderNode instanceof PhysicalHashJoin) {
+        // NullSafeEqual cannot be pushed through outer joins
+        // Skip for decoupled RF (exprOrder < 0): the predicate comes from a parent join, not builderNode
+        if (ctx.exprOrder >= 0 && ctx.builderNode instanceof PhysicalHashJoin) {
             /*
              hashJoin( t1.A <=> t2.A )
                 +---->left outer Join(t1.B=T3.B)
@@ -315,7 +334,9 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         if (!join.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
             return false;
         }
-        if (ctx.builderNode instanceof PhysicalHashJoin) {
+        // NullSafeEqual cannot be pushed through outer joins
+        // Skip for decoupled RF (exprOrder < 0): the predicate comes from a parent join, not builderNode
+        if (ctx.exprOrder >= 0 && ctx.builderNode instanceof PhysicalHashJoin) {
             /*
              hashJoin( t1.A <=> t2.A )
                 +---->left outer Join(t1.B=T3.B)

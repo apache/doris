@@ -60,6 +60,10 @@ AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
         return creator_without_type::create_unary_arguments<
                 AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_DATETIMEV2>>>>(
                 argument_types, result_is_nullable, attr);
+    case PrimitiveType::TYPE_TIMESTAMP_NS:
+        return creator_without_type::create_unary_arguments<
+                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_TIMESTAMP_NS>>>>(
+                argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_TIMESTAMPTZ:
         return creator_without_type::create_unary_arguments<
                 AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_TIMESTAMPTZ>>>>(
@@ -76,6 +80,10 @@ AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
     case PrimitiveType::TYPE_IPV6:
         return creator_without_type::create_unary_arguments<
                 AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_IPV6>>>>(
+                argument_types, result_is_nullable, attr);
+    case PrimitiveType::TYPE_UUID:
+        return creator_without_type::create_unary_arguments<
+                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_UUID>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_BOOLEAN:
         return creator_without_type::create_unary_arguments<
@@ -140,6 +148,10 @@ AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
         return creator_without_type::create_unary_arguments<
                 AggregateFunctionsSingleValue<Data<SingleValueDataComplexType>>>(
                 argument_types, result_is_nullable, attr);
+    case PrimitiveType::TYPE_VARBINARY:
+        // Owning binary values for IO must not implicitly enable single-value aggregates.
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "VARBINARY aggregate {} is not supported",
+                        name);
     default:
         return nullptr;
     }

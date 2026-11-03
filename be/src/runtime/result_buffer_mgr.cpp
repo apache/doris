@@ -93,6 +93,9 @@ Status ResultBufferMgr::create_sender(const TUniqueId& unique_id, int buffer_siz
     {
         std::unique_lock<std::shared_mutex> wlock(_buffer_map_lock);
         _buffer_map.insert(std::make_pair(unique_id, control_block));
+        if (arrow_flight) {
+            _arrow_flight_query_buffers[state->query_id()].insert(unique_id);
+        }
         // ResultBlockBufferBase should destroy after max_timeout
         // for exceed max_timeout FE will return timeout to client
         // otherwise in some case may block all fragment handle threads
@@ -135,10 +138,50 @@ bool ResultBufferMgr::cancel(const TUniqueId& unique_id, const Status& reason) {
 
     auto exist = _buffer_map.end() != iter;
     if (exist) {
+        if (auto arrow_buffer =
+                    std::dynamic_pointer_cast<ArrowFlightResultBlockBuffer>(iter->second)) {
+            auto query = _arrow_flight_query_buffers.find(arrow_buffer->query_id());
+            if (query != _arrow_flight_query_buffers.end()) {
+                query->second.erase(unique_id);
+                if (query->second.empty()) {
+                    _arrow_flight_query_buffers.erase(query);
+                }
+            }
+        }
         iter->second->cancel(reason);
         _buffer_map.erase(iter);
     }
     return exist;
+}
+
+void ResultBufferMgr::cancel_arrow_flight_query(const TUniqueId& buffer_id, const Status& reason) {
+    std::shared_ptr<ArrowFlightResultBlockBuffer> buffer;
+    if (find_buffer(buffer_id, buffer).ok()) {
+        cancel_arrow_flight_buffers(buffer->query_id(), reason);
+    }
+}
+
+void ResultBufferMgr::cancel_arrow_flight_buffers(const TUniqueId& query_id, const Status& reason) {
+    std::vector<std::shared_ptr<ArrowFlightResultBlockBuffer>> buffers;
+    {
+        std::unique_lock<std::shared_mutex> lock(_buffer_map_lock);
+        auto query = _arrow_flight_query_buffers.find(query_id);
+        if (query == _arrow_flight_query_buffers.end()) {
+            return;
+        }
+        for (const auto& buffer_id : query->second) {
+            auto it = _buffer_map.find(buffer_id);
+            DCHECK(it != _buffer_map.end());
+            buffers.push_back(std::static_pointer_cast<ArrowFlightResultBlockBuffer>(it->second));
+            _buffer_map.erase(it);
+        }
+        _arrow_flight_query_buffers.erase(query);
+    }
+    // Clear all sibling buffers even if their local query context has already expired.
+    // Never cancel a query while holding the result-buffer map lock.
+    for (const auto& buffer : buffers) {
+        buffer->cancel_query(reason);
+    }
 }
 
 void ResultBufferMgr::cancel_at_time(time_t cancel_time, const TUniqueId& unique_id) {

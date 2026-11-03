@@ -33,6 +33,8 @@ public class JdbcTrinoClient extends JdbcClient {
     protected Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema) {
         String trinoType = fieldSchema.getDataTypeName().orElse("unknown");
         switch (trinoType) {
+            case "uuid":
+                return Type.UUID;
             case "integer":
                 return Type.INT;
             case "bigint":
@@ -72,7 +74,9 @@ public class JdbcTrinoClient extends JdbcClient {
             if (scale > 6) {
                 scale = 6;
             }
-            return ScalarType.createDatetimeV2Type(scale);
+            // Precision does not determine timezone semantics; the declared suffix does.
+            return trinoType.contains("with time zone") ? ScalarType.createTimeStampTzType(scale)
+                    : ScalarType.createDatetimeV2Type(scale);
         }
 
         if (trinoType.startsWith("array")) {

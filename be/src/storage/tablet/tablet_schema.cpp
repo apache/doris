@@ -43,8 +43,9 @@
 #include "exec/common/hex.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/aggregate_function_state_union.h"
-#include "storage/index/inverted/analyzer/analyzer.h"
-#include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/index_writer.h" // IndexColumnWriter::check_support_*_index
+#include "storage/index/inverted/analysis/analyzer/analyzer.h"
+#include "storage/index/inverted/analysis/inverted_index_parser.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/tablet/tablet_column_object_pool.h"
@@ -84,6 +85,8 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
         type = FieldType::OLAP_FIELD_TYPE_IPV4;
     } else if (0 == upper_type_str.compare("IPV6")) {
         type = FieldType::OLAP_FIELD_TYPE_IPV6;
+    } else if (0 == upper_type_str.compare("UUID")) {
+        type = FieldType::OLAP_FIELD_TYPE_UUID;
     } else if (0 == upper_type_str.compare("FLOAT")) {
         type = FieldType::OLAP_FIELD_TYPE_FLOAT;
     } else if (0 == upper_type_str.compare("DISCRETE_DOUBLE")) {
@@ -98,6 +101,8 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
         type = FieldType::OLAP_FIELD_TYPE_DATEV2;
     } else if (0 == upper_type_str.compare("DATETIMEV2")) {
         type = FieldType::OLAP_FIELD_TYPE_DATETIMEV2;
+    } else if (0 == upper_type_str.compare("TIMESTAMP_NS")) {
+        type = FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS;
     } else if (0 == upper_type_str.compare("DATETIME")) {
         type = FieldType::OLAP_FIELD_TYPE_DATETIME;
     } else if (0 == upper_type_str.compare("TIMESTAMPTZ")) {
@@ -218,6 +223,9 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
     case FieldType::OLAP_FIELD_TYPE_IPV6:
         return "IPV6";
 
+    case FieldType::OLAP_FIELD_TYPE_UUID:
+        return "UUID";
+
     case FieldType::OLAP_FIELD_TYPE_FLOAT:
         return "FLOAT";
 
@@ -241,6 +249,8 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
 
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
         return "DATETIMEV2";
+    case FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS:
+        return "TIMESTAMP_NS";
 
     case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
         return "TIMESTAMPTZ";
@@ -349,6 +359,8 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
         return 4;
     case TPrimitiveType::IPV6:
         return 16;
+    case TPrimitiveType::UUID:
+        return 16;
     case TPrimitiveType::DATE:
         return 3;
     case TPrimitiveType::DATEV2:
@@ -356,6 +368,7 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
     case TPrimitiveType::DATETIME:
         return 8;
     case TPrimitiveType::DATETIMEV2:
+    case TPrimitiveType::TIMESTAMP_NS:
     case TPrimitiveType::TIMESTAMPTZ:
         return 8;
     case TPrimitiveType::FLOAT:
@@ -469,6 +482,10 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     if (_has_default_value) {
         _default_value = column.default_value();
     }
+    _has_default_value_expr = column.has_default_value_expr();
+    if (_has_default_value_expr) {
+        _default_value_expr = column.default_value_expr();
+    }
 
     if (column.has_precision()) {
         _is_decimal = true;
@@ -568,6 +585,9 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     column->set_is_on_update_current_timestamp(_is_on_update_current_timestamp);
     if (_has_default_value) {
         column->set_default_value(_default_value);
+    }
+    if (_has_default_value_expr) {
+        column->set_default_value_expr(_default_value_expr);
     }
     if (_is_decimal) {
         column->set_precision(_precision);
@@ -1688,6 +1708,10 @@ bool operator==(const TabletColumn& a, const TabletColumn& b) {
     if (a._has_default_value != b._has_default_value) return false;
     if (a._has_default_value) {
         if (a._default_value != b._default_value) return false;
+    }
+    if (a._has_default_value_expr != b._has_default_value_expr) return false;
+    if (a._has_default_value_expr) {
+        if (a._default_value_expr != b._default_value_expr) return false;
     }
     if (a._is_decimal != b._is_decimal) return false;
     if (a._is_decimal) {

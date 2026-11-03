@@ -17,6 +17,7 @@
 
 #include <memory>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "common/status.h"
@@ -48,7 +49,9 @@ public:
                   std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
                   bool enable_mapping_timestamp_tz = false, bool enable_mapping_varbinary = false,
                   std::shared_ptr<const FileContext> file_context = nullptr,
-                  int64_t format_split_id = -1, int64_t format_split_id_end = -1);
+                  int64_t format_split_id = -1, int64_t format_split_id_end = -1,
+                  std::optional<std::string> hive_parquet_time_zone = std::nullopt,
+                  bool preserve_binary_uuid = false, ParquetProfileCache* profile_cache = nullptr);
     ~ParquetReader() override;
 
     Status init(RuntimeState* state) override;
@@ -97,14 +100,19 @@ private:
     std::unique_ptr<ParquetReaderScanState>
             _state;                  // complete scan state (file_context + schema + scheduler)
     ParquetProfile _parquet_profile; // RuntimeProfile counter set
+    ParquetProfileCache* _profile_cache;
     ParquetPageCacheStats _reported_page_cache_stats;
     std::optional<format::GlobalRowIdContext> _global_rowid_context; // global RowId context
     size_t _batch_size = ParquetScanScheduler::DEFAULT_READ_BATCH_SIZE;
     bool _enable_mapping_timestamp_tz = false; // whether UTC timestamps are mapped to TIMESTAMPTZ
-    bool _enable_mapping_varbinary = false;    // whether raw BYTE_ARRAY is mapped to VARBINARY
+    bool _enable_mapping_varbinary =
+            false; // UUID override only; ordinary V2 binary mapping is unconditional.
     std::shared_ptr<const FileContext> _file_context;
     int64_t _format_split_id = -1;
     int64_t _format_split_id_end = -1;
+    bool _preserve_binary_uuid = false; // retain the 16-byte carrier for table compatibility
+    // nullopt preserves legacy session conversion; an engaged empty value explicitly disables it.
+    std::optional<std::string> _hive_parquet_time_zone;
 };
 
 } // namespace doris::format::parquet

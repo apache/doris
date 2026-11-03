@@ -24,12 +24,12 @@ PhysicalResultSink
 --------------------------------PhysicalOlapScan[supplier] apply RFs: RF1
 ------------------------------PhysicalProject
 --------------------------------filter(n_name IN ('FRANCE', 'GERMANY'))
-----------------------------------PhysicalOlapScan[nation]
+----------------------------------PhysicalOlapScan[nation(n1)]
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_nationkey = n2.n_nationkey)) otherCondition=() build RFs:RF0 n_nationkey->[c_nationkey]
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[customer] apply RFs: RF0
 ----------------------PhysicalProject
 ------------------------filter(n_name IN ('FRANCE', 'GERMANY'))
---------------------------PhysicalOlapScan[nation]
+--------------------------PhysicalOlapScan[nation(n2)]
 

@@ -37,6 +37,19 @@ under the License.
     </properties>
 
     <dependencies>
+        <!-- Match preload-extensions so Hive's bundled format classes cannot shadow the test reader. -->
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-hadoop-bundle</artifactId>
+            <version>${parquet.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- Production supplies Thrift through the shared loader; standalone Parquet tests need it here. -->
+        <dependency>
+            <groupId>org.apache.thrift</groupId>
+            <artifactId>libthrift</artifactId>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>java-common</artifactId>

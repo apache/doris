@@ -29,11 +29,13 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
+import org.apache.doris.nereids.processor.post.RuntimeFilterPushDownVisitor.PushDownContext;
 import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterV2;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -57,6 +59,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.RuntimeFilterId;
@@ -88,6 +91,10 @@ public class RuntimeFilterTest extends SSBTestBase {
         connectContext.getSessionVariable().setEnableRuntimeFilterPrune(false);
         connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = false;
         connectContext.getSessionVariable().setDisableJoinReorder(true);
+        createTable("CREATE TABLE variant_rf_a (k INT, v VARIANT) DUPLICATE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES(\"replication_num\"=\"1\")");
+        createTable("CREATE TABLE variant_rf_b (k INT, v VARIANT) DUPLICATE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES(\"replication_num\"=\"1\")");
     }
 
     @Test
@@ -592,4 +599,167 @@ public class RuntimeFilterTest extends SSBTestBase {
         List<RuntimeFilter> filters = context.getNereidsRuntimeFilter();
         Assertions.assertEquals(0, filters.size());
     }
+
+    @Test
+    public void testVariantJoinKeyDoesNotGenerateRuntimeFilter() {
+        boolean originalEnableVariantV2 = org.apache.doris.common.Config.enable_variant_v2;
+        org.apache.doris.common.Config.enable_variant_v2 = true;
+        try {
+            // Control: the INT key of the same tables produces a runtime filter in this setup.
+            Assertions.assertFalse(getRuntimeFilters(
+                    "SELECT * FROM variant_rf_a a JOIN variant_rf_b b ON a.k = b.k").get().isEmpty());
+            // Scalar runtime filters cannot express Variant canonical equality.
+            for (String sql : ImmutableList.of(
+                    "SELECT * FROM variant_rf_a a JOIN variant_rf_b b ON a.v = b.v",
+                    "SELECT * FROM variant_rf_a a JOIN variant_rf_b b ON a.v <=> b.v",
+                    "SELECT * FROM variant_rf_a a JOIN variant_rf_b b ON a.v['id'] = b.v['id']",
+                    "SELECT * FROM (SELECT CAST(k AS VARIANT) vv FROM variant_rf_a) x "
+                            + "JOIN variant_rf_b b ON x.vv = b.v")) {
+                Assertions.assertTrue(getRuntimeFilters(sql).get().isEmpty(), sql);
+            }
+        } finally {
+            org.apache.doris.common.Config.enable_variant_v2 = originalEnableVariantV2;
+        }
+    }
+
+    @Test
+    public void testVariantPushDownContextIsInvalidBeforeTraversal() {
+        boolean originalEnableVariantV2 = org.apache.doris.common.Config.enable_variant_v2;
+        org.apache.doris.common.Config.enable_variant_v2 = true;
+        try {
+            RuntimeFilterContext context = new RuntimeFilterContext(
+                    connectContext.getSessionVariable(), RuntimeFilterId.createGenerator());
+            AbstractPhysicalJoin builder = Mockito.mock(AbstractPhysicalJoin.class);
+            SlotReference scalar = new SlotReference("scalar", IntegerType.INSTANCE);
+            SlotReference variant = new SlotReference("variant", VariantType.INSTANCE);
+            Expression cast = new Cast(variant, IntegerType.INSTANCE);
+            PhysicalOlapScan scan = Mockito.mock(PhysicalOlapScan.class);
+            context.aliasTransferMapPut(scalar, Pair.of(scan, scalar));
+            context.aliasTransferMapPut(variant, Pair.of(scan, variant));
+            for (TRuntimeFilterType type : ImmutableList.of(
+                    TRuntimeFilterType.IN, TRuntimeFilterType.BLOOM,
+                    TRuntimeFilterType.MIN_MAX, TRuntimeFilterType.IN_OR_BLOOM)) {
+                Assertions.assertFalse(PushDownContext.createPushDownContextForHashJoin(
+                        variant, scalar, context, RuntimeFilterId.createGenerator(), type, builder, false, -1, 0).isValid());
+                Assertions.assertFalse(PushDownContext.createPushDownContextForHashJoin(
+                        scalar, variant, context, RuntimeFilterId.createGenerator(), type, builder, false, -1, 0).isValid());
+                Assertions.assertTrue(PushDownContext.createPushDownContextForHashJoin(
+                        scalar, cast, context, RuntimeFilterId.createGenerator(), type, builder, false, -1, 0).isValid());
+                Assertions.assertTrue(PushDownContext.createPushDownContextForHashJoin(
+                        cast, scalar, context, RuntimeFilterId.createGenerator(), type, builder, false, -1, 0).isValid());
+            }
+        } finally {
+            org.apache.doris.common.Config.enable_variant_v2 = originalEnableVariantV2;
+        }
+    }
+
+    @Test
+    public void testScalarCastOfVariantGeneratesRuntimeFilter() {
+        boolean originalEnableVariantV2 = org.apache.doris.common.Config.enable_variant_v2;
+        org.apache.doris.common.Config.enable_variant_v2 = true;
+        try {
+            for (String sql : ImmutableList.of(
+                    "SELECT * FROM variant_rf_a a JOIN variant_rf_b b "
+                            + "ON CAST(a.v AS INT) = CAST(b.v AS INT)",
+                    "SELECT * FROM (SELECT CAST(v AS INT) vv FROM variant_rf_a) a "
+                            + "JOIN variant_rf_b b ON a.vv = b.k")) {
+                Assertions.assertFalse(getRuntimeFilters(sql).get().isEmpty(), sql);
+            }
+        } finally {
+            org.apache.doris.common.Config.enable_variant_v2 = originalEnableVariantV2;
+        }
+    }
+
+    @Test
+    public void testVariantSetOperationDoesNotGenerateRuntimeFilter() {
+        boolean originalEnableVariantV2 = org.apache.doris.common.Config.enable_variant_v2;
+        org.apache.doris.common.Config.enable_variant_v2 = true;
+        try {
+            for (String sql : ImmutableList.of(
+                    "SELECT v FROM variant_rf_a INTERSECT SELECT v FROM variant_rf_b",
+                    "SELECT v FROM variant_rf_a EXCEPT SELECT v FROM variant_rf_b")) {
+                Assertions.assertTrue(getRuntimeFilters(sql).get().isEmpty(), sql);
+                Assertions.assertTrue(getSetOperationRuntimeFilters(sql).isEmpty(), sql);
+            }
+        } finally {
+            org.apache.doris.common.Config.enable_variant_v2 = originalEnableVariantV2;
+        }
+    }
+
+    private List<RuntimeFilter> processSqlAndGetRuntimeFilters(String sql) {
+        PlanChecker checker = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .implement();
+        PhysicalPlan plan = checker.getPhysicalPlan();
+        plan = new PlanPostProcessors(checker.getCascadesContext()).process(plan);
+        new PhysicalPlanTranslator(new PlanTranslatorContext(checker.getCascadesContext())).translatePlan(plan);
+        return checker.getCascadesContext().getRuntimeFilterContext().getNereidsRuntimeFilter();
+    }
+
+    private static RuntimeFilter findRuntimeFilterBySrcColumn(List<RuntimeFilter> filters, String columnName) {
+        return filters.stream()
+                .filter(f -> f.getSrcExpr().getInputSlots().stream()
+                        .anyMatch(s -> s.getName().equals(columnName)))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError(
+                        "no runtime filter whose source expression contains " + columnName));
+    }
+
+    private static boolean hasTargetColumn(RuntimeFilter filter, String columnName) {
+        return filter.getTargetSlots().stream().anyMatch(s -> s.getName().equals(columnName));
+    }
+
+    @Test
+    public void testDecoupledRuntimeFilter() {
+        // join1(c_custkey=s_suppkey) probe=join2(lo_custkey=c_custkey)
+        // Standard RFs: c_custkey->lo_custkey (join2), s_suppkey->c_custkey (join1)
+        // Decoupled RF: c_custkey->s_suppkey (builder=join2, pushed to supplier scan).
+        // Add a visible filter on customer so the decoupled RF is not pruned by the
+        // "unknown stats + no filter on builder right side" heuristic.
+        String sql = "select * "
+                + "from lineorder join customer on lo_custkey = c_custkey "
+                + "join supplier on c_custkey = s_suppkey "
+                + "where customer.c_region = 'ASIA'";
+
+        // Branch-4.2 keeps the decoupled RF inside the standard RF of the builder join instead of
+        // creating a separate `exprOrder == -1` filter: RuntimeFilterContext#getRuntimeFilterBySrcAndType
+        // identifies a filter by (srcExpr, type, builderNode) only, so a decoupled RF whose source
+        // expression is the standard RF source of the same builder join (the usual case: the source
+        // is the build-side slot of that join) is merged into that filter. Upstream master dedups
+        // per target scan including exprOrder and therefore keeps the two filters apart.
+        // The observable branch-4.2 behaviour pinned down here is:
+        //   1. the RF built by join2 additionally targets supplier.s_suppkey, i.e. the decoupled RF
+        //      does reach the build-side scan of join1, and
+        //   2. the RF built by join1 is marked non-blocking, because the decoupled RF is preferred
+        //      (unknown stats: filter on the decoupled source side, none on the standard one).
+        // With the feature disabled neither of the two happens.
+        connectContext.getSessionVariable().enableDecoupledRuntimeFilter = false;
+        List<RuntimeFilter> baselineFilters = processSqlAndGetRuntimeFilters(sql);
+        RuntimeFilter baselineRfBuiltByJoin2 = findRuntimeFilterBySrcColumn(baselineFilters, "c_custkey");
+        Assertions.assertFalse(hasTargetColumn(baselineRfBuiltByJoin2, "s_suppkey"),
+                "Without the decoupled RF the join2 RF must not reach the supplier scan");
+        Assertions.assertFalse(findRuntimeFilterBySrcColumn(baselineFilters, "s_suppkey").isNonBlocking(),
+                "Without the decoupled RF the join1 RF stays blocking");
+
+        connectContext.getSessionVariable().enableDecoupledRuntimeFilter = true;
+        List<RuntimeFilter> filters = processSqlAndGetRuntimeFilters(sql);
+
+        // The decoupled RF is pushed into the build side of the condition join (supplier.s_suppkey).
+        RuntimeFilter rfBuiltByJoin2 = findRuntimeFilterBySrcColumn(filters, "c_custkey");
+        Assertions.assertTrue(hasTargetColumn(rfBuiltByJoin2, "s_suppkey"),
+                "Decoupled RF should be applied on the supplier scan (target s_suppkey)");
+
+        // The standard RF of the condition join (s_suppkey->c_custkey) is kept, and it becomes
+        // non-blocking so that the decoupled RF is the blocking one.
+        RuntimeFilter rfBuiltByJoin1 = findRuntimeFilterBySrcColumn(filters, "s_suppkey");
+        Assertions.assertTrue(rfBuiltByJoin1.isNonBlocking(),
+                "Standard RF s_suppkey->c_custkey should become non-blocking when the decoupled RF "
+                        + "is preferred");
+        Assertions.assertTrue(hasTargetColumn(rfBuiltByJoin1, "c_custkey"),
+                "Standard RF s_suppkey->c_custkey should still target c_custkey");
+
+        connectContext.getSessionVariable().enableDecoupledRuntimeFilter = false;
+    }
+
 }

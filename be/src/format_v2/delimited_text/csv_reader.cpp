@@ -128,11 +128,13 @@ Status CsvReader::_create_decompressor() {
 }
 
 Status CsvReader::_create_line_reader() {
+    _align_split_prefix = false;
     if (is_csv_text_format(_file_format_type)) {
         std::shared_ptr<TextLineReaderContextIf> text_line_reader_ctx;
         if (_enclose == 0) {
             text_line_reader_ctx = std::make_shared<PlainTextLineReaderCtx>(
                     _line_delimiter, _line_delimiter.size(), _keep_cr);
+            _align_split_prefix = _file_description->range_start_offset != 0;
         } else {
             const size_t col_sep_num =
                     _source_file_slot_descs.size() > 1 ? _source_file_slot_descs.size() - 1 : 0;
@@ -157,6 +159,9 @@ Status CsvReader::_create_line_reader() {
 Status CsvReader::_validate_line(const Slice& line) {
     if (_file_format_type != TFileFormatType::FORMAT_PROTO && _enable_text_validate_utf8 &&
         !validate_utf8(line.data, line.size)) {
+        if (_request != nullptr && _request->reject_invalid_rows) {
+            return Status::DataQualityError("Only support csv data in utf8 codec");
+        }
         return Status::InternalError<false>("Only support csv data in utf8 codec");
     }
     return Status::OK();

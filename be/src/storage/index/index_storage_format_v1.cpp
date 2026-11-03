@@ -19,8 +19,8 @@
 
 #include "common/cast_set.h"
 #include "storage/index/index_file_writer.h"
-#include "storage/index/inverted/inverted_index_desc.h"
-#include "storage/index/inverted/inverted_index_fs_directory.h"
+#include "storage/index/index_fs_directory.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
 #include "util/debug_points.h"
 
 namespace doris::segment_v2 {

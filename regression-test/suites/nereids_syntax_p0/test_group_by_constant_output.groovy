@@ -41,6 +41,6 @@ suite("test_group_by_constant_output") {
     """
     test {
         sql "SELECT a as b, b as c FROM test_gb_const_t GROUP BY b, c"
-        exception "not in aggregate's output"
+        exception "must appear in the GROUP BY"
     }
 }

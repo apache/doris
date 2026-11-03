@@ -43,7 +43,7 @@
 #include "exprs/aggregate/aggregate_function.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/lru_cache_policy.h"
-#include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/inverted/analysis/inverted_index_parser.h"
 #include "storage/metadata_adder.h"
 #include "storage/olap_common.h"
 #include "storage/segment/options.h"
@@ -130,11 +130,17 @@ public:
     }
     bool has_default_value() const { return _has_default_value; }
     std::string default_value() const { return _default_value; }
+    bool has_default_value_expr() const { return _has_default_value_expr; }
+    const std::string& default_value_expr() const { return _default_value_expr; }
     int32_t length() const { return _length; }
     void set_length(int32_t length) { _length = length; }
     void set_default_value(const std::string& default_value) {
         _default_value = default_value;
         _has_default_value = true;
+    }
+    void set_default_value_expr(const std::string& default_value_expr) {
+        _default_value_expr = default_value_expr;
+        _has_default_value_expr = true;
     }
     int32_t index_length() const { return _index_length; }
     void set_index_length(int32_t index_length) { _index_length = index_length; }
@@ -301,6 +307,8 @@ private:
 
     bool _has_default_value = false;
     std::string _default_value;
+    bool _has_default_value_expr = false;
+    std::string _default_value_expr;
 
     bool _is_decimal = false;
     int32_t _precision = -1;
@@ -541,6 +549,31 @@ public:
         }
         return inverted_indexes;
     }
+    // True when anything at all lives in this schema's inverted index FILE.
+    //
+    // Spelled out as `has_inverted_index() || has_ann_index()` at ~27 call sites
+    // before this existed -- rowset writers, segment creation, segcompaction,
+    // snapshot and migration, and most of the cloud paths. Every one of them is
+    // asking the same question ("is there an index file to carry, warm, link or
+    // rewrite?"), and each open-coded copy is a place a third index type would
+    // have to be remembered.
+    bool has_inverted_or_ann_index() const { return has_inverted_index() || has_ann_index(); }
+
+    // Both index types that live in the inverted index FILE, in schema order.
+    // Every storage format stores them together: V1/V2/V3 as CLucene directories,
+    // SNII as text metadata groups plus an ANN blob logical index. A rewrite that
+    // enumerated only the inverted ones would seal a file missing every ANN index
+    // while the schema still claimed them.
+    const std::vector<const TabletIndex*> inverted_and_ann_indexes() const {
+        std::vector<const TabletIndex*> indexes;
+        for (const auto& index : _indexes) {
+            if (index->index_type() == IndexType::INVERTED ||
+                index->index_type() == IndexType::ANN) {
+                indexes.emplace_back(index.get());
+            }
+        }
+        return indexes;
+    }
     bool has_inverted_index() const {
         for (const auto& index : _indexes) {
             DBUG_EXECUTE_IF("tablet_schema::has_inverted_index", {
@@ -747,6 +780,10 @@ public:
     void clear_pruned_columns_data_type() { _pruned_columns_data_type.clear(); }
 
     bool has_pruned_columns() const { return !_pruned_columns_data_type.empty(); }
+
+    const std::map<int32_t, DataTypePtr>& pruned_columns_data_type() const {
+        return _pruned_columns_data_type;
+    }
 
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);

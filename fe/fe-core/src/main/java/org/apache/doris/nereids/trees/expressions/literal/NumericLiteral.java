@@ -25,6 +25,7 @@ import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 
 import java.math.BigDecimal;
@@ -154,20 +155,23 @@ public abstract class NumericLiteral extends Literal implements ComparableLitera
     }
 
     protected Expression getDateLikeLiteral(String s, DataType targetType) {
-        DateTimeV2Literal l;
+        DateTimeV2Literal dateTime;
         try {
-            l = new DateTimeV2Literal(DateTimeV2Type.MAX, s);
+            dateTime = new DateTimeV2Literal(DateTimeV2Type.MAX, s);
         } catch (AnalysisException e) {
             throw new CastException(e.getMessage(), e);
         }
         if (targetType instanceof DateType) {
-            return new DateLiteral(l.getYear(), l.getMonth(), l.getDay());
+            return new DateLiteral(dateTime.getYear(), dateTime.getMonth(), dateTime.getDay());
         }
         if (targetType instanceof DateV2Type) {
-            return new DateV2Literal(l.getYear(), l.getMonth(), l.getDay());
+            return new DateV2Literal(dateTime.getYear(), dateTime.getMonth(), dateTime.getDay());
         }
         if (targetType instanceof DateTimeType) {
             return new DateTimeLiteral(s);
+        }
+        if (targetType instanceof TimeStampNsType) {
+            return new TimeStampNsLiteral(s);
         }
         if (targetType instanceof DateTimeV2Type) {
             return new DateTimeV2Literal((DateTimeV2Type) targetType, s);

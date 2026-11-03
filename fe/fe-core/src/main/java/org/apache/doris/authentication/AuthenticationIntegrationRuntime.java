@@ -37,6 +37,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -251,7 +252,11 @@ public class AuthenticationIntegrationRuntime {
 
         LinkedHashSet<String> grantedRoles = new LinkedHashSet<>(result.getGrantedRoles());
         grantedRoles.addAll(mappedRoles);
-        return AuthenticationOutcome.of(integration, AuthenticationResult.success(principal, grantedRoles));
+        OptionalLong credentialExpiresAtMillis = result.getCredentialExpiresAtMillis();
+        AuthenticationResult mappedResult = credentialExpiresAtMillis.isPresent()
+                ? AuthenticationResult.success(principal, grantedRoles, credentialExpiresAtMillis.getAsLong())
+                : AuthenticationResult.success(principal, grantedRoles);
+        return AuthenticationOutcome.of(integration, mappedResult);
     }
 
     private ResolvedAuthenticationPlugin resolvePluginForAuthentication(AuthenticationIntegrationMeta requestedMeta)

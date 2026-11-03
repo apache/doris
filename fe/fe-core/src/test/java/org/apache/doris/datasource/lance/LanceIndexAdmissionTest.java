@@ -23,18 +23,12 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.lance.LanceIndexAdmissionSnapshot.PhysicalIndexInfo;
 import org.apache.doris.datasource.lance.index.LanceShowIndexInfo;
-import org.apache.doris.datasource.lance.job.LanceIndexFenceKey;
-import org.apache.doris.datasource.lance.job.LanceIndexJob;
-import org.apache.doris.datasource.lance.job.LanceIndexJobManager;
-import org.apache.doris.datasource.lance.job.LanceIndexJobMutationType;
-import org.apache.doris.datasource.lance.job.LanceIndexSchemaContract;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.qe.ConnectContext;
 
@@ -51,21 +45,19 @@ import org.lance.schema.LanceField;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Section 2.2/4.1 admission coverage for {@link LanceIndexAdmission}: snapshots are injected
- * through the {@code SnapshotLoader} seam (no FE, no JNI), the job manager is the real 3B
- * implementation with its edit-log seam captured, and {@code Env} is mocked only for id
- * allocation and the manager getter. Every rejection path must leave no job, no fence, no
- * quota charge, no journal record, and no id allocation behind (the 3B ReplayTest pattern).
+ * through the {@code SnapshotLoader} seam (no FE, no JNI) and {@code Env} is mocked only for
+ * the catalog manager. Every rejection path must leave no durable state and no id allocation
+ * behind. A mutation that passes the whole preflight terminates with the shared
+ * not-supported rejection (the synchronous execution path has not landed), while an IF
+ * preflight no-op returns normally.
  */
 public class LanceIndexAdmissionTest {
     private static final long CATALOG_ID = 10L;
@@ -77,9 +69,6 @@ public class LanceIndexAdmissionTest {
     private static final long DATASET_VERSION = 7L;
     private static final String MATCHING_ANN_PROPERTIES_JSON =
             "{\"compression\":{\"num_bits\":8,\"num_sub_vectors\":16},\"metric_type\":\"l2\"}";
-    private static final String NORMALIZED_ANN_PROPERTIES_JSON =
-            "{\"index_type\":\"IVF_PQ\",\"metric\":\"l2\",\"num_bits\":\"8\","
-                    + "\"num_partitions\":\"256\",\"num_sub_vectors\":\"16\"}";
     /**
      * The KELVIN SIGN (U+212A) and the A-with-diaeresis pair: {@code String.equalsIgnoreCase}
      * folds both pairs case-insensitively (the Kelvin sign through its per-character
@@ -91,26 +80,17 @@ public class LanceIndexAdmissionTest {
 
     private MockedStatic<Env> mockedEnv;
     private Env env;
-    private TestManager manager;
-    private AtomicLong idAllocator;
     private LanceExternalCatalog catalog;
     private LanceExternalDatabase database;
     private LanceExternalTable table;
     private ConnectContext connectContext;
     private final Map<String, Column> tableColumns = new HashMap<>();
-    private long originalTableQuota;
-    private long originalCatalogQuota;
-    private long originalGlobalQuota;
 
     @BeforeEach
     public void setUp() throws Exception {
         mockedEnv = Mockito.mockStatic(Env.class);
         env = Mockito.mock(Env.class);
-        manager = new TestManager();
-        idAllocator = new AtomicLong(100L);
         mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-        Mockito.when(env.getNextId()).thenAnswer(invocation -> idAllocator.incrementAndGet());
-        Mockito.when(env.getLanceIndexJobManager()).thenReturn(manager);
 
         catalog = Mockito.mock(LanceExternalCatalog.class);
         Mockito.when(catalog.getId()).thenReturn(CATALOG_ID);
@@ -146,17 +126,10 @@ public class LanceIndexAdmissionTest {
         connectContext = new ConnectContext();
         connectContext.setThreadLocalInfo();
         connectContext.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("tester", "%"));
-
-        originalTableQuota = Config.lance_index_job_max_unresolved_per_table;
-        originalCatalogQuota = Config.lance_index_job_max_unresolved_per_catalog;
-        originalGlobalQuota = Config.lance_index_job_max_unresolved_global;
     }
 
     @AfterEach
     public void tearDown() {
-        Config.lance_index_job_max_unresolved_per_table = originalTableQuota;
-        Config.lance_index_job_max_unresolved_per_catalog = originalCatalogQuota;
-        Config.lance_index_job_max_unresolved_global = originalGlobalQuota;
         ConnectContext.remove();
         mockedEnv.close();
     }
@@ -164,16 +137,6 @@ public class LanceIndexAdmissionTest {
     // ------------------------------------------------------------------
     // Fixtures
     // ------------------------------------------------------------------
-
-    /** Edit-log seam: captures durable records instead of writing the journal (3B pattern). */
-    private static class TestManager extends LanceIndexJobManager {
-        private final List<LanceIndexJob> editLog = new ArrayList<>();
-
-        @Override
-        protected void writeEditLog(LanceIndexJob job) {
-            editLog.add(job);
-        }
-    }
 
     private static Column notNullColumn(String name, Type type) {
         return new Column(name, type, false, null, false, null, "");
@@ -268,34 +231,20 @@ public class LanceIndexAdmissionTest {
                 new HashMap<>(), "", orReplace);
     }
 
-    private LanceIndexAdmission.Outcome admitCreate(LanceIndexAdmissionSnapshot snapshot,
+    private void admitCreate(LanceIndexAdmissionSnapshot snapshot,
             IndexDefinition def, boolean ifNotExists) throws Exception {
-        return LanceIndexAdmission.admitCreate((cat, dbName, tblName) -> snapshot, catalog, database,
+        LanceIndexAdmission.admitCreate((cat, dbName, tblName) -> snapshot, catalog, database,
                 table, def, ifNotExists);
     }
 
-    private LanceIndexAdmission.Outcome admitDrop(LanceIndexAdmissionSnapshot snapshot,
+    private void admitDrop(LanceIndexAdmissionSnapshot snapshot,
             String indexName, boolean ifExists) throws Exception {
-        return LanceIndexAdmission.admitDrop((cat, dbName, tblName) -> snapshot, catalog, database,
+        LanceIndexAdmission.admitDrop((cat, dbName, tblName) -> snapshot, catalog, database,
                 table, indexName, ifExists);
     }
 
     private void assertNothingPersisted() {
-        Assertions.assertEquals(0, manager.getJobCount());
-        Assertions.assertTrue(manager.editLog.isEmpty());
-        Assertions.assertTrue(manager.getUnresolvedJobs().isEmpty());
         Mockito.verify(env, Mockito.never()).getNextId();
-    }
-
-    /** Unresolved-job count on this dataset locator — the public view of the table quota. */
-    private int unresolvedJobsOnDataset() {
-        int count = 0;
-        for (LanceIndexJob job : manager.getUnresolvedJobs()) {
-            if (job.getCatalogId() == CATALOG_ID && DATASET_URI.equals(job.getNormalizedLocator())) {
-                count++;
-            }
-        }
-        return count;
     }
 
     private static void assertInvalid(Executable call, String expectedMessage) {
@@ -304,56 +253,24 @@ public class LanceIndexAdmissionTest {
         Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_INVALID, exception.getMysqlErrorCode());
     }
 
+    /** A mutation whose whole preflight passed terminates with the shared not-supported error. */
+    private static void assertUnsupported(Executable call, String operation) {
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, call);
+        Assertions.assertEquals(operation + " is not supported for Lance catalog tables",
+                exception.getDetailMessage());
+        Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_OPERATION_NOT_SUPPORTED,
+                exception.getMysqlErrorCode());
+    }
+
     // ------------------------------------------------------------------
     // CREATE admission
     // ------------------------------------------------------------------
 
     @Test
-    public void plainCreateOnEmptySnapshotIsAdmitted() throws Exception {
-        LanceIndexAdmission.Outcome outcome = admitCreate(emptySnapshot(), annDef("MyIdx", false, false),
-                false);
-
-        Assertions.assertNotNull(outcome.getJobId());
-        LanceIndexJob job = manager.getJob(outcome.getJobId());
-        Assertions.assertNotNull(job);
-        Assertions.assertEquals("tester", job.getCreator());
-        Assertions.assertEquals(CATALOG_ID, job.getCatalogId());
-        // Local names are persisted for privilege/FORCE resolution, not the remote ones.
-        Assertions.assertEquals(DB, job.getDbName());
-        Assertions.assertEquals(TBL, job.getTableName());
-        Assertions.assertEquals(LanceIndexFenceKey.PROVIDER_DIRECTORY, job.getProvider());
-        Assertions.assertEquals(DATASET_URI, job.getNormalizedLocator());
-        Assertions.assertEquals("MyIdx", job.getDisplayIndexName());
-        Assertions.assertEquals("myidx", job.getNormalizedIndexName());
-        Assertions.assertEquals(LanceIndexJobMutationType.CREATE, job.getMutationType());
-        Assertions.assertFalse(job.isIfNotExists());
-        Assertions.assertFalse(job.isIfExists());
-        Assertions.assertEquals("IVF_PQ", job.getIndexType());
-        Assertions.assertEquals("v", job.getColumnName());
-        Assertions.assertEquals(NORMALIZED_ANN_PROPERTIES_JSON, job.getPropertiesJson());
-        Assertions.assertEquals(DATASET_VERSION, job.getAdmittedDatasetVersion());
-
-        LanceIndexSchemaContract contract = job.getSchemaContract();
-        Assertions.assertNotNull(contract);
-        Assertions.assertEquals(LanceIndexSchemaContract.SCHEMA_CONTRACT_VERSION_V1,
-                contract.getSchemaContractVersion());
-        Assertions.assertEquals(1, contract.getFields().size());
-        LanceIndexSchemaContract.IndexedField field = contract.getFields().get(0);
-        Assertions.assertEquals(1L, field.getFieldId());
-        Assertions.assertEquals("v", field.getNormalizedName());
-        Assertions.assertEquals("fixed_size_list", field.getNormalizedType());
-        Assertions.assertFalse(field.isNullable());
-        Assertions.assertEquals(4, field.getFixedSizeListDimension());
-        Assertions.assertEquals("float32", field.getVectorElementType());
-        // The synthesized element child is always nullable — the manifest has no slot for
-        // element nullability — so the contract records the reconstructed-schema fact.
-        Assertions.assertEquals(Boolean.TRUE, field.getVectorElementNullable());
-
-        Assertions.assertEquals(1, manager.getJobCount());
-        Assertions.assertEquals(1, manager.editLog.size());
-        Assertions.assertTrue(manager.isFenceHeld(job.fenceKey()));
-        Assertions.assertEquals(1, manager.getUnresolvedJobs().size());
-        Mockito.verify(env, Mockito.times(1)).getNextId();
+    public void plainCreateOnEmptySnapshotValidatesThenRejectsAsUnsupported() {
+        assertUnsupported(() -> admitCreate(emptySnapshot(), annDef("MyIdx", false, false), false),
+                "CREATE INDEX");
+        assertNothingPersisted();
     }
 
     @Test
@@ -364,10 +281,8 @@ public class LanceIndexAdmissionTest {
         Mockito.when(catalog.loadTableIndexAdmissionSnapshot(REMOTE_DB, REMOTE_TBL))
                 .thenReturn(prepared);
 
-        LanceIndexAdmission.Outcome outcome = LanceIndexAdmission.admitCreate(catalog, database, table,
-                scalarDef("Idx", "BTREE", "c", false, false), false);
-
-        Assertions.assertNotNull(outcome.getJobId());
+        assertUnsupported(() -> LanceIndexAdmission.admitCreate(catalog, database, table,
+                scalarDef("Idx", "BTREE", "c", false, false), false), "CREATE INDEX");
         Mockito.verify(catalog, Mockito.times(1))
                 .loadTableIndexAdmissionSnapshot(REMOTE_DB, REMOTE_TBL);
     }
@@ -392,9 +307,7 @@ public class LanceIndexAdmissionTest {
                 Collections.singletonList(logicalIndex("IdxA", "v", "IVF_PQ", MATCHING_ANN_PROPERTIES_JSON)),
                 Collections.singletonList(physicalIndex("IdxA", "VECTOR")));
 
-        LanceIndexAdmission.Outcome outcome = admitCreate(snapshot, annDef("idxa", true, false), true);
-
-        Assertions.assertNull(outcome.getJobId());
+        Assertions.assertDoesNotThrow(() -> admitCreate(snapshot, annDef("idxa", true, false), true));
         assertNothingPersisted();
     }
 
@@ -408,10 +321,8 @@ public class LanceIndexAdmissionTest {
                 Collections.singletonList(logicalIndex("idx", "c", "BTREE", "[]")),
                 Collections.singletonList(physicalIndex("idx", "SCALAR")));
 
-        LanceIndexAdmission.Outcome outcome = admitCreate(snapshot,
-                scalarDef("idx", "BTREE", "c", true, false), true);
-
-        Assertions.assertNull(outcome.getJobId());
+        Assertions.assertDoesNotThrow(() -> admitCreate(snapshot,
+                scalarDef("idx", "BTREE", "c", true, false), true));
         assertNothingPersisted();
     }
 
@@ -442,8 +353,8 @@ public class LanceIndexAdmissionTest {
                             MATCHING_ANN_PROPERTIES_JSON)),
                     Collections.singletonList(physicalIndex("idx", "VECTOR")),
                     Collections.singletonList(vectorField(fieldName, 1)));
-            Assertions.assertNull(admitCreate(snapshot,
-                    annDef("idx", fieldName, true, false), true).getJobId(), fieldName);
+            Assertions.assertDoesNotThrow(() -> admitCreate(snapshot,
+                    annDef("idx", fieldName, true, false), true), fieldName);
         }
         assertNothingPersisted();
     }
@@ -519,7 +430,7 @@ public class LanceIndexAdmissionTest {
                 Collections.singletonList(logicalIndex("idx", "v", "IVF_PQ", "{}")),
                 Collections.singletonList(physicalIndex("idx", "VECTOR")));
 
-        Assertions.assertNull(admitCreate(snapshot, annDef("idx", true, false), true).getJobId());
+        Assertions.assertDoesNotThrow(() -> admitCreate(snapshot, annDef("idx", true, false), true));
         assertNothingPersisted();
     }
 
@@ -545,7 +456,8 @@ public class LanceIndexAdmissionTest {
                 Collections.singletonList(logicalIndex("idx", "v", "IVF_PQ",
                         "{\"compression\":{\"num_bits\":8}}")),
                 Collections.singletonList(physicalIndex("idx", "VECTOR")));
-        Assertions.assertNull(admitCreate(partialExposure, annDef("idx", true, false), true).getJobId());
+        Assertions.assertDoesNotThrow(() -> admitCreate(partialExposure,
+                annDef("idx", true, false), true));
 
         // An exposed but non-numeric value is malformed data: fail closed, never skip.
         LanceIndexAdmissionSnapshot nonNumeric = snapshot(
@@ -559,7 +471,7 @@ public class LanceIndexAdmissionTest {
 
     @Test
     public void omittedNumBitsComparesAsThePersistedEight() throws Exception {
-        // The validator accepts an omitted num_bits and admission always persists 8, so the
+        // The validator accepts an omitted num_bits and the persisted value is always 8, so the
         // preflight compares an effective 8 — never skips the property — against any exposed
         // compression.num_bits.
         LanceIndexAdmissionSnapshot fourBits = snapshot(
@@ -573,7 +485,7 @@ public class LanceIndexAdmissionTest {
                 Collections.singletonList(logicalIndex("idx", "v", "IVF_PQ",
                         "{\"compression\":{\"num_bits\":8}}")),
                 Collections.singletonList(physicalIndex("idx", "VECTOR")));
-        Assertions.assertNull(admitCreate(eightBits, annDef("idx", true, false), true).getJobId());
+        Assertions.assertDoesNotThrow(() -> admitCreate(eightBits, annDef("idx", true, false), true));
         assertNothingPersisted();
     }
 
@@ -584,8 +496,8 @@ public class LanceIndexAdmissionTest {
                     Collections.singletonList(logicalIndex("idx", "v", "IVF_PQ",
                             "{\"compression\":{\"num_sub_vectors\":" + exposedValue + "}}")),
                     Collections.singletonList(physicalIndex("idx", "VECTOR")));
-            Assertions.assertNull(admitCreate(snapshot, annDef("idx", true, false), true).getJobId(),
-                    exposedValue);
+            Assertions.assertDoesNotThrow(() -> admitCreate(snapshot,
+                    annDef("idx", true, false), true), exposedValue);
         }
         assertNothingPersisted();
     }
@@ -658,52 +570,38 @@ public class LanceIndexAdmissionTest {
                         "{\"metric_type\":\"L2\"}")),
                 Collections.singletonList(physicalIndex("idx", "VECTOR")));
 
-        Assertions.assertNull(admitCreate(snapshot, annDef("idx", true, false), true).getJobId());
+        Assertions.assertDoesNotThrow(() -> admitCreate(snapshot, annDef("idx", true, false), true));
         assertNothingPersisted();
     }
 
     @Test
-    public void replaceOnAbsentNameCreatesWithUserSpelling() throws Exception {
-        LanceIndexAdmission.Outcome outcome = admitCreate(emptySnapshot(),
-                annDef("Fresh", false, true), false);
-
-        LanceIndexJob job = manager.getJob(outcome.getJobId());
-        Assertions.assertEquals(LanceIndexJobMutationType.REPLACE, job.getMutationType());
-        Assertions.assertEquals("Fresh", job.getDisplayIndexName());
-        Assertions.assertEquals("fresh", job.getNormalizedIndexName());
+    public void replaceOnAbsentNameValidatesThenRejectsAsUnsupported() {
+        assertUnsupported(() -> admitCreate(emptySnapshot(), annDef("Fresh", false, true), false),
+                "CREATE OR REPLACE INDEX");
+        assertNothingPersisted();
     }
 
     @Test
-    public void replaceWithCaseVariantPersistsTheStoredName() throws Exception {
-        // M2: the worker locates the target case-sensitively, so the stored display name is
-        // persisted instead of the user's spelling.
+    public void replaceWithCaseVariantResolvesThenRejectsAsUnsupported() {
+        // M2: a unique case-insensitive match resolves to the stored display name before the
+        // terminal rejection.
         LanceIndexAdmissionSnapshot snapshot = snapshot(
                 Collections.singletonList(logicalIndex("IdxA", "v", "IVF_PQ", MATCHING_ANN_PROPERTIES_JSON)),
                 Collections.singletonList(physicalIndex("IdxA", "VECTOR")));
 
-        LanceIndexAdmission.Outcome outcome = admitCreate(snapshot, annDef("IDXA", false, true), false);
-
-        LanceIndexJob job = manager.getJob(outcome.getJobId());
-        Assertions.assertEquals(LanceIndexJobMutationType.REPLACE, job.getMutationType());
-        Assertions.assertEquals("IdxA", job.getDisplayIndexName());
-        Assertions.assertEquals("idxa", job.getNormalizedIndexName());
+        assertUnsupported(() -> admitCreate(snapshot, annDef("IDXA", false, true), false),
+                "CREATE OR REPLACE INDEX");
+        assertNothingPersisted();
     }
 
     @Test
-    public void mixedCaseColumnResolvesToTheStoredColumnName() throws Exception {
-        // N5: static validation is case-insensitive; the contract and the persisted column name
-        // use the stored Lance field name.
-        LanceIndexAdmission.Outcome outcome = admitCreate(emptySnapshot(),
+    public void mixedCaseColumnResolvesUniquelyThroughThePreflight() {
+        // N5: static validation is case-insensitive; the schema-contract build keys on the
+        // stored Lance field name, so a mixed-case request resolves, passes the preflight,
+        // and ends in the shared not-supported rejection.
+        assertUnsupported(() -> admitCreate(emptySnapshot(),
                 new IndexDefinition("idx", false, Collections.singletonList("embedding"), "ANN",
-                        annProperties(), "", false),
-                false);
-
-        LanceIndexJob job = manager.getJob(outcome.getJobId());
-        Assertions.assertEquals("Embedding", job.getColumnName());
-        LanceIndexSchemaContract.IndexedField field = job.getSchemaContract().getFields().get(0);
-        Assertions.assertEquals(4L, field.getFieldId());
-        Assertions.assertEquals("embedding", field.getNormalizedName());
-        Assertions.assertEquals("fixed_size_list", field.getNormalizedType());
+                        annProperties(), "", false), false), "CREATE INDEX");
     }
 
     @Test
@@ -731,7 +629,7 @@ public class LanceIndexAdmissionTest {
         // relation folds 'Ä' onto 'ä' and, through its Character.toLowerCase fallback, the KELVIN
         // SIGN (U+212A) onto ASCII 'k', so a dataset holding such a pair is genuinely
         // unresolvable by the lookup and fails closed; a lone KELVIN SIGN field still resolves
-        // a 'k' request uniquely and admits without a false ambiguity.
+        // a 'k' request uniquely and passes the preflight without a false ambiguity.
         LanceIndexAdmissionSnapshot kelvinPair = snapshotWithFields(
                 vectorField(KELVIN_SIGN, 1), vectorField("k", 2));
         assertInvalid(() -> admitCreate(kelvinPair, annDef("idx", "k", false, false), false),
@@ -746,49 +644,19 @@ public class LanceIndexAdmissionTest {
                         + "multiple Lance fields differ only by case");
         assertNothingPersisted();
 
-        // Unique resolution: exactly one lookup hit, and the stored field name is journaled.
+        // Unique resolution: exactly one lookup hit, so the request passes the preflight and
+        // ends in the shared not-supported rejection instead of the ambiguity error.
         tableColumns.put(KELVIN_SIGN, notNullColumn(KELVIN_SIGN, new ArrayType(Type.FLOAT)));
-        LanceIndexAdmission.Outcome outcome = admitCreate(snapshotWithFields(
-                vectorField(KELVIN_SIGN, 1)), annDef("idx", "k", false, false), false);
-        Assertions.assertNotNull(outcome.getJobId());
-        Assertions.assertEquals(KELVIN_SIGN, manager.getJob(outcome.getJobId()).getColumnName());
+        assertUnsupported(() -> admitCreate(snapshotWithFields(
+                vectorField(KELVIN_SIGN, 1)), annDef("idx", "k", false, false), false),
+                "CREATE INDEX");
     }
 
     @Test
-    public void btreeCreatePersistsNullPropertiesAndScalarContract() throws Exception {
-        LanceIndexAdmission.Outcome outcome = admitCreate(emptySnapshot(),
-                scalarDef("Idx", "BTREE", "c", false, false), false);
-
-        LanceIndexJob job = manager.getJob(outcome.getJobId());
-        Assertions.assertEquals("BTREE", job.getIndexType());
-        Assertions.assertEquals("c", job.getColumnName());
-        Assertions.assertNull(job.getPropertiesJson());
-        LanceIndexSchemaContract.IndexedField field = job.getSchemaContract().getFields().get(0);
-        Assertions.assertEquals("c", field.getNormalizedName());
-        Assertions.assertEquals("int<32>", field.getNormalizedType());
-        Assertions.assertNull(field.getFixedSizeListDimension());
-        Assertions.assertNull(field.getVectorElementType());
-        Assertions.assertNull(field.getVectorElementNullable());
-    }
-
-    @Test
-    public void annPropertiesJsonIsNormalizedAndDeterministic() throws Exception {
-        Map<String, String> mixedCase = new HashMap<>();
-        mixedCase.put("Index_Type", "ivf_pq");
-        mixedCase.put("METRIC", "L2");
-        mixedCase.put("num_partitions", "256");
-        mixedCase.put("num_sub_vectors", "16");
-        mixedCase.put("num_bits", "8");
-
-        LanceIndexAdmission.Outcome outcome = admitCreate(emptySnapshot(),
-                annDef("idx", false, false, mixedCase), false);
-
-        LanceIndexJob job = manager.getJob(outcome.getJobId());
-        // Keys are lowercase, index_type is the uppercased original value, metric is lowercased,
-        // numerics stay as their original strings, num_bits is pinned to 8, and the key order is
-        // the TreeMap order — byte-for-byte deterministic.
-        Assertions.assertEquals(NORMALIZED_ANN_PROPERTIES_JSON, job.getPropertiesJson());
-        Assertions.assertEquals("IVF_PQ", job.getIndexType());
+    public void btreeCreateValidatesTheScalarContractThenRejectsAsUnsupported() {
+        assertUnsupported(() -> admitCreate(emptySnapshot(),
+                scalarDef("Idx", "BTREE", "c", false, false), false), "CREATE INDEX");
+        assertNothingPersisted();
     }
 
     @Test
@@ -853,129 +721,33 @@ public class LanceIndexAdmissionTest {
 
     @Test
     public void dropIfExistsWithAbsentNameIsNoOp() throws Exception {
-        LanceIndexAdmission.Outcome outcome = admitDrop(emptySnapshot(), "nope", true);
-
-        Assertions.assertNull(outcome.getJobId());
+        Assertions.assertDoesNotThrow(() -> admitDrop(emptySnapshot(), "nope", true));
         assertNothingPersisted();
     }
 
     @Test
-    public void dropExistingNameIsAdmittedWithDropShape() throws Exception {
+    public void dropExistingNameValidatesThenRejectsAsUnsupported() {
         LanceIndexAdmissionSnapshot snapshot = snapshot(
                 Collections.singletonList(logicalIndex("IdxA", "v", "IVF_PQ", MATCHING_ANN_PROPERTIES_JSON)),
                 Collections.singletonList(physicalIndex("IdxA", "VECTOR")));
 
-        LanceIndexAdmission.Outcome outcome = admitDrop(snapshot, "IdxA", true);
-
-        LanceIndexJob job = manager.getJob(outcome.getJobId());
-        Assertions.assertEquals(LanceIndexJobMutationType.DROP, job.getMutationType());
-        Assertions.assertEquals("IdxA", job.getDisplayIndexName());
-        Assertions.assertEquals("idxa", job.getNormalizedIndexName());
-        Assertions.assertTrue(job.isIfExists());
-        Assertions.assertFalse(job.isIfNotExists());
-        Assertions.assertNull(job.getIndexType());
-        Assertions.assertNull(job.getColumnName());
-        Assertions.assertNull(job.getPropertiesJson());
-        Assertions.assertNull(job.getSchemaContract());
-        Assertions.assertEquals(DATASET_VERSION, job.getAdmittedDatasetVersion());
-        Assertions.assertEquals(DATASET_URI, job.getNormalizedLocator());
+        assertUnsupported(() -> admitDrop(snapshot, "IdxA", true), "DROP INDEX");
+        assertNothingPersisted();
     }
 
     @Test
-    public void dropWithCaseVariantPersistsTheStoredName() throws Exception {
+    public void dropWithCaseVariantResolvesThenRejectsAsUnsupported() {
         LanceIndexAdmissionSnapshot snapshot = snapshot(
                 Collections.singletonList(logicalIndex("IdxA", "v", "IVF_PQ", MATCHING_ANN_PROPERTIES_JSON)),
                 Collections.singletonList(physicalIndex("IdxA", "VECTOR")));
 
-        LanceIndexAdmission.Outcome outcome = admitDrop(snapshot, "idxa", false);
-
-        LanceIndexJob job = manager.getJob(outcome.getJobId());
-        Assertions.assertEquals("IdxA", job.getDisplayIndexName());
-        Assertions.assertEquals("idxa", job.getNormalizedIndexName());
+        assertUnsupported(() -> admitDrop(snapshot, "idxa", false), "DROP INDEX");
+        assertNothingPersisted();
     }
 
     // ------------------------------------------------------------------
-    // Fence, quota, and id discipline
+    // Target and snapshot discipline
     // ------------------------------------------------------------------
-
-    @Test
-    public void fenceConflictPassesThroughTheManagerRejection() throws Exception {
-        manager.createJob(newCreateJob(1L, "idxa"), 100, 100, 100);
-
-        DdlException exception = Assertions.assertThrows(DdlException.class,
-                () -> admitCreate(emptySnapshot(), annDef("idxA", false, false), false));
-        Assertions.assertTrue(exception.getMessage().contains("fenced by unresolved job 1"),
-                exception.getMessage());
-        // The rejection never discloses the locator.
-        Assertions.assertFalse(exception.getMessage().contains("bucket"), exception.getMessage());
-        Assertions.assertFalse(exception.getMessage().contains(DATASET_URI), exception.getMessage());
-
-        // One id was burned before the durable transfer rejected the job (accepted, ids are not
-        // required to be contiguous); nothing else changed.
-        Assertions.assertEquals(1, manager.getJobCount());
-        Assertions.assertEquals(1, manager.editLog.size());
-        Assertions.assertEquals(1, manager.getUnresolvedJobs().size());
-        Mockito.verify(env, Mockito.times(1)).getNextId();
-    }
-
-    @Test
-    public void quotaOverloadPassesThroughTheManagerRejection() throws Exception {
-        Config.lance_index_job_max_unresolved_per_table = 1;
-        manager.createJob(newCreateJob(1L, "idxz"), 100, 100, 100);
-
-        DdlException exception = Assertions.assertThrows(DdlException.class,
-                () -> admitCreate(emptySnapshot(), annDef("idxA", false, false), false));
-        Assertions.assertTrue(exception.getMessage().contains("quota exceeded"), exception.getMessage());
-
-        Assertions.assertEquals(1, manager.getJobCount());
-        Assertions.assertEquals(1, manager.editLog.size());
-        Assertions.assertEquals(1, manager.getUnresolvedJobs().size());
-        Mockito.verify(env, Mockito.times(1)).getNextId();
-    }
-
-    @Test
-    public void quotaBoundaryAdmitsAtTheLimitAndRejectsBeyondIt() throws Exception {
-        Config.lance_index_job_max_unresolved_per_table = 2;
-        manager.createJob(newCreateJob(1L, "idxz"), 100, 100, 100);
-
-        // count + 1 == limit passes.
-        LanceIndexAdmission.Outcome outcome = admitCreate(emptySnapshot(),
-                annDef("idxA", false, false), false);
-        Assertions.assertNotNull(outcome.getJobId());
-        Assertions.assertEquals(2, manager.getJobCount());
-
-        // count + 1 > limit is rejected.
-        Assertions.assertThrows(DdlException.class,
-                () -> admitCreate(emptySnapshot(), annDef("idxB", false, false), false));
-        Assertions.assertEquals(2, manager.getJobCount());
-        Assertions.assertEquals(2, unresolvedJobsOnDataset());
-    }
-
-    @Test
-    public void nonPositiveQuotaConfigIsAssertedBeforeAnyIdAllocation() {
-        // D7: a quota that reached fe.conf with a non-positive value (bypassing the ADMIN SET
-        // callback) must fail admission closed with 5102 naming the config item.
-        Config.lance_index_job_max_unresolved_per_table = 0;
-        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
-                () -> admitCreate(emptySnapshot(), annDef("idxA", false, false), false));
-        Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_MUTATION_DISABLED, exception.getMysqlErrorCode());
-        Assertions.assertTrue(exception.getDetailMessage().contains("lance_index_job_max_unresolved_per_table"),
-                exception.getDetailMessage());
-        assertNothingPersisted();
-
-        Config.lance_index_job_max_unresolved_per_table = originalTableQuota;
-        Config.lance_index_job_max_unresolved_global = -1;
-        exception = Assertions.assertThrows(AnalysisException.class,
-                () -> admitDrop(snapshot(
-                        Collections.singletonList(
-                                logicalIndex("idxA", "v", "IVF_PQ", MATCHING_ANN_PROPERTIES_JSON)),
-                        Collections.singletonList(physicalIndex("idxA", "VECTOR"))),
-                        "idxA", false));
-        Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_MUTATION_DISABLED, exception.getMysqlErrorCode());
-        Assertions.assertTrue(exception.getDetailMessage().contains("lance_index_job_max_unresolved_global"),
-                exception.getDetailMessage());
-        assertNothingPersisted();
-    }
 
     @Test
     public void identityChangeDuringSnapshotRejectsCreateAndDropBeforeAllocatingId() throws Exception {
@@ -1009,35 +781,5 @@ public class LanceIndexAdmissionTest {
         Assertions.assertThrows(AnalysisException.class,
                 () -> LanceIndexAdmission.admitDrop(failingLoader, catalog, database, table, "idx", false));
         assertNothingPersisted();
-    }
-
-    @Test
-    public void mixedPopulationAdmissionsChargeFenceAndQuotaCorrectly() throws Exception {
-        LanceIndexAdmissionSnapshot withExisting = snapshot(
-                Collections.singletonList(logicalIndex("IdxC", "c", "BTREE", "{}")),
-                Collections.singletonList(physicalIndex("IdxC", "SCALAR")));
-
-        LanceIndexAdmission.Outcome createA = admitCreate(emptySnapshot(),
-                annDef("idxA", false, false), false);
-        LanceIndexAdmission.Outcome createB = admitCreate(emptySnapshot(),
-                scalarDef("idxB", "BITMAP", "s", false, false), false);
-        LanceIndexAdmission.Outcome dropC = admitDrop(withExisting, "idxc", false);
-
-        Assertions.assertEquals(3, manager.getJobCount());
-        Assertions.assertEquals(3, manager.editLog.size());
-        Assertions.assertEquals(3, manager.getUnresolvedJobs().size());
-        Assertions.assertEquals(3, unresolvedJobsOnDataset());
-        Assertions.assertTrue(manager.isFenceHeld(manager.getJob(createA.getJobId()).fenceKey()));
-        Assertions.assertTrue(manager.isFenceHeld(manager.getJob(createB.getJobId()).fenceKey()));
-        Assertions.assertTrue(manager.isFenceHeld(manager.getJob(dropC.getJobId()).fenceKey()));
-        Assertions.assertEquals("IdxC", manager.getJob(dropC.getJobId()).getDisplayIndexName());
-    }
-
-    private static LanceIndexJob newCreateJob(long jobId, String displayName) {
-        return new LanceIndexJob(jobId, "seeder", CATALOG_ID, DB, TBL,
-                LanceIndexFenceKey.PROVIDER_DIRECTORY, DATASET_URI,
-                displayName, displayName.toLowerCase(Locale.ROOT),
-                LanceIndexJobMutationType.CREATE, false, false, "IVF_PQ", "v",
-                null, DATASET_VERSION, null);
     }
 }

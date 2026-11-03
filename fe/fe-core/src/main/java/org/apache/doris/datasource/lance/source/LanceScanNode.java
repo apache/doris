@@ -49,7 +49,9 @@ import org.apache.doris.thrift.TFullTextSearchParams;
 import org.apache.doris.thrift.TLanceFileDesc;
 import org.apache.doris.thrift.TLanceScanParams;
 import org.apache.doris.thrift.TTableFormatFileDesc;
+import org.apache.doris.thrift.TVectorApproxMode;
 import org.apache.doris.thrift.TVectorMetric;
+import org.apache.doris.thrift.TVectorSearchOptions;
 import org.apache.doris.thrift.TVectorSearchParams;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -143,6 +145,7 @@ public class LanceScanNode extends FileQueryScanNode {
         super.doInitialize();
         checkAdditionalTypeBackendCompatibility(
                 projectsCurrentReaderType(), backendPolicy.getBackends());
+        checkApproxModeBackendCompatibility();
         ExternalUtil.initSchemaInfo(params, -1L, sourceColumns);
 
         if (searchKind.isExternalSearch()) {
@@ -155,6 +158,26 @@ public class LanceScanNode extends FileQueryScanNode {
 
     public void addLazyMaterializedColumn(String columnName) {
         lazyMaterializedColumns.add(columnName.toLowerCase(Locale.ROOT));
+    }
+
+    private void checkApproxModeBackendCompatibility() throws UserException {
+        if (searchKind != SearchKind.VECTOR || !externalSearchRequest.isSetVectorSearchOptions()) {
+            return;
+        }
+        TVectorSearchOptions options = externalSearchRequest.getVectorSearchOptions();
+        if (!options.isSetApproxMode() || options.getApproxMode() == TVectorApproxMode.NORMAL) {
+            return;
+        }
+        // Old BEs skip the optional field, which would mix NORMAL with FAST/ACCURATE split candidates.
+        for (Backend backend : backendPolicy.getBackends()) {
+            if (backend.isSmoothUpgradeSrc()) {
+                throw new UserException("Lance approx_mode="
+                        + options.getApproxMode().name().toLowerCase(Locale.ROOT)
+                        + " is unavailable while backend " + backend.getId()
+                        + " is a smooth upgrade source; finish upgrading the query backends"
+                        + " or use approx_mode=normal");
+            }
+        }
     }
 
     /** Checks columns read in either phase of a Lance scan. */
@@ -224,10 +247,10 @@ public class LanceScanNode extends FileQueryScanNode {
     @Override
     protected void convertPredicate() {
         if (searchKind.isExternalSearch()) {
-            // The TVF "filter" property is already serialized in externalSearchRequest and is
-            // evaluated by Lance before candidate search. Outer WHERE conjuncts have different
-            // semantics: keep them as Doris scan residuals. Each fragment first returns its Lance
-            // ANN candidates, then Doris evaluates these conjuncts before the local/global TopN.
+            // The TVF "filter" property is serialized in externalSearchRequest; prefilter
+            // controls whether Lance applies it before search or after candidate selection. Outer
+            // WHERE conjuncts remain Doris scan residuals and are evaluated before local/global
+            // TopN.
         } else {
             LancePredicateConverter.ConversionResult result =
                     new LancePredicateConverter(plannedMetadata.getSchema()).convert(conjuncts);
@@ -354,6 +377,23 @@ public class LanceScanNode extends FileQueryScanNode {
                         .append(scanPlan.vectorIndexStatus).append("\n");
                 result.append(prefix).append("lanceVectorColumn=")
                         .append(vector.getColumn()).append("\n");
+                if (externalSearchRequest.isSetVectorSearchOptions()
+                        && externalSearchRequest.getVectorSearchOptions().isSetApproxMode()) {
+                    result.append(prefix).append("lanceApproxMode=")
+                            .append(externalSearchRequest.getVectorSearchOptions().getApproxMode()).append("\n");
+                }
+                if (externalSearchRequest.isSetVectorSearchOptions()
+                        && externalSearchRequest.getVectorSearchOptions().isSetQueryParallelism()) {
+                    result.append(prefix).append("lanceQueryParallelism=")
+                            .append(externalSearchRequest.getVectorSearchOptions().getQueryParallelism()).append("\n");
+                }
+                if (vector.isSetDistanceLowerBound() || vector.isSetDistanceUpperBound()) {
+                    result.append(prefix).append("lanceDistanceRange=[")
+                            .append(vector.isSetDistanceLowerBound() ? vector.getDistanceLowerBound() : "-inf")
+                            .append(", ")
+                            .append(vector.isSetDistanceUpperBound() ? vector.getDistanceUpperBound() : "+inf")
+                            .append(")\n");
+                }
                 result.append(prefix).append("lanceMetric=")
                         .append(vector.isSetMetric()
                                 ? VectorSearchTableValuedFunction.metricName(vector.getMetric()) : "default")
@@ -381,8 +421,7 @@ public class LanceScanNode extends FileQueryScanNode {
                             .append(fullText.getPhraseSlop()).append("\n");
                 }
             }
-            result.append(prefix).append("lanceVersion=")
-                    .append(plannedMetadata.getVersion()).append("\n");
+            appendSnapshotExplain(result, prefix);
             result.append(prefix).append("lanceSearchFragments=")
                     .append(scanPlan.fragmentCount).append("\n");
             result.append(prefix).append("lanceSearchUnindexedFragments=")
@@ -392,9 +431,7 @@ public class LanceScanNode extends FileQueryScanNode {
             result.append(prefix).append("lanceSearchIndexFragments=")
                     .append(scanPlan.indexedFragmentCount).append("\n");
         } else {
-            result.append(prefix).append("lanceCatalogType=")
-                    .append(((LanceExternalCatalog) lanceTable.getCatalog()).getLanceCatalogType()).append("\n");
-            result.append(prefix).append("lanceVersion=").append(scanPlan.version).append("\n");
+            appendSnapshotExplain(result, prefix);
             result.append(prefix).append("lanceFragments=").append(scanPlan.fragmentCount).append("\n");
             if (scanPlan.fragmentsPerSplit > 0) {
                 result.append(prefix).append("lanceFragmentGrouping=DEBUG\n");
@@ -422,6 +459,17 @@ public class LanceScanNode extends FileQueryScanNode {
             }
         }
         return result.toString();
+    }
+
+    /** The snapshot this node plans from; table scans and searches show it the same way. */
+    private void appendSnapshotExplain(StringBuilder result, String prefix) {
+        result.append(prefix).append("lanceCatalogType=")
+                .append(((LanceExternalCatalog) lanceTable.getCatalog()).getLanceCatalogType()).append("\n");
+        result.append(prefix).append("lanceVersion=").append(plannedMetadata.getVersion()).append("\n");
+        result.append(prefix).append("lanceManagedVersioning=")
+                .append(plannedMetadata.isManagedVersioning()).append("\n");
+        plannedMetadata.getBranch().ifPresent(branch ->
+                result.append(prefix).append("lanceBranch=").append(branch).append("\n"));
     }
 
     TExternalSearchRequest createSplitSearchRequest() {

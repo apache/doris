@@ -15,6 +15,10 @@
 0	This example illustrates how subtle differences can influence perception. It's more about interpretation than right or wrong.
 
 -- !q2 --
-0	This example illustrates how subtle differences can influence perception. It's more about interpretation than right or wrong.	81.69190979003906
-9	This task isn’t about right answers, but about consistency in your judgments over time.	122.17068481445312
+0	This example illustrates how subtle differences can influence perception. It's more about interpretation than right or wrong.	81.69191
+9	This task isn’t about right answers, but about consistency in your judgments over time.	122.170685
+
+-- !q3 --
+1.0389736	163.05757
+2.1595716	81.69191
 

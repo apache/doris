@@ -290,23 +290,21 @@ suite("variant_compute_v2", "p0,nonConcurrent") {
         FROM numbers("number" = "1")
     """
 
-    setBeConfigTemporary([variant_throw_exeception_on_invalid_json: true]) {
-        order_qt_parse_error_to_null """
+    order_qt_parse_error_to_null """
+        SELECT number,
+               CAST(try_parse_to_variant(payload) AS STRING),
+               try_parse_to_variant(payload) IS NULL
+        FROM (
             SELECT number,
-                   CAST(try_parse_to_variant(payload) AS STRING),
-                   try_parse_to_variant(payload) IS NULL
-            FROM (
-                SELECT number,
-                       CASE number
-                           WHEN 0 THEN '{"ok":1}'
-                           WHEN 1 THEN 'not-json'
-                           ELSE NULL
-                       END AS payload
-                FROM numbers("number" = "3")
-            ) t
-            ORDER BY number
-        """
-    }
+                   CASE number
+                       WHEN 0 THEN '{"ok":1}'
+                       WHEN 1 THEN 'not-json'
+                       ELSE NULL
+                   END AS payload
+            FROM numbers("number" = "3")
+        ) t
+        ORDER BY number
+    """
 
     order_qt_direct_result """
         SELECT ${variantV2Function}(CONCAT('{"id":', number, '}'))

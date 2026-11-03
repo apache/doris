@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
@@ -193,6 +194,16 @@ public class IndexDef {
         return properties;
     }
 
+    public void applyPropertiesTo(Index index) {
+        if (index == null || properties == null || properties.isEmpty()) {
+            return;
+        }
+        Map<String, String> merged = index.getProperties() == null
+                ? new HashMap<>() : new HashMap<>(index.getProperties());
+        merged.putAll(properties);
+        index.setProperties(merged);
+    }
+
     public String getComment() {
         return comment;
     }
@@ -234,7 +245,17 @@ public class IndexDef {
         return primitiveType.isDateLikeType() || primitiveType.isDecimalV2Type() || primitiveType.isDecimalV3Type()
                 || primitiveType.isFixedPointType() || primitiveType.isStringType()
                 || primitiveType == PrimitiveType.BOOLEAN
-                || primitiveType.isVariantType() || primitiveType.isIPType();
+                || primitiveType.isVariantType() || primitiveType.isIPType() || primitiveType.isUuidType();
+    }
+
+    private boolean isSupportSniiIdxType(Type colType) {
+        if (colType.isArrayType()) {
+            Type itemType = ((ArrayType) colType).getItemType();
+            return !itemType.isArrayType() && (itemType.isStringType()
+                    || InvertedIndexUtil.isSupportSniiNumericIdxType(itemType.getPrimitiveType()));
+        }
+        return colType.isStringType() || colType.isVariantType()
+                || InvertedIndexUtil.isSupportSniiNumericIdxType(colType.getPrimitiveType());
     }
 
     public void checkColumn(Column column, KeysType keysType, boolean enableUniqueKeyMergeOnWrite,
@@ -273,7 +294,13 @@ public class IndexDef {
             caseSensitivityColumns.add(indexColName);
             PrimitiveType colType = column.getDataType();
             Type columnType = column.getType();
-            if (!isSupportIdxType(columnType)) {
+            boolean isSniiInvertedIndex = indexType == IndexType.INVERTED
+                    && invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.SNII;
+            if (isSniiInvertedIndex && !isSupportSniiIdxType(columnType)) {
+                throw new AnalysisException("SNII inverted index storage format does not support index on column: "
+                        + indexColName);
+            }
+            if (!isSniiInvertedIndex && !isSupportIdxType(columnType)) {
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString() + " index. "
                         + "invalid index: " + indexName);
             }

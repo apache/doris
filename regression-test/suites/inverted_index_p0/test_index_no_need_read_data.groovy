@@ -53,7 +53,7 @@ suite("test_index_no_need_read_data", "inverted_index_select"){
     """
 
     // case1: enable nereids planner
-    sql """ set enable_common_expr_pushdown = true; """
+    sql """ set enable_segment_limit_pushdown = true; """
 
     qt_select_nereids_0 "SELECT * FROM ${table1} ORDER BY id"
     qt_select_nereids_1 "SELECT count() FROM ${table1} WHERE n > 100"

@@ -59,7 +59,9 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_time.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type/data_type_uuid.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "core/data_type/data_type_variant.h"
 #include "core/data_type/data_type_variant_v2.h"
@@ -149,6 +151,9 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
     case FieldType::OLAP_FIELD_TYPE_IPV6:
         result = std::make_shared<DataTypeIPv6>();
         break;
+    case FieldType::OLAP_FIELD_TYPE_UUID:
+        result = std::make_shared<DataTypeUUID>();
+        break;
     case FieldType::OLAP_FIELD_TYPE_DATE:
         result = std::make_shared<DataTypeDate>();
         break;
@@ -157,6 +162,9 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
         break;
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
         result = create_datetimev2(scale);
+        break;
+    case FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS:
+        result = std::make_shared<DataTypeTimeStampNs>();
         break;
     case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
         result = std::make_shared<DataTypeTimeStampTz>(scale);
@@ -240,6 +248,9 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
     case PGenericType::IPV6:
         nested = std::make_shared<DataTypeIPv6>();
         break;
+    case PGenericType::UUID:
+        nested = std::make_shared<DataTypeUUID>();
+        break;
     case PGenericType::STRING:
         nested = std::make_shared<DataTypeString>();
         break;
@@ -263,6 +274,9 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         break;
     case PGenericType::DATETIMEV2:
         nested = std::make_shared<DataTypeDateTimeV2>(pcolumn.decimal_param().scale());
+        break;
+    case PGenericType::TIMESTAMP_NS:
+        nested = std::make_shared<DataTypeTimeStampNs>();
         break;
     case PGenericType::DATETIME:
         nested = std::make_shared<DataTypeDateTime>();
@@ -298,7 +312,7 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         nested = std::make_shared<DataTypeHLL>();
         break;
     case PGenericType::VARBINARY:
-        nested = std::make_shared<DataTypeVarbinary>();
+        nested = std::make_shared<DataTypeVarbinary>(pcolumn.varbinary_length());
         break;
     case PGenericType::LIST:
         DCHECK(pcolumn.children_size() == 1);
@@ -433,6 +447,9 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
     case TYPE_IPV6:
         nested = std::make_shared<DataTypeIPv6>();
         break;
+    case TYPE_UUID:
+        nested = std::make_shared<DataTypeUUID>();
+        break;
     case TYPE_DATE:
         nested = std::make_shared<DataTypeDate>();
         break;
@@ -441,6 +458,9 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
         break;
     case TYPE_DATETIMEV2:
         nested = create_datetimev2(scale);
+        break;
+    case TYPE_TIMESTAMP_NS:
+        nested = std::make_shared<DataTypeTimeStampNs>();
         break;
     case TYPE_DATETIME:
         nested = std::make_shared<DataTypeDateTime>();
@@ -641,6 +661,10 @@ DataTypePtr DataTypeFactory::create_data_type(
         } else if (primitive_type == TYPE_AGG_STATE) {
             // Do nothing
             nested = std::make_shared<DataTypeAggState>();
+        } else if (primitive_type == TYPE_VARBINARY) {
+            // Serialized execution types must retain VARBINARY(n)'s byte limit across RPCs.
+            return create_data_type(primitive_type, is_nullable, 0, 0,
+                                    scalar_type.has_len() ? scalar_type.len() : -1);
         } else if (primitive_type == TYPE_VARIANT) {
             if (node.variant_is_v2()) {
                 nested = std::make_shared<DataTypeVariantV2>(node.variant_max_subcolumns_count(),

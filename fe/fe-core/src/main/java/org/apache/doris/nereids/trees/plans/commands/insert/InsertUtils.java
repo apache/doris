@@ -30,6 +30,7 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.IcebergUuidWriteConverter;
 import org.apache.doris.datasource.iceberg.IcebergVariantWriteAnalyzer;
 import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
@@ -81,6 +82,7 @@ import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.proto.InternalService;
@@ -526,7 +528,7 @@ public class InsertUtils {
                     NamedExpression defaultExpression = generateDefaultExpression(
                             column, icebergWriteSchemaContext);
                     addColumnValue(analyzer, optimizedRowConstructor, defaultExpression,
-                            null, rewriteContext, strictCast);
+                            null, rewriteContext, strictCast, isIcebergSink);
                 }
             } else {
                 if (CollectionUtils.isNotEmpty(unboundLogicalSink.getColNames())) {
@@ -566,7 +568,7 @@ public class InsertUtils {
                             NamedExpression defaultExpression = generateDefaultExpression(
                                     sameNameColumn, icebergWriteSchemaContext);
                             addColumnValue(analyzer, optimizedRowConstructor, defaultExpression,
-                                    null, rewriteContext, strictCast);
+                                    null, rewriteContext, strictCast, isIcebergSink);
                         } else {
                             NamedExpression value = resolveIcebergDefaultReferences(
                                     values.get(i), icebergWriteSchemaContext,
@@ -574,7 +576,7 @@ public class InsertUtils {
                             DataType targetType = targetTypeForInlineValue(
                                     sameNameColumn, value, isPaimonSink, isIcebergSink);
                             addColumnValue(analyzer, optimizedRowConstructor, value,
-                                    targetType, rewriteContext, strictCast);
+                                    targetType, rewriteContext, strictCast, isIcebergSink);
                         }
                     }
                 } else {
@@ -592,7 +594,7 @@ public class InsertUtils {
                             NamedExpression defaultExpression = generateDefaultExpression(
                                     columns.get(i), icebergWriteSchemaContext);
                             addColumnValue(analyzer, optimizedRowConstructor, defaultExpression,
-                                    null, rewriteContext, strictCast);
+                                    null, rewriteContext, strictCast, isIcebergSink);
                         } else {
                             NamedExpression value = resolveIcebergDefaultReferences(
                                     values.get(i), icebergWriteSchemaContext,
@@ -600,7 +602,7 @@ public class InsertUtils {
                             DataType targetType = targetTypeForInlineValue(
                                     columns.get(i), value, isPaimonSink, isIcebergSink);
                             addColumnValue(analyzer, optimizedRowConstructor, value, targetType,
-                                    rewriteContext, strictCast);
+                                    rewriteContext, strictCast, isIcebergSink);
                         }
                     }
                 }
@@ -691,7 +693,7 @@ public class InsertUtils {
                     if (expr.child(0).getDataType() instanceof AggStateType) {
                         expr = ConvertAggStateCast.convert((Cast) expr);
                     } else {
-                        expr = FoldConstantRuleOnFE.evaluate(expr, context);
+                        expr = foldConstantAfterBind(expr, context);
                     }
                 }
                 return expr;
@@ -751,7 +753,18 @@ public class InsertUtils {
             Optional<ExpressionAnalyzer> analyzer,
             ImmutableList.Builder<NamedExpression> optimizedRowConstructor,
             NamedExpression value, DataType targetType, ExpressionRewriteContext rewriteContext,
-            boolean strictCast) {
+            boolean strictCast, boolean isIcebergSink) {
+        if (isIcebergSink && targetType != null && IcebergUuidWriteConverter.containsUuid(targetType)) {
+            // VALUES normalization runs before BindSink; keep UUID text intact until it can be validated.
+            if (!analyzer.isPresent()) {
+                optimizedRowConstructor.add(value);
+                return;
+            }
+            value = (NamedExpression) analyzer.get().analyze(value,
+                    new ExpressionRewriteContext(analyzer.get().getCascadesContext()));
+            Expression input = value instanceof Alias ? value.child(0) : value;
+            value = new Alias(IcebergUuidWriteConverter.convert(input, targetType), value.getName());
+        }
         if (targetType != null) {
             // In strict cast/insert mode, we don't cast to target varchar type here,
             // we cast to varchar max here and do substring accordingly in BindSink.
@@ -768,9 +781,15 @@ public class InsertUtils {
             );
             value = rewriteContext == null
                     ? value
-                    : (NamedExpression) FoldConstantRuleOnFE.evaluate(value, rewriteContext);
+                    : (NamedExpression) foldConstantAfterBind(value, rewriteContext);
         }
         optimizedRowConstructor.add(value);
+    }
+
+    private static Expression foldConstantAfterBind(
+            Expression expression, ExpressionRewriteContext rewriteContext) {
+        return MoreFieldsThread.keepFunctionSignature(
+                () -> FoldConstantRuleOnFE.evaluate(expression, rewriteContext));
     }
 
     private static NamedExpression castValue(Expression value, DataType targetType) {

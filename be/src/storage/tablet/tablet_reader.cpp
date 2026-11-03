@@ -27,7 +27,9 @@
 #include <memory>
 #include <numeric>
 #include <ostream>
+#include <set>
 #include <shared_mutex>
+#include <unordered_map>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
@@ -43,10 +45,12 @@
 #include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
+#include "storage/delete/delete_handler.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
 #include "storage/itoken_extractor.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
+#include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/column_predicate.h"
 #include "storage/predicate/like_column_predicate.h"
 #include "storage/predicate/predicate_creator.h"
@@ -78,6 +82,21 @@ Status TabletReader::init(const ReaderParams& read_params) {
                      << ", version:" << read_params.version;
     }
     return res;
+}
+
+void TabletReader::remove_delete_columns_from_access_paths(
+        const DeleteHandler& delete_handler, const TabletSchema& tablet_schema,
+        std::map<int32_t, TColumnAccessPaths>& all_access_paths) {
+    auto delete_predicates = AndBlockColumnPredicate::create_shared();
+    std::unordered_map<int32_t, std::vector<std::shared_ptr<const ColumnPredicate>>>
+            del_predicates_for_zone_map;
+    delete_handler.get_delete_conditions_after_version(0, delete_predicates.get(),
+                                                       &del_predicates_for_zone_map);
+    std::set<ColumnId> delete_column_ids;
+    delete_predicates->get_all_column_ids(delete_column_ids);
+    for (auto cid : delete_column_ids) {
+        all_access_paths.erase(tablet_schema.column(cid).unique_id());
+    }
 }
 
 Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
@@ -158,7 +177,6 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.topn_filter_target_node_id = read_params.topn_filter_target_node_id;
     _reader_context.read_orderby_key_reverse = read_params.read_orderby_key_reverse;
     _reader_context.read_orderby_key_limit = read_params.read_orderby_key_limit;
-    _reader_context.filter_block_conjuncts = read_params.filter_block_conjuncts;
     _reader_context.return_columns = &_return_columns;
     _reader_context.read_orderby_key_columns =
             !_orderby_key_columns.empty() ? &_orderby_key_columns : nullptr;
@@ -184,7 +202,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.common_expr_ctxs_push_down = read_params.common_expr_ctxs_push_down;
     _reader_context.output_columns = &read_params.output_columns;
     _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
-    _reader_context.ttl_seconds = _tablet->ttl_seconds();
+    _reader_context.file_cache_expiration_time = _tablet->file_cache_ttl_expiration_time();
     _reader_context.score_runtime = read_params.score_runtime;
     _reader_context.collection_statistics = read_params.collection_statistics;
 
@@ -196,7 +214,17 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.all_access_paths = read_params.all_access_paths;
     _reader_context.predicate_access_paths = read_params.predicate_access_paths;
 
+    // Force a full read of delete-condition columns: the FE can't see storage deletes and may
+    // mark them meta-only (OFFSET/NULL), whose content-less read makes the delete predicate
+    // match nothing and leak deleted rows.
+    if (!_delete_handler.empty() && !_reader_context.all_access_paths.empty()) {
+        remove_delete_columns_from_access_paths(_delete_handler, *_tablet_schema,
+                                                _reader_context.all_access_paths);
+    }
+
     _reader_context.condition_cache_digest = read_params.condition_cache_digest;
+    // Propagate general read limit for DUP_KEYS and UNIQUE_KEYS with MOW
+    _reader_context.general_read_limit = read_params.general_read_limit;
     return Status::OK();
 }
 
@@ -428,6 +456,16 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
         }
     }
 
+    // Storage TopN sorts rows by these columns, and only DUP and merge-on-write tablets set
+    // them up. Without them, fail the scan here instead of aborting later in VCollectIterator.
+    if (read_params.read_orderby_key_limit > 0 && _orderby_key_columns.empty()) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "storage TopN needs order-by key columns, but none are set up: keys_type={}, "
+                "enable_unique_key_merge_on_write={}, read_orderby_key_num_prefix_columns={}",
+                _tablet_schema->keys_type(), _tablet->enable_unique_key_merge_on_write(),
+                read_params.read_orderby_key_num_prefix_columns);
+    }
+
     return Status::OK();
 }
 
@@ -447,7 +485,8 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
 
         const auto& col = _tablet_schema->column(pred->column_id());
         const auto* tablet_index = _tablet_schema->get_ngram_bf_index(col.unique_id());
-        if (is_like_predicate(pred) && tablet_index && config::enable_query_like_bloom_filter) {
+        if (is_like_predicate(pred) && tablet_index && config::enable_query_like_bloom_filter &&
+            pred->can_do_bloom_filter(true)) {
             std::unique_ptr<segment_v2::BloomFilter> ng_bf;
             std::string pattern = pred->get_search_str();
             auto gram_bf_size = tablet_index->get_gram_bf_size();

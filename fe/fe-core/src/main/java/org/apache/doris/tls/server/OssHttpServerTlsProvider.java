@@ -23,8 +23,8 @@ import org.apache.doris.httpv2.config.HttpToHttpsJettyConfig;
 import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.server.HttpConnectionFactory;
 import org.eclipse.jetty.server.ServerConnector;
-import org.springframework.boot.web.embedded.jetty.ConfigurableJettyWebServerFactory;
-import org.springframework.boot.web.embedded.jetty.JettyServletWebServerFactory;
+import org.springframework.boot.jetty.ConfigurableJettyWebServerFactory;
+import org.springframework.boot.jetty.servlet.JettyServletWebServerFactory;
 
 import java.util.Collections;
 

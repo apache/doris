@@ -80,8 +80,9 @@ public:
             const bool enable_doc_mode = variant_type->enable_doc_mode();
             auto values = ColumnVariant::create(max_subcolumns_count, enable_doc_mode);
             ParseConfig parse_config;
-            parse_config.check_duplicate_json_path =
-                    config::variant_enable_duplicate_json_path_check;
+            // parse_to_variant() rejects text that is not a JSON document; try_parse_to_variant()
+            // turns the failure into NULL below.
+            parse_config.throw_on_invalid_json = true;
             parse_config.parse_to = enable_doc_mode ? ParseConfig::ParseTo::OnlyDocValueColumn
                                                     : ParseConfig::ParseTo::OnlySubcolumns;
             JsonParser parser;

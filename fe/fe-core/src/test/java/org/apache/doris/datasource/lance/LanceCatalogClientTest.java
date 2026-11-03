@@ -21,13 +21,19 @@ import org.apache.arrow.memory.ArrowBuf;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.OutOfMemoryException;
 import org.apache.arrow.memory.RootAllocator;
+import org.apache.arrow.vector.ipc.ArrowStreamReader;
+import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.lance.Session;
 import org.lance.namespace.LanceNamespace;
 import org.lance.namespace.model.ListNamespacesResponse;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
 import java.util.Collections;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -190,6 +196,59 @@ public class LanceCatalogClientTest {
             finish.countDown();
             executor.shutdownNow();
             Assertions.assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+            client.close();
+        }
+    }
+
+    /**
+     * A managed table's branch is opened by a URI Doris joins, so Doris rejects names that could
+     * leave the table's tree/ directory, since the object store would resolve dot segments, even
+     * percent-encoded ones, but never a name Lance accepts.
+     */
+    @Test
+    public void testManagedBranchNamesFollowLanceRules() {
+        // Every name Lance accepts passes, including letters newer than the JDK's Unicode tables:
+        // "devᲉ" ends with U+1C89, added in Unicode 16, which Rust's char::is_alphanumeric
+        // accepts and JDK 17 leaves unassigned. "शाखा" has a combining vowel sign, then a
+        // superscript digit and a Roman numeral.
+        for (String valid : new String[] {"dev", "team/dev", "v1.0", "a_b-c", "123", "dev2026", "分支",
+                "devᲉ", "शाखा", "v²", "Ⅻ"}) {
+            LanceCatalogClient.checkBranchName(valid);
+        }
+        // URI and path syntax is rejected, as is whitespace, including an ideographic space.
+        for (String invalid : new String[] {"", "../other.lance", "a/../../b", "/dev", "dev/", "a//b",
+                "x.lock", "%2e%2e/x", "dev?x=1", "dev#x", "a b", "a\\b", "s3://bucket/t", "a+b", "a\tb",
+                "a　b"}) {
+            RuntimeException exception = Assertions.assertThrows(RuntimeException.class,
+                    () -> LanceCatalogClient.checkBranchName(invalid), invalid);
+            Assertions.assertTrue(exception.getMessage().startsWith("Invalid Lance branch name '" + invalid + "'"),
+                    exception.getMessage());
+        }
+    }
+
+    @Test
+    public void testCreateTableSerializesAnEmptyArrowStream() throws Exception {
+        LanceNamespace namespace = Mockito.mock(LanceNamespace.class);
+        BufferAllocator allocator = new RootAllocator(1024 * 1024);
+        LanceCatalogClient client = client(namespace, allocator, Mockito.mock(Session.class));
+        Schema schema = new Schema(Collections.singletonList(
+                Field.notNullable("id", new ArrowType.Int(32, true))));
+        try {
+            try (LanceCatalogClient.Lease lease = client.acquire()) {
+                lease.client().createTable("default", "events", schema, Collections.emptyMap());
+            }
+
+            ArgumentCaptor<byte[]> payload = ArgumentCaptor.forClass(byte[].class);
+            Mockito.verify(namespace).createTable(Mockito.any(), payload.capture());
+            Assertions.assertTrue(payload.getValue().length > 0);
+            try (ArrowStreamReader reader = new ArrowStreamReader(
+                    new ByteArrayInputStream(payload.getValue()), allocator)) {
+                Assertions.assertEquals(schema, reader.getVectorSchemaRoot().getSchema());
+                Assertions.assertTrue(reader.loadNextBatch());
+                Assertions.assertEquals(0, reader.getVectorSchemaRoot().getRowCount());
+                Assertions.assertFalse(reader.loadNextBatch());
+            }
+        } finally {
             client.close();
         }
     }

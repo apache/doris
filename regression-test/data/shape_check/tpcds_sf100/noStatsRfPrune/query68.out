@@ -38,5 +38,5 @@ PhysicalResultSink
 --------------------PhysicalProject
 ----------------------PhysicalLazyMaterializeOlapScan[customer lazySlots:(customer.c_first_name)]
 ----------------PhysicalProject
-------------------PhysicalOlapScan[customer_address]
+------------------PhysicalOlapScan[customer_address(current_addr)]
 

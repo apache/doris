@@ -111,7 +111,7 @@ suite("test_tvf_error_column", "p0") {
     }
     */
 
-    // Step5: error compression type
+    // V2 schema discovery must reject CSV bytes as an invalid Parquet footer.
     test {
         sql """       
                 INSERT INTO ${tableName}
@@ -124,7 +124,7 @@ suite("test_tvf_error_column", "p0") {
                                 "region" = "${region}"
                                 );
         """
-        exception "Invalid magic number in parquet file"
+        exception "Invalid Parquet v2 footer magic"
     }
 
 

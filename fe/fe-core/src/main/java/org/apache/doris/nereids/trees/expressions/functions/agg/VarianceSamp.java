@@ -34,7 +34,7 @@ import java.util.List;
  */
 public class VarianceSamp extends NullableAggregateFunction
         implements UnaryExpression, ExplicitlyCastableSignature,
-        StdDevOrVarianceFunction {
+        StdDevOrVarianceFunction, NullIgnoringAggregateFunction {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE));

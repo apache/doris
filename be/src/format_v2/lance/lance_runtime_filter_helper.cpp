@@ -493,6 +493,12 @@ std::optional<std::string> build_cache_key(const VExprContextSPtrs& conjuncts) {
 
 } // namespace
 
+bool has_lance_runtime_filters(const VExprContextSPtrs& conjuncts) {
+    return std::ranges::any_of(conjuncts, [](const auto& conjunct) {
+        return get_runtime_filter(conjunct) != nullptr;
+    });
+}
+
 std::shared_ptr<const LanceRuntimeFilterSql> get_or_create_lance_runtime_filter_sql(
         const VExprContextSPtrs& conjuncts, const arrow::Schema& physical_schema,
         ShardedKVCache* cache) {

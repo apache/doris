@@ -337,6 +337,11 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         int threshold = filteredPartitionThreshold(partitionBatchSize);
         FilteredPartitionPage page;
         try (ThriftHMSClient client = getClient()) {
+            if (!(client.client instanceof HmsRawPartitionFilterPageSource)) {
+                throw new HMSClientException(
+                        "HMS client cannot verify raw partition filter completeness for table '%s.%s'.",
+                        dbName, tblName);
+            }
             try {
                 page = ugiDoAs(() -> fetchFilteredPartitionPage(
                         client.client, dbName, tblName, filter, threshold));
@@ -358,14 +363,9 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     private static FilteredPartitionPage fetchFilteredPartitionPage(IMetaStoreClient client, String dbName,
             String tableName, String filter, int threshold) throws Exception {
         int pageLimit = threshold + 1;
-        if (client instanceof HmsRawPartitionFilterPageSource) {
-            HmsRawPartitionFilterPage page = ((HmsRawPartitionFilterPageSource) client)
-                    .listPartitionsByFilterRawPage(dbName, tableName, filter, pageLimit);
-            return new FilteredPartitionPage(page.getPartitions(), page.getRawCount());
-        }
-        List<Partition> partitions = client.listPartitionsByFilter(
-                dbName, tableName, filter, (short) pageLimit);
-        return new FilteredPartitionPage(partitions, partitions.size());
+        HmsRawPartitionFilterPage page = ((HmsRawPartitionFilterPageSource) client)
+                .listPartitionsByFilterRawPage(dbName, tableName, filter, pageLimit);
+        return new FilteredPartitionPage(page.getPartitions(), page.getRawCount());
     }
 
     static int filteredPartitionThreshold(int configured) {

@@ -17,18 +17,16 @@
 
 #pragma once
 
-#include <cctz/time_zone.h>
-
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
-#include <string_view>
-#include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
+#include "format_v2/lance/lance_record_batch_converter.h"
+#include "format_v2/lance/lance_session_cache_profile.h"
 #include "format_v2/table_reader.h"
 #include "runtime/runtime_profile.h"
 
@@ -40,12 +38,6 @@ struct LanceScanner;
 namespace doris {
 class ShardedKVCache;
 }
-
-namespace arrow {
-class Array;
-class RecordBatch;
-class Schema;
-} // namespace arrow
 
 namespace doris::format::lance {
 
@@ -85,8 +77,13 @@ private:
     Status _validate_external_search_request() const;
     Status _ensure_dataset_open(const TFileRangeDesc& range, bool prepare_fts_context = true);
     Status _open_dataset(const DatasetKey& key);
+    // Rejects FE fragment ids the opened snapshot lacks; lance-c would silently skip them.
+    Status _check_fragment_ids(const std::vector<uint64_t>& fragment_ids) const;
+    // Names the opened snapshot in execution errors, since several share one URI or version.
+    std::string _snapshot_description() const;
     Status _prepare_fts_query_context();
     Status _open_scanner(const TFileRangeDesc& range);
+    void _init_scanner_profile();
     Status _configure_scan_options(LanceScanner* scanner) const;
     Status _configure_normal_scan(LanceScanner* scanner, const TLanceFileDesc& lance_params) const;
     Status _configure_vector_search(LanceScanner* scanner,
@@ -102,42 +99,41 @@ private:
     void _close_scanner();
     void _close_dataset();
     Status _fill_block_from_lance_batch(LanceBatch* batch, Block* block, size_t* rows);
-    Status _fill_block_from_record_batch(const std::shared_ptr<arrow::RecordBatch>& record_batch,
-                                         Block* block, size_t* rows);
-    Status _append_global_row_ids(const std::shared_ptr<arrow::Array>& row_ids,
-                                  MutableColumnPtr& output_column) const;
     Status _dataset_key(const TFileRangeDesc& range, DatasetKey* key) const;
 
     LanceDataset* _dataset = nullptr;
+    std::unique_ptr<LanceSessionCacheProfile> _session_cache_profile;
     std::shared_ptr<arrow::Schema> _dataset_schema;
     LanceScanner* _scanner = nullptr;
     ShardedKVCache* _runtime_filter_cache = nullptr;
     std::optional<DatasetKey> _opened_dataset_key;
-    std::unordered_map<std::string, size_t> _output_name_to_idx;
-    std::optional<size_t> _global_rowid_output_idx;
-    cctz::time_zone _ctz;
+    // Sorted fragment ids of the opened snapshot, listed on the first split that names any.
+    mutable std::optional<std::vector<uint64_t>> _dataset_fragment_ids;
+    // The version the open dataset resolved to, which differs from the key's for version 0.
+    int64_t _opened_version = 0;
+    LanceRecordBatchConverter _record_batch_converter;
     size_t _scanner_batch_size = 0;
     RuntimeProfile::Counter* _planned_index_segment_count = nullptr;
     RuntimeProfile::Counter* _planned_indexed_fragment_count = nullptr;
     RuntimeProfile::Counter* _planned_flat_search_fragment_count = nullptr;
     RuntimeProfile::Counter* _dataset_open_time = nullptr;
     RuntimeProfile::Counter* _scanner_configure_time = nullptr;
-    RuntimeProfile::Counter* _runtime_filter_sql_time = nullptr;
-    RuntimeProfile::Counter* _scanner_read_time = nullptr;
+    RuntimeProfile::Counter* _runtime_filter_sql_translation_time = nullptr;
+    RuntimeProfile::Counter* _scanner_next_time = nullptr;
     RuntimeProfile::Counter* _arrow_to_doris_block_time = nullptr;
     RuntimeProfile::Counter* _row_id_take_read_time = nullptr;
     RuntimeProfile::Counter* _row_id_fetch_total_time = nullptr;
     RuntimeProfile::Counter* _execution_iops = nullptr;
     RuntimeProfile::Counter* _execution_requests = nullptr;
     RuntimeProfile::Counter* _execution_bytes_read = nullptr;
+    // Pre-registered before installing Lance's callback so it only updates existing counters.
+    std::vector<RuntimeProfile::Counter*> _scan_metric_counters;
     RuntimeProfile::Counter* _data_cache_bytes_read_from_cache = nullptr;
     RuntimeProfile::Counter* _data_cache_bytes_read_from_remote = nullptr;
-    RuntimeProfile::Counter* _index_partition_cache_miss_loads = nullptr;
+    RuntimeProfile::Counter* _index_object_loads = nullptr;
+    RuntimeProfile::Counter* _index_components_loaded = nullptr;
     RuntimeProfile::Counter* _index_comparisons = nullptr;
-    std::unordered_map<std::string_view, RuntimeProfile::Counter*> _lance_count_metrics;
-    std::unordered_map<std::string_view, RuntimeProfile::Counter*> _lance_time_metrics;
     LanceFtsQueryContext* _fts_query_context = nullptr;
-    enum class SearchKind { NORMAL, VECTOR, FULL_TEXT };
     SearchKind _search_kind = SearchKind::NORMAL;
     bool _eof = false;
 };

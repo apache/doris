@@ -32,6 +32,17 @@ public class NullType extends PrimitiveType {
     }
 
     @Override
+    public boolean isInjectiveCastTo(DataType target) {
+        if (target instanceof DecimalV2Type) {
+            // DECIMALV2 is deprecated, so every cast involving it is conservatively non-injective.
+            return false;
+        }
+        // NULL is the only value in this domain. CheckCast permits it to cast to every target type,
+        // and nullable propagation keeps the result NULL, so no two distinct values can collapse.
+        return true;
+    }
+
+    @Override
     public Type toCatalogDataType() {
         return Type.NULL;
     }

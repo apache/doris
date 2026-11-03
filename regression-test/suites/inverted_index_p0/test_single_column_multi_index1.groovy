@@ -86,8 +86,7 @@ suite("test_single_column_multi_index1", "p0") {
 
     // Function to run match queries with debug points
     def runMatchQueries = { ->
-        sql """ set enable_common_expr_pushdown = true; """
-        sql """ set enable_common_expr_pushdown_for_inverted_index = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
         try {
             qt_sql """ select /*+ SET_VAR(enable_match_without_inverted_index = true) */ count() from ${tableName} where (request = 'GET /images/hm_bg.jpg HTTP/1.0'); """
             qt_sql """ select /*+ SET_VAR(enable_match_without_inverted_index = true) */ count() from ${tableName} where (request match 'images'); """

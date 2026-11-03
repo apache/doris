@@ -54,8 +54,8 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "cpp/obj-client/obj_storage_client.h"
 #include "cpp/sync_point.h"
-#include "io/fs/obj_storage_client.h"
 #include "load/stream_load/stream_load_context.h"
 #include "runtime/exec_env.h"
 #include "storage/olap_common.h"
@@ -2338,6 +2338,16 @@ Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, in
                 "initiator {}",
                 tablet.table_id(), lock_id, initiator);
     }
+    DBUG_EXECUTE_IF("CloudMetaMgr.get_delete_bitmap_update_lock.block_for_restart", {
+        if (st.ok() && res.status().code() == MetaServiceCode::OK &&
+            dp->param<int64_t>("table_id", -1) == tablet.table_id()) {
+            // Pause only a successful acquisition, never a conflict or failed RPC.
+            LOG(INFO) << "delete bitmap restart barrier token="
+                      << dp->param<std::string>("token", "") << " lock_id=" << lock_id
+                      << " tablet_id=" << tablet.tablet_id() << " initiator=" << initiator;
+            DBUG_BLOCK;
+        }
+    });
     return st;
 }
 

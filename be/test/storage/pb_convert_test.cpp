@@ -374,6 +374,30 @@ TEST(PbConvert, test_rvalue_overloads) {
         << "\n diff=" << print(set_diff(tablet_meta_cloud_set_fields, tablet_meta_out_set_fields));
 }
 
+TEST(PbConvert, test_rowset_segment_group_sizes_conversion) {
+    RowsetMetaPB rs;
+    rs.set_segments_overlap_pb(NONOVERLAPPING_WITHIN_GROUP);
+    rs.add_segment_group_sizes(3);
+    rs.add_segment_group_sizes(2);
+    rs.add_segment_group_sizes(5);
+
+    RowsetMetaCloudPB rs_cloud;
+    doris_rowset_meta_to_cloud(&rs_cloud, rs);
+    ASSERT_EQ(rs_cloud.segments_overlap_pb(), NONOVERLAPPING_WITHIN_GROUP);
+    ASSERT_EQ(rs_cloud.segment_group_sizes_size(), 3);
+    EXPECT_EQ(rs_cloud.segment_group_sizes(0), 3);
+    EXPECT_EQ(rs_cloud.segment_group_sizes(1), 2);
+    EXPECT_EQ(rs_cloud.segment_group_sizes(2), 5);
+
+    RowsetMetaPB rs_out;
+    cloud_rowset_meta_to_doris(&rs_out, rs_cloud);
+    ASSERT_EQ(rs_out.segments_overlap_pb(), NONOVERLAPPING_WITHIN_GROUP);
+    ASSERT_EQ(rs_out.segment_group_sizes_size(), 3);
+    EXPECT_EQ(rs_out.segment_group_sizes(0), 3);
+    EXPECT_EQ(rs_out.segment_group_sizes(1), 2);
+    EXPECT_EQ(rs_out.segment_group_sizes(2), 5);
+}
+
 TEST(PbConvert, test_return_value_overloads) {
     // rowset meta
     RowsetMetaPB rs;

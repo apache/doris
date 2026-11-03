@@ -71,6 +71,7 @@ final class CdcClientWriteHarness implements AutoCloseable {
     private String lastTableSchemas;
     private Map<String, String> lastBinlogOffset;
     private boolean rebuildReaderOnNextWrite;
+    private boolean tolerateSchemaChange;
 
     private CdcClientWriteHarness(
             String jobId,
@@ -308,6 +309,12 @@ final class CdcClientWriteHarness implements AutoCloseable {
         rebuildReaderOnNextWrite = true;
     }
 
+    /** Mirror manual RESUME after an unsupported-schema failure. */
+    void acceptUnsupportedSchemaChanges() {
+        tolerateSchemaChange = true;
+        rebuildReaderOnNextWrite = true;
+    }
+
     /**
      * Enter the binlog phase straight from the configured non-snapshot startup mode
      * (latest/earliest/specific-offset/timestamp) with no preceding snapshot. The reader resolves
@@ -363,6 +370,7 @@ final class CdcClientWriteHarness implements AutoCloseable {
         openReader();
         coordinator.writeRecords(buildRequest(meta));
         capture();
+        tolerateSchemaChange = false;
     }
 
     /** Capture tableSchemas and the binlog offset from the last commit, to replay next round. */
@@ -453,6 +461,7 @@ final class CdcClientWriteHarness implements AutoCloseable {
         req.setMaxInterval(3);
         req.setTaskTimeoutMs(60_000);
         req.setRebuildReader(rebuildReaderOnNextWrite);
+        req.setTolerateSchemaChange(tolerateSchemaChange);
         req.setReuseReader(
                 BinlogSplit.BINLOG_SPLIT_ID.equals(String.valueOf(meta.get("splitId"))));
         rebuildReaderOnNextWrite = false;

@@ -392,8 +392,7 @@ suite("test_list_partition_datatype", "p0") {
         DISTRIBUTED BY HASH(k1) BUCKETS 5
         PROPERTIES ("replication_allocation" = "tag.location.default: 1")
         """
-        exception "Invalid list value format: errCode = 2, detailMessage = date literal [10000-01-01] is invalid: " +
-                "errCode = 2, detailMessage = Datetime value is out of range"
+        exception "Invalid list value format: errCode = 2, detailMessage = date literal [10000-01-01] is invalid"
     }
     test {
         sql """

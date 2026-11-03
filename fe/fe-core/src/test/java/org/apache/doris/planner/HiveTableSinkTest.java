@@ -19,8 +19,8 @@ package org.apache.doris.planner;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.datasource.hive.HMSCachedClient;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
@@ -29,6 +29,7 @@ import org.apache.doris.datasource.hive.ThriftHMSCachedClient;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.foundation.util.PathUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.THiveTableSink;
 
 import mockit.Mock;
 import mockit.MockUp;
@@ -36,6 +37,8 @@ import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.SerDeInfo;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
+import org.apache.thrift.TDeserializer;
+import org.apache.thrift.TSerializer;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -53,7 +56,7 @@ import java.util.stream.Collectors;
 public class HiveTableSinkTest {
 
     @Test
-    public void testBindDataSink() throws UserException {
+    public void testBindDataSink() throws Exception {
         ConnectContext ctx = new ConnectContext();
         ctx.setThreadLocalInfo();
 
@@ -115,13 +118,30 @@ public class HiveTableSinkTest {
         for (String location : locations) {
             mockDifferLocationTable(location);
 
-            HMSExternalCatalog hmsExternalCatalog = new HMSExternalCatalog();
+            Map<String, String> catalogProperties = new HashMap<>();
+            catalogProperties.put("type", "hms");
+            catalogProperties.put("hive.metastore.uris", "thrift://localhost:9083");
+            HMSExternalCatalog hmsExternalCatalog =
+                    new HMSExternalCatalog(100, "hive_catalog", null, catalogProperties, "");
             hmsExternalCatalog.setInitializedForTest(true);
             HMSExternalDatabase db = new HMSExternalDatabase(hmsExternalCatalog, 10000, "hive_db1", "hive_db1");
             HMSExternalTable tbl = new HMSExternalTable(10001, "hive_tbl1", "hive_db1", hmsExternalCatalog, db);
             HiveTableSink hiveTableSink = new HiveTableSink(tbl);
             hiveTableSink.bindDataSink(Optional.empty());
             Assert.assertTrue(PathUtils.equalsIgnoreSchemeIfOneIsS3(hiveTableSink.tDataSink.hive_table_sink.location.write_path, location));
+            Assert.assertTrue(hiveTableSink.tDataSink.hive_table_sink.isSetHiveParquetTimeZone());
+            Assert.assertEquals("", hiveTableSink.tDataSink.hive_table_sink.getHiveParquetTimeZone());
+            for (String zone : new String[] {"", "UTC", "Asia/Shanghai", "America/Los_Angeles", "+05:45"}) {
+                hmsExternalCatalog.getCatalogProperty().addProperty(
+                        FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, zone);
+                hiveTableSink.bindDataSink(Optional.empty());
+                THiveTableSink wireSink = new THiveTableSink();
+                new TDeserializer().deserialize(wireSink,
+                        new TSerializer().serialize(hiveTableSink.tDataSink.hive_table_sink));
+                // Empty must survive Thrift as present, not fall back to an old FE's session zone.
+                Assert.assertTrue(wireSink.isSetHiveParquetTimeZone());
+                Assert.assertEquals(zone, wireSink.getHiveParquetTimeZone());
+            }
         }
     }
 

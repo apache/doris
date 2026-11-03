@@ -50,7 +50,7 @@ public:
             return Status::InternalError("Lambda Function {} is not implemented.",
                                          _fn.name.function_name);
         }
-        RETURN_IF_ERROR(_lambda_function->prepare(state));
+        RETURN_IF_ERROR(_lambda_function->prepare(state, _children));
         _prepare_finished = true;
         return Status::OK();
     }
@@ -63,8 +63,8 @@ public:
         return Status::OK();
     }
 
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override {
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
         DCHECK(_open_finished || block == nullptr);
         return _lambda_function->execute(context, block, selector, count, result_column, _data_type,
                                          _children);

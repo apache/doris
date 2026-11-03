@@ -38,9 +38,9 @@ class VariantBinaryWriter;
 class VariantShredder;
 struct VariantShreddedColumns;
 
-// Native storage writer for ColumnVariantV2. Full values are incrementally shredded at each append;
-// a parent with extracted children retains only its root JSONB column. The writer never retains a
-// segment-sized copy of the input execution column.
+// Native storage writer for ColumnVariantV2. Full values are incrementally shredded at each append.
+// A parent with extracted children streams its root JSONB column into the root column writer batch
+// by batch. The writer never retains a segment-sized copy of the input execution column.
 class VariantV2ColumnWriter {
 public:
     VariantV2ColumnWriter(ColumnWriterOptions opts, const TabletColumn* column);
@@ -59,9 +59,14 @@ public:
     Status write_inverted_index();
     Status write_bloom_filter_index();
     uint64_t estimate_buffer_size();
+    // Sums `getter`, one of the ColumnWriter data bytes getters, over every column writer of this
+    // variant: the root, the materialized subcolumns and the sparse or doc value columns.
+    uint64_t get_total_data_pages_bytes(ColumnWriter::DataBytesGetter getter) const;
 
 private:
     Status _write_root(const IColumn* root_jsonb, int& column_id);
+    // Streams one batch of the root-only JSONB column into the root column writer.
+    Status _append_root_batch(const ColumnString& batch, std::span<const uint8_t> outer_nulls);
     Status _write_materialized(const VariantShreddedColumns& shredded,
                                OlapBlockDataConvertor* converter, int& column_id);
     Status _write_binary(const VariantShreddedColumns& shredded, OlapBlockDataConvertor* converter,
@@ -71,7 +76,6 @@ private:
     ColumnWriterOptions _opts;
     const TabletColumn* _tablet_column = nullptr;
     std::unique_ptr<VariantShredder> _shredder;
-    ColumnString::MutablePtr _root_jsonb;
     ColumnUInt8::MutablePtr _outer_nulls;
     size_t _num_rows = 0;
     bool _root_only = false;

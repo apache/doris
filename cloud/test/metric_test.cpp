@@ -17,15 +17,24 @@
 
 #include "common/metric.h"
 
+#include <butil/iobuf.h>
+#include <butil/strings/string_piece.h>
+
+// brpc's header uses the butil types above without including their definitions.
+#include <brpc/builtin/prometheus_metrics_service.h>
+#include <gen_cpp/cloud_version.h>
 #include <gtest/gtest.h>
 
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <thread>
 
 #include "common/bvars.h"
 #include "common/config.h"
+#include "common/version_metrics.h"
 #include "meta-store/mem_txn_kv.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
@@ -33,6 +42,34 @@
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
+}
+
+TEST(MetricTest, CloudVersionMetricIsExportedWithBuildLabels) {
+    using namespace doris::cloud;
+
+    config::bvar_max_dump_multi_dimension_metric_num = "5000";
+    init_doris_cloud_version_metrics();
+
+    butil::IOBuf output;
+    ASSERT_EQ(0, brpc::DumpPrometheusMetricsToIOBuf(&output));
+    const std::string body = output.to_string();
+
+    std::stringstream value;
+    value << DORIS_CLOUD_BUILD_VERSION_MAJOR << 0 << DORIS_CLOUD_BUILD_VERSION_MINOR << 0
+          << DORIS_CLOUD_BUILD_VERSION_PATCH;
+    if (DORIS_CLOUD_BUILD_VERSION_HOTFIX > 0) {
+        value << 0 << DORIS_CLOUD_BUILD_VERSION_HOTFIX;
+    }
+
+    std::stringstream sample;
+    sample << "doris_cloud_version{version=\"" << DORIS_CLOUD_BUILD_VERSION << "\",major=\""
+           << DORIS_CLOUD_BUILD_VERSION_MAJOR << "\",minor=\"" << DORIS_CLOUD_BUILD_VERSION_MINOR
+           << "\",patch=\"" << DORIS_CLOUD_BUILD_VERSION_PATCH << "\",hotfix=\""
+           << DORIS_CLOUD_BUILD_VERSION_HOTFIX << "\",short_hash=\"" << DORIS_CLOUD_BUILD_SHORT_HASH
+           << "\"} " << std::strtoull(value.str().c_str(), nullptr, 10);
+
+    EXPECT_NE(std::string::npos, body.find("# TYPE doris_cloud_version gauge")) << body;
+    EXPECT_NE(std::string::npos, body.find(sample.str())) << body;
 }
 
 TEST(MetricTest, FdbMetricExporterTest) {

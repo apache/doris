@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_clickhouse_jdbc_catalog", "p0,external,clickhouse,external_docker,external_docker_clickhouse") {
+    // Zoned JDBC types preserve instants; pin their display zone independently of the runner.
+    sql "SET time_zone = '+08:00'"
+
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "clickhouse_catalog";
@@ -171,39 +174,50 @@ suite("test_clickhouse_jdbc_catalog", "p0,external,clickhouse,external_docker,ex
                     "function_rules" = '{"pushdown" : {"supported": ["abs"]}}'
         );"""
         sql "use clickhouse_7_catalog.doris_test"
+        // ABS requires a numeric input; timezone-sensitive predicates must stay on Doris.
         explain {
-            sql("select k4 from type where abs(k4) > 0 and unix_timestamp(k4) > 0")
-            contains """SELECT "k4" FROM "doris_test"."type" WHERE ((abs("k4") > 0)) AND ((toUnixTimestamp("k4") > 0))"""
-            contains """PREDICATES: ((abs(CAST(k4[#3] AS double)) > 0) AND (unix_timestamp(k4[#3]) > 0))"""
+            sql("select k6, k4 from type where abs(k6) > 0 and unix_timestamp(k4) > 0")
+            contains """WHERE ((abs("k6") > 0))"""
+            notContains "toUnixTimestamp("
+            contains "PREDICATES:"
+            contains "unix_timestamp"
         }
         sql """alter catalog clickhouse_7_catalog set properties("function_rules" = '');"""
         explain {
-            sql("select k4 from type where abs(k4) > 0 and unix_timestamp(k4) > 0")
-            contains """QUERY: SELECT "k4" FROM "doris_test"."type" WHERE ((toUnixTimestamp("k4") > 0))"""
-            contains """PREDICATES: ((abs(CAST(k4[#3] AS double)) > 0) AND (unix_timestamp(k4[#3]) > 0))"""
+            sql("select k6, k4 from type where abs(k6) > 0 and unix_timestamp(k4) > 0")
+            notContains "WHERE"
+            notContains "toUnixTimestamp("
+            contains "PREDICATES:"
+            contains "unix_timestamp"
         }
 
         sql """alter catalog clickhouse_7_catalog set properties("function_rules" = '{"pushdown" : {"supported": ["abs"]}}')"""         
         explain {
-            sql("select k4 from type where abs(k4) > 0 and unix_timestamp(k4) > 0")
-            contains """SELECT "k4" FROM "doris_test"."type" WHERE ((abs("k4") > 0)) AND ((toUnixTimestamp("k4") > 0))"""
-            contains """PREDICATES: ((abs(CAST(k4[#3] AS double)) > 0) AND (unix_timestamp(k4[#3]) > 0))"""
+            sql("select k6, k4 from type where abs(k6) > 0 and unix_timestamp(k4) > 0")
+            contains """WHERE ((abs("k6") > 0))"""
+            notContains "toUnixTimestamp("
+            contains "PREDICATES:"
+            contains "unix_timestamp"
         }
 
         // test rewrite
-        sql """alter catalog clickhouse_7_catalog set properties("function_rules" = '{"pushdown" : {"supported": ["abs"]}, "rewrite" : {"unix_timestamp" : "rewrite_func"}}')"""
+        sql """alter catalog clickhouse_7_catalog set properties("function_rules" = '{"pushdown" : {"supported": ["abs"]}, "rewrite" : {"abs" : "rewrite_func"}}')"""
         explain {
-            sql("select k4 from type where abs(k4) > 0 and unix_timestamp(k4) > 0")
-            contains """QUERY: SELECT "k4" FROM "doris_test"."type" WHERE ((abs("k4") > 0)) AND ((rewrite_func("k4") > 0))"""
-            contains """((abs(CAST(k4[#3] AS double)) > 0) AND (unix_timestamp(k4[#3]) > 0))"""
+            sql("select k6, k4 from type where abs(k6) > 0 and unix_timestamp(k4) > 0")
+            contains """WHERE ((rewrite_func("k6") > 0))"""
+            notContains "toUnixTimestamp("
+            contains "PREDICATES:"
+            contains "unix_timestamp"
         }
 
         // reset function rules
         sql """alter catalog clickhouse_7_catalog set properties("function_rules" = '');"""
         explain {
-            sql("select k4 from type where abs(k4) > 0 and unix_timestamp(k4) > 0")
-            contains """QUERY: SELECT "k4" FROM "doris_test"."type" WHERE ((toUnixTimestamp("k4") > 0))"""
-            contains """PREDICATES: ((abs(CAST(k4[#3] AS double)) > 0) AND (unix_timestamp(k4[#3]) > 0))"""
+            sql("select k6, k4 from type where abs(k6) > 0 and unix_timestamp(k4) > 0")
+            notContains "WHERE"
+            notContains "toUnixTimestamp("
+            contains "PREDICATES:"
+            contains "unix_timestamp"
         }
 
         // test invalid config

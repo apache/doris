@@ -138,7 +138,6 @@ Status DataTypeVariantSerDe::serialize_one_cell_to_json(const IColumn& column, i
 Status DataTypeVariantSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                             const FormatOptions& options) const {
     ParseConfig parse_config;
-    parse_config.check_duplicate_json_path = config::variant_enable_duplicate_json_path_check;
     StringRef json_ref(slice.data, slice.size);
     RETURN_IF_CATCH_EXCEPTION(
             variant_util::parse_json_to_variant(column, json_ref, nullptr, parse_config));
@@ -157,6 +156,12 @@ Status DataTypeVariantSerDe::write_column_to_arrow(const IColumn& column, const 
                                                    int64_t start, int64_t end,
                                                    const cctz::time_zone& ctz) const {
     const auto* var = check_and_get_column<ColumnVariant>(column);
+    if (array_builder->type()->id() == arrow::Type::STRUCT) {
+        // Native Flight output must not reinterpret legacy storage as Variant V2.
+        return Status::NotSupported(
+                "Native Arrow Flight output only supports Variant V2, not legacy Variant; "
+                "cast the result to STRING for text output");
+    }
     if (array_builder->type()->id() == arrow::Type::LARGE_STRING) {
         auto& builder = assert_cast<arrow::LargeStringBuilder&>(*array_builder);
         return write_variant_column_to_arrow_impl(column, *var, null_map, builder, start, end, ctz);

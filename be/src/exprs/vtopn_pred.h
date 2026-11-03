@@ -64,6 +64,12 @@ public:
     }
 
     int source_node_id() const { return _source_node_id; }
+    bool is_asc() const { return _predicate->is_asc(); }
+    bool nulls_first() const { return _predicate->nulls_first(); }
+
+    bool can_evaluate_zonemap_filter() const override;
+    ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override;
+
     Status clone_node(VExprSPtr* cloned_expr) const override {
         DORIS_CHECK(cloned_expr != nullptr);
         *cloned_expr = VTopNPred::create_shared(clone_texpr_node(), _source_node_id, nullptr);
@@ -88,8 +94,8 @@ public:
         return Status::OK();
     }
 
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override {
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
         if (!_predicate->has_value()) {
             result_column = create_always_true_column(count, _data_type->is_nullable());
             return Status::OK();

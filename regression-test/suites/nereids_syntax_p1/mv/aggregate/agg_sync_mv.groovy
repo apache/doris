@@ -512,5 +512,14 @@ suite("agg_sync_mv") {
     sql "insert into agg_mv_test select * from agg_mv_test;"
 
     sql "set parallel_pipeline_task_num=1"
-    qt_test "select kbint, map_agg(id, kstr) from agg_mv_test group by kbint order by kbint;"
+    qt_test """
+        select kbint, map_size(m), map_contains_key(m, cast(null as int)),
+               m[cast(null as int)], m[cast(kbint - 1 as int)]
+        from (
+            select kbint, map_agg(id, kstr) as m
+            from agg_mv_test
+            group by kbint
+        ) t
+        order by kbint;
+    """
 }

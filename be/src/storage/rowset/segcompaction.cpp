@@ -42,8 +42,8 @@
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/thread_context.h"
 #include "storage/data_dir.h"
-#include "storage/index/inverted/inverted_index_cache.h"
-#include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/index/inverted/common/inverted_index_cache.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/iterator/vertical_block_reader.h"
 #include "storage/iterator/vertical_merge_iterator.h"
 #include "storage/iterators.h"
@@ -169,7 +169,7 @@ Status SegcompactionWorker::_delete_original_segments(uint32_t begin, uint32_t e
         // message when we encounter an error.
         RETURN_NOT_OK_STATUS_WITH_WARN(fs->delete_file(seg_path),
                                        absl::Substitute("Failed to delete file=$0", seg_path));
-        if ((schema->has_inverted_index() || schema->has_ann_index()) &&
+        if ((schema->has_inverted_or_ann_index()) &&
             schema->get_inverted_index_storage_format() >= InvertedIndexStorageFormatPB::V2) {
             auto idx_path = InvertedIndexDescriptor::get_index_file_path_v2(
                     InvertedIndexDescriptor::get_index_file_path_prefix(seg_path));

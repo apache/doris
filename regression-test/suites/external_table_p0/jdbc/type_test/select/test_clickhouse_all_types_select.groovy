@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_clickhouse_all_types_select", "p0,external,clickhouse,external_docker,external_docker_clickhouse") {
+    // Zoned JDBC types preserve instants; pin their display zone independently of the runner.
+    sql "SET time_zone = '+08:00'"
+
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String s3_endpoint = getS3Endpoint()

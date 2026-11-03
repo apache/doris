@@ -17,14 +17,25 @@
 
 #include "core/data_type_serde/data_type_varbinary_serde.h"
 
-#include <cstring>
+#include <arrow/util/key_value_metadata.h>
 
+#include <array>
+#include <cstring>
+#include <limits>
+
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "core/column/column_varbinary.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "core/data_type_serde/arrow_validation.h"
+#include "core/data_type_serde/orc_serde_utils.h"
 #include "core/data_type_serde/parquet_decode_source.h"
+#include "exprs/function/string_hex_util.h"
+#include "format/arrow/arrow_block_convertor.h"
+#include "util/url_coding.h"
 
 namespace doris {
+
 namespace {
 
 class VarbinaryParquetConsumer final : public ParquetFixedValueConsumer,
@@ -188,6 +199,45 @@ Status DataTypeVarbinarySerDe::write_column_to_arrow(const IColumn& column, cons
     return Status::OK();
 }
 
+Status DataTypeVarbinarySerDe::write_column_to_iceberg_arrow(
+        const std::shared_ptr<const IDataType>& type, const IColumn& column,
+        const NullMap* null_map, const std::shared_ptr<arrow::Field>& field,
+        arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+        const cctz::time_zone& ctz) const {
+    if (array_builder->type()->id() != arrow::Type::FIXED_SIZE_BINARY) {
+        return write_column_to_arrow(column, null_map, array_builder, start, end, ctz);
+    }
+    // Fixed-width bindings describe bytes, including the declared width of nested fields.
+    const auto& fixed = assert_cast<const arrow::FixedSizeBinaryType&>(*field->type());
+    const auto& metadata = field->metadata();
+    if (metadata != nullptr && metadata->Contains("originalType") &&
+        metadata->Get("originalType").ValueOrDie() == "uuid") {
+        if (fixed.byte_width() != 16) {
+            return Status::InvalidArgument("Iceberg UUID expects 16 bytes, got {}",
+                                           fixed.byte_width());
+        }
+        auto& builder = assert_cast<arrow::FixedSizeBinaryBuilder&>(*array_builder);
+        const auto& values = assert_cast<const ColumnVarbinary&>(column);
+        for (int64_t row = start; row < end; ++row) {
+            if (null_map != nullptr && (*null_map)[row]) {
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, builder));
+                continue;
+            }
+            std::array<uint8_t, 16> bytes;
+            RETURN_IF_ERROR(parse_iceberg_uuid_to_bytes(values.get_data_at(row), &bytes));
+            RETURN_IF_ERROR(checkArrowStatus(builder.Append(bytes.data()), column, builder));
+        }
+        return Status::OK();
+    }
+    const auto& varbinary = assert_cast<const DataTypeVarbinary&>(*type);
+    if (varbinary.len() != fixed.byte_width()) {
+        return Status::InvalidArgument(
+                "Iceberg fixed width does not match Doris VARBINARY length: expected {}, got {}",
+                fixed.byte_width(), varbinary.len());
+    }
+    return write_column_to_arrow(column, null_map, array_builder, start, end, ctz);
+}
+
 Status DataTypeVarbinarySerDe::read_column_from_arrow(IColumn& column,
                                                       const arrow::Array* arrow_array,
                                                       int64_t start, int64_t end,
@@ -267,6 +317,47 @@ Status DataTypeVarbinarySerDe::read_column_from_arrow(IColumn& column,
     return Status::OK();
 }
 
+Status DataTypeVarbinarySerDe::read_column_from_orc(IColumn& column,
+                                                    const OrcDecodedColumnView& view) const {
+    // Keep binary payloads intact; selected rows and NULL placeholders must stay aligned.
+    DORIS_CHECK(view.file_type != nullptr);
+    DORIS_CHECK(view.file_type->getKind() == orc::BINARY);
+    const auto* batch = dynamic_cast<const orc::StringVectorBatch*>(view.batch);
+    DORIS_CHECK(batch != nullptr);
+    const auto* encoded_batch = dynamic_cast<const orc::EncodedStringVectorBatch*>(batch);
+    const bool is_encoded = encoded_batch != nullptr && encoded_batch->isEncoded;
+    if (is_encoded) {
+        DORIS_CHECK(encoded_batch->dictionary != nullptr);
+    }
+    auto& binary_column = assert_cast<ColumnVarbinary&>(column);
+    const auto rows = orc_serde_utils::orc_decode_row_count(view.rows, view.selected_rows);
+    binary_column.reserve(binary_column.size() + rows);
+    for (size_t row = 0; row < rows; ++row) {
+        const auto source_row = orc_serde_utils::orc_source_row_at(row, view.selected_rows);
+        if (orc_serde_utils::orc_row_is_null(*batch, source_row)) {
+            binary_column.insert_default();
+            continue;
+        }
+        char* data = nullptr;
+        int64_t length = 0;
+        if (is_encoded) {
+            encoded_batch->dictionary->getValueByIndex(encoded_batch->index[source_row], data,
+                                                       length);
+        } else {
+            data = batch->data[source_row];
+            length = batch->length[source_row];
+        }
+        if (length < 0) {
+            return Status::Corruption("Invalid negative ORC binary length {}", length);
+        }
+        if (length > 0 && data == nullptr) {
+            return Status::Corruption("Missing ORC binary payload");
+        }
+        binary_column.insert_data(length == 0 ? "" : data, cast_set<size_t>(length));
+    }
+    return Status::OK();
+}
+
 Status DataTypeVarbinarySerDe::write_column_to_orc(const std::string& timezone,
                                                    const IColumn& column, const NullMap* null_map,
                                                    orc::ColumnVectorBatch* orc_col_batch,
@@ -298,6 +389,82 @@ Status DataTypeVarbinarySerDe::serialize_one_cell_to_json(const IColumn& column,
 Status DataTypeVarbinarySerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                               const FormatOptions& options) const {
     assert_cast<ColumnVarbinary&>(column).insert_data(slice.data, slice.size);
+    return Status::OK();
+}
+
+Status DataTypeVarbinarySerDe::from_string(StringRef& str, IColumn& column,
+                                           const FormatOptions& options) const {
+    // Partition structs use the same hex representation as nested VARBINARY output. Decode it
+    // before appending so arbitrary bytes survive JSON transport instead of becoming NULL.
+    if (str.size < 2 || str.data[0] != '0' || str.data[1] != 'x' || (str.size - 2) % 2 != 0 ||
+        str.size - 2 > std::numeric_limits<int>::max()) {
+        return Status::InvalidArgument("Invalid VARBINARY hex representation");
+    }
+    // The INT_MAX guard also makes narrowing to the decoder's 32-bit offset type safe.
+    const auto hex_size = cast_set<ColumnString::Offset>(str.size - 2);
+    std::string bytes(hex_size / 2, '\0');
+    if (string_hex::hex_decode(str.data + 2, hex_size, bytes.data()) != bytes.size()) {
+        return Status::InvalidArgument("Invalid VARBINARY hex representation");
+    }
+    assert_cast<ColumnVarbinary&>(column).insert_data(bytes.data(), bytes.size());
+    return Status::OK();
+}
+
+Status DataTypeVarbinarySerDe::deserialize_one_cell_from_hive_text(
+        IColumn& column, Slice& slice, const FormatOptions& options,
+        int hive_text_complex_type_delimiter_level) const {
+    // Hive LazyBinary uses lenient Base64 (including URL-safe letters and whitespace),
+    // falling back to the original bytes for non-Base64 input or an empty decoding.
+    // Keep this separate from JSON/CSV: those formats do not share Hive's encoding contract.
+    std::string encoded;
+    encoded.reserve(slice.size);
+    bool padding = false;
+    for (size_t i = 0; i < slice.size; ++i) {
+        const char c = slice.data[i];
+        if (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
+            continue;
+        }
+        if (c == '=') {
+            padding = true;
+            continue;
+        }
+        if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+              c == '+' || c == '/' || c == '-' || c == '_')) {
+            return deserialize_one_cell_from_json(column, slice, options);
+        }
+        if (!padding) {
+            encoded.push_back(c == '-' ? '+' : c == '_' ? '/' : c);
+        }
+    }
+    // Commons Codec ignores a trailing sextet and accepts omitted padding.
+    if (encoded.size() % 4 == 1) {
+        encoded.pop_back();
+    }
+    encoded.append((4 - encoded.size() % 4) % 4, '=');
+    std::string decoded;
+    if (!base64_decode(encoded, &decoded) || decoded.empty()) {
+        return deserialize_one_cell_from_json(column, slice, options);
+    }
+    assert_cast<ColumnVarbinary&>(column).insert_data(decoded.data(), decoded.size());
+    return Status::OK();
+}
+
+Status DataTypeVarbinarySerDe::deserialize_column_from_hive_text_vector(
+        IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
+        const FormatOptions& options, int hive_text_complex_type_delimiter_level) const {
+    DESERIALIZE_COLUMN_FROM_HIVE_TEXT_VECTOR()
+    return Status::OK();
+}
+
+Status DataTypeVarbinarySerDe::serialize_one_cell_to_hive_text(
+        const IColumn& column, int64_t row_num, BufferWritable& bw, FormatOptions& options,
+        int hive_text_complex_type_delimiter_level) const {
+    auto [data_column, data_row] = check_column_const_set_readability(column, row_num);
+    const auto value = assert_cast<const ColumnVarbinary&>(*data_column).get_data_at(data_row);
+    // Encoding is required on write as well, or a Hive reader will reinterpret binary bytes.
+    std::string encoded;
+    base64_encode(value.to_string(), &encoded);
+    bw.write(encoded.data(), encoded.size());
     return Status::OK();
 }
 

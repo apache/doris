@@ -22,6 +22,7 @@
 #include <memory>
 #include <numeric>
 #include <optional>
+#include <set>
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
@@ -217,6 +218,8 @@ Status OlapScanLocalState::_init_profile() {
     _lazy_read_seek_timer = ADD_TIMER(_segment_profile, "LazyReadSeekTime");
     _lazy_read_seek_counter = ADD_COUNTER(_segment_profile, "LazyReadSeekCount", TUnit::UNIT);
 
+    _lazy_read_pruned_timer = ADD_TIMER(_segment_profile, "LazyReadPrunedTime");
+
     _output_col_timer = ADD_TIMER(_segment_profile, "OutputColumnTime");
 
     _stats_filtered_counter = ADD_COUNTER(_segment_profile, "RowsStatsFiltered", TUnit::UNIT);
@@ -255,6 +258,10 @@ Status OlapScanLocalState::_init_profile() {
             ADD_COUNTER_WITH_LEVEL(_segment_profile, "InvertedIndexQueryCacheHit", TUnit::UNIT, 1);
     _inverted_index_query_cache_miss_counter =
             ADD_COUNTER_WITH_LEVEL(_segment_profile, "InvertedIndexQueryCacheMiss", TUnit::UNIT, 1);
+    _inverted_index_query_cache_lookup_counter = ADD_COUNTER_WITH_LEVEL(
+            _segment_profile, "InvertedIndexQueryCacheLookup", TUnit::UNIT, 1);
+    _inverted_index_query_cache_insert_counter = ADD_COUNTER_WITH_LEVEL(
+            _segment_profile, "InvertedIndexQueryCacheInsert", TUnit::UNIT, 1);
     _inverted_index_query_timer =
             ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexQueryTime", 1);
     _inverted_index_query_null_bitmap_timer =
@@ -275,6 +282,14 @@ Status OlapScanLocalState::_init_profile() {
             _segment_profile, "InvertedIndexSearcherCacheMiss", TUnit::UNIT, 1);
     _inverted_index_downgrade_count_counter =
             ADD_COUNTER_WITH_LEVEL(_segment_profile, "InvertedIndexDowngradeCount", TUnit::UNIT, 1);
+    _inverted_index_conjuncts_short_circuited_counter = ADD_COUNTER_WITH_LEVEL(
+            _segment_profile, "InvertedIndexConjunctsShortCircuited", TUnit::UNIT, 1);
+    _gram_index_filter_counter =
+            ADD_COUNTER_WITH_LEVEL(_segment_profile, "RowsGramIndexFiltered", TUnit::UNIT, 1);
+    _gram_index_candidate_counter =
+            ADD_COUNTER_WITH_LEVEL(_segment_profile, "GramIndexCandidateRows", TUnit::UNIT, 1);
+    _gram_index_gate_gave_up_counter =
+            ADD_COUNTER_WITH_LEVEL(_segment_profile, "GramIndexGateGaveUp", TUnit::UNIT, 1);
     _inverted_index_analyzer_timer =
             ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexAnalyzerTime", 1);
     _inverted_index_lookup_timer =
@@ -328,6 +343,7 @@ Status OlapScanLocalState::_init_profile() {
 
     _index_filter_profile = std::make_unique<RuntimeProfile>("IndexFilter");
     _scanner_profile->add_child(_index_filter_profile.get(), true, nullptr);
+    _snii_prx_profile_counters.initialize(_index_filter_profile.get());
     /*
     SegmentIterator:
         - AnnIndexLoadCosts: 102.262us
@@ -420,12 +436,71 @@ Status OlapScanLocalState::_init_profile() {
     return Status::OK();
 }
 
+static bool contains_expr_node_type(const VExprSPtr& expr, TExprNodeType::type node_type) {
+    DORIS_CHECK(expr != nullptr);
+    if (expr->node_type() == node_type) {
+        return true;
+    }
+    if (expr->is_rf_wrapper() && contains_expr_node_type(expr->get_impl(), node_type)) {
+        return true;
+    }
+    return std::ranges::any_of(expr->children(), [node_type](const auto& child) {
+        return contains_expr_node_type(child, node_type);
+    });
+}
+
+static Status validate_residual_scan_conjuncts(RuntimeState* state,
+                                               TPushAggOp::type push_down_agg_type,
+                                               const VExprContextSPtrs& conjuncts) {
+    for (const auto& conjunct : conjuncts) {
+        const auto& root = conjunct->root();
+        if (contains_expr_node_type(root, TExprNodeType::SEARCH_EXPR)) {
+            return Status::InvalidArgument(
+                    "SEARCH expression remains as a residual scan predicate. A valid search() "
+                    "must bind at least one indexed field and be evaluated in SegmentIterator, "
+                    "which takes such expressions only when the table is not merged on read "
+                    "(DUPLICATE, or UNIQUE with merge-on-write). enable_segment_limit_pushdown "
+                    "only controls SegmentIterator LIMIT pushdown and cannot make residual "
+                    "SEARCH executable.");
+        }
+        if (!state->query_options().enable_match_without_inverted_index &&
+            contains_expr_node_type(root, TExprNodeType::MATCH_PRED)) {
+            return Status::InvalidArgument(
+                    "MATCH expression remains as a residual scan predicate and would fall back to "
+                    "a disabled slow path because enable_match_without_inverted_index is false. "
+                    "SegmentIterator evaluates MATCH only when the table is not merged on read "
+                    "(DUPLICATE, or UNIQUE with merge-on-write). enable_segment_limit_pushdown "
+                    "only controls SegmentIterator LIMIT pushdown and cannot make residual MATCH "
+                    "executable. Set enable_match_without_inverted_index=true to allow slow MATCH "
+                    "execution.");
+        }
+    }
+
+    // Reject only residual predicates that reference columns: COUNT_ON_INDEX fills columns with
+    // defaults, while a predicate such as random() < 2 still filters each row correctly.
+    if (push_down_agg_type == TPushAggOp::COUNT_ON_INDEX &&
+        std::ranges::any_of(conjuncts, [](const VExprContextSPtr& conjunct) {
+            std::set<int> column_ids;
+            conjunct->root()->collect_slot_column_ids(column_ids);
+            return !column_ids.empty();
+        })) {
+        return Status::InvalidArgument(
+                "COUNT_ON_INDEX pushdown cannot be used with residual scan predicates that "
+                "reference columns. Residual predicates must be evaluated before COUNT_ON_INDEX "
+                "counts rows; otherwise the query may return incorrect results. Set "
+                "enable_count_on_index_pushdown=false to disable COUNT_ON_INDEX pushdown.");
+    }
+    return Status::OK();
+}
+
 Status OlapScanLocalState::_process_conjuncts(RuntimeState* state) {
     SCOPED_TIMER(_process_conjunct_timer);
     RETURN_IF_ERROR(ScanLocalState::_process_conjuncts(state));
     if (ScanLocalState::_eos) {
         return Status::OK();
     }
+    auto& p = _parent->cast<OlapScanOperatorX>();
+    RETURN_IF_ERROR(validate_residual_scan_conjuncts(state, p._push_down_agg_type, _conjuncts));
     RETURN_IF_ERROR(_build_key_ranges_and_filters());
     return Status::OK();
 }
@@ -457,7 +532,6 @@ Status OlapScanLocalState::_should_push_down_function_filter(VectorizedFnCall* f
     const auto& children = fn_call->children();
     doris::FunctionContext* func_cxt = expr_ctx->fn_context(fn_call->fn_context_index());
     DCHECK(func_cxt != nullptr);
-    DCHECK(children.size() == 2);
     for (size_t i = 0; i < children.size(); i++) {
         if (VExpr::expr_without_cast(children[i])->node_type() != TExprNodeType::SLOT_REF) {
             // not a slot ref(column)
@@ -485,8 +559,10 @@ Status OlapScanLocalState::_should_push_down_function_filter(VectorizedFnCall* f
     return Status::OK();
 }
 
-bool OlapScanLocalState::_should_push_down_common_expr() {
-    return state()->enable_common_expr_pushdown() && _storage_no_merge();
+bool OlapScanLocalState::_should_push_down_common_expr(const VExprSPtr& expr) {
+    // Tables merged on read (AGG, UNIQUE without merge-on-write) keep their conjuncts in the
+    // scanner, as before: SegmentIterator would filter rows before the merge.
+    return _storage_no_merge() && VExpr::is_acting_on_a_slot(*expr);
 }
 
 bool OlapScanLocalState::_storage_no_merge() {
@@ -565,6 +641,8 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
                 std::max<int64_t>(1024, state()->parallel_scan_min_rows_per_scanner());
         scanner_builder.set_max_scanners_count(max_scanners_count);
         scanner_builder.set_min_rows_per_scanner(min_rows_per_scanner);
+        // BM25 statistics must not depend on how a tablet is split into scanners.
+        scanner_builder.set_share_tablet_collection_statistics(_score_runtime != nullptr);
         // If the session variable is set, force one scanner per segment.
         if (state()->query_options().__isset.optimize_index_scan_parallelism &&
             state()->query_options().optimize_index_scan_parallelism) {
@@ -638,6 +716,9 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
                                                              {},
                                                              p._limit,
                                                              p._olap_scan_node.is_preaggregation,
+                                                             // Each scanner reads the tablet's
+                                                             // entire read source.
+                                                             nullptr,
                                                      });
             RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
             scanners->push_back(std::move(scanner));
@@ -1096,6 +1177,8 @@ OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, i
           _cache_param(param) {
     _output_tuple_id = tnode.olap_scan_node.tuple_id;
     if (_olap_scan_node.__isset.sort_info && _olap_scan_node.__isset.sort_limit) {
+        DORIS_CHECK(_limit < 0);
+        DORIS_CHECK(_olap_scan_node.sort_limit > 0);
         _limit_per_scanner = _olap_scan_node.sort_limit;
     }
     DBUG_EXECUTE_IF("segment_iterator.topn_opt_1", {

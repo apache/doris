@@ -22,7 +22,8 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Paths
 
-suite("test_array_export", "export,external") {
+// An explicit priority prevents the framework from adding p0 to this HDFS-dependent suite.
+suite("test_array_export", "p2,export,external") {
     // save load data in tmp dir.
     def localDataDir = new File(new File(System.getProperty("java.io.tmpdir")), "doris-case"+UUID.randomUUID().toString().replaceAll("-", ""))
     if (!localDataDir.mkdir()) {

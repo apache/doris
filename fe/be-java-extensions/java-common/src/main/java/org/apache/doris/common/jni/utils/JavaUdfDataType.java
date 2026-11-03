@@ -29,6 +29,7 @@ import java.net.InetAddress;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 // Data types that are supported as return or argument types in Java UDFs.
 public class JavaUdfDataType {
@@ -50,6 +51,8 @@ public class JavaUdfDataType {
     public static final JavaUdfDataType DATEV2 = new JavaUdfDataType("DATEV2", TPrimitiveType.DATEV2, 4);
     public static final JavaUdfDataType DATETIMEV2 = new JavaUdfDataType("DATETIMEV2", TPrimitiveType.DATETIMEV2,
             8);
+    public static final JavaUdfDataType TIMESTAMP_NS = new JavaUdfDataType("TIMESTAMP_NS",
+            TPrimitiveType.TIMESTAMP_NS, 8);
     public static final JavaUdfDataType DECIMAL32 = new JavaUdfDataType("DECIMAL32", TPrimitiveType.DECIMAL32, 4);
     public static final JavaUdfDataType DECIMAL64 = new JavaUdfDataType("DECIMAL64", TPrimitiveType.DECIMAL64, 8);
     public static final JavaUdfDataType DECIMAL128 = new JavaUdfDataType("DECIMAL128", TPrimitiveType.DECIMAL128I,
@@ -57,6 +60,7 @@ public class JavaUdfDataType {
 
     public static final JavaUdfDataType IPV4 = new JavaUdfDataType("IPV4", TPrimitiveType.IPV4, 4);
     public static final JavaUdfDataType IPV6 = new JavaUdfDataType("IPV6", TPrimitiveType.IPV6, 16);
+    public static final JavaUdfDataType UUID = new JavaUdfDataType("UUID", TPrimitiveType.UUID, 16);
     public static final JavaUdfDataType ARRAY_TYPE = new JavaUdfArrayType("ARRAY_TYPE", TPrimitiveType.ARRAY, 0);
     public static final JavaUdfDataType MAP_TYPE = new JavaUdfMapType("MAP_TYPE", TPrimitiveType.MAP, 0);
     public static final JavaUdfDataType STRUCT_TYPE = new JavaUdfStructType("STRUCT_TYPE", TPrimitiveType.STRUCT, 0);
@@ -85,6 +89,7 @@ public class JavaUdfDataType {
         addJavaUdfDataType(DECIMALV2);
         addJavaUdfDataType(DATEV2);
         addJavaUdfDataType(DATETIMEV2);
+        addJavaUdfDataType(TIMESTAMP_NS);
         addJavaUdfDataType(DECIMAL32);
         addJavaUdfDataType(DECIMAL64);
         addJavaUdfDataType(DECIMAL128);
@@ -93,6 +98,7 @@ public class JavaUdfDataType {
         addJavaUdfDataType(STRUCT_TYPE);
         addJavaUdfDataType(IPV4);
         addJavaUdfDataType(IPV6);
+        addJavaUdfDataType(UUID);
         addJavaUdfDataType(VARBINARY_TYPE);
     }
 
@@ -150,6 +156,9 @@ public class JavaUdfDataType {
             return Sets.newHashSet(JavaUdfDataType.STRING);
         } else if (Type.DATE_SUPPORTED_JAVA_TYPE.contains(c)) {
             return Sets.newHashSet(JavaUdfDataType.DATE, JavaUdfDataType.DATEV2);
+        } else if (c == java.time.LocalDateTime.class) {
+            return Sets.newHashSet(JavaUdfDataType.DATETIME, JavaUdfDataType.DATETIMEV2,
+                    JavaUdfDataType.TIMESTAMP_NS);
         } else if (Type.DATETIME_SUPPORTED_JAVA_TYPE.contains(c)) {
             return Sets.newHashSet(JavaUdfDataType.DATETIME, JavaUdfDataType.DATETIMEV2);
         } else if (c == BigInteger.class) {
@@ -163,6 +172,8 @@ public class JavaUdfDataType {
             return Sets.newHashSet(JavaUdfDataType.MAP_TYPE);
         } else if (c == InetAddress.class) {
             return Sets.newHashSet(JavaUdfDataType.IPV4, JavaUdfDataType.IPV6);
+        } else if (c == UUID.class) {
+            return Sets.newHashSet(JavaUdfDataType.UUID);
         } else if (c == Byte[].class || c == byte[].class) {
             return Sets.newHashSet(JavaUdfDataType.VARBINARY_TYPE);
         }

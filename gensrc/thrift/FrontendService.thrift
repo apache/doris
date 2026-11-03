@@ -437,6 +437,13 @@ struct TMasterOpRequest {
     1008: optional bool cursor_fetch_requested
     // Capabilities negotiated with the original MySQL client.
     1009: optional i32 mysql_capability
+    // delegated credential for datasource user-session requests
+    1004: optional string delegated_credential_type
+    1005: optional string delegated_credential_token
+    1006: optional i64 delegated_credential_expires_at_millis
+    1007: optional string delegated_credential_session_id
+    // Whether the client-facing FE can complete an empty cursor with COM_STMT_FETCH.
+    1010: optional bool empty_cursor_supported
 }
 
 struct TColumnDefinition {
@@ -1935,4 +1942,7 @@ service FrontendService {
     TGetOlapTableMetaResult getOlapTableMeta(1: TGetOlapTableMetaRequest request)
 
     Status.TStatus syncCloudTabletStats(1: TSyncCloudTabletStatsRequest request)
+
+    // Result buffers can outlive their local fragments; abort through the owning FE's query-level route.
+    Status.TStatus cancelFlightQuery(1: Types.TUniqueId result_id)
 }

@@ -25,8 +25,13 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.Backend;
 
+import com.google.common.testing.GcFinalization;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,6 +39,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -342,5 +348,168 @@ public class CloudReplicaTest {
         CloudReplica replica = createReplica();
         List<Backend> primaryBes = replica.getAllPrimaryBes();
         Assertions.assertTrue(primaryBes.isEmpty());
+    }
+
+    private void stubBackend(long id, Backend be) {
+        Mockito.when(mockInfoService.getBackend(id)).thenReturn(be);
+        Mockito.when(mockInfoService.getBackendByIdWithBoxedId(id)).thenReturn(be);
+    }
+
+    // Tests for removeInvalidRoutes: routes of dropped compute groups
+    // ---------------------------------------------------------------
+
+    @Test
+    public void testRemoveInvalidRoutes() {
+        boolean savedClean = Config.enable_cloud_replica_stale_route_clean;
+        boolean savedUnitTest = FeConstants.runningUnitTest;
+        try {
+            Config.enable_cloud_replica_stale_route_clean = true;
+            FeConstants.runningUnitTest = false;
+            Backend liveBe = createBackend(1001L, true, false);
+            stubBackend(1001L, liveBe);
+            // 2001 belongs to a compute group that has been dropped, so it no longer resolves
+            stubBackend(2001L, null);
+
+            CloudReplica replica = createReplica();
+            replica.updateClusterToPrimaryBe(CLUSTER_ID_1, 1001L);
+            replica.updateClusterToPrimaryBe(CLUSTER_ID_2, 2001L);
+            replica.updateClusterToSecondaryBe(CLUSTER_ID_2, 2001L);
+
+            // one primary entry plus one secondary entry, both pointing at the dropped backend
+            Assertions.assertEquals(2, replica.removeInvalidRoutes(mockInfoService));
+
+            Assertions.assertEquals(1, replica.getPrimaryComputeGroupIds().size());
+            Assertions.assertTrue(replica.getPrimaryComputeGroupIds().contains(CLUSTER_ID_1));
+            // if the compute group id is reused later, the stale entry must not come back to life
+            Backend revivedBe = createBackend(2001L, true, false);
+            stubBackend(2001L, revivedBe);
+            Assertions.assertNull(replica.getSecondaryBackend(CLUSTER_ID_2));
+        } finally {
+            Config.enable_cloud_replica_stale_route_clean = savedClean;
+            FeConstants.runningUnitTest = savedUnitTest;
+        }
+    }
+
+    @Test
+    public void testRemoveInvalidRoutes_disabled() {
+        boolean savedClean = Config.enable_cloud_replica_stale_route_clean;
+        boolean savedUnitTest = FeConstants.runningUnitTest;
+        try {
+            Config.enable_cloud_replica_stale_route_clean = false;
+            FeConstants.runningUnitTest = false;
+            stubBackend(2001L, null);
+
+            CloudReplica replica = createReplica();
+            replica.updateClusterToPrimaryBe(CLUSTER_ID_2, 2001L);
+            replica.updateClusterToSecondaryBe(CLUSTER_ID_2, 2001L);
+
+            Assertions.assertEquals(0, replica.removeInvalidRoutes(mockInfoService));
+
+            Assertions.assertTrue(replica.getPrimaryComputeGroupIds().contains(CLUSTER_ID_2));
+            Backend revivedBe = createBackend(2001L, true, false);
+            stubBackend(2001L, revivedBe);
+            Assertions.assertNotNull(replica.getSecondaryBackend(CLUSTER_ID_2));
+        } finally {
+            Config.enable_cloud_replica_stale_route_clean = savedClean;
+            FeConstants.runningUnitTest = savedUnitTest;
+        }
+    }
+
+    @Test
+    public void testRemoveInvalidRoutes_keepsDeadPrimaryWithLiveSecondary() {
+        boolean savedClean = Config.enable_cloud_replica_stale_route_clean;
+        boolean savedUnitTest = FeConstants.runningUnitTest;
+        try {
+            Config.enable_cloud_replica_stale_route_clean = true;
+            FeConstants.runningUnitTest = false;
+            Backend liveBe = createBackend(1001L, true, false);
+            stubBackend(1001L, liveBe);
+            stubBackend(2001L, null);
+
+            // the normal failover state with enable_immediate_be_assign=false: primary still points at the
+            // old backend while the secondary holds the rehashed live one
+            CloudReplica replica = createReplica();
+            replica.updateClusterToPrimaryBe(CLUSTER_ID_1, 2001L);
+            replica.updateClusterToSecondaryBe(CLUSTER_ID_1, 1001L);
+
+            Assertions.assertEquals(0, replica.removeInvalidRoutes(mockInfoService));
+
+            // FrontendServiceImpl's lazy fetch reaches the secondary through the primary key set
+            Assertions.assertTrue(replica.getPrimaryComputeGroupIds().contains(CLUSTER_ID_1));
+            Assertions.assertNotNull(replica.getSecondaryBackend(CLUSTER_ID_1));
+        } finally {
+            Config.enable_cloud_replica_stale_route_clean = savedClean;
+            FeConstants.runningUnitTest = savedUnitTest;
+        }
+    }
+
+    private CloudReplica gsonRoundTrip(CloudReplica replica, boolean legacyBesFormat) {
+        JsonObject json = GsonUtils.GSON.toJsonTree(replica, Replica.class).getAsJsonObject();
+        if (legacyBesFormat) {
+            JsonObject be = json.remove("be").getAsJsonObject();
+            JsonObject bes = new JsonObject();
+            for (String computeGroup : be.keySet()) {
+                JsonArray beIds = new JsonArray();
+                beIds.add(be.get(computeGroup).getAsLong());
+                bes.add(computeGroup, beIds);
+            }
+            json.add("bes", bes);
+        }
+        return (CloudReplica) GsonUtils.GSON.fromJson(json, Replica.class);
+    }
+
+    private void assertPrimaryRouteObjectsShared(CloudReplica first, CloudReplica second) {
+        Assertions.assertSame(first.getPrimaryComputeGroupIds().iterator().next(),
+                second.getPrimaryComputeGroupIds().iterator().next());
+        Assertions.assertSame(first.getNonColocatedPrimaryBackendId(CLUSTER_ID_1),
+                second.getNonColocatedPrimaryBackendId(CLUSTER_ID_1));
+    }
+
+    @Test
+    public void testRouteObjectsSharedOnUpdate() {
+        CloudReplica first = createReplica();
+        CloudReplica second = createReplica();
+
+        first.updateClusterToPrimaryBe(new String(CLUSTER_ID_1), 1001L);
+        second.updateClusterToPrimaryBe(new String(CLUSTER_ID_1), 1001L);
+
+        assertPrimaryRouteObjectsShared(first, second);
+    }
+
+    @Test
+    public void testUnusedRouteObjectsCanBeCollected() {
+        List<WeakReference<?>> references = createAndClearRouteReferences();
+
+        references.forEach(GcFinalization::awaitClear);
+    }
+
+    private List<WeakReference<?>> createAndClearRouteReferences() {
+        String clusterId = new String("collectable_cluster_id");
+        long backendId = 9_000_000_000_001L;
+        CloudReplica replica = createReplica();
+        replica.updateClusterToPrimaryBe(clusterId, backendId);
+        WeakReference<String> clusterReference = new WeakReference<>(
+                replica.getPrimaryComputeGroupIds().iterator().next());
+        WeakReference<Long> backendReference = new WeakReference<>(
+                replica.getNonColocatedPrimaryBackendId(clusterId));
+
+        replica.clearClusterToBe(clusterId);
+        return Arrays.asList(clusterReference, backendReference);
+    }
+
+    @Test
+    public void testRouteObjectsSharedOnImageLoad() {
+        stubBackend(1001L, createBackend(1001L, true, false));
+        CloudReplica replica = createReplica();
+        replica.updateClusterToPrimaryBe(CLUSTER_ID_1, 1001L);
+        JsonObject originalJson = GsonUtils.GSON.toJsonTree(replica, Replica.class).getAsJsonObject();
+
+        CloudReplica first = gsonRoundTrip(replica, false);
+        CloudReplica second = gsonRoundTrip(replica, false);
+        assertPrimaryRouteObjectsShared(first, second);
+        Assertions.assertEquals(originalJson,
+                GsonUtils.GSON.toJsonTree(first, Replica.class).getAsJsonObject());
+
+        assertPrimaryRouteObjectsShared(gsonRoundTrip(replica, true), gsonRoundTrip(replica, true));
     }
 }

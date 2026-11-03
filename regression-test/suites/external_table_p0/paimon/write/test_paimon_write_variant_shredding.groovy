@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_paimon_write_variant_shredding", "p0,external,paimon,nonConcurrent") {
+suite("test_paimon_write_variant_shredding", "p0,external,paimon") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable paimon test.")
@@ -168,9 +168,11 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon,nonConcurrent")
         assertTrue(!shreddedFiles.isEmpty())
         def physicalRows = []
         shreddedFiles.each { filePath ->
+            // Variant metadata and residual payload are binary, even without an explicit mapping option.
             String payloadType = rawPayloadType(filePath)
-            assertTrue(payloadType.contains("metadata:text"))
-            assertTrue(payloadType.contains("value:text"))
+            // Raw TVFs expose the Variant metadata and residual value as opaque binary bytes.
+            assertTrue(payloadType.contains("metadata:varbinary"))
+            assertTrue(payloadType.contains("value:varbinary"))
             assertTrue(payloadType.contains("typed_value:struct"))
             assertTrue(payloadType.contains("age:struct"))
             assertTrue(payloadType.contains("profile:struct"))
@@ -210,8 +212,8 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon,nonConcurrent")
         assertTrue(!unshreddedFiles.isEmpty())
         unshreddedFiles.each { filePath ->
             String payloadType = rawPayloadType(filePath)
-            assertTrue(payloadType.contains("value:text"))
-            assertTrue(payloadType.contains("metadata:text"))
+            assertTrue(payloadType.contains("value:varbinary"))
+            assertTrue(payloadType.contains("metadata:varbinary"))
             assertFalse(payloadType.contains("typed_value"))
         }
 
@@ -257,8 +259,8 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon,nonConcurrent")
         assertTrue(!firstInferredFiles.isEmpty())
         firstInferredFiles.each { filePath ->
             String payloadType = rawPayloadType(filePath)
-            assertTrue(payloadType.contains("metadata:text"))
-            assertTrue(payloadType.contains("value:text"))
+            assertTrue(payloadType.contains("metadata:varbinary"))
+            assertTrue(payloadType.contains("value:varbinary"))
             assertTrue(payloadType.contains("typed_value:struct"))
             assertTrue(payloadType.contains("age:struct"))
             assertTrue(payloadType.contains("profile:struct"))

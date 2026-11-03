@@ -59,6 +59,7 @@ public class DataSourceConfigValidator {
             DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE,
             DataSourceConfigKeys.SNAPSHOT_PARALLELISM,
             DataSourceConfigKeys.SKIP_SNAPSHOT_BACKFILL,
+            DataSourceConfigKeys.SCHEMA_CHANGE_BEHAVIOR,
             DataSourceConfigKeys.SSL_MODE,
             DataSourceConfigKeys.SSL_ROOTCERT,
             DataSourceConfigKeys.SLOT_NAME,
@@ -127,12 +128,16 @@ public class DataSourceConfigValidator {
             }
 
             if (!isValidValue(key, value, dataSourceType)) {
-                throw new IllegalArgumentException("Invalid value for key '" + key + "': " + value);
+                if (DataSourceConfigKeys.SERVER_ID.equals(key)) {
+                    validateServerIdConfig(input);
+                }
+                throw new IllegalArgumentException(invalidValueMessage(key, value));
             }
         }
 
         validateOceanBaseSource(input, dataSourceType);
         validateSslVerifyCaPair(input);
+        validateServerIdConfig(input);
     }
 
     private static void validateOceanBaseSource(Map<String, String> input, String dataSourceType) {
@@ -196,8 +201,6 @@ public class DataSourceConfigValidator {
                     "ssl_mode '" + DataSourceConfigKeys.SSL_MODE_VERIFY_CA
                             + "' requires ssl_rootcert to be set");
         }
-
-        validateServerIdConfig(input);
     }
 
     // Shared by validateSource and the cdc_stream TVF entrypoint so both reject malformed
@@ -284,10 +287,32 @@ public class DataSourceConfigValidator {
         if (key.equals(DataSourceConfigKeys.SKIP_SNAPSHOT_BACKFILL)) {
             return isValidBoolean(value);
         }
+        if (key.equals(DataSourceConfigKeys.SCHEMA_CHANGE_BEHAVIOR)) {
+            return "evolve".equalsIgnoreCase(value) || "ignore".equalsIgnoreCase(value);
+        }
         if (key.equals(DataSourceConfigKeys.SERVER_ID)) {
             return parseServerIdRange(value) != null;
         }
         return true;
+    }
+
+    public static String invalidValueMessage(String key, String value) {
+        String message = "Invalid value for key '" + key + "': " + value + ".";
+        if (DataSourceConfigKeys.SLOT_NAME.equals(key)
+                || DataSourceConfigKeys.PUBLICATION_NAME.equals(key)) {
+            return message + " Must match [a-z_][a-z0-9_]* (max 63 characters).";
+        }
+        if (DataSourceConfigKeys.SSL_MODE.equals(key)) {
+            return message + " Use disable, require, or verify-ca.";
+        }
+        if (DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE.equals(key)
+                || DataSourceConfigKeys.SNAPSHOT_PARALLELISM.equals(key)) {
+            return message + " Use a positive integer.";
+        }
+        if (DataSourceConfigKeys.SKIP_SNAPSHOT_BACKFILL.equals(key)) {
+            return message + " Use true or false.";
+        }
+        return message;
     }
 
     // Strict boolean: only "true"/"false" (case-insensitive); Boolean.parseBoolean would

@@ -99,6 +99,8 @@ struct TIcebergPartitionField {
   3: required Exprs.TExpr source_expr
   4: optional string name
   5: optional i32 source_id
+  // Zero-based STRUCT child indexes below source_expr; empty/unset means a top-level source.
+  6: optional list<i32> source_field_path
 }
 
 struct TMergePartitionInfo {

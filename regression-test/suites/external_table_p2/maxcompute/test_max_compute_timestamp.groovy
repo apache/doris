@@ -88,6 +88,7 @@ suite("test_max_compute_timestamp", "p2,external,maxcompute,external_remote,exte
 
     String enabled = context.config.otherConfigs.get("enableMaxComputeTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        sql """ set time_zone = 'Asia/Shanghai' """
         String ak = context.config.otherConfigs.get("ak")
         String sk = context.config.otherConfigs.get("sk");
         String mc_db = "mc_datalake"

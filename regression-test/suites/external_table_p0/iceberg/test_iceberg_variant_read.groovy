@@ -1220,14 +1220,16 @@ public class AppendVariantEqualityDelete {
         }
         return sum
     }
-    def getProfileByToken = { String token, List<String> positiveCounters = [] ->
-        String lastProfile = profileAction.getProfileBySql(token, positiveCounters)
+    def getProfileByToken = { String token, List<String> positiveCounters = [],
+                             List<String> requiredCounters = [] ->
+        List<String> requiredContents = positiveCounters + requiredCounters
+        String lastProfile = profileAction.getProfileBySql(token, requiredContents)
         if (positiveCounters.every { String counter -> counterSum(lastProfile, counter) > 0 }) {
             return lastProfile
         }
         try {
             return profileAction.waitProfile({
-                lastProfile = profileAction.getProfileBySql(token, positiveCounters)
+                lastProfile = profileAction.getProfileBySql(token, requiredContents)
                 return positiveCounters.every {
                     String counter -> counterSum(lastProfile, counter) > 0
                 } ? lastProfile : ""
@@ -1831,11 +1833,12 @@ public class AppendVariantEqualityDelete {
     assertEquals(1, stringLeafRows.size())
     assertEquals(4096L, ((Number) stringLeafRows[0][1]).longValue(),
                  "The pinned shredded STRING fixture did not return all padding rows")
-    String stringLeafProfile = profileAction.getProfileBySql(stringLeafToken,
-            ["VariantLeafProjectionRowGroupColumns",
-             "VariantResidualProjectionRowGroupColumns",
-             "VariantFullProjectionRowGroupColumns",
-             "VariantDirectLeafRows", "VariantReconstructedRows"]).toString()
+    // Counter names can arrive before the final BE report fills in their values. Wait for the
+    // positive counters while still requiring the zero-valued counters used by the assertions.
+    String stringLeafProfile = getProfileByToken(stringLeafToken,
+            ["VariantLeafProjectionRowGroupColumns", "VariantDirectLeafRows"],
+            ["VariantResidualProjectionRowGroupColumns",
+             "VariantFullProjectionRowGroupColumns", "VariantReconstructedRows"]).toString()
     assertTrue(counterSum(stringLeafProfile, "VariantLeafProjectionRowGroupColumns") > 0,
                "A STRING leaf predicate did not retain its physical row-group leaf projection")
     assertEquals(0L, counterSum(stringLeafProfile,
@@ -1865,12 +1868,12 @@ public class AppendVariantEqualityDelete {
         SELECT id, CAST(v AS STRING) FROM variant_mixed_format ORDER BY id
     """
 
+    // The versioned Parquet contract requires V2 even when the session preference is disabled.
+    def variantRowsWithV2 = sql """SELECT CAST(v AS STRING) FROM variant_values ORDER BY id"""
     sql """set enable_file_scanner_v2=false"""
     try {
-        test {
-            sql """SELECT CAST(v AS STRING) FROM variant_values ORDER BY id"""
-            exception "legacy file scanner does not support VARIANT"
-        }
+        assertEquals(variantRowsWithV2,
+                sql("SELECT CAST(v AS STRING) FROM variant_values ORDER BY id"))
     } finally {
         sql """set enable_file_scanner_v2=true"""
     }

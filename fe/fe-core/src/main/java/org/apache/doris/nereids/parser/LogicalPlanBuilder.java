@@ -414,8 +414,6 @@ import org.apache.doris.nereids.DorisParser.ShowIndexCharFilterContext;
 import org.apache.doris.nereids.DorisParser.ShowIndexNormalizerContext;
 import org.apache.doris.nereids.DorisParser.ShowIndexTokenFilterContext;
 import org.apache.doris.nereids.DorisParser.ShowIndexTokenizerContext;
-import org.apache.doris.nereids.DorisParser.ShowLanceIndexJobContext;
-import org.apache.doris.nereids.DorisParser.ShowLanceIndexJobsContext;
 import org.apache.doris.nereids.DorisParser.ShowLastInsertContext;
 import org.apache.doris.nereids.DorisParser.ShowLoadContext;
 import org.apache.doris.nereids.DorisParser.ShowLoadProfileContext;
@@ -546,7 +544,6 @@ import org.apache.doris.nereids.trees.expressions.Default;
 import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
 import org.apache.doris.nereids.trees.expressions.DereferenceExpression;
 import org.apache.doris.nereids.trees.expressions.Divide;
-import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -856,8 +853,6 @@ import org.apache.doris.nereids.trees.plans.commands.ShowIndexNormalizerCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexTokenFilterCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexTokenizerCommand;
-import org.apache.doris.nereids.trees.plans.commands.ShowLanceIndexJobCommand;
-import org.apache.doris.nereids.trees.plans.commands.ShowLanceIndexJobsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadProfileCommand;
@@ -1712,7 +1707,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         LogicalPlan logicalPlan = new UnboundResultSink<>(visitQuery(ctx.query()));
         Map<String, String> properties = ctx.propertyClause() != null
                 ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
-        return new CreateMaterializedViewCommand(new TableNameInfo(nameParts), logicalPlan, properties);
+        return new CreateMaterializedViewCommand(ctx.EXISTS() != null, new TableNameInfo(nameParts),
+                logicalPlan, properties);
     }
 
     /**
@@ -2889,7 +2885,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         throw new AnalysisException("Duplicate vector_search property: " + key);
                     }
                     if (argument.value.constant() instanceof DorisParser.PlaceholderContext) {
-                        if (!ImmutableSet.of("query_vector", "top_k", "offset", "filter").contains(key)) {
+                        // Bounds change the search results, but never the prepared result schema.
+                        if (!ImmutableSet.of("query_vector", "top_k", "offset", "filter",
+                                "distance_lower_bound", "distance_upper_bound").contains(key)) {
                             throw new AnalysisException("vector_search property '" + key
                                     + "' must be constant in a prepared statement");
                         }
@@ -2899,6 +2897,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     }
                 }
             } else {
+                if ("full_text_search".equalsIgnoreCase(functionName) && ctx.properties != null) {
+                    // A placeholder would otherwise reach the function as the literal text "?".
+                    for (PropertyItemContext argument : ctx.properties.properties) {
+                        if (argument.key.constant() instanceof DorisParser.PlaceholderContext
+                                || argument.value.constant() instanceof DorisParser.PlaceholderContext) {
+                            throw new AnalysisException("full_text_search properties must be constant"
+                                    + " in a prepared statement");
+                        }
+                    }
+                }
                 map = visitPropertyItemList(ctx.properties);
             }
             LogicalPlan relation = new UnboundTVFRelation(StatementScopeIdGenerator.newRelationId(),
@@ -4228,7 +4236,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 } else {
                     defaultValue = Optional.of(DefaultValue
                             .currentTimeStampDefaultValueWithPrecision(
-                                    Long.valueOf(ctx.defaultValuePrecision.getText())));
+                                    Long.valueOf(ctx.defaultValuePrecision.getText()), colType));
                 }
             } else if (ctx.CURRENT_DATE() != null) {
                 defaultValue = Optional.of(DefaultValue.CURRENT_DATE_DEFAULT_VALUE);
@@ -4238,6 +4246,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 defaultValue = Optional.of(DefaultValue.E_NUM_DEFAULT_VALUE);
             } else if (ctx.BITMAP_EMPTY() != null) {
                 defaultValue = Optional.of(DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE);
+            } else if (ctx.defaultFunction != null) {
+                defaultValue = Optional.of(DefaultValue.uuidDefaultValue(ctx.defaultFunction.getText()));
             }
         }
         if (ctx.UPDATE() != null) {
@@ -4246,7 +4256,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             } else {
                 onUpdateDefaultValue = Optional.of(DefaultValue
                         .currentTimeStampDefaultValueWithPrecision(
-                                Long.valueOf(ctx.onUpdateValuePrecision.getText())));
+                                Long.valueOf(ctx.onUpdateValuePrecision.getText()), colType));
             }
         }
         AggregateType aggType = null;
@@ -4726,7 +4736,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     }
                     List<Expression> conjuncts = ExpressionUtils.extractConjunction(condition.get());
                     for (Expression expression : conjuncts) {
-                        if (!(expression instanceof EqualPredicate)) {
+                        if (!(expression instanceof EqualTo)) {
                             throw new ParseException("ASOF JOIN's ON clause must be one or more EQUAL(=) conjuncts",
                                     join);
                         }
@@ -5477,13 +5487,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public VariantField visitVariantSubColType(VariantSubColTypeContext ctx) {
-        String comment;
-        if (ctx.commentSpec() != null) {
-            comment = ctx.commentSpec().STRING_LITERAL().getText();
-            comment = LogicalPlanBuilderAssistant.escapeBackSlash(comment.substring(1, comment.length() - 1));
-        } else {
-            comment = "";
-        }
+        String comment = ctx.commentSpec() == null ? ""
+                : SqlLiteralUtils.parseStringLiteral(ctx.commentSpec().STRING_LITERAL().getText());
         String pattern = ctx.STRING_LITERAL().getText();
         pattern = pattern.substring(1, pattern.length() - 1);
         if (ctx.variantSubColMatchType() != null) {
@@ -7027,22 +7032,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             whereClause = getExpression(ctx.expression());
         }
         return new ShowCatalogRecycleBinCommand(whereClause);
-    }
-
-    @Override
-    public LogicalPlan visitShowLanceIndexJobs(ShowLanceIndexJobsContext ctx) {
-        List<String> nameParts = ctx.db == null ? null : visitMultipartIdentifier(ctx.db);
-        Expression whereClause = null;
-        if (ctx.WHERE() != null) {
-            whereClause = getExpression(ctx.expression());
-        }
-        return new ShowLanceIndexJobsCommand(nameParts, whereClause);
-    }
-
-    @Override
-    public LogicalPlan visitShowLanceIndexJob(ShowLanceIndexJobContext ctx) {
-        long jobId = Long.parseLong(ctx.jobId.getText());
-        return new ShowLanceIndexJobCommand(jobId);
     }
 
     @Override
@@ -9125,35 +9114,28 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new TransactionRollbackCommand();
     }
 
+    /**
+     * The object of a table privilege is db, db.tbl or ctl.db.tbl; TablePattern.analyze() checks its wildcards.
+     */
+    private TablePattern parsePrivilegeTablePattern(DorisParser.MultipartIdentifierOrAsteriskContext ctx) {
+        List<String> parts = visitMultipartIdentifierOrAsterisk(ctx);
+        switch (parts.size()) {
+            case 1:
+                return new TablePattern(parts.get(0), "");
+            case 2:
+                return new TablePattern(parts.get(0), parts.get(1));
+            case 3:
+                return new TablePattern(parts.get(0), parts.get(1), parts.get(2));
+            default:
+                throw new ParseException("Privilege object name should be db, db.tbl or ctl.db.tbl, but got: "
+                        + String.join(".", parts), ctx);
+        }
+    }
+
     @Override
     public LogicalPlan visitGrantTablePrivilege(DorisParser.GrantTablePrivilegeContext ctx) {
         List<AccessPrivilegeWithCols> accessPrivilegeWithCols = visitPrivilegeList(ctx.privilegeList());
-
-        List<String> parts = visitMultipartIdentifierOrAsterisk(ctx.multipartIdentifierOrAsterisk());
-        int size = parts.size();
-
-        if (size < 1) {
-            throw new AnalysisException("grant table privilege statement missing parameters");
-        }
-
-        TablePattern tablePattern = null;
-        if (size == 1) {
-            String db = parts.get(size - 1);
-            tablePattern = new TablePattern(db, "");
-        }
-
-        if (size == 2) {
-            String db = parts.get(size - 2);
-            String tbl = parts.get(size - 1);
-            tablePattern = new TablePattern(db, tbl);
-        }
-
-        if (size == 3) {
-            String ctl = parts.get(size - 3);
-            String db = parts.get(size - 2);
-            String tbl = parts.get(size - 1);
-            tablePattern = new TablePattern(ctl, db, tbl);
-        }
+        TablePattern tablePattern = parsePrivilegeTablePattern(ctx.multipartIdentifierOrAsterisk());
 
         Optional<UserIdentity> userIdentity = Optional.empty();
         Optional<String> role = Optional.empty();
@@ -9299,28 +9281,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitRevokeTablePrivilege(DorisParser.RevokeTablePrivilegeContext ctx) {
         List<AccessPrivilegeWithCols> accessPrivilegeWithCols = visitPrivilegeList(ctx.privilegeList());
-
-        List<String> parts = visitMultipartIdentifierOrAsterisk(ctx.multipartIdentifierOrAsterisk());
-        int size = parts.size();
-
-        TablePattern tablePattern = null;
-        if (size == 1) {
-            String db = parts.get(size - 1);
-            tablePattern = new TablePattern(db, "");
-        }
-
-        if (size == 2) {
-            String db = parts.get(size - 2);
-            String tbl = parts.get(size - 1);
-            tablePattern = new TablePattern(db, tbl);
-        }
-
-        if (size == 3) {
-            String ctl = parts.get(size - 3);
-            String db = parts.get(size - 2);
-            String tbl = parts.get(size - 1);
-            tablePattern = new TablePattern(ctl, db, tbl);
-        }
+        TablePattern tablePattern = parsePrivilegeTablePattern(ctx.multipartIdentifierOrAsterisk());
 
         Optional<UserIdentity> userIdentity = Optional.empty();
         Optional<String> role = Optional.empty();

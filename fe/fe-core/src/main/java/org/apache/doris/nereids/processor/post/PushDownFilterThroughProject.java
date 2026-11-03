@@ -45,7 +45,8 @@ public class PushDownFilterThroughProject extends PlanPostProcessor {
         PhysicalProject<? extends Plan> project = (PhysicalProject<? extends Plan>) child;
         Map<Slot, Expression> childAlias = project.getAliasToProducer();
         if (filter.getInputSlots().stream().map(childAlias::get).filter(Objects::nonNull)
-                .anyMatch(Expression::containsVolatileExpression)) {
+                .anyMatch(expression -> expression.containsVolatileExpression()
+                        || ExpressionUtils.requiresDateArithmeticProtection(expression, project.child()))) {
             return filter;
         }
         PhysicalFilter<? extends Plan> newFilter = filter.withConjunctsAndChild(

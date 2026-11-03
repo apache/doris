@@ -19,7 +19,7 @@
 // Includes range search, topn search, and compound search
 
 suite ("ann_index_basic") {
-		sql "set enable_common_expr_pushdown=true;"
+		sql "set enable_segment_limit_pushdown=true;"
 
 		// 1) Basic L2 ANN table: dim=3
 		sql "drop table if exists basic_tbl_ann_l2"

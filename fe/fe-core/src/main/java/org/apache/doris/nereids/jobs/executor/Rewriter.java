@@ -38,6 +38,7 @@ import org.apache.doris.nereids.rules.rewrite.AddProjectForVolatileExpression;
 import org.apache.doris.nereids.rules.rewrite.AdjustConjunctsReturnType;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.AggScalarSubQueryToWindowFunction;
+import org.apache.doris.nereids.rules.rewrite.BindScoreToOlapScan;
 import org.apache.doris.nereids.rules.rewrite.BuildAggForUnion;
 import org.apache.doris.nereids.rules.rewrite.CTEInline;
 import org.apache.doris.nereids.rules.rewrite.CheckAndStandardizeWindowFunctionAndFrame;
@@ -46,7 +47,6 @@ import org.apache.doris.nereids.rules.rewrite.CheckMatchExpression;
 import org.apache.doris.nereids.rules.rewrite.CheckMultiDistinct;
 import org.apache.doris.nereids.rules.rewrite.CheckPrivileges;
 import org.apache.doris.nereids.rules.rewrite.CheckRestorePartition;
-import org.apache.doris.nereids.rules.rewrite.CheckScoreUsage;
 import org.apache.doris.nereids.rules.rewrite.ClearContextStatus;
 import org.apache.doris.nereids.rules.rewrite.CollectCteConsumerOutput;
 import org.apache.doris.nereids.rules.rewrite.CollectFilterAboveConsumer;
@@ -425,6 +425,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
 
     private static final List<RewriteJob> NORMALIZE_PLAN_JOBS = jobs(
             topic("Plan Normalization",
+                    // Bind score() to its scan while subqueries, views and CTEs still have their own
+                    // plan nodes.
+                    custom(RuleType.BIND_SCORE_TO_OLAP_SCAN, BindScoreToOlapScan::new),
                     custom(RuleType.FOLD_CONSTANT_FOR_SQL_CACHE, FoldConstantForSqlCache::new),
                     // move MergeProjects rule from analyze phase
                     // because SubqueryToApply and BindSink rule may create extra project node
@@ -673,7 +676,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalAggregate.class)
                                 || cascadesContext.rewritePlanContainsTypes(LogicalJoin.class)
                                 || cascadesContext.rewritePlanContainsTypes(LogicalUnion.class),
-                        topDown(new EliminateGroupByKey()),
                         topDown(new PushDownAggThroughJoinOnPkFk()),
                         topDown(new PullUpJoinFromUnionAll())
                 ),
@@ -795,8 +797,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 topDown(new PushDownVirtualColumnsIntoOlapScan()),
                 topDown(new PushDownMatchProjectionAsVirtualColumn()),
                 topic("score optimize",
-                        topDown(new PushDownScoreTopNIntoOlapScan(),
-                                new CheckScoreUsage())
+                        topDown(new PushDownScoreTopNIntoOlapScan())
                 ),
                 topic("add projection for join",
                         custom(RuleType.ADD_PROJECT_FOR_JOIN, AddProjectForJoin::new),
@@ -907,6 +908,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             )));
                     rewriteJobs.addAll(jobs(topic("convert outer join to anti",
                             custom(RuleType.CONVERT_OUTER_JOIN_TO_ANTI, ConvertOuterJoinToAntiJoin::new))));
+                    rewriteJobs.addAll(jobs(topic("eliminate Aggregate according to fd items",
+                            cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalAggregate.class)
+                                    || cascadesContext.rewritePlanContainsTypes(LogicalJoin.class)
+                                    || cascadesContext.rewritePlanContainsTypes(LogicalUnion.class),
+                            custom(RuleType.ELIMINATE_GROUP_BY_KEY, EliminateGroupByKey::new))));
                     rewriteJobs.addAll(jobs(topic("eliminate group by key by uniform",
                             custom(RuleType.ELIMINATE_GROUP_BY_KEY_BY_UNIFORM, EliminateGroupByKeyByUniform::new))));
                     if (needOrExpansion) {

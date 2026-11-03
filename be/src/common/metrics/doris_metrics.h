@@ -213,6 +213,7 @@ public:
     UIntGauge* load_mem_consumption = nullptr;
     UIntGauge* load_channel_mem_consumption = nullptr;
     UIntGauge* memtable_memory_limiter_mem_consumption = nullptr;
+    UIntGauge* snii_index_build_mem_consumption = nullptr;
     UIntGauge* query_mem_consumption = nullptr;
     UIntGauge* schema_change_mem_consumption = nullptr;
     UIntGauge* storage_migration_mem_consumption = nullptr;
@@ -227,6 +228,11 @@ public:
     UIntGauge* upload_total_byte = nullptr;
     IntCounter* upload_rowset_count = nullptr;
     IntCounter* upload_fail_count = nullptr;
+
+    UIntGauge* load_light_work_pool_queue_size = nullptr;
+    UIntGauge* load_light_work_active_threads = nullptr;
+    UIntGauge* load_light_work_pool_max_queue_size = nullptr;
+    UIntGauge* load_light_work_max_threads = nullptr;
 
     UIntGauge* light_work_pool_queue_size = nullptr;
     UIntGauge* heavy_work_pool_queue_size = nullptr;

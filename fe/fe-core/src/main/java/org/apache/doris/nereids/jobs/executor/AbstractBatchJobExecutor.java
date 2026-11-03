@@ -142,7 +142,12 @@ public abstract class AbstractBatchJobExecutor {
      * execute.
      */
     public void execute() {
-        List<RewriteJob> jobs = Lists.newArrayList(getJobs());
+        executeJobs(getJobs());
+    }
+
+    /** Execute the specified rewrite jobs. */
+    protected void executeJobs(List<RewriteJob> rewriteJobs) {
+        List<RewriteJob> jobs = Lists.newArrayList(rewriteJobs);
         for (int i = 0; i < jobs.size(); i++) {
             JobContext jobContext = cascadesContext.getCurrentJobContext();
             RewriteJob currentJob = jobs.get(i);

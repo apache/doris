@@ -38,7 +38,7 @@ suite("test_set_password", "account") {
     def tokens = context.config.jdbcUrl.split('/')
     def url = tokens[0] + "//" + tokens[2] + "/" + "information_schema" + "?"
 
-    connect(user, password1, url) {
+    connectToDoris(user, password1, url) {
         def result = sql "SELECT 1"
         assertEquals(1, result[0][0])
     }
@@ -48,14 +48,14 @@ suite("test_set_password", "account") {
     sql "SET PASSWORD FOR '${user}'@'%' = PASSWORD('${password2}')"
 
     // verify login with new password
-    connect(user, password2, url) {
+    connectToDoris(user, password2, url) {
         def result = sql "SELECT 1"
         assertEquals(1, result[0][0])
     }
 
     // verify old password no longer works
     try {
-        connect(user, password1, url) {
+        connectToDoris(user, password1, url) {
             sql "SELECT 1"
         }
         assertTrue(false, "Old password should not work after SET PASSWORD")

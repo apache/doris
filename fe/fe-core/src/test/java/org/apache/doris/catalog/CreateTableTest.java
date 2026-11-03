@@ -24,14 +24,23 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Maps;
 import org.junit.Assert;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -49,6 +58,92 @@ public class CreateTableTest extends TestWithFeService {
         FeConstants.runningUnitTest = true;
         Config.allow_replica_on_same_host = true;
         createDatabase("test");
+    }
+
+    @Test
+    public void testCreateTableReturnsExistingAfterRegistrationRace() throws Exception {
+        String sql = "CREATE TABLE IF NOT EXISTS test.registration_race (k INT) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1')";
+        InternalCatalog catalog = Env.getCurrentInternalCatalog();
+        CreateTableInfo winner = analyzeCreateTable(sql);
+        Assertions.assertFalse(catalog.createTable(winner));
+
+        Database db = catalog.getDbOrDdlException("test");
+        Table table = db.getTableOrDdlException("registration_race");
+        Set<Long> tabletIds = new HashSet<>(Env.getCurrentInvertedIndex().getTabletMetaMap().keySet());
+
+        // Both creators can observe absence before either registers its table. Make only the
+        // loser's initial probe stale; atomic registration must still see the winner's real table.
+        Database racingDb = Mockito.spy(db);
+        Mockito.doReturn(false).doCallRealMethod().when(racingDb).isTableExist("registration_race");
+        InternalCatalog racingCatalog = Mockito.spy(catalog);
+        Mockito.doReturn(racingDb).when(racingCatalog).getDbOrDdlException("test");
+        Mockito.doAnswer(invocation -> {
+            Assertions.assertFalse(db.isWriteLockHeldByCurrentThread());
+            OlapTable loser = invocation.getArgument(1);
+            Assertions.assertTrue(Collections.disjoint(((OlapTable) table).getIndexIdList(),
+                    loser.getIndexIdList()));
+            return invocation.callRealMethod();
+        }).when(racingCatalog).onCreateTableConflict(Mockito.eq(db.getId()), Mockito.any(OlapTable.class));
+        Assertions.assertTrue(racingCatalog.createTable(analyzeCreateTable(sql)));
+        Mockito.verify(racingCatalog).onCreateTableConflict(Mockito.eq(db.getId()),
+                Mockito.argThat(loser -> loser.getId() != table.getId()));
+        Assertions.assertSame(table, db.getTableOrDdlException("registration_race"));
+        Assertions.assertEquals(tabletIds, Env.getCurrentInvertedIndex().getTabletMetaMap().keySet());
+
+        // A sequential IF NOT EXISTS remains a no-op as well.
+        Assertions.assertTrue(catalog.createTable(analyzeCreateTable(sql)));
+    }
+
+    @Test
+    public void testCreateTableRegistrationRaceWithoutIfNotExists() throws Exception {
+        String sql = "CREATE TABLE test.registration_race_error (k INT) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1')";
+        createTable(sql);
+        InternalCatalog catalog = Env.getCurrentInternalCatalog();
+        Database db = catalog.getDbOrDdlException("test");
+        Table table = db.getTableOrDdlException("registration_race_error");
+        Set<Long> tabletIds = new HashSet<>(Env.getCurrentInvertedIndex().getTabletMetaMap().keySet());
+        Database racingDb = Mockito.spy(db);
+        Mockito.doReturn(false).doCallRealMethod().when(racingDb).isTableExist("registration_race_error");
+        InternalCatalog racingCatalog = Mockito.spy(catalog);
+        Mockito.doReturn(racingDb).when(racingCatalog).getDbOrDdlException("test");
+
+        Assertions.assertThrows(DdlException.class, () -> racingCatalog.createTable(analyzeCreateTable(sql)));
+        Mockito.verify(racingCatalog).onCreateTableConflict(Mockito.eq(db.getId()),
+                Mockito.argThat(loser -> loser.getId() != table.getId()));
+        Assertions.assertSame(table, db.getTableOrDdlException("registration_race_error"));
+        Assertions.assertEquals(tabletIds, Env.getCurrentInvertedIndex().getTabletMetaMap().keySet());
+    }
+
+    @Test
+    public void testCreateTableRegistrationRaceCleanupFailure() throws Exception {
+        String sql = "CREATE TABLE IF NOT EXISTS test.registration_race_cleanup (k INT) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1')";
+        createTable(sql);
+        InternalCatalog catalog = Env.getCurrentInternalCatalog();
+        Database db = catalog.getDbOrDdlException("test");
+        Table table = db.getTableOrDdlException("registration_race_cleanup");
+        Set<Long> tabletIds = new HashSet<>(Env.getCurrentInvertedIndex().getTabletMetaMap().keySet());
+        Database racingDb = Mockito.spy(db);
+        Mockito.doReturn(false).doCallRealMethod().when(racingDb).isTableExist("registration_race_cleanup");
+        InternalCatalog racingCatalog = Mockito.spy(catalog);
+        Mockito.doReturn(racingDb).when(racingCatalog).getDbOrDdlException("test");
+        Mockito.doThrow(new DdlException("failed to recycle losing indexes"))
+                .when(racingCatalog).onCreateTableConflict(Mockito.eq(db.getId()), Mockito.any(OlapTable.class));
+
+        DdlException error = Assertions.assertThrows(DdlException.class,
+                () -> racingCatalog.createTable(analyzeCreateTable(sql)));
+        Assertions.assertTrue(error.getMessage().contains("failed to recycle losing indexes"));
+        Assertions.assertSame(table, db.getTableOrDdlException("registration_race_cleanup"));
+        Assertions.assertEquals(tabletIds, Env.getCurrentInvertedIndex().getTabletMetaMap().keySet());
+    }
+
+    private CreateTableInfo analyzeCreateTable(String sql) {
+        CreateTableCommand command = (CreateTableCommand) new NereidsParser().parseSingle(sql);
+        CreateTableInfo info = command.getCreateTableInfo();
+        info.validate(connectContext);
+        return info;
     }
 
     @Test
@@ -240,6 +335,23 @@ public class CreateTableTest extends TestWithFeService {
         ExceptionChecker.expectThrowsNoException(
                 () -> createTable("create table test.tbl17\n" + "(k1 int, k2 decimal(10,2) default 10.3)\n" + "duplicate key(k1)\n"
                 + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); "));
+    }
+
+    @Test
+    public void testPartitionsStoreTableInvertedIndexStorageFormat() throws Exception {
+        createTable("CREATE TABLE test.partition_inverted_index_format (k1 INT) "
+                + "DUPLICATE KEY(k1) PARTITION BY RANGE(k1) "
+                + "(PARTITION p1 VALUES LESS THAN ('10')) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES('replication_num' = '1', 'inverted_index_storage_format' = 'SNII')");
+        executeSql("ALTER TABLE test.partition_inverted_index_format "
+                + "ADD PARTITION p2 VALUES LESS THAN ('20')");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        OlapTable table = (OlapTable) db.getTableOrDdlException("partition_inverted_index_format");
+        Assert.assertEquals(TInvertedIndexFileStorageFormat.SNII, table.getPartitionInfo()
+                .getInvertedIndexFileStorageFormat(table.getPartition("p1").getId()));
+        Assert.assertEquals(TInvertedIndexFileStorageFormat.SNII, table.getPartitionInfo()
+                .getInvertedIndexFileStorageFormat(table.getPartition("p2").getId()));
     }
 
     @Test

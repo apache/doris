@@ -131,6 +131,12 @@ TEST_F(CacheLRUDumperTest, test_remove_lru_dump_files) {
 }
 
 TEST_F(CacheLRUDumperTest, test_dump_and_restore_queue) {
+    const auto old_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
+    Defer defer {[old_tail_record_num] {
+        config::file_cache_background_lru_dump_tail_record_num = old_tail_record_num;
+    }};
+    config::file_cache_background_lru_dump_tail_record_num = 5000000;
+
     LRUQueue src_queue;
     std::string queue_name = "normal";
 

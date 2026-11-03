@@ -18,6 +18,9 @@ import org.junit.Assert
 // under the License.
 
 suite("test_tvf_csv_line_end", "p0,tvf,external,external_docker") {
+    logger.info("Skip: this suite requires LOCAL TVF, which is disabled.")
+    return
+
     List<List<Object>> backends =  sql """ show backends """
     assertTrue(backends.size() > 0)
     def be_id = backends[0][0]

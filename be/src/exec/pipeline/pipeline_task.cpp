@@ -871,11 +871,27 @@ void PipelineTask::stop_if_finished() {
         return;
     }
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(fragment->get_query_ctx()->query_mem_tracker());
-    if (auto sink = _sink) {
-        if (sink->is_finished(_state)) {
-            set_wake_up_early();
-            terminate();
+    DataSinkOperatorPtr sink;
+    {
+        // This runs on FragmentMgr's cancel thread while a scheduler worker may be in finalize(),
+        // which resets _sink under the same lock. Copy the shared_ptr under the lock so the two
+        // threads never access it concurrently. The lock is released before terminate() because
+        // that function acquires it again.
+        std::unique_lock<std::mutex> lock(_dependency_lock);
+        DBUG_EXECUTE_IF("PipelineTask::stop_if_finished.holding_lifecycle_lock", {
+            if (dp->callback.has_value()) {
+                DBUG_RUN_CALLBACK();
+            }
+        });
+        if (is_finalized()) {
+            return;
         }
+        sink = _sink;
+    }
+    DCHECK(sink);
+    if (sink->is_finished(_state)) {
+        set_wake_up_early();
+        terminate();
     }
 }
 

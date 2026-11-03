@@ -55,6 +55,17 @@ public class TimeV2Type extends PrimitiveType implements RangeScalable, ScaleTim
             TimeV2Type timeV2Type = (TimeV2Type) target;
             return timeV2Type.scale >= scale;
         }
+        // Scale-zero values are one second (one million microseconds) apart. Even near the largest
+        // supported TIMEV2 value, a binary32 ULP is only 262144 microseconds, so FLOAT cannot merge
+        // adjacent values. At scale one or greater, the spacing can be smaller than that ULP.
+        if (target instanceof FloatType) {
+            return scale == 0;
+        }
+        // BE stores TIMEV2 as an integral microsecond count in a DOUBLE. Its bounded domain
+        // is well below 2^53, so BIGINT, LARGEINT, and DOUBLE preserve it exactly.
+        if (target instanceof BigIntType || target instanceof LargeIntType || target instanceof DoubleType) {
+            return true;
+        }
         return target instanceof CharacterType;
     }
 

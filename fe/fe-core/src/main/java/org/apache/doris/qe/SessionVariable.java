@@ -97,6 +97,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT = "local_exchange_free_blocks_limit";
     public static final String SCAN_QUEUE_MEM_LIMIT = "scan_queue_mem_limit";
     public static final String MAX_SCANNERS_CONCURRENCY = "max_scanners_concurrency";
+    public static final String INDEX_DISK_USAGE_MAX_TABLETS = "index_disk_usage_max_tablets";
+    public static final String INDEX_DISK_USAGE_POSITION_DETAIL_MAX_TABLETS =
+            "index_disk_usage_position_detail_max_tablets";
     public static final String MAX_FILE_SCANNERS_CONCURRENCY = "max_file_scanners_concurrency";
     public static final String ENABLE_FILE_SCANNER_V2 = "enable_file_scanner_v2";
     public static final String MIN_SCANNERS_CONCURRENCY = "min_scanners_concurrency";
@@ -204,6 +207,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_REWRITE_ELEMENT_AT_TO_SLOT = "enable_rewrite_element_at_to_slot";
     public static final String ENABLE_ODBC_TRANSCATION = "enable_odbc_transcation";
     public static final String ENABLE_BINARY_SEARCH_FILTERING_PARTITIONS = "enable_binary_search_filtering_partitions";
+    public static final String ENABLE_DYNAMIC_PARTITION_DROP_PROTECTION =
+            "enable_dynamic_partition_drop_protection";
     public static final String CACHE_SORTED_PARTITION_INTERVAL_SECOND = "cache_sorted_partition_interval_second";
     public static final String SKIP_PRUNE_PREDICATE = "skip_prune_predicate";
     public static final String ENABLE_SQL_CACHE = "enable_sql_cache";
@@ -485,7 +490,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_EXT_FUNC_PRED_PUSHDOWN = "enable_ext_func_pred_pushdown";
 
-    public static final String ENABLE_COMMON_EXPR_PUSHDOWN = "enable_common_expr_pushdown";
+    public static final String ENABLE_SEGMENT_LIMIT_PUSHDOWN = "enable_segment_limit_pushdown";
 
     public static final String FRAGMENT_TRANSMISSION_COMPRESSION_CODEC = "fragment_transmission_compression_codec";
 
@@ -542,12 +547,12 @@ public class SessionVariable implements Serializable, Writable {
     public static final String FILE_CACHE_QUERY_LIMIT_BYTES =
             "file_cache_query_limit_bytes";
 
+    public static final String INVERTED_INDEX_SNII_READ_NO_WRITE_FILE_CACHE =
+            "inverted_index_snii_read_no_write_file_cache";
+
     public static final String FILE_CACHE_BASE_PATH = "file_cache_base_path";
 
     public static final String ENABLE_INVERTED_INDEX_QUERY = "enable_inverted_index_query";
-
-    public static final String ENABLE_COMMON_EXPR_PUSHDOWN_FOR_INVERTED_INDEX
-            = "enable_common_expr_pushdown_for_inverted_index";
 
     public static final String ENABLE_PUSHDOWN_COUNT_ON_INDEX = "enable_count_on_index_pushdown";
     public static final String ENABLE_NO_NEED_READ_DATA_OPT = "enable_no_need_read_data_opt";
@@ -635,6 +640,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_CTE_MATERIALIZE = "enable_cte_materialize";
 
+    public static final String CTE_INLINE_MODE = "cte_inline_mode";
+
     public static final String ENABLE_ANALYZE_COMPLEX_TYPE_COLUMN = "enable_analyze_complex_type_column";
 
     public static final String EXTERNAL_TABLE_ANALYZE_PART_NUM = "external_table_analyze_part_num";
@@ -694,6 +701,12 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SERDE_DIALECT = "serde_dialect";
 
     public static final String EXPAND_RUNTIME_FILTER_BY_INNER_JION = "expand_runtime_filter_by_inner_join";
+
+    public static final String ENABLE_DECOUPLED_RUNTIME_FILTER = "enable_decoupled_runtime_filter";
+
+    public static final String DECOUPLED_RF_NDV_RATIO_THRESHOLD = "decoupled_rf_ndv_ratio_threshold";
+
+    public static final String MIN_DECOUPLED_RF_TARGET_ROWS = "min_decoupled_rf_target_rows";
 
     public static final String ENABLE_AUTO_ANALYZE = "enable_auto_analyze";
 
@@ -815,6 +828,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DESCRIBE_EXTEND_VARIANT_COLUMN = "describe_extend_variant_column";
 
     public static final String FORCE_JNI_SCANNER = "force_jni_scanner";
+
+    public static final String ENABLE_PAIMON_RUST_READER = "enable_paimon_rust_reader";
 
     public static final String ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE = "enable_count_push_down_for_external_table";
 
@@ -1087,6 +1102,28 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = EXPAND_RUNTIME_FILTER_BY_INNER_JION)
     public boolean expandRuntimeFilterByInnerJoin = true;
 
+    @VariableMgr.VarAttr(name = ENABLE_DECOUPLED_RUNTIME_FILTER,
+            description = {"启用解耦 Runtime Filter：允许 RF 的生产者和条件来源分属不同 join 节点",
+                    "Enable decoupled runtime filter: allow RF producer and predicate source "
+                    + "to be on different join nodes"})
+    public boolean enableDecoupledRuntimeFilter = true;
+
+    @VariableMgr.VarAttr(name = DECOUPLED_RF_NDV_RATIO_THRESHOLD,
+            description = {"解耦 RF 的 NDV 比值阈值。当 probe_ndv/build_ndv < 该值时，"
+                    + "优先使用解耦 RF 并删除标准 RF；否则保留标准 RF，解耦 RF 设为非阻塞",
+                    "NDV ratio threshold for decoupled RF. When probe_ndv/build_ndv < threshold, "
+                    + "prefer decoupled RF and remove standard RF; otherwise keep standard RF "
+                    + "and make decoupled RF non-blocking"})
+    public double decoupledRfNdvRatioThreshold = 0.5;
+
+    @VariableMgr.VarAttr(name = MIN_DECOUPLED_RF_TARGET_ROWS,
+            description = {"解耦 RF 目标扫描节点的最小行数。当目标扫描行数低于此阈值时，"
+                    + "跳过生成解耦 RF（因为小表扫描太快，RF 来不及生效）",
+                    "Minimum row count for the target scan of a decoupled RF. "
+                    + "Skip generating decoupled RF when the target scan has fewer rows "
+                    + "(small scans complete too quickly for the RF to arrive in time)"})
+    public long minDecoupledRfTargetRows = 5_000_000;
+
     @VariableMgr.VarAttr(name = "enable_aggregate_cse", needForward = true)
     public boolean enableAggregateCse = true;
 
@@ -1142,6 +1179,16 @@ public class SessionVariable implements Serializable, Writable {
             "ScanNode 扫描数据的最大并发，默认为 8", "The max threads to read data of ScanNode, default 8"})
     public int maxScannersConcurrency = 8;
 
+    @VariableMgr.VarAttr(name = INDEX_DISK_USAGE_MAX_TABLETS, needForward = true, description = {
+            "Maximum tablets scanned by index_disk_usage per query, default 20000.",
+            "Maximum tablets scanned by index_disk_usage per query, default 20000."})
+    public int indexDiskUsageMaxTablets = 20000;
+
+    @VariableMgr.VarAttr(name = INDEX_DISK_USAGE_POSITION_DETAIL_MAX_TABLETS, needForward = true, description = {
+            "Maximum tablets scanned by index_disk_usage with position_detail enabled, default 10000.",
+            "Maximum tablets scanned by index_disk_usage with position_detail enabled, default 10000."})
+    public int indexDiskUsagePositionDetailMaxTablets = 10000;
+
     @VariableMgr.VarAttr(name = MAX_FILE_SCANNERS_CONCURRENCY, needForward = true, description = {
             "FileScanNode 扫描数据的最大并发，默认为 16", "The max threads to read data of FileScanNode, default 16"})
     public int maxFileScannersConcurrency = 16;
@@ -1156,9 +1203,9 @@ public class SessionVariable implements Serializable, Writable {
     public int localExchangeFreeBlocksLimit = 4;
 
     @VariableMgr.VarAttr(name = MIN_SCANNERS_CONCURRENCY, needForward = true, description = {
-        "Scanner 的最小并发度，默认为 1", "The min concurrency of Scanner, default 1"
+        "Scanner 的最小并发度，默认为 4", "The min concurrency of Scanner, default 4"
     })
-    public int minScannersConcurrency = 1;
+    public int minScannersConcurrency = 4;
 
     @VariableMgr.VarAttr(name = MIN_FILE_SCANNERS_CONCURRENCY, needForward = true, description = {
         "外表 Scanner 的最小并发度，默认为 1", "The min concurrency of Remote Scanner, default 1"
@@ -1496,7 +1543,7 @@ public class SessionVariable implements Serializable, Writable {
                     "Use consistent hashing to split the appearance for external scan"})
     public boolean useConsistentHashForExternalScan = false;
 
-    @VariableMgr.VarAttr(name = PROFILE_LEVEL, fuzzy = false,
+    @VariableMgr.VarAttr(name = PROFILE_LEVEL, fuzzy = false, needForward = true,
             setter = "setProfileLevel", checker = "checkProfileLevel",
             description = { "查询 profile 的级别，1 表示只收集 MergedProfile 级别的 Counter，2 表示打印详细信息，"
                             + "3 表示打开一些可能导致性能回退的 Counter", "The level of query profile, "
@@ -1543,6 +1590,21 @@ public class SessionVariable implements Serializable, Writable {
             }
     )
     public boolean enableBinarySearchFilteringPartitions = true;
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_DYNAMIC_PARTITION_DROP_PROTECTION,
+            flag = VariableMgr.GLOBAL,
+            description = {
+                    "是否阻止后台动态分区任务自动删除分区。默认关闭。",
+                    "Whether to prevent background dynamic partition tasks from automatically dropping "
+                            + "partitions. OFF by default."
+            }
+    )
+    private boolean enableDynamicPartitionDropProtection = false;
+
+    public boolean isEnableDynamicPartitionDropProtection() {
+        return enableDynamicPartitionDropProtection;
+    }
 
     @VariableMgr.VarAttr(
             name = CACHE_SORTED_PARTITION_INTERVAL_SECOND,
@@ -1806,7 +1868,7 @@ public class SessionVariable implements Serializable, Writable {
     private int runtimeFilterWaitTimeMs = 1000;
 
     @VariableMgr.VarAttr(name = runtime_filter_wait_infinitely, fuzzy = true, needForward = true)
-    private boolean runtimeFilterWaitInfinitely = false;
+    public boolean runtimeFilterWaitInfinitely = false;
 
     @VariableMgr.VarAttr(name = RUNTIME_FILTERS_MAX_NUM, needForward = true)
     private int runtimeFiltersMaxNum = 10;
@@ -2257,8 +2319,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = FORBID_UNKNOWN_COLUMN_STATS)
     public boolean forbidUnknownColStats = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_COMMON_EXPR_PUSHDOWN, fuzzy = true)
-    public boolean enableCommonExprPushdown = true;
+    @VariableMgr.VarAttr(name = ENABLE_SEGMENT_LIMIT_PUSHDOWN, fuzzy = true, needForward = true, description = {
+            "是否启用 SegmentIterator 层 LIMIT 下推。", "Set whether to push down LIMIT into SegmentIterator."})
+    public boolean enableSegmentLimitPushdown = true;
 
     @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE, fuzzy = false, flag = VariableMgr.INVISIBLE,
             varType = VariableAnnotation.DEPRECATED)
@@ -2422,11 +2485,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_INVERTED_INDEX_QUERY, needForward = true, description = {
             "是否启用 inverted index query。", "Set whether to use inverted index query."})
     public boolean enableInvertedIndexQuery = true;
-
-    // Whether enable query expr with inverted index.
-    @VariableMgr.VarAttr(name = ENABLE_COMMON_EXPR_PUSHDOWN_FOR_INVERTED_INDEX, fuzzy = true, needForward = true,
-            description = {"是否启用表达式上使用 inverted index。", "Set whether to use inverted index query for expr."})
-    public boolean enableCommonExpPushDownForInvertedIndex = true;
 
     // Whether enable pushdown count agg to scan node when using inverted index match.
     @VariableMgr.VarAttr(name = ENABLE_PUSHDOWN_COUNT_ON_INDEX, needForward = true, description = {
@@ -2779,12 +2837,12 @@ public class SessionVariable implements Serializable, Writable {
             name = ENABLE_EXPR_ZONEMAP_FILTER,
             fuzzy = true,
             description = {"控制支持该变量的 scanner 是否启用表达式 ZoneMap 过滤。"
-                    + "File Scanner V2 始终启用安全的表达式 ZoneMap 过滤。默认为 false。",
+                    + "File Scanner V2 始终启用安全的表达式 ZoneMap 过滤。默认为 true。",
                     "Controls expression ZoneMap filtering in scanners that honor this variable. "
                             + "File Scanner V2 always enables safe expression ZoneMap filtering. "
-                            + "The default value is false."},
+                            + "The default value is true."},
             needForward = true)
-    public boolean enableExprZonemapFilter = false;
+    public boolean enableExprZonemapFilter = true;
 
     @VariableMgr.VarAttr(
             name = CHECK_ORC_INIT_SARGS_SUCCESS,
@@ -2810,6 +2868,13 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_ORDERED_SCAN_RANGE_LOCATIONS)
     public boolean enableOrderedScanRangeLocations = false;
+
+    @VariableMgr.VarAttr(name = CTE_INLINE_MODE, alias = "cbo_cte_inline_mode", description = {
+            "CTE内联模式。<0:禁用; =0:仅当CTE体含UNION ALL且filter可消除部分分支时内联; >=1:CBO比较物化与内联",
+            "CTE inline mode. <0: disable; =0: only inline when CTE body contains UNION ALL "
+                    + "and consumer filters can eliminate some union branches; "
+                    + ">=1: both materialized and inlined alternatives are added to Memo for CBO." })
+    public int cteInlineMode = 0;
 
     @VariableMgr.VarAttr(name = ENABLE_ANALYZE_COMPLEX_TYPE_COLUMN)
     public boolean enableAnalyzeComplexTypeColumn = false;
@@ -3122,6 +3187,12 @@ public class SessionVariable implements Serializable, Writable {
             description = {"强制使用 jni 方式读取外表", "Force the use of jni mode to read external table"})
     private boolean forceJniScanner = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_PAIMON_RUST_READER,
+            fuzzy = true,
+            description = {"Paimon 非原生文件读取使用 paimon-rust,优先级高于 paimon-cpp",
+                    "Use paimon-rust for non-native Paimon reads, higher priority than paimon-cpp"})
+    private boolean enablePaimonRustReader = false;
+
     @VariableMgr.VarAttr(name = ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE,
             fuzzy = true,
             description = {"对外表启用 count(*) 下推优化", "enable count(*) pushdown optimization for external table"})
@@ -3226,6 +3297,13 @@ public class SessionVariable implements Serializable, Writable {
                             + "< 0 disables it, = 0 disables file cache writes from query start, "
                             + "> 0 disables file cache writes after the threshold is reached."})
     public long fileCacheQueryLimitBytes = -1;
+
+    @VariableMgr.VarAttr(name = INVERTED_INDEX_SNII_READ_NO_WRITE_FILE_CACHE, needForward = true,
+            description = {
+                    "Serve SNII index cache hits; read misses remotely without writing to the cache.",
+                    "Serve SNII index cache hits; read misses remotely without writing to the cache."
+            })
+    public boolean invertedIndexSniiReadNoWriteFileCache = false;
 
     public void setAggPhase(int phase) {
         aggPhase = phase;
@@ -3872,11 +3950,10 @@ public class SessionVariable implements Serializable, Writable {
         this.enableConditionCache = Config.pull_request_id % 2 == 0;
         this.parallelPipelineTaskNum = random.nextInt(8);
         this.parallelPrepareThreshold = random.nextInt(32) + 1;
-        this.enableCommonExprPushdown = random.nextBoolean();
+        this.enableSegmentLimitPushdown = random.nextBoolean();
         this.enableLocalExchange = random.nextBoolean();
         this.enableSharedExchangeSinkBuffer = random.nextBoolean();
         this.useSerialExchange = random.nextBoolean();
-        this.enableCommonExpPushDownForInvertedIndex = random.nextBoolean();
         this.enableExprZonemapFilter = Config.pull_request_id % 2 == 0;
         // Fuzzy sessions must exercise the production-default V2 path consistently. Dedicated
         // compatibility cases can still select the legacy scanner explicitly after initialization.
@@ -4044,6 +4121,8 @@ public class SessionVariable implements Serializable, Writable {
 
         // jni
         this.forceJniScanner = random.nextBoolean();
+        this.enablePaimonRustReader = random.nextBoolean();
+
         // statistics
         this.fetchHiveRowCountSync = random.nextBoolean();
 
@@ -5628,16 +5707,6 @@ public class SessionVariable implements Serializable, Writable {
         this.enableInvertedIndexQuery = enableInvertedIndexQuery;
     }
 
-
-    public boolean isEnableCommonExprPushdownForInvertedIndex() {
-        return enableCommonExpPushDownForInvertedIndex;
-    }
-
-
-    public void setEnableCommonExprPushdownForInvertedIndex(boolean enableCommonExpPushDownForInvertedIndex) {
-        this.enableCommonExpPushDownForInvertedIndex = enableCommonExpPushDownForInvertedIndex;
-    }
-
     public boolean isEnablePushDownCountOnIndex() {
         return enablePushDownCountOnIndex;
     }
@@ -5797,7 +5866,7 @@ public class SessionVariable implements Serializable, Writable {
         }
 
         tResult.setEnableFunctionPushdown(enableFunctionPushdown);
-        tResult.setEnableCommonExprPushdown(enableCommonExprPushdown);
+        tResult.setEnableSegmentLimitPushdown(enableSegmentLimitPushdown);
         tResult.setCheckOverflowForDecimal(checkOverflowForDecimal);
         tResult.setFragmentTransmissionCompressionCodec(fragmentTransmissionCompressionCodec.trim().toLowerCase());
         tResult.setEnableLocalExchange(enableLocalExchange);
@@ -5818,7 +5887,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setFileCacheBasePath(fileCacheBasePath);
 
         tResult.setEnableInvertedIndexQuery(enableInvertedIndexQuery);
-        tResult.setEnableCommonExprPushdownForInvertedIndex(enableCommonExpPushDownForInvertedIndex);
         tResult.setEnableNoNeedReadDataOpt(enableNoNeedReadDataOpt);
         tResult.setForcePushdownZonemapMinmax(forcePushDownZonemapMinMax);
 
@@ -5835,6 +5903,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableOrcFilterByMinMax(enableOrcFilterByMinMax);
         tResult.setEnableExprZonemapFilter(enableExprZonemapFilter);
         tResult.setFilePresignedUrlTtlSeconds(filePresignedUrlTtlSeconds);
+        tResult.setEnablePaimonRustReader(enablePaimonRustReader);
         tResult.setCheckOrcInitSargsSuccess(checkOrcInitSargsSuccess);
 
         tResult.setTruncateCharOrVarcharColumns(truncateCharOrVarcharColumns);
@@ -5895,6 +5964,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setReadCsvEmptyLineAsNull(readCsvEmptyLineAsNull);
         tResult.setSerdeDialect(getSerdeDialect());
 
+        tResult.setEnablePruneNestedColumn(enablePruneNestedColumns);
+
         tResult.setEnableMatchWithoutInvertedIndex(enableMatchWithoutInvertedIndex);
         tResult.setEnableFallbackOnMissingInvertedIndex(enableFallbackOnMissingInvertedIndex);
         tResult.setEnableInvertedIndexSearcherCache(enableInvertedIndexSearcherCache);
@@ -5948,6 +6019,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setIcebergWriteTargetFileSizeBytes(icebergWriteTargetFileSizeBytes);
 
         tResult.setFileCacheQueryLimitBytes(fileCacheQueryLimitBytes);
+        tResult.setInvertedIndexSniiReadNoWriteFileCache(invertedIndexSniiReadNoWriteFileCache);
         return tResult;
     }
 
@@ -6636,6 +6708,10 @@ public class SessionVariable implements Serializable, Writable {
         return forceJniScanner;
     }
 
+    public boolean isEnablePaimonRustReader() {
+        return enablePaimonRustReader;
+    }
+
     public String getIgnoreSplitType() {
         return ignoreSplitType;
     }
@@ -6657,6 +6733,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setForceJniScanner(boolean force) {
         forceJniScanner = force;
+    }
+
+    public void setEnablePaimonRustReader(boolean enable) {
+        enablePaimonRustReader = enable;
     }
 
     public boolean isEnableCountPushDownForExternalTable() {

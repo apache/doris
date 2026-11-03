@@ -34,6 +34,8 @@
 #include "core/data_type/data_type_nothing.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_time.h"
+#include "core/data_type/data_type_timestamp_ns.h"
+#include "core/data_type/data_type_uuid.h"
 #include "core/data_type/data_type_variant.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type_serde/data_type_jsonb_serde.h"
@@ -823,6 +825,26 @@ TEST_F(SchemaUtilTest, VariantV2MarkerIsTransientAcrossSchemaCopy) {
 //    EXPECT_EQ(sorted[2]->path, "c");
 //}
 
+TEST_F(SchemaUtilTest, TestGetUuidColumnByType) {
+    const auto type = std::make_shared<DataTypeUUID>();
+    const variant_util::ExtraInfo ext_info {
+            .unique_id = 3, .parent_unique_id = 2, .path_info = PathInData("v.u")};
+    for (const auto& data_type : DataTypes {type, make_nullable(type)}) {
+        const auto column = variant_util::get_column_by_type(data_type, "v.u", ext_info);
+        EXPECT_EQ(column.type(), FieldType::OLAP_FIELD_TYPE_UUID);
+        EXPECT_EQ(column.length(), 16);
+        EXPECT_EQ(column.is_nullable(), data_type->is_nullable());
+        EXPECT_EQ(column.unique_id(), 3);
+        EXPECT_EQ(column.parent_unique_id(), 2);
+        EXPECT_EQ(column.path_info_ptr()->get_path(), "v.u");
+    }
+    const auto array = variant_util::get_column_by_type(
+            std::make_shared<DataTypeArray>(make_nullable(type)), "uuids", {});
+    EXPECT_EQ(array.get_sub_column(0).type(), FieldType::OLAP_FIELD_TYPE_UUID);
+    EXPECT_EQ(array.get_sub_column(0).length(), 16);
+    EXPECT_TRUE(array.get_sub_column(0).is_nullable());
+}
+
 TEST_F(SchemaUtilTest, TestHasSchemaIndexDiff) {
     TabletSchemaPB schema1_pb;
     TabletSchemaPB schema2_pb;
@@ -1022,6 +1044,14 @@ TEST_F(SchemaUtilTest, TestGetColumnByTypeEdgeCases) {
     EXPECT_EQ(datetime_v2_column.type(), FieldType::OLAP_FIELD_TYPE_DATETIMEV2);
     EXPECT_EQ(datetime_v2_column.precision(), -1);
     EXPECT_EQ(datetime_v2_column.frac(), 6);
+
+    auto timestamp_ns_type = std::make_shared<DataTypeTimeStampNs>();
+    auto timestamp_ns_column =
+            variant_util::get_column_by_type(timestamp_ns_type, "timestamp_ns_col", ext_info);
+    EXPECT_EQ(timestamp_ns_column.type(), FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS);
+    EXPECT_EQ(timestamp_ns_column.length(), sizeof(TimeStampNsValue));
+    EXPECT_TRUE(variant_util::is_bf_supported_by_fe_for_variant_subcolumn(
+            FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS));
 
     // Test invalid type
     auto invalid_type = std::make_shared<DataTypeNothing>();

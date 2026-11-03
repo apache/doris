@@ -23,6 +23,7 @@ import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
 import org.apache.doris.thrift.TExternalSearchQuery;
 import org.apache.doris.thrift.TExternalSearchRequest;
 import org.apache.doris.thrift.TSearchVector;
+import org.apache.doris.thrift.TVectorApproxMode;
 import org.apache.doris.thrift.TVectorElementType;
 import org.apache.doris.thrift.TVectorMetric;
 import org.apache.doris.thrift.TVectorSearchOptions;
@@ -60,13 +61,18 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
     private static final String ARROW_EXTENSION_NAME = "ARROW:extension:name";
     private static final String QUERY_VECTOR = "query_vector";
     private static final String METRIC = "metric";
+    private static final String QUERY_PARALLELISM = "query_parallelism";
+    private static final String APPROX_MODE = "approx_mode";
     private static final String NPROBES = "nprobes";
     private static final String REFINE_FACTOR = "refine_factor";
     private static final String EF = "ef";
+    private static final String DISTANCE_LOWER_BOUND = "distance_lower_bound";
+    private static final String DISTANCE_UPPER_BOUND = "distance_upper_bound";
     private static final String USE_INDEX = "use_index";
     private static final Set<String> PROPERTIES = ImmutableSet.of(
-            TABLE, COLUMN, QUERY_VECTOR, TOP_K, OFFSET, METRIC, FILTER,
-            NPROBES, REFINE_FACTOR, EF, USE_INDEX);
+            TABLE, COLUMN, QUERY_VECTOR, TOP_K, OFFSET, METRIC, FILTER, PREFILTER,
+            NPROBES, REFINE_FACTOR, EF, USE_INDEX, QUERY_PARALLELISM, APPROX_MODE,
+            VERSION, TIMESTAMP, TAG, BRANCH, DISTANCE_LOWER_BOUND, DISTANCE_UPPER_BOUND);
 
     public VectorSearchTableValuedFunction(Map<String, String> properties)
             throws AnalysisException {
@@ -81,13 +87,20 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
     private static PreparedSearch prepare(Map<String, String> properties, boolean deferQueryVector)
             throws AnalysisException {
         Map<String, String> params = normalizeProperties(properties, PROPERTIES, NAME);
+        TVectorSearchParams vectorParams = parseDistanceBounds(params);
+        boolean hasDistanceRange = vectorParams.isSetDistanceLowerBound() || vectorParams.isSetDistanceUpperBound();
         boolean useIndex = !params.containsKey(USE_INDEX)
                 || parseBoolean(params.get(USE_INDEX), USE_INDEX);
+        TVectorSearchOptions vectorSearchOptions = buildVectorSearchOptions(params, useIndex);
         CommonSearch common = prepareCommon(params, NAME,
                 "VectorSearchTableValuedFunction", "vector search", useIndex);
 
         Field vectorField = requireSearchColumn(
                 common.metadata().getSchema(), required(params, COLUMN, NAME), "vector");
+        // Reject matrices at PREPARE as well as EXECUTE; lance-c only supports single-vector ranges.
+        if (hasDistanceRange && vectorField.getType() instanceof ArrowType.List) {
+            throw new AnalysisException("Distance bounds are not supported for Lance multi-vector search");
+        }
         int vectorFieldId = useIndex
                 ? requireLanceFieldId(common.metadata(), vectorField) : -1;
         // PREPARE needs the table schema, but the vector is supplied only at EXECUTE.
@@ -99,8 +112,7 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
                     vectorField, required(params, QUERY_VECTOR, NAME));
         }
 
-        TVectorSearchParams vectorParams = new TVectorSearchParams()
-                .setColumn(vectorField.getName())
+        vectorParams.setColumn(vectorField.getName())
                 .setQueryVector(queryVector)
                 .setTopK(common.topK())
                 .setOffset(common.offset());
@@ -117,7 +129,6 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
         TExternalSearchRequest searchRequest = new TExternalSearchRequest()
                 .setSchemaVersion(1)
                 .setSearchQuery(TExternalSearchQuery.vector_search(vectorParams));
-        TVectorSearchOptions vectorSearchOptions = buildVectorSearchOptions(params, useIndex);
         if (vectorSearchOptions != null) {
             searchRequest.setVectorSearchOptions(vectorSearchOptions);
         }
@@ -125,10 +136,50 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
                 common, vectorFieldId, searchRequest, DISTANCE_COLUMN, "vector search");
     }
 
-    private static TVectorSearchOptions buildVectorSearchOptions(
+    @VisibleForTesting
+    static TVectorSearchParams parseDistanceBounds(Map<String, String> params) throws AnalysisException {
+        TVectorSearchParams vector = new TVectorSearchParams();
+        if (params.containsKey(DISTANCE_LOWER_BOUND)) {
+            vector.setDistanceLowerBound(parseDistanceBound(params.get(DISTANCE_LOWER_BOUND), DISTANCE_LOWER_BOUND));
+        }
+        if (params.containsKey(DISTANCE_UPPER_BOUND)) {
+            vector.setDistanceUpperBound(parseDistanceBound(params.get(DISTANCE_UPPER_BOUND), DISTANCE_UPPER_BOUND));
+        }
+        // Compare after FLOAT rounding, matching the native API even for nearly equal inputs.
+        if (vector.isSetDistanceLowerBound() && vector.isSetDistanceUpperBound()
+                && vector.getDistanceLowerBound() >= vector.getDistanceUpperBound()) {
+            throw new AnalysisException(
+                    "distance_lower_bound must be less than distance_upper_bound at FLOAT precision");
+        }
+        return vector;
+    }
+
+    private static float parseDistanceBound(String value, String property) throws AnalysisException {
+        try {
+            float bound = Float.parseFloat(value);
+            if (Float.isFinite(bound)) {
+                return bound;
+            }
+        } catch (NumberFormatException | NullPointerException ignored) {
+            // Report the SQL property rather than leaking a Java parsing exception.
+        }
+        throw new AnalysisException("'" + property + "' must be a finite FLOAT");
+    }
+
+    @VisibleForTesting
+    static TVectorSearchOptions buildVectorSearchOptions(
             Map<String, String> params, boolean useIndex) throws AnalysisException {
         TVectorSearchOptions options = new TVectorSearchOptions();
         boolean configured = false;
+        if (params.containsKey(APPROX_MODE)) {
+            options.setApproxMode(parseApproxMode(params.get(APPROX_MODE)));
+            configured = true;
+        }
+        if (params.containsKey(QUERY_PARALLELISM)) {
+            options.setQueryParallelism((int) parseLong(
+                    params.get(QUERY_PARALLELISM), QUERY_PARALLELISM, -1, Integer.MAX_VALUE));
+            configured = true;
+        }
         if (params.containsKey(NPROBES)) {
             options.setNprobes(parsePositiveInt(params.get(NPROBES), NPROBES));
             configured = true;
@@ -149,6 +200,22 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
         return configured ? options : null;
     }
 
+    private static TVectorApproxMode parseApproxMode(String value) throws AnalysisException {
+        if (value != null) {
+            switch (value.trim().toLowerCase(Locale.ROOT)) {
+                case "fast":
+                    return TVectorApproxMode.FAST;
+                case "normal":
+                    return TVectorApproxMode.NORMAL;
+                case "accurate":
+                    return TVectorApproxMode.ACCURATE;
+                default:
+                    break;
+            }
+        }
+        throw new AnalysisException("Unsupported 'approx_mode': expected fast, normal, or accurate");
+    }
+
     @VisibleForTesting
     static List<Column> buildOutputColumns(LanceTableMetadata metadata)
             throws AnalysisException {
@@ -165,17 +232,6 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
             throws AnalysisException {
         long parsed = parseLong(value, property, 1, Integer.MAX_VALUE);
         return (int) parsed;
-    }
-
-    private static boolean parseBoolean(String value, String property)
-            throws AnalysisException {
-        if ("true".equalsIgnoreCase(value)) {
-            return true;
-        }
-        if ("false".equalsIgnoreCase(value)) {
-            return false;
-        }
-        throw new AnalysisException("'" + property + "' must be 'true' or 'false'");
     }
 
     private static TVectorMetric parseMetric(String value) throws AnalysisException {

@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.qe.ConnectContext;
 
 import org.apache.paimon.CoreOptions;
@@ -40,6 +41,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.TimeZone;
 
 public class PaimonWriteBindingTest {
 
@@ -175,6 +177,66 @@ public class PaimonWriteBindingTest {
                 previousContext.setThreadLocalInfo();
             }
         }
+    }
+
+    @Test
+    public void testStaticLtzPartitionAcceptsInstantWriteBoundary() throws Exception {
+        TimeZone previousZone = TimeZone.getDefault();
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+            for (String value : new String[] {"2023-11-05 08:30:00.123456+00:00",
+                    "2023-11-05 09:30:00.123456+00:00"}) {
+                assertStaticLtzPartitionRoundTrip(value);
+            }
+            TimeZone.setDefault(TimeZone.getTimeZone("America/Los_Angeles"));
+            assertStaticLtzPartitionRoundTrip("2023-11-05 10:30:00.123456+00:00");
+        } finally {
+            TimeZone.setDefault(previousZone);
+        }
+    }
+
+    @Test
+    public void testStaticLtzOverwriteRejectsEarlierOverlapInstant() throws Exception {
+        assertStaticLtzOverlapRejected("2023-11-05 08:30:00.123456+00:00");
+    }
+
+    @Test
+    public void testStaticLtzOverwriteRejectsLaterOverlapInstant() throws Exception {
+        assertStaticLtzOverlapRejected("2023-11-05 09:30:00.123456+00:00");
+    }
+
+    private void assertStaticLtzOverlapRejected(String value) throws Exception {
+        TimeZone previousZone = TimeZone.getDefault();
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("America/Los_Angeles"));
+            FileStoreTable table = mockPartitionTable(Collections.emptyMap(),
+                    DataTypes.FIELD(0, "part", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(6)));
+            TimestampTzLiteral literal = new TimestampTzLiteral(value);
+            AnalysisException error = Assert.assertThrows(AnalysisException.class,
+                    () -> PaimonWriteBinding.resolveStaticPartition(table,
+                            Collections.singletonMap("part", literal.getDataType().toCatalogDataType()),
+                            Collections.singletonMap("part", literal), true));
+            Assert.assertTrue(error.getMessage().contains("ambiguous"));
+            Assert.assertTrue(error.getMessage().contains("America/Los_Angeles"));
+            // Appends keep their typed partition values and do not use the overwrite filter.
+            Assert.assertNotNull(PaimonWriteBinding.resolveStaticPartition(table,
+                    Collections.singletonMap("part", literal.getDataType().toCatalogDataType()),
+                    Collections.singletonMap("part", literal), false));
+        } finally {
+            TimeZone.setDefault(previousZone);
+        }
+    }
+
+    private void assertStaticLtzPartitionRoundTrip(String value) throws Exception {
+        FileStoreTable table = mockPartitionTable(Collections.emptyMap(),
+                DataTypes.FIELD(0, "part", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(6)));
+        TimestampTzLiteral literal = new TimestampTzLiteral(value);
+        Map<String, String> resolved = PaimonWriteBinding.resolveStaticPartition(
+                table, Collections.singletonMap("part", literal.getDataType().toCatalogDataType()),
+                Collections.singletonMap("part", literal), true);
+        org.apache.paimon.data.Timestamp decoded = (org.apache.paimon.data.Timestamp)
+                TypeUtils.castFromString(resolved.get("part"), table.rowType().getTypeAt(0));
+        Assert.assertEquals(literal.toJavaDateType().atZone(ZoneId.of("UTC")).toInstant(), decoded.toInstant());
     }
 
     private static FileStoreTable mockPartitionTable(

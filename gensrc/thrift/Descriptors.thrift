@@ -64,10 +64,17 @@ struct TMetaAccessPath {
   1: required list<string> path
 }
 
+const i32 TCOLUMN_ACCESS_PATH_VERSION_LEGACY = 0
+const i32 TCOLUMN_ACCESS_PATH_VERSION_TYPED = 1
+
 struct TColumnAccessPath {
   1: required TAccessPathType type
   2: optional TDataAccessPath data_access_path
   3: optional TMetaAccessPath meta_access_path
+  // The version is absent for legacy senders. Legacy paths all have DATA type and encode
+  // KEYS/VALUES/* selectors plus NULL/OFFSET metadata in data_access_path. Starting from the
+  // typed version, type selects the authoritative payload and META may use meta_access_path.
+  4: optional i32 version
 }
 
 struct TColumn {
@@ -100,6 +107,9 @@ struct TColumn {
   27: optional i64 variant_doc_materialization_min_rows
   28: optional i32 variant_doc_hash_shard_count
   29: optional bool variant_enable_nested_group
+  // Dynamic default expression retained separately when default_value is a schema-change
+  // backfill literal. New writes must evaluate this expression at write time.
+  30: optional string default_value_expr
 }
 
 struct TSlotDescriptor {

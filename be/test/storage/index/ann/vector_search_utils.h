@@ -39,10 +39,10 @@
 #include "runtime/exec_env.h"
 #include "storage/index/ann/ann_index.h"
 #include "storage/index/ann/ann_index_iterator.h"
+#include "storage/index/index_common.h"
+#include "storage/index/index_compound_reader.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_writer.h"
-#include "storage/index/inverted/inverted_index_common.h"
-#include "storage/index/inverted/inverted_index_compound_reader.h"
 #include "storage/tablet/tablet_schema.h"
 // Add CLucene RAM Directory header
 #include <CLucene/store/RAMDirectory.h>

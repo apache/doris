@@ -921,6 +921,11 @@ Status DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
     // Decimal<Int128I> for deicmalv3
     if constexpr (T == TYPE_DECIMALV2) {
         const auto* concrete_array = dynamic_cast<const arrow::DecimalArray*>(arrow_array);
+        // A string or a different decimal width cannot be read as Decimal128, including NULLs.
+        if (concrete_array == nullptr) {
+            return Status::InvalidArgument("Expected Arrow Decimal128Array for {}, got {}",
+                                           get_name(), arrow_array->type()->ToString());
+        }
         const auto* arrow_decimal_type =
                 static_cast<const arrow::DecimalType*>(arrow_array->type().get());
         const auto arrow_scale = arrow_decimal_type->scale();
@@ -948,6 +953,11 @@ Status DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
         }
     } else if constexpr (T == TYPE_DECIMAL32 || T == TYPE_DECIMAL64 || T == TYPE_DECIMAL128I) {
         const auto* concrete_array = dynamic_cast<const arrow::DecimalArray*>(arrow_array);
+        // A string or a different decimal width cannot be read as Decimal128, including NULLs.
+        if (concrete_array == nullptr) {
+            return Status::InvalidArgument("Expected Arrow Decimal128Array for {}, got {}",
+                                           get_name(), arrow_array->type()->ToString());
+        }
         for (auto value_i = start; value_i < end; ++value_i) {
             const auto* value = concrete_array->Value(value_i);
             FieldType decimal_value = FieldType {};
@@ -956,6 +966,11 @@ Status DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
         }
     } else if constexpr (T == TYPE_DECIMAL256) {
         const auto* concrete_array = dynamic_cast<const arrow::Decimal256Array*>(arrow_array);
+        // Reject incompatible arrays before Value(), independently of buffer validation.
+        if (concrete_array == nullptr) {
+            return Status::InvalidArgument("Expected Arrow Decimal256Array, got {}",
+                                           arrow_array->type()->ToString());
+        }
         for (auto value_i = start; value_i < end; ++value_i) {
             column_data.emplace_back(
                     *reinterpret_cast<const FieldType*>(concrete_array->Value(value_i)));
@@ -1239,8 +1254,8 @@ void DataTypeDecimalSerDe<T>::to_string_batch(const IColumn& column, ColumnStrin
 
 template <PrimitiveType T>
 Status DataTypeDecimalSerDe<T>::serialize_column_to_jsonb(const IColumn& from_column,
-                                                          int64_t row_num,
-                                                          JsonbWriter& writer) const {
+                                                          int64_t row_num, JsonbWriter& writer,
+                                                          const FormatOptions& options) const {
     if constexpr (T == TYPE_DECIMALV2) {
         return Status::NotSupported("DECIMALV2 does not support serialize_column_to_jsonb");
     } else {
@@ -1254,8 +1269,9 @@ Status DataTypeDecimalSerDe<T>::serialize_column_to_jsonb(const IColumn& from_co
 }
 
 template <PrimitiveType T>
-Status DataTypeDecimalSerDe<T>::serialize_column_to_jsonb_vector(const IColumn& from_column,
-                                                                 ColumnString& to_column) const {
+Status DataTypeDecimalSerDe<T>::serialize_column_to_jsonb_vector(
+        const IColumn& from_column, ColumnString& to_column, const FormatOptions& options,
+        const NullMap::value_type* source_null_map) const {
     if constexpr (T == TYPE_DECIMALV2) {
         return Status::NotSupported("DECIMALV2 does not support serialize_column_to_jsonb_vector");
     } else {
@@ -1263,6 +1279,10 @@ Status DataTypeDecimalSerDe<T>::serialize_column_to_jsonb_vector(const IColumn& 
         JsonbWriter writer;
         const auto& data = assert_cast<const ColumnDecimal<T>&>(from_column).get_data();
         for (int i = 0; i < size; i++) {
+            if (source_null_map && source_null_map[i]) {
+                to_column.insert_default();
+                continue;
+            }
             writer.reset();
             if (!writer.writeDecimal(data[i], precision, scale)) {
                 return Status::InvalidArgument(

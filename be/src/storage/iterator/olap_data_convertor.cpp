@@ -168,6 +168,9 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2: {
         return std::make_unique<OlapColumnDataConvertorDateTimeV2>();
     }
+    case FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS: {
+        return std::make_unique<OlapColumnDataConvertorSimple<TYPE_TIMESTAMP_NS>>();
+    }
     case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ: {
         return std::make_unique<OlapColumnDataConvertorSimple<TYPE_TIMESTAMPTZ>>();
     }
@@ -216,6 +219,9 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
     }
     case FieldType::OLAP_FIELD_TYPE_IPV6: {
         return std::make_unique<OlapColumnDataConvertorSimple<TYPE_IPV6>>();
+    }
+    case FieldType::OLAP_FIELD_TYPE_UUID: {
+        return std::make_unique<OlapColumnDataConvertorSimple<TYPE_UUID>>();
     }
     case FieldType::OLAP_FIELD_TYPE_FLOAT: {
         return std::make_unique<OlapColumnDataConvertorSimple<TYPE_FLOAT>>();

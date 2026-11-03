@@ -41,7 +41,9 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/value/decimalv2_value.h"
 #include "core/value/jsonb_value.h"
+#include "core/value/timestamp_ns_value.h"
 #include "core/value/timestamptz_value.h"
+#include "core/value/uuid_value.h"
 #include "exprs/function/parse/variant_string_parse.h"
 #include "storage/segment/variant/v2/variant_assembler.h"
 #include "storage/segment/variant/v2/variant_column_reader.h"
@@ -349,6 +351,12 @@ TEST(VariantAssemblerLegacyTest, BinaryExtractScalarTypeMatrixPreservesTypedStat
                                          binary_cast<TimestampTzValue, UInt64>(timestamp_two))},
             TYPE_TIMESTAMPTZ,
             {R"("1970-01-01 00:00:01.000000+00:00")", R"("1970-01-01 00:00:02.000000+00:00")"});
+
+    expect_typed_cells(
+            {scaled_storage_cell<Int64>(FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS, 9, -1),
+             scaled_storage_cell<Int64>(FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS, 9, 123456789)},
+            TYPE_TIMESTAMP_NS,
+            {R"("1969-12-31 23:59:59.999999999")", R"("1970-01-01 00:00:00.123456789")"});
 
     expect_typed_cells(
             {decimal_storage_cell<int32_t>(FieldType::OLAP_FIELD_TYPE_DECIMAL32, 9, 2, 1234),
@@ -1024,6 +1032,28 @@ TEST(VariantAssemblerLegacyTest, DepthBoundaries) {
             EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
             EXPECT_EQ(output.get(), nullptr);
         }
+    }
+}
+
+TEST(VariantAssemblerLegacyTest, UuidStorageCellRetainsNativeIdentity) {
+    UUIDValueType value;
+    ASSERT_TRUE(UUIDValue::from_string(value, "00112233-4455-6677-8899-aabbccddeeff"));
+    const auto cell = fixed_storage_cell<UUIDValueType>(FieldType::OLAP_FIELD_TYPE_UUID, value);
+    const auto text = string_storage_cell("text");
+    const std::array<StringRef, 2> cells {StringRef(cell), StringRef(text)};
+    const std::array<uint8_t, 2> masks {0, 0};
+    // One UUID uses the typed fast path; a heterogeneous batch exercises the generic adapter.
+    for (size_t count : {1, 2}) {
+        ColumnNullable::MutablePtr output;
+        ASSERT_TRUE(decode_v1_storage_cells(std::span(cells).first(count),
+                                            std::span(masks).first(count),
+                                            std::span(masks).first(count), &output)
+                            .ok());
+        auto& variants = assembled_values(output);
+        variants.ensure_encoded();
+        const auto result = variants.get_value_ref(0);
+        EXPECT_EQ(result.primitive_id(), VariantPrimitiveId::UUID);
+        EXPECT_EQ(result.get_uuid(), UUIDValue::to_big_endian(value));
     }
 }
 

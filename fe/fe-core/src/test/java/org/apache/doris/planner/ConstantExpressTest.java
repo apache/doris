@@ -77,6 +77,10 @@ public class ConstantExpressTest {
                 "17751");
 
         testConstantExpressResult(
+                "select hour_ceil('1970-01-01 01:00:10', 1, '1970-01-01 00:00:30');",
+                "'1970-01-01 01:00:30'");
+
+        testConstantExpressResult(
                 "select date_add('2018-08-08', 1);",
                 "'2018-08-09'");
 

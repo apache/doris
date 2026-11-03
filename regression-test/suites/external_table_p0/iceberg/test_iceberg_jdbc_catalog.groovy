@@ -119,7 +119,106 @@ suite("test_iceberg_jdbc_catalog", "p0,external,iceberg,external_docker,external
         }
     }
     
+    String v0_writer = "test_iceberg_jdbc_v0_writer"
+    String v0_reader = "test_iceberg_jdbc_v0_reader"
+    String v0_database = "iceberg_jdbc_v0_test"
+    String v0_uri = "jdbc:postgresql://${externalEnvIp}:${jdbc_port}/${v0_database}"
+    def driverLoader = new URLClassLoader([new File(local_driver_path).toURI().toURL()] as URL[],
+            this.class.classLoader)
+    def pgDriver = driverLoader.loadClass("org.postgresql.Driver").getDeclaredConstructor().newInstance()
+    def pgProperties = new Properties()
+    pgProperties.setProperty("user", "postgres")
+    pgProperties.setProperty("password", "123456")
+    def pgConnection = pgDriver.connect("jdbc:postgresql://${externalEnvIp}:${jdbc_port}/${pg_db}", pgProperties)
     try {
+        def statement = pgConnection.createStatement()
+        try {
+            // JDBC schema detection scans all PostgreSQL schemas, so isolate V0 from the V1 database.
+            statement.execute("DROP DATABASE IF EXISTS ${v0_database} WITH (FORCE)")
+            statement.execute("CREATE DATABASE ${v0_database}")
+            statement.execute("DROP ROLE IF EXISTS iceberg_jdbc_v0_reader")
+            statement.execute("CREATE ROLE iceberg_jdbc_v0_reader LOGIN PASSWORD '123456'")
+        } finally {
+            statement.close()
+        }
+        pgConnection.close()
+        pgConnection = pgDriver.connect(v0_uri, pgProperties)
+        statement = pgConnection.createStatement()
+        try {
+            // Use the PyIceberg-compatible V0 layout, which has no iceberg_type column.
+            statement.execute("""CREATE TABLE iceberg_tables (
+                catalog_name VARCHAR(255) NOT NULL, table_namespace VARCHAR(255) NOT NULL,
+                table_name VARCHAR(255) NOT NULL, metadata_location VARCHAR(1000),
+                previous_metadata_location VARCHAR(1000),
+                PRIMARY KEY (catalog_name, table_namespace, table_name))""")
+            statement.execute("""CREATE TABLE iceberg_namespace_properties (
+                catalog_name VARCHAR(255) NOT NULL, namespace VARCHAR(255) NOT NULL,
+                property_key VARCHAR(255), property_value VARCHAR(1000),
+                PRIMARY KEY (catalog_name, namespace, property_key))""")
+            statement.execute("GRANT CONNECT ON DATABASE ${v0_database} TO iceberg_jdbc_v0_reader")
+            statement.execute("GRANT USAGE ON SCHEMA public TO iceberg_jdbc_v0_reader")
+            statement.execute("GRANT SELECT ON ALL TABLES IN SCHEMA public TO iceberg_jdbc_v0_reader")
+        } finally {
+            statement.close()
+        }
+    } finally {
+        pgConnection.close()
+        driverLoader.close()
+    }
+
+    def createV0Catalog = { String name, String uri, String user ->
+        sql """DROP CATALOG IF EXISTS ${name}"""
+        sql """CREATE CATALOG ${name} PROPERTIES (
+            'type' = 'iceberg', 'iceberg.catalog.type' = 'jdbc',
+            'uri' = '${uri}', 'warehouse' = 's3://warehouse/jdbc_v0_wh/',
+            'iceberg.jdbc.driver_url' = '${driver_name}',
+            'iceberg.jdbc.driver_class' = 'org.postgresql.Driver',
+            'iceberg.jdbc.user' = '${user}', 'iceberg.jdbc.password' = '123456',
+            'iceberg.jdbc.catalog_name' = 'jdbc_v0_catalog',
+            'iceberg.jdbc.init-catalog-tables' = 'false', 'iceberg.jdbc.schema-version' = 'V0',
+            's3.endpoint' = 'http://${externalEnvIp}:${minio_port}',
+            's3.access_key' = 'admin', 's3.secret_key' = 'password',
+            's3.region' = 'us-east-1', 'use_path_style' = 'true')"""
+    }
+
+    try {
+        createV0Catalog(v0_writer, v0_uri, "postgres")
+        sql """CREATE DATABASE IF NOT EXISTS ${v0_writer}.v0_db"""
+        sql """CREATE TABLE ${v0_writer}.v0_db.v0_table (id INT) PROPERTIES ('format-version' = '2')"""
+        sql """INSERT INTO ${v0_writer}.v0_db.v0_table VALUES (1), (2)"""
+        // Wrong-kind DROP statements must never purge a permanent V0 table, even with IF EXISTS.
+        for (def dropKind : [[statement: "DROP VIEW", error: "is not VIEW"],
+                            [statement: "DROP MATERIALIZED VIEW", error: "is not MTMV"],
+                            [statement: "DROP TEMPORARY TABLE", error: "Unknown table"]]) {
+            for (boolean ifExists : [false, true]) {
+                String dropSql = "${dropKind.statement} ${ifExists ? 'IF EXISTS ' : ''}${v0_writer}.v0_db.v0_table"
+                if (dropKind.statement == "DROP TEMPORARY TABLE" && ifExists) {
+                    sql dropSql
+                } else {
+                    test {
+                        sql dropSql
+                        exception dropKind.error
+                    }
+                }
+                assertEquals([["v0_table"]], sql("SHOW TABLES FROM ${v0_writer}.v0_db"))
+                assertEquals([[1], [2]], sql("SELECT * FROM ${v0_writer}.v0_db.v0_table ORDER BY id"))
+            }
+        }
+        // PostgreSQL enforces read-only transactions, so accidental catalog migration or writes fail.
+        createV0Catalog(v0_reader, v0_uri + "?options=-c%20default_transaction_read_only%3Don",
+                "iceberg_jdbc_v0_reader")
+        assertTrue(sql("SHOW DATABASES FROM ${v0_reader}").collect { it[0] }.contains("v0_db"))
+        assertEquals([["v0_table"]], sql("SHOW TABLES FROM ${v0_reader}.v0_db"))
+        assertEquals("id", sql("DESC ${v0_reader}.v0_db.v0_table")[0][0])
+        assertEquals([[1], [2]], sql("SELECT * FROM ${v0_reader}.v0_db.v0_table ORDER BY id"))
+        def v0_snapshot = sql("SELECT snapshot_id FROM ${v0_reader}.v0_db.v0_table\$snapshots")[0][0]
+        assertEquals([[1], [2]], sql("""SELECT * FROM ${v0_reader}.v0_db.v0_table
+            FOR VERSION AS OF ${v0_snapshot} ORDER BY id"""))
+        sql """INSERT INTO ${v0_writer}.v0_db.v0_table VALUES (3)"""
+        sql """REFRESH CATALOG ${v0_reader}"""
+        assertEquals([[3L]], sql("SELECT COUNT(*) FROM ${v0_reader}.v0_db.v0_table"))
+        assertEquals([[2L]], sql("""SELECT COUNT(*) FROM ${v0_reader}.v0_db.v0_table
+            FOR VERSION AS OF ${v0_snapshot}"""))
         // Clean up existing catalog
         sql """DROP CATALOG IF EXISTS ${catalog_name}"""
 
@@ -363,6 +462,8 @@ suite("test_iceberg_jdbc_catalog", "p0,external,iceberg,external_docker,external
         try {
             sql """SWITCH internal"""
             sql """DROP CATALOG IF EXISTS ${catalog_name}"""
+            sql """DROP CATALOG IF EXISTS ${v0_reader}"""
+            sql """DROP CATALOG IF EXISTS ${v0_writer}"""
         } catch (Exception e) {
             logger.warn("Failed to cleanup catalog: ${e.message}")
         }

@@ -23,9 +23,11 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.planner.PlanNodeId;
@@ -45,6 +47,7 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Method;
@@ -87,6 +90,10 @@ public class FileQueryScanNodeTest {
             this.targetTable = targetTable;
         }
 
+        void setSplitAssignment(SplitAssignment splitAssignment) {
+            this.splitAssignment = splitAssignment;
+        }
+
         long selectFeSplitSize(long fallbackSize, TFileFormatType format, boolean supportsBeSplit) {
             return selectFeSplitSizeForBe(fallbackSize, format, supportsBeSplit);
         }
@@ -125,6 +132,29 @@ public class FileQueryScanNodeTest {
         TestFileQueryScanNode node = new TestFileQueryScanNode(sv);
         long target = node.applyMaxFileSplitNumLimit(32 * MB, 10_000L * MB);
         Assert.assertEquals(100 * MB, target);
+    }
+
+    @Test
+    public void testStopRemovesEverySourceAfterPlanningFailure() {
+        SplitAssignment assignment = new SplitAssignment(
+                null, null, null, Collections.emptyMap(), Collections.emptyList(), false);
+        assignment.registerSource(11L);
+        assignment.registerSource(12L);
+        assignment.setException(new UserException("planning failed"));
+        TestFileQueryScanNode node = new TestFileQueryScanNode(new SessionVariable());
+        node.setSplitAssignment(assignment);
+        Env env = Mockito.mock(Env.class);
+        SplitSourceManager manager = Mockito.mock(SplitSourceManager.class);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getSplitSourceManager()).thenReturn(manager);
+
+            node.stop();
+        }
+
+        Mockito.verify(manager).removeSplitSource(11L);
+        Mockito.verify(manager).removeSplitSource(12L);
     }
 
     @Test
@@ -380,6 +410,9 @@ public class FileQueryScanNodeTest {
 
         node.initSchemaParams();
 
+        Assert.assertEquals(FileFormatUtils.PARQUET_TIMESTAMP_SEMANTICS_VERSION,
+                node.params.getParquetTimestampSemanticsVersion());
+        Assert.assertFalse(node.params.isSetHiveParquetTimeZone());
         TExpr defaultExpr = node.params.getDefaultValueOfSrcSlot().get(slot.getId().asInt());
         Assert.assertEquals(TExprNodeType.NULL_LITERAL, defaultExpr.getNodes().get(0).getNodeType());
         Mockito.verify(externalTable, Mockito.never()).getFullSchema();

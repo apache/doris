@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -156,6 +157,9 @@ DECLARE_Int32(arrow_flight_sql_proxy_port);
 // which means the number of bthreads is #cpu-cores
 DECLARE_Int32(brpc_num_threads);
 DECLARE_Int32(brpc_idle_timeout_sec);
+
+// Maximum number of multi-dimensional bvar samples exported by /brpc_metrics.
+DECLARE_String(bvar_max_dump_multi_dimension_metric_num);
 
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
@@ -570,9 +574,9 @@ DECLARE_mDouble(compaction_promotion_ratio);
 DECLARE_mInt64(compaction_promotion_min_size_mbytes);
 
 // When output rowset of cumulative compaction total version count (end_version - start_version)
-// exceed this config count, the rowset will be moved to base compaction
-// NOTE: this config will work for unique key merge-on-write table only, to reduce version count
-// related cost on delete bitmap more effectively.
+// exceed this config count, the rowset will be moved to base compaction.
+// NOTE: this config only works for unique key merge-on-write tables. The default maximum value
+// disables version-count-based promotion while retaining the option to enable it when needed.
 DECLARE_mInt64(compaction_promotion_version_count);
 
 // The lower bound size to do cumulative compaction. When total disk size of candidate rowsets is less than
@@ -697,6 +701,12 @@ DECLARE_Int64(load_data_reserve_hours);
 DECLARE_mInt64(load_error_log_reserve_hours);
 // error log size limit, default 200MB
 DECLARE_mInt64(load_error_log_limit_bytes);
+
+// Dedicated load cancellation workers, default 32. Must be positive; requires a restart.
+DECLARE_Int32(brpc_load_light_work_pool_threads);
+// Queue capacity for the dedicated load cancellation pool.
+// -1 selects max(1024, CPU cores * 32) queued requests. Requires a restart.
+DECLARE_Int32(brpc_load_light_work_pool_max_queue_size);
 
 // be brpc interface is classified into two categories: light and heavy
 // each category has diffrent thread number
@@ -1254,10 +1264,13 @@ DECLARE_Int32(blocking_pipeline_executor_size);
 // Lance shared session and optional Foyer data-file cache.
 DECLARE_Int64(lance_index_cache_size_bytes);
 DECLARE_Int64(lance_metadata_cache_size_bytes);
+// Runtime BTree selection uses page metadata and preserves the explicit fragment domain.
+DECLARE_Bool(enable_lance_scalar_index_auto_selection);
 DECLARE_Bool(enable_lance_data_cache);
 DECLARE_String(lance_data_cache_path);
 DECLARE_Int64(lance_data_cache_disk_capacity_bytes);
 DECLARE_Int64(lance_data_cache_read_block_size_bytes);
+DECLARE_Int64(lance_data_cache_memory_capacity_bytes);
 
 // I/O buffering budget per Lance scanner, applied when a new scanner is created.
 DECLARE_mInt64(lance_io_buffer_size_bytes);
@@ -1339,6 +1352,7 @@ DECLARE_Int32(file_cache_downloader_thread_num_max);
 DECLARE_mInt64(file_cache_background_lru_dump_interval_ms);
 // dump queue only if the queue update specific times through several dump intervals
 DECLARE_mInt64(file_cache_background_lru_dump_update_cnt_threshold);
+// max LRU entries to dump for each queue, 0 disables LRU log recording, dumping and restoring
 DECLARE_mInt64(file_cache_background_lru_dump_tail_record_num);
 DECLARE_mInt64(file_cache_background_lru_log_queue_max_size);
 DECLARE_mInt64(file_cache_background_lru_log_replay_interval_ms);
@@ -1365,9 +1379,53 @@ DECLARE_Bool(enable_inverted_index_cache_check_timestamp);
 DECLARE_mBool(enable_inverted_index_correct_term_write);
 DECLARE_Int32(inverted_index_fd_number_limit_percent); // 50%
 DECLARE_Int32(inverted_index_query_cache_shards);
+// When the candidate row bitmap of a segment scan is smaller than
+// num_rows * this ratio, it is pushed down into inverted index queries so
+// doc-list intersection and verification run only over the candidates
+// (see IndexQueryContext::candidate_rows). <= 0 disables the pushdown.
+DECLARE_mDouble(inverted_index_candidate_pushdown_ratio);
+double get_inverted_index_candidate_pushdown_ratio();
 
 // inverted index match bitmap cache size
 DECLARE_String(inverted_index_query_cache_limit);
+
+// Build-only CommonGrams kill switch. Logical index writers snapshot it at construction; changing
+// it affects only writers created after the transition and never changes query/cache semantics.
+// Release-calibrated query-planner coefficients. Both remain mutable for controlled recalibration.
+
+// Whether LIKE/REGEXP tries to compile a constant pattern into a gram boolean query pushed down
+// to a gram-family inverted index (master switch). Turning it off behaves as if the index did
+// not exist -- it only gives up the speedup, it never changes query results.
+//
+// A pattern is compiled against the gram scheme the segment itself carries, read back from the
+// core metadata of the physical index the query is about to read, so the scheme can never
+// disagree with the one the writer used -- a policy that was dropped and recreated with different
+// properties does not affect segments already written.
+DECLARE_mBool(enable_gram_index_regexp);
+
+// Gram query cost gate in basis points of segment rows. Zero disables it and 10000
+// or more never fires. Skipping pruning still preserves query results.
+DECLARE_mInt32(gram_index_max_candidate_ratio_bp);
+
+// Row floor below which the candidate ratio gate above is not applied at all. A small segment's
+// entire gram index is a few KB and one or two requests, so giving up there saves nothing
+// measurable while throwing away the pruning the index really does deliver; the ratio only starts
+// to mean something at a size where the skipped index IO can outweigh the rows it stops
+// eliminating. The default is one Roaring container's worth of rows (65536). 0 applies the ratio
+// at every segment size.
+DECLARE_mInt32(gram_index_candidate_ratio_min_rows);
+
+// Solve each segment's gram boundary rate from its sampled bytes to meet the coverage target.
+DECLARE_mBool(enable_gram_index_adaptive_density);
+// The promise the solve keeps, not a tuning pair: literals of at least this many bytes are
+// findable, for this share of the column's own windows of that length. Both are dimensionless
+// and the same on every dataset; what varies is the density they resolve to.
+DECLARE_mInt32(gram_index_min_literal_bytes);
+DECLARE_mInt32(gram_index_density_coverage_permille);
+// How much of a segment is held back to solve on. The sample is buffered rather than
+// tokenized, so this is a transient memory cost and a bound on how long the write path waits
+// before it can cut anything; the histogram behind the solve is a fixed 256 KB regardless.
+DECLARE_mInt64(gram_index_density_sample_bytes);
 
 // condition cache limit
 DECLARE_Int16(condition_cache_limit);
@@ -1375,6 +1433,35 @@ DECLARE_Int16(condition_cache_limit);
 // inverted index
 DECLARE_mDouble(inverted_index_ram_buffer_size);
 DECLARE_mInt32(inverted_index_max_buffered_docs);
+// G16-h: zstd levels for SNII dict blocks / prx windows. Default 3 (the
+// all-level-3 evaluation showed level 9 buys <=6.3% index size for 17-24%
+// import CPU; see the DEFINEs in config.cpp).
+DECLARE_mInt32(snii_dict_block_zstd_level);
+DECLARE_mInt32(snii_prx_zstd_level);
+// A .prx window is stored zstd-compressed only if that frame is smaller than the PFOR one by at
+// least this percentage; 0 picks the smaller frame. Negative (the default) lets each index choose
+// within a size budget. Affects segments written from now on.
+DECLARE_mInt32(snii_prx_zstd_min_saving_percent);
+// Patch C: prx zstd level for DIRECT-LOAD segments only (default 3, cheaper
+// import); compaction rewrites at snii_prx_zstd_level so settled segments are
+// unaffected. Full contract at the DEFINE in config.cpp.
+DECLARE_mInt32(snii_prx_zstd_level_direct_load);
+// A SNII batch read of at most this many physical segments (and 256 KiB) is read on the calling
+// thread when the index file is on the local filesystem and recent small reads were fast, i.e. hit
+// the page cache. 0 always fans out to the buffered-reader prefetch pool.
+DECLARE_mInt32(snii_inline_read_max_segments);
+// G16-d: target SNII dict block size in bytes; 0 = format default (64 KiB).
+// Bigger blocks -> better per-block zstd on the dict region, larger cold
+// fetch+decompress unit per dict-block miss. Write side only.
+DECLARE_mInt32(snii_target_dict_block_bytes);
+// Maximum process-memory share for SNII index builds. Above this share, writers with reclaimable posting arenas receive spill requests; zero disables the share trigger but keeps process-pressure backstops.
+DECLARE_mInt32(snii_index_build_max_memory_limit_percent);
+// Minimum reclaimable posting-arena size for a forced spill. Requests below this floor remain pending until the arena grows enough.
+DECLARE_mInt64(snii_forced_spill_min_arena_bytes);
+// Maximum active inputs per spill-run merge. Zero leaves fan-in to workspace and file-descriptor limits.
+DECLARE_mInt32(snii_spill_max_run_files_per_buffer);
+// Shared posting-workspace budget for spill, merge, and encoding.
+DECLARE_mInt64(snii_postings_workspace_bytes);
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
 DECLARE_Int32(inverted_index_read_buffer_size);
@@ -1474,6 +1561,9 @@ DECLARE_mInt64(auto_inc_low_water_level_mark_size_ratio);
 DECLARE_mInt64(auto_inc_fetch_thread_num);
 // Max connection cache num for point lookup queries
 DECLARE_mInt64(lookup_connection_cache_capacity);
+// Number of reusable result blocks retained by each point lookup cache entry, in [1, 32].
+DECLARE_mInt32(lookup_connection_cache_block_pool_size);
+size_t get_lookup_connection_cache_block_pool_size();
 
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DECLARE_mInt64(LZ4_HC_compression_level);
@@ -1485,10 +1575,6 @@ DECLARE_mBool(variant_use_cloud_schema_dict_cache);
 DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);
 // Max json key length in bytes when parsing json into variant subcolumns/jsonb.
 DECLARE_mInt32(variant_max_json_key_length);
-// Treat invalid json format str as string, instead of throwing exception if false
-DECLARE_mBool(variant_throw_exeception_on_invalid_json);
-// Enable duplicate path check when parsing json into variant subcolumns/jsonb.
-DECLARE_mBool(variant_enable_duplicate_json_path_check);
 // Controls storage-layer parse target for plain non-doc VARIANT columns:
 // 0 = auto, 1 = force parse-time subcolumns, 2 = force doc-value KV staging.
 DECLARE_mInt32(variant_storage_parse_mode);
@@ -1726,7 +1812,7 @@ DECLARE_mInt64(paimon_jni_writer_memory_pool_limit_bytes);
 // Retry the Open num_retries time waiting 100 milliseconds between retries.
 DECLARE_mInt32(thrift_client_open_num_tries);
 
-// http scheme in S3Client to use. E.g. http or https
+// Default HTTP scheme used by S3Client when the endpoint has no scheme.
 DECLARE_String(s3_client_http_scheme);
 
 DECLARE_mBool(ignore_schema_change_check);

@@ -7350,6 +7350,40 @@ TEST(RecyclerTest, delete_rowset_data) {
     }
 }
 
+TEST(RecyclerTest, delete_partial_update_rowset_data_by_recycling_state) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    constexpr auto resource_id = "partial_update_delete";
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    instance.add_obj_info()->set_id(resource_id);
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    auto accessor = recycler.accessor_map_.at(resource_id);
+
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    auto rowset = create_rowset(resource_id, 10001, 10002, 1, schema,
+                                RowsetStatePB::BEGIN_PARTIAL_UPDATE);
+    const auto segment = segment_path(rowset.tablet_id(), rowset.rowset_id_v2(), 0);
+    const auto extra_segment = segment_path(rowset.tablet_id(), rowset.rowset_id_v2(), 1);
+    std::map<std::string, doris::RowsetMetaCloudPB> rowsets {{rowset.rowset_id_v2(), rowset}};
+
+    for (auto type : {RowsetRecyclingState::FORMAL_ROWSET, RowsetRecyclingState::TMP_ROWSET}) {
+        SCOPED_TRACE(static_cast<int>(type));
+        ASSERT_EQ(accessor->put_file(segment, ""), 0);
+        ASSERT_EQ(accessor->put_file(extra_segment, ""), 0);
+
+        RecyclerMetricsContext metrics_context;
+        ASSERT_EQ(recycler.delete_rowset_data(rowsets, type, metrics_context), 0);
+        EXPECT_EQ(accessor->exists(segment), 1);
+        EXPECT_EQ(accessor->exists(extra_segment),
+                  type == RowsetRecyclingState::FORMAL_ROWSET ? 0 : 1);
+    }
+}
+
 TEST(RecyclerTest, delete_rowset_data_without_delete_bitmap_meta) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
@@ -7399,6 +7433,62 @@ TEST(RecyclerTest, delete_rowset_data_without_delete_bitmap_meta) {
                                    return str.empty() ? it : str + ", " + it;
                                });
     EXPECT_EQ(deleted_paths[0], segment_path(rowset.tablet_id(), rowset.rowset_id_v2(), 0));
+}
+
+TEST(RecyclerTest, delete_rowset_data_skips_delete_bitmap_for_non_mow_table) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    constexpr std::string_view resource_id = "delete_rowset_data_skip_non_mow_dbm";
+    InstanceRecycler recycler(txn_kv, create_recycler_test_instance(std::string(resource_id)),
+                              thread_group, std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    constexpr int64_t table_id = 29901;
+    constexpr int64_t index_id = 29902;
+    constexpr int64_t non_mow_partition_id = 29903;
+    constexpr int64_t non_mow_tablet_id = 29904;
+    constexpr int64_t mow_partition_id = 29905;
+    constexpr int64_t mow_tablet_id = 29906;
+    ASSERT_EQ(create_tablet(txn_kv.get(), table_id, index_id, non_mow_partition_id,
+                            non_mow_tablet_id, false),
+              0);
+    ASSERT_EQ(
+            create_tablet(txn_kv.get(), table_id, index_id, mow_partition_id, mow_tablet_id, true),
+            0);
+
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
+
+    auto non_mow_rowset =
+            create_rowset(std::string(resource_id), non_mow_tablet_id, index_id, 1, schema);
+    non_mow_rowset.set_partition_id(non_mow_partition_id);
+    auto mow_rowset = create_rowset(std::string(resource_id), mow_tablet_id, index_id, 1, schema);
+    mow_rowset.set_partition_id(mow_partition_id);
+
+    std::atomic<int> decrement_calls {0};
+    auto* sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "InstanceRecycler::decrement_delete_bitmap_packed_file_ref_counts",
+            [&](auto&&) { ++decrement_calls; }, &guard);
+    sp->enable_processing();
+
+    RecyclerMetricsContext metrics_context;
+    std::map<std::string, doris::RowsetMetaCloudPB> rowsets;
+    rowsets.emplace(non_mow_rowset.rowset_id_v2(), non_mow_rowset);
+    ASSERT_EQ(recycler.delete_rowset_data(rowsets, RowsetRecyclingState::FORMAL_ROWSET,
+                                          metrics_context),
+              0);
+    EXPECT_EQ(decrement_calls.load(), 0);
+
+    rowsets.clear();
+    rowsets.emplace(mow_rowset.rowset_id_v2(), mow_rowset);
+    ASSERT_EQ(recycler.delete_rowset_data(rowsets, RowsetRecyclingState::FORMAL_ROWSET,
+                                          metrics_context),
+              0);
+    EXPECT_EQ(decrement_calls.load(), 1);
 }
 
 TEST(RecyclerTest, delete_versioned_delete_bitmap_kvs_caches_partition_mow_state) {
@@ -9157,6 +9247,71 @@ TEST(RecyclerTest, delete_tmp_rowset_data_with_idx_v2) {
             list_files.insert(file->path);
         }
         // after delete tmp rowset, both file and idx v2 are removed
+        EXPECT_EQ(list_files.size(), 0);
+    }
+}
+
+TEST(RecyclerTest, delete_tmp_rowset_data_with_rowset_idx_v3) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto* obj_info = instance.add_obj_info();
+    obj_info->set_id("delete_tmp_rowset_data_with_rowset_idx_v3");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("delete_tmp_rowset_data_with_rowset_idx_v3");
+
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
+    auto* index = schema.add_index();
+    index->set_index_id(1);
+    index->set_index_type(IndexType::INVERTED);
+
+    {
+        InstanceRecycler recycler(txn_kv, instance, thread_group,
+                                  std::make_shared<TxnLazyCommitter>(txn_kv));
+        ASSERT_EQ(recycler.init(), 0);
+        auto accessor = recycler.accessor_map_.begin()->second;
+        std::map<std::string, doris::RowsetMetaCloudPB> rowset_pbs;
+        doris::RowsetMetaCloudPB rowset;
+        rowset.set_rowset_id(0); // useless but required
+        rowset.set_rowset_id_v2("1");
+        rowset.set_num_segments(1);
+        rowset.set_tablet_id(10000);
+        rowset.set_index_id(10001);
+        rowset.set_resource_id("delete_tmp_rowset_data_with_rowset_idx_v3");
+        rowset.set_schema_version(schema.schema_version());
+        rowset.mutable_tablet_schema()->CopyFrom(schema);
+        rowset.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
+        create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, true, true);
+        rowset_pbs.emplace(rowset.rowset_id_v2(), rowset);
+
+        std::unordered_set<std::string> list_files;
+        std::unique_ptr<ListIterator> iter;
+        EXPECT_EQ(accessor->list_all(&iter), 0);
+        EXPECT_TRUE(iter->has_next());
+        for (auto file = iter->next(); file.has_value(); file = iter->next()) {
+            list_files.insert(file->path);
+        }
+        EXPECT_EQ(list_files.size(), 2);
+        EXPECT_TRUE(list_files.contains("data/10000/1_0.dat"));
+        EXPECT_TRUE(list_files.contains("data/10000/1_0.idx"));
+
+        ASSERT_EQ(0,
+                  recycler.delete_rowset_data(rowset_pbs, RowsetRecyclingState::TMP_ROWSET, ctx));
+        list_files.clear();
+        iter.reset();
+        EXPECT_EQ(accessor->list_all(&iter), 0);
+        EXPECT_FALSE(iter->has_next());
+        for (auto file = iter->next(); file.has_value(); file = iter->next()) {
+            list_files.insert(file->path);
+        }
         EXPECT_EQ(list_files.size(), 0);
     }
 }

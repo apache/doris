@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <memory>
+#include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -45,7 +46,9 @@
 namespace doris {
 class RowDescriptor;
 class RuntimeState;
+class Schema;
 class ZoneMapEvalContext;
+using SchemaSPtr = std::shared_ptr<const Schema>;
 } // namespace doris
 
 namespace doris::segment_v2 {
@@ -57,6 +60,7 @@ class Segment;
 namespace doris {
 
 class ScoreRuntime;
+class LambdaExecutionContext;
 using ScoreRuntimeSPtr = std::shared_ptr<ScoreRuntime>;
 
 class IndexExecContext {
@@ -67,14 +71,16 @@ public:
                      std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>>&
                              common_expr_index_status,
                      ScoreRuntimeSPtr score_runtime, segment_v2::Segment* segment = nullptr,
-                     const segment_v2::ColumnIteratorOptions& column_iter_opts = {})
+                     const segment_v2::ColumnIteratorOptions& column_iter_opts = {},
+                     SchemaSPtr read_schema = nullptr)
             : _col_ids(col_ids),
               _index_iterators(index_iterators),
               _storage_name_and_type(storage_name_and_type_vec),
               _expr_index_status(common_expr_index_status),
               _score_runtime(std::move(score_runtime)),
               _segment(segment),
-              _column_iter_opts(column_iter_opts) {}
+              _column_iter_opts(column_iter_opts),
+              _read_schema(std::move(read_schema)) {}
 
     segment_v2::IndexIterator* get_inverted_index_iterator_by_column_id(int column_index) const {
         if (column_index < 0 || column_index >= _col_ids.size()) {
@@ -115,6 +121,8 @@ public:
 
     segment_v2::Segment* segment() const { return _segment; }
 
+    const SchemaSPtr& read_schema() const { return _read_schema; }
+
     const segment_v2::ColumnIteratorOptions& column_iter_opts() const { return _column_iter_opts; }
 
     bool has_index_result_for_expr(const VExpr* expr) const {
@@ -138,6 +146,22 @@ public:
     const segment_v2::InvertedIndexResultBitmap* get_index_result_for_expr(const VExpr* expr) {
         auto iter = _index_result_bitmap.find(expr);
         if (iter == _index_result_bitmap.end()) {
+            return nullptr;
+        }
+        return &iter->second;
+    }
+
+    // Dedicated entry point for approximate (superset) index results, kept strictly apart from
+    // the exact result map above.
+    void set_approx_index_result_for_expr(const VExpr* expr,
+                                          segment_v2::InvertedIndexResultBitmap bitmap) {
+        _approx_index_result_bitmap[expr] = std::move(bitmap);
+    }
+
+    const segment_v2::InvertedIndexResultBitmap* get_approx_index_result_for_expr(
+            const VExpr* expr) const {
+        auto iter = _approx_index_result_bitmap.find(expr);
+        if (iter == _approx_index_result_bitmap.end()) {
             return nullptr;
         }
         return &iter->second;
@@ -206,6 +230,20 @@ private:
     // A map of expressions to their corresponding result columns.
     std::unordered_map<const VExpr*, ColumnPtr> _index_result_column;
 
+    // Approximate (superset) index results: rows outside the bitmap certainly do not match, but
+    // rows inside it may not match either, so it may only be used to prune candidate rows and
+    // the expression must stay in the push-down list to re-verify them. Three invariants:
+    // (a) never write into _index_result_bitmap / _index_result_column -- VExpr::fast_execute
+    //     would then pass the candidate bitmap off as the function result, and
+    //     _output_index_result_column would materialize it as a result column;
+    // (b) never call set_true_for_index_status -- the column would then be judged
+    //     need_read_data=false and there would be no column left to read during re-verification;
+    // (c) intersecting with _row_bitmap is allowed only when the expression happens to be the
+    //     root of the VExprContext (a top-level AND context); wrapped in NOT/OR, VCompoundPred
+    //     never sees this map, so it simply does not apply.
+    std::unordered_map<const VExpr*, segment_v2::InvertedIndexResultBitmap>
+            _approx_index_result_bitmap;
+
     // Per-expression analyzer context for inverted index evaluation.
     std::unordered_map<const VExpr*, InvertedIndexAnalyzerCtxSPtr> _expr_analyzer_ctx;
 
@@ -216,6 +254,7 @@ private:
 
     segment_v2::Segment* _segment = nullptr; // Ref
     segment_v2::ColumnIteratorOptions _column_iter_opts;
+    SchemaSPtr _read_schema;
     segment_v2::IndexQueryContextPtr _index_query_context;
 };
 
@@ -223,7 +262,7 @@ class VExprContext {
     ENABLE_FACTORY_CREATOR(VExprContext);
 
 public:
-    VExprContext(VExprSPtr expr) : _root(std::move(expr)) {}
+    VExprContext(VExprSPtr expr);
     ~VExprContext();
     [[nodiscard]] Status prepare(RuntimeState* state, const RowDescriptor& row_desc);
     [[nodiscard]] Status open(RuntimeState* state);
@@ -247,6 +286,8 @@ public:
 
     std::shared_ptr<IndexExecContext> get_index_context() const { return _index_context; }
 
+    LambdaExecutionContext& lambda_execution_context();
+
     /// Creates a FunctionContext, and returns the index that's passed to fn_context() to
     /// retrieve the created context. Exprs that need a FunctionContext should call this in
     /// Prepare() and save the returned index. 'varargs_buffer_size', if specified, is the
@@ -265,10 +306,28 @@ public:
         return _fn_contexts[i].get();
     }
 
+    void set_auto_partition_boundary_context() {
+        for (auto& fn_context : _fn_contexts) {
+            fn_context->set_auto_partition_boundary_context();
+        }
+    }
+
     // execute expr with inverted index which column a, b has inverted indexes
     //  but some situation although column b has indexes, but apply index is not useful, we should
     //  skip this expr, just do not apply index anymore.
     [[nodiscard]] Status evaluate_inverted_index(uint32_t segment_num_rows);
+
+    // The one expression whose approximate (superset) index result this caller will read back,
+    // or null when it reads none. SegmentIterator names the root of a pushed-down conjunct,
+    // because _apply_approx_index_result looks the result up by exactly that pointer; its
+    // virtual column loop names nothing, because it only materializes exact results. For any
+    // other expression -- an operand of a compound predicate, a nested child push-down -- the
+    // result would be stored under its own pointer and never read again, so a function that can
+    // only answer approximately skips the evaluation instead of paying for the index reads.
+    void set_approx_index_result_consumer(const VExpr* expr) {
+        _approx_index_result_consumer = expr;
+    }
+    const VExpr* approx_index_result_consumer() const { return _approx_index_result_consumer; }
 
     [[nodiscard]] static ZoneMapFilterResult evaluate_zonemap_filter(
             const VExprContextSPtrs& conjuncts, const ZoneMapEvalContext& ctx);
@@ -331,36 +390,9 @@ public:
 
     void clone_fn_contexts(VExprContext* other);
 
-    VExprContext& operator=(const VExprContext& other) {
-        if (this == &other) {
-            return *this;
-        }
+    VExprContext& operator=(const VExprContext& other) = delete;
 
-        _root = other._root;
-        _is_clone = other._is_clone;
-        _prepared = other._prepared;
-        _opened = other._opened;
-
-        for (const auto& fn : other._fn_contexts) {
-            _fn_contexts.emplace_back(fn->clone());
-        }
-
-        _last_result_column_id = other._last_result_column_id;
-        _depth_num = other._depth_num;
-        return *this;
-    }
-
-    VExprContext& operator=(VExprContext&& other) {
-        _root = other._root;
-        other._root = nullptr;
-        _is_clone = other._is_clone;
-        _prepared = other._prepared;
-        _opened = other._opened;
-        _fn_contexts = std::move(other._fn_contexts);
-        _last_result_column_id = other._last_result_column_id;
-        _depth_num = other._depth_num;
-        return *this;
-    }
+    VExprContext& operator=(VExprContext&& other) = delete;
 
     [[nodiscard]] static size_t get_memory_usage(const VExprContextSPtrs& contexts) {
         size_t usage = 0;
@@ -402,6 +434,10 @@ private:
     bool _prepared = false;
     bool _opened = false;
 
+    /// See set_approx_index_result_consumer. Null by default, so a caller that does not read the
+    /// approximate map never pays for the index reads behind one.
+    const VExpr* _approx_index_result_consumer = nullptr;
+
     /// FunctionContexts for each registered expression. The FunctionContexts are created
     /// and owned by this VExprContext.
     std::vector<std::unique_ptr<FunctionContext>> _fn_contexts;
@@ -416,6 +452,8 @@ private:
 
     segment_v2::AnnRangeSearchRuntime _ann_range_search_runtime;
     bool _suitable_for_ann_index = true;
+
+    std::unique_ptr<LambdaExecutionContext> _lambda_execution_context;
 
     std::unique_ptr<RuntimeFilterSelectivity> _rf_selectivity =
             std::make_unique<RuntimeFilterSelectivity>();

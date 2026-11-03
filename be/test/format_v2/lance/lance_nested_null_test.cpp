@@ -57,8 +57,9 @@ protected:
     void read(const std::shared_ptr<arrow::Array>& array, const DataTypePtr& type,
               MutableColumnPtr* column) {
         std::shared_ptr<arrow::Array> normalized;
-        ASSERT_TRUE(normalize_lance_arrow_array(arrow::field("value", array->type()), array,
-                                                arrow::default_memory_pool(), &normalized)
+        ASSERT_TRUE(normalize_lance_arrow_array_for_test(arrow::field("value", array->type()),
+                                                         array, &normalized,
+                                                         arrow::default_memory_pool())
                             .ok());
         *column = type->create_column();
         ASSERT_TRUE(type->get_serde()

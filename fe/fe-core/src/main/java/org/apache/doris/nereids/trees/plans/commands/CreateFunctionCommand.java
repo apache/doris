@@ -1068,6 +1068,9 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             case TIMEV2:
                 typeBuilder.setId(Types.PGenericType.TypeId.DATETIMEV2);
                 break;
+            case TIMESTAMP_NS:
+                typeBuilder.setId(Types.PGenericType.TypeId.TIMESTAMP_NS);
+                break;
             case TIMESTAMPTZ:
                 typeBuilder.setId(Types.PGenericType.TypeId.TIMESTAMPTZ);
                 break;
@@ -1089,6 +1092,9 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                         .getDecimalTypeBuilder()
                         .setPrecision(((ScalarType) arg).getScalarPrecision())
                         .setScale(((ScalarType) arg).getScalarScale());
+                break;
+            case UUID:
+                typeBuilder.setId(Types.PGenericType.TypeId.UUID);
                 break;
             case LARGEINT:
                 typeBuilder.setId(Types.PGenericType.TypeId.INT128);

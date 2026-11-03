@@ -6,10 +6,10 @@ PhysicalResultSink
 ------PhysicalUnion
 --------PhysicalTopN[MERGE_SORT]
 ----------PhysicalTopN[LOCAL_SORT]
-------------PhysicalOlapScan[table1]
+------------PhysicalOlapScan[table1(t1)]
 --------PhysicalTopN[MERGE_SORT]
 ----------PhysicalTopN[LOCAL_SORT]
-------------PhysicalOlapScan[table1]
+------------PhysicalOlapScan[table1(t2)]
 
 -- !push_down_topn_union_with_conditions --
 PhysicalResultSink
@@ -19,15 +19,15 @@ PhysicalResultSink
 --------PhysicalTopN[MERGE_SORT]
 ----------PhysicalTopN[LOCAL_SORT]
 ------------filter((t1.score > 10))
---------------PhysicalOlapScan[table1]
+--------------PhysicalOlapScan[table1(t1)]
 --------PhysicalTopN[MERGE_SORT]
 ----------PhysicalTopN[LOCAL_SORT]
 ------------filter((t2.name = 'Test'))
---------------PhysicalOlapScan[table1]
+--------------PhysicalOlapScan[table1(t2)]
 --------PhysicalTopN[MERGE_SORT]
 ----------PhysicalTopN[LOCAL_SORT]
 ------------filter((t3.id < 5))
---------------PhysicalOlapScan[table1]
+--------------PhysicalOlapScan[table1(t3)]
 
 -- !push_down_topn_union_with_order_by --
 PhysicalResultSink
@@ -36,13 +36,13 @@ PhysicalResultSink
 ------PhysicalUnion
 --------PhysicalTopN[MERGE_SORT]
 ----------PhysicalTopN[LOCAL_SORT]
-------------PhysicalOlapScan[table1]
+------------PhysicalOlapScan[table1(t1)]
 --------PhysicalTopN[MERGE_SORT]
 ----------PhysicalTopN[LOCAL_SORT]
-------------PhysicalOlapScan[table1]
+------------PhysicalOlapScan[table1(t2)]
 --------PhysicalTopN[MERGE_SORT]
 ----------PhysicalTopN[LOCAL_SORT]
-------------PhysicalOlapScan[table1]
+------------PhysicalOlapScan[table1(t3)]
 
 -- !push_down_topn_nested_union --
 PhysicalResultSink
@@ -51,16 +51,16 @@ PhysicalResultSink
 ------PhysicalUnion
 --------PhysicalTopN[MERGE_SORT]
 ----------PhysicalTopN[LOCAL_SORT]
-------------PhysicalOlapScan[table1]
+------------PhysicalOlapScan[table1(t1)]
 --------PhysicalTopN[MERGE_SORT]
 ----------PhysicalTopN[LOCAL_SORT]
-------------PhysicalOlapScan[table1]
+------------PhysicalOlapScan[table1(t2)]
 --------PhysicalTopN[MERGE_SORT]
 ----------PhysicalTopN[LOCAL_SORT]
-------------PhysicalOlapScan[table1]
+------------PhysicalOlapScan[table1(t3)]
 --------PhysicalTopN[MERGE_SORT]
 ----------PhysicalTopN[LOCAL_SORT]
-------------PhysicalOlapScan[table1]
+------------PhysicalOlapScan[table1(t4)]
 
 -- !push_down_topn_union_after_join --
 PhysicalResultSink
@@ -70,11 +70,11 @@ PhysicalResultSink
 --------PhysicalTopN[MERGE_SORT]
 ----------PhysicalTopN[LOCAL_SORT]
 ------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------------PhysicalOlapScan[table1]
---------------PhysicalOlapScan[table1]
+--------------PhysicalOlapScan[table1(t1)]
+--------------PhysicalOlapScan[table1(t2)]
 --------PhysicalTopN[MERGE_SORT]
 ----------PhysicalTopN[LOCAL_SORT]
-------------PhysicalOlapScan[table1]
+------------PhysicalOlapScan[table1(t3)]
 
 -- !push_down_topn_union_different_projections --
 PhysicalResultSink
@@ -83,10 +83,10 @@ PhysicalResultSink
 ------PhysicalUnion
 --------PhysicalTopN[MERGE_SORT]
 ----------PhysicalTopN[LOCAL_SORT]
-------------PhysicalOlapScan[table1]
+------------PhysicalOlapScan[table1(t1)]
 --------PhysicalTopN[MERGE_SORT]
 ----------PhysicalTopN[LOCAL_SORT]
-------------PhysicalOlapScan[table1]
+------------PhysicalOlapScan[table1(t2)]
 
 -- !push_down_topn_union_with_subquery --
 PhysicalResultSink
@@ -99,7 +99,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[table1]
 --------PhysicalTopN[MERGE_SORT]
 ----------PhysicalTopN[LOCAL_SORT]
-------------PhysicalOlapScan[table1]
+------------PhysicalOlapScan[table1(t2)]
 
 -- !push_down_topn_union_with_limit --
 PhysicalResultSink
@@ -109,11 +109,11 @@ PhysicalResultSink
 --------PhysicalTopN[GATHER_SORT]
 ----------PhysicalLimit[GLOBAL]
 ------------PhysicalLimit[LOCAL]
---------------PhysicalOlapScan[table1]
+--------------PhysicalOlapScan[table1(t1)]
 --------PhysicalTopN[GATHER_SORT]
 ----------PhysicalLimit[GLOBAL]
 ------------PhysicalLimit[LOCAL]
---------------PhysicalOlapScan[table1]
+--------------PhysicalOlapScan[table1(t2)]
 
 -- !push_down_topn_union_complex_conditions --
 PhysicalResultSink
@@ -123,11 +123,11 @@ PhysicalResultSink
 --------PhysicalTopN[MERGE_SORT]
 ----------PhysicalTopN[LOCAL_SORT]
 ------------filter((t1.name = 'Test') and (t1.score > 10))
---------------PhysicalOlapScan[table1]
+--------------PhysicalOlapScan[table1(t1)]
 --------PhysicalTopN[MERGE_SORT]
 ----------PhysicalTopN[LOCAL_SORT]
 ------------filter((t2.id < 5) and (t2.score < 20))
---------------PhysicalOlapScan[table1]
+--------------PhysicalOlapScan[table1(t2)]
 
 -- !union_all_push_down_top_n --
 error_code=500&message=Database+connection+failed	{"component":"database","severity":"critical"}	500	Database connection error	192.168.1.103	/api/v1/products	192.168.1.103	api.example.com	{"app":"api-gateway","dependencies":["mysql", "redis"],"env":"production"}	{"city":"Tokyo","coordinates":{"lat":35.6762,"lon":139.6503},"country":"JP"}	{"Content-Type":"application/json","X-Correlation-ID":"corr_456mno"}	{"region":"ap-northeast-1","server":"api-node-05"}	https://app.example.com/products	Mozilla/5.0 (Linux; Android 13; SM-S901B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36	{"source":"mobile","tags":["error", "database"]}	{"context":{"attempts":3,"database":"products_db","duration_ms":5000,"error":"Connection timeout"},"level":"ERROR","message":"Failed to connect to database","timestamp":"2025-07-31T16:45:33Z"}	2025-07-31T16:45:33

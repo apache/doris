@@ -237,6 +237,16 @@ void append_typed_scalar(const ParquetColumnSchema& schema, const IColumn& colum
                 variant_timestamp_micros(value, row, "Parquet Variant TIMESTAMP"), true);
         return;
     }
+    case TYPE_UUID: {
+        auto value = assert_cast<const ColumnUUID&>(column).get_data()[row];
+        std::array<uint8_t, 16> bytes {};
+        for (size_t i = bytes.size(); i > 0; --i) {
+            bytes[i - 1] = static_cast<uint8_t>(value);
+            value >>= 8;
+        }
+        builder.add_uuid(bytes);
+        return;
+    }
     case TYPE_VARBINARY: {
         const StringRef value = column.get_data_at(row);
         if (!schema.type_descriptor.is_uuid) {
@@ -577,7 +587,8 @@ ColumnVariantV2::MutablePtr encode_variant_column(
             int64_t imported_bytes = 0;
             RuntimeProfile::Counter* direct_import_time =
                     profile == nullptr ? nullptr
-                                       : profile->variant_unshredded_direct_import_time.get();
+                                       : profile->variant_profile()
+                                                 .variant_unshredded_direct_import_time.get();
             {
                 // Update the shared timer on every exit, including validation failures. Rows and
                 // bytes are published only after the complete chunk has been appended.
@@ -589,13 +600,15 @@ ColumnVariantV2::MutablePtr encode_variant_column(
             }
             if (profile != nullptr) {
                 const auto imported_rows = static_cast<int64_t>(end - begin);
-                if (profile->variant_unshredded_direct_import_rows != nullptr) {
-                    COUNTER_UPDATE(profile->variant_unshredded_direct_import_rows.get(),
-                                   imported_rows);
+                if (profile->variant_profile().variant_unshredded_direct_import_rows != nullptr) {
+                    COUNTER_UPDATE(
+                            profile->variant_profile().variant_unshredded_direct_import_rows.get(),
+                            imported_rows);
                 }
-                if (profile->variant_unshredded_direct_import_bytes != nullptr) {
-                    COUNTER_UPDATE(profile->variant_unshredded_direct_import_bytes.get(),
-                                   imported_bytes);
+                if (profile->variant_profile().variant_unshredded_direct_import_bytes != nullptr) {
+                    COUNTER_UPDATE(
+                            profile->variant_profile().variant_unshredded_direct_import_bytes.get(),
+                            imported_bytes);
                 }
             }
         } else {
@@ -1665,7 +1678,7 @@ public:
     std::optional<VariantShreddedTypedValue> find_typed_value(
             std::span<const VariantShreddedPathSegment> path) const override {
         auto path_miss = [&]() -> std::optional<VariantShreddedTypedValue> {
-            update_counter(_profile.variant_direct_leaf_path_misses, 1);
+            update_counter(_profile.variant_profile().variant_direct_leaf_path_misses, 1);
             return std::nullopt;
         };
         if (path.empty()) {
@@ -1735,7 +1748,8 @@ public:
                 !levels.back().residual_view.present()) {
                 return path_miss();
             }
-            update_counter(_profile.variant_residual_seek_rows, static_cast<int64_t>(rows));
+            update_counter(_profile.variant_profile().variant_residual_seek_rows,
+                           static_cast<int64_t>(rows));
             return VariantShreddedTypedValue {
                     .column = nullptr,
                     .type = nullptr,
@@ -1779,7 +1793,8 @@ public:
             if (typed_schema->kind != ParquetColumnSchemaKind::PRIMITIVE ||
                 check_and_get_column<ColumnNullable>(*typed) == nullptr) {
                 static_cast<void>(validate_levels());
-                update_counter(_profile.variant_direct_leaf_unsupported_fallbacks, 1);
+                update_counter(_profile.variant_profile().variant_direct_leaf_unsupported_fallbacks,
+                               1);
                 if (!_complete) {
                     // Binary element_at evaluates complex prefixes before the validated leaf.
                     // Serialize only retained descendants so projected-out fields stay hidden.
@@ -1796,7 +1811,8 @@ public:
                 // Decoding a residual needs the root dictionary. A state that projected the
                 // metadata away cannot serve those rows, so it keeps the complete fallback.
                 if (!metadata.present()) {
-                    update_counter(_profile.variant_direct_leaf_residual_fallbacks, 1);
+                    update_counter(
+                            _profile.variant_profile().variant_direct_leaf_residual_fallbacks, 1);
                     if (!_complete) {
                         // A projected state cannot rebuild its root, so serialize the retained
                         // descendants instead of demanding the complete Variant.
@@ -1807,8 +1823,9 @@ public:
                     }
                     return std::nullopt;
                 }
-                update_counter(_profile.variant_direct_leaf_rows, static_cast<int64_t>(rows));
-                update_counter(_profile.variant_direct_leaf_residual_merged_rows,
+                update_counter(_profile.variant_profile().variant_direct_leaf_rows,
+                               static_cast<int64_t>(rows));
+                update_counter(_profile.variant_profile().variant_direct_leaf_residual_merged_rows,
                                static_cast<int64_t>(rows));
                 return VariantShreddedTypedValue {
                         .column = nullptr,
@@ -1817,7 +1834,8 @@ public:
                                                                 levels, path, metadata_index)};
             }
 
-            update_counter(_profile.variant_direct_leaf_rows, static_cast<int64_t>(rows));
+            update_counter(_profile.variant_profile().variant_direct_leaf_rows,
+                           static_cast<int64_t>(rows));
             if (!supports_direct_typed_variant_state(*typed_schema)) {
                 // ColumnVariantV2 typed state carries only a Doris type, so binary/UUID
                 // annotations and temporal units would be lost. Normalizing the leaf through its
@@ -1907,21 +1925,24 @@ public:
                 const auto borrowed = borrow_unshredded_path(_unshredded_prefix);
                 int64_t copied_bytes = 0;
                 {
-                    SCOPED_TIMER(_profile.variant_unshredded_direct_seek_time.get());
+                    SCOPED_TIMER(
+                            _profile.variant_profile().variant_unshredded_direct_seek_time.get());
                     _normalized_prefix = normalize_unshredded_path(
                             *_schema, *_physical, *child_indices, borrowed, &copied_bytes);
                 }
                 const auto rows = static_cast<int64_t>(_physical->size());
-                update_counter(_profile.variant_unshredded_direct_seek_rows, rows);
-                update_counter(_profile.variant_unshredded_direct_seek_bytes, copied_bytes);
+                update_counter(_profile.variant_profile().variant_unshredded_direct_seek_rows,
+                               rows);
+                update_counter(_profile.variant_profile().variant_unshredded_direct_seek_bytes,
+                               copied_bytes);
             }
             const auto& nullable = assert_cast<const ColumnNullable&>(*_normalized_prefix);
             return assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
         }
         if (!_materialized) {
-            SCOPED_TIMER(_profile.variant_reconstruction_time.get());
+            SCOPED_TIMER(_profile.variant_profile().variant_reconstruction_time.get());
             _materialized = encode_variant_column(*_schema, *_physical, true, &_profile);
-            update_counter(_profile.variant_reconstructed_rows,
+            update_counter(_profile.variant_profile().variant_reconstructed_rows,
                            static_cast<int64_t>(_physical->size()));
         }
         return *_materialized;
@@ -2052,7 +2073,7 @@ private:
         std::shared_ptr<const UnshreddedMetadataIndex> metadata_index;
         UnshreddedPathScan scan;
         {
-            SCOPED_TIMER(_profile.variant_unshredded_direct_seek_time.get());
+            SCOPED_TIMER(_profile.variant_profile().variant_unshredded_direct_seek_time.get());
             metadata_index = get_unshredded_metadata_index(*child_indices);
             scan = scan_unshredded_path(
                     *_schema, *_physical, *child_indices, *metadata_index,
@@ -2063,22 +2084,23 @@ private:
         }
 
         const auto rows = static_cast<int64_t>(_physical->size());
-        update_counter(_profile.variant_unshredded_direct_seek_rows, rows);
+        update_counter(_profile.variant_profile().variant_unshredded_direct_seek_rows, rows);
         if (_unshredded_path_cache) {
-            update_counter(_profile.variant_unshredded_prefix_reuse_rows, rows);
+            update_counter(_profile.variant_profile().variant_unshredded_prefix_reuse_rows, rows);
         }
         MutableColumnPtr values;
         std::shared_ptr<ParquetVariantShreddedState> subtree_state;
         if (scan.typed_values) {
             values = ColumnVariantV2::create_typed(std::move(scan.typed_values),
                                                    std::move(scan.typed_type));
-            update_counter(_profile.variant_unshredded_direct_seek_bytes, scan.copied_bytes);
-            update_counter(_profile.variant_direct_leaf_rows, rows);
+            update_counter(_profile.variant_profile().variant_unshredded_direct_seek_bytes,
+                           scan.copied_bytes);
+            update_counter(_profile.variant_profile().variant_direct_leaf_rows, rows);
         } else {
             subtree_state = std::make_shared<ParquetVariantShreddedState>(
                     _schema, _physical, _complete, _profile, combined, std::move(scan.path_cache));
             values = ColumnVariantV2::create_shredded(subtree_state);
-            update_counter(_profile.variant_direct_subtree_rows, rows);
+            update_counter(_profile.variant_profile().variant_direct_subtree_rows, rows);
         }
         ColumnPtr result = ColumnNullable::create(std::move(values), std::move(scan.outer_nulls));
         return result;

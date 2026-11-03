@@ -23,6 +23,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.datasource.DelegatedCredential;
+import org.apache.doris.mysql.DummyMysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlCursorFetchCompatibility;
 import org.apache.doris.mysql.MysqlProto;
@@ -218,14 +220,22 @@ public class FEOpExecutor {
                 params.setPrepareExecuteBuffer(buildPrepareExecuteBuffer());
             }
             params.setCursorFetchRequested(ctx.isCursorFetchRequested());
+            params.setEmptyCursorSupported(true);
         }
+
+        ctx.getSessionContext().getDelegatedCredential().ifPresent((DelegatedCredential credential) -> {
+            params.setDelegatedCredentialSessionId(ctx.getSessionContext().getSessionId());
+            params.setDelegatedCredentialType(credential.getType().name());
+            params.setDelegatedCredentialToken(credential.getToken());
+            credential.getExpiresAtMillis().ifPresent(params::setDelegatedCredentialExpiresAtMillis);
+        });
 
         // Propagate the client's CLIENT_DEPRECATE_EOF capability so the master FE
         // generates packets matching the original client's protocol expectations.
-        // Only a MySQL connection negotiates this capability and owns a MysqlChannel;
-        // an Arrow Flight SQL session has none, and leaving the field unset keeps the
-        // master on its default packet layout.
-        if (ctx.getConnectType() == ConnectType.MYSQL) {
+        // HTTP contexts use a dummy MySQL channel without a negotiated capability.
+        // Leave their protocol fields unset so the master uses its default packet layout.
+        if (ctx.getConnectType() == ConnectType.MYSQL
+                && !(ctx.getMysqlChannel() instanceof DummyMysqlChannel && ctx.getCapability() == null)) {
             params.setClientDeprecatedEOF(ctx.getMysqlChannel().clientDeprecatedEOF());
             params.setMysqlCapability(ctx.getCapability().getFlags());
         }

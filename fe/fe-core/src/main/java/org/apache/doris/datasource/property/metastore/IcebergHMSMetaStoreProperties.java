@@ -19,14 +19,13 @@ package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.foundation.property.ConnectorProperty;
 
 import lombok.Getter;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.iceberg.CatalogProperties;
-import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.hive.HiveCatalog;
 
@@ -68,10 +67,9 @@ public class IcebergHMSMetaStoreProperties extends AbstractIcebergProperties {
     public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
                                List<StorageProperties> storagePropertiesList) {
         try {
-            catalogProps.put(CatalogProperties.CATALOG_IMPL, CatalogUtil.ICEBERG_CATALOG_HIVE);
             Configuration conf = buildHiveConfiguration(storagePropertiesList);
             return this.executionAuthenticator.execute(() ->
-                    buildIcebergCatalog(catalogName, catalogProps, conf));
+                    IcebergUtils.createIcebergHiveCatalog(catalogName, catalogProps, conf));
         } catch (Exception e) {
             throw new RuntimeException("Failed to initialize HiveCatalog for Iceberg. "
                     + "CatalogName=" + catalogName + ", msg :" + ExceptionUtils.getRootCauseMessage(e), e);

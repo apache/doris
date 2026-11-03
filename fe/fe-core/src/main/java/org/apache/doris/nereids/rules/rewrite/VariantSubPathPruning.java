@@ -422,7 +422,7 @@ public class VariantSubPathPruning implements CustomRewriter {
                     .map(ExpressionTrait::getDataType).noneMatch(VariantType.class::isInstance)) {
                 return cteConsumer;
             }
-            Map<Slot, Slot> consumerToProducerOutputMap = Maps.newHashMap();
+            Map<Slot, Slot> consumerToProducerOutputMap = Maps.newLinkedHashMap();
             Multimap<Slot, Slot> producerToConsumerOutputMap = LinkedHashMultimap.create();
             Map<Slot, Map<List<String>, SlotReference>> oriSlotToSubPathToSlot = Maps.newHashMap();
             for (Map.Entry<Slot, Slot> consumerToProducer : cteConsumer.getConsumerToProducerOutputMap().entrySet()) {

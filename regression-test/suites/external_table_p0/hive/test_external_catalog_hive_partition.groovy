@@ -30,7 +30,8 @@ suite("test_external_catalog_hive_partition", "p0,external,hive,external_docker,
         sql """
             create catalog if not exists ${catalog_name} properties (
                 'type'='hms',
-                'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}'
+                'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}',
+                'hive.parquet.time-zone' = 'Asia/Shanghai'
             );
         """
 

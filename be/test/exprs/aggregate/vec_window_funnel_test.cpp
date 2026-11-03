@@ -20,6 +20,7 @@
 #include <gtest/gtest-test-part.h>
 #include <stddef.h>
 
+#include <limits>
 #include <memory>
 #include <ostream>
 
@@ -28,10 +29,12 @@
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/string_buffer.hpp"
 #include "core/value/vdatetime_value.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
+#include "exprs/aggregate/aggregate_function_window_funnel.h"
 #include "gtest/gtest_pred_impl.h"
 
 namespace doris {
@@ -64,6 +67,53 @@ public:
 
     Arena arena;
 };
+
+TEST(VWindowFunnelTimeStampNsTest, FactoryCreatesFunction) {
+    AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+    DataTypes data_types = {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeString>(),
+                            std::make_shared<DataTypeTimeStampNs>(),
+                            std::make_shared<DataTypeUInt8>(), std::make_shared<DataTypeUInt8>()};
+    EXPECT_NE(factory.get("window_funnel", data_types, nullptr, false,
+                          BeExecVersionManager::get_newest_version()),
+              nullptr);
+}
+
+TEST(VWindowFunnelTimeStampNsTest, HandlesUpperBoundaryWindow) {
+    WindowFunnelState<TYPE_TIMESTAMP_NS> state(2);
+    state.enable_mode = true;
+    state.window = 1;
+    state.window_funnel_mode = WindowFunnelMode::DEFAULT;
+    state.events_list.dt.emplace_back(std::numeric_limits<int64_t>::max() - 500000000);
+    state.events_list.dt.emplace_back(std::numeric_limits<int64_t>::max());
+    state.events_list.event_columns_data[0].emplace_back(1);
+    state.events_list.event_columns_data[0].emplace_back(0);
+    state.events_list.event_columns_data[1].emplace_back(0);
+    state.events_list.event_columns_data[1].emplace_back(1);
+
+    EXPECT_EQ(2, state.get());
+}
+
+TEST(VWindowFunnelTimeStampNsTest, PreservesNegativeTimestampDuringSerialization) {
+    WindowFunnelState<TYPE_TIMESTAMP_NS> source(1);
+    source.enable_mode = true;
+    source.window = 1;
+    source.window_funnel_mode = WindowFunnelMode::DEFAULT;
+    source.events_list.dt.emplace_back(-1);
+    source.events_list.event_columns_data[0].emplace_back(1);
+
+    ColumnString buffer;
+    VectorBufferWriter writer(buffer);
+    source.write(writer);
+    writer.commit();
+
+    WindowFunnelState<TYPE_TIMESTAMP_NS> restored(1);
+    restored.enable_mode = true;
+    VectorBufferReader reader(buffer.get_data_at(0));
+    restored.read(reader);
+
+    ASSERT_EQ(1, restored.events_list.dt.size());
+    EXPECT_EQ(-1, restored.events_list.dt[0].epoch_nanos());
+}
 
 TEST_F(VWindowFunnelTest, testEmpty) {
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);

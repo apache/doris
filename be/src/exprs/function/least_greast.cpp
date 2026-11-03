@@ -113,7 +113,13 @@ struct CompareMultiImpl {
                 return true;
             };
 
-            if (!dispatch_switch_scalar(data_type->get_primitive_type(), call)) {
+            bool supported = false;
+            if (data_type->get_primitive_type() == TYPE_TIMESTAMP_NS) {
+                supported = call(DispatchDataType<TYPE_TIMESTAMP_NS>());
+            } else {
+                supported = dispatch_switch_scalar(data_type->get_primitive_type(), call);
+            }
+            if (!supported) {
                 throw doris::Exception(ErrorCode::INTERNAL_ERROR, "not support type {}",
                                        data_type->get_name());
             }
@@ -301,6 +307,13 @@ struct FunctionFieldImpl {
             for (int col = 1; col < arguments.size(); ++col) {
                 insert_result_data<TYPE_DATETIMEV2>(res_data, argument_columns[0],
                                                     argument_columns[col], input_rows_count, col);
+            }
+            break;
+        }
+        case PrimitiveType::TYPE_TIMESTAMP_NS: {
+            for (int col = 1; col < arguments.size(); ++col) {
+                insert_result_data<TYPE_TIMESTAMP_NS>(res_data, argument_columns[0],
+                                                      argument_columns[col], input_rows_count, col);
             }
             break;
         }

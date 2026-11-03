@@ -20,6 +20,7 @@
 #include <memory>
 
 #include "storage/index/ann/ann_search_params.h"
+#include "storage/index/index_query_context.h"
 
 namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"

@@ -28,10 +28,13 @@ TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore) {
     config::file_cache_background_lru_dump_interval_ms = 3000;
     config::file_cache_background_lru_dump_update_cnt_threshold = 0;
     const auto old_replay_interval_ms = config::file_cache_background_lru_log_replay_interval_ms;
-    Defer defer {[old_replay_interval_ms] {
+    const auto old_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
+    Defer defer {[old_replay_interval_ms, old_tail_record_num] {
         config::file_cache_background_lru_log_replay_interval_ms = old_replay_interval_ms;
+        config::file_cache_background_lru_dump_tail_record_num = old_tail_record_num;
     }};
     config::file_cache_background_lru_log_replay_interval_ms = 60 * 60 * 1000;
+    config::file_cache_background_lru_dump_tail_record_num = 5000000;
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
@@ -409,6 +412,11 @@ TEST_F(BlockFileCacheTest, test_lru_duplicate_queue_entry_restore) {
     config::file_cache_enter_disk_resource_limit_mode_percent = 99;
     config::file_cache_background_lru_dump_interval_ms = 3000;
     config::file_cache_background_lru_dump_update_cnt_threshold = 0;
+    const auto old_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
+    Defer defer {[old_tail_record_num] {
+        config::file_cache_background_lru_dump_tail_record_num = old_tail_record_num;
+    }};
+    config::file_cache_background_lru_dump_tail_record_num = 5000000;
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }

@@ -28,6 +28,7 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.TimeStampNsLiteral;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.authentication.Principal;
@@ -87,10 +88,12 @@ import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import lombok.Getter;
 import lombok.Setter;
+import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -100,12 +103,14 @@ import org.xnio.StreamConnection;
 import java.io.IOException;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -153,7 +158,29 @@ public class ConnectContext {
     protected volatile long loginTime;
     // for arrow flight
     protected volatile String peerIdentity;
-    private final Map<String, String> preparedQuerys = new HashMap<>();
+    private final Map<String, PreparedQuery> preparedQuerys = new HashMap<>();
+    private static final long MAX_FLIGHT_PARAMETER_BYTES = 16L * 1024 * 1024;
+    private long flightParameterBytes;
+    private boolean flightPreparedQueriesClosed;
+
+    private static class PreparedQuery {
+        private final String sql;
+        private String catalog;
+        private String database;
+        private Schema schema;
+        private int parameterCount;
+        private List<Literal> parameters;
+        private long bindingVersion;
+        private long parameterBytes;
+
+        private PreparedQuery(String sql, String catalog, String database, Schema schema) {
+            this.sql = sql;
+            this.catalog = catalog;
+            this.database = database;
+            this.schema = schema;
+        }
+    }
+
     private String runningQuery;
     private final List<FlightSqlEndpointsLocation> flightSqlEndpointsLocations = Lists.newArrayList();
     private boolean returnResultFromLocal = true;
@@ -201,6 +228,8 @@ public class ConnectContext {
     protected volatile MysqlCommand command;
     // Timestamp in millisecond last command starts at
     protected volatile long startTime;
+    // Timestamp with nanosecond precision when the current command starts.
+    protected volatile Instant startTimeInstant = Instant.now();
     // Cache thread info for this connection.
     protected volatile ThreadInfo threadInfo;
 
@@ -248,7 +277,7 @@ public class ConnectContext {
 
     private InsertResult insertResult;
 
-    private SessionContext sessionContext;
+    private SessionContext sessionContext = SessionContext.empty();
 
 
     // This context is used for SSL connection between server and mysql client.
@@ -298,6 +327,12 @@ public class ConnectContext {
 
     // Whether the current COM_STMT_EXECUTE requested a server-side read-only cursor.
     private boolean cursorFetchRequested;
+    @Getter
+    @Setter
+    private boolean emptyCursorSupported = true;
+    private boolean mysqlResultHasRows;
+    @Getter
+    private PreparedStatementContext executingPreparedStatement;
 
     private MysqlHandshakePacket mysqlHandshakePacket;
 
@@ -345,6 +380,10 @@ public class ConnectContext {
 
     public SessionContext getSessionContext() {
         return sessionContext;
+    }
+
+    public void setSessionContext(SessionContext sessionContext) {
+        this.sessionContext = sessionContext == null ? SessionContext.empty() : sessionContext;
     }
 
     public MysqlSslContext getMysqlSslContext() {
@@ -410,7 +449,7 @@ public class ConnectContext {
         }
         resetSessionVariable();
         userVars = new HashMap<>();
-        preparedQuerys.clear();
+        clearPreparedQueries();
         preparedStatementContextMap.clear();
         runningQuery = null;
         queryId = null;
@@ -527,6 +566,24 @@ public class ConnectContext {
 
     public void setCursorFetchRequested(boolean cursorFetchRequested) {
         this.cursorFetchRequested = cursorFetchRequested;
+    }
+
+    public void beginPreparedExecute(PreparedStatementContext prepared) {
+        executingPreparedStatement = prepared;
+        prepared.setEmptyCursorOpen(false);
+    }
+
+    public boolean hasMysqlResultRows() {
+        return mysqlResultHasRows;
+    }
+
+    public void recordMysqlResultRow() {
+        mysqlResultHasRows = true;
+    }
+
+    public void resetMysqlResult() {
+        mysqlResultHasRows = false;
+        getMysqlChannel().reset();
     }
 
     public boolean isTxnModel() {
@@ -708,6 +765,8 @@ public class ConnectContext {
                 return Literal.of(((StringLiteral) literalExpr).getValue());
             } else if (literalExpr instanceof NullLiteral) {
                 return Literal.of(null);
+            } else if (literalExpr instanceof TimeStampNsLiteral) {
+                return Literal.fromLegacyLiteral(literalExpr, literalExpr.getType());
             } else {
                 return Literal.of(literalExpr.getStringValue());
             }
@@ -833,8 +892,13 @@ public class ConnectContext {
         return startTime;
     }
 
+    public Instant getStartTimeInstant() {
+        return startTimeInstant;
+    }
+
     public void setStartTime() {
-        startTime = System.currentTimeMillis();
+        startTimeInstant = Instant.now();
+        startTime = startTimeInstant.toEpochMilli();
         returnRows = 0;
         queryBackendSelectionDecision = null;
         loadBackendSelectionDecision = null;
@@ -908,15 +972,156 @@ public class ConnectContext {
     }
 
     public void addPreparedQuery(String preparedStatementId, String preparedQuery) {
-        preparedQuerys.put(preparedStatementId, preparedQuery);
+        synchronized (preparedQuerys) {
+            addPreparedQuery(preparedStatementId, preparedQuery, null);
+        }
+    }
+
+    public void addPreparedQuery(String preparedStatementId, String preparedQuery, Schema schema) {
+        synchronized (preparedQuerys) {
+            if (flightPreparedQueriesClosed) {
+                throw new IllegalStateException("Flight SQL session is closed");
+            }
+            removePreparedQuery(preparedStatementId);
+            preparedQuerys.put(preparedStatementId,
+                    new PreparedQuery(preparedQuery, getDefaultCatalog(), getDatabase(), schema));
+        }
+    }
+
+    public void addPreparedQuery(String id, String sql, Schema schema, int parameterCount) {
+        synchronized (preparedQuerys) {
+            addPreparedQuery(id, sql, schema);
+            preparedQuerys.get(id).parameterCount = parameterCount;
+        }
+    }
+
+    public int getPreparedQueryParameterCount(String id) {
+        synchronized (preparedQuerys) {
+            PreparedQuery query = preparedQuerys.get(id);
+            return query == null ? -1 : query.parameterCount;
+        }
+    }
+
+    public List<Literal> getPreparedQueryParameters(String id) {
+        synchronized (preparedQuerys) {
+            PreparedQuery query = preparedQuerys.get(id);
+            return query == null ? null : query.parameters;
+        }
+    }
+
+    public long beginPreparedQueryBinding(String id) {
+        synchronized (preparedQuerys) {
+            PreparedQuery query = preparedQuerys.get(id);
+            if (query == null) {
+                return -1;
+            }
+            flightParameterBytes -= query.parameterBytes;
+            query.parameterBytes = 0;
+            query.parameters = null;
+            return ++query.bindingVersion;
+        }
+    }
+
+    public boolean isPreparedQueryBindingCurrent(String id, long version) {
+        synchronized (preparedQuerys) {
+            PreparedQuery query = preparedQuerys.get(id);
+            return query != null && query.bindingVersion == version;
+        }
+    }
+
+    public void setPreparedQueryParameters(String id, List<Literal> parameters, Schema schema) {
+        synchronized (preparedQuerys) {
+            PreparedQuery query = preparedQuerys.get(id);
+            if (query == null) {
+                throw new IllegalStateException("Prepared statement expired");
+            }
+            long bytes = parameters == null ? 0 : parameters.size() * 128L;
+            if (parameters != null) {
+                for (Literal parameter : parameters) {
+                    if (parameter.getValue() instanceof String) {
+                        bytes += 2L * ((String) parameter.getValue()).length();
+                    }
+                }
+            }
+            // A per-upload limit alone allows many handles to retain unbounded parameter memory in one session.
+            if (flightParameterBytes - query.parameterBytes + bytes > MAX_FLIGHT_PARAMETER_BYTES) {
+                throw new IllegalArgumentException("Prepared query parameters exceed the 16 MiB session limit");
+            }
+            flightParameterBytes += bytes - query.parameterBytes;
+            query.parameterBytes = bytes;
+            // Keep a detached immutable snapshot using a Java 8-compatible copy implementation.
+            query.parameters = parameters == null ? null : ImmutableList.copyOf(parameters);
+            query.schema = schema;
+        }
+    }
+
+    public boolean setPreparedQueryParameters(String id, List<Literal> parameters, Schema schema, long version) {
+        synchronized (preparedQuerys) {
+            if (!isPreparedQueryBindingCurrent(id, version)) {
+                return false;
+            }
+            setPreparedQueryParameters(id, parameters, schema);
+            return true;
+        }
+    }
+
+    public boolean refreshPreparedQueryNamespace(String id) {
+        synchronized (preparedQuerys) {
+            PreparedQuery query = preparedQuerys.get(id);
+            if (query == null) {
+                return false;
+            }
+            if (query.parameterCount == 0) {
+                query.catalog = getDefaultCatalog();
+                query.database = getDatabase();
+            }
+            return true;
+        }
+    }
+
+    public Schema getPreparedQuerySchema(String preparedStatementId) {
+        synchronized (preparedQuerys) {
+            PreparedQuery query = preparedQuerys.get(preparedStatementId);
+            return query == null ? null : query.schema;
+        }
     }
 
     public String getPreparedQuery(String preparedStatementId) {
-        return preparedQuerys.get(preparedStatementId);
+        synchronized (preparedQuerys) {
+            PreparedQuery query = preparedQuerys.get(preparedStatementId);
+            if (query == null) {
+                return null;
+            }
+            // A handle must not execute unqualified SQL in a different namespace than its advertised schema.
+            if (!Objects.equals(query.catalog, getDefaultCatalog()) || !Objects.equals(query.database, getDatabase())) {
+                removePreparedQuery(preparedStatementId);
+                return null;
+            }
+            return query.sql;
+        }
+    }
+
+    public void closePreparedQueries() {
+        synchronized (preparedQuerys) {
+            flightPreparedQueriesClosed = true;
+            clearPreparedQueries();
+        }
+    }
+
+    public void clearPreparedQueries() {
+        synchronized (preparedQuerys) {
+            preparedQuerys.clear();
+            flightParameterBytes = 0;
+        }
     }
 
     public void removePreparedQuery(String preparedStatementId) {
-        preparedQuerys.remove(preparedStatementId);
+        synchronized (preparedQuerys) {
+            PreparedQuery query = preparedQuerys.remove(preparedStatementId);
+            if (query != null) {
+                flightParameterBytes -= query.parameterBytes;
+            }
+        }
     }
 
     public void setRunningQuery(String runningQuery) {
@@ -1043,7 +1248,11 @@ public class ConnectContext {
         statementContext = null;
         loadBackendSelectionDecision = null;
         loadBackendSelectionHint = null;
+        prepareExecuteBuffer = null;
+        prepareExecuteTypeCodes = null;
         cursorFetchRequested = false;
+        executingPreparedStatement = null;
+        mysqlResultHasRows = false;
     }
 
     public PlSqlOperation getPlSqlOperation() {
@@ -1578,10 +1787,14 @@ public class ConnectContext {
             }
 
             row.add(Env.getCurrentEnv().getSelfNode().getHost());
-            if (cloudCluster == null) {
+            String currentCloudCluster = sessionVariable.getCloudCluster();
+            if (Strings.isNullOrEmpty(currentCloudCluster)) {
+                currentCloudCluster = cloudCluster;
+            }
+            if (currentCloudCluster == null) {
                 row.add("NULL");
             } else {
-                row.add(cloudCluster);
+                row.add(currentCloudCluster);
             }
             return row;
         }
