@@ -25,13 +25,13 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
-#include "io/fs/s3_file_system.h"
 #include "util/slice.h"
 
 namespace doris {
 class RuntimeProfile;
 
 namespace io {
+class ObjClientHolder;
 struct IOContext;
 
 class S3FileReader final : public FileReader {
