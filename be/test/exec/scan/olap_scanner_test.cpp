@@ -125,16 +125,14 @@ TEST(OlapScannerTest, BuildScoreRuntimeCollectionIoContextFollowsQueryFileCacheO
     EXPECT_TRUE(io_ctx.inverted_index_snii_read_no_write_file_cache);
 }
 
-namespace {
-
-struct ChangelogReadFixture {
+struct OlapScannerChangelogReadFixture {
     TabletSchema tablet;
     std::vector<std::unique_ptr<SlotDescriptor>> owned_slots;
     std::vector<SlotDescriptor*> slots;
     std::unique_ptr<ReadSchema> read_schema;
     TOlapScanNode scan_node;
 
-    explicit ChangelogReadFixture(bool historical = true) {
+    explicit OlapScannerChangelogReadFixture(bool historical = true) {
         for (const auto& [uid, name] : {std::pair<int, std::string> {10, "key"},
                                         {11, "current"},
                                         {12, "unrelated_before_name"},
@@ -186,10 +184,8 @@ struct ChangelogReadFixture {
     }
 };
 
-} // namespace
-
 TEST(OlapScannerTest, ExplicitChangelogPairsResolveFinalTupleSlots) {
-    ChangelogReadFixture fixture;
+    OlapScannerChangelogReadFixture fixture;
     ASSERT_TRUE(fixture.init(TChangelogScanType::MIN_DELTA).ok());
     EXPECT_EQ(1, fixture.read_schema->before_column_ordinal(4));
     EXPECT_EQ(3, fixture.read_schema->tso_ordinal());
@@ -198,7 +194,7 @@ TEST(OlapScannerTest, ExplicitChangelogPairsResolveFinalTupleSlots) {
 }
 
 TEST(OlapScannerTest, ChangelogMappingsDistinguishMissingAndEmpty) {
-    ChangelogReadFixture fixture(false);
+    OlapScannerChangelogReadFixture fixture(false);
     EXPECT_TRUE(fixture.init(TChangelogScanType::DETAIL).ok());
     EXPECT_TRUE(fixture.read_schema->changelog_value_column_pairs().empty());
     fixture.scan_node.changelog_column_mappings.__isset.pairs = false;
@@ -209,7 +205,7 @@ TEST(OlapScannerTest, ChangelogMappingsDistinguishMissingAndEmpty) {
 }
 
 TEST(OlapScannerTest, ChangelogMappingsRejectUnknownAndIncompletePairs) {
-    ChangelogReadFixture fixture;
+    OlapScannerChangelogReadFixture fixture;
     auto& pair = fixture.scan_node.changelog_column_mappings.pairs[0];
     pair.__set_before_slot_id(999);
     EXPECT_FALSE(fixture.init(TChangelogScanType::DETAIL).ok());
@@ -224,7 +220,7 @@ TEST(OlapScannerTest, ChangelogMappingsRejectUnknownAndIncompletePairs) {
 }
 
 TEST(OlapScannerTest, MinDeltaRequiresUnprojectedValues) {
-    ChangelogReadFixture fixture;
+    OlapScannerChangelogReadFixture fixture;
     TabletColumn missing;
     missing.set_unique_id(15);
     missing.set_name("unprojected_value");
@@ -235,7 +231,7 @@ TEST(OlapScannerTest, MinDeltaRequiresUnprojectedValues) {
 }
 
 TEST(OlapScannerTest, AppendOnlyAllowsNestedPruningButMinDeltaRequiresFullShape) {
-    ChangelogReadFixture fixture;
+    OlapScannerChangelogReadFixture fixture;
     for (int uid : {11, 12}) {
         auto column = fixture.tablet.columns()[fixture.tablet.field_index(uid)];
         column->set_type(FieldType::OLAP_FIELD_TYPE_STRUCT);
@@ -266,7 +262,7 @@ TEST(OlapScannerTest, AppendOnlyAllowsNestedPruningButMinDeltaRequiresFullShape)
 }
 
 TEST(OlapScannerTest, ChangelogScanRequiresSystemColumns) {
-    ChangelogReadFixture fixture;
+    OlapScannerChangelogReadFixture fixture;
     fixture.slots.erase(fixture.slots.begin()); // omit OP from the final tuple
     auto columns = fixture.read_schema->columns();
     columns.erase(columns.begin());
@@ -275,7 +271,7 @@ TEST(OlapScannerTest, ChangelogScanRequiresSystemColumns) {
 }
 
 TEST(OlapScannerTest, KeyOnlyMinDeltaAcceptsExplicitEmptyMappings) {
-    ChangelogReadFixture fixture;
+    OlapScannerChangelogReadFixture fixture;
     std::vector<TabletColumnPtr> columns;
     std::vector<SlotDescriptor*> slots;
     for (size_t ordinal = 0; ordinal < fixture.slots.size(); ++ordinal) {
