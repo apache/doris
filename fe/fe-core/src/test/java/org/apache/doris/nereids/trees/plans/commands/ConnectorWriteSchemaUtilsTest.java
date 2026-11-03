@@ -36,8 +36,8 @@ import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
@@ -96,12 +96,13 @@ public class ConnectorWriteSchemaUtilsTest extends ParserTestBase {
 
     @Test
     public void defaultReferencesResolveAgainstPinnedWriteColumns() {
-        // DEFAULT(column) in DML resolves the statement-pinned write default; a name absent from the pinned writer
-        // schema is an error rather than a guess.
+        // DEFAULT(column) in DML resolves the statement-pinned write default, typed as its INT column rather than
+        // as the TINYINT the literal parses to; a name absent from the pinned writer schema is an error rather than
+        // a guess.
         ExternalTable target = targetTable();
         List<Column> pinned = ImmutableList.of(pinnedColumn("score", 1, "9"));
 
-        Assertions.assertEquals(new TinyIntLiteral((byte) 9), ConnectorWriteSchemaUtils.resolveDefaultReferences(
+        Assertions.assertEquals(new IntegerLiteral(9), ConnectorWriteSchemaUtils.resolveDefaultReferences(
                 new Default(new UnboundSlot("score")), pinned, target, ConnectContext.get(),
                 TARGET_NAME_PARTS, null));
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
@@ -121,7 +122,7 @@ public class ConnectorWriteSchemaUtilsTest extends ParserTestBase {
         Column replacement = new Column("reused_name", ScalarType.createType(PrimitiveType.INT));
         replacement.setUniqueId(8);
 
-        Assertions.assertEquals(new TinyIntLiteral((byte) 9), ConnectorWriteSchemaUtils.resolveDefaultReferences(
+        Assertions.assertEquals(new IntegerLiteral(9), ConnectorWriteSchemaUtils.resolveDefaultReferences(
                 new Default(boundSlot(target, pinnedField)), pinned, target, ConnectContext.get(),
                 TARGET_NAME_PARTS, null));
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,

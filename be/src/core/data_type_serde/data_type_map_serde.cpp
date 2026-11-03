@@ -549,6 +549,11 @@ Status DataTypeMapSerDe::read_column_from_arrow(IColumn& column, const arrow::Ar
     auto& column_map = static_cast<ColumnMap&>(column);
     auto& offsets_data = column_map.get_offsets();
     const auto* concrete_map = dynamic_cast<const arrow::MapArray*>(arrow_array);
+    // A valid non-MAP Arrow column has no map offsets; reject it before accessing them.
+    if (concrete_map == nullptr) {
+        return Status::InvalidArgument("Expected Arrow MapArray, got {}",
+                                       arrow_array->type()->ToString());
+    }
     auto arrow_offsets_array = concrete_map->offsets();
     auto* arrow_offsets = dynamic_cast<arrow::Int32Array*>(arrow_offsets_array.get());
     if (config::enable_arrow_input_validation) {

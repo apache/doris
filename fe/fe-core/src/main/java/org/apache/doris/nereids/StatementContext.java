@@ -293,6 +293,9 @@ public class StatementContext implements Closeable {
     // The identity is captured by the same provider call chain as connectorWriteSchemas. Keeping it alongside
     // the columns prevents bind-time expressions and the later sink fence from naming different generations.
     private final Map<Long, String> connectorWriteMetadataIdentities = new HashMap<>();
+    // Connector targets of a DELETE. Their writer schema is pinned for the delete sink, but the statement writes no
+    // row values, so a write-only default in that schema does not apply to DEFAULT(column) on them.
+    private final Set<Long> connectorDeleteTargets = new HashSet<>();
 
     // for create view support in nereids
     // key is the start and end position of the sql substring that needs to be
@@ -589,6 +592,14 @@ public class StatementContext implements Closeable {
 
     public Optional<List<Column>> getConnectorWriteSchema(long tableId) {
         return Optional.ofNullable(connectorWriteSchemas.get(tableId));
+    }
+
+    public void addConnectorDeleteTarget(long tableId) {
+        connectorDeleteTargets.add(tableId);
+    }
+
+    public boolean isConnectorDeleteTarget(long tableId) {
+        return connectorDeleteTargets.contains(tableId);
     }
 
     public void setConnectorWriteMetadataIdentity(long tableId, String identity) {
@@ -902,20 +913,19 @@ public class StatementContext implements Closeable {
     }
 
     /**
-     * Closes (deterministically) then drops the connector scope so the next statement execution starts fresh.
+     * Requests closure of the old connector scope and drops it so the next execution/attempt starts fresh.
      * Prepared-statement EXECUTE reuses one StatementContext across executions (see
-     * {@link org.apache.doris.nereids.trees.plans.commands.ExecuteCommand}) and a retry reuses it across attempts;
-     * this is called at the start of each, so a prior execution's / attempt's cached tables, pinned connector
-     * writer schema, and closeable state are released (closeAll is idempotent — a no-op if the query-finish
-     * callback already closed it) and never leak into the next. Callers invoke this only after the prior
-     * execution/attempt has finished; a split producer of it still running is refused by the closed scope, so
-     * close-before-drop is safe.
+     * {@link org.apache.doris.nereids.trees.plans.commands.ExecuteCommand}) and a retry reuses it across attempts.
+     * Old split producers and their cleanup retain the captured old scope until termination; closeAll defers
+     * disposal while those users remain. New sessions obtain a fresh scope, so cached tables, pinned writer
+     * schema, and closeable state cannot leak into the next attempt. Repeated close requests are idempotent.
      */
     public synchronized void resetConnectorStatementScope() {
         closeConnectorStatementScope();
         this.connectorStatementScope = null;
         this.connectorWriteSchemas.clear();
         this.connectorWriteMetadataIdentities.clear();
+        this.connectorDeleteTargets.clear();
         changelogReferenceTsoRequired = false;
         changelogReferenceTso = null;
     }

@@ -50,11 +50,22 @@ enum class FileCacheMissPolicy : uint8_t {
     REMOTE_ONLY_ON_MISS = 1,
 };
 
+/// Provenance for opt-in physical IO diagnostics. NORMAL keeps synchronous query reads and
+/// unrelated background reads distinguishable via reader_type.
+enum class FileReadTraceSource : uint8_t { NORMAL, READ_AHEAD, HOLE_FILL };
+
 struct FileReaderStats {
     size_t read_calls = 0;
     size_t read_bytes = 0;
     int64_t read_time_ns = 0;
     size_t read_rows = 0;
+
+    void merge_from(const FileReaderStats& other) {
+        read_calls += other.read_calls;
+        read_bytes += other.read_bytes;
+        read_time_ns += other.read_time_ns;
+        read_rows += other.read_rows;
+    }
 };
 
 struct FileCacheStatistics {
@@ -222,6 +233,8 @@ struct FileCacheStatistics {
 };
 
 struct IOContext {
+    FileReadTraceSource read_trace_source {FileReadTraceSource::NORMAL};
+    uint64_t read_trace_id {0}; // read-ahead range or hole-fill task; zero when not traced
     ReaderType reader_type = ReaderType::UNKNOWN;
     // FIXME(plat1ko): Seems `is_disposable` can be inferred from the `reader_type`?
     bool is_disposable = false;

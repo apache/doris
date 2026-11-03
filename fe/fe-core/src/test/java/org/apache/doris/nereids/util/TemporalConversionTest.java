@@ -18,11 +18,12 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
@@ -39,6 +40,7 @@ import org.apache.doris.nereids.types.TimeV2Type;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.time.DateTimeException;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -121,9 +123,54 @@ class TemporalConversionTest {
         Assertions.assertEquals(LocalDateTime.of(2024, 3, 10, 7, 0, 0, 123456789),
                 TemporalValueConversion.convertZonePreservingFraction(
                         gap, ZoneId.of("America/New_York"), ZoneOffset.UTC));
-        Assertions.assertThrows(AnalysisException.class,
-                () -> local.inTimeZone("+15:00", "UTC"));
-        Assertions.assertThrows(AnalysisException.class,
-                () -> local.inTimeZone("+08:17", "UTC"));
+    }
+
+    @Test
+    void timezoneConversionAcceptsSessionOffsets() {
+        DateTimeV2Literal local = new DateTimeV2Literal("2024-01-02 12:00:00.123456");
+        TimeStampNsLiteral nanos = new TimeStampNsLiteral("2024-01-02 12:00:00.123456789");
+        String[][] cases = {
+                {"+08:17", "2024-01-02 03:43:00"},
+                {"+08:01", "2024-01-02 03:59:00"},
+                {"+14:00", "2024-01-01 22:00:00"},
+                {"-12:00", "2024-01-03 00:00:00"}
+        };
+        for (String prefix : new String[] {"", "UTC", "GMT", "utc", "gmt"}) {
+            for (String[] testCase : cases) {
+                String zone = prefix + testCase[0];
+                DateTimeV2Literal expected = new DateTimeV2Literal(testCase[1] + ".123456");
+                TimeStampNsLiteral expectedNanos = new TimeStampNsLiteral(testCase[1] + ".123456789");
+                Assertions.assertEquals(expected, local.inTimeZone(zone, "UTC"), zone);
+                Assertions.assertEquals(local, expected.inTimeZone("UTC", zone), zone);
+                Assertions.assertEquals(expected, DateTimeExtractAndTransform.convertTz(
+                        local, new StringLiteral(zone), new StringLiteral("UTC")), zone);
+                Assertions.assertEquals(expectedNanos, DateTimeExtractAndTransform.convertTz(
+                        nanos, new StringLiteral(zone), new StringLiteral("UTC")), zone);
+                Assertions.assertEquals(nanos, DateTimeExtractAndTransform.convertTz(
+                        expectedNanos, new StringLiteral("UTC"), new StringLiteral(zone)), zone);
+            }
+        }
+        Assertions.assertEquals(new DateTimeV2Literal("2024-01-02 04:00:00.123456"),
+                local.inTimeZone("CST", "UTC"));
+    }
+
+    @Test
+    void timezoneConversionRejectsInvalidSessionOffsets() {
+        DateTimeV2Literal local = new DateTimeV2Literal("2024-01-02 12:00:00.123456");
+        TimeStampNsLiteral nanos = new TimeStampNsLiteral("2024-01-02 12:00:00.123456789");
+        for (String prefix : new String[] {"", "UTC", "GMT", "utc", "gmt"}) {
+            for (String offset : new String[] {"+14:01", "+14:30", "-12:01", "-12:30", "+15:00", "-13:00",
+                    "+08:60", "+08:00:01"}) {
+                String zone = prefix + offset;
+                Assertions.assertThrows(DateTimeException.class, () -> local.inTimeZone(zone, "UTC"), zone);
+                Assertions.assertThrows(DateTimeException.class, () -> local.inTimeZone("UTC", zone), zone);
+                Assertions.assertThrows(DateTimeException.class, () -> DateTimeExtractAndTransform.convertTz(
+                        local, new StringLiteral(zone), new StringLiteral("UTC")), zone);
+                Assertions.assertThrows(DateTimeException.class, () -> DateTimeExtractAndTransform.convertTz(
+                        nanos, new StringLiteral(zone), new StringLiteral("UTC")), zone);
+                Assertions.assertThrows(DateTimeException.class, () -> DateTimeExtractAndTransform.convertTz(
+                        nanos, new StringLiteral("UTC"), new StringLiteral(zone)), zone);
+            }
+        }
     }
 }

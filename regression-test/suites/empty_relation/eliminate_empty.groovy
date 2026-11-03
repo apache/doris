@@ -23,6 +23,8 @@ suite("eliminate_empty") {
     multi_sql """
         SET enable_nereids_planner=true;
         SET enable_fallback_to_original_planner=false;
+        set enable_spill = false;
+        set enable_force_spill = false;
         set disable_nereids_rules='PRUNE_EMPTY_PARTITION';
         set forbid_unknown_col_stats=false;
         set enable_parallel_result_sink=false;

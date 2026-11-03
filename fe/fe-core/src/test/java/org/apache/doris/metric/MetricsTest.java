@@ -18,7 +18,9 @@
 package org.apache.doris.metric;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.CloudTabletStatMgr;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.cloud.CloudWarmUpJob;
 import org.apache.doris.cloud.JobWarmUpStats;
 import org.apache.doris.common.Config;
@@ -340,6 +342,92 @@ public class MetricsTest {
         Assertions.assertFalse(prometheusResult.contains("doris_fe_meta_service_rpc_latency_ms_Instance"));
         Assertions.assertFalse(prometheusResult.contains("doris_fe_stale_latency_ms"));
         Assertions.assertFalse(prometheusResult.contains("doris_fe_disabled_latency_ms"));
+    }
+
+    @Test
+    public void testPrometheusVisitorEscapesLabelValues() {
+        // A table name may contain a backslash, a double quote and a line feed, which the text format only
+        // accepts escaped in a label value; the plain label beside it is written as is.
+        String name = "a\\b\"c\nd";
+        String escapedName = "a\\\\b\\\"c\\nd";
+        GaugeMetricImpl<Long> gauge = new GaugeMetricImpl<>("escape_test", MetricUnit.NOUNIT, "escape test", 1L);
+        gauge.addLabel(new MetricLabel("table_name", name)).addLabel(new MetricLabel("db_name", "db1"));
+        MetricVisitor visitor = new PrometheusMetricVisitor();
+        visitor.visit(MetricVisitor.FE_PREFIX, gauge);
+        Assertions.assertEquals("# HELP doris_fe_escape_test escape test\n"
+                + "# TYPE doris_fe_escape_test gauge\n"
+                + "doris_fe_escape_test{table_name=\"" + escapedName + "\", db_name=\"db1\"} 1\n", visitor.finish());
+
+        HistogramMetric histogram = new HistogramMetric("escape.latency.ms",
+                Lists.newArrayList(new MetricLabel("table_name", name)));
+        histogram.update(10L);
+        visitor = new PrometheusMetricVisitor();
+        visitor.visitHistogram(MetricVisitor.FE_PREFIX, histogram.getName(), histogram.getHistogram(),
+                histogram.getLabels());
+        // a histogram of the codahale registry carries its labels in the name, as part.part.key=value
+        visitor.visitHistogram(MetricVisitor.FE_PREFIX, "escape.name.ms.table_name=" + name,
+                histogram.getHistogram());
+        String result = visitor.finish();
+        Assertions.assertTrue(result.contains("doris_fe_escape_latency_ms{quantile=\"0.999\",table_name=\""
+                + escapedName + "\"} 10.0\n"), result);
+        Assertions.assertTrue(result.contains("doris_fe_escape_latency_ms_count{table_name=\""
+                + escapedName + "\"} 1\n"), result);
+        Assertions.assertTrue(result.contains("doris_fe_escape_name_ms{quantile=\"0.999\",table_name=\""
+                + escapedName + "\"} 10.0\n"), result);
+        Assertions.assertTrue(result.contains("doris_fe_escape_name_ms_count{table_name=\""
+                + escapedName + "\"} 1\n"), result);
+    }
+
+    @Test
+    public void testPrometheusVisitorWritesNullLabelValue() {
+        // A table warm-up job has no source cluster, so the series of its start and finish times carry a null
+        // src_cluster_name; it is written as null, as before label values were escaped.
+        GaugeMetricImpl<Long> gauge = new GaugeMetricImpl<>("null_label_test", MetricUnit.NOUNIT, "null label test",
+                1L);
+        gauge.addLabel(new MetricLabel("src_cluster_name", null)).addLabel(new MetricLabel("dst_cluster_name", "cg1"));
+        MetricVisitor visitor = new PrometheusMetricVisitor();
+        visitor.visit(MetricVisitor.FE_PREFIX, gauge);
+        Assertions.assertEquals("# HELP doris_fe_null_label_test null label test\n"
+                + "# TYPE doris_fe_null_label_test gauge\n"
+                + "doris_fe_null_label_test{src_cluster_name=\"null\", dst_cluster_name=\"cg1\"} 1\n",
+                visitor.finish());
+
+        HistogramMetric histogram = new HistogramMetric("null_label.latency.ms",
+                Lists.newArrayList(new MetricLabel("src_cluster_name", null)));
+        histogram.update(10L);
+        visitor = new PrometheusMetricVisitor();
+        visitor.visitHistogram(MetricVisitor.FE_PREFIX, histogram.getName(), histogram.getHistogram(),
+                histogram.getLabels());
+        String result = visitor.finish();
+        Assertions.assertTrue(result.contains("doris_fe_null_label_latency_ms_count{src_cluster_name=\"null\"} 1\n"),
+                result);
+    }
+
+    @Test
+    public void testCloudTableStatsEscapeTableName() {
+        String originCloudUniqueId = Config.cloud_unique_id;
+        Env env = Env.getCurrentEnv();
+        Object originTabletStatMgr = Deencapsulation.getField(env, "tabletStatMgr");
+        CloudTabletStatMgr tabletStatMgr = Mockito.mock(CloudTabletStatMgr.class);
+        Mockito.when(tabletStatMgr.getCloudTableStats()).thenReturn(Collections.singletonList(
+                new OlapTable.Statistics("db1", "a\\b\"c\nd", 100L, 300L, 0L, 3L, 10L, 2L, 4L,
+                        0L, 0L, 0L, 0L, 0L, 0L)));
+        Mockito.when(tabletStatMgr.getTotalTableSize()).thenReturn(100L);
+        try {
+            Config.cloud_unique_id = "test_cloud_unique_id";
+            Deencapsulation.setField(env, "tabletStatMgr", tabletStatMgr);
+            MetricVisitor visitor = new PrometheusMetricVisitor();
+            visitor.visitCloudTableStats();
+            String result = visitor.finish();
+            String labels = "{db_name=\"db1\", table_name=\"a\\\\b\\\"c\\nd\"} ";
+            Assertions.assertTrue(result.contains("\ndoris_fe_table_data_size" + labels + "100\n"), result);
+            Assertions.assertTrue(result.contains("\ndoris_fe_table_rowset_count" + labels + "2\n"), result);
+            Assertions.assertTrue(result.contains("\ndoris_fe_table_segment_count" + labels + "4\n"), result);
+            Assertions.assertTrue(result.contains("\ndoris_fe_table_row_count" + labels + "10\n"), result);
+        } finally {
+            Deencapsulation.setField(env, "tabletStatMgr", originTabletStatMgr);
+            Config.cloud_unique_id = originCloudUniqueId;
+        }
     }
 
     @Test

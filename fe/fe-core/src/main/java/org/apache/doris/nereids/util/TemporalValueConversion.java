@@ -17,59 +17,26 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.common.util.TimeZoneParser;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeFormatterBuilder;
-import java.time.format.ResolverStyle;
 
 /** Timezone value conversion shared by literal CAST and executable SQL functions. */
 public final class TemporalValueConversion {
     private TemporalValueConversion() {
     }
 
-    /** Resolve string zones with the existing SQL offset validation and DST policy. */
+    /** Resolve conversion zones with the session policy shared by CAST and CONVERT_TZ. */
     public static LocalDateTime convertZone(LocalDateTime datetime, String fromTz, String toTz) {
-        // Validate timezone offset ranges before parsing
-        validateTimezoneOffset(fromTz);
-        validateTimezoneOffset(toTz);
-
-        DateTimeFormatter zoneFormatter = new DateTimeFormatterBuilder()
-                .parseCaseInsensitive()
-                .appendZoneOrOffsetId()
-                .toFormatter()
-                .withResolverStyle(ResolverStyle.STRICT);
-        ZoneId fromZone = ZoneId.from(zoneFormatter.parse(fromTz));
-        ZoneId toZone = ZoneId.from(zoneFormatter.parse(toTz));
-
+        // These are conversion zones, not offsets embedded in DATETIME/TIMESTAMPTZ literals.
+        // Keep aliases, offset syntax and range checks in the common parser.
+        ZoneId fromZone = TimeZoneParser.parse(fromTz, TimeZoneParser.Usage.SESSION);
+        ZoneId toZone = TimeZoneParser.parse(toTz, TimeZoneParser.Usage.SESSION);
         Instant instant = DateTimeLiteral.convertLocalToInstant(datetime, fromZone);
         return LocalDateTime.ofInstant(instant, toZone);
-    }
-
-    private static void validateTimezoneOffset(String timezone) {
-        // Pattern to match offset format like +HH:MM or -HH:MM
-        if (timezone.matches("^[+-]\\d{2}:\\d{2}$")) {
-            boolean positive = timezone.charAt(0) == '+';
-            int hour = Integer.parseInt(timezone.substring(1, 3));
-            int minute = Integer.parseInt(timezone.substring(4, 6));
-
-            if (!positive && hour > 12) {
-                throw new AnalysisException("Invalid timezone offset: " + timezone
-                        + ". Timezone offsets must be between -12:00 and +14:00");
-            } else if (positive && hour > 14) {
-                throw new AnalysisException("Invalid timezone offset: " + timezone
-                        + ". Timezone offsets must be between -12:00 and +14:00");
-            }
-
-            if (minute != 0 && minute != 15 && minute != 30 && minute != 45) {
-                throw new AnalysisException("Invalid timezone offset: " + timezone
-                        + ". Minute part should be 00, 15, 30, or 45");
-            }
-        }
     }
 
     /**
