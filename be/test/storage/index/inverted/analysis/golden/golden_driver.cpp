@@ -36,10 +36,10 @@
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "storage/index/inverted/analysis/char_filter/char_filter_factory.h"
 #include "storage/index/inverted/analysis/inverted_index_parser.h"
-#include "storage/index/inverted/analysis/reader.h"
 #include "storage/index/inverted/analysis/token_batch.h"
 #include "storage/index/inverted/analysis/token_filter/token_filter_factory.h"
 #include "storage/index/inverted/analysis/tokenizer/tokenizer_factory.h"
+#include "storage/index/inverted/clucene/lucene_reader.h"
 #include "util/hash_util.hpp"
 
 namespace doris::segment_v2::inverted_index::golden {
@@ -97,9 +97,8 @@ void read_tokens(lucene::analysis::TokenStream* stream, lucene::analysis::Token*
 
 class LuceneDriver final : public GoldenDriver {
 public:
-    LuceneDriver(std::function<AnalyzerPtr()> make_analyzer, CharFilterMap char_filter_map)
-            : _make_analyzer(std::move(make_analyzer)),
-              _char_filter_map(std::move(char_filter_map)) {
+    explicit LuceneDriver(std::function<AnalyzerPtr()> make_analyzer)
+            : _make_analyzer(std::move(make_analyzer)) {
         restart();
     }
 
@@ -107,7 +106,7 @@ public:
     GoldenLine fresh(std::string_view line) override {
         GoldenLine out;
         try {
-            auto reader = InvertedIndexAnalyzer::create_reader(_char_filter_map);
+            ReaderPtr reader = std::make_shared<lucene::util::SStringReader<char>>();
             reader->init(line.data(), cast_set<int32_t>(line.size()), false);
             std::unique_ptr<lucene::analysis::TokenStream> stream(
                     _analyzer->tokenStream(L"", reader));
@@ -148,12 +147,11 @@ public:
 private:
     void restart() {
         _analyzer = _make_analyzer();
-        _reader = InvertedIndexAnalyzer::create_reader(_char_filter_map);
+        _reader = std::make_shared<lucene::util::SStringReader<char>>();
         _token = std::make_unique<lucene::analysis::Token>();
     }
 
     std::function<AnalyzerPtr()> _make_analyzer;
-    CharFilterMap _char_filter_map;
     AnalyzerPtr _analyzer;
     ReaderPtr _reader;
     std::unique_ptr<lucene::analysis::Token> _token;
@@ -360,7 +358,7 @@ std::vector<std::pair<std::string, std::string>> registered_components() {
 }
 
 std::unique_ptr<GoldenDriver> make_lucene_driver(std::function<AnalyzerPtr()> make_analyzer) {
-    return std::make_unique<LuceneDriver>(std::move(make_analyzer), CharFilterMap {});
+    return std::make_unique<LuceneDriver>(std::move(make_analyzer));
 }
 
 void parallel_for(size_t count, const std::function<void(size_t)>& body) {

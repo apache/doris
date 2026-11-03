@@ -49,6 +49,28 @@ std::vector<CollectedToken> collect_checked(TextTokenStream& stream, std::string
     return tokens;
 }
 
+std::vector<CollectedToken> collect_checked(const TextAnalyzer& analyzer, std::string_view text) {
+    const std::unique_ptr<TextTokenStream> stream = analyzer.create_stream();
+    return collect_checked(*stream, text);
+}
+
+std::vector<std::string> terms_of(const std::vector<CollectedToken>& tokens) {
+    std::vector<std::string> terms;
+    terms.reserve(tokens.size());
+    for (const CollectedToken& token : tokens) {
+        terms.push_back(token.term);
+    }
+    return terms;
+}
+
+std::vector<std::string> collect_terms(TextTokenStream& stream, std::string_view text) {
+    return terms_of(collect_checked(stream, text));
+}
+
+std::vector<std::string> collect_terms(const TextAnalyzer& analyzer, std::string_view text) {
+    return terms_of(collect_checked(analyzer, text));
+}
+
 void expect_text_stream_contract(const TextStreamFactory& make_stream,
                                  const std::vector<std::string>& texts) {
     const std::unique_ptr<TextTokenStream> reused = make_stream();

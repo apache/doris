@@ -30,10 +30,8 @@
 #include "runtime/exec_env.h"
 #include "runtime/index_policy/index_policy_mgr.h"
 #include "storage/index/inverted/analysis/inverted_index_parser.h"
-#include "storage/index/inverted/analysis/reader.h"
 #include "storage/index/inverted/analysis/scratch.h"
 #include "storage/index/inverted/analysis/token_batch.h"
-#include "storage/index/inverted/clucene/lucene_backed_text_analyzer.h"
 #include "util/defer_op.h"
 
 namespace doris::segment_v2::inverted_index {
@@ -445,10 +443,8 @@ TEST_F(AnalyzerTest, TestAnalyzeQueryValue) {
     // A context's analyzer comes before the index's.
     InvertedIndexAnalyzerCtx standard;
     standard.parser_type = InvertedIndexParserType::PARSER_STANDARD;
-    standard.analyzer = std::make_shared<LuceneBackedTextAnalyzer>(
-            InvertedIndexAnalyzer::create_builtin_analyzer(InvertedIndexParserType::PARSER_STANDARD,
-                                                           "", INVERTED_INDEX_PARSER_FALSE,
-                                                           "none"));
+    standard.analyzer = InvertedIndexAnalyzer::create_builtin_analyzer(
+            InvertedIndexParserType::PARSER_STANDARD, "", INVERTED_INDEX_PARSER_FALSE, "none");
     ASSERT_TRUE(InvertedIndexAnalyzer::analyze("Hello World", &standard, english, &out).ok());
     EXPECT_EQ(terms(out), (std::vector<std::string> {"Hello", "World"}));
 

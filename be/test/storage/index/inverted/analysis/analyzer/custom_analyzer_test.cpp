@@ -26,14 +26,13 @@
 #include <string_view>
 #include <vector>
 
-#include "CLucene/store/Directory.h"
-#include "CLucene/store/FSDirectory.h"
-#include "roaring/roaring.hh"
 #include "runtime/exec_env.h"
 #include "storage/index/inverted/analysis/analysis_factory_mgr.h"
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "storage/index/inverted/analysis/setting.h"
+#include "storage/index/inverted/analysis/text_stream_contract.h"
 #include "storage/index/inverted/analysis/tokenizer/ngram/gram_tokenizer.h"
+#include "storage/index/inverted/clucene/lucene_analyzer_bridge.h"
 
 CL_NS_USE(util)
 CL_NS_USE(store)
@@ -97,19 +96,14 @@ protected:
     Settings _word_delimiter_params2;
 };
 
-int32_t tokenize(const CustomAnalyzerPtr& custom_analyzer, const std::vector<std::string>& lines) {
-    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+// The tokens of all `lines`, read with one stream, as a writer reads its rows.
+int32_t tokenize(const TextAnalyzerPtr& custom_analyzer, const std::vector<std::string>& lines) {
+    const std::unique_ptr<TextTokenStream> stream = custom_analyzer->create_stream();
     size_t total_count = 0;
-    Token t;
-    for (size_t i = 0; i < lines.size(); ++i) {
-        reader->init(lines[i].data(), lines[i].size(), false);
-        auto* token_stream = custom_analyzer->reusableTokenStream(L"", reader);
-        token_stream->reset();
-        while (token_stream->next(&t)) {
-            total_count++;
-        }
+    for (const std::string& line : lines) {
+        total_count += collect_checked(*stream, line).size();
     }
-    return total_count;
+    return static_cast<int32_t>(total_count);
 }
 
 struct ExpectedToken {
@@ -121,17 +115,11 @@ struct ExpectedToken {
     }
 };
 
-std::vector<ExpectedToken> tokenize1(const CustomAnalyzerPtr& custom_analyzer,
+std::vector<ExpectedToken> tokenize1(const TextAnalyzerPtr& custom_analyzer,
                                      const std::string line) {
     std::vector<ExpectedToken> results;
-    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
-    reader->init(line.data(), line.size(), false);
-    auto* token_stream = custom_analyzer->reusableTokenStream(L"", reader);
-    token_stream->reset();
-    Token t;
-    while (token_stream->next(&t)) {
-        results.emplace_back(std::string(t.termBuffer<char>(), t.termLength<char>()),
-                             t.getPositionIncrement());
+    for (const CollectedToken& token : collect_checked(*custom_analyzer, line)) {
+        results.push_back({.term = token.term, .pos = token.position_increment});
     }
     return results;
 }
@@ -243,11 +231,14 @@ TEST_F(CustomAnalyzerTest, GramAnalyzerReusesOneTokenizerAcrossRows) {
     }
 }
 
+// The V1/V2 writer reaches a custom analyzer through the bridge, which takes the value as a
+// shared reader only.
 TEST_F(CustomAnalyzerTest, TokenStreamNotSupported) {
     CustomAnalyzerConfig::Builder builder;
     builder.with_tokenizer_config("standard", {});
     auto custom_analyzer_config = builder.build();
-    auto custom_analyzer = CustomAnalyzer::build_custom_analyzer(custom_analyzer_config);
+    auto custom_analyzer = std::make_shared<LuceneAnalyzerBridge>(
+            CustomAnalyzer::build_custom_analyzer(custom_analyzer_config));
 
     auto reader = std::make_shared<lucene::util::SStringReader<char>>();
     reader->init("test content", 12, false);
@@ -261,7 +252,8 @@ TEST_F(CustomAnalyzerTest, ReusableTokenStreamNotSupported) {
     CustomAnalyzerConfig::Builder builder;
     builder.with_tokenizer_config("standard", {});
     auto custom_analyzer_config = builder.build();
-    auto custom_analyzer = CustomAnalyzer::build_custom_analyzer(custom_analyzer_config);
+    auto custom_analyzer = std::make_shared<LuceneAnalyzerBridge>(
+            CustomAnalyzer::build_custom_analyzer(custom_analyzer_config));
 
     auto reader = std::make_shared<lucene::util::SStringReader<char>>();
     reader->init("test content", 12, false);
@@ -273,16 +265,19 @@ TEST_F(CustomAnalyzerTest, ReusableTokenStreamNotSupported) {
         FAIL() << "Expected Exception to be thrown";
     } catch (const Exception& e) {
         EXPECT_EQ(e.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
-        EXPECT_STREQ(e.what(), "[E-6001] CustomAnalyzer::reusableTokenStream not supported");
+        EXPECT_STREQ(e.what(),
+                     "[E-6001] LuceneAnalyzerBridge::reusableTokenStream needs a ReaderPtr");
     }
 }
 
+// As the V1/V2 writer reads an array element: a new CLucene stream on a shared reader.
 TEST_F(CustomAnalyzerTest, TokenStreamWithReaderPtr) {
     CustomAnalyzerConfig::Builder builder;
     builder.with_tokenizer_config("standard", {});
     builder.add_token_filter_config("lowercase", {});
     auto custom_analyzer_config = builder.build();
-    auto custom_analyzer = CustomAnalyzer::build_custom_analyzer(custom_analyzer_config);
+    auto custom_analyzer = std::make_shared<LuceneAnalyzerBridge>(
+            CustomAnalyzer::build_custom_analyzer(custom_analyzer_config));
 
     auto reader = std::make_shared<lucene::util::SStringReader<char>>();
     reader->init("Hello World Test", 16, false);
@@ -290,7 +285,7 @@ TEST_F(CustomAnalyzerTest, TokenStreamWithReaderPtr) {
     auto* token_stream = custom_analyzer->tokenStream(L"field", reader);
     EXPECT_NE(token_stream, nullptr);
 
-    Token t;
+    lucene::analysis::Token t;
     std::vector<std::string> tokens;
     token_stream->reset();
     while (token_stream->next(&t)) {

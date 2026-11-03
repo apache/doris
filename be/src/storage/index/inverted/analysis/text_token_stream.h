@@ -62,9 +62,9 @@ public:
     // (scratch.h), so the number stays bounded however long a value was.
     virtual size_t reserved_bytes() const = 0;
 
-    // Strict handling of invalid UTF-8, which the pinyin filter needs when it reports source
-    // offsets: icu, ngram and edge_ngram then throw on it, and ik normalizes strictly. A filter
-    // forwards it to its input; a tokenizer without a strict form ignores it.
+    // Strict handling of invalid UTF-8, which the pinyin filter turns on for its input when
+    // ignore_pinyin_offset is false: icu, ngram and edge_ngram then throw on it, and ik folds rune
+    // by rune. A filter forwards it to its input; a tokenizer without a strict form ignores it.
     virtual void set_strict_utf8(bool /*strict*/) {}
 };
 
