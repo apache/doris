@@ -285,8 +285,8 @@ suite("test_routine_load_alter","p0") {
             assertEquals("true", json.num_as_string.toString())
             assertEquals("k00,k01,k02,k03,k04,k05", json.columnToColumnExpr.toString())
             assertEquals("','", json.column_separator.toString())
-            assertEquals("(CAST(k00 AS decimalv3(38,6)) = CAST(8 AS decimalv3(38,6)))", json.precedingFilter.toString())
-            assertEquals("(CAST(k00 AS decimalv3(38,6)) = CAST(8 AS decimalv3(38,6)))", json.whereExpr.toString())
+            assertEquals("(CAST(`k00` AS decimalv3(38,6)) = CAST(8 AS decimalv3(38,6)))", json.precedingFilter.toString())
+            assertEquals("(CAST(`k00` AS decimalv3(38,6)) = CAST(8 AS decimalv3(38,6)))", json.whereExpr.toString())
             assertEquals("p1", json.partitions.toString())
             assertEquals("k00", json.sequence_col.toString())
         } finally {
