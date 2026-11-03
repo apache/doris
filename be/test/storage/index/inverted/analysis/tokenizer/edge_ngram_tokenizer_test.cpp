@@ -21,6 +21,7 @@
 
 #include <unordered_map>
 
+#include "storage/index/inverted/analysis/text_stream_contract.h"
 #include "storage/index/inverted/analysis/tokenizer/ngram/edge_ngram_tokenizer_factory.h"
 
 namespace doris::segment_v2 {
@@ -30,21 +31,8 @@ using namespace inverted_index;
 class EdgeNGramTokenizerTest : public ::testing::Test {};
 
 std::vector<std::string> tokenize(EdgeNGramTokenizerFactory& factory, const std::string& text) {
-    std::vector<std::string> tokens;
     auto tokenizer = factory.create();
-    {
-        ReaderPtr reader = std::make_shared<lucene::util::SStringReader<char>>();
-        reader->init(text.data(), text.size(), false);
-        tokenizer->set_reader(reader);
-        tokenizer->reset();
-
-        Token t;
-        while (tokenizer->next(&t)) {
-            std::string term(t.termBuffer<char>(), t.termLength<char>());
-            tokens.emplace_back(term);
-        }
-    }
-    return tokens;
+    return collect_terms(*tokenizer, text);
 }
 
 TEST(EdgeNGramTokenizerTest, DefaultMinMaxValues) {

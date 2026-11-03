@@ -22,42 +22,42 @@
 #include <memory>
 #include <sstream>
 
+#include "CLucene.h" // IWYU pragma: keep
+#include "common/config.h"
+#include "common/exception.h"
 #include "core/arena.h"
+#include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "storage/index/inverted/analysis/analyzer/custom_analyzer.h"
-#include "storage/index/inverted/analysis/analyzer/ik/IKAnalyzer.h"
+#include "storage/index/inverted/analysis/analyzer/ik/IKTokenizer.h"
 #include "storage/index/inverted/analysis/analyzer/ik/cfg/Configuration.h"
 #include "storage/index/inverted/analysis/analyzer/ik/core/AnalyzeContext.h"
 #include "storage/index/inverted/analysis/analyzer/ik/core/IKSegmenter.h"
 #include "storage/index/inverted/analysis/analyzer/ik/core/Lexeme.h"
+#include "storage/index/inverted/analysis/common/text_cursor.h"
+#include "storage/index/inverted/analysis/inverted_index_parser.h"
+#include "storage/index/inverted/analysis/text_stream_contract.h"
 #include "storage/index/inverted/analysis/tokenizer/ik/ik_tokenizer_factory.h"
+#include "storage/index/inverted/clucene/lucene_analyzer_bridge.h"
+#include "util/defer_op.h"
 using namespace lucene::analysis;
 
 namespace doris::segment_v2 {
 
 class IKTokenizerTest : public ::testing::Test {
 protected:
+    // The configuration of the builtin ik parser, with the dictionary under ./be/dict/ik loaded.
+    static std::shared_ptr<Configuration> ik_config(bool isSmart) {
+        auto config = std::make_shared<Configuration>(isSmart, true);
+        config->setDictPath("./be/dict/ik");
+        Dictionary::initial(*config);
+        return config;
+    }
+
+    // The builtin ik parser, lowercasing.
     void tokenize(const std::string& s, std::vector<std::string>& datas, bool isSmart) {
-        try {
-            IKAnalyzer analyzer;
-            analyzer.initDict("./be/dict/ik");
-            analyzer.setMode(isSmart);
-            analyzer.set_lowercase(true);
-
-            lucene::util::SStringReader<char> reader;
-            reader.init(s.data(), s.size(), false);
-
-            std::unique_ptr<IKTokenizer> tokenizer;
-            tokenizer.reset((IKTokenizer*)analyzer.tokenStream(L"", &reader));
-
-            Token t;
-            while (tokenizer->next(&t)) {
-                std::string term(t.termBuffer<char>(), t.termLength<char>());
-                datas.emplace_back(term);
-            }
-        } catch (CLuceneError& e) {
-            std::cout << e.what() << std::endl;
-            throw;
-        }
+        IKTokenizer tokenizer(ik_config(isSmart), true);
+        const std::vector<std::string> terms = inverted_index::collect_terms(tokenizer, s);
+        datas.insert(datas.end(), terms.begin(), terms.end());
     }
 
     /**
@@ -82,10 +82,7 @@ protected:
         // must load it here.
         Dictionary::initial(*config);
         IKSegmenter segmenter(config);
-
-        lucene::util::SStringReader<char> reader;
-        reader.init(s.data(), s.size(), false);
-        segmenter.reset(&reader);
+        segmenter.reset(s);
 
         Lexeme lexeme;
         while (segmenter.next(lexeme)) {
@@ -138,23 +135,22 @@ TEST_F(IKTokenizerTest, TestDictionaryExceptionHandling) {
     Dictionary::destroy();
 
     // A named custom IK analyzer defers dictionary loading until its first token stream.
-    // That public boundary must translate CLucene failures into a Doris analyzer exception.
+    // That public boundary must report the failure as a Doris analyzer exception.
     const std::string old_dict_path = config::inverted_index_dict_path;
     config::inverted_index_dict_path = "/non_existent_path";
     inverted_index::CustomAnalyzerConfig::Builder builder;
     builder.with_tokenizer_config("ik_smart", {});
     auto custom_analyzer = inverted_index::CustomAnalyzer::build_custom_analyzer(builder.build());
-    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
-    reader->init("test", 4, false);
     bool caught_doris_exception = false;
     try {
-        std::unique_ptr<TokenStream> stream(custom_analyzer->tokenStream(L"", reader));
+        const std::unique_ptr<inverted_index::TextTokenStream> stream =
+                custom_analyzer->create_stream();
     } catch (const Exception& e) {
         caught_doris_exception = true;
         EXPECT_EQ(e.code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR);
         EXPECT_NE(e.message().find("Dictionary initialization failed"), std::string::npos);
-    } catch (const CLuceneError& e) {
-        ADD_FAILURE() << "Raw CLuceneError escaped custom analyzer: " << e.what();
+    } catch (const std::exception& e) {
+        ADD_FAILURE() << "A non-Doris exception escaped the custom analyzer: " << e.what();
     }
     config::inverted_index_dict_path = old_dict_path;
     EXPECT_TRUE(caught_doris_exception);
@@ -166,8 +162,8 @@ TEST_F(IKTokenizerTest, TestDictionaryExceptionHandling) {
         cfg.setMainDictFile("main.dic");
         cfg.setQuantifierDictFile("quantifier.dic");
         cfg.setStopWordDictFile("stopword.dic");
-        ASSERT_THROW({ Dictionary::initial(cfg, false); }, CLuceneError);
-        ASSERT_THROW({ Dictionary::getSingleton(); }, CLuceneError);
+        ASSERT_THROW({ Dictionary::initial(cfg, false); }, Exception);
+        ASSERT_THROW({ Dictionary::getSingleton(); }, Exception);
     }
 
     // The next attempt loads, without a restart.
@@ -314,67 +310,57 @@ TEST_F(IKTokenizerTest, TestLargeInput) {
     ASSERT_EQ(datas.size(), 7000);
 }
 
-TEST_F(IKTokenizerTest, TestOffsetsAcrossBufferRefill) {
+// 6000 bytes take two refills of the 4096-byte window, and no token is lost or split across them.
+TEST_F(IKTokenizerTest, TestTokensAcrossBufferRefill) {
     std::string text;
     for (int i = 0; i < 2000; ++i) {
         text += "我 ";
     }
 
-    IKAnalyzer analyzer;
-    analyzer.initDict("./be/dict/ik");
-    analyzer.setMode(true);
-    lucene::util::SStringReader<char> reader;
-    reader.init(text.data(), text.size(), false);
-    std::unique_ptr<TokenStream> stream(analyzer.tokenStream(L"", &reader));
-
-    Token token;
-    int token_index = 0;
-    while (stream->next(&token) != nullptr) {
-        ASSERT_EQ(token.startOffset(), token_index * 4);
-        ASSERT_EQ(token.endOffset(), token_index * 4 + 3);
-        ++token_index;
+    std::vector<std::string> datas;
+    tokenize(text, datas, true);
+    for (const std::string& term : datas) {
+        ASSERT_EQ(term, "我");
     }
-    ASSERT_EQ(token_index, 2000);
+    ASSERT_EQ(datas.size(), 2000);
 }
 
 // A value that starts with a character cut short, here the first two bytes of U+4E2D, has nothing
-// IK can decode, and tokenStream() throws. The tokenizer it had created leaked; LeakSanitizer
-// reports that when the test binary exits.
+// IK can decode, and reset() throws. The tokenizer of a stream that threw used to leak;
+// LeakSanitizer reports that when the test binary exits.
 TEST_F(IKTokenizerTest, TestUndecodableValueThrowsWithoutLeakingTheStream) {
-    IKAnalyzer analyzer;
-    analyzer.initDict("./be/dict/ik");
     const std::string value = "\xE4\xB8";
-    lucene::util::SStringReader<char> reader;
-    reader.init(value.data(), value.size(), false);
-    EXPECT_THROW({ std::unique_ptr<TokenStream> stream(analyzer.tokenStream(L"", &reader)); },
-                 CLuceneError);
+    EXPECT_THROW(
+            {
+                auto tokenizer = std::make_unique<IKTokenizer>(ik_config(true), true);
+                tokenizer->reset(value);
+            },
+            Exception);
 }
 
+// A reset() of a value that is bound already starts it over: the builtin parser's tokenizer and
+// the custom ik_smart tokenizer both hand out its tokens after two resets in a row.
 TEST_F(IKTokenizerTest, TestLegacyAndCustomResetContracts) {
-    IKAnalyzer analyzer;
-    analyzer.initDict("./be/dict/ik");
-    analyzer.setMode(true);
     const std::string text = "我来到北京";
-    lucene::util::SStringReader<char> legacy_reader;
-    legacy_reader.init(text.data(), text.size(), false);
-    std::unique_ptr<TokenStream> legacy_stream(analyzer.tokenStream(L"", &legacy_reader));
-    legacy_stream->reset();
-    Token token;
-    ASSERT_NE(legacy_stream->next(&token), nullptr);
+    inverted_index::TokenBatch batch;
+
+    IKTokenizer legacy_tokenizer(ik_config(true), true);
+    legacy_tokenizer.reset(text);
+    legacy_tokenizer.reset(text);
+    ASSERT_TRUE(legacy_tokenizer.next_batch(batch));
 
     inverted_index::IKTokenizerFactory factory(true);
     factory.initialize({});
     auto custom_tokenizer = factory.create();
-    auto custom_reader = std::make_shared<lucene::util::SStringReader<char>>();
-    custom_reader->init(text.data(), text.size(), false);
-    custom_tokenizer->set_reader(custom_reader);
-    custom_tokenizer->reset();
-    custom_tokenizer->reset();
-    ASSERT_NE(custom_tokenizer->next(&token), nullptr);
+    custom_tokenizer->reset(text);
+    custom_tokenizer->reset(text);
+    ASSERT_TRUE(custom_tokenizer->next_batch(batch));
 }
 
+// The V1/V2 writer reads an array element with a new stream of its analyzer on a shared reader, and
+// both the builtin ik parser and a custom ik_smart analyzer index every element that way.
 TEST_F(IKTokenizerTest, TestLegacyAndCustomArrayIndexWriterResetContracts) {
-    auto assert_indexed = [](lucene::analysis::Analyzer* analyzer, bool custom) {
+    auto assert_indexed = [](inverted_index::LuceneAnalyzerBridge* analyzer) {
         auto dir = std::make_shared<lucene::store::RAMDirectory>();
         lucene::index::IndexWriter writer(dir.get(), analyzer, true);
         writer.setUseCompoundFile(false);
@@ -390,10 +376,7 @@ TEST_F(IKTokenizerTest, TestLegacyAndCustomArrayIndexWriterResetContracts) {
             field->setOmitTermFreqAndPositions(false);
             auto reader = std::make_shared<lucene::util::SStringReader<char>>();
             reader->init(value.data(), value.size(), false);
-            TokenStream* stream =
-                    custom ? static_cast<inverted_index::CustomAnalyzer*>(analyzer)->tokenStream(
-                                     field->name(), reader)
-                           : analyzer->tokenStream(field->name(), reader.get());
+            TokenStream* stream = analyzer->tokenStream(field->name(), reader);
             field->setValue(stream, true);
             doc.add(*field);
             readers.emplace_back(std::move(reader));
@@ -410,16 +393,21 @@ TEST_F(IKTokenizerTest, TestLegacyAndCustomArrayIndexWriterResetContracts) {
         _CLLDELETE(index_reader);
     };
 
-    IKAnalyzer legacy_analyzer;
-    legacy_analyzer.initDict("./be/dict/ik");
-    legacy_analyzer.setMode(true);
-    assert_indexed(&legacy_analyzer, false);
+    const std::string old_dict_path = config::inverted_index_dict_path;
+    Defer restore_dict_path {[&] { config::inverted_index_dict_path = old_dict_path; }};
+    config::inverted_index_dict_path = "./be/dict";
+
+    inverted_index::LuceneAnalyzerBridge legacy_analyzer(
+            inverted_index::InvertedIndexAnalyzer::create_builtin_analyzer(
+                    InvertedIndexParserType::PARSER_IK, INVERTED_INDEX_PARSER_SMART, "", ""));
+    assert_indexed(&legacy_analyzer);
 
     inverted_index::CustomAnalyzerConfig::Builder builder;
     builder.with_tokenizer_config("ik_smart", {});
     auto custom_config = builder.build();
-    auto custom_analyzer = inverted_index::CustomAnalyzer::build_custom_analyzer(custom_config);
-    assert_indexed(custom_analyzer.get(), true);
+    inverted_index::LuceneAnalyzerBridge custom_analyzer(
+            inverted_index::CustomAnalyzer::build_custom_analyzer(custom_config));
+    assert_indexed(&custom_analyzer);
 }
 
 TEST_F(IKTokenizerTest, TestBufferExhaustCritical) {
@@ -785,99 +773,24 @@ TEST_F(IKTokenizerTest, TestCNQuantifierSegmenter) {
             << "'U+5E74' should be COUNT type";
 }
 
-// Test the exception handling capabilities of the IKTokenizer and AnalyzeContext
+// Test the exception handling capabilities of the IKTokenizer and AnalyzeContext. The value is a
+// string, so a failure comes from bytes IK cannot decode, not from a reader.
 TEST_F(IKTokenizerTest, TestExceptionHandling) {
-    // Common mock reader class for testing exception handling
-    class MockReader : public lucene::util::Reader {
-    public:
-        enum class ExceptionType { NONE, RUNTIME_ERROR, LENGTH_ERROR, OUT_OF_MEMORY };
-
-        MockReader(ExceptionType type = ExceptionType::NONE, const std::string& errorMsg = "")
-                : exceptionType(type), message(errorMsg), returnSize(0) {}
-
-        ~MockReader() override {}
-
-        int32_t read(const void** start, int32_t min, int32_t max) override {
-            throwIfNeeded();
-            return 0;
-        }
-
-        int32_t readCopy(void* start, int32_t off, int32_t len) override {
-            throwIfNeeded();
-
-            int32_t safeSize = std::min(returnSize, len);
-
-            if (safeSize > 0) {
-                memset(start, 'A', safeSize);
-            }
-
-            return safeSize;
-        }
-
-        int64_t skip(int64_t ntoskip) override {
-            throwIfNeeded();
-            return 0;
-        }
-
-        int64_t position() override { return 0; }
-
-        size_t size() override { return std::numeric_limits<size_t>::max(); }
-
-        void setReturnSize(int32_t size) { returnSize = size; }
-
-    private:
-        ExceptionType exceptionType;
-        std::string message;
-        int32_t returnSize;
-
-        void throwIfNeeded() {
-            switch (exceptionType) {
-            case ExceptionType::RUNTIME_ERROR:
-                throw std::runtime_error(message.empty() ? "Simulated runtime error" : message);
-            case ExceptionType::LENGTH_ERROR:
-                throw std::length_error(message.empty() ? "basic_string::_M_create" : message);
-            case ExceptionType::OUT_OF_MEMORY:
-                throw std::bad_alloc();
-            case ExceptionType::NONE:
-            default:
-                break;
-            }
-        }
-    };
-
     // PART 1: Test IKTokenizer::reset exception handling
     {
-        // Set up analyzer and tokenizer
-        IKAnalyzer analyzer;
-        analyzer.initDict("./be/dict/ik");
+        IKTokenizer tokenizer(ik_config(true), true);
 
-        // Initialize with a valid reader
-        lucene::util::SStringReader<char> validReader;
-        validReader.init("Test text", 9, false);
-        std::unique_ptr<IKTokenizer> tokenizer;
-        tokenizer.reset((IKTokenizer*)analyzer.tokenStream(L"", &validReader));
+        // Test case 1: a value cut short in its first character
+        ASSERT_THROW({ tokenizer.reset("\xE4\xB8"); }, Exception);
 
-        // Test case 1: Reader throwing runtime error
-        MockReader runtimeErrorReader(MockReader::ExceptionType::RUNTIME_ERROR);
-        // This may throw different exceptions depending on implementation details
-        ASSERT_THROW({ tokenizer->reset(&runtimeErrorReader); }, CLuceneError);
-
-        // Test case 2: Reader throwing length error
-        MockReader lengthErrorReader(MockReader::ExceptionType::LENGTH_ERROR);
-        ASSERT_THROW({ tokenizer->reset(&lengthErrorReader); }, CLuceneError);
+        // Test case 2: a value cut short after some characters
+        ASSERT_THROW({ tokenizer.reset("abc\xE4"); }, Exception);
 
         // Test case 3: Recovery after exception
-        lucene::util::SStringReader<char> recoveryReader;
-        recoveryReader.init("Recovery text", 13, false);
-        ASSERT_NO_THROW({ tokenizer->reset(&recoveryReader); });
+        std::vector<std::string> tokens;
+        ASSERT_NO_THROW({ tokens = inverted_index::collect_terms(tokenizer, "Recovery text"); });
 
         // Verify tokenizer works after recovery
-        Token t;
-        std::vector<std::string> tokens;
-        while (tokenizer->next(&t)) {
-            std::string term(t.termBuffer<char>(), t.termLength<char>());
-            tokens.emplace_back(term);
-        }
         ASSERT_EQ(tokens.size(), 2);
         ASSERT_EQ(tokens[0], "recovery");
         ASSERT_EQ(tokens[1], "text");
@@ -890,29 +803,30 @@ TEST_F(IKTokenizerTest, TestExceptionHandling) {
         Arena arena {};
         AnalyzeContext context(arena, config);
 
-        // Test case 1: Reader throwing length error
-        MockReader lengthErrorReader(MockReader::ExceptionType::LENGTH_ERROR);
-        ASSERT_THROW({ context.fillBuffer(&lengthErrorReader); }, CLuceneError);
+        // Test case 1: bytes that decode to no character
+        inverted_index::TextCursor cut_short;
+        cut_short.reset("\xE4\xB8");
+        ASSERT_THROW({ context.fillBuffer(cut_short); }, Exception);
 
-        // Test case 2: Reader throwing runtime error
-        MockReader runtimeErrorReader(MockReader::ExceptionType::RUNTIME_ERROR);
-        ASSERT_THROW({ context.fillBuffer(&runtimeErrorReader); }, CLuceneError);
+        // Test case 2: a four-byte rune cut short decodes to no character either
+        inverted_index::TextCursor cut_short_supplementary;
+        cut_short_supplementary.reset("\xF0\x9F\x98");
+        ASSERT_THROW({ context.fillBuffer(cut_short_supplementary); }, Exception);
 
-        // Test case 3: Reader simulating memory allocation failure
-        MockReader largeDataReader;
-        largeDataReader.setReturnSize(std::numeric_limits<int32_t>::max() - 1);
+        // Test case 3: an invalid lead byte, reported as a buffer filling error
+        inverted_index::TextCursor invalid_lead;
+        invalid_lead.reset("\xFF");
         try {
-            context.fillBuffer(&largeDataReader);
-            // If no exception is thrown, this is acceptable too
-        } catch (const CLuceneError& e) {
-            // Verify the exception is properly converted
+            context.fillBuffer(invalid_lead);
+            ADD_FAILURE() << "fillBuffer() accepted an invalid lead byte";
+        } catch (const Exception& e) {
             ASSERT_TRUE(std::string(e.what()).find("buffer filling") != std::string::npos);
         }
 
-        // Test case 4: Reader returning empty data
-        MockReader emptyReader;
-        emptyReader.setReturnSize(0);
-        ASSERT_EQ(context.fillBuffer(&emptyReader), 0);
+        // Test case 4: an empty value
+        inverted_index::TextCursor empty;
+        empty.reset("");
+        ASSERT_EQ(context.fillBuffer(empty), 0);
     }
 }
 

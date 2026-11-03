@@ -51,7 +51,6 @@
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h"
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
-#include "storage/index/inverted/clucene/lucene_backed_text_analyzer.h"
 #include "storage/index/inverted/common/inverted_index_cache.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/index/inverted/common/string_helper.h"
@@ -2855,10 +2854,9 @@ TEST_F(CollectionStatisticsTest, CollectUsesMatchRequestAnalyzerProvider) {
     auto tablet_schema = create_tablet_schema_with_inverted_index();
 
     segment_v2::inverted_index::TextAnalyzerPtr analyzer =
-            std::make_shared<segment_v2::inverted_index::LuceneBackedTextAnalyzer>(
-                    segment_v2::inverted_index::InvertedIndexAnalyzer::create_builtin_analyzer(
-                            InvertedIndexParserType::PARSER_ENGLISH, "",
-                            INVERTED_INDEX_PARSER_FALSE, "none"));
+            segment_v2::inverted_index::InvertedIndexAnalyzer::create_builtin_analyzer(
+                    InvertedIndexParserType::PARSER_ENGLISH, "", INVERTED_INDEX_PARSER_FALSE,
+                    "none");
     auto provider =
             std::make_shared<collection_statistics::FixedAnalyzerProvider>(std::move(analyzer));
     auto analyzer_ctx = std::make_shared<InvertedIndexAnalyzerCtx>();
