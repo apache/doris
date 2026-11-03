@@ -42,7 +42,7 @@ final class IcebergExceptionUtils {
         return new RuntimeException(fallbackPrefix + failure.getMessage(), failure);
     }
 
-    /** System-table readers retain their existing non-absence error contract. */
+    /** Read helpers retain their existing non-absence error contract. */
     static RuntimeException wrapTableAbsenceFailure(IcebergTableHandle handle, RuntimeException failure) {
         return isTableAbsent(failure)
                 ? new ConnectorTableNotFoundException(handle.getDbName(), handle.getTableName(), failure) : failure;

@@ -1221,12 +1221,16 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
                         + handle.getDbName() + "." + handle.getTableName() + ": " + e.getMessage(), e);
             }
         };
-        return resourceTracker == null
-                ? IcebergStatementScope.sharedWritableTable(
-                        session, handle.getDbName(), handle.getTableName(), loader)
-                : IcebergStatementScope.sharedTrackedWritableTable(
-                        session, handle.getDbName(), handle.getTableName(), resourceTracker, loader,
-                        table -> IcebergConnector.cachedTableCleanup(table, catalogProps.getFlavor())).table();
+        try {
+            return resourceTracker == null
+                    ? IcebergStatementScope.sharedWritableTable(
+                            session, handle.getDbName(), handle.getTableName(), loader)
+                    : IcebergStatementScope.sharedTrackedWritableTable(
+                            session, handle.getDbName(), handle.getTableName(), resourceTracker, loader,
+                            table -> IcebergConnector.cachedTableCleanup(table, catalogProps.getFlavor())).table();
+        } catch (RuntimeException failure) {
+            throw IcebergExceptionUtils.wrapTableAbsenceFailure(handle, failure);
+        }
     }
 
     private IcebergWriteSchemaContext resolveWriteSchema(ConnectorSession session,

@@ -21,6 +21,7 @@ import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorTableNotFoundException;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
@@ -56,6 +57,7 @@ import org.apache.doris.thrift.TSortInfo;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileFormat;
@@ -73,6 +75,8 @@ import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.data.GenericRecord;
+import org.apache.iceberg.exceptions.NoSuchTableException;
+import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
@@ -122,6 +126,55 @@ public class IcebergWritePlanProviderTest {
 
     private static final Map<String, String> NON_REST_PROPS =
             Collections.singletonMap("iceberg.catalog.type", "hadoop");
+
+    @Test
+    public void writeTableAbsencePreservesIdentityAndCause() {
+        for (boolean authenticated : new boolean[] {false, true}) {
+            for (boolean wrapped : new boolean[] {false, true}) {
+                RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+                NoSuchTableException nativeFailure = new NoSuchTableException("missing db1.t1");
+                RuntimeException failure = wrapped ? new RuntimeException("catalog wrapper", nativeFailure)
+                        : nativeFailure;
+                ops.loadTableFailure = failure;
+                IcebergWritePlanProvider provider = new IcebergWritePlanProvider(
+                        IcebergCatalogProperties.of(NON_REST_PROPS), ops,
+                        authenticated ? new RecordingConnectorContext() : null);
+                ConnectorTableNotFoundException missing = Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                        () -> provider.getWriteColumns(new WriteSession(null).noScope(),
+                                new IcebergTableHandle("db1", "t1"), Optional.empty()));
+                Assertions.assertEquals("db1", missing.getDatabaseName());
+                Assertions.assertEquals("t1", missing.getTableName());
+                Assertions.assertTrue(ExceptionUtils.getThrowableList(missing).contains(nativeFailure));
+                Assertions.assertTrue(ExceptionUtils.getThrowableList(missing).contains(failure));
+                Assertions.assertEquals(Collections.singletonList("loadTable:db1.t1"), ops.log);
+            }
+        }
+    }
+
+    @Test
+    public void ordinaryWriteReadFailuresKeepTheirContract() {
+        for (boolean authenticated : new boolean[] {false, true}) {
+            for (RuntimeException failure : Arrays.asList(new SecurityException("permission denied"),
+                    new IllegalStateException("transport failed"), new NotFoundException("missing metadata file"))) {
+                RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+                ops.loadTableFailure = failure;
+                IcebergWritePlanProvider provider = new IcebergWritePlanProvider(
+                        IcebergCatalogProperties.of(NON_REST_PROPS), ops,
+                        authenticated ? new RecordingConnectorContext() : null);
+                RuntimeException actual = Assertions.assertThrows(RuntimeException.class,
+                        () -> provider.getWriteColumns(new WriteSession(null).noScope(),
+                                new IcebergTableHandle("db1", "t1"), Optional.empty()));
+                Assertions.assertFalse(actual instanceof ConnectorTableNotFoundException);
+                if (authenticated) {
+                    Assertions.assertInstanceOf(DorisConnectorException.class, actual);
+                    Assertions.assertSame(failure, actual.getCause());
+                } else {
+                    Assertions.assertSame(failure, actual);
+                }
+                Assertions.assertEquals(Collections.singletonList("loadTable:db1.t1"), ops.log);
+            }
+        }
+    }
 
     @Test
     public void variantDataWritesNeedUnshreddedFormatThreeParquetTables() {

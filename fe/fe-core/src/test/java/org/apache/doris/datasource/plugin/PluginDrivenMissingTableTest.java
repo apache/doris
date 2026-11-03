@@ -41,6 +41,10 @@ import org.apache.doris.connector.hive.HiveWritePlanProvider;
 import org.apache.doris.connector.hms.CachingHmsClient;
 import org.apache.doris.connector.hms.HmsClientException;
 import org.apache.doris.connector.hms.TestThriftHmsClient;
+import org.apache.doris.connector.iceberg.IcebergCatalogOps;
+import org.apache.doris.connector.iceberg.IcebergCatalogProperties;
+import org.apache.doris.connector.iceberg.IcebergTableHandle;
+import org.apache.doris.connector.iceberg.IcebergWritePlanProvider;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorContext;
@@ -100,6 +104,7 @@ import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.NoSuchObjectException;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
+import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -1738,6 +1743,65 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
             }
         } finally {
             GlobalVariable.enable_get_row_count_from_file_list = previousFileEstimate;
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void nativeIcebergWriteAbsenceRepairsOnlyObservedSource(boolean recreate) throws Exception {
+        PluginDrivenExternalTable old = warmTarget();
+        AtomicBoolean firstHandle = new AtomicBoolean(true);
+        Mockito.when(metadata.getTableHandle(Mockito.any(), Mockito.eq("db"), Mockito.eq("a"))).thenAnswer(call -> {
+            if (firstHandle.compareAndSet(true, false)) {
+                return Optional.of(new IcebergTableHandle("db", "a"));
+            }
+            String column = remoteTables.get("a");
+            return column == null ? Optional.empty() : Optional.of(new Handle("a", column));
+        });
+        IcebergCatalogOps ops = Mockito.mock(IcebergCatalogOps.class);
+        Mockito.when(ops.loadTable("db", "a")).thenAnswer(call -> {
+            remoteTables.remove("a");
+            missingStarted.countDown();
+            Assertions.assertTrue(releaseMissing.await(10, TimeUnit.SECONDS));
+            throw new NoSuchTableException("table db.a is gone");
+        });
+        ConnectorContext context = Mockito.mock(ConnectorContext.class);
+        Mockito.doAnswer(call -> ((java.util.concurrent.Callable<?>) call.getArgument(0)).call())
+                .when(context).executeAuthenticated(Mockito.any());
+        ConnectorWritePlanProvider provider = new IcebergWritePlanProvider(IcebergCatalogProperties.of(
+                Collections.singletonMap("iceberg.catalog.type", "hadoop")), ops, context);
+        Mockito.when(connector.getWritePlanProvider(Mockito.any())).thenReturn(provider);
+        Future<RuntimeException> missing = worker.submit(() -> Assertions.assertThrows(RuntimeException.class,
+                () -> old.resolveWriteColumns(Optional.empty())));
+        try {
+            Assertions.assertTrue(missingStarted.await(10, TimeUnit.SECONDS));
+            PluginDrivenExternalTable replacement = null;
+            List<Column> schema = null;
+            if (recreate) {
+                remoteTables.put("a", "recreated_column");
+                new RefreshManager().handleRefreshTable(catalog.getName(), "db", "a");
+                replacement = database.getTableNullable("a");
+                schema = replacement.getFullSchema();
+                remoteCache.put("a", "recreated metadata");
+            }
+            releaseMissing.countDown();
+            ConnectorTableNotFoundException failure = Assertions.assertInstanceOf(
+                    ConnectorTableNotFoundException.class, missing.get(10, TimeUnit.SECONDS));
+            Assertions.assertEquals("db", failure.getDatabaseName());
+            Assertions.assertEquals("a", failure.getTableName());
+            Assertions.assertTrue(org.apache.commons.lang3.exception.ExceptionUtils.getThrowableList(failure).stream()
+                    .anyMatch(NoSuchTableException.class::isInstance));
+            if (recreate) {
+                Assertions.assertSame(replacement, database.getTableNullable(replacement.getId()));
+                Assertions.assertSame(schema, replacement.getFullSchema());
+                Assertions.assertEquals("recreated metadata", remoteCache.get("a"));
+            } else {
+                Assertions.assertNull(database.getTableNullable(old.getId()));
+                Assertions.assertNull(remoteCache.get("a"));
+            }
+            Assertions.assertEquals("sibling", remoteCache.get("b"));
+        } finally {
+            releaseMissing.countDown();
         }
     }
 
