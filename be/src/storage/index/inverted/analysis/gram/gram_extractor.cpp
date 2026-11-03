@@ -21,6 +21,7 @@
 #include <limits>
 
 #include "common/logging.h"
+#include "storage/index/inverted/analysis/scratch.h"
 
 namespace doris::segment_v2::gram {
 
@@ -90,6 +91,12 @@ inline size_t codepoint_len(const char* p, size_t remain) {
 GramExtractor::GramExtractor(const GramScheme& scheme)
         : _scheme(scheme),
           _boundary_threshold(static_cast<uint64_t>(scheme.density_permille) * 65536 / 1000) {}
+
+void GramExtractor::release_oversized() {
+    inverted_index::release_oversized_scratch(_folded);
+    inverted_index::release_oversized_scratch(_is_boundary_at);
+    inverted_index::release_oversized_scratch(_dedupe_slots);
+}
 
 void GramExtractor::set_density_permille(uint16_t density_permille) {
     _scheme.density_permille = density_permille;

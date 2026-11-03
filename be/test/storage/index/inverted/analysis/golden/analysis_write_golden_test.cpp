@@ -18,7 +18,8 @@
 // Frozen index files. The analysis goldens freeze the tokens; these freeze what the production
 // writers make of them, so the paths from the analyzers into the writers are covered too: the SNII
 // file bytes, and for V1 and V2, whose files carry timestamps, the terms with their documents and
-// positions read back. The digests are in analysis_golden.txt under "write/".
+// positions read back, for a string column and, on V2, for an array column, whose elements reach
+// the analyzer another way. The digests are in analysis_golden.txt under "write/".
 
 #include <CLucene.h>
 #include <CLucene/config/repl_wchar.h>
@@ -31,7 +32,6 @@
 #include <fstream>
 #include <functional>
 #include <memory>
-#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -45,13 +45,10 @@
 #include "storage/index/inverted/analysis/golden/golden_configs.h"
 #include "storage/index/inverted/analysis/golden/golden_corpus.h"
 #include "storage/index/inverted/analysis/golden/golden_environment.h"
-#include "storage/index/inverted/analysis/inverted_index_parser.h"
-#include "storage/index/inverted/clucene/inverted_index_writer.h"
-#include "storage/index/inverted/clucene/lucene_analyzer_bridge.h"
-#include "storage/index/inverted/clucene/lucene_backed_text_analyzer.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/tablet/tablet_schema.h"
 #include "testutil/golden_file.h"
+#include "testutil/tmp_file_dirs_util.h"
 #include "util/hash_util.hpp"
 #include "util/slice.h"
 
@@ -71,17 +68,6 @@ constexpr const char* kConfigs[] = {
         "builtin/ik/ik_max_word/lower_case=unset/stopwords=unset",
         "builtin/icu/lower_case=unset/stopwords=unset",
         "custom/char_replace+standard+word_delimiter+asciifolding+lowercase",
-};
-
-// The configurations of kConfigs whose array elements the V1 and V2 writers index nothing of. The
-// writer asks Analyzer::tokenStream() for a stream per element, ICUAnalyzer resets that stream
-// before it returns it, and SDocumentsWriter::invertField() resets it again. ICUTokenizer reads its
-// reader in reset(), so the second time it finds the reader consumed and makes no token: an
-// element "hello world" is indexed as nothing. LuceneAnalyzerBridge starts each element once, so
-// through it the elements are indexed. No table has such an index: the FE accepts no parser and no
-// analyzer on an array column (InvertedIndexUtil.checkInvertedIndexParser).
-const std::set<std::string> kOldArrayPathLosesElements = {
-        "builtin/icu/lower_case=unset/stopwords=unset",
 };
 
 struct Format {
@@ -148,9 +134,6 @@ TabletColumn array_column() {
     return column;
 }
 
-// Called on the column writer before the rows go in.
-using WriterHook = std::function<void(IndexColumnWriter*)>;
-
 // What every index gets: the first lines of four families, one batch each, nulls after each.
 std::vector<std::vector<std::string>> row_batches(const std::vector<CorpusFamily>& families) {
     std::vector<std::vector<std::string>> batches;
@@ -167,8 +150,7 @@ std::vector<std::vector<std::string>> row_batches(const std::vector<CorpusFamily
 // Writes the batches through the production writer factory; returns the index path prefix.
 std::string write_index(const std::string& name, InvertedIndexStorageFormatPB format,
                         const TabletIndex& meta,
-                        const std::vector<std::vector<std::string>>& batches,
-                        const WriterHook& before_rows = {}) {
+                        const std::vector<std::vector<std::string>>& batches) {
     const std::string prefix = std::string(kTestDir) + "/" + name;
     const auto fs = io::global_local_filesystem();
     io::FileWriterPtr file_writer;
@@ -186,9 +168,6 @@ std::string write_index(const std::string& name, InvertedIndexStorageFormatPB fo
     EXPECT_TRUE(created.ok()) << created.to_string();
     if (!created.ok()) {
         return prefix;
-    }
-    if (before_rows) {
-        before_rows(writer.get());
     }
     for (const std::vector<std::string>& batch : batches) {
         std::vector<Slice> slices;
@@ -231,7 +210,7 @@ ArrayRows array_rows(const std::vector<std::vector<std::string>>& batches) {
 
 // Writes the rows into the V2 index of an array column; returns the index path prefix.
 std::string write_array_index(const std::string& name, const TabletIndex& meta,
-                              const ArrayRows& rows, const WriterHook& before_rows = {}) {
+                              const ArrayRows& rows) {
     const std::string prefix = std::string(kTestDir) + "/" + name;
     const auto fs = io::global_local_filesystem();
     io::FileWriterPtr file_writer;
@@ -248,9 +227,6 @@ std::string write_array_index(const std::string& name, const TabletIndex& meta,
     if (!created.ok()) {
         return prefix;
     }
-    if (before_rows) {
-        before_rows(writer.get());
-    }
     const Status added = writer->add_array_values(
             sizeof(Slice), reinterpret_cast<const uint8_t*>(rows.elements.data()),
             rows.null_map.data(), rows.offsets.data(), rows.offsets.size() - 1);
@@ -259,19 +235,6 @@ std::string write_array_index(const std::string& name, const TabletIndex& meta,
     EXPECT_TRUE(index_file_writer.begin_close().ok());
     EXPECT_TRUE(index_file_writer.finish_close().ok());
     return prefix;
-}
-
-// Puts the V2 writer's analyzer behind LuceneBackedTextAnalyzer and LuceneAnalyzerBridge, as the
-// writer sees it once the consumers use the TextAnalyzer interface; the bridge reads each value
-// from a plain reader. The CLucene IndexWriter keeps a raw pointer to the analyzer it was made
-// with, which the LuceneBackedTextAnalyzer keeps alive. The index has no char filter of its own:
-// the writer gives array elements the index's char filter itself, which would apply it twice.
-void use_bridge(IndexColumnWriter* writer) {
-    auto* legacy =
-            static_cast<InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_STRING>*>(writer);
-    auto analyzer = std::make_shared<LuceneBackedTextAnalyzer>(legacy->_analyzer, CharFilterMap {});
-    legacy->set_analysis_for_test(std::make_shared<lucene::util::SStringReader<char>>(),
-                                  std::make_shared<LuceneAnalyzerBridge>(std::move(analyzer)));
 }
 
 struct WriteDigest {
@@ -340,6 +303,7 @@ protected:
     void SetUp() override {
         const Status status = _environment.init(_configs);
         ASSERT_TRUE(status.ok()) << status.to_string();
+        test::ensure_tmp_file_dirs();
         assert_ok(io::global_local_filesystem()->delete_directory(kTestDir));
         assert_ok(io::global_local_filesystem()->create_directory(kTestDir));
         // Pin what the SNII writer reads from the configuration, as SniiWriterGoldenBytes does,
@@ -369,6 +333,7 @@ protected:
 TEST_F(AnalysisWriteGolden, MatchesTheFrozenDigests) {
     const std::vector<std::vector<std::string>> batches =
             row_batches(default_families(_environment.corpus_sources()));
+    const ArrayRows arrays = array_rows(batches);
     test::GoldenFile file(kGoldenFile);
     for (const char* name : kConfigs) {
         const auto config = std::ranges::find_if(
@@ -387,48 +352,15 @@ TEST_F(AnalysisWriteGolden, MatchesTheFrozenDigests) {
             EXPECT_GT(digest.count, 0) << key;
             file.check(key, "rows", digest.count, digest.digest, describe(*config));
         }
+        const std::string key = std::string(kWritePrefix) + "v2-array/" + config->name;
+        const WriteDigest digest = clucene_digest(
+                write_array_index("array_" + std::to_string(config - _configs.begin()), meta,
+                                  arrays),
+                InvertedIndexStorageFormatPB::V2, meta);
+        EXPECT_GT(digest.count, 0) << key;
+        file.check(key, "rows", digest.count, digest.digest, describe(*config));
     }
     file.finish([](const std::string& name) { return name.starts_with(kWritePrefix); }, true);
-}
-
-// The V1 and V2 writers reach the analyzers through LuceneAnalyzerBridge once the consumers use
-// the TextAnalyzer interface. Through the bridge, over the analyzer in a LuceneBackedTextAnalyzer,
-// the V2 writer writes the terms, documents and positions it writes with the analyzer itself: the
-// frozen ones for a string column, and for an array column, whose elements take the other way
-// into the analyzer, the ones the analyzer itself gives, except where it gives none
-// (kOldArrayPathLosesElements).
-TEST_F(AnalysisWriteGolden, LuceneAnalyzerBridgeWritesTheSameV2Index) {
-    const std::vector<std::vector<std::string>> batches =
-            row_batches(default_families(_environment.corpus_sources()));
-    const ArrayRows arrays = array_rows(batches);
-    test::GoldenFile file(kGoldenFile);
-    for (const char* name : kConfigs) {
-        const auto config = std::ranges::find_if(
-                _configs, [&](const GoldenConfig& c) { return c.name == name; });
-        ASSERT_NE(config, _configs.end()) << name;
-        ASSERT_TRUE(get_parser_char_filter_map_from_properties(config->properties).empty()) << name;
-        const TabletIndex meta = index_meta(*config);
-        const std::string id = std::to_string(config - _configs.begin());
-        constexpr auto kV2 = InvertedIndexStorageFormatPB::V2;
-
-        const WriteDigest scalar = clucene_digest(
-                write_index("bridge_" + id, kV2, meta, batches, use_bridge), kV2, meta);
-        file.check(std::string(kWritePrefix) + "v2/" + config->name, "rows", scalar.count,
-                   scalar.digest, describe(*config));
-
-        const WriteDigest array =
-                clucene_digest(write_array_index("array_" + id, meta, arrays), kV2, meta);
-        const WriteDigest bridged_array = clucene_digest(
-                write_array_index("array_bridge_" + id, meta, arrays, use_bridge), kV2, meta);
-        EXPECT_GT(bridged_array.count, 0) << name;
-        if (kOldArrayPathLosesElements.contains(name)) {
-            EXPECT_EQ(array.count, 0) << name;
-        } else {
-            EXPECT_EQ(bridged_array.count, array.count) << name;
-            EXPECT_EQ(bridged_array.digest, array.digest) << name;
-        }
-    }
-    file.finish([](const std::string& name) { return name.starts_with(kWritePrefix); }, false);
 }
 
 } // namespace doris::segment_v2::inverted_index::golden

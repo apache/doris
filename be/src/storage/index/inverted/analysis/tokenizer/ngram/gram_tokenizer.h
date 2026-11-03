@@ -16,25 +16,32 @@
 // under the License.
 
 #pragma once
+
+#include <cstddef>
+#include <cstdint>
+#include <memory>
 #include <string_view>
 #include <vector>
 
 #include "storage/index/inverted/analysis/gram/gram_extractor.h"
-#include "storage/index/inverted/analysis/tokenizer/tokenizer.h"
+#include "storage/index/inverted/analysis/gram/gram_scheme.h"
+#include "storage/index/inverted/analysis/text_analyzer.h"
 
 namespace doris::segment_v2::inverted_index {
 
-// Adapts gram::GramExtractor to the DorisTokenizer interface: one column value = one reset, with
-// every gram extracted at once. Unlike NGramTokenizer, which slides a window byte by byte, there
-// is no incremental window state here: reset() reads the reader's entire input in one go and
-// hands it to GramExtractor, and next() just yields the results in order.
-class GramTokenizer : public DorisTokenizer {
+// The tokenizer of the gram family: the grams of a value, each one position after the last.
+// reset() extracts all of them; next_batch() hands them out as views of the value or of the
+// extractor's folded copy, without copying.
+class GramTokenizer final : public TextTokenizer {
 public:
     explicit GramTokenizer(const gram::GramScheme& scheme) : _extractor(scheme) {}
-    ~GramTokenizer() override = default;
 
-    Token* next(Token* token) override;
-    void reset() override;
+    void reset(std::string_view text) override;
+    bool next_batch(TokenBatch& batch) override;
+    // The gram list plus the extractor's scratch, both sized by the last value and released above
+    // the high water mark at the next reset(). The SNII writer reports it after every row.
+    size_t reserved_bytes() const override;
+
     const gram::GramScheme& scheme() const { return _extractor.scheme(); }
 
     // Retunes the boundary rate before any row of a segment is cut. See
@@ -43,22 +50,25 @@ public:
         _extractor.set_density_permille(density_permille);
     }
 
-    // Bytes of buffer capacity this tokenizer keeps between rows: the gram list plus the
-    // extractor's scratch. Both are sized by the longest row seen so far and are never shrunk,
-    // so this is a steady resident cost rather than a per-row spike -- which is exactly the shape
-    // SNII's MemoryReporter wants (SniiIndexColumnWriter mirrors it, delta-charged, after every
-    // row). It only means anything while the tokenizer outlives the row, i.e. when the writer
-    // obtained it from reusableTokenStream.
-    size_t reserved_bytes() const {
-        return _grams.capacity() * sizeof(std::string_view) + _extractor.reserved_bytes();
+private:
+    gram::GramExtractor _extractor;
+    std::vector<std::string_view> _grams; // views into the value or the extractor's fold copy
+    size_t _next = 0;
+};
+
+// The analyzer of a gram-family index. The FE gives a gram-family analyzer no char filter and no
+// token filter, so the GramTokenizer is the whole stream, and the SNII writer casts its stream to
+// one to retune the density.
+class GramTextAnalyzer final : public TextAnalyzer {
+public:
+    explicit GramTextAnalyzer(const gram::GramScheme& scheme) : _scheme(scheme) {}
+
+    std::unique_ptr<TextTokenStream> create_stream() const override {
+        return std::make_unique<GramTokenizer>(_scheme);
     }
 
 private:
-    gram::GramExtractor _extractor;
-    const char* _char_buffer = nullptr;
-    int32_t _char_length = 0;
-    std::vector<std::string_view> _grams; // views into _char_buffer or the extractor's fold copy
-    size_t _next = 0;
+    const gram::GramScheme _scheme;
 };
 
 } // namespace doris::segment_v2::inverted_index

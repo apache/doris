@@ -19,7 +19,6 @@
 
 #include <memory>
 
-#include "storage/index/inverted/analysis/inverted_index_parser.h"
 #include "storage/index/inverted/analysis/text_analyzer.h"
 
 namespace lucene::analysis {
@@ -31,23 +30,21 @@ namespace doris::segment_v2::inverted_index {
 // A CLucene analyzer behind the TextAnalyzer interface, for the consumers that move to the
 // interface before the analyzers do. It goes once every analyzer is native.
 //
-// Every value gets a new reader through the index's char filter (InvertedIndexAnalyzer::
-// create_reader) and a new CLucene stream from Analyzer::tokenStream(), as a query reads a value
-// today; the SNII writer does the same with one reader it re-initializes. Sharing the analyzer
-// between threads is as safe as sharing the CLucene analyzer for tokenStream() calls. Terms are
-// copied into the batch, because a CLucene token is overwritten by the next one; a CLuceneError
-// comes out as a doris::Exception.
+// Every value gets a new reader and a new CLucene stream from Analyzer::tokenStream(), as queries
+// and the SNII writer read a value before the TextAnalyzer interface. The index's char filter is
+// not applied here but in front of the analyzer (InvertedIndexAnalyzer::create_analyzer). Sharing
+// the analyzer between threads is as safe as sharing the CLucene analyzer for tokenStream()
+// calls. Terms are copied into the batch, because a CLucene token is overwritten by the next one;
+// a CLuceneError comes out as a doris::Exception.
 class LuceneBackedTextAnalyzer final : public TextAnalyzer {
 public:
-    LuceneBackedTextAnalyzer(std::shared_ptr<lucene::analysis::Analyzer> analyzer,
-                             CharFilterMap char_filters);
+    explicit LuceneBackedTextAnalyzer(std::shared_ptr<lucene::analysis::Analyzer> analyzer);
     ~LuceneBackedTextAnalyzer() override;
 
     std::unique_ptr<TextTokenStream> create_stream() const override;
 
 private:
     const std::shared_ptr<lucene::analysis::Analyzer> _analyzer;
-    const CharFilterMap _char_filters;
 };
 
 } // namespace doris::segment_v2::inverted_index

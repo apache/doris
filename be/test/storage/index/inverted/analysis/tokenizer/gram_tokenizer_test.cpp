@@ -23,7 +23,9 @@
 #include <unordered_map>
 #include <vector>
 
+#include "storage/index/inverted/analysis/scratch.h"
 #include "storage/index/inverted/analysis/setting.h"
+#include "storage/index/inverted/analysis/text_stream_contract.h"
 #include "storage/index/inverted/analysis/tokenizer/ngram/ngram_tokenizer_factory.h"
 
 namespace doris::segment_v2 {
@@ -135,6 +137,60 @@ TEST(GramTokenizerTest, GramModeSkipsLegacyMinMaxGapCheck) {
     EXPECT_NO_THROW(factory.initialize(Settings(args)));
     std::unordered_map<std::string, std::string> bad {{"mode", "sparse"}, {"density", "2"}};
     EXPECT_THROW(NGramTokenizerFactory().initialize(Settings(bad)), Exception);
+}
+
+// The gram-family analyzer streams with the native GramTokenizer: it gives the grams the tokenizer
+// of a CLucene chain gives, each one position after the last, and keeps the stream contract.
+TEST(GramTokenizerTest, NativeStreamMatchesTheCLuceneTokenizer) {
+    std::string log_line;
+    while (log_line.size() < 40000) {
+        log_line += "2026-09-06 INFO rpc request completed service=Frontend latency_ms=17 ";
+    }
+    const std::vector<std::string> rows = {"rpc error: code = Unavailable", "手机ab微博", "",
+                                           "ABC def GHI", log_line};
+    for (const std::unordered_map<std::string, std::string>& args :
+         {std::unordered_map<std::string, std::string> {
+                  {"mode", "sparse"}, {"min_gram", "3"}, {"max_gram", "16"}, {"density", "0.25"}},
+          std::unordered_map<std::string, std::string> {{"mode", "dense"},
+                                                        {"min_gram", "2"},
+                                                        {"max_gram", "4"},
+                                                        {"lower_case", "true"}}}) {
+        NGramTokenizerFactory factory;
+        factory.initialize(Settings(args));
+        ASSERT_TRUE(factory.gram_scheme().has_value());
+        const GramTextAnalyzer analyzer(*factory.gram_scheme());
+        for (const std::string& row : rows) {
+            const auto stream = analyzer.create_stream();
+            std::vector<std::string> native;
+            for (const CollectedToken& token : collect_checked(*stream, row)) {
+                EXPECT_EQ(token.position_increment, 1);
+                native.push_back(token.term);
+            }
+            EXPECT_EQ(native, gram_tokenize(factory, row)) << row.substr(0, 40);
+        }
+        expect_text_stream_contract([&analyzer] { return analyzer.create_stream(); }, rows);
+    }
+}
+
+// A long row's scratch stays until the next row, which releases each buffer above the high water
+// mark.
+TEST(GramTokenizerTest, NativeStreamReleasesALongRowAtTheNextRow) {
+    NGramTokenizerFactory factory;
+    factory.initialize(Settings(std::unordered_map<std::string, std::string> {
+            {"mode", "dense"}, {"min_gram", "3"}, {"max_gram", "3"}, {"lower_case", "true"}}));
+    ASSERT_TRUE(factory.gram_scheme().has_value());
+    GramTokenizer tokenizer(*factory.gram_scheme());
+    std::string long_row;
+    while (long_row.size() < (1U << 20)) {
+        long_row += "Abcdefghij ";
+    }
+    TokenBatch batch;
+    tokenizer.reset(long_row);
+    while (tokenizer.next_batch(batch)) {
+    }
+    EXPECT_GT(tokenizer.reserved_bytes(), ANALYZER_SCRATCH_HIGH_WATER_BYTES);
+    tokenizer.reset("short");
+    EXPECT_LE(tokenizer.reserved_bytes(), 4 * ANALYZER_SCRATCH_HIGH_WATER_BYTES);
 }
 
 } // namespace doris::segment_v2

@@ -25,7 +25,6 @@
 #include "common/cast_set.h"
 #include "common/check.h"
 #include "common/exception.h"
-#include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "storage/index/inverted/analysis/reader.h"
 
 namespace doris::segment_v2::inverted_index {
@@ -36,14 +35,13 @@ namespace {
 // made by reset() and released once the value is exhausted, so nothing outlives a value.
 class LuceneBackedTokenStream final : public TextTokenizer {
 public:
-    // Both outlive the stream, because a stream does not outlive its analyzer.
-    LuceneBackedTokenStream(lucene::analysis::Analyzer* analyzer, const CharFilterMap* char_filters)
-            : _analyzer(analyzer), _char_filters(char_filters) {}
+    // The analyzer outlives the stream, because a stream does not outlive its TextAnalyzer.
+    explicit LuceneBackedTokenStream(lucene::analysis::Analyzer* analyzer) : _analyzer(analyzer) {}
 
     void reset(std::string_view text) override {
         release();
         try {
-            _reader = InvertedIndexAnalyzer::create_reader(*_char_filters);
+            _reader = std::make_shared<lucene::util::SStringReader<char>>();
             _reader->init(text.data(), cast_set<int32_t>(text.size()), false);
             _token = std::make_unique<lucene::analysis::Token>();
             _stream.reset(_analyzer->tokenStream(L"", _reader));
@@ -94,7 +92,6 @@ private:
     }
 
     lucene::analysis::Analyzer* const _analyzer;
-    const CharFilterMap* const _char_filters;
     ReaderPtr _reader;
     std::unique_ptr<lucene::analysis::Token> _token;
     std::unique_ptr<lucene::analysis::TokenStream> _stream;
@@ -103,15 +100,15 @@ private:
 } // namespace
 
 LuceneBackedTextAnalyzer::LuceneBackedTextAnalyzer(
-        std::shared_ptr<lucene::analysis::Analyzer> analyzer, CharFilterMap char_filters)
-        : _analyzer(std::move(analyzer)), _char_filters(std::move(char_filters)) {
+        std::shared_ptr<lucene::analysis::Analyzer> analyzer)
+        : _analyzer(std::move(analyzer)) {
     DORIS_CHECK(_analyzer != nullptr);
 }
 
 LuceneBackedTextAnalyzer::~LuceneBackedTextAnalyzer() = default;
 
 std::unique_ptr<TextTokenStream> LuceneBackedTextAnalyzer::create_stream() const {
-    return std::make_unique<LuceneBackedTokenStream>(_analyzer.get(), &_char_filters);
+    return std::make_unique<LuceneBackedTokenStream>(_analyzer.get());
 }
 
 } // namespace doris::segment_v2::inverted_index

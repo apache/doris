@@ -100,9 +100,6 @@ void write_dump(const std::string& dir, const std::string& key, DriveMode mode,
     out << dump;
 }
 
-// Makes the driver of a configuration: make_golden_driver(), or make_golden_text_driver().
-using DriverFactory = std::function<Status(const GoldenConfig&, std::unique_ptr<GoldenDriver>*)>;
-
 // One configuration over one family in one mode.
 struct GoldenJob {
     const GoldenConfig* config = nullptr;
@@ -115,11 +112,11 @@ struct GoldenJob {
     double seconds = 0;
 };
 
-void run_job(GoldenJob* job, bool dump, const DriverFactory& make_driver) {
+void run_job(GoldenJob* job, bool dump) {
     const auto started = std::chrono::steady_clock::now();
     // A driver per job, so no family sees the state another one left.
     std::unique_ptr<GoldenDriver> driver;
-    if (const Status status = make_driver(*job->config, &driver); !status.ok()) {
+    if (const Status status = make_golden_driver(*job->config, &driver); !status.ok()) {
         job->error = status.to_string();
     } else {
         try {
@@ -279,21 +276,20 @@ std::vector<ThreadDigest> digests_on_threads(const TextAnalyzerPtr& analyzer,
 // the order of the matrix.
 void check_golden(const std::vector<GoldenConfig>& configs,
                   const std::vector<CorpusFamily>& families,
-                  const std::vector<DriveMode>& requested_modes, test::GoldenFile* file,
-                  const DriverFactory& make_driver = make_golden_driver) {
+                  const std::vector<DriveMode>& requested_modes, test::GoldenFile* file) {
     const std::string dump_dir = env("ANALYSIS_GOLDEN_DUMP");
     const std::vector<const GoldenConfig*> selected = selected_configs(configs);
     // Build each configuration and analyze one line before going parallel, so a process-wide
     // dictionary is loaded by one thread, as in a BE that has served a first query.
     for (const GoldenConfig* config : selected) {
         std::unique_ptr<GoldenDriver> driver;
-        const Status status = make_driver(*config, &driver);
+        const Status status = make_golden_driver(*config, &driver);
         ASSERT_TRUE(status.ok()) << status.to_string() << "\n" << describe(*config);
         driver->fresh("warm up 预热");
     }
     std::vector<GoldenJob> jobs = make_jobs(selected, families, requested_modes);
     const auto started = std::chrono::steady_clock::now();
-    parallel_for(jobs.size(), [&](size_t i) { run_job(&jobs[i], !dump_dir.empty(), make_driver); });
+    parallel_for(jobs.size(), [&](size_t i) { run_job(&jobs[i], !dump_dir.empty()); });
     const double wall =
             std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
     for (size_t i = 0; i < jobs.size();) {
@@ -333,19 +329,9 @@ TEST_F(AnalysisGolden, MatchesTheFrozenDigests) {
     file.finish(owns_analysis_line, env("ANALYSIS_GOLDEN_ONLY").empty());
 }
 
-// The consumers move to the TextAnalyzer interface before the analyzers do, through
-// LuceneBackedTextAnalyzer. Through it every analyzer gives the frozen output, with a new stream
-// per line and with one stream for all lines.
-TEST_F(AnalysisGolden, LuceneBackedTextAnalyzerMatchesTheFrozenDigests) {
-    test::GoldenFile file(kGoldenFile);
-    check_golden(analyzer_configs(), default_families(_environment.corpus_sources()),
-                 {DriveMode::FRESH, DriveMode::REUSED}, &file, make_golden_text_driver);
-    file.finish(owns_analysis_line, false);
-}
-
-// An analyzer serves many threads at once. Eight threads share the LuceneBackedTextAnalyzer of
-// each configuration, half of them with a new stream per line and half with one stream, and each
-// thread gives the frozen output.
+// An analyzer serves many threads at once. Eight threads share the analyzer of each configuration,
+// half of them with a new stream per line and half with one stream, and each thread gives the
+// frozen output.
 TEST_F(AnalysisGolden, EightThreadsShareOneTextAnalyzer) {
     const std::vector<CorpusFamily> families = families_named(
             default_families(_environment.corpus_sources()), {"mixed_zh_en", "invalid_utf8"});

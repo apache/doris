@@ -23,7 +23,7 @@
 #include "storage/index/inverted/analysis/gram/gram_scheme.h"
 #include "storage/index/inverted/analysis/setting.h"
 #include "storage/index/inverted/analysis/tokenizer/ngram/char_matcher.h"
-#include "storage/index/inverted/analysis/tokenizer/ngram/gram_tokenizer.h"
+#include "storage/index/inverted/analysis/tokenizer/ngram/lucene_gram_tokenizer.h"
 #include "storage/index/inverted/analysis/tokenizer/ngram/ngram_tokenizer.h"
 #include "storage/index/inverted/analysis/tokenizer/tokenizer_factory.h"
 
@@ -43,7 +43,7 @@ public:
 
     TokenizerPtr create() override {
         if (_gram_scheme.has_value()) {
-            return std::make_shared<GramTokenizer>(*_gram_scheme);
+            return std::make_shared<LuceneGramTokenizer>(*_gram_scheme);
         }
         if (_matcher == nullptr) {
             return std::make_shared<NGramTokenizer>(_min_gram, _max_gram);

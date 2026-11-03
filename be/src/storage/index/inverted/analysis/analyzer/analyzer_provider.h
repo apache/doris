@@ -23,10 +23,6 @@
 
 #include "storage/index/inverted/analysis/abstract_analysis_factory.h"
 
-namespace lucene::analysis {
-class Analyzer;
-}
-
 // Forward declaration only, no #include of gram_scheme.h: this header sits on the
 // tablet_schema.h -> inverted_index_parser.h path that almost every TU pulls in (the forward
 // include closure budget of exec/pipeline/dependency.h has long been pinned at 357), and
@@ -40,10 +36,16 @@ struct GramScheme;
 
 namespace doris::segment_v2::inverted_index {
 
+// Also declared in text_analyzer.h. This header is on the tablet_schema.h path, so it names the
+// analyzer without including it.
+class TextAnalyzer;
+using TextAnalyzerPtr = std::shared_ptr<const TextAnalyzer>;
+
 class AnalyzerProvider {
 public:
     virtual ~AnalyzerProvider() = default;
-    virtual std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const = 0;
+    // The analyzer of the configuration, the index's char filter included.
+    virtual TextAnalyzerPtr get_analyzer() const = 0;
     // Gram-family detection: only when the tokenizer is ngram and carries a "mode" property
     // (sparse|dense|auto) does CustomAnalyzerProvider override this to return a populated
     // GramScheme; every other provider (built-in parsers, normalizers, ...) keeps the default
