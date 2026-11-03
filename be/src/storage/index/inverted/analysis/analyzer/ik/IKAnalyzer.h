@@ -46,9 +46,12 @@ public:
     void setMode(bool isSmart) { config_->setUseSmart(isSmart); }
 
     TokenStream* tokenStream(const TCHAR* fieldName, lucene::util::Reader* reader) override {
-        auto* tokenizer = _CLNEW IKTokenizer(config_, _lowercase, _ownReader);
+        // Owned until reset() returns: reset() segments the whole value and throws when the value
+        // starts with a character cut short, such as "\xE4\xB8", and the tokenizer, with about
+        // 100 KB of buffers, used to leak on every such value.
+        auto tokenizer = std::make_unique<IKTokenizer>(config_, _lowercase, _ownReader);
         tokenizer->reset(reader);
-        return (TokenStream*)tokenizer;
+        return tokenizer.release();
     }
 
     TokenStream* reusableTokenStream(const TCHAR* fieldName,

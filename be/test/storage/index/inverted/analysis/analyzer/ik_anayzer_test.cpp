@@ -78,6 +78,9 @@ protected:
                            bool isSmart = false) {
         std::shared_ptr<Configuration> config = std::make_shared<Configuration>(isSmart, true);
         config->setDictPath("./be/dict/ik");
+        // The segmenter reads the shared dictionary but never loads it, so a test that runs first
+        // must load it here.
+        Dictionary::initial(*config);
         IKSegmenter segmenter(config);
 
         lucene::util::SStringReader<char> reader;
@@ -130,6 +133,10 @@ protected:
 
 // Test for Dictionary exception handling
 TEST_F(IKTokenizerTest, TestDictionaryExceptionHandling) {
+    // The shared dictionary may be loaded already by a test that ran earlier. Start without it, so
+    // this test sees the failure path in whatever order gtest runs the tests.
+    Dictionary::destroy();
+
     // A named custom IK analyzer defers dictionary loading until its first token stream.
     // That public boundary must translate CLucene failures into a Doris analyzer exception.
     const std::string old_dict_path = config::inverted_index_dict_path;
@@ -152,41 +159,33 @@ TEST_F(IKTokenizerTest, TestDictionaryExceptionHandling) {
     config::inverted_index_dict_path = old_dict_path;
     EXPECT_TRUE(caught_doris_exception);
 
-    // Test 1: Load non-existent path
+    // A failed load leaves no dictionary behind.
     {
         Configuration cfg;
         cfg.setDictPath("/non_existent_path");
         cfg.setMainDictFile("main.dic");
         cfg.setQuantifierDictFile("quantifier.dic");
         cfg.setStopWordDictFile("stopword.dic");
-
-        // Expect an exception
         ASSERT_THROW({ Dictionary::initial(cfg, false); }, CLuceneError);
-
-        // Singleton should be nullptr, getSingleton() will throw an exception
-        ASSERT_NO_THROW({ Dictionary::getSingleton(); });
+        ASSERT_THROW({ Dictionary::getSingleton(); }, CLuceneError);
     }
 
-    // Test 2: Use reload method with invalid path
+    // The next attempt loads, without a restart.
     {
-        Dictionary* dict = Dictionary::getSingleton();
-        // Set path to invalid path
-        dict->getConfiguration()->setDictPath("/non_existent_path");
-
-        ASSERT_THROW({ Dictionary::reload(); }, CLuceneError);
-    }
-
-    // Test 3: Initialize with valid dictionary path
-    {
-        Dictionary::getSingleton()->getConfiguration()->setDictPath("./be/dict/ik");
-
-        // Expect no exception
-        ASSERT_NO_THROW({ Dictionary::reload(); });
-
-        // Singleton should be successfully created
+        Configuration cfg;
+        cfg.setDictPath("./be/dict/ik");
+        ASSERT_NO_THROW({ Dictionary::initial(cfg, false); });
         Dictionary* dict = nullptr;
         ASSERT_NO_THROW({ dict = Dictionary::getSingleton(); });
         ASSERT_NE(dict, nullptr);
+    }
+
+    // Once loaded, a later configuration does not replace the dictionary.
+    {
+        Configuration cfg;
+        cfg.setDictPath("/non_existent_path");
+        ASSERT_NO_THROW({ Dictionary::initial(cfg, false); });
+        EXPECT_EQ(Dictionary::getSingleton()->getConfiguration()->getDictPath(), "./be/dict/ik");
     }
 }
 
@@ -336,6 +335,19 @@ TEST_F(IKTokenizerTest, TestOffsetsAcrossBufferRefill) {
         ++token_index;
     }
     ASSERT_EQ(token_index, 2000);
+}
+
+// A value that starts with a character cut short, here the first two bytes of U+4E2D, has nothing
+// IK can decode, and tokenStream() throws. The tokenizer it had created leaked; LeakSanitizer
+// reports that when the test binary exits.
+TEST_F(IKTokenizerTest, TestUndecodableValueThrowsWithoutLeakingTheStream) {
+    IKAnalyzer analyzer;
+    analyzer.initDict("./be/dict/ik");
+    const std::string value = "\xE4\xB8";
+    lucene::util::SStringReader<char> reader;
+    reader.init(value.data(), value.size(), false);
+    EXPECT_THROW({ std::unique_ptr<TokenStream> stream(analyzer.tokenStream(L"", &reader)); },
+                 CLuceneError);
 }
 
 TEST_F(IKTokenizerTest, TestLegacyAndCustomResetContracts) {
