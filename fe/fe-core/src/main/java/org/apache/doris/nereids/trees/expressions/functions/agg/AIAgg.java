@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Resource;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AIFunction;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.StringType;
@@ -113,6 +114,7 @@ public class AIAgg extends NullableAggregateFunction
     private void checkResource(Expression resourceNameArgument) {
         //Check if the resource is valid
         String resourceName = resourceNameArgument.toString().replaceAll("^['\"]|['\"]$", "");
+        AIFunction.checkResourceUsagePrivilege(resourceName);
         Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
         if (!(resource instanceof AIResource)) {
             throw new AnalysisException("AI resource '" + resourceName + "' does not exist");
