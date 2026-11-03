@@ -346,8 +346,9 @@ void SpimiTermBuffer::attach_global_limiter(GlobalMemoryLimiter* limiter) {
     // moment. The buffer's total memory needs no reporting here: it already
     // reaches the limiter through the SniiIndexBuild observation tracker that
     // mem_reporter_ feeds.
+    reported_arena_ = pool_.arena_bytes();
     global_limiter_->register_buffer(&global_spill_requested_,
-                                     static_cast<int64_t>(pool_.arena_bytes()));
+                                     static_cast<int64_t>(reported_arena_));
 }
 
 void SpimiTermBuffer::report_arena_delta() {
@@ -375,9 +376,17 @@ void SpimiTermBuffer::report_arena_delta() {
     }
     // Report reclaimable arena bytes to the process-wide limiter. It may flag
     // this buffer for a spill, which the owner thread handles after this call.
-    if (global_limiter_ != nullptr) {
-        global_limiter_->report(&global_spill_requested_,
-                                static_cast<int64_t>(pool_.arena_bytes()));
+    //
+    // Only a changed arena is reported, because the limiter keeps nothing else from
+    // this call and it takes a process-wide mutex. The resident total above moves on
+    // every new term while the arena moves one 32 KiB block at a time, so a log column
+    // that interns 4000 new terms into one block would otherwise take that mutex 4000
+    // times to repeat one number, from every flush thread at once. Pressure is still
+    // re-decided whenever the arena grows, which is all a buffer of repeated terms ever
+    // got.
+    if (global_limiter_ != nullptr && pool_.arena_bytes() != reported_arena_) {
+        reported_arena_ = pool_.arena_bytes();
+        global_limiter_->report(&global_spill_requested_, static_cast<int64_t>(reported_arena_));
     }
     reported_resident_ = now;
 }

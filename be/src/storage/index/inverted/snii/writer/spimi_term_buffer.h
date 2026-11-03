@@ -389,6 +389,9 @@ private:
     // doubles as the buffer's registry identity.
     GlobalMemoryLimiter* global_limiter_ = nullptr;
     std::atomic<bool> global_spill_requested_ {false};
+    // The arena size the limiter last saw; report_arena_delta() stays off the
+    // registry mutex until it changes.
+    uint64_t reported_arena_ = 0;
     // Forced-spill floor / run-file cap (see the public setters above).
     uint64_t forced_spill_min_arena_bytes_ = kDefaultForcedSpillMinArenaBytes;
     size_t max_run_files_ = kDefaultMaxRunFilesPerBuffer;
