@@ -1841,7 +1841,7 @@ Status IcebergTableReader::_find_equality_delete_data_field(
         const EqualityDeleteFilter& filter, size_t key_idx,
         EqualityDeleteColumnPath* const data_path, bool* const complete_path) const {
     DORIS_CHECK(key_idx < filter.field_ids.size());
-    DORIS_CHECK(key_idx < filter.field_names.size());
+    DORIS_CHECK(key_idx < filter.field_name_paths.size());
     DORIS_CHECK(data_path != nullptr);
     DORIS_CHECK(complete_path != nullptr);
     data_path->clear();
@@ -1868,12 +1868,22 @@ Status IcebergTableReader::_find_equality_delete_data_field(
     // Equality keys are hidden scan dependencies and need not appear in the query projection.
     // Reuse ColumnMapper's exact BY_NAME rules at every ancestor so a nested key keeps its
     // physical path, including historical aliases for ID-less files.
-    std::optional<format::ColumnDefinition> legacy_table_field;
+    // An older FE's schema metadata lists only the projected columns, so a key it does not list
+    // is looked up by the delete file's names for the key and each of its ancestors. A nested key
+    // needs all of them: in an ID-less data file `id, payload {k}`, looking up only the leaf `k`
+    // among the top-level columns read payload.k as missing, i.e. NULL, so the tombstone
+    // payload.k = 7 kept the very rows it deletes.
+    std::vector<format::ColumnDefinition> legacy_table_path;
     if (table_path.empty() && !supports_iceberg_scan_semantics_v2(_scan_params)) {
-        legacy_table_field.emplace();
-        legacy_table_field->name = filter.field_names[key_idx];
-        legacy_table_field->type = filter.key_types[key_idx];
-        table_path.push_back(&*legacy_table_field);
+        const auto& names = filter.field_name_paths[key_idx];
+        legacy_table_path.resize(names.size());
+        for (size_t index = 0; index < names.size(); ++index) {
+            legacy_table_path[index].name = names[index];
+        }
+        legacy_table_path.back().type = filter.key_types[key_idx];
+        for (const auto& field : legacy_table_path) {
+            table_path.push_back(&field);
+        }
     }
     if (table_path.empty()) {
         return Status::InvalidArgument(
@@ -1901,7 +1911,7 @@ Status IcebergTableReader::_find_equality_delete_data_field(
             // snapshot's parent has expired. Retry the delete file's original leaf name, but
             // never bypass an explicit authoritative Iceberg mapping.
             format::ColumnDefinition delete_file_field;
-            delete_file_field.name = filter.field_names[key_idx];
+            delete_file_field.name = filter.field_name_paths[key_idx].back();
             data_field = format::find_column_by_name(delete_file_field, *candidates);
         }
         if (data_field == nullptr) {
@@ -1918,7 +1928,7 @@ Status IcebergTableReader::_find_equality_delete_table_field(
         const EqualityDeleteFilter& filter, size_t key_idx,
         format::ColumnDefinition* table_field) const {
     DORIS_CHECK(key_idx < filter.field_ids.size());
-    DORIS_CHECK(key_idx < filter.field_names.size());
+    DORIS_CHECK(key_idx < filter.field_name_paths.size());
     DORIS_CHECK(table_field != nullptr);
     const int field_id = filter.field_ids[key_idx];
     auto resolved = _find_table_column_by_field_id(field_id, filter.key_types[key_idx], true);
@@ -1938,7 +1948,7 @@ Status IcebergTableReader::_find_equality_delete_table_field(
     if (!resolved.has_value() && !supports_iceberg_scan_semantics_v2(_scan_params)) {
         resolved = format::ColumnDefinition {
                 .identifier = {},
-                .name = filter.field_names[key_idx],
+                .name = filter.field_name_paths[key_idx].back(),
                 .type = filter.key_types[key_idx],
         };
     }
@@ -2187,7 +2197,7 @@ Status IcebergTableReader::_build_converted_equality_delete_filter(
         EqualityDeleteFilter* result) const {
     DORIS_CHECK(result != nullptr);
     result->field_ids = filter.field_ids;
-    result->field_names = filter.field_names;
+    result->field_name_paths = filter.field_name_paths;
     result->key_types = filter.key_types;
     Block delete_block = filter.delete_block;
     RowDescriptor row_desc;
@@ -2410,9 +2420,13 @@ Status IcebergTableReader::_resolve_equality_delete_fields(
             table_field.has_value() && table_field->type != nullptr) {
             key_type = table_field->type;
         }
+        std::vector<std::string> name_path;
+        for (const auto* path_field : path) {
+            name_path.push_back(path_field->name);
+        }
         delete_paths->push_back(std::move(path));
         result->field_ids.push_back(field_id);
-        result->field_names.push_back(field->name);
+        result->field_name_paths.push_back(std::move(name_path));
         result->key_types.push_back(key_type);
         result->delete_key_types.push_back(delete_file_type);
     }

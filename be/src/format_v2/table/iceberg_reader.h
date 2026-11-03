@@ -252,9 +252,11 @@ private:
     format::DeleteRows _position_delete_rows_storage;
     struct EqualityDeleteFilter {
         std::vector<int> field_ids;
-        // Delete-file names are retained for Iceberg tables imported from formats that did not
-        // persist field ids. In BY_NAME mode they are the fallback binding key.
-        std::vector<std::string> field_names;
+        // Delete-file names of each key, from its top-level column down to the key itself, e.g.
+        // {"payload", "k"} for payload.k. They are retained for Iceberg tables imported from
+        // formats that did not persist field ids: in BY_NAME mode they are the fallback binding
+        // key.
+        std::vector<std::vector<std::string>> field_name_paths;
         // Table-side types of the keys, from the scan's schema metadata. They resolve table
         // fields and build defaults for keys a data file lacks. The comparison type comes from
         // the file types; a table type only lets a timestamptz key read as DATETIMEV2 compare

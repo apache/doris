@@ -6212,6 +6212,365 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteRejectsDroppedFieldWithoutSchemaM
     std::filesystem::remove_all(test_dir);
 }
 
+// The scan of an FE that predates the Iceberg scan semantics versions (Doris 4.1.3 and earlier),
+// which a BE upgraded first executes during a rolling upgrade. That FE sends no version and no
+// initial defaults, marks every field optional, and numbers its one schema -1. The schema holds the
+// projected columns only, or every table column when Top-N lazy materialization needs them.
+TFileScanRangeParams make_old_fe_iceberg_scan_params(
+        FileFormat file_format, std::vector<schema::external::TFieldPtr> schema_fields) {
+    TFileScanRangeParams scan_params;
+    scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    scan_params.__set_format_type(file_format == FileFormat::PARQUET
+                                          ? TFileFormatType::FORMAT_PARQUET
+                                          : TFileFormatType::FORMAT_ORC);
+    scan_params.__set_current_schema_id(-1);
+    scan_params.__set_history_schema_info({external_schema(-1, std::move(schema_fields))});
+    return scan_params;
+}
+
+schema::external::TFieldPtr old_fe_schema_field(std::string name, int32_t id,
+                                                TPrimitiveType::type type) {
+    return external_schema_field(std::move(name), id, {}, std::nullopt,
+                                 external_primitive_type(type), false, true);
+}
+
+// Writes an equality delete file with the INT `id` (field id 0), unless `ids` is empty, and the
+// nullable key `added_key` (field id 1): a STRING key if `string_key` is set, an INT key otherwise,
+// whose values are given as text.
+void write_added_key_equality_delete_file(const std::string& file_path, FileFormat format,
+                                          const std::vector<int32_t>& ids, bool string_key,
+                                          const std::vector<std::optional<std::string>>& keys) {
+    ASSERT_TRUE(ids.empty() || ids.size() == keys.size());
+    std::vector<std::optional<int32_t>> int_keys;
+    for (const auto& key : keys) {
+        int_keys.push_back(key.has_value() && !string_key ? std::optional(std::stoi(*key))
+                                                          : std::nullopt);
+    }
+    if (format == FileFormat::PARQUET) {
+        std::vector<std::shared_ptr<arrow::Field>> fields;
+        std::vector<std::shared_ptr<arrow::Array>> columns;
+        if (!ids.empty()) {
+            fields.push_back(
+                    arrow::field("id", arrow::int32(), false)
+                            ->WithMetadata(arrow::key_value_metadata({"PARQUET:field_id"}, {"0"})));
+            columns.push_back(build_int32_array(ids));
+        }
+        auto key_array = string_key ? build_nullable_string_array(keys)
+                                    : build_nullable_int32_keys(int_keys);
+        fields.push_back(
+                arrow::field("added_key", key_array->type(), true)
+                        ->WithMetadata(arrow::key_value_metadata({"PARQUET:field_id"}, {"1"})));
+        columns.push_back(std::move(key_array));
+        write_parquet_table(file_path, arrow::Table::Make(arrow::schema(fields), columns));
+        return;
+    }
+    const std::string key_column = std::string("added_key:") + (string_key ? "string" : "int");
+    auto type = std::unique_ptr<::orc::Type>(::orc::Type::buildTypeFromString(
+            ids.empty() ? "struct<" + key_column + ">" : "struct<id:int," + key_column + ">"));
+    const size_t key_index = ids.empty() ? 0 : 1;
+    if (!ids.empty()) {
+        type->getSubtype(0)->setAttribute("iceberg.id", "0");
+    }
+    type->getSubtype(key_index)->setAttribute("iceberg.id", "1");
+    MemoryOutputStream stream(1024 * 1024);
+    ::orc::WriterOptions options;
+    auto writer = ::orc::createWriter(*type, &stream, options);
+    auto batch = writer->createRowBatch(keys.size());
+    auto& root = dynamic_cast<::orc::StructVectorBatch&>(*batch);
+    root.numElements = keys.size();
+    if (!ids.empty()) {
+        auto& id_batch = dynamic_cast<::orc::LongVectorBatch&>(*root.fields[0]);
+        id_batch.numElements = ids.size();
+        for (size_t row = 0; row < ids.size(); ++row) {
+            id_batch.data[row] = ids[row];
+        }
+    }
+    auto& key_batch = *root.fields[key_index];
+    key_batch.numElements = keys.size();
+    key_batch.hasNulls = true;
+    for (size_t row = 0; row < keys.size(); ++row) {
+        key_batch.notNull[row] = keys[row].has_value();
+        if (!keys[row].has_value()) {
+            continue;
+        }
+        if (string_key) {
+            auto& strings = dynamic_cast<::orc::StringVectorBatch&>(key_batch);
+            strings.data[row] = const_cast<char*>(keys[row]->data());
+            strings.length[row] = cast_set<int64_t>(keys[row]->size());
+        } else {
+            dynamic_cast<::orc::LongVectorBatch&>(key_batch).data[row] = *int_keys[row];
+        }
+    }
+    writer->add(*batch);
+    writer->close();
+    std::ofstream out(file_path, std::ios::binary);
+    out.write(stream.getData(), static_cast<std::streamsize>(stream.getLength()));
+}
+
+// An old-FE plan (make_old_fe_iceberg_scan_params) carries no initial default for `added_key`, a
+// key that the data file predates, so the key is NULL in every row of the file, whether the FE's
+// schema holds it or, as when only `id` is projected, does not. That NULL matches only a NULL
+// tombstone, never the 0 or empty string a NULL slot's nested column holds. With `added_key` as
+// the only key, the predicate consists of NULL literals alone.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
+TEST(IcebergV2ReaderTest, IcebergOldFePlanMatchesMissingEqualityKeyAsNull) {
+    // Tombstones on (id, added_key), or on added_key alone when `ids` is empty.
+    struct DeleteCase {
+        std::vector<int32_t> ids;
+        std::vector<std::optional<std::string>> keys;
+        std::vector<int32_t> expected_ids;
+    };
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_iceberg_old_fe_missing_equality_key";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    int case_index = 0;
+    for (const auto file_format : {FileFormat::PARQUET, FileFormat::ORC}) {
+        const bool is_parquet = file_format == FileFormat::PARQUET;
+        for (const bool string_key : {false, true}) {
+            const std::string tombstone = string_key ? "" : "0";
+            for (const bool schema_has_key : {false, true}) {
+                const std::vector<DeleteCase> delete_cases = {
+                        {{2, 3}, {std::nullopt, tombstone}, {1, 3}},
+                        {{}, {std::nullopt}, {}},
+                        {{}, {tombstone}, {1, 2, 3}},
+                };
+                for (const auto& [delete_ids, delete_keys, expected_ids] : delete_cases) {
+                    SCOPED_TRACE(testing::Message()
+                                 << "format=" << (is_parquet ? "parquet" : "orc") << " string_key="
+                                 << string_key << " schema_has_key=" << schema_has_key
+                                 << " composite=" << !delete_ids.empty()
+                                 << " null_tombstone=" << !delete_keys.front().has_value());
+                    // Each case writes new files: one rewritten at the same path could read stale.
+                    const std::string suffix =
+                            std::to_string(case_index++) + (is_parquet ? ".parquet" : ".orc");
+                    const auto file_path = (test_dir / ("split-" + suffix)).string();
+                    const auto delete_file_path =
+                            (test_dir / ("equality-delete-" + suffix)).string();
+                    if (is_parquet) {
+                        write_single_int_parquet_file(file_path, "id", {1, 2, 3}, 0);
+                    } else {
+                        write_single_int_orc_file(file_path, "id", {1, 2, 3}, 0);
+                    }
+                    write_added_key_equality_delete_file(delete_file_path, file_format, delete_ids,
+                                                         string_key, delete_keys);
+
+                    std::vector<schema::external::TFieldPtr> schema_fields = {
+                            old_fe_schema_field("id", 0, TPrimitiveType::INT)};
+                    if (schema_has_key) {
+                        schema_fields.push_back(old_fe_schema_field(
+                                "added_key", 1,
+                                string_key ? TPrimitiveType::STRING : TPrimitiveType::INT));
+                    }
+                    auto scan_params =
+                            make_old_fe_iceberg_scan_params(file_format, std::move(schema_fields));
+                    std::vector<ColumnDefinition> projected_columns;
+                    projected_columns.push_back(
+                            make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+                    RuntimeProfile profile("test_profile");
+                    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+                    io::FileReaderStats file_reader_stats;
+                    io::FileCacheStatistics file_cache_stats;
+                    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+                    ShardedKVCache cache(1);
+                    doris::format::iceberg::IcebergTableReader reader;
+                    init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state,
+                                        &profile, file_format);
+
+                    auto split_options = build_split_options(file_path);
+                    split_options.cache = &cache;
+                    split_options.current_split_format = file_format;
+                    std::vector<int32_t> equality_field_ids = {1};
+                    if (!delete_ids.empty()) {
+                        equality_field_ids.insert(equality_field_ids.begin(), 0);
+                    }
+                    split_options.current_range.__set_table_format_params(
+                            make_iceberg_table_format_desc(
+                                    file_path, {make_iceberg_equality_delete_file(
+                                                       delete_file_path, equality_field_ids,
+                                                       is_parquet ? TFileFormatType::FORMAT_PARQUET
+                                                                  : TFileFormatType::FORMAT_ORC)}));
+                    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+                    EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), expected_ids);
+                    ASSERT_TRUE(reader.close().ok());
+                }
+            }
+        }
+    }
+    std::filesystem::remove_all(test_dir);
+}
+
+// The same old-FE plan with the nested key payload.k, which the table added after the data file was
+// written. The file stores `id` and a nullable `payload {existing}`, payload NULL in row 2, with or
+// without field ids (a file without them is resolved by name). payload.k is NULL in every row, under
+// the NULL payload and under the present ones alike, whether the FE's schema holds payload, as when
+// it lists every column for Top-N lazy materialization, or only the projected `id`. Of the
+// tombstones (1, NULL), written as a NULL payload, and (3, 0), only the first matches.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
+TEST(IcebergV2ReaderTest, IcebergOldFePlanMatchesMissingNestedEqualityKeyAsNull) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_old_fe_missing_nested_equality_key";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    int case_index = 0;
+    for (const auto file_format : {FileFormat::PARQUET, FileFormat::ORC}) {
+        const bool is_parquet = file_format == FileFormat::PARQUET;
+        for (const bool write_field_ids : {false, true}) {
+            for (const bool schema_has_payload : {false, true}) {
+                SCOPED_TRACE(testing::Message() << "format=" << (is_parquet ? "parquet" : "orc")
+                                                << " write_field_ids=" << write_field_ids
+                                                << " schema_has_payload=" << schema_has_payload);
+                const std::string suffix =
+                        std::to_string(case_index++) + (is_parquet ? ".parquet" : ".orc");
+                const auto file_path = (test_dir / ("split-" + suffix)).string();
+                const auto delete_file_path = (test_dir / ("equality-delete-" + suffix)).string();
+                if (is_parquet) {
+                    write_nested_equality_parquet_file(file_path, {1, 2, 3}, {10, 20, 30},
+                                                       {false, true, false}, true, "existing", 2,
+                                                       "payload", write_field_ids);
+                    write_nested_equality_parquet_file(delete_file_path, {1, 3}, {0, 0},
+                                                       {true, false}, true, "k", 3);
+                } else {
+                    write_nested_equality_orc_file(file_path, {1, 2, 3}, {10, 20, 30},
+                                                   {false, true, false}, "existing", 2, "payload",
+                                                   write_field_ids);
+                    write_nested_equality_orc_file(delete_file_path, {1, 3}, {0, 0}, {true, false},
+                                                   "k", 3);
+                }
+
+                std::vector<schema::external::TFieldPtr> schema_fields = {
+                        old_fe_schema_field("id", 0, TPrimitiveType::INT)};
+                if (schema_has_payload) {
+                    schema_fields.push_back(external_struct_schema_field(
+                            "payload", 1,
+                            {old_fe_schema_field("existing", 2, TPrimitiveType::INT),
+                             old_fe_schema_field("k", 3, TPrimitiveType::INT)},
+                            true));
+                }
+                auto scan_params =
+                        make_old_fe_iceberg_scan_params(file_format, std::move(schema_fields));
+                std::vector<ColumnDefinition> projected_columns;
+                projected_columns.push_back(
+                        make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+                RuntimeProfile profile("test_profile");
+                RuntimeState state {TQueryOptions(), TQueryGlobals()};
+                io::FileReaderStats file_reader_stats;
+                io::FileCacheStatistics file_cache_stats;
+                auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+                ShardedKVCache cache(1);
+                doris::format::iceberg::IcebergTableReader reader;
+                init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state,
+                                    &profile, file_format);
+
+                auto split_options = build_split_options(file_path);
+                split_options.cache = &cache;
+                split_options.current_split_format = file_format;
+                split_options.current_range.__set_table_format_params(
+                        make_iceberg_table_format_desc(
+                                file_path, {make_iceberg_equality_delete_file(
+                                                   delete_file_path, {0, 3},
+                                                   is_parquet ? TFileFormatType::FORMAT_PARQUET
+                                                              : TFileFormatType::FORMAT_ORC)}));
+                ASSERT_TRUE(reader.prepare_split(split_options).ok());
+                EXPECT_EQ(read_iceberg_ids(&reader, projected_columns),
+                          std::vector<int32_t>({2, 3}));
+                ASSERT_TRUE(reader.close().ok());
+            }
+        }
+    }
+    std::filesystem::remove_all(test_dir);
+}
+
+// An old-FE plan whose schema lists only `id` leaves payload.k, a key the data file does store, to
+// the names the delete file gives the key and its ancestor. The file holds `id, payload {k}` with
+// payload NULL in row 3, so the key is 5, 7 and NULL. Without field ids it is resolved by name, and
+// looking up only the leaf `k` among the top-level columns read it as missing, i.e. NULL in every
+// row: the tombstone 7 then kept row 2, and a NULL tombstone deleted every row. A file with field
+// ids, or a schema that lists payload, finds the key either way.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
+TEST(IcebergV2ReaderTest, IcebergOldFePlanFindsUnlistedNestedEqualityKeyByDeleteFileNames) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_old_fe_unlisted_nested_equality_key";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    int case_index = 0;
+    for (const auto file_format : {FileFormat::PARQUET, FileFormat::ORC}) {
+        const bool is_parquet = file_format == FileFormat::PARQUET;
+        for (const bool write_field_ids : {false, true}) {
+            for (const bool schema_has_payload : {false, true}) {
+                // Tombstones on payload.k (a NULL one is written as a NULL payload) and the ids
+                // they leave.
+                for (const auto& [tombstone_nulls, expected_ids] :
+                     std::vector<std::pair<std::vector<bool>, std::vector<int32_t>>> {
+                             {{false}, {1, 3}}, {{false, true}, {1}}}) {
+                    SCOPED_TRACE(testing::Message()
+                                 << "format=" << (is_parquet ? "parquet" : "orc")
+                                 << " write_field_ids=" << write_field_ids
+                                 << " schema_has_payload=" << schema_has_payload
+                                 << " null_tombstone=" << (tombstone_nulls.size() > 1));
+                    const std::string suffix =
+                            std::to_string(case_index++) + (is_parquet ? ".parquet" : ".orc");
+                    const auto file_path = (test_dir / ("split-" + suffix)).string();
+                    const auto delete_file_path =
+                            (test_dir / ("equality-delete-" + suffix)).string();
+                    const std::vector<int32_t> tombstones(tombstone_nulls.size(), 7);
+                    if (is_parquet) {
+                        write_nested_equality_parquet_file(file_path, {1, 2, 3}, {5, 7, 9},
+                                                           {false, false, true}, true, "k", 3,
+                                                           "payload", write_field_ids);
+                        write_nested_equality_parquet_file(delete_file_path, {}, tombstones,
+                                                           tombstone_nulls, true, "k", 3);
+                    } else {
+                        write_nested_equality_orc_file(file_path, {1, 2, 3}, {5, 7, 9},
+                                                       {false, false, true}, "k", 3, "payload",
+                                                       write_field_ids);
+                        write_nested_equality_orc_file(
+                                delete_file_path, {},
+                                std::vector<int64_t>(tombstones.begin(), tombstones.end()),
+                                tombstone_nulls, "k", 3);
+                    }
+
+                    std::vector<schema::external::TFieldPtr> schema_fields = {
+                            old_fe_schema_field("id", 0, TPrimitiveType::INT)};
+                    if (schema_has_payload) {
+                        schema_fields.push_back(external_struct_schema_field(
+                                "payload", 1, {old_fe_schema_field("k", 3, TPrimitiveType::INT)},
+                                true));
+                    }
+                    auto scan_params =
+                            make_old_fe_iceberg_scan_params(file_format, std::move(schema_fields));
+                    std::vector<ColumnDefinition> projected_columns;
+                    projected_columns.push_back(
+                            make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+                    RuntimeProfile profile("test_profile");
+                    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+                    io::FileReaderStats file_reader_stats;
+                    io::FileCacheStatistics file_cache_stats;
+                    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+                    ShardedKVCache cache(1);
+                    doris::format::iceberg::IcebergTableReader reader;
+                    init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state,
+                                        &profile, file_format);
+
+                    auto split_options = build_split_options(file_path);
+                    split_options.cache = &cache;
+                    split_options.current_split_format = file_format;
+                    split_options.current_range.__set_table_format_params(
+                            make_iceberg_table_format_desc(
+                                    file_path, {make_iceberg_equality_delete_file(
+                                                       delete_file_path, {3},
+                                                       is_parquet ? TFileFormatType::FORMAT_PARQUET
+                                                                  : TFileFormatType::FORMAT_ORC)}));
+                    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+                    EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), expected_ids);
+                    ASSERT_TRUE(reader.close().ok());
+                }
+            }
+        }
+    }
+    std::filesystem::remove_all(test_dir);
+}
+
 TEST(IcebergV2ReaderTest, IcebergEqualityDeleteMatchesTimestampInitialDefaultForMissingColumn) {
     const auto test_dir = std::filesystem::temp_directory_path() /
                           "doris_iceberg_equality_delete_missing_timestamp_default_test";
