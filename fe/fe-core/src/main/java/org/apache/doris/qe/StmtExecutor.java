@@ -2248,6 +2248,7 @@ public class StmtExecutor {
             }
             throw e;
         } finally {
+            scanTaskScope.close();
             if (coord != null) {
                 coord.close();
             }

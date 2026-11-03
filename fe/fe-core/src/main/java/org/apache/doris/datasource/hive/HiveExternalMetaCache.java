@@ -356,12 +356,13 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
     }
 
     private FileCacheValue loadFileCacheValue(FileCacheKey key) {
-        return loadFileCacheValue(key, new FileSystemDirectoryLister(), null, new SplitScanContext());
+        return loadFileCacheValue(key, new SplitScanContext());
     }
 
-    private FileCacheValue loadFileCacheValue(FileCacheKey key, DirectoryLister lister, TableIf table,
-            SplitScanContext scanContext) {
-        FileCacheValue value = loadFiles(key, lister, table, scanContext);
+    private FileCacheValue loadFileCacheValue(FileCacheKey key, SplitScanContext scanContext) {
+        // The statement lister is keyed only by location. Global cache loads must use the
+        // filesystem and listing policy of this catalog, even when another scan shares that path.
+        FileCacheValue value = loadFiles(key, new FileSystemDirectoryLister(), null, scanContext);
         AtomicLong generation = fileCacheValueGenerations.get(key.catalogId);
         if (generation == null && fileEntry.getIfInitialized(key.catalogId) != null) {
             generation = fileCacheValueGenerations.computeIfAbsent(
@@ -675,7 +676,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
             FileCacheValue value;
             if (withCache) {
                 value = fileEntry.get(catalogId).getForLoadScope(key,
-                        k -> loadFileCacheValue(k, directoryLister, table, scanContext));
+                        k -> loadFileCacheValue(k, scanContext));
             } else {
                 value = loadFiles(key, directoryLister, table, scanContext);
             }

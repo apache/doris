@@ -534,6 +534,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             }
             if (assignment.isStop()) {
                 unregisterSplitSources(assignment);
+                assignment.checkException();
                 Status reason = executor == null ? null : executor.getPendingCancelReason();
                 throw new UserException(reason == null ? "Split generation stopped" : reason.getErrorMsg());
             }

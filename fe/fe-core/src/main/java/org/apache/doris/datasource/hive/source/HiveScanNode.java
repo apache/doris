@@ -384,8 +384,8 @@ public class HiveScanNode extends FileQueryScanNode {
         checkCancelled.run();
         long targetFileSplitSize = determineTargetFileSplitSize(fileCaches, isBatchMode);
         if (tableSample != null) {
-            List<HiveExternalMetaCache.HiveFileStatus> hiveFileStatuses = selectFiles(fileCaches);
-            splitAllFiles(allFiles, hiveFileStatuses, targetFileSplitSize);
+            List<HiveExternalMetaCache.HiveFileStatus> hiveFileStatuses = selectFiles(fileCaches, checkCancelled);
+            splitAllFiles(allFiles, hiveFileStatuses, targetFileSplitSize, checkCancelled);
             return;
         }
 
@@ -478,8 +478,9 @@ public class HiveScanNode extends FileQueryScanNode {
 
     private void splitAllFiles(List<Split> allFiles,
                                List<HiveExternalMetaCache.HiveFileStatus> hiveFileStatuses,
-            long realFileSplitSize) throws IOException {
+            long realFileSplitSize, Runnable checkCancelled) throws IOException {
         for (HiveExternalMetaCache.HiveFileStatus status : hiveFileStatuses) {
+            checkCancelled.run();
             allFiles.addAll(fileSplitter.splitFile(
                     status.getPath(),
                     realFileSplitSize,
@@ -488,16 +489,18 @@ public class HiveScanNode extends FileQueryScanNode {
                     status.getModificationTime(),
                     status.isSplittable(),
                     status.getPartitionValues(),
-                    new HiveSplitCreator(status.getAcidInfo())));
+                    new HiveSplitCreator(status.getAcidInfo()), checkCancelled));
         }
     }
 
-    private List<HiveExternalMetaCache.HiveFileStatus> selectFiles(List<FileCacheValue> inputCacheValue) {
+    private List<HiveExternalMetaCache.HiveFileStatus> selectFiles(List<FileCacheValue> inputCacheValue,
+            Runnable checkCancelled) {
         List<Pair<HiveExternalMetaCache.HiveFileStatus, FileCacheValue>> filesWithCacheValue =
                 Lists.newArrayList();
         long totalSize = 0;
         for (FileCacheValue value : inputCacheValue) {
             for (HiveExternalMetaCache.HiveFileStatus file : value.getFiles()) {
+                checkCancelled.run();
                 filesWithCacheValue.add(Pair.of(file, value));
                 totalSize += file.getLength();
             }
@@ -513,10 +516,15 @@ public class HiveScanNode extends FileQueryScanNode {
             sampleSize = estimatedRowSize * tableSample.getSampleValue();
         }
         long selectedSize = 0;
-        Collections.shuffle(filesWithCacheValue, new Random(tableSample.getSeek()));
+        Random random = new Random(tableSample.getSeek());
+        for (int i = filesWithCacheValue.size(); i > 1; i--) {
+            checkCancelled.run();
+            Collections.swap(filesWithCacheValue, i - 1, random.nextInt(i));
+        }
         List<HiveExternalMetaCache.HiveFileStatus> selectedFiles = Lists.newArrayList();
         for (Pair<HiveExternalMetaCache.HiveFileStatus, FileCacheValue> fileWithCacheValue
                 : filesWithCacheValue) {
+            checkCancelled.run();
             HiveExternalMetaCache.HiveFileStatus file = fileWithCacheValue.first;
             selectedFiles.add(copyFileStatus(file, fileWithCacheValue.second));
             selectedSize += file.getLength();

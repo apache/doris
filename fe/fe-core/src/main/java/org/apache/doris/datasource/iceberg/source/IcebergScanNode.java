@@ -1974,8 +1974,9 @@ public class IcebergScanNode extends FileQueryScanNode {
         IcebergScanPlanningScope scope = new IcebergScanPlanningScope(scanContext, getPlanningExecutor());
         try {
             scope.checkCancelled();
-            Optional<TableScan> scoped = DorisDataTableScan.withFileIO(scan,
-                    io -> new IcebergScanFileIO(io, scope::checkCancelled), scope);
+            Optional<TableScan> scoped = DorisDataTableScan.withPlanningTable(scan,
+                    table -> IcebergSnapshotCacheValue.withFileIO(table,
+                            io -> new IcebergScanFileIO(io, scope::checkCancelled)), scope);
             if (!scoped.isPresent()) {
                 // Custom Table/Scan implementations retain their SDK semantics. An opaque entered SDK call
                 // remains cooperative only at our outer source boundary.
