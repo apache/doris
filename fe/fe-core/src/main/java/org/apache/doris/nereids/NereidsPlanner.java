@@ -35,7 +35,6 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.mysql.FieldInfo;
-import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
@@ -65,7 +64,6 @@ import org.apache.doris.nereids.trees.plans.distribute.DistributePlanner;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
@@ -171,9 +169,7 @@ public class NereidsPlanner extends Planner {
         NereidsPlanner.runningPlanNum.incrementAndGet();
         try {
             boolean showPlanProcess = showPlanProcess(queryStmt.getExplainOptions());
-            boolean willFinalizePhysicalPlan = shouldFinalizePhysicalPlan(explainLevel,
-                    SessionVariable.canUseNereidsDistributePlanner(statementContext.getConnectContext()),
-                    isDictionarySink(parsedPlan));
+            boolean willFinalizePhysicalPlan = shouldFinalizePhysicalPlan(explainLevel);
             Consumer<Plan> distributeCallback = plan -> {
                 setOptimizedPlan(plan);
                 if (plan instanceof PhysicalPlan) {
@@ -774,8 +770,7 @@ public class NereidsPlanner extends Planner {
     }
 
     protected void distribute(PhysicalPlan physicalPlan, ExplainLevel explainLevel) {
-        if (explainLevel.isPlanLevel
-                && explainLevel != ExplainLevel.ALL_PLAN && explainLevel != ExplainLevel.DISTRIBUTED_PLAN) {
+        if (!shouldFinalizePhysicalPlan(explainLevel)) {
             return;
         }
 
@@ -1343,16 +1338,9 @@ public class NereidsPlanner extends Planner {
     }
 
     @VisibleForTesting
-    static boolean isDictionarySink(Plan plan) {
-        return plan instanceof UnboundDictionarySink || plan instanceof LogicalDictionarySink;
-    }
-
-    @VisibleForTesting
-    static boolean shouldFinalizePhysicalPlan(ExplainLevel explainLevel,
-            boolean canUseNereidsDistributePlanner, boolean dictionarySink) {
+    static boolean shouldFinalizePhysicalPlan(ExplainLevel explainLevel) {
         return !explainLevel.isPlanLevel
-                || ((explainLevel == ExplainLevel.ALL_PLAN || explainLevel == ExplainLevel.DISTRIBUTED_PLAN)
-                && (canUseNereidsDistributePlanner || dictionarySink));
+                || explainLevel == ExplainLevel.ALL_PLAN || explainLevel == ExplainLevel.DISTRIBUTED_PLAN;
     }
 
     private boolean showRewriteProcess(ExplainLevel explainLevel, boolean showPlanProcess) {
