@@ -1721,6 +1721,15 @@ TEST_F(ChangelogDeriveTest, ResolveExplicitInterleavedMapping) {
             invalid.entries(0).current_column_unique_id());
     EXPECT_FALSE(changelog::resolve_layout(source, reordered, invalid, &layout).ok());
     invalid = mapping;
+    invalid.mutable_entries()->RemoveLast();
+    auto incomplete = changelog::resolve_layout(source, reordered, invalid, &layout);
+    EXPECT_FALSE(incomplete.ok());
+    EXPECT_NE(incomplete.to_string().find("unmapped changelog source columns"), std::string::npos);
+    invalid = mapping;
+    invalid.mutable_entries(1)->set_source_column_unique_id(
+            invalid.entries(0).source_column_unique_id());
+    EXPECT_FALSE(changelog::resolve_layout(source, reordered, invalid, &layout).ok());
+    invalid = mapping;
     invalid.mutable_entries(0)->clear_source_column_unique_id();
     EXPECT_FALSE(changelog::resolve_layout(source, reordered, invalid, &layout).ok());
     invalid = mapping;

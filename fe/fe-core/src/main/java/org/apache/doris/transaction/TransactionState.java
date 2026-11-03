@@ -394,36 +394,21 @@ public class TransactionState implements Writable, GsonPostProcessable {
         }
     }
 
-    public synchronized void installRemoteWriteSchemas(List<TxnWriteSchemaSnapshot> snapshots) {
+    public synchronized void installRemoteWriteSchema(TxnWriteSchemaSnapshot snapshot) {
         checkWriteSchemaRegistrationStatus();
-        Map<Long, TxnWriteSchemaSnapshot> tables = new TreeMap<>();
-        Set<Long> indexIds = Sets.newHashSet();
-        for (TxnWriteSchemaSnapshot snapshot : snapshots) {
-            Preconditions.checkArgument(tables.put(snapshot.getTableId(), snapshot) == null,
-                    "Duplicate remote table schema: %s", snapshot.getTableId());
-            for (long indexId : snapshot.getIndexIds()) {
-                Preconditions.checkArgument(indexIds.add(indexId), "Duplicate remote index schema: %s", indexId);
-            }
-        }
         if (remoteWriteSchemasInstalled) {
-            Preconditions.checkState(writeSchemas.get(transactionId).equals(tables),
-                    "Remote write schemas changed for transaction %s", transactionId);
+            Preconditions.checkState(snapshot.equals(getWriteSchema(transactionId, snapshot.getTableId())),
+                    "Remote write schema changed for transaction %s", transactionId);
             return;
         }
         Preconditions.checkState(transactionStatus == TransactionStatus.PREPARE && writeSchemas.isEmpty(),
-                "Cannot install remote write schemas for transaction %s (%s)", transactionId, transactionStatus);
-        Map<Long, TxnWriteSchemaSnapshot> identities = new TreeMap<>();
-        tables.forEach((id, snapshot) -> identities.put(id, snapshot.persistentIdentity()));
+                "Cannot install remote write schema for transaction %s (%s)", transactionId, transactionStatus);
         Map<Long, Map<Long, TxnWriteSchemaSnapshot>> updated =
-                ImmutableMap.of(transactionId, ImmutableMap.copyOf(identities));
-        Map<Long, Set<Long>> indexes = new HashMap<>();
-        Map<Long, SchemaInfo> partialSchemas = new HashMap<>();
-        tables.forEach((id, snapshot) -> {
-            indexes.put(id, Sets.newHashSet(snapshot.getIndexIds()));
-            partialSchemas.put(id, partialSchemaOf(snapshot));
-        });
+                ImmutableMap.of(transactionId, ImmutableMap.of(snapshot.getTableId(), snapshot.persistentIdentity()));
+        Set<Long> indexes = Sets.newHashSet(snapshot.getIndexIds());
+        SchemaInfo partialSchema = partialSchemaOf(snapshot);
         writeSchemas = updated;
-        tables.forEach((id, snapshot) -> installCommitSchema(snapshot, indexes.get(id), partialSchemas.get(id)));
+        installCommitSchema(snapshot, indexes, partialSchema);
         remoteWriteSchemasInstalled = true;
     }
 

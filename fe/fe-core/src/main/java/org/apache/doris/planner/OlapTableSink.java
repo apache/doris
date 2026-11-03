@@ -311,11 +311,6 @@ public class OlapTableSink extends DataSink {
         initialized = true;
     }
 
-    public Map<Long, ChangelogWriteMapping> getChangelogWriteMappings() {
-        Preconditions.checkState(initialized, "OlapTableSink initialization has not completed");
-        return writeSchemaSnapshot.getChangelogMappings();
-    }
-
     public TOlapTableSchemaParam getOlapTableSchemaParam() {
         return tOlapTableSchemaParam;
     }

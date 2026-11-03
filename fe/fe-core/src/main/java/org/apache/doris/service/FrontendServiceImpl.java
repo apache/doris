@@ -2467,7 +2467,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     if (!state.getTableIdList().contains(table.getId())) {
                         throw new UserException("Remote transaction does not include the target table");
                     }
-                    state.installRemoteWriteSchemas(Collections.singletonList(snapshot));
+                    state.installRemoteWriteSchema(snapshot);
                 }
             } catch (IllegalArgumentException | IllegalStateException e) {
                 throw new UserException("Invalid remote write schema: " + e.getMessage(), e);
