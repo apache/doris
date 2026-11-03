@@ -18,10 +18,23 @@
 #include <cstdlib>
 
 extern "C" void* __libc_memalign(size_t alignment, size_t size) noexcept;
+extern "C" void* __libc_malloc(size_t size) noexcept;
+extern "C" void __libc_free(void* ptr) noexcept;
+extern "C" void* __libc_calloc(size_t count, size_t size) noexcept;
+extern "C" void* __libc_realloc(void* ptr, size_t size) noexcept;
+extern "C" void* __libc_valloc(size_t size) noexcept;
+extern "C" void* __libc_pvalloc(size_t size) noexcept;
 
-extern "C" void jemalloc_hook_test_allocator_symbols(void** memalign_symbol, void** free_symbol) {
-    *memalign_symbol = reinterpret_cast<void*>(&__libc_memalign);
-    *free_symbol = reinterpret_cast<void*>(&std::free);
+extern "C" void jemalloc_hook_test_allocator_symbols(void** symbols) {
+    symbols[0] = reinterpret_cast<void*>(&__libc_memalign);
+    symbols[1] = reinterpret_cast<void*>(&std::malloc);
+    symbols[2] = reinterpret_cast<void*>(&std::free);
+    symbols[3] = reinterpret_cast<void*>(&__libc_malloc);
+    symbols[4] = reinterpret_cast<void*>(&__libc_free);
+    symbols[5] = reinterpret_cast<void*>(&__libc_calloc);
+    symbols[6] = reinterpret_cast<void*>(&__libc_realloc);
+    symbols[7] = reinterpret_cast<void*>(&__libc_valloc);
+    symbols[8] = reinterpret_cast<void*>(&__libc_pvalloc);
 }
 
 // Access TLS from a late-loaded library, as happens with JNI native libraries.
