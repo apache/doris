@@ -68,6 +68,17 @@ public class VariantTypeTemplatePathsThriftTest {
     }
 
     @Test
+    public void thePatternTypeIsPartOfAFieldsIdentity() {
+        // is_glob rides the wire from it, so two templates differing only here type a path differently
+        VariantField literal = new VariantField("a*", ScalarType.createStringType(), "", PatternType.MATCH_NAME);
+        VariantField glob = new VariantField("a*", ScalarType.createStringType(), "");
+        Assertions.assertNotEquals(literal, glob);
+        Assertions.assertNotEquals(literal.hashCode(), glob.hashCode());
+        Assertions.assertEquals(literal, new VariantField("a*", ScalarType.createStringType(), "",
+                PatternType.MATCH_NAME));
+    }
+
+    @Test
     public void typesWithoutDecimalFieldsLeaveTheFieldUnset() {
         Assertions.assertFalse(scalarTypeOf(new VariantType()).isSetVariantTemplatePaths());
 

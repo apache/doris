@@ -24,6 +24,8 @@ import org.apache.doris.thrift.TTypeNode;
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 
+import java.util.Objects;
+
 public class VariantField {
 
     @SerializedName(value = "fp")
@@ -115,7 +117,14 @@ public class VariantField {
             return false;
         }
         VariantField otherFiled = (VariantField) other;
-        return otherFiled.pattern.equals(pattern) && otherFiled.type.equals(type);
+        // the pattern type decides how the pattern matches (literally or as a glob), on the BE too
+        return otherFiled.pattern.equals(pattern) && otherFiled.type.equals(type)
+                && otherFiled.patternType == patternType;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(pattern, type, patternType);
     }
 
     @Override

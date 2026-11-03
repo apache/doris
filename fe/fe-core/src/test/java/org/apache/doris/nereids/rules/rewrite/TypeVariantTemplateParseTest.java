@@ -111,6 +111,9 @@ public class TypeVariantTemplateParseTest extends TestWithFeService {
             Assertions.assertFalse(calls.isEmpty(), sql);
             for (ParseToVariant call : calls) {
                 Assertions.assertEquals(template, call.getReturnType(), sql);
+                // the typed call is told apart from the plain one in a printed plan
+                Assertions.assertTrue(call.toString().contains("template<'money.amount':"), call.toString());
+                Assertions.assertTrue(call.shapeInfo().contains("template<'money.amount':"), call.shapeInfo());
             }
         }
     }
@@ -137,6 +140,7 @@ public class TypeVariantTemplateParseTest extends TestWithFeService {
         List<ParseToVariant> calls = parseCalls(plan);
         Assertions.assertEquals(1, calls.size());
         Assertions.assertEquals(VariantType.INSTANCE, calls.get(0).getReturnType());
+        Assertions.assertFalse(calls.get(0).toString().contains("template<"), calls.get(0).toString());
         List<Cast> casts = new ArrayList<>();
         plan.foreach(node -> {
             for (Expression expression : ((Plan) node).getExpressions()) {

@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.VariantField;
 import org.apache.doris.nereids.types.VariantType;
 
 import com.google.common.base.Preconditions;
@@ -31,6 +32,7 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /** Parse JSON text into a Variant value and return SQL NULL for input errors. */
 public class TryParseToVariant extends ScalarFunction
@@ -58,11 +60,30 @@ public class TryParseToVariant extends ScalarFunction
 
     /** The same call typed with {@code type}; the signature is recomputed for the new return type. */
     public TryParseToVariant withReturnType(VariantType type) {
-        return new TryParseToVariant(child(), type);
+        return new TryParseToVariant(getFunctionParams(children()), type);
     }
 
     public VariantType getReturnType() {
         return returnType;
+    }
+
+    /** A call typed with a template prints it, so a plan shows whether the sink typed the call. */
+    @Override
+    public String toString() {
+        return super.toString() + templateSuffix();
+    }
+
+    @Override
+    public String shapeInfo() {
+        return super.shapeInfo() + templateSuffix();
+    }
+
+    private String templateSuffix() {
+        if (returnType.getPredefinedFields().isEmpty()) {
+            return "";
+        }
+        return " template<" + returnType.getPredefinedFields().stream()
+                .map(VariantField::toSql).collect(Collectors.joining(",")) + ">";
     }
 
     @Override
