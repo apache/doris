@@ -1328,6 +1328,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
         Connector connector = pluginCatalog.getConnector();
         ConnectorSession session = pluginCatalog.buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        MetadataRead read = observeConnectorMetadata(session, metadata);
         Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
             return Collections.emptyMap();
@@ -1337,8 +1338,9 @@ public class PluginDrivenExternalTable extends ExternalTable {
         // would describe a partition set the data scan never reads. The connector-FILTERED shape does not
         // come through here - it is served by applyPartitionFilterForScan - so this eager path is always
         // unfiltered.
-        ConnectorTableHandle handle = pinPartitionViewHandle(handleOpt.get(), metadata, session, snapshot);
-        return buildNameToPartitionItems(snapshot, metadata, session, handle, partitionColumns);
+        ConnectorTableHandle handle =
+                read.execute(() -> pinPartitionViewHandle(handleOpt.get(), metadata, session, snapshot));
+        return buildNameToPartitionItems(snapshot, read, metadata, session, handle, partitionColumns);
     }
 
     /**
@@ -1447,17 +1449,20 @@ public class PluginDrivenExternalTable extends ExternalTable {
         Connector connector = pluginCatalog.getConnector();
         ConnectorSession session = pluginCatalog.buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        MetadataRead read = observeConnectorMetadata(session, metadata);
         Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
             return Optional.empty();
         }
         // Pin FIRST, in both shapes: a time-travel / @options query must apply the connector predicate to - and
         // enumerate - the generation this statement pinned, never the latest one.
-        ConnectorTableHandle handle = pinPartitionViewHandle(handleOpt.get(), metadata, session, snapshot);
+        ConnectorTableHandle handle =
+                read.execute(() -> pinPartitionViewHandle(handleOpt.get(), metadata, session, snapshot));
         Optional<FilterApplicationResult<ConnectorTableHandle>> filterResult = Optional.empty();
         if (partitionFilter.isPresent()) {
-            Optional<FilterApplicationResult<ConnectorTableHandle>> applied = metadata.applyFilter(
-                    session, handle, new ConnectorFilterConstraint(partitionFilter.get()));
+            ConnectorTableHandle pinnedHandle = handle;
+            Optional<FilterApplicationResult<ConnectorTableHandle>> applied = read.execute(() -> metadata.applyFilter(
+                    session, pinnedHandle, new ConnectorFilterConstraint(partitionFilter.get())));
             if (!applied.isPresent()) {
                 return Optional.empty();
             }
@@ -1468,7 +1473,9 @@ public class PluginDrivenExternalTable extends ExternalTable {
         List<String> remoteNames = getSchemaCacheValue(snapshot)
                 .map(value -> ((PluginDrivenSchemaCacheValue) value).getPartitionColumnRemoteNames())
                 .orElse(Collections.emptyList());
-        List<ConnectorPartitionInfo> partitions = metadata.listPartitions(session, handle, partitionFilter);
+        ConnectorTableHandle selectedHandle = handle;
+        List<ConnectorPartitionInfo> partitions =
+                read.execute(() -> metadata.listPartitions(session, selectedHandle, partitionFilter));
         Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMapWithExpectedSize(partitions.size());
         for (ConnectorPartitionInfo partition : partitions) {
             try {
@@ -1541,13 +1548,14 @@ public class PluginDrivenExternalTable extends ExternalTable {
     }
 
     private Map<String, PartitionItem> buildNameToPartitionItems(Optional<MvccSnapshot> snapshot,
-            ConnectorMetadata metadata, ConnectorSession session, ConnectorTableHandle handle,
+            MetadataRead read, ConnectorMetadata metadata, ConnectorSession session, ConnectorTableHandle handle,
             List<Column> partitionColumns) {
         List<String> remoteNames = getSchemaCacheValue(snapshot)
                 .map(value -> ((PluginDrivenSchemaCacheValue) value).getPartitionColumnRemoteNames())
                 .orElse(Collections.emptyList());
         List<Type> types = partitionColumns.stream().map(Column::getType).collect(Collectors.toList());
-        List<ConnectorPartitionInfo> partitions = metadata.listPartitions(session, handle, Optional.empty());
+        List<ConnectorPartitionInfo> partitions =
+                read.execute(() -> metadata.listPartitions(session, handle, Optional.empty()));
         List<String> partitionNames = new ArrayList<>(partitions.size());
         List<List<String>> partitionValues = new ArrayList<>(partitions.size());
         for (ConnectorPartitionInfo partition : partitions) {
@@ -1784,11 +1792,12 @@ public class PluginDrivenExternalTable extends ExternalTable {
         ConnectorSession session = pluginCatalog.buildCrossStatementSession();
         try {
             ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+            MetadataRead read = observeConnectorMetadata(session, metadata);
             Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
             if (!handleOpt.isPresent()) {
                 return Collections.emptyList();
             }
-            return metadata.listFileSizes(session, handleOpt.get());
+            return read.execute(() -> metadata.listFileSizes(session, handleOpt.get()));
         } finally {
             session.getStatementScope().closeAll();
         }
@@ -1899,7 +1908,13 @@ public class PluginDrivenExternalTable extends ExternalTable {
         // feature flag because the listing can be a costly remote round-trip; the connector self-samples,
         // pins its classloader, and degrades to -1 rather than throwing.
         if (GlobalVariable.enable_get_row_count_from_file_list) {
-            long dataSize = read.execute(() -> metadata.estimateDataSizeByListingFiles(session, handleOpt.get()));
+            long dataSize;
+            try {
+                dataSize = read.execute(() -> metadata.estimateDataSizeByListingFiles(session, handleOpt.get()));
+            } catch (ConnectorTableNotFoundException missing) {
+                // Repair confirmed absence before preserving this best-effort estimate's UNKNOWN result.
+                return UNKNOWN_ROW_COUNT;
+            }
             if (dataSize > 0) {
                 long rowWidth = estimatedRowWidth(true);
                 if (rowWidth > 0) {

@@ -41,11 +41,14 @@ import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.ConnectorTableNotFoundException;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
@@ -77,6 +80,7 @@ import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.tablefunction.MetadataGenerator;
 import org.apache.doris.thrift.TExplainLevel;
@@ -102,6 +106,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -111,6 +116,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 
 /** Tests missing-table repair through real FE lookup/schema caches and a controllable connector. */
@@ -1324,7 +1330,8 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
     @ParameterizedTest
     @ValueSource(strings = {"stats", "pinned-stats", "dml", "partition-values", "mvcc", "deferred-mvcc",
             "estimate", "stream-open", "stream-next", "batch-open", "batch-next", "show-partitions",
-            "show-partition-stats", "partition-names", "mtmv-mvcc", "mtmv-pin-mvcc"})
+            "show-partition-stats", "partition-names", "mtmv-mvcc", "mtmv-pin-mvcc",
+            "scan-filter", "scan-filter-list", "scan-pin-mvcc"})
     void remainingProviderReadsRepairConfirmedAbsence(String operation) throws Exception {
         verifyRemainingRead(operation, false);
     }
@@ -1332,14 +1339,15 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
     @ParameterizedTest
     @ValueSource(strings = {"stats", "pinned-stats", "dml", "partition-values", "mvcc", "deferred-mvcc",
             "estimate", "stream-open", "stream-next", "batch-open", "batch-next", "show-partitions",
-            "show-partition-stats", "partition-names", "mtmv-mvcc", "mtmv-pin-mvcc"})
+            "show-partition-stats", "partition-names", "mtmv-mvcc", "mtmv-pin-mvcc",
+            "scan-filter", "scan-filter-list", "scan-pin-mvcc"})
     void delayedRemainingReadsPreserveRecreatedSource(String operation) throws Exception {
         verifyRemainingRead(operation, true);
     }
 
     private void verifyRemainingRead(String operation, boolean recreate) throws Exception {
         mvccTables = operation.contains("mvcc");
-        partitionedTables = "partition-values".equals(operation) || mvccTables;
+        partitionedTables = "partition-values".equals(operation) || mvccTables || operation.startsWith("scan-filter");
         PluginDrivenExternalTable table = warmTarget();
         org.mockito.stubbing.Answer<?> absent = call -> {
             remoteTables.remove("a");
@@ -1380,6 +1388,20 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
             Mockito.when(metadata.listPartitions(Mockito.any(), Mockito.any(), Mockito.any())).thenAnswer(absent);
             if ("partition-values".equals(operation)) {
                 read = () -> table.getNameToPartitionValues(Optional.empty());
+            } else if (operation.startsWith("scan-filter")) {
+                ConnectorExpression filter = Mockito.mock(ConnectorExpression.class);
+                if ("scan-filter".equals(operation)) {
+                    Mockito.when(metadata.applyFilter(Mockito.any(), Mockito.any(), Mockito.any())).thenAnswer(absent);
+                } else {
+                    Mockito.when(metadata.applyFilter(Mockito.any(), Mockito.any(), Mockito.any())).thenAnswer(call ->
+                            Optional.of(new FilterApplicationResult<>(call.getArgument(1), filter, false)));
+                }
+                read = () -> table.applyPartitionFilterForScan(Optional.empty(), filter);
+            } else if ("scan-pin-mvcc".equals(operation)) {
+                Mockito.when(metadata.applySnapshot(Mockito.any(), Mockito.any(), Mockito.any())).thenAnswer(absent);
+                PluginDrivenMvccSnapshot pin = PluginDrivenMvccSnapshot.deferred(
+                        ConnectorMvccSnapshot.builder().snapshotId(1L).build());
+                read = () -> table.getNameToPartitionItemsForScan(Optional.of(pin));
             } else if ("mtmv-mvcc".equals(operation) || "mtmv-pin-mvcc".equals(operation)) {
                 Mockito.when(connector.getCapabilities()).thenReturn(java.util.EnumSet.of(
                         org.apache.doris.connector.spi.ConnectorCapability.SUPPORTS_CONNECTOR_PARTITION_PRUNING));
@@ -1541,19 +1563,27 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"show-partitions", "partition-names"})
+    @ValueSource(strings = {"show-partitions", "partition-names", "scan-mvcc", "eager-partitions",
+            "file-estimate", "file-sample"})
     void nativeHivePartitionAbsenceRepairsLookup(String operation) throws Exception {
         verifyNativeHivePartitionAbsence(operation, false);
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"show-partitions", "partition-names"})
+    @ValueSource(strings = {"show-partitions", "partition-names", "scan-mvcc", "eager-partitions",
+            "file-estimate", "file-sample"})
     void delayedNativeHivePartitionAbsencePreservesRecreatedTable(String operation) throws Exception {
         verifyNativeHivePartitionAbsence(operation, true);
     }
 
     private void verifyNativeHivePartitionAbsence(String operation, boolean recreate) throws Exception {
         partitionedTables = true;
+        mvccTables = "scan-mvcc".equals(operation);
+        if (mvccTables) {
+            Mockito.when(connector.getCapabilities()).thenReturn(java.util.EnumSet.of(
+                    org.apache.doris.connector.spi.ConnectorCapability.SUPPORTS_CONNECTOR_PARTITION_PRUNING));
+        }
+        boolean previousFileEstimate = GlobalVariable.enable_get_row_count_from_file_list;
         PluginDrivenExternalTable old = warmTarget();
         IMetaStoreClient rpc = Mockito.mock(IMetaStoreClient.class);
         Mockito.when(rpc.tableExists("db", "a")).thenAnswer(call -> remoteTables.containsKey("a"));
@@ -1586,10 +1616,25 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
         try (CatalogMetaCache owner = CatalogMetaCache.unmanaged();
                 CachingHmsClient cached = new CachingHmsClient(owner,
                         new TestThriftHmsClient(rpc), Collections.emptyMap())) {
-            ConnectorMetadata hive = new HiveConnectorMetadata(cached,
+            ConnectorContext context = Mockito.mock(ConnectorContext.class);
+            Mockito.when(context.getStorageContext()).thenReturn(Mockito.mock(ConnectorStorageContext.class));
+            ConnectorMetadata hive = Mockito.spy(new HiveConnectorMetadata(cached,
                     HiveCatalogProperties.of(
                             Collections.singletonMap("hive.metastore.uris", "thrift://localhost:9083")),
-                    Mockito.mock(ConnectorContext.class));
+                    context));
+            AtomicReference<ConnectorSession> fileReadSession = new AtomicReference<>();
+            if ("file-estimate".equals(operation)) {
+                GlobalVariable.enable_get_row_count_from_file_list = true;
+                Mockito.doAnswer(call -> {
+                    fileReadSession.set(call.getArgument(0));
+                    return call.callRealMethod();
+                }).when(hive).getTableStatistics(Mockito.any(), Mockito.any());
+            } else if ("file-sample".equals(operation)) {
+                Mockito.doAnswer(call -> {
+                    fileReadSession.set(call.getArgument(0));
+                    return call.callRealMethod();
+                }).when(hive).listFileSizes(Mockito.any(), Mockito.any());
+            }
             Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(hive);
             ConnectorSession warm = catalog.buildCrossStatementSession();
             try {
@@ -1602,8 +1647,13 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
                 remoteCache.remove("a");
                 return null;
             }).when(connector).invalidateTable("db", "a");
-            Future<?> missing = worker.submit(() -> Assertions.assertThrows(HmsClientException.class,
-                    () -> readPartitionNames(operation, old)));
+            Future<?> missing = worker.submit(() -> {
+                if ("file-estimate".equals(operation)) {
+                    Assertions.assertEquals(-1L, old.fetchRowCount());
+                } else {
+                    Assertions.assertThrows(HmsClientException.class, () -> readNativeHiveConsumer(operation, old));
+                }
+            });
             try {
                 if (!missingStarted.await(10, TimeUnit.SECONDS)) {
                     missing.get(1, TimeUnit.SECONDS);
@@ -1623,6 +1673,11 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
                 }
                 releaseMissing.countDown();
                 missing.get(10, TimeUnit.SECONDS);
+                if (operation.startsWith("file-")) {
+                    Assertions.assertNotNull(fileReadSession.get());
+                    Assertions.assertThrows(CancellationException.class, () -> fileReadSession.get().getStatementScope()
+                            .computeIfAbsent("after-file-read", Object::new));
+                }
                 if (recreate) {
                     Assertions.assertSame(replacement, database.getTableNullable(replacement.getId()));
                     Assertions.assertSame(schema, replacement.getFullSchema());
@@ -1637,6 +1692,23 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
             } finally {
                 releaseMissing.countDown();
             }
+        } finally {
+            GlobalVariable.enable_get_row_count_from_file_list = previousFileEstimate;
+        }
+    }
+
+    private void readNativeHiveConsumer(String operation, PluginDrivenExternalTable table) throws Exception {
+        if ("scan-mvcc".equals(operation)) {
+            PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot) ((PluginDrivenMvccExternalTable) table)
+                    .loadSnapshot(Optional.empty(), Optional.empty());
+            Assertions.assertTrue(pin.isPartitionViewDeferred());
+            table.getNameToPartitionItemsForScan(Optional.of(pin));
+        } else if ("eager-partitions".equals(operation)) {
+            table.getNameToPartitionItems(Optional.empty());
+        } else if ("file-sample".equals(operation)) {
+            table.getChunkSizes();
+        } else {
+            readPartitionNames(operation, table);
         }
     }
 

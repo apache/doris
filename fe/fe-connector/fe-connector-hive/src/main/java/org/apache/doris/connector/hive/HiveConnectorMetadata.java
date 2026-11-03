@@ -1000,8 +1000,9 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      * {@code size / rowWidth} division). Only plain-hive tables are estimated (hudi/iceberg-on-HMS are served
      * by their own connectors; a view has no data files) — anything else returns -1. Partitions are sampled
      * ({@link #STATS_PARTITION_SAMPLE_SIZE}) and the sampled size scaled back up to the whole table, exactly
-     * as legacy did. Best-effort: ANY error (unlistable location, remote failure) degrades to -1, never
-     * throwing — statistics must not fail a query. The Hadoop {@code FileSystem} reflection resolves its
+     * as legacy did. Best-effort: ordinary errors (unlistable location, remote failure) degrade to -1. Confirmed
+     * table absence propagates so the engine can repair its lookup before returning an unknown estimate.
+     * The Hadoop {@code FileSystem} reflection resolves its
      * filesystem impl through the thread context classloader, so this pins the TCCL to the plugin classloader
      * for the duration (the statistics thread is not pinned by fe-core, unlike the scan thread).
      */
@@ -1073,7 +1074,8 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     /**
      * Sampling + summing + scale-up core of {@link #estimateDataSizeByListingFiles}, isolated from the
      * {@code FileSystem} I/O (injected as {@code sizeOf}) so the estimation math is unit-testable. Returns -1
-     * when the size cannot be estimated (no listable location, a zero/negative sum, or any error).
+     * when the size cannot be estimated (no listable location, a zero/negative sum, or ordinary errors).
+     * Confirmed table absence propagates for guarded engine cleanup.
      */
     long estimateDataSize(HiveTableHandle handle, int sampleSize, ToLongBiFunction<String, List<String>> sizeOf) {
         try {
@@ -1102,6 +1104,14 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             }
             return totalSize;
         } catch (RuntimeException e) {
+            // Let the engine retire the stale lookup before degrading this estimate to UNKNOWN.
+            Optional<ConnectorTableNotFoundException> missing =
+                    org.apache.commons.lang3.exception.ExceptionUtils.getThrowableList(e).stream()
+                            .filter(ConnectorTableNotFoundException.class::isInstance)
+                            .map(ConnectorTableNotFoundException.class::cast).findFirst();
+            if (missing.isPresent()) {
+                throw missing.get();
+            }
             LOG.warn("Failed to estimate hive data size for {}.{} from file list",
                     handle.getDbName(), handle.getTableName(), e);
             return -1;
