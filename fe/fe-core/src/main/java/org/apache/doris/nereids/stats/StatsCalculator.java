@@ -32,9 +32,6 @@ import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
-import org.apache.doris.datasource.mvcc.MvccSnapshot;
-import org.apache.doris.datasource.mvcc.MvccUtil;
-import org.apache.doris.datasource.mvcc.PluginDrivenMvccSnapshot;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -79,7 +76,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
@@ -171,7 +167,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.OptionalLong;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -842,8 +837,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     @Override
     public Statistics visitLogicalFileScan(LogicalFileScan fileScan, Void context) {
-        return computeFileScan(fileScan, fileScan.getSelectedPartitions(), MvccUtil.getSnapshotFromContext(
-                fileScan.getTable(), fileScan.getTableSnapshot(), fileScan.getScanParams()));
+        return computeCatalogRelation(fileScan);
     }
 
     @Override
@@ -1047,8 +1041,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     @Override
     public Statistics visitPhysicalFileScan(PhysicalFileScan fileScan, Void context) {
-        return computeFileScan(fileScan, fileScan.getSelectedPartitions(), MvccUtil.getSnapshotFromContext(
-                fileScan.getTable(), fileScan.getTableSnapshot(), fileScan.getScanParams()));
+        return computeCatalogRelation(fileScan);
     }
 
     @Override
@@ -1277,34 +1270,17 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return builder.toColumnStatistics();
     }
 
-    private Statistics computeFileScan(CatalogRelation fileScan, SelectedPartitions selectedPartitions,
-            Optional<MvccSnapshot> snapshot) {
-        OptionalLong selectedRowCount = OptionalLong.empty();
-        if (selectedPartitions.isPruned && selectedPartitions.state == SelectedPartitions.State.MATERIALIZED) {
-            if (snapshot.isPresent() && snapshot.get() instanceof PluginDrivenMvccSnapshot) {
-                selectedRowCount = ((PluginDrivenMvccSnapshot) snapshot.get())
-                        .getSelectedPartitionRowCount(selectedPartitions.selectedPartitions.keySet());
-            }
-        }
-        return computeCatalogRelation(fileScan, selectedRowCount);
-    }
-
     /**
      * compute stats for catalogRelations except OlapScan
      */
     public Statistics computeCatalogRelation(CatalogRelation catalogRelation) {
-        return computeCatalogRelation(catalogRelation, OptionalLong.empty());
-    }
-
-    private Statistics computeCatalogRelation(CatalogRelation catalogRelation, OptionalLong selectedRowCount) {
         StatisticsBuilder builder = new StatisticsBuilder();
-        double rowCount = selectedRowCount.isPresent()
-                ? selectedRowCount.getAsLong() : catalogRelation.getTable().getRowCount();
+        double tableRowCount = catalogRelation.getTable().getRowCount();
         // for FeUt, use ColumnStatistic.UNKNOWN
         if (!FeConstants.enableInternalSchemaDb
                 || ConnectContext.get() == null
                 || ConnectContext.get().getState().isInternal()) {
-            builder.setRowCount(selectedRowCount.isPresent() ? rowCount : Math.max(1, rowCount));
+            builder.setRowCount(Math.max(1, tableRowCount));
             for (Slot slot : catalogRelation.getOutput()) {
                 builder.putColumnStatistics(slot, ColumnStatistic.UNKNOWN);
             }
@@ -1320,12 +1296,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
         }
         Set<SlotReference> slotSet = slotSetBuilder.build();
-        if (!selectedRowCount.isPresent() && rowCount <= 0) {
-            rowCount = 1;
+        if (tableRowCount <= 0) {
+            tableRowCount = 1;
             // try to get row count from col stats
             for (SlotReference slot : slotSet) {
                 ColumnStatistic cache = getColumnStatsFromTableCache(catalogRelation, slot);
-                rowCount = Math.max(cache.count, rowCount);
+                tableRowCount = Math.max(cache.count, tableRowCount);
             }
         }
         for (SlotReference slot : slotSet) {
@@ -1335,18 +1311,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             } else {
                 cache = getColumnStatsFromTableCache(catalogRelation, slot);
             }
-            ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache, rowCount);
-            if (selectedRowCount.isPresent() && !cache.isUnKnown) {
-                // Keep table-level column estimates valid for the selected rows, including known zero.
-                double scale = cache.count > 0 ? Math.min(1, rowCount / cache.count) : 1;
-                double ndv = Math.min(cache.ndv, rowCount);
-                double numNulls = Math.min(rowCount - ndv, cache.numNulls * scale);
-                colStatsBuilder.setNdv(ndv).setNumNulls(numNulls);
-            }
+            ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache, tableRowCount);
             builder.putColumnStatistics(slot, colStatsBuilder.build());
         }
         checkIfUnknownStatsUsedAsKey(builder);
-        return builder.setRowCount(rowCount).build();
+        return builder.setRowCount(tableRowCount).build();
     }
 
     /**
