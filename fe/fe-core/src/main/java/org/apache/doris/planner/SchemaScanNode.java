@@ -126,11 +126,6 @@ public class SchemaScanNode extends ScanNode {
                 + "Retry once the rolling upgrade completes.";
     }
 
-        if (ConnectContext.get().isSessionRoleNarrowed() && tableIf instanceof SchemaTable
-                && ((SchemaTable) tableIf).shouldFetchAllFe() && !Env.getCurrentEnv().aliveFrontendsRunSameBuild()) {
-            throw new UserException(mixedBuildMessage("every alive FE"));
-        }
-    }
     private void setFeAddrList(TPlanNode msg) {
         List<TNetworkAddress> feAddrList = new ArrayList();
         TableIf tableIf = desc.getTable();
