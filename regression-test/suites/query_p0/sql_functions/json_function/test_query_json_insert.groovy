@@ -150,4 +150,35 @@ suite("test_query_json_insert", "query,arrow_flight_sql") {
         exception "number of arguments must be odd, but got 4"
     }
     qt_insert_odd_arity_ok """select json_insert('{}', '\$.a', 1), json_insert('{}', '\$.a', 1, '\$.b', 2), jsonb_insert('{}', '\$.a', 1, '\$.b', 2);"""
+
+    // Inserting a missing member into a nested object must keep the members that follow it.
+    order_qt_insert_nested_sibling """select json_insert('{"a":{},"b":2}', '\$.a.c', 1);"""
+    order_qt_insert_nested_sibling_nonempty """select json_insert('{"a":{"d":4},"b":2}', '\$.a.c', 1);"""
+    order_qt_insert_nested_sibling_before """select json_insert('{"b":2,"a":{}}', '\$.a.c', 1);"""
+    order_qt_insert_deep_nested_sibling """select json_insert('{"a":{"b":{}},"x":1}', '\$.a.b.c', 1);"""
+
+    sql "DROP TABLE IF EXISTS test_query_json_insert_nested_sibling"
+    sql """
+            CREATE TABLE test_query_json_insert_nested_sibling (
+              `id` int(11) not null,
+              `j` json
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "in_memory" = "false",
+            "storage_format" = "V2"
+            );
+        """
+    sql """
+        insert into test_query_json_insert_nested_sibling values
+            (1, '{"a":{},"b":2}'),
+            (2, '{"b":2,"a":{}}'),
+            (3, '{"a":{"d":4},"b":2}');
+    """
+    order_qt_insert_nested_sibling_json_col """
+        select id, json_insert(j, '\$.a.c', 1) as v
+        from test_query_json_insert_nested_sibling order by id;
+    """
 }
