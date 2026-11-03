@@ -60,6 +60,7 @@ import io.trino.spi.type.TimestampWithTimeZoneType;
 import io.trino.spi.type.TinyintType;
 import io.trino.spi.type.VarbinaryType;
 import io.trino.spi.type.VarcharType;
+import io.trino.type.JsonType;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -128,7 +129,10 @@ public class TrinoConnectorExternalTable extends ExternalTable {
         for (ColumnHandle columnHandle : columnHandleMap.values()) {
             ColumnMetadata columnMetadata = connectorMetadata.getColumnMetadata(connectorSession,
                     connectorTableHandle.get(), columnHandle);
-            if (columnMetadata.isHidden()) {
+            // MongoDB hides its primary identifier by default; Doris has no hidden-column lookup path.
+            boolean mongoIdentifier = "_id".equals(columnMetadata.getName())
+                    && isObjectIdType(columnMetadata.getType());
+            if (columnMetadata.isHidden() && !mongoIdentifier) {
                 continue;
             }
             columnMetadataMapBuilder.put(columnMetadata.getName(), columnMetadata);
@@ -139,7 +143,7 @@ public class TrinoConnectorExternalTable extends ExternalTable {
                     null,
                     true,
                     columnMetadata.getComment(),
-                    !columnMetadata.isHidden(),
+                    true,
                     Column.COLUMN_UNIQUE_ID_INIT_VALUE);
             columns.add(column);
         }
@@ -184,10 +188,15 @@ public class TrinoConnectorExternalTable extends ExternalTable {
             return Type.UUID;
         } else if (type instanceof VarcharType) {
             return Type.STRING;
-            // } else if (type instanceof BinaryType) {
-            //     return Type.STRING;
+        } else if (type instanceof JsonType) {
+            // JNI carries UTF-8 text; retain the logical type so BE parses it into JSONB.
+            return Type.JSONB;
         } else if (type instanceof VarbinaryType) {
-            return Type.STRING;
+            // Binary values must use the byte carrier, just like ObjectId, without UTF-8 conversion.
+            return ScalarType.createVarbinaryType(ScalarType.MAX_VARBINARY_LENGTH);
+        } else if (isObjectIdType(type)) {
+            // ObjectId is twelve raw bytes, including zero and non-UTF-8 bytes.
+            return ScalarType.createVarbinaryType(12);
         } else if (type instanceof DecimalType) {
             DecimalType decimal = (DecimalType) type;
             return ScalarType.createDecimalV3Type(decimal.getPrecision(), decimal.getScale());
@@ -226,6 +235,11 @@ public class TrinoConnectorExternalTable extends ExternalTable {
         } else {
             throw new IllegalArgumentException("Cannot transform unknown type: " + type);
         }
+    }
+
+    private static boolean isObjectIdType(io.trino.spi.type.Type type) {
+        // The optional plugin has its own classloader; do not link its implementation class.
+        return "ObjectId".equalsIgnoreCase(type.getTypeSignature().getBase());
     }
 
     private int getMaxDatetimePrecision(int precision) {

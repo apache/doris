@@ -40,6 +40,14 @@
 namespace doris {
 DataTypeSerDe::~DataTypeSerDe() = default;
 
+Status DataTypeSerDe::from_string_as_nested(StringRef& str, IColumn& column,
+                                            const FormatOptions& options,
+                                            bool is_strict_mode) const {
+    auto unquoted = str.trim_quote();
+    return is_strict_mode ? from_string_strict_mode(unquoted, column, options)
+                          : from_string(unquoted, column, options);
+}
+
 bool decoded_column_view_can_null_on_conversion_failure(const DecodedColumnView& view) {
     return !view.enable_strict_mode && view.conversion_failure_null_map != nullptr;
 }

@@ -829,6 +829,18 @@ under the License.
             <artifactId>trino-main</artifactId>
         </dependency>
         <dependency>
+            <groupId>io.trino</groupId>
+            <artifactId>trino-mongodb</artifactId>
+            <version>${trino.version}</version>
+            <scope>test</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>*</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
             <groupId>io.airlift</groupId>
             <artifactId>concurrent</artifactId>
         </dependency>

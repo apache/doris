@@ -95,12 +95,13 @@ struct ParquetPruningStats {
 };
 
 struct ParquetColumnStatistics {
-    Field min_value;             // column minimum value converted to Doris type
-    Field max_value;             // column maximum value
-    bool has_null = false;       // whether NULL exists
-    bool has_not_null = false;   // whether non-NULL values exist
-    bool has_null_count = false; // whether null_count is valid
-    bool has_min_max = false;    // whether min/max is valid after conversion
+    Field min_value;                 // column minimum value converted to Doris type
+    Field max_value;                 // column maximum value
+    bool has_null = false;           // whether NULL exists
+    bool has_not_null = false;       // whether non-NULL values exist
+    bool has_null_count = false;     // whether null_count is valid
+    bool has_min_max = false;        // whether min/max is valid after conversion
+    bool has_zero_nan_count = false; // validated proof covering this column's statistics
 
     bool has_any_statistics() const { return has_null_count || has_min_max; }
 };

@@ -47,6 +47,7 @@ suite("test_trino_clickhouse", "p0,external,clickhouse,external_docker,external_
 
         sql """use trino_clickhouse_test.doris_test"""
 
+        // Trino exposes ClickHouse String/FixedString as binary; preserve their bytes as VARBINARY.
         qt_desc_all_types_null """desc doris_test.extreme_test;"""
         qt_select_all_types_null """select * from doris_test.extreme_test order by 1;"""
 
