@@ -5638,12 +5638,6 @@ public class Env {
     }
 
     /**
-     * Whether the FE at this RPC address is this FE itself or reports the same build as this FE.
-     * Every FE sees every other FE's build: the master heartbeats all of them and journals the
-     * responses (HbPackage, FrontendHbResponse.version), which the other FEs replay. An FE this FE
-     * does not know, or a dead one, counts as a different build.
-     */
-    /**
      * Whether every alive FE reports the same build as this FE (see {@link #frontendRunsSameBuild}):
      * the gate of a session-narrowed (SU) session's requests that fan out to every FE, which an FE
      * of an older build would answer against the target's full role union.
@@ -5658,6 +5652,12 @@ public class Env {
         return true;
     }
 
+    /**
+     * Whether the FE at this RPC address is this FE itself or reports the same build as this FE.
+     * Every FE sees every other FE's build: the master heartbeats all of them and journals the
+     * responses (HbPackage, FrontendHbResponse.version), which the other FEs replay. An FE this FE
+     * does not know, or a dead one, counts as a different build.
+     */
     public boolean frontendRunsSameBuild(String host, int rpcPort) {
         if (host.equals(selfNode.getHost()) && rpcPort == Config.rpc_port) {
             return true;

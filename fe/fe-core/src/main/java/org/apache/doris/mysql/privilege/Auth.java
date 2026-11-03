@@ -223,15 +223,6 @@ public class Auth implements Writable {
         }
     }
 
-    public Set<String> getRolesByUser(UserIdentity user, boolean showUserDefaultRole) {
-        readLock();
-        try {
-            return userRoleManager.getRolesByUser(user, showUserDefaultRole);
-        } finally {
-            readUnlock();
-        }
-    }
-
     public boolean requiresCertificateAuth(UserIdentity userIdentity) {
         return userIdentity != null && userIdentity.hasSanRequirement();
     }
