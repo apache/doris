@@ -22,6 +22,9 @@ import java.nio.file.Files
 import java.nio.file.Paths
 
 suite("test_export_data_consistency", "p0") {
+    logger.info("Skip: this suite requires LOCAL TVF, which is disabled.")
+    return
+
     // open nereids
     sql """ set enable_nereids_planner=true """
     sql """ set enable_fallback_to_original_planner=false """

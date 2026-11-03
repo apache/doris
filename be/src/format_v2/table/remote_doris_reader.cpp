@@ -51,6 +51,26 @@
 namespace doris::format::remote_doris {
 namespace {
 
+bool contains_variant_type(const DataTypePtr& input) {
+    const auto type = remove_nullable(input);
+    switch (type->get_primitive_type()) {
+    case TYPE_VARIANT:
+        return true;
+    case TYPE_ARRAY:
+        return contains_variant_type(assert_cast<const DataTypeArray&>(*type).get_nested_type());
+    case TYPE_MAP: {
+        const auto& map = assert_cast<const DataTypeMap&>(*type);
+        return contains_variant_type(map.get_key_type()) ||
+               contains_variant_type(map.get_value_type());
+    }
+    case TYPE_STRUCT:
+        return std::ranges::any_of(assert_cast<const DataTypeStruct&>(*type).get_elements(),
+                                   contains_variant_type);
+    default:
+        return false;
+    }
+}
+
 Status validate_remote_doris_range(const TFileRangeDesc& range) {
     if (!range.__isset.table_format_params ||
         range.table_format_params.table_format_type != "remote_doris") {
@@ -271,53 +291,6 @@ Status create_flight_stream(const TFileRangeDesc& range, std::shared_ptr<io::IOC
     return Status::OK();
 }
 
-ColumnDefinition remote_doris_child_definition(const std::string& name, DataTypePtr type,
-                                               int32_t local_id);
-
-std::vector<ColumnDefinition> synthesize_remote_doris_children(const DataTypePtr& type) {
-    std::vector<ColumnDefinition> children;
-    DORIS_CHECK(type != nullptr);
-    const auto nested_type = remove_nullable(type);
-    switch (nested_type->get_primitive_type()) {
-    case TYPE_ARRAY: {
-        const auto* array_type = assert_cast<const DataTypeArray*>(nested_type.get());
-        children.push_back(
-                remote_doris_child_definition("element", array_type->get_nested_type(), 0));
-        break;
-    }
-    case TYPE_MAP: {
-        const auto* map_type = assert_cast<const DataTypeMap*>(nested_type.get());
-        children.push_back(remote_doris_child_definition("key", map_type->get_key_type(), 0));
-        children.push_back(remote_doris_child_definition("value", map_type->get_value_type(), 1));
-        break;
-    }
-    case TYPE_STRUCT: {
-        const auto* struct_type = assert_cast<const DataTypeStruct*>(nested_type.get());
-        children.reserve(struct_type->get_elements().size());
-        for (size_t idx = 0; idx < struct_type->get_elements().size(); ++idx) {
-            children.push_back(remote_doris_child_definition(struct_type->get_element_name(idx),
-                                                             struct_type->get_element(idx),
-                                                             cast_set<int32_t>(idx)));
-        }
-        break;
-    }
-    default:
-        break;
-    }
-    return children;
-}
-
-ColumnDefinition remote_doris_child_definition(const std::string& name, DataTypePtr type,
-                                               int32_t local_id) {
-    ColumnDefinition child;
-    child.identifier = Field::create_field<TYPE_STRING>(name);
-    child.local_id = local_id;
-    child.name = name;
-    child.type = std::move(type);
-    child.children = synthesize_remote_doris_children(child.type);
-    return child;
-}
-
 } // namespace
 
 RemoteDorisFileReader::RemoteDorisFileReader(
@@ -363,6 +336,12 @@ Status RemoteDorisFileReader::init(RuntimeState* state) {
     }
     _runtime_state = state;
     RETURN_IF_ERROR(validate_remote_doris_range(_range));
+    for (const auto* slot : _file_slot_descs) {
+        // Flight's string materialization cannot reconstruct the native Variant storage contract.
+        if (contains_variant_type(slot->type())) {
+            return Status::NotSupported("Remote Doris Arrow reads do not support Variant columns");
+        }
+    }
     RETURN_IF_ERROR(_build_col_name_to_file_id());
     _eof = false;
     return Status::OK();
@@ -383,7 +362,7 @@ Status RemoteDorisFileReader::get_schema(std::vector<ColumnDefinition>* file_sch
                 .type = slot->type(),
                 // Remote Doris exposes table slots as file columns. Complex columns still need
                 // structural children so TableColumnMapper can validate and project them.
-                .children = synthesize_remote_doris_children(slot->type()),
+                .children = materialized_schema_children(slot->type()),
         });
     }
     return Status::OK();

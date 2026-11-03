@@ -42,7 +42,7 @@
 3	3	this is a test
 
 -- !sql --
-4	4	hello world	1.0925692
+4	4	hello world	0.8025915
 
 -- !sql --
 4	4	hello world

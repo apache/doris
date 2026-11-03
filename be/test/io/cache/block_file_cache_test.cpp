@@ -3901,7 +3901,7 @@ TEST_F(BlockFileCacheTest, recycle_deleting_blocks_reclaims_stranded_busy_blocks
     auto key = io::BlockFileCache::hash("recycle_deleting_blocks");
 
     // A plain shared_ptr, standing in for the reference holders that do not release through
-    // FileBlock::release_cache_reference(): the background LRU update queue, the block map of
+    // FileBlock::release_cache_reference(): the background LRU update queue, the direct read of
     // CachedRemoteFileReader, the block vector of BlockFileCacheTtlMgr.
     std::vector<io::FileBlockSPtr> busy_refs;
     {
@@ -10532,6 +10532,167 @@ TEST_F(BlockFileCacheTest,
     EXPECT_EQ(dryrun_already_read, dryrun_buffer.size());
     EXPECT_EQ(dryrun_bytes_read, dryrun_buffer.size());
     EXPECT_TRUE(dryrun_stats.hit_cache);
+}
+
+namespace {
+
+// Downloads the first two tiny blocks of key and, if reader is given, registers them for its
+// direct reads.
+void cache_first_two_blocks(io::BlockFileCache* cache, const UInt128Wrapper& key,
+                            const std::string& content, CachedRemoteFileReader* reader) {
+    ReadStatistics cache_stats;
+    auto context = create_cached_remote_reader_context(&cache_stats);
+    FileBlocksHolder holder = cache->get_or_set(key, 0, 8, context);
+    auto blocks = fromHolder(holder);
+    ASSERT_EQ(blocks.size(), 2);
+    for (auto& block : blocks) {
+        append_cached_remote_reader_block(block, content);
+        if (reader != nullptr) {
+            reader->_insert_file_reader(block);
+        }
+    }
+}
+
+void expect_first_two_blocks_releasable(io::BlockFileCache* cache, const UInt128Wrapper& key) {
+    std::lock_guard<std::mutex> cache_lock(cache->_mutex);
+    for (size_t offset : {0, 4}) {
+        auto* cell = cache->get_cell(key, offset, cache_lock);
+        ASSERT_NE(cell, nullptr) << "offset=" << offset;
+        EXPECT_TRUE(cell->releasable()) << "offset=" << offset;
+    }
+}
+
+} // namespace
+
+// Several readers of one segment file, such as the one in SegmentCache and a temporary one that
+// bypasses it, know about the same downloaded blocks. None of them may keep those blocks busy, or
+// a sync clear can only mark the blocks deleting and they stay on disk while any reader lives.
+TEST_F(BlockFileCacheTest, cached_remote_file_readers_of_same_file_do_not_keep_blocks_busy) {
+    const bool old_enable_direct = config::enable_read_cache_file_directly;
+    config::enable_read_cache_file_directly = true;
+    Defer restore {[&]() { config::enable_read_cache_file_directly = old_enable_direct; }};
+
+    const std::string content = "abcdefghijklmnop";
+    const fs::path file_path =
+            create_cached_remote_reader_test_file("cached_remote_readers_not_busy", content);
+    Defer cleanup_file {[&]() {
+        std::error_code ec;
+        fs::remove(file_path, ec);
+    }};
+
+    const fs::path cache_path = caches_dir / "cached_remote_readers_not_busy_cache";
+    clear_cached_remote_reader_factory();
+    Defer cleanup_cache {[&]() {
+        std::error_code ignore;
+        fs::remove_all(cache_path, ignore);
+        clear_cached_remote_reader_factory();
+    }};
+
+    auto* cache =
+            create_cached_remote_reader_test_cache(cache_path, kCachedRemoteReaderTinyBlockSize);
+
+    // A reader of a doris table finds the cached blocks by the file name.
+    const auto key = io::BlockFileCache::hash(file_path.filename().native());
+    cache_first_two_blocks(cache, key, content, nullptr);
+
+    io::FileReaderOptions opts;
+    opts.cache_type = io::FileCachePolicy::FILE_BLOCK_CACHE;
+    opts.is_doris_table = true;
+    opts.tablet_id = 10086;
+    // Each reader closes its own local reader when it goes away.
+    FileReaderSPtr long_lived_local_reader;
+    FileReaderSPtr temporary_local_reader;
+    ASSERT_TRUE(global_local_filesystem()
+                        ->open_file(file_path.string(), &long_lived_local_reader)
+                        .ok());
+    ASSERT_TRUE(
+            global_local_filesystem()->open_file(file_path.string(), &temporary_local_reader).ok());
+    auto long_lived_reader =
+            std::make_shared<CachedRemoteFileReader>(long_lived_local_reader, opts);
+    auto temporary_reader = std::make_shared<CachedRemoteFileReader>(temporary_local_reader, opts);
+    ASSERT_EQ(long_lived_reader->_cache_file_readers.size(), 2);
+    ASSERT_EQ(temporary_reader->_cache_file_readers.size(), 2);
+    expect_first_two_blocks_releasable(cache, key);
+
+    // The temporary reader going away must not change how the other one is accounted for.
+    temporary_reader.reset();
+    expect_first_two_blocks_releasable(cache, key);
+
+    auto msg = cache->clear_file_cache_sync();
+    EXPECT_NE(msg.find("num_cells_to_delete=2"), std::string::npos) << msg;
+    EXPECT_NE(msg.find("num_cells_wait_recycle=0"), std::string::npos) << msg;
+    {
+        std::lock_guard<std::mutex> cache_lock(cache->_mutex);
+        EXPECT_EQ(cache->get_cell(key, 0, cache_lock), nullptr);
+        EXPECT_EQ(cache->get_cell(key, 4, cache_lock), nullptr);
+    }
+
+    // The reader still has entries for the dropped blocks, but must not read through them.
+    std::string buffer(6, '#');
+    size_t bytes_read = 0;
+    size_t already_read = 0;
+    ReadStatistics read_stats;
+    SourceReadBreakdown source_read_breakdown;
+    EXPECT_FALSE(long_lived_reader->_try_read_from_cached_files_directly(
+            1, Slice(buffer.data(), buffer.size()), buffer.size(), false, read_stats,
+            source_read_breakdown, already_read, &bytes_read));
+    EXPECT_EQ(already_read, 0);
+    EXPECT_EQ(buffer, "######");
+
+    // Once the range is cached again, the new blocks replace the stale entries.
+    cache_first_two_blocks(cache, key, content, long_lived_reader.get());
+    expect_first_two_blocks_releasable(cache, key);
+    EXPECT_TRUE(long_lived_reader->_try_read_from_cached_files_directly(
+            1, Slice(buffer.data(), buffer.size()), buffer.size(), false, read_stats,
+            source_read_breakdown, already_read, &bytes_read));
+    EXPECT_EQ(buffer, "bcdefg");
+}
+
+// Looking blocks up by key must not change whether the cache considers them in use. A block held
+// by a reader through FileBlocksHolder must stay busy, so clear can only mark it deleting.
+TEST_F(BlockFileCacheTest, get_blocks_by_key_does_not_make_busy_blocks_releasable) {
+    const std::string content = "abcd";
+    const fs::path cache_path = caches_dir / "get_blocks_by_key_busy_cache";
+    clear_cached_remote_reader_factory();
+    Defer cleanup_cache {[&]() {
+        std::error_code ignore;
+        fs::remove_all(cache_path, ignore);
+        clear_cached_remote_reader_factory();
+    }};
+
+    auto* cache =
+            create_cached_remote_reader_test_cache(cache_path, kCachedRemoteReaderTinyBlockSize);
+    const auto key = io::BlockFileCache::hash("get_blocks_by_key_busy");
+    ReadStatistics cache_stats;
+    auto context = create_cached_remote_reader_context(&cache_stats);
+
+    auto holder = std::make_unique<FileBlocksHolder>(cache->get_or_set(key, 0, 4, context));
+    ASSERT_EQ(holder->file_blocks.size(), 1);
+    append_cached_remote_reader_block(holder->file_blocks.front(), content);
+
+    ASSERT_EQ(cache->get_blocks_by_key(key).size(), 1);
+    {
+        std::lock_guard<std::mutex> cache_lock(cache->_mutex);
+        auto* cell = cache->get_cell(key, 0, cache_lock);
+        ASSERT_NE(cell, nullptr);
+        EXPECT_FALSE(cell->releasable());
+    }
+
+    auto msg = cache->clear_file_cache_sync();
+    EXPECT_NE(msg.find("num_cells_wait_recycle=1"), std::string::npos) << msg;
+    {
+        std::lock_guard<std::mutex> cache_lock(cache->_mutex);
+        auto* cell = cache->get_cell(key, 0, cache_lock);
+        ASSERT_NE(cell, nullptr);
+        EXPECT_TRUE(cell->file_block->is_deleting());
+    }
+
+    // The holder is the last user, so releasing it finishes the deletion.
+    holder.reset();
+    {
+        std::lock_guard<std::mutex> cache_lock(cache->_mutex);
+        EXPECT_EQ(cache->get_cell(key, 0, cache_lock), nullptr);
+    }
 }
 
 TEST_F(BlockFileCacheTest, file_block_appendv_persists_segmented_payload_to_fs_cache) {

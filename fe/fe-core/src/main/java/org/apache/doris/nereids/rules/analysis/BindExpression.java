@@ -1053,7 +1053,9 @@ public class BindExpression implements AnalysisRuleFactory {
         ImmutableList.Builder<NamedExpression> projectExprs = ImmutableList.builder();
         ImmutableList.Builder<NamedExpression> asteriskOutputs = ImmutableList.builder();
 
-        // 1. Add merged key columns (without qualifier)
+        // 1. Add merged key columns (without qualifier). A forwarded key keeps the preserved side's
+        // ExprId so qualified and unqualified references denote the same column in GROUP BY/HAVING/ORDER BY.
+        // Only FULL OUTER JOIN computes a new key and therefore needs a new Alias.
         for (int i = 0; i < leftConjunctsSlots.size(); i++) {
             Slot leftSlot = leftConjunctsSlots.get(i);
             Slot rightSlot = rightConjunctsSlots.get(i);
@@ -1064,10 +1066,10 @@ public class BindExpression implements AnalysisRuleFactory {
                 mergeExpr = new Alias(new Coalesce(leftSlot, rightSlot), colName);
             } else if (joinType.isRightJoin() || joinType.isRightSemiOrAntiJoin()) {
                 // RIGHT OUTER / RIGHT SEMI / RIGHT ANTI: use right side (preserved side)
-                mergeExpr = new Alias(rightSlot, colName);
+                mergeExpr = rightSlot.withQualifier(ImmutableList.of());
             } else {
                 // LEFT OUTER / INNER / LEFT SEMI / LEFT ANTI / CROSS: use left side
-                mergeExpr = new Alias(leftSlot, colName);
+                mergeExpr = leftSlot.withQualifier(ImmutableList.of());
             }
             projectExprs.add(mergeExpr);
             asteriskOutputs.add(mergeExpr);

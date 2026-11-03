@@ -830,7 +830,7 @@ bool VExpr::is_constant() const {
 }
 
 Status VExpr::get_const_col(VExprContext* context,
-                            std::shared_ptr<ColumnPtrWrapper>* column_wrapper) {
+                            std::shared_ptr<ConstantExprResult>* column_wrapper) {
     if (!is_constant()) {
         return Status::OK();
     }
@@ -844,7 +844,7 @@ Status VExpr::get_const_col(VExprContext* context,
 
     ColumnPtr result;
     RETURN_IF_ERROR(execute_column(context, nullptr, nullptr, 1, result));
-    _constant_col = std::make_shared<ColumnPtrWrapper>(result);
+    _constant_col = std::make_shared<ConstantExprResult>(result);
     if (column_wrapper != nullptr) {
         *column_wrapper = _constant_col;
     }
@@ -866,9 +866,9 @@ Status VExpr::init_function_context(RuntimeState* state, VExprContext* context,
                                     const FunctionBasePtr& function) const {
     FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
     if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
-        std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_cols;
+        std::vector<std::shared_ptr<ConstantExprResult>> constant_cols;
         for (auto c : _children) {
-            std::shared_ptr<ColumnPtrWrapper> const_col;
+            std::shared_ptr<ConstantExprResult> const_col;
             RETURN_IF_ERROR(c->get_const_col(context, &const_col));
             constant_cols.push_back(const_col);
         }
@@ -924,7 +924,7 @@ uint64_t VExpr::get_digest(uint64_t seed) const {
 }
 
 ColumnPtr VExpr::get_result_from_const(size_t count) const {
-    return ColumnConst::create(_constant_col->column_ptr, count);
+    return ColumnConst::create(_constant_col->column_ptr(), count);
 }
 
 Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,

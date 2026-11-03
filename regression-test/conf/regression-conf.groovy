@@ -282,20 +282,17 @@ trino_jdbc_port = 8080
 // trino-connector catalog test config
 enableTrinoConnectorTest = false
 
+// Optional MongoDB fixture: run-thirdparties-docker.sh -c mongodb.
+enableMongoDBTest = false
+mongodb_port = 27017
+mongodb_user = "mongodb_test"
+mongodb_password = "mongodb_test"
+
 enableKerberosTest=false
 kerberosHmsPort=9883
 kerberosHdfsPort=8820
 enableRefactorParamsHdfsTest=true
 
-
-// LakeSoul catalog test config
-enableLakesoulTest = false
-lakesoulPGUser="*******"
-lakesoulPGPwd="*******"
-lakesoulPGUrl="*******"
-lakesoulMinioAK="*******"
-lakesoulMinioSK="*******"
-lakesoulMinioEndpoint="*******"
 
 // cloud
 metaServiceToken = "greedisgood9999"

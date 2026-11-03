@@ -32,6 +32,9 @@ sql 'set enable_runtime_filter_prune=true'
     sql 'set parallel_pipeline_task_num=8'
     sql 'set forbid_unknown_col_stats=false'
     sql 'set enable_stats=false'
+    // Keep the join order independent of the estimated row counts, so that a change of
+    // the collected table statistics cannot rewrite the shape expectation below.
+    sql 'set disable_join_reorder=true'
     sql "set runtime_filter_type=8"
     sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'

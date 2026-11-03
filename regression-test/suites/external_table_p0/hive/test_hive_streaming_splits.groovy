@@ -31,7 +31,9 @@ suite("test_hive_streaming_splits", "p0,external") {
             'type' = 'hms', 'hive.metastore.uris' = 'thrift://${host}:${port}')"""
     }
     def settings = ["enable_external_table_batch_mode", "num_files_in_batch_mode",
-                    "num_partitions_in_batch_mode", "split_batch_size", "split_queue_capacity"]
+                    "num_partitions_in_batch_mode", "split_partition_batch_size",
+                    "split_batch_size", "split_queue_capacity",
+                    "split_initial_batch_size"]
     def saved = settings.collectEntries { name -> [(name): sql("show variables like '${name}'")[0][1]] }
     try {
         sql "create database if not exists ${catalog}.hive_streaming_splits"
@@ -56,6 +58,7 @@ suite("test_hive_streaming_splits", "p0,external") {
         sql "set enable_external_table_batch_mode=true"
         sql "set num_files_in_batch_mode=1"
         sql "set num_partitions_in_batch_mode=1"
+        sql "set split_partition_batch_size=2"
         qt_empty_unpartitioned "select count(*), sum(id) from streaming_unpartitioned"
         qt_empty_partitioned "select count(*), sum(id) from streaming_partitioned"
         // Separate inserts create enough files to cross several small producer batches.
@@ -100,9 +103,10 @@ suite("test_hive_streaming_splits", "p0,external") {
         checkResults("synchronous")
         sql "set enable_external_table_batch_mode=true"
         sql "set num_partitions_in_batch_mode=1"
-        for (def limits : [[3, 1], [7, 2], [128, 32]]) {
+        for (def limits : [[1, 4096, 64], [3, 1, 1], [7, 2, 2], [128, 32, 3]]) {
             sql "set split_batch_size=${limits[0]}"
             sql "set split_queue_capacity=${limits[1]}"
+            sql "set split_initial_batch_size=${limits[2]}"
             explain {
                 sql "select * from streaming_unpartitioned limit 10"
                 contains "(approximate)inputSplitNum"
@@ -121,6 +125,10 @@ suite("test_hive_streaming_splits", "p0,external") {
             count(*), sum(id), max(@@split_batch_size), max(@@split_queue_capacity)
             from streaming_unpartitioned"""
         qt_settings_after_hint "select @@split_batch_size, @@split_queue_capacity"
+        test {
+            sql "set split_initial_batch_size=0"
+            exception "split_initial_batch_size value should greater than or equal 1"
+        }
         test {
             sql "set split_batch_size=0"
             exception "split_batch_size value should greater than or equal 1"

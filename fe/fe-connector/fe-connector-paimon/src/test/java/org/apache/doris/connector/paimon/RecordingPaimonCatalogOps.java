@@ -69,6 +69,7 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
 
     boolean throwDatabaseNotExist;
     boolean throwTableNotExist;
+    RuntimeException tableLookupFailure;
 
     // ---- B3 DDL capture fields (inputs the metadata layer passed to the seam) ----
     Schema lastCreatedSchema;
@@ -163,6 +164,9 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
 
     @Override
     public Table getTable(Identifier identifier) throws Catalog.TableNotExistException {
+        if (tableLookupFailure != null) {
+            throw tableLookupFailure;
+        }
         log.add("getTable:" + identifier.getFullName());
         lastGetTableId = identifier;
         if (throwTableNotExist) {

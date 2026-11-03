@@ -39,10 +39,35 @@
 #include "core/data_type/primitive_type.h"
 #include "core/types.h"
 #include "core/value/decimalv2_value.h"
+#include "core/value/jsonb_value.h"
 #include "util/string_util.h"
 #include "util/url_coding.h"
 
 namespace doris {
+
+namespace {
+
+Status fill_jsonb_column(JniDataBridge::TableMetaAddress& address, MutableColumnPtr& column,
+                         const bool* null_map, size_t num_rows) {
+    const auto* offsets = static_cast<const int*>(address.next_meta_as_ptr());
+    const auto* chars = static_cast<const char*>(address.next_meta_as_ptr());
+    JsonBinaryValue value;
+    size_t start = 0;
+    for (size_t i = 0; i < num_rows; ++i) {
+        // JNI carries JSON as UTF-8 text, not JSONB bytes. SQL NULL has no text to parse,
+        // whereas the non-null text "null" must become a JSON null value.
+        if (null_map[i]) {
+            column->insert_default();
+        } else {
+            RETURN_IF_ERROR(value.from_json_string(chars + start, offsets[i] - start));
+            column->insert_data(value.value(), value.size());
+        }
+        start = offsets[i];
+    }
+    return Status::OK();
+}
+
+} // namespace
 
 #define FOR_FIXED_LENGTH_TYPES(M)                                  \
     M(PrimitiveType::TYPE_TINYINT, ColumnInt8, Int8)               \
@@ -138,6 +163,10 @@ Status JniDataBridge::fill_column(TableMetaAddress& address, ColumnPtr& doris_co
         [[fallthrough]];
     case PrimitiveType::TYPE_VARCHAR:
         status = _fill_string_column(address, data_column, num_rows);
+        break;
+    case PrimitiveType::TYPE_JSONB:
+        status = fill_jsonb_column(address, data_column, static_cast<const bool*>(null_map_ptr),
+                                   num_rows);
         break;
     case PrimitiveType::TYPE_ARRAY:
         status = _fill_array_column(address, data_column, data_type, num_rows);

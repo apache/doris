@@ -76,12 +76,12 @@ Usage: $0 <options>
      --hive-modules <list>  comma separated hive modules to refresh
 
   All valid components:
-    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,iceberg-rest,hudi,kafka,mariadb,db2,oceanbase,lakesoul,kerberos,ranger,polaris,minio,fluss
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,iceberg-rest,hudi,kafka,mariadb,db2,oceanbase,kerberos,ranger,polaris,minio,fluss,mongodb
   "
     exit 1
 }
 DEFAULT_COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,hudi,db2,oceanbase,kerberos,minio"
-ALL_COMPONENTS="${DEFAULT_COMPONENTS},kafka,lakesoul,ranger,polaris,fluss"
+ALL_COMPONENTS="${DEFAULT_COMPONENTS},kafka,ranger,polaris,fluss,mongodb"
 COMPONENTS=$2
 HELP=0
 STOP=0
@@ -258,6 +258,7 @@ RUN_MINIO=0
 RUN_RANGER=0
 RUN_POLARIS=0
 RUN_FLUSS=0
+RUN_MONGODB=0
 
 RESERVED_PORTS="65535"
 
@@ -279,6 +280,8 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RESERVED_PORTS="${RESERVED_PORTS},50070,50075" # namenode and datanode ports
     elif [[ "${element}"x == "hive3"x ]]; then
         RUN_HIVE3=1
+    elif [[ "${element}"x == "mongodb"x ]]; then
+        RUN_MONGODB=1
     elif [[ "${element}"x == "kafka"x ]]; then
         RUN_KAFKA=1
     elif [[ "${element}"x == "iceberg"x ]]; then
@@ -294,8 +297,6 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_DB2=1
     elif [[ "${element}"x == "oceanbase"x ]];then
         RUN_OCEANBASE=1
-    elif [[ "${element}"x == "lakesoul"x ]]; then
-        RUN_LAKESOUL=1
     elif [[ "${element}"x == "kerberos"x ]]; then
         RUN_KERBEROS=1
     elif [[ "${element}"x == "minio"x ]]; then
@@ -970,6 +971,18 @@ start_mysql() {
         "${ROOT}/docker-compose/mysql/data"
 }
 
+start_mongodb() {
+    # sudo may clear the caller's environment; pass the selected port through the rendered env file.
+    export MONGODB_PORT="${MONGODB_PORT:-27017}"
+    envsubst '${MONGODB_PORT}' <"${ROOT}/docker-compose/mongodb/mongodb.env.tpl" \
+        >"${ROOT}/docker-compose/mongodb/mongodb.env"
+    start_rendered_compose_stack "mongodb" \
+        "${ROOT}/docker-compose/mongodb/mongodb.yaml.tpl" \
+        "${ROOT}/docker-compose/mongodb/mongodb.yaml" \
+        "${ROOT}/docker-compose/mongodb/mongodb.env" \
+        -d --wait --
+}
+
 start_pg() {
     # pg 14
     start_rendered_compose_stack "pg" \
@@ -1542,43 +1555,6 @@ start_fluss() {
     compose_up_stack "${fluss_dir}/fluss.yaml" "${fluss_dir}/fluss.env" -d --wait
 }
 
-start_lakesoul() {
-    echo "RUN_LAKESOUL"
-    cp "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml.tpl "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml
-    register_stack_metadata "lakesoul" "${ROOT}/docker-compose/lakesoul/lakesoul.yaml" ""
-    compose_cmd "${ROOT}/docker-compose/lakesoul/lakesoul.yaml" "" down --remove-orphans
-    sudo rm -rf "${ROOT}"/docker-compose/lakesoul/data
-    if [[ "${STOP}" -ne 1 ]]; then
-        echo "PREPARE_LAKESOUL_DATA"
-        compose_cmd "${ROOT}/docker-compose/lakesoul/lakesoul.yaml" "" up -d
-        ## import tpch data into lakesoul
-        ## install rustup
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain none -y
-        # shellcheck source=/dev/null
-        . "${HOME}/.cargo/env"
-        ## install rust nightly-2023-05-20
-        rustup install nightly-2023-05-20
-        ## download&generate tpch data
-        mkdir -p lakesoul/test_files/tpch/data
-        git clone https://github.com/databricks/tpch-dbgen.git
-        (
-            cd tpch-dbgen
-            make
-            ./dbgen -f -s 0.1
-            mv *.tbl ../lakesoul/test_files/tpch/data
-        )
-        export TPCH_DATA=$(realpath lakesoul/test_files/tpch/data)
-        ## import tpch data
-        git clone https://github.com/lakesoul-io/LakeSoul.git
-        #    git checkout doris_dev
-        (
-            cd LakeSoul/rust
-            cargo test load_tpch_data --package lakesoul-datafusion --features=ci -- --nocapture
-        )
-    fi
-}
-
 dump_kerberos_container_state() {
     local container="$1"
 
@@ -1930,6 +1906,10 @@ if [[ "${RUN_MYSQL}" -eq 1 ]]; then
     launch_component "mysql" "${LOG_ROOT}/start_mysql.log" start_mysql
 fi
 
+if [[ "${RUN_MONGODB}" -eq 1 ]]; then
+    launch_component "mongodb" "${LOG_ROOT}/start_mongodb.log" start_mongodb
+fi
+
 if [[ "${RUN_PG}" -eq 1 ]]; then
     launch_component "pg" "${LOG_ROOT}/start_pg.log" start_pg
 fi
@@ -1980,10 +1960,6 @@ fi
 
 if [[ "${RUN_MARIADB}" -eq 1 ]]; then
     launch_component "mariadb" "${LOG_ROOT}/start_mariadb.log" start_mariadb
-fi
-
-if [[ "${RUN_LAKESOUL}" -eq 1 ]]; then
-    launch_component "lakesoul" "${LOG_ROOT}/start_lakesoul.log" start_lakesoul
 fi
 
 if [[ "${RUN_FLUSS}" -eq 1 ]]; then

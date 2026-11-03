@@ -43,7 +43,7 @@ using namespace doris::segment_v2::inverted_index;
 template <FieldType field_type>
 class InvertedIndexColumnWriter : public IndexColumnWriter {
 public:
-    using CppType = typename CppTypeTraits<field_type>::CppType;
+    using CppType = typename StorageTypeTraits<field_type>::StorageType;
 
     InvertedIndexColumnWriter(const std::string& field_name, IndexFileWriter* index_file_writer,
                               const TabletIndex* index_meta, const bool single_field = true);

@@ -662,6 +662,17 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                                   std::vector<MutableColumnPtr>& columns, bool* line_eof,
                                   const std::map<std::string, std::string>& docvalue_context,
                                   const cctz::time_zone& time_zone) {
+    return fill_columns(tuple_desc->slots(), columns, line_eof, docvalue_context, time_zone);
+}
+
+// Keep identical ES-to-Doris type dispatch for the tuple and file-local projection entry points.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
+Status ScrollParser::fill_columns(const std::vector<SlotDescriptor*>& slots,
+                                  std::vector<MutableColumnPtr>& columns, bool* line_eof,
+                                  const std::map<std::string, std::string>& docvalue_context,
+                                  const cctz::time_zone& time_zone,
+                                  std::span<const size_t> column_positions) {
+    DORIS_CHECK(column_positions.empty() || column_positions.size() == slots.size());
     *line_eof = true;
 
     if (_size <= 0 || _line_index >= _size) {
@@ -681,9 +692,9 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
         line = &obj["fields"];
     }
 
-    for (int i = 0; i < tuple_desc->slots().size(); ++i) {
-        const SlotDescriptor* slot_desc = tuple_desc->slots()[i];
-        auto* col_ptr = columns[i].get();
+    for (size_t i = 0; i < slots.size(); ++i) {
+        const SlotDescriptor* slot_desc = slots[i];
+        auto* col_ptr = columns[column_positions.empty() ? i : column_positions[i]].get();
 
         if (slot_desc->col_name() == FIELD_ID) {
             // actually this branch will not be reached, this is guaranteed by Doris FE.
@@ -887,10 +898,10 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
         }
         case TYPE_ARRAY: {
             Array array;
-            const auto& sub_type = assert_cast<const DataTypeArray*>(
-                                           remove_nullable(tuple_desc->slots()[i]->type()).get())
-                                           ->get_nested_type()
-                                           ->get_primitive_type();
+            const auto& sub_type =
+                    assert_cast<const DataTypeArray*>(remove_nullable(slot_desc->type()).get())
+                            ->get_nested_type()
+                            ->get_primitive_type();
             RETURN_IF_ERROR(parse_column(col, sub_type, pure_doc_value, array, time_zone));
             col_ptr->insert(Field::create_field<TYPE_ARRAY>(array));
             break;

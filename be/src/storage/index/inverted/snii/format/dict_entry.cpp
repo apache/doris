@@ -27,7 +27,7 @@ namespace doris::snii::format {
 
 namespace {
 
-// Body-decode counter seam (T07). Incremented once per decode_dict_entry_rest
+// Body-decode counter. Incremented once per decode_dict_entry_rest
 // call so tests can assert a key-first scan only materializes the bodies it
 // actually produces. Relaxed atomic: read by tests only, never a sync point.
 std::atomic<uint64_t>& body_decode_atomic() {

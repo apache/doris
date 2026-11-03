@@ -24,14 +24,11 @@
 
 namespace doris::CastWrapper {
 //TODO(Amory) . Need support more cast for key , value for map
-WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from_type,
+WrapperType create_map_wrapper(const CastOptions& options, const DataTypePtr& from_type,
                                const DataTypeMap& to_type) {
     if (is_string_type(from_type->get_primitive_type())) {
-        if (context->enable_strict_mode()) {
-            return cast_from_string_to_complex_type_strict_mode;
-        } else {
-            return cast_from_string_to_complex_type;
-        }
+        return options.strict_mode ? cast_from_string_to_complex_type_strict_mode
+                                   : cast_from_string_to_complex_type;
     }
     const auto* from = check_and_get_data_type<DataTypeMap>(from_type.get());
     if (!from) {
@@ -49,20 +46,19 @@ WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from
     to_kv_types.push_back(to_type.get_key_type());
     to_kv_types.push_back(to_type.get_value_type());
 
-    auto kv_wrappers = get_element_wrappers(context, from_kv_types, to_kv_types);
+    auto kv_wrappers = get_element_wrappers(options, from_kv_types, to_kv_types);
     /// A key or value whose type does not change is passed through, so it needs neither a child mask
     /// nor a call into its (identity) wrapper.
     std::array<bool, 2> unchanged_kv = {from_kv_types[0]->equals(*to_kv_types[0]),
                                         from_kv_types[1]->equals(*to_kv_types[1])};
     return [kv_wrappers, from_kv_types, to_kv_types, unchanged_kv](
-                   FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                   uint32_t result, size_t /*input_rows_count*/,
-                   const NullMap::value_type* null_map = nullptr) -> Status {
-        auto& from_column = block.get_by_position(arguments.front()).column;
-        const auto* from_col_map = check_and_get_column<ColumnMap>(from_column.get());
+                   RuntimeState* state, const ColumnWithTypeAndName& source_column,
+                   ColumnWithTypeAndName& target_column, size_t /*input_rows_count*/,
+                   const NullMap::value_type* parent_null_map = nullptr) -> Status {
+        const auto* from_col_map = check_and_get_column<ColumnMap>(source_column.column.get());
         if (!from_col_map) {
             return Status::RuntimeError("Illegal column {} for function CAST AS MAP",
-                                        from_column->get_name());
+                                        source_column.column->get_name());
         }
 
         Columns converted_columns(2);
@@ -72,9 +68,10 @@ WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from
 
         const auto& offsets = from_col_map->get_offsets();
         // Keys and values share the rows of their parent, so the parent mask is scanned once.
-        const NullMap::value_type* inherited_null_map =
-                (null_map != nullptr && has_masked_row(null_map, offsets.size())) ? null_map
-                                                                                  : nullptr;
+        const NullMap::value_type* effective_parent_null_map =
+                (parent_null_map != nullptr && has_masked_row(parent_null_map, offsets.size()))
+                        ? parent_null_map
+                        : nullptr;
         for (size_t i = 0; i < 2; ++i) {
             if (unchanged_kv[i]) {
                 converted_columns[i] = columnsWithTypeAndName[i].column;
@@ -82,22 +79,19 @@ WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from
             }
             /// Keys and values are flattened, so the NULL of a map row has to be inherited by the
             /// entries that belong to it before they are cast.
-            auto child_mask = build_child_null_mask(inherited_null_map, &offsets,
+            auto child_mask = build_child_null_mask(effective_parent_null_map, &offsets,
                                                     columnsWithTypeAndName[i].column);
             ColumnWithTypeAndName child_column {child_mask.column, from_kv_types[i], ""};
-            ColumnNumbers element_arguments {block.columns()};
-            block.insert(child_column);
-            auto element_result = block.columns();
-            block.insert({to_kv_types[i], ""});
-            RETURN_IF_ERROR(kv_wrappers[i](context, block, element_arguments, element_result,
+            ColumnWithTypeAndName element_result {nullptr, to_kv_types[i], ""};
+            RETURN_IF_ERROR(kv_wrappers[i](state, child_column, element_result,
                                            child_mask.column->size(), child_mask.null_map));
-            converted_columns[i] = block.get_by_position(element_result).column;
+            converted_columns[i] = std::move(element_result.column);
         }
 
         auto map_column = ColumnMap::create(converted_columns[0], converted_columns[1],
                                             from_col_map->get_offsets_ptr());
         static_cast<void>(map_column->deduplicate_keys());
-        block.get_by_position(result).column = std::move(map_column);
+        target_column.column = std::move(map_column);
         return Status::OK();
     };
 }

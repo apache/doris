@@ -18,17 +18,72 @@
 package org.apache.doris.connector.es;
 
 import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
 import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.pushdown.ConnectorFunctionCall;
 import org.apache.doris.connector.spi.pushdown.ConnectorLike;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.spi.pushdown.ConnectorNot;
+import org.apache.doris.connector.spi.pushdown.ConnectorOr;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.Collections;
 
 public class EsQueryDslBuilderTest {
+
+    private static ConnectorExpression keywordEquals(String value) {
+        return new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("name", ConnectorType.of("VARCHAR")), ConnectorLiteral.ofString(value));
+    }
+
+    private static ConnectorExpression partiallyPushableAnd() {
+        ConnectorExpression local = new ConnectorFunctionCall("unsupported_predicate", ConnectorType.of("BOOLEAN"),
+                Collections.singletonList(new ConnectorColumnRef("name", ConnectorType.of("VARCHAR"))));
+        return new ConnectorAnd(Arrays.asList(keywordEquals("one"), local));
+    }
+
+    private static EsQueryDslResult buildWithTracking(ConnectorExpression expression) {
+        return EsQueryDslBuilder.buildQueryDslWithResult(expression, Collections.emptyMap(),
+                Collections.singletonMap("name", "keyword"), true, Collections.emptyList());
+    }
+
+    @Test
+    void partialAndRetainsOnlyItsUnsupportedConjunct() {
+        EsQueryDslResult result = buildWithTracking(partiallyPushableAnd());
+        Assertions.assertEquals(Collections.singletonList(1), result.getNotPushedIndices());
+        Assertions.assertEquals("{\"term\":{\"name\":\"one\"}}", result.getQueryDsl());
+    }
+
+    @Test
+    void orWithPartiallyPushableAndRemainsLocal() {
+        EsQueryDslResult result = buildWithTracking(new ConnectorOr(
+                Arrays.asList(partiallyPushableAnd(), keywordEquals("two"))));
+        Assertions.assertEquals(Collections.singletonList(0), result.getNotPushedIndices());
+        Assertions.assertEquals(EsQueryDslBuilder.matchAllQuery(), result.getQueryDsl());
+    }
+
+    @Test
+    void notWithPartiallyPushableAndRemainsLocal() {
+        EsQueryDslResult result = buildWithTracking(new ConnectorNot(partiallyPushableAnd()));
+        Assertions.assertEquals(Collections.singletonList(0), result.getNotPushedIndices());
+        Assertions.assertEquals(EsQueryDslBuilder.matchAllQuery(), result.getQueryDsl());
+    }
+
+    @Test
+    void fullyPushableOrAndNotRemainPushed() {
+        for (ConnectorExpression expression : Arrays.asList(
+                new ConnectorOr(Arrays.asList(keywordEquals("one"), keywordEquals("two"))),
+                new ConnectorNot(keywordEquals("one")))) {
+            EsQueryDslResult result = buildWithTracking(expression);
+            Assertions.assertTrue(result.getNotPushedIndices().isEmpty());
+            Assertions.assertNotEquals(EsQueryDslBuilder.matchAllQuery(), result.getQueryDsl());
+        }
+    }
 
     @Test
     public void testRegexpProducesRegexpQuery() {

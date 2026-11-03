@@ -28,6 +28,7 @@
 
 #include "common/status.h"
 #include "storage/index/inverted/query/spi/index_source.h"
+#include "storage/index/inverted/snii/encoding/zstd_codec.h"
 #include "storage/index/inverted/snii/format/frq_prelude.h"
 #include "storage/index/inverted/snii/format/norms_pod.h"
 #include "storage/index/inverted/snii/reader/dict_block_cache.h"
@@ -57,6 +58,8 @@ public:
     Status may_hold(std::string_view term, bool* held) override;
     Status doc_freq(std::string_view term, uint64_t* out) override;
     Status scoring_doc_freq(std::string_view term, uint64_t* out) override;
+    Status scoring_doc_freq_among(std::string_view term, std::span<const uint32_t> docs,
+                                  uint64_t* out) override;
     Status encoded_norms(std::span<const uint32_t> docs, std::vector<uint32_t>* out) override;
     Status expand_terms(index_query::TermPattern& pattern, int32_t max_expansions,
                         std::vector<std::string>* out) override;
@@ -87,6 +90,9 @@ private:
 
     const LogicalIndexReader& _idx;
     format::PrxDecodeStats* _prx_stats;
+    // The cursors decode on the source's thread one window at a time, so they share one zstd
+    // context and buffer instead of creating them for every window.
+    ZstdDecompressor _zstd;
     SniiReadWave _wave;
     std::unordered_map<std::string, Term> _terms;
     DictBlockCache _scoring_dict_cache;

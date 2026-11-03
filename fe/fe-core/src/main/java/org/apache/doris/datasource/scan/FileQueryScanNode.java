@@ -33,6 +33,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.NotImplementedException;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.FileFormatUtils;
@@ -418,14 +419,24 @@ public abstract class FileQueryScanNode extends FileScanNode {
             splitAssignment = new SplitAssignment(backendPolicy, this, this::splitToScanRange,
                     locationProperties, pathPartitionKeys, admissionResult,
                     sessionVariable.getSplitBatchSize(), sessionVariable.getSplitQueueCapacity());
-            splitAssignment.init();
+            SplitAssignment assignment = splitAssignment;
+            if (executor != null) {
+                executor.registerSplitAssignment(assignment, () -> unregisterSplitSources(assignment));
+                executor.registerQueryCancellationCallback(assignment::stop);
+            }
+            splitAssignment.init(Math.min(sessionVariable.getFirstSplitWaitTimeoutMs(),
+                    ConnectContext.get().getExecTimeoutS() * 1000L));
+            Status cancelReason = executor == null ? null : executor.getPendingCancelReason();
+            if (cancelReason != null) {
+                throw new UserException(cancelReason.getErrorMsg());
+            }
             if (executor != null) {
                 executor.getSummaryProfile().setGetSplitsFinishTime();
             }
-            if (splitAssignment.getSampleSplit() == null && !isFileStreamType()) {
+            FileSplit fileSplit = (FileSplit) splitAssignment.getSampleSplit();
+            if (fileSplit == null && !isFileStreamType()) {
                 return;
             }
-            FileSplit fileSplit = (FileSplit) splitAssignment.getSampleSplit();
             TFileType locationType = fileSplit.getLocationType();
             selectedSplitNum = numApproximateSplits();
             if (selectedSplitNum < 0) {
@@ -439,9 +450,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
             // and finally numSplitsPerBE is 0, resulting in no data being queried.
             int numSplitsPerBE = Math.max(selectedSplitNum / backendPolicy.numBackends(), 1);
             for (Backend backend : backendPolicy.getBackends()) {
-                SplitSource splitSource = new SplitSource(backend, splitAssignment, maxWaitTime);
+                SplitSource splitSource = new SplitSource(backend, splitAssignment, maxWaitTime,
+                        sessionVariable.getSplitInitialBatchSize());
                 splitSources.add(splitSource);
-                Env.getCurrentEnv().getSplitSourceManager().registerSplitSource(splitSource);
+                splitAssignment.publishSource(splitSource, Env.getCurrentEnv().getSplitSourceManager());
                 TScanRangeLocations curLocations = newLocations();
                 TSplitSource tSource = new TSplitSource();
                 tSource.setSplitSourceId(splitSource.getUniqueId());
@@ -505,14 +517,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
         FileSplit fileSplit = (FileSplit) split;
         TScanRangeLocations curLocations = newLocations();
         // If fileSplit has partition values, use the values collected from hive partitions.
-        // Otherwise, use the values in file path. Migrated tables emit PluginDrivenSplit (never a HiveSplit)
-        // and always carry connector-supplied partition values, so isACID stays false: the connector owns
-        // ACID delta-dir handling and rewrites columns-from-path in its ConnectorScanRange.populateRangeParams.
-        boolean isACID = false;
+        // Otherwise, parse partition values from the file path.
         FilePartitionUtils.ParsedColumnsFromPath partitionValuesFromPath =
                 fileSplit.getPartitionValues() == null
                         ? FilePartitionUtils.parseColumnsFromPathWithNullInfo(
-                                fileSplit.getPathString(), pathPartitionKeys, false, isACID)
+                                fileSplit.getPathString(), pathPartitionKeys, false)
                         : FilePartitionUtils.normalizeColumnsFromPath(fileSplit.getPartitionValues());
 
         TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath.getValues(),
@@ -746,17 +755,29 @@ public abstract class FileQueryScanNode extends FileScanNode {
     // the new structure of storage parameters expected from MS.
     protected abstract Map<String, String> getLocationProperties() throws UserException;
 
+    /** LIMIT is successful EOF. Keep the lightweight sources reachable for already-issued BE requests. */
+    @Override
+    public void stopSplitGeneration() {
+        if (splitAssignment != null) {
+            splitAssignment.stop();
+        }
+    }
+
     @Override
     public void stop() {
         if (splitAssignment != null) {
             try {
                 splitAssignment.stop();
             } finally {
-                SplitSourceManager manager = Env.getCurrentEnv().getSplitSourceManager();
-                for (Long sourceId : splitAssignment.getSources()) {
-                    manager.removeSplitSource(sourceId);
-                }
+                unregisterSplitSources(splitAssignment);
             }
+        }
+    }
+
+    private static void unregisterSplitSources(SplitAssignment assignment) {
+        SplitSourceManager manager = Env.getCurrentEnv().getSplitSourceManager();
+        for (Long sourceId : assignment.getSources()) {
+            manager.removeSplitSource(sourceId);
         }
     }
 

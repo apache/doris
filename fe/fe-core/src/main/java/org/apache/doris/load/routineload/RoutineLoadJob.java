@@ -131,6 +131,7 @@ public abstract class RoutineLoadJob
     protected static final String STAR_STRING = "*";
 
     public static final String WORKLOAD_GROUP = "workload_group";
+    public static final String COMPUTE_GROUP = "compute_group";
 
     @Getter
     @Setter
@@ -438,6 +439,13 @@ public abstract class RoutineLoadJob
         if (!StringUtils.isEmpty(info.getWorkloadGroupName())) {
             jobProperties.put(WORKLOAD_GROUP, info.getWorkloadGroupName());
         }
+
+        // Only write the key when the user declared it. An absent key means "not declared" and
+        // keeps the existing implicit resolution, which is also what later versions rely on to
+        // tell a pinned group apart from an inherited one.
+        if (!StringUtils.isEmpty(info.getComputeGroupName())) {
+            jobProperties.put(COMPUTE_GROUP, info.getComputeGroupName());
+        }
     }
 
     protected void setRoutineLoadDesc(RoutineLoadDesc routineLoadDesc) {
@@ -548,6 +556,11 @@ public abstract class RoutineLoadJob
 
     public String getWorkloadGroup() {
         return jobProperties.get(WORKLOAD_GROUP);
+    }
+
+    // The compute group explicitly declared on the job, or null when the user did not declare one.
+    public String getDeclaredComputeGroup() {
+        return jobProperties.get(COMPUTE_GROUP);
     }
 
     public JobState getState() {
@@ -797,7 +810,12 @@ public abstract class RoutineLoadJob
     }
 
     public String getCloudCluster() {
-        return cloudCluster;
+        // An explicitly declared compute group wins over the cluster snapshotted from the session
+        // at create time. Keeping this in the getter (instead of writing both places) means every
+        // caller follows the declaration, and ALTER only has to update jobProperties, which is
+        // already covered by the existing edit log.
+        String declared = getDeclaredComputeGroup();
+        return StringUtils.isEmpty(declared) ? cloudCluster : declared;
     }
 
     public int getSizeOfRoutineLoadTaskInfoList() {
@@ -1059,13 +1077,16 @@ public abstract class RoutineLoadJob
         table.readLock();
         try {
             if (Config.isCloudMode()) {
+                // Use the effective cluster, not the raw snapshot field: this context is what
+                // OlapTableSink uses to pick the backends the load writes to.
+                String effectiveCluster = getCloudCluster();
                 if (ConnectContext.get() == null) {
                     ConnectContext ctx = new ConnectContext();
                     ctx.setThreadLocalInfo();
-                    ctx.setCloudCluster(cloudCluster);
+                    ctx.setCloudCluster(effectiveCluster);
                     needCleanCtx = true;
                 } else {
-                    ConnectContext.get().setCloudCluster(cloudCluster);
+                    ConnectContext.get().setCloudCluster(effectiveCluster);
                 }
                 ConnectContext.get().setCurrentUserIdentity(this.getUserIdentity());
             } else {
@@ -1488,6 +1509,22 @@ public abstract class RoutineLoadJob
                 .build());
     }
 
+    // For failures found by refreshKafkaPartitions(), which update() runs before it takes the job lock.
+    // The state is checked again under the lock: a STOP that completed in between must not be turned
+    // back into PAUSED, as replay rejects STOPPED -> PAUSED. Only a NEED_SCHEDULE job is paused. A job that
+    // is still PAUSED, as during an auto resume attempt, keeps its reason (PAUSED -> PAUSED is rejected too),
+    // so a failure whose error code has to be recorded must not be reported from such an attempt.
+    protected void pauseIfNeedSchedule(ErrorReason reason) throws UserException {
+        writeLock();
+        try {
+            if (state == JobState.NEED_SCHEDULE) {
+                unprotectUpdateState(JobState.PAUSED, reason, false /* not replay */);
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
     protected void unprotectUpdateState(JobState jobState, ErrorReason reason, boolean isReplay) throws UserException {
         checkStateTransform(jobState);
         switch (jobState) {
@@ -1667,7 +1704,9 @@ public abstract class RoutineLoadJob
     }
 
     public String getClusterInfo() {
-        return Strings.nullToEmpty(cloudCluster);
+        // SHOW ROUTINE LOAD must display the cluster the job actually runs in, i.e. the declared
+        // compute group when there is one.
+        return Strings.nullToEmpty(getCloudCluster());
     }
 
     // check the correctness of commit info
@@ -1824,6 +1863,9 @@ public abstract class RoutineLoadJob
         appendProperties(sb, JsonFileFormatProperties.PROP_JSON_ROOT, getJsonRoot(), false);
         appendProperties(sb, LoadCommand.STRICT_MODE, isStrictMode(), false);
         appendProperties(sb, LoadCommand.TIMEZONE, getTimezone(), false);
+        // Only a declared group, which follows ALTER. Writing the effective group instead would turn
+        // a group inherited from the creating session into a pinned one when the statement is replayed.
+        appendProperties(sb, CreateRoutineLoadInfo.COMPUTE_GROUP, getDeclaredComputeGroup(), false);
         appendProperties(sb, LoadCommand.EXEC_MEM_LIMIT, getMemLimit(), true);
         sb.append(")\n");
         // 6. data_source
@@ -2023,6 +2065,10 @@ public abstract class RoutineLoadJob
                 CreateRoutineLoadCommand command = (CreateRoutineLoadCommand) nereidsParser.parseSingle(
                         origStmt.originStmt);
                 CreateRoutineLoadInfo createRoutineLoadInfo = command.getCreateRoutineLoadInfo();
+                // This re-parse only rebuilds the RoutineLoadDesc; it must not re-check resources
+                // that can legitimately have disappeared since the job was created, because the
+                // catch below turns any failure into the final CANCELLED state.
+                createRoutineLoadInfo.setReplay(true);
                 // If tableId is set, resolve the current table name by ID so that
                 // table rename / SWAP TABLE won't cause replay to fail with stale name in origStmt.
                 if (!isMultiTable && tableId != 0) {

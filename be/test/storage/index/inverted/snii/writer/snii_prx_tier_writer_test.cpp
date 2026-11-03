@@ -15,19 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// SNII prx-tier writer tests (patch C, see
-// config::snii_prx_zstd_level_direct_load): a DIRECT load compresses the prx
-// region at the cheaper load-tier zstd level, everything else keeps
-// snii_prx_zstd_level. Contract pinned here:
-//   1. The tier only changes prx BYTES, never SEMANTICS: a direct segment and
-//      its full-level twin answer position-dependent queries identically.
-//   2. Non-direct paths (no hint / explicit not-direct) ignore the load-tier
-//      config completely -- byte-identical outputs whatever its value, so
-//      compaction / schema change / ADD INDEX segments are untouched.
-//   3. The level is read at flush (same semantics as snii_prx_zstd_level): a
-//      mid-load change lands on the in-flight segment; the direct-load BIT
-//      itself stays captured-once.
-//   4. The load-tier level is clamped to [3, 19] like the base level.
+// Checks direct-load .prx compression levels and unchanged query results. Other write paths ignore the direct-load level, which is read at flush.
 
 #include <gtest/gtest.h>
 

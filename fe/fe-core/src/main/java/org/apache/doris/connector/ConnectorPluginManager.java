@@ -122,9 +122,10 @@ public class ConnectorPluginManager {
     // of hadoop-common in the plugin directory (see be-java-extensions/jni-bootstrap PluginRuntime).
     //
     // Package-private so ConnectorPluginHadoopPatchTest asserts against this list, not a copy of it.
+    // Kerberos setup failure state must share Hadoop's loader so another plugin can retry partial setup.
     static final List<String> CONNECTOR_PARENT_FIRST_PREFIXES =
             Arrays.asList("org.apache.doris.connector.", "org.apache.doris.filesystem.",
-                    "org.apache.hadoop.");
+                    "org.apache.doris.kerberos.", "org.apache.hadoop.");
 
     /** Family label in the process-wide {@link PluginRegistry}. */
     private static final String PLUGIN_FAMILY = "CONNECTOR";

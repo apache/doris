@@ -21,13 +21,9 @@ import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
-import org.apache.doris.thrift.TTransactionalHiveDeleteDeltaDesc;
-import org.apache.doris.thrift.TTransactionalHiveDesc;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -39,9 +35,6 @@ import java.util.Optional;
  * Unlike JNI-based scan ranges (ES, JDBC, MaxCompute), Hive scan ranges
  * carry real file paths with byte offsets, native file format types
  * (PARQUET/ORC/TEXT), and partition values.</p>
- *
- * <p>For ACID tables, additional properties carry transaction info
- * (partition location, delete delta paths).</p>
  */
 public class HiveScanRange implements ConnectorScanRange {
 
@@ -137,11 +130,6 @@ public class HiveScanRange implements ConnectorScanRange {
     @Override
     public void populateRangeParams(TTableFormatFileDesc formatDesc,
             TFileRangeDesc rangeDesc) {
-        if ("transactional_hive".equals(getTableFormatType())) {
-            populateTransactionalHiveParams(formatDesc);
-        }
-        // Non-transactional hive needs no per-split TTableFormatFileDesc fields.
-
         // Rewrite columns-from-path from the connector's partition values, mirroring
         // IcebergScanRange/PaimonScanRange. This connector now OWNS the Hive default-partition
         // sentinel (__HIVE_DEFAULT_PARTITION__ -> SQL NULL) mapping that fe-core's
@@ -175,46 +163,6 @@ public class HiveScanRange implements ConnectorScanRange {
             rangeDesc.setColumnsFromPath(values);
             rangeDesc.setColumnsFromPathIsNull(isNull);
         }
-    }
-
-    private void populateTransactionalHiveParams(TTableFormatFileDesc formatDesc) {
-        Map<String, String> props = getProperties();
-        TTransactionalHiveDesc txnDesc = new TTransactionalHiveDesc();
-
-        String partLoc = props.get("acid.partition_location");
-        if (partLoc != null) {
-            txnDesc.setPartition(partLoc);
-        }
-
-        String countStr = props.get("acid.delete_delta_count");
-        if (countStr != null) {
-            int count = Integer.parseInt(countStr);
-            List<TTransactionalHiveDeleteDeltaDesc> deltas = new ArrayList<>(count);
-            for (int i = 0; i < count; i++) {
-                String deltaStr = props.get("acid.delete_delta." + i);
-                if (deltaStr != null) {
-                    TTransactionalHiveDeleteDeltaDesc delta =
-                            new TTransactionalHiveDeleteDeltaDesc();
-                    // Encoded as "dir|file1,file2" (see Builder#acidInfo). BE needs BOTH the
-                    // delete-delta directory AND the file names to correctly apply row deletes;
-                    // dropping the file names silently under-deletes on ACID reads.
-                    int sep = deltaStr.indexOf('|');
-                    if (sep >= 0) {
-                        delta.setDirectoryLocation(deltaStr.substring(0, sep));
-                        String fileNamesPart = deltaStr.substring(sep + 1);
-                        if (!fileNamesPart.isEmpty()) {
-                            delta.setFileNames(Arrays.asList(fileNamesPart.split(",")));
-                        }
-                    } else {
-                        delta.setDirectoryLocation(deltaStr);
-                    }
-                    deltas.add(delta);
-                }
-            }
-            txnDesc.setDeleteDeltas(deltas);
-        }
-
-        formatDesc.setTransactionalHiveParams(txnDesc);
     }
 
     public static Builder builder() {
@@ -286,28 +234,6 @@ public class HiveScanRange implements ConnectorScanRange {
 
         public Builder properties(Map<String, String> val) {
             this.properties = val;
-            return this;
-        }
-
-        /**
-         * Adds ACID-related properties for transactional Hive tables.
-         *
-         * @param partitionLocation the partition directory path
-         * @param deleteDeltas      list of delete delta descriptors (dir|file1,file2)
-         */
-        public Builder acidInfo(String partitionLocation, List<String> deleteDeltas) {
-            if (this.properties == null) {
-                this.properties = new HashMap<>();
-            }
-            this.tableFormatType = "transactional_hive";
-            this.properties.put("acid.partition_location", partitionLocation);
-            if (deleteDeltas != null) {
-                this.properties.put("acid.delete_delta_count",
-                        String.valueOf(deleteDeltas.size()));
-                for (int i = 0; i < deleteDeltas.size(); i++) {
-                    this.properties.put("acid.delete_delta." + i, deleteDeltas.get(i));
-                }
-            }
             return this;
         }
 

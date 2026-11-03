@@ -24,6 +24,7 @@ import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -138,6 +139,24 @@ public class ConnectorSessionImplTest {
                     "a statement whose version is not pinned yet");
         } finally {
             Config.be_exec_version = original;
+        }
+    }
+
+    @Test
+    public void testIcebergInternalPartitionPruningFollowsTheSessionVariable() {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setThreadLocalInfo();
+        try {
+            ConnectorSession original = ConnectorSessionBuilder.from(ctx).build();
+            String key = SessionVariable.ENABLE_ICEBERG_INTERNAL_PARTITION_PRUNING;
+            Assertions.assertEquals("false", original.getSessionProperties().get(key));
+            ctx.getSessionVariable().enableIcebergInternalPartitionPruning = true;
+            Assertions.assertEquals("true", ConnectorSessionBuilder.from(ctx).build()
+                    .getSessionProperties().get(key));
+            Assertions.assertEquals("false", original.getSessionProperties().get(key),
+                    "changing the session must not change a captured connector session");
+        } finally {
+            ConnectContext.remove();
         }
     }
 

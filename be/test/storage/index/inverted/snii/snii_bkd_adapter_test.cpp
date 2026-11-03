@@ -15,26 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// The Doris WRITE-path adapter for the SNII-native BKD (design 10 / task P3-2a):
-// a numeric column driven through the ordinary IndexColumnWriter interface must
-// land in the segment's SNII container as a blob logical index that the native
-// BkdReader can answer from.
-//
-// What is only covered HERE (bkd_container_roundtrip_test already covers the
-// core riding a hand-driven container):
-//   * the adapter translates Doris's (const void* values, size_t count) +
-//     add_nulls row stream into (doc_id, sortable bytes) points, keeping the
-//     row id in step across value runs and null runs;
-//   * it encodes through the INDEX's own field type -- the one invariant that
-//     silently produces a self-consistent but semantically wrong index if it
-//     is taken from anywhere else (INV-1);
-//   * the null rows survive as a real SNII null-bitmap POD, not as points;
-//   * IndexFileWriter seals all of it into one container.
+// Exercises numeric BKD writes through IndexColumnWriter into a sealed SNII container. Checks row IDs, KeyCoder encoding, NULL bitmap, and native reads.
 
 #include <gtest/gtest.h>
 
 #include <cstdint>
 #include <memory>
+#include <numeric>
 #include <optional>
 #include <set>
 #include <string>
@@ -43,6 +30,7 @@
 #include "common/status.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
@@ -60,6 +48,7 @@
 #include "storage/index/inverted/snii/snii_bkd_index_reader.h"
 #include "storage/index/inverted/snii/snii_bkd_index_writer.h"
 #include "storage/index/inverted/snii/staged_file_probe.h"
+#include "storage/index/inverted/snii/writer/snii_build_memory_tracker.h"
 #include "storage/key_coder.h"
 #include "storage/tablet/tablet_schema.h"
 
@@ -331,6 +320,44 @@ TEST_F(SniiBkdAdapterTest, SealingDrainsTheStagedDataWhileTheProducerIsStillAliv
     assert_ok(index_file_writer.finish_close());
 }
 
+// The writer's build memory is visible in the process-wide SNII build tracker while it is held, as
+// the text writer's is: the NULL docids until finish() moves them into the bitmap, the builder's
+// point buffer until the build is done. None of it may stay charged once finish() returns, even
+// though the producer is still alive (IndexBuilder keeps it until the rowset is closed).
+TEST_F(SniiBkdAdapterTest, BuildMemoryIsChargedAndGivenBackAtFinish) {
+    ::doris::MemTracker* tracker = ::doris::snii::writer::snii_build_mem_tracker();
+    const int64_t baseline = tracker->consumption();
+    const int64_t registered_baseline = ::doris::snii::writer::snii_registered_build_bytes();
+
+    const std::string prefix = test_path("accounted_producer");
+    io::FileWriterPtr file_writer;
+    assert_ok(io::global_local_filesystem()->create_file(
+            InvertedIndexDescriptor::get_index_file_path_v2(prefix), &file_writer));
+    IndexFileWriter index_file_writer(io::global_local_filesystem(), prefix, "accounted_rowset",
+                                      /*seg_id=*/0, InvertedIndexStorageFormatPB::SNII,
+                                      std::move(file_writer), /*can_use_ram_dir=*/true,
+                                      /*tablet_id=*/303);
+    SniiBkdIndexColumnWriter writer(&index_file_writer, &_meta, kFieldType);
+    assert_ok(writer.init());
+
+    constexpr uint32_t kNulls = 200000;
+    assert_ok(writer.add_nulls(kNulls));
+    std::vector<int64_t> values(1000);
+    std::iota(values.begin(), values.end(), 0);
+    assert_ok(writer.add_values(reinterpret_cast<const uint8_t*>(values.data()), values.size()));
+    // At least the 4 bytes of every NULL docid, and the builder's point buffer on top.
+    EXPECT_GE(tracker->consumption() - baseline, static_cast<int64_t>(kNulls) * 4);
+    // A BKD build cannot be reclaimed by a forced spill, so it is not offered to the spill decision.
+    EXPECT_EQ(::doris::snii::writer::snii_registered_build_bytes(), registered_baseline);
+
+    assert_ok(writer.finish());
+    EXPECT_EQ(tracker->consumption(), baseline)
+            << "finish() left build memory charged to a producer that is still alive";
+
+    assert_ok(index_file_writer.begin_close());
+    assert_ok(index_file_writer.finish_close());
+}
+
 // NULL rows are carried by the SNII null-bitmap POD, not by the point set: a
 // NULL that leaked in as a point would answer `col > x` for a row that has no
 // value at all.
@@ -357,9 +384,7 @@ TEST_F(SniiBkdAdapterTest, NullRowsBecomeANullBitmapNotPoints) {
     EXPECT_TRUE(all == complement);
 }
 
-// An all-NULL column still produces a well-formed, openable index: the empty
-// BKD (design 5.3) plus a full null bitmap. Treating it as an error here would
-// make a legal column unindexable.
+// An all-NULL column produces an empty BKD and a full null bitmap.
 TEST_F(SniiBkdAdapterTest, AllNullColumnSealsAnEmptyIndex) {
     std::vector<Row> rows;
     for (uint32_t i = 0; i < 500; ++i) {
@@ -441,10 +466,7 @@ TEST_F(SniiBkdAdapterTest, EncodesThroughTheIndexFieldTypeNotTheWidestOne) {
     EXPECT_TRUE(hits == expected);
 }
 
-// ---------------------------------------------------------------------------
-// READ path (task P3-2b): the same sealed container answered through the Doris
-// InvertedIndexReader interface, i.e. what a predicate actually calls.
-// ---------------------------------------------------------------------------
+// Read the sealed index through the Doris InvertedIndexReader interface.
 
 // A query context with the searcher cache DISABLED, so each test opens its own
 // reader and cannot pass or fail because of another test's cache entry.
@@ -604,12 +626,7 @@ TEST_F(SniiBkdAdapterTest, ReaderIdentifiesAsBkd) {
     EXPECT_EQ(reader->type(), InvertedIndexReaderType::BKD);
 }
 
-// ---------------------------------------------------------------------------
-// The GATES (task P3-2c): before this, both factories refused every non-string
-// column on a SNII segment outright, so nothing above could ever be reached in
-// production. These pin that the routing now happens -- and that a type NEITHER
-// writer can represent is still refused rather than silently dropped.
-// ---------------------------------------------------------------------------
+// Check factory routing for supported numeric and unsupported field types.
 
 TabletColumn numeric_column(FieldType type) {
     TabletColumn column;
@@ -660,16 +677,7 @@ TEST_F(SniiBkdAdapterTest, WriterFactoryStillRefusesNonIndexableTypes) {
     EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) << status.to_string();
 }
 
-// ---------------------------------------------------------------------------
-// ARRAY<numeric> (task P3-4). One row contributes SEVERAL points, which is why
-// the builder keys on (value, doc_id) rather than assuming one value per doc.
-//
-// The reference for these semantics is the CLucene numeric array branch
-// (inverted_index_writer.cpp add_array_values): it walks elements with a
-// running counter, skips nested nulls, advances the row id once per row, and
-// records NO null for a row whose array is empty. Array-level NULLs come from
-// add_array_nulls and nowhere else.
-// ---------------------------------------------------------------------------
+// Check that numeric arrays index multiple values per row while preserving row IDs and NULL semantics.
 
 // Drives the adapter's array entry points directly, the way the segment writer
 // does: one add_array_values over the whole block, then add_array_nulls over

@@ -60,6 +60,61 @@
 -- !synchronous_union_limit --
 10
 
+-- !streaming_1_4096_unpartitioned_aggregate --
+120	7140	120	660
+
+-- !streaming_1_4096_unpartitioned_files --
+0	10	10	45	0	9
+1	10	10	145	10	19
+10	10	10	1045	100	109
+11	10	10	1145	110	119
+2	10	10	245	20	29
+3	10	10	345	30	39
+4	10	10	445	40	49
+5	10	10	545	50	59
+6	10	10	645	60	69
+7	10	10	745	70	79
+8	10	10	845	80	89
+9	10	10	945	90	99
+
+-- !streaming_1_4096_unpartitioned_limit --
+10
+
+-- !streaming_1_4096_partitioned_aggregate --
+120	7140	120	660	240
+
+-- !streaming_1_4096_partitioned_files --
+1	0	10	10	45	0	9
+1	3	10	10	345	30	39
+1	6	10	10	645	60	69
+1	9	10	10	945	90	99
+2	1	10	10	145	10	19
+2	10	10	10	1045	100	109
+2	4	10	10	445	40	49
+2	7	10	10	745	70	79
+3	11	10	10	1145	110	119
+3	2	10	10	245	20	29
+3	5	10	10	545	50	59
+3	8	10	10	845	80	89
+
+-- !streaming_1_4096_partition_range --
+80	5160	80	200
+
+-- !streaming_1_4096_single_partition_limit --
+10
+
+-- !streaming_1_4096_empty_partitions --
+0	\N
+
+-- !streaming_1_4096_join_aggregate --
+120	7140	240
+
+-- !streaming_1_4096_union_aggregate --
+240	14280
+
+-- !streaming_1_4096_union_limit --
+10
+
 -- !streaming_3_1_unpartitioned_aggregate --
 120	7140	120	660
 

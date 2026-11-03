@@ -21,9 +21,11 @@
 #include <cstdint>
 #include <utility>
 
+#include "common/exception.h"
 #include "core/column/column_array.h"
 #include "core/column/column_map.h"
 #include "core/column/column_struct.h"
+#include "runtime/runtime_state.h"
 #include "util/jsonb_writer.h"
 namespace doris::CastWrapper {
 
@@ -99,11 +101,11 @@ static Status deduplicate_map_keys(IColumn& column) {
     return Status::OK();
 }
 
-Status cast_from_generic_to_jsonb(FunctionContext* context, Block& block,
-                                  const ColumnNumbers& arguments, uint32_t result,
-                                  size_t input_rows_count, const NullMap::value_type* null_map) {
-    auto data_type_to = block.get_by_position(result).type;
-    const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
+Status cast_from_generic_to_jsonb(RuntimeState* state,
+                                  const ColumnWithTypeAndName& col_with_type_and_name,
+                                  ColumnWithTypeAndName& target_column, size_t input_rows_count,
+                                  const NullMap::value_type* null_map) {
+    auto data_type_to = target_column.type;
     const IDataType& type = *col_with_type_and_name.type;
     const IColumn& col_from = *col_with_type_and_name.column;
 
@@ -121,8 +123,7 @@ Status cast_from_generic_to_jsonb(FunctionContext* context, Block& block,
     auto tmp_col = ColumnString::create();
     DataTypeSerDe::FormatOptions options;
     auto time_zone = cctz::utc_time_zone();
-    options.timezone =
-            (context && context->state()) ? &context->state()->timezone_obj() : &time_zone;
+    options.timezone = state != nullptr ? &state->timezone_obj() : &time_zone;
 
     options.escape_char = '\\';
     for (size_t i = 0; i < input_rows_count; i++) {
@@ -149,19 +150,18 @@ Status cast_from_generic_to_jsonb(FunctionContext* context, Block& block,
         }
     }
 
-    block.replace_by_position(
-            result, ColumnNullable::create(std::move(col_to), std::move(col_null_map_to)));
+    target_column.column = ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
     return Status::OK();
 }
 
-Status cast_from_string_to_generic(FunctionContext* context, Block& block,
-                                   const ColumnNumbers& arguments, uint32_t result,
-                                   size_t input_rows_count, const NullMap::value_type* null_map) {
-    const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
+Status cast_from_string_to_generic(RuntimeState* /*state*/,
+                                   const ColumnWithTypeAndName& col_with_type_and_name,
+                                   ColumnWithTypeAndName& target_column, size_t input_rows_count,
+                                   const NullMap::value_type* null_map) {
     const IColumn& col_from = *col_with_type_and_name.column;
     // result column must set type
-    DCHECK(block.get_by_position(result).type != nullptr);
-    auto data_type_to = block.get_by_position(result).type;
+    DCHECK(target_column.type != nullptr);
+    auto data_type_to = target_column.type;
     if (const auto* col_from_string = check_and_get_column<ColumnString>(&col_from)) {
         auto col_to = data_type_to->create_column();
         auto serde = data_type_to->get_serde();
@@ -195,7 +195,7 @@ Status cast_from_string_to_generic(FunctionContext* context, Block& block,
                 col_to->insert_default();
             }
         }
-        block.get_by_position(result).column =
+        target_column.column =
                 ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
     } else {
         return Status::RuntimeError(
@@ -205,7 +205,8 @@ Status cast_from_string_to_generic(FunctionContext* context, Block& block,
     return Status::OK();
 }
 
-ElementWrappers get_element_wrappers(FunctionContext* context, const DataTypes& from_element_types,
+ElementWrappers get_element_wrappers(const CastOptions& options,
+                                     const DataTypes& from_element_types,
                                      const DataTypes& to_element_types) {
     DCHECK(from_element_types.size() == to_element_types.size());
     ElementWrappers element_wrappers;
@@ -213,16 +214,15 @@ ElementWrappers get_element_wrappers(FunctionContext* context, const DataTypes& 
     for (size_t i = 0; i < from_element_types.size(); ++i) {
         const DataTypePtr& from_element_type = from_element_types[i];
         const DataTypePtr& to_element_type = to_element_types[i];
-        element_wrappers.push_back(
-                prepare_unpack_dictionaries(context, from_element_type, to_element_type));
+        element_wrappers.push_back(bind_cast_executor(options, from_element_type, to_element_type));
     }
     return element_wrappers;
 }
 
 WrapperType create_unsupport_wrapper(const String error_msg) {
-    return [error_msg](FunctionContext* /*context*/, Block& /*block*/,
-                       const ColumnNumbers& /*arguments*/, uint32_t /*result*/,
-                       size_t /*input_rows_count*/, const NullMap::value_type* null_map = nullptr) {
+    return [error_msg](RuntimeState* /*state*/, const ColumnWithTypeAndName& /*source_column*/,
+                       ColumnWithTypeAndName& /*target_column*/, size_t /*input_rows_count*/,
+                       const NullMap::value_type* /*parent_null_map*/ = nullptr) {
         return Status::InvalidArgument(error_msg);
     };
 }
@@ -234,24 +234,84 @@ WrapperType create_unsupport_wrapper(const String from_type_name, const String t
 }
 
 WrapperType create_identity_wrapper(const DataTypePtr&) {
-    return [](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-              uint32_t result, size_t /*input_rows_count*/,
-              const NullMap::value_type* null_map = nullptr) {
-        block.get_by_position(result).column = block.get_by_position(arguments.front()).column;
+    return [](RuntimeState* /*state*/, const ColumnWithTypeAndName& source_column,
+              ColumnWithTypeAndName& target_column, size_t /*input_rows_count*/,
+              const NullMap::value_type* /*parent_null_map*/ = nullptr) {
+        target_column.column = source_column.column;
         return Status::OK();
+    };
+}
+
+namespace {
+
+template <typename Context, typename Wrapper>
+Status execute_wrapper_impl(Context* context, const Wrapper& wrapper,
+                            const ColumnWithTypeAndName& source_column,
+                            ColumnWithTypeAndName& target_column, size_t rows) {
+    if (rows == 0) {
+        target_column.column = target_column.type->create_column();
+        return Status::OK();
+    }
+
+    Status status;
+    try {
+        doris::enable_thread_catch_bad_alloc++;
+        Defer defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};
+        status = wrapper(context, source_column, target_column, rows, nullptr);
+    } catch (const Exception& e) {
+        status = e.to_status();
+    }
+    RETURN_IF_ERROR(status);
+    DCHECK(target_column.column.get() != nullptr);
+    DCHECK_EQ(target_column.column->size(), rows);
+    return Status::OK();
+}
+
+} // namespace
+
+Status execute_wrapper(RuntimeState* state, const WrapperType& wrapper,
+                       const ColumnWithTypeAndName& source_column,
+                       ColumnWithTypeAndName& target_column, size_t rows) {
+    return execute_wrapper_impl(state, wrapper, source_column, target_column, rows);
+}
+
+Status execute_wrapper(FunctionContext* context, const FunctionContextWrapperType& wrapper,
+                       const ColumnWithTypeAndName& source_column,
+                       ColumnWithTypeAndName& target_column, size_t rows) {
+    return execute_wrapper_impl(context, wrapper, source_column, target_column, rows);
+}
+
+FunctionContextWrapperType bind_cast_executor(FunctionContext* context,
+                                              const DataTypePtr& from_type,
+                                              const DataTypePtr& to_type) {
+    CastOptions options;
+    if (context != nullptr) {
+        options.strict_mode = context->enable_strict_mode();
+        options.check_overflow_for_decimal = context->check_overflow_for_decimal();
+        options.string_as_jsonb_string = context->string_as_jsonb_string();
+        options.jsonb_string_as_string = context->jsonb_string_as_string();
+    }
+    auto wrapper = bind_cast_executor(options, from_type, to_type);
+    return [wrapper = std::move(wrapper)](FunctionContext* function_context,
+                                          const ColumnWithTypeAndName& source_column,
+                                          ColumnWithTypeAndName& target_column, size_t rows,
+                                          const NullMap::value_type* parent_null_map) {
+        return wrapper(function_context == nullptr ? nullptr : function_context->state(),
+                       source_column, target_column, rows, parent_null_map);
     };
 }
 
 /// the only difference between these two functions is throw error or not when parsing fail.
 /// the return columns are both nullable columns.
-Status cast_from_string_to_complex_type(FunctionContext* context, Block& block,
-                                        const ColumnNumbers& arguments, uint32_t result,
+Status cast_from_string_to_complex_type(RuntimeState* state,
+                                        const ColumnWithTypeAndName& source_column,
+                                        ColumnWithTypeAndName& target_column,
                                         size_t input_rows_count,
                                         const NullMap::value_type* null_map) {
-    const auto* col_from = assert_cast<const DataTypeString::ColumnType*>(
-            block.get_by_position(arguments[0]).column.get());
+    const auto* col_from =
+            assert_cast<const DataTypeString::ColumnType*>(source_column.column.get());
 
-    auto to_type = block.get_by_position(result).type;
+    auto to_type = target_column.type;
     auto to_serde = remove_nullable(to_type)->get_serde();
 
     // string to complex type is always nullable
@@ -262,7 +322,7 @@ Status cast_from_string_to_complex_type(FunctionContext* context, Block& block,
     DataTypeSerDe::FormatOptions options;
     options.converted_from_string = true;
     options.escape_char = '\\';
-    options.timezone = &context->state()->timezone_obj();
+    options.timezone = &state->timezone_obj();
 
     for (size_t i = 0; i < input_rows_count; ++i) {
         if (null_map && null_map[i]) {
@@ -279,18 +339,19 @@ Status cast_from_string_to_complex_type(FunctionContext* context, Block& block,
     }
 
     RETURN_IF_ERROR(deduplicate_map_keys(nested_column));
-    block.get_by_position(result).column = std::move(to_column);
+    target_column.column = std::move(to_column);
     return Status::OK();
 }
 
-Status cast_from_string_to_complex_type_strict_mode(FunctionContext* context, Block& block,
-                                                    const ColumnNumbers& arguments, uint32_t result,
+Status cast_from_string_to_complex_type_strict_mode(RuntimeState* state,
+                                                    const ColumnWithTypeAndName& source_column,
+                                                    ColumnWithTypeAndName& target_column,
                                                     size_t input_rows_count,
                                                     const NullMap::value_type* null_map) {
-    const auto* col_from = assert_cast<const DataTypeString::ColumnType*>(
-            block.get_by_position(arguments[0]).column.get());
+    const auto* col_from =
+            assert_cast<const DataTypeString::ColumnType*>(source_column.column.get());
 
-    auto to_type = block.get_by_position(result).type;
+    auto to_type = target_column.type;
     auto to_serde = remove_nullable(to_type)->get_serde();
 
     // string to complex type is always nullable
@@ -301,7 +362,7 @@ Status cast_from_string_to_complex_type_strict_mode(FunctionContext* context, Bl
     DataTypeSerDe::FormatOptions options;
     options.converted_from_string = true;
     options.escape_char = '\\';
-    options.timezone = &context->state()->timezone_obj();
+    options.timezone = &state->timezone_obj();
 
     for (size_t i = 0; i < input_rows_count; ++i) {
         if (null_map && null_map[i]) {
@@ -314,7 +375,7 @@ Status cast_from_string_to_complex_type_strict_mode(FunctionContext* context, Bl
         }
     }
     RETURN_IF_ERROR(deduplicate_map_keys(nested_column));
-    block.get_by_position(result).column = std::move(to_column);
+    target_column.column = std::move(to_column);
     return Status::OK();
 }
 

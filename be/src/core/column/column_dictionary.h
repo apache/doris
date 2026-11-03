@@ -282,10 +282,7 @@ public:
 
         void reserve(size_t n) { _dict_data->reserve(n); }
 
-        void insert_value(const StringRef& value) {
-            _dict_data->push_back_without_reserve(value);
-            _total_str_len += value.size;
-        }
+        void insert_value(const StringRef& value) { _dict_data->push_back_without_reserve(value); }
 
         Int32 find_code(const StringRef& value) const {
             // _dict_data->size will not exceed the range of T.
@@ -410,8 +407,6 @@ public:
 
         bool empty() const { return _dict_data->empty(); }
 
-        size_t avg_str_len() { return empty() ? 0 : _total_str_len / _dict_data->size(); }
-
         size_t size() const {
             if (!_dict_data) {
                 return 0;
@@ -446,7 +441,6 @@ public:
         mutable HashValueContainer _hash_values;
         mutable std::vector<uint8_t> _compute_hash_value_flags;
         IColumn::Permutation _perm;
-        size_t _total_str_len = 0;
     };
 
     size_t serialize_size_at(size_t row) const override { return sizeof(value_type); }

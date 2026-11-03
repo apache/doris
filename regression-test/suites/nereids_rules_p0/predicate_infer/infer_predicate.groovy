@@ -20,6 +20,8 @@ suite("infer_predicate") {
     sql "SET enable_nereids_planner=true"
     sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
+    sql "set enable_spill = false"
+    sql "set enable_force_spill = false"
     sql "SET disable_join_reorder=true"
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     sql "set disable_nereids_rules='PRUNE_EMPTY_PARTITION,ELIMINATE_CONST_JOIN_CONDITION'"

@@ -165,6 +165,8 @@ public class AIResource extends Resource {
 
     public TAIResource toThrift() throws NumberFormatException {
         TAIResource tAIResource = new TAIResource();
+        tAIResource.setEnableStructuredOutput(Boolean.parseBoolean(properties.getOrDefault(
+                AIProperties.ENABLE_STRUCTURED_OUTPUT, AIProperties.DEFAULT_ENABLE_STRUCTURED_OUTPUT)));
         if (properties.containsKey(AIProperties.PROVIDER_TYPE)) {
             tAIResource.setProviderType(properties.get(AIProperties.PROVIDER_TYPE));
         }

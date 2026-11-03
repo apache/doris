@@ -19,6 +19,9 @@ import java.nio.file.Files
 import java.nio.file.Paths
 
 suite("test_uuid_orc_varbinary_mapping") {
+    logger.info("Skip: this suite requires LOCAL TVF, which is disabled.")
+    return
+
     if (!getFeConfig("enable_outfile_to_local").equalsIgnoreCase("true")) {
         logger.warn("Please set enable_outfile_to_local to true to run test_uuid_orc_varbinary_mapping")
         return

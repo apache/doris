@@ -217,6 +217,11 @@ void BucketedAggLocalState::_wake_up_other_sources() {
 int BucketedAggLocalState::_merge_bucket(int bucket, int merge_target) {
     SCOPED_TIMER(_merge_timer);
     auto& shared_state = *_shared_state;
+    // The sole sink already owns the final states. Source-side bucket ownership
+    // still coordinates output when the number of source tasks differs.
+    if (shared_state.num_sink_instances == 1) {
+        return 0;
+    }
     auto& bs = shared_state.bucket_states[bucket];
     // Other source instances may merge other buckets at the same time, so aggregate
     // function merges must allocate from this source instance's own arena.
@@ -539,7 +544,7 @@ Status BucketedAggLocalState::_merge_and_output_null_keys(RuntimeState* state, B
     size_t key_size = shared_state.probe_expr_ctxs.size();
     int merge_target = shared_state.merge_target_instance.load(std::memory_order_relaxed);
 
-    // Merge null keys from all 256 buckets (in merge target) into bucket 0.
+    // Merge null keys from all buckets (in merge target) into bucket 0.
     // After per-bucket merge, each bucket in merge target may have its own null key data.
     // We merge them all into bucket 0's null key.
     auto& target_inst = shared_state.per_instance_data[merge_target];
@@ -555,8 +560,8 @@ Status BucketedAggLocalState::_merge_and_output_null_keys(RuntimeState* state, B
                              if constexpr (has_nullable_key_v<
                                                    std::remove_reference_t<decltype(dst_data)>>) {
                                  const bool use_simple_count = shared_state.use_simple_count;
-                                 // Merge null keys from buckets [1..255] into bucket 0.
-                                 for (int b = 1; b < BUCKETED_AGG_NUM_BUCKETS; ++b) {
+                                 // Merge null keys from the other active buckets into bucket 0.
+                                 for (int b = 1; b < shared_state.num_buckets; ++b) {
                                      auto& src_method = std::get<AggMethodType>(
                                              target_inst.bucket_agg_data[b]->method_variant);
                                      auto& src_data = *src_method.hash_table;
@@ -654,7 +659,7 @@ Status BucketedAggLocalState::_get_results(RuntimeState* state, Block* block, bo
                           shared_state.num_sink_instances;
     bool did_work = false;
 
-    for (int b = 0; b < BUCKETED_AGG_NUM_BUCKETS; ++b) {
+    for (int b = 0; b < shared_state.num_buckets; ++b) {
         auto& bs = shared_state.bucket_states[b];
 
         // Skip buckets already fully output.
@@ -713,15 +718,15 @@ Status BucketedAggLocalState::_get_results(RuntimeState* state, Block* block, bo
         }
     }
 
-    // Check if all 256 buckets have been output.
+    // Check if all buckets have been output.
     {
         int actually_done = 0;
-        for (int b = 0; b < BUCKETED_AGG_NUM_BUCKETS; ++b) {
+        for (int b = 0; b < shared_state.num_buckets; ++b) {
             if (shared_state.bucket_states[b].output_done.load(std::memory_order_acquire)) {
                 ++actually_done;
             }
         }
-        if (actually_done == BUCKETED_AGG_NUM_BUCKETS) {
+        if (actually_done == shared_state.num_buckets) {
             // All buckets output. Handle null key.
             bool expected = false;
             if (shared_state.null_key_output_claimed.compare_exchange_strong(expected, true)) {

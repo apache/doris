@@ -38,6 +38,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListUtil;
 import org.apache.doris.datasource.scan.ExternalScanNode;
 import org.apache.doris.datasource.scan.FileQueryScanNode;
+import org.apache.doris.datasource.split.FileScanRangeCompactor;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -1334,6 +1335,7 @@ public class Coordinator implements CoordInterface {
                 resultBatch, limitRows, numReceivedRows, this::cancelInternal);
 
         if (reachedLimit) {
+            stopSplitGeneration();
             resultBatch.setEos(true);
         }
         return resultBatch;
@@ -1381,6 +1383,12 @@ public class Coordinator implements CoordInterface {
             return Status.OK;
         } finally {
             unlock();
+        }
+    }
+
+    public void stopSplitGeneration() {
+        for (ScanNode scanNode : scanNodes) {
+            scanNode.stopSplitGeneration();
         }
     }
 
@@ -3663,7 +3671,8 @@ public class Coordinator implements CoordInterface {
                 TPipelineInstanceParams localParams = new TPipelineInstanceParams();
 
                 localParams.setFragmentInstanceId(instanceExecParam.instanceId);
-                localParams.setPerNodeScanRanges(scanRanges);
+                localParams.setPerNodeScanRanges(FileScanRangeCompactor.compactInstanceScanRanges(
+                        scanRanges, fileScanRangeParamsMap, queryOptions));
                 localParams.setSenderId(i);
                 localParams.setBackendNum(backendNum++);
                 localParams.setRuntimeFilterParams(new TRuntimeFilterParams());
