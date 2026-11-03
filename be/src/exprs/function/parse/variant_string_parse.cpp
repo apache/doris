@@ -26,6 +26,7 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <string_view>
 #include <utility>
@@ -246,12 +247,14 @@ private:
         return token;
     }
 
+    // Only a number that may be read from its text pays for the match (a glob is an fnmatch per
+    // template field): an int64 / uint64 is stored as it is. Under an object that is an array
+    // element nothing is on a declared path (collect_object).
+    bool on_decimal_path() const { return _unmatched == 0 && _paths.matches(_path); }
+
     bool collect_number(simdjson::ondemand::value& value) {
         simdjson::ondemand::number number;
         const simdjson::error_code error = value.get_number().get(number);
-        const std::string_view token = trim_json_token(value.raw_json_token());
-        // under an object that is an array element nothing is on a declared path (collect_object)
-        const bool decimal_path = _unmatched == 0 && _paths.matches(_path);
         if (error == simdjson::SUCCESS) {
             switch (number.get_number_type()) {
             case simdjson::ondemand::number_type::signed_integer:
@@ -261,20 +264,20 @@ private:
                 _builder.add_largeint(static_cast<__int128>(number.get_uint64()));
                 return true;
             case simdjson::ondemand::number_type::floating_point_number:
-                if (!decimal_path) {
+                if (!on_decimal_path()) {
                     _builder.add_double(number.get_double());
                     return true;
                 }
                 break;
             case simdjson::ondemand::number_type::big_integer:
-                if (!decimal_path) {
+                if (!on_decimal_path()) {
                     return false;
                 }
                 break;
             }
         } else if (error != simdjson::NUMBER_ERROR && error != simdjson::BIGINT_ERROR) {
             return false;
-        } else if (!decimal_path) {
+        } else if (!on_decimal_path()) {
             // an integer beyond 64 bits off a DECIMAL path: the DOM parser's verdict, as today
             return false;
         }
@@ -285,6 +288,7 @@ private:
         // the text reader enforces the grammar itself and whatever it declines takes the DOM
         // parser's verdict below. Beyond 38 significant digits the text is kept as it is and the
         // template's cast decides (a correctly rounded value or NULL).
+        const std::string_view token = trim_json_token(value.raw_json_token());
         VariantDecimalText decimal;
         switch (parse_json_number_as_decimal(token, decimal)) {
         case JsonNumberToDecimal::OK:
@@ -622,9 +626,17 @@ struct JsonStringToVariantEncoder::Impl {
     // A root object or array read with the ondemand parser; false on any simdjson error, and for a
     // root scalar, which has no path.
     bool collect_with_decimal_paths(VariantBatchBuilder::Row& row, StringRef json) {
-        simdjson::padded_string padded(json.data, json.size);
+        // One padded copy per encoder, grown to the largest document seen: ondemand values point
+        // into it, and the builder copies a row's bytes before the next document is read.
+        const size_t padded_size = json.size + simdjson::SIMDJSON_PADDING;
+        if (padding_buffer.size() < padded_size) {
+            padding_buffer.resize(padded_size);
+        }
+        std::memcpy(padding_buffer.data(), json.data, json.size);
+        const std::string_view padded(padding_buffer.data(), json.size);
         simdjson::ondemand::document document;
-        if (ondemand_parser.iterate(padded).get(document) != simdjson::SUCCESS) {
+        if (ondemand_parser.iterate(padded, padding_buffer.size()).get(document) !=
+            simdjson::SUCCESS) {
             return false;
         }
         simdjson::ondemand::json_type type;
@@ -649,7 +661,8 @@ struct JsonStringToVariantEncoder::Impl {
     VariantBatchBuilder builder;
     SimdJSONParser parser;
     simdjson::ondemand::parser ondemand_parser;
-    std::string quoted;
+    // the ondemand parser's input: a padded copy of the current document, reused across rows
+    std::string padding_buffer;
     State state = State::COLLECTING;
 };
 
