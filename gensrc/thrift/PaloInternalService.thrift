@@ -514,9 +514,7 @@ struct TQueryOptions {
   // enable_paimon_cpp_reader.
   229: optional bool enable_paimon_rust_reader = false;
 
-  // IDs 230-236 are allocated on master; do not reuse them in release branches.
-  // Maximum payload bytes per Paimon BLOB materialized as FILE inline. Descriptors are exempt.
-  237: optional i64 paimon_blob_max_size = 10485760;
+  // IDs 230-237 are allocated on master; do not reuse them in release branches.
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
@@ -526,6 +524,9 @@ struct TQueryOptions {
   1002: optional bool enable_file_scanner_v2 = false
   1003: optional bool enable_topn_lazy_mat_phase2_no_write_file_cache = false
   1004: optional i64 file_cache_query_limit_bytes = -1
+
+  // Maximum payload bytes per Paimon BLOB materialized as FILE inline. Descriptors are exempt.
+  1024: optional i64 paimon_blob_max_size = 10485760;
 }
 
 
