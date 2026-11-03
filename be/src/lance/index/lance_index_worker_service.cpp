@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <stdexcept>
 #include <utility>
 
 #include <pthread.h>
@@ -297,27 +298,39 @@ Status LanceIndexWorkerService::_validate_request(const TLanceIndexMutationReque
     return Status::OK();
 }
 
-bool LanceIndexWorkerService::_admit_invocation_id(const TLanceIndexMutationRequest& request) {
+LanceIndexWorkerService::DedupDecision
+LanceIndexWorkerService::_admit_invocation_id(const TLanceIndexMutationRequest& request) {
     // thrift :414-418, the BE half of the single-send contract: one
     // invocation_id is one execution. The id is retained until the request
     // deadline plus a bounded window (pr4a supervisor dedup logic) so a late
     // redelivery of a completed invocation can never re-execute external side
     // effects. The retention saturates: a pathological deadline near INT64_MAX
-    // must not wrap into the past.
+    // must not wrap into the past, and the horizon cap bounds even the
+    // saturated value so no id is retained forever.
     const int64_t now = UnixMillis();
-    const int64_t erase_after = request.deadline_ms > std::numeric_limits<int64_t>::max() -
-                                                        kDuplicateRetentionMs
-                                        ? std::numeric_limits<int64_t>::max()
-                                        : request.deadline_ms + kDuplicateRetentionMs;
+    const int64_t unbounded_erase_after =
+            request.deadline_ms > std::numeric_limits<int64_t>::max() - kDuplicateRetentionMs
+                    ? std::numeric_limits<int64_t>::max()
+                    : request.deadline_ms + kDuplicateRetentionMs;
+    const int64_t erase_after =
+            std::min(unbounded_erase_after, now + kDuplicateRetentionHorizonMs);
+    const int64_t forced_cap = _forced_dedup_max_entries.load();
+    const size_t max_entries = forced_cap > 0 ? static_cast<size_t>(forced_cap) : kMaxDedupEntries;
     std::lock_guard<std::mutex> lock(_dedup_mutex);
     for (auto it = _dedup_erase_after_ms.begin(); it != _dedup_erase_after_ms.end();) {
         it = it->second <= now ? _dedup_erase_after_ms.erase(it) : std::next(it);
     }
     if (_dedup_erase_after_ms.count(request.invocation_id) != 0) {
-        return false;
+        return DedupDecision::DUPLICATE;
+    }
+    if (_dedup_erase_after_ms.size() >= max_entries) {
+        // The set is rate-driven otherwise; at the cap a fresh id is refused
+        // as backpressure (the queue-full rail's twin), never executed and
+        // never retained - a corrected retry of this id stays free.
+        return DedupDecision::SATURATED;
     }
     _dedup_erase_after_ms.emplace(request.invocation_id, erase_after);
-    return true;
+    return DedupDecision::ADMITTED;
 }
 
 void LanceIndexWorkerService::_forget_invocation_id(const std::string& invocation_id) {
@@ -398,12 +411,24 @@ void LanceIndexWorkerService::lance_index_mutate(TLanceIndexMutationResult& resu
     }
 
     // Rail 4: dedup (the BE half of the single-send contract).
-    if (!_admit_invocation_id(request)) {
+    const DedupDecision dedup = _admit_invocation_id(request);
+    if (dedup == DedupDecision::DUPLICATE) {
         LOG(WARNING) << "lance index mutation redelivered (single-send contract violation, not "
                         "re-executing): invocation_id="
                      << request.invocation_id << " mutation_type="
                      << mutation_type_name(request.mutation_type);
         _reject_duplicate(result, request);
+        return;
+    }
+    if (dedup == DedupDecision::SATURATED) {
+        LOG(WARNING) << "rejecting lance index mutation: dedup guard saturated: invocation_id="
+                     << request.invocation_id << " mutation_type="
+                     << mutation_type_name(request.mutation_type);
+        _reject_never_launched(
+                result, request,
+                Status::TooManyTasks(
+                        "lance index mutation dedup guard is saturated (too many distinct "
+                        "invocations retained); refusing before enqueue"));
         return;
     }
     auto forget_on_reject = [this, &request]() { _forget_invocation_id(request.invocation_id); };
@@ -486,20 +511,57 @@ void LanceIndexWorkerService::_executor_loop() {
         if (!_queue->blocking_get(&pending)) {
             return; // queue shut down and drained: stop() owns the lifecycle
         }
-        if (_stopping.load()) {
-            // Drain-and-refuse (N4): a buffered entry must never start a
-            // worker past the stop (a late launch would escape the kill
-            // snapshot). It provably never executed, so the waiting handler
-            // gets a never-launched answer, never an endless wait.
-            TLanceIndexMutationResult result;
-            _reject_never_launched(
-                    result, pending->request,
-                    Status::Cancelled("lance index worker service is stopping; refusing a "
-                                      "queued invocation"));
-            _run_executor_answer(*pending, std::move(result));
-            continue;
+        // Exception guard (the handler's "Never throws" contract extends to
+        // the executor side by thread, not by type): a bad_alloc in the
+        // thrift copies/encodes or any other escape must never cross the
+        // thread entry - that is std::terminate and takes the whole BE down.
+        // The guarded work always answers, so the waiting handler is freed on
+        // every path and the loop stays alive for the next entry.
+        try {
+            if (_stopping.load()) {
+                // Drain-and-refuse (N4): a buffered entry must never start a
+                // worker past the stop (a late launch would escape the kill
+                // snapshot). It provably never executed, so the waiting
+                // handler gets a never-launched answer, never an endless
+                // wait.
+                TLanceIndexMutationResult result;
+                _reject_never_launched(
+                        result, pending->request,
+                        Status::Cancelled("lance index worker service is stopping; refusing a "
+                                          "queued invocation"));
+                _run_executor_answer(*pending, std::move(result));
+                continue;
+            }
+            _execute_pending(pending);
+        } catch (const std::exception& e) {
+            _answer_after_executor_exception(pending, e.what());
+        } catch (...) {
+            _answer_after_executor_exception(pending, "an exception of an unknown type");
         }
-        _execute_pending(pending);
+    }
+}
+
+void LanceIndexWorkerService::_answer_after_executor_exception(const PendingPtr& pending,
+                                                               const char* what) {
+    LOG(ERROR) << "lance index mutation executor path failed: invocation_id="
+               << pending->request.invocation_id << " error=" << what;
+    TLanceIndexMutationResult result;
+    Status::OK().to_thrift(&result.status);
+    result.__set_worker_phase(TLanceIndexWorkerPhase::INDETERMINATE_AFTER_LAUNCH);
+    result.__set_message(
+            "lance index mutation executor failed before it could answer; the invocation's "
+            "outcome is unknown to this backend");
+    result.__set_invocation_id(pending->request.invocation_id);
+    result.__set_be_process_epoch(pending->request.be_process_epoch);
+    _count_outcome_indeterminate();
+    try {
+        _run_executor_answer(*pending, std::move(result));
+    } catch (...) {
+        // Only reachable if the answer contract itself regressed; never
+        // rethrow past the thread entry.
+        LOG(ERROR) << "lance index mutation answer channel failed while reporting an executor "
+                      "exception: invocation_id="
+                   << pending->request.invocation_id;
     }
 }
 
@@ -531,6 +593,14 @@ void LanceIndexWorkerService::_execute_pending(const PendingPtr& pending) {
         _run_executor_answer(*pending, std::move(result));
         return;
     }
+
+    // Fault-injection point (the executor exception guard): throws past the
+    // execution path the way a bad_alloc in the dispatch build would - the
+    // executor loop's guard must answer the waiting handler and keep the
+    // thread alive. Deliberately after the dequeue rail and before any
+    // reservation or supervisor work: nothing has launched.
+    DBUG_EXECUTE_IF("LanceIndexWorkerService.executor_throw",
+                    { throw std::runtime_error("injected executor exception"); });
 
     // Two-state slot, `reserved` state (D4): the invocation passed the dequeue
     // rail and owns this executor thread until its slot is released. A

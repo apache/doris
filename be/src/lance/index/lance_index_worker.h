@@ -21,6 +21,7 @@
 #include <lance/lance.h>
 
 #include <cstdint>
+#include <optional>
 #include <string>
 
 namespace doris::lance {
@@ -70,7 +71,10 @@ inline constexpr const char* WORKER_DEBUG_POINT_SKIP_RESULT = "LanceIndexWorker.
 // IF no-op, or a trusted pre-invocation rejection) was written, nonzero when
 // no trusted result exists (no result frame was written; the supervisor
 // converges via termination proof and the handler synthesizes the
-// indeterminate phase).
+// indeterminate phase). One deliberate exception: the skip_result
+// fault-injection point exits 0 after a completed native invocation WITHOUT
+// writing the frame - the complete-but-silent worker shape the handler must
+// converge to indeterminate (never a fabricated success).
 //
 // The function touches no BE global state (no config, logging, metrics, or
 // ExecEnv) except the debug-point registry re-registration from
@@ -184,5 +188,22 @@ WorkerMutationOutcome execute_worker_mutation(LanceDataset* pinned_dataset,
                                               uint64_t admitted_dataset_version,
                                               const TLanceIndexWorkerDispatch& dispatch,
                                               const VectorIndexArguments& build_arguments);
+
+// The trusted-outcome decision for the single native mutating call.
+// `native_result` is the call's C-ABI return (0 = the success sentinel);
+// `saved_code` is the typed thread-local error captured (read-and-clear) at
+// the call site immediately after a FAILED call - LANCE_OK when the provider
+// set no code at all. Returns the code that may be forwarded as a trusted
+// NATIVE_RETURN fact, or nullopt when no trusted fact exists: a failed call
+// without a typed code (a provider contract violation or a lance-c ABI
+// drift - lance.h promises the code MAY be read after a failure sentinel,
+// never that it was set) is an unknown-code state that must never be
+// inferred into a code-0 success, and a code outside the pinned ABI's value
+// set (negative garbage, out of range) is no fact either. The same
+// "no typed code = no trusted fact" discipline the listing and pinned-open
+// call sites apply; exposed as a seam so unit tests can inject the
+// "returned nonzero, left code 0" shape no real lance-c build produces.
+std::optional<LanceErrorCode> trusted_native_return_code(int32_t native_result,
+                                                         LanceErrorCode saved_code);
 
 } // namespace doris::lance
