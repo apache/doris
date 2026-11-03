@@ -156,7 +156,9 @@ public class PredicateInferUtils {
                 if (childType.isTimeStampNsType()) {
                     return Optional.empty();
                 }
-                return validForInfer(child, inferType);
+                if (!(childType instanceof DateTimeV2Type) || childType.isInjectiveCastTo(dataType)) {
+                    return validForInfer(child, inferType);
+                }
             }
         } else if (inferType == InferType.STRING) {
             // avoid substring cast such as cast(char(3) as char(2))
