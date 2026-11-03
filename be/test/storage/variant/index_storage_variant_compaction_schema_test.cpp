@@ -111,8 +111,9 @@ TEST(IndexStorageVariantCompactionUtilTest, ValuesIndexPlanningSkipsEmptyColumnI
 
     EXPECT_FALSE(variant_util::VariantCompactionUtil::has_values_index(*schema));
     VariantCompactionPathsSPtr paths;
-    auto status = variant_util::VariantCompactionUtil::plan_values_index_compaction({}, true, {},
-                                                                                    schema, &paths);
+    std::set<std::pair<int32_t, int64_t>> native;
+    auto status = variant_util::VariantCompactionUtil::plan_values_index_compaction(
+            {}, true, native, schema, &paths);
     ASSERT_TRUE(status.ok()) << status.to_string();
     ASSERT_NE(paths, nullptr);
     EXPECT_TRUE(paths->contains(2));

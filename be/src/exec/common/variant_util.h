@@ -186,7 +186,7 @@ public:
     static bool has_values_index(const TabletSchema& schema);
     static Status plan_values_index_compaction(
             const std::vector<RowsetSharedPtr>& rowsets, bool expand_subcolumns,
-            const std::set<std::pair<int32_t, int64_t>>& native_indexes, TabletSchemaSPtr& schema,
+            std::set<std::pair<int32_t, int64_t>>& native_indexes, TabletSchemaSPtr& schema,
             VariantCompactionPathsSPtr* paths);
 
     // get the subpaths and sparse paths for the variant column

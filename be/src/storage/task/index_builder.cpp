@@ -931,7 +931,11 @@ Status IndexBuilder::_build_snii_indexes_for_segment(const TabletSchemaSPtr& out
         const int32_t column_idx = output_rowset_schema->field_index(col_unique_id);
         DORIS_CHECK_GE(column_idx, 0);
         const TabletColumn& column = output_rowset_schema->column(column_idx);
-        DORIS_CHECK(segment_v2::IndexColumnWriter::check_support_inverted_index(column));
+        if (!segment_v2::IndexColumnWriter::check_support_inverted_index(column)) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>(
+                    "Generic index builder does not support column {} of type {}", column.name(),
+                    TabletColumn::get_string_by_field_type(column.type()));
+        }
         return_columns.emplace_back(column_idx);
         std::vector<std::pair<int64_t, int64_t>> signs;
         for (const TabletIndex* index_meta : index_metas) {

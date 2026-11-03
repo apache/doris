@@ -216,7 +216,8 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                         + "PROPERTIES('variant_index_scope'='values','parser'='english')", "CREATE TABLE",
                 "CREATE INDEX added_values ON test.values_ddl(v) USING INVERTED "
                         + "PROPERTIES('variant_index_scope'='values','parser'='english')", "CREATE TABLE",
-                "BUILD INDEX values_idx ON test.values_ddl", "because it is a variant type column.").entrySet()) {
+                "BUILD INDEX values_idx ON test.values_ddl", "BUILD INDEX is not supported on a table with"
+                        + " a VARIANT values index").entrySet()) {
             Exception error = Assertions.assertThrows(Exception.class, () -> executeNereidsSql(rejected.getKey()));
             Assertions.assertTrue(error.getMessage().contains(rejected.getValue()), error.getMessage());
         }
@@ -224,7 +225,8 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             config.when(Config::isCloudMode).thenReturn(true);
             Exception error = Assertions.assertThrows(Exception.class,
                     () -> executeNereidsSql("BUILD INDEX ON test.values_ddl"));
-            Assertions.assertTrue(error.getMessage().contains("because it is a variant type column."),
+            Assertions.assertTrue(error.getMessage().contains("BUILD INDEX is not supported on a table with"
+                            + " a VARIANT values index"),
                     error.getMessage());
         }
         Exception duplicate = Assertions.assertThrows(Exception.class,
@@ -233,6 +235,29 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                                 + "('variant_index_scope'='values','parser'='english')")));
         Assertions.assertTrue(duplicate.getMessage().contains("VARIANT column supports only one values index"),
                 duplicate.getMessage());
+    }
+
+    @Test
+    public void testValuesIndexRejectsBuildOfAnotherIndex() throws Exception {
+        createTable("CREATE TABLE test.values_build (id INT,v VARIANT,s STRING,n INT, "
+                + "INDEX values_idx(v) USING INVERTED PROPERTIES('variant_index_scope'='values','parser'='english'),"
+                + "INDEX n_idx(n) USING INVERTED) DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
+                + "PROPERTIES('replication_num'='1','inverted_index_storage_format'='SNII')");
+        alterTable("ALTER TABLE test.values_build ADD INDEX s_idx(s) USING INVERTED "
+                + "PROPERTIES('parser'='english')", connectContext);
+        waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
+        jobSize++;
+        Exception local = Assertions.assertThrows(Exception.class,
+                () -> executeNereidsSql("BUILD INDEX s_idx ON test.values_build"));
+        Assertions.assertTrue(local.getMessage().contains(
+                "BUILD INDEX is not supported on a table with a VARIANT values index"), local.getMessage());
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS)) {
+            config.when(Config::isCloudMode).thenReturn(true);
+            Exception cloud = Assertions.assertThrows(Exception.class,
+                    () -> executeNereidsSql("BUILD INDEX ON test.values_build"));
+            Assertions.assertTrue(cloud.getMessage().contains(
+                    "BUILD INDEX is not supported on a table with a VARIANT values index"), cloud.getMessage());
+        }
     }
 
     @Test

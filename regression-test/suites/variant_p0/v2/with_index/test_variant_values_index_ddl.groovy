@@ -114,7 +114,7 @@ suite("test_variant_values_index_ddl", "p0") {
     test {
         sql(isCloudMode() ? "BUILD INDEX ON vvi_ddl_english"
                           : "BUILD INDEX values_idx ON vvi_ddl_english")
-        exception "BUILD INDEX operation failed: The values_idx index can not be built on the v column, because it is a variant type column."
+        exception "BUILD INDEX is not supported on a table with a VARIANT values index"
     }
     test {
         sql "DROP INDEX values_idx ON vvi_ddl_english"
@@ -126,4 +126,32 @@ suite("test_variant_values_index_ddl", "p0") {
         time 120
     }
     assertTrue(sql("SHOW CREATE TABLE vvi_ddl_english")[0][1].contains("INDEX path_idx"))
+    sql "DROP TABLE IF EXISTS vvi_ddl_build"
+    sql """CREATE TABLE vvi_ddl_build (id INT,v VARIANT,s STRING,n INT,
+        INDEX values_idx(v) USING INVERTED PROPERTIES("variant_index_scope"="values","parser"="english"),
+        INDEX n_idx(n) USING INVERTED) DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES("replication_num"="1","inverted_index_storage_format"="SNII",
+                   "disable_auto_compaction"="true")"""
+    sql """INSERT INTO vvi_ddl_build VALUES (1,parse_to_variant('{"x":"hello"}'),'text',1)"""
+    sql 'ALTER TABLE vvi_ddl_build ADD INDEX s_idx(s) USING INVERTED PROPERTIES("parser"="english")'
+    waitForSchemaChangeDone {
+        sql "SHOW ALTER TABLE COLUMN WHERE TableName='vvi_ddl_build' ORDER BY CreateTime DESC LIMIT 1"
+        time 120
+    }
+    test {
+        sql(isCloudMode() ? "BUILD INDEX ON vvi_ddl_build" : "BUILD INDEX s_idx ON vvi_ddl_build")
+        exception "BUILD INDEX is not supported on a table with a VARIANT values index"
+    }
+    assertEquals([[1]], sql("SELECT id FROM vvi_ddl_build WHERE v MATCH_ANY 'hello' ORDER BY id"))
+    def backendIps = [:]
+    def backendPorts = [:]
+    getBackendIpHttpPort(backendIps, backendPorts)
+    backendIps.each { id, ip ->
+        httpTest {
+            endpoint "${ip}:${backendPorts[id]}"
+            uri "/api/health"
+            op "get"
+            check { code, body -> assertEquals(200, code) }
+        }
+    }
 }

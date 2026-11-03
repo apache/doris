@@ -87,6 +87,7 @@
 #include "storage/rowset/rowset_fwd.h"
 #include "storage/segment/segment_loader.h"
 #include "storage/segment/variant/nested_group_path.h"
+#include "storage/segment/variant/v2/variant_path_builder.h"
 #include "storage/segment/variant/variant_column_reader.h"
 #include "storage/segment/variant/variant_column_writer_impl.h"
 #include "storage/tablet/tablet.h"
@@ -134,6 +135,49 @@ void append_empty_key_subcolumn_from_stats(VariantCompactionPaths& paths_set_inf
     subcolumn.set_variant_enable_doc_mode(parent_column->variant_enable_doc_mode());
     subcolumn.set_is_nullable(true);
     output_schema->append_column(subcolumn);
+}
+
+// Native postings are valid only when the stored leaf types survive compaction.
+bool values_index_types_are_stable(const std::vector<RowsetSharedPtr>& rowsets,
+                                   const VariantExtendedInfo& info, const TabletSchema& schema,
+                                   int32_t uid, const VariantCompactionPaths& layout) {
+    // Sparse/DOC cells do not provide per-path physical type metadata.
+    if (!info.sparse_paths.empty()) {
+        return false;
+    }
+    for (const auto& rowset : rowsets) {
+        if (rowset->tablet_schema()->has_column_unique_id(uid)) {
+            const auto& root = rowset->tablet_schema()->column_by_uid(uid);
+            if (root.variant_enable_doc_mode() ||
+                !std::cmp_greater(root.variant_max_sparse_column_statistics_size(),
+                                  info.sparse_paths.size())) {
+                return false;
+            }
+        }
+    }
+    for (const auto& column : schema.columns()) {
+        if (!column->is_extracted_column() || column->parent_unique_id() != uid) {
+            continue;
+        }
+        const auto path = column->path_info_ptr()->copy_pop_front();
+        if (!layout.sub_path_set.contains(path.get_path()) &&
+            !layout.typed_path_set.contains(path.get_path()) && !info.nested_paths.contains(path)) {
+            continue;
+        }
+        const auto output_type = segment_v2::normalize_variant_path_integer_widths(
+                DataTypeFactory::instance().create_data_type(*column));
+        const auto source = info.path_to_data_types.find(path);
+        // A nested VARIANT writer can re-shred and promote its own leaves.
+        if (get_base_type_of_array(output_type)->get_primitive_type() == TYPE_VARIANT ||
+            source == info.path_to_data_types.end() || source->second.empty() ||
+            !std::ranges::all_of(source->second, [&](const DataTypePtr& type) {
+                return segment_v2::normalize_variant_path_integer_widths(type)->equals(
+                        *output_type);
+            })) {
+            return false;
+        }
+    }
+    return true;
 }
 
 } // namespace
@@ -1164,7 +1208,7 @@ bool VariantCompactionUtil::has_values_index(const TabletSchema& schema) {
 
 Status VariantCompactionUtil::plan_values_index_compaction(
         const std::vector<RowsetSharedPtr>& rowsets, bool expand_subcolumns,
-        const std::set<std::pair<int32_t, int64_t>>& native_indexes, TabletSchemaSPtr& schema,
+        std::set<std::pair<int32_t, int64_t>>& native_indexes, TabletSchemaSPtr& schema,
         VariantCompactionPathsSPtr* paths) {
     std::set<int32_t> rebuild_roots;
     for (const auto* index : schema->inverted_indexes()) {
@@ -1172,15 +1216,52 @@ Status VariantCompactionUtil::plan_values_index_compaction(
         if (index->col_unique_ids().empty()) {
             continue;
         }
-        if (index->is_variant_values_index() &&
-            !native_indexes.contains({index->col_unique_ids().front(), index->index_id()})) {
-            rebuild_roots.insert(index->col_unique_ids().front());
+        if (index->is_variant_values_index()) {
+            const auto key = std::make_pair(index->col_unique_ids().front(), index->index_id());
+            // Whole-root re-shredding can promote types within a writer batch.
+            if (!expand_subcolumns) {
+                native_indexes.erase(key);
+            }
+            if (!native_indexes.contains(key)) {
+                rebuild_roots.insert(key.first);
+            }
         }
     }
     if (expand_subcolumns) {
         auto planned_paths = std::make_shared<VariantCompactionPathsMap>();
         RETURN_IF_ERROR(
                 get_extended_compaction_schema(rowsets, schema, *planned_paths, rebuild_roots));
+        std::unordered_map<int32_t, VariantExtendedInfo> input_types;
+        for (const auto& rowset : rowsets) {
+            RETURN_IF_ERROR(aggregate_variant_extended_info(rowset, &input_types));
+        }
+        for (const auto* index : schema->inverted_indexes()) {
+            if (!index->is_variant_values_index() || index->col_unique_ids().empty()) {
+                continue;
+            }
+            const auto key = std::make_pair(index->col_unique_ids().front(), index->index_id());
+            if (!native_indexes.contains(key)) {
+                continue;
+            }
+            if (!values_index_types_are_stable(rowsets, input_types[key.first], *schema, key.first,
+                                               planned_paths->at(key.first))) {
+                native_indexes.erase(key);
+                rebuild_roots.insert(key.first);
+            }
+        }
+        // Remove the children and read plan of every vetoed root along with its native pair.
+        auto output_schema = std::make_shared<TabletSchema>();
+        output_schema->shawdow_copy_without_columns(*schema);
+        for (const auto& column : schema->columns()) {
+            if (!column->is_extracted_column() ||
+                !rebuild_roots.contains(column->parent_unique_id())) {
+                output_schema->append_column(*column);
+            }
+        }
+        for (int32_t uid : rebuild_roots) {
+            planned_paths->erase(uid);
+        }
+        schema = std::move(output_schema);
         *paths = std::move(planned_paths);
     } else {
         // Historical schemas may contain extracted children even when expansion is disabled.
