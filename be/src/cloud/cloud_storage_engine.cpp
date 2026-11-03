@@ -38,6 +38,7 @@
 #include "cloud/cloud_full_compaction.h"
 #include "cloud/cloud_index_change_compaction.h"
 #include "cloud/cloud_meta_mgr.h"
+#include "cloud/cloud_rowset_writer.h"
 #include "cloud/cloud_snapshot_mgr.h"
 #include "cloud/cloud_tablet_hotspot.h"
 #include "cloud/cloud_tablet_mgr.h"
@@ -211,6 +212,12 @@ struct RefreshFSVaultVisitor {
 
 Status CloudStorageEngine::open() {
     sync_storage_vault();
+
+    // Intermediate rowsets of sorting schema change are written to file cache paths, remove the
+    // ones left by previous BE processes, e.g. BE crashed during schema change.
+    for (const auto& path : io::FileCacheFactory::instance()->get_base_paths()) {
+        CloudRowsetWriter::remove_stale_local_rowset_files(path, _options.backend_uid);
+    }
 
     // TODO(plat1ko): DeleteBitmapTxnManager
 
