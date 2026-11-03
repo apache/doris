@@ -556,12 +556,8 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             // delegated schema as a per-table marker so it survives delegation (mirrors Trino table-redirection,
             // where the redirected-to connector's capabilities govern the table). Only the subset fe-core
             // actually resolves per-table is reflected; a catalog-wide capability (view / show-create / mvcc)
-            // would be discarded by the reader, so emitting it would only record an unhonoured intent. Resolve
-            // the owner ONCE (getMetadata is not free) and reuse it for the schema build and the capability read.
-            SiblingOwner owner = siblingOwnerResolver.apply(handle);
-            ConnectorTableSchema siblingSchema = memoizedSiblingMetadata(session, owner.connector(), owner.label())
-                    .getTableSchema(session, handle);
-            return reflectSiblingCapabilities(owner.connector(), siblingSchema);
+            // would be discarded by the reader, so emitting it would only record an unhonoured intent.
+            return delegatedTableSchema(session, handle, sibling -> sibling.getTableSchema(session, handle));
         }
         HiveTableHandle hiveHandle = (HiveTableHandle) handle;
         String dbName = hiveHandle.getDbName();
@@ -650,6 +646,24 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
                     ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING,
                     ConnectorCapability.SUPPORTS_NESTED_COLUMN_SCHEMA_CHANGE,
                     ConnectorCapability.SUPPORTS_WRITE_ONLY_DEFAULTS));
+
+    /**
+     * A delegated (iceberg/hudi-on-HMS) table's schema as {@code buildSchema} asks its owning sibling for it,
+     * with the capabilities the table inherits from that sibling reflected onto it
+     * ({@link #reflectSiblingCapabilities}). Both {@code getTableSchema} overloads go through here because
+     * fe-core reads a table's per-table capabilities from whichever of the two schemas the statement uses: a
+     * statement that pins the table (explicit time travel, and every read of an iceberg table, whose
+     * latest-snapshot pin retains its schema) uses the snapshot overload's, so the two must carry the same
+     * capabilities. The owner is resolved ONCE (getMetadata is not free) and reused for the schema build and the
+     * capability read.
+     */
+    private ConnectorTableSchema delegatedTableSchema(ConnectorSession session, ConnectorTableHandle handle,
+            Function<ConnectorMetadata, ConnectorTableSchema> buildSchema) {
+        SiblingOwner owner = siblingOwnerResolver.apply(handle);
+        ConnectorTableSchema siblingSchema = buildSchema.apply(
+                memoizedSiblingMetadata(session, owner.connector(), owner.label()));
+        return reflectSiblingCapabilities(owner.connector(), siblingSchema);
+    }
 
     /**
      * Reflects the {@link #SIBLING_INHERITABLE_CAPABILITIES} subset of the owning sibling connector's
@@ -1598,7 +1612,10 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     public ConnectorTableSchema getTableSchema(ConnectorSession session, ConnectorTableHandle handle,
             ConnectorMvccSnapshot snapshot) {
         if (!(handle instanceof HiveTableHandle)) {
-            return siblingMetadata(session, handle).getTableSchema(session, handle, snapshot);
+            // The schema a pinned statement reads its per-table capabilities from, so it inherits exactly what
+            // the latest-schema overload above does.
+            return delegatedTableSchema(session, handle,
+                    sibling -> sibling.getTableSchema(session, handle, snapshot));
         }
         // Hive has no schema-at-snapshot; the SPI default ignores the snapshot and returns the latest schema.
         return getTableSchema(session, handle);
