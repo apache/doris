@@ -54,7 +54,7 @@ import java.util.Map;
 
 public class AIResource extends Resource {
     @SerializedName(value = "properties")
-    private Map<String, String> properties;
+    private volatile Map<String, String> properties;
     @SerializedName(value = "createdByRoot")
     private boolean createdByRoot;
 
