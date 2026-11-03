@@ -35,15 +35,25 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.commands.SetOptionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.GlobalVarPersistInfo;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.utframe.TestWithFeService;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.ImmutableMap;
+import org.json.simple.JSONObject;
+import org.json.simple.JSONValue;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.util.Optional;
 
 public class VariableMgrTest extends TestWithFeService {
@@ -237,6 +247,55 @@ public class VariableMgrTest extends TestWithFeService {
             sessionVariable.enablePreparedStmtAuditLog = true;
             VariableMgr.setAllVarsToDefaultValue(sessionVariable, SetType.SESSION);
             Assertions.assertFalse(sessionVariable.isEnablePreparedStmtAuditLog());
+        });
+    }
+
+    // A master taking over rewrites the persisted global values query_audit_always_on does not allow, and logs each
+    // rewrite for the followers to replay; allowed values stay, and nothing changes with the policy off.
+    @Test
+    public void testAlwaysOnRewritesPersistedGlobalValues() throws Throwable {
+        withAuditVariablesRestored(true, () -> {
+            GlobalVariable.enableAuditLoader = false;
+            VariableMgr.getDefaultSessionVariable().enablePreparedStmtAuditLog = false;
+            GlobalVariable.auditPluginMaxSqlLength = 100;
+            GlobalVariable.auditPluginMaxBatchBytes = 1;
+            GlobalVariable.auditPluginLoadTimeoutS = 1200;
+
+            Env env = Env.getCurrentEnv();
+            EditLog editLog = env.getEditLog();
+            EditLog spiedEditLog = Mockito.spy(editLog);
+            Deencapsulation.setField(env, "editLog", spiedEditLog);
+            try {
+                VariableMgr.applyQueryAuditPolicyToGlobalValues();
+            } finally {
+                Deencapsulation.setField(env, "editLog", editLog);
+            }
+
+            Assertions.assertTrue(GlobalVariable.enableAuditLoader);
+            Assertions.assertTrue(VariableMgr.newSessionVariable().isEnablePreparedStmtAuditLog());
+            Assertions.assertEquals(2097152, GlobalVariable.auditPluginMaxSqlLength);
+            Assertions.assertEquals(52428800L, GlobalVariable.auditPluginMaxBatchBytes);
+            Assertions.assertEquals(1200, GlobalVariable.auditPluginLoadTimeoutS);
+
+            ArgumentCaptor<GlobalVarPersistInfo> logged = ArgumentCaptor.forClass(GlobalVarPersistInfo.class);
+            Mockito.verify(spiedEditLog, Mockito.times(4)).logGlobalVariableV2(logged.capture());
+            JSONObject replayed = new JSONObject();
+            for (GlobalVarPersistInfo info : logged.getAllValues()) {
+                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+                info.write(new DataOutputStream(bytes));
+                GlobalVarPersistInfo read = GlobalVarPersistInfo.read(
+                        new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
+                replayed.putAll((JSONObject) JSONValue.parse(read.getPersistJsonString()));
+            }
+            Assertions.assertEquals(ImmutableMap.of(GlobalVariable.ENABLE_AUDIT_PLUGIN, true,
+                    SessionVariable.ENABLE_PREPARED_STMT_AUDIT_LOG, true,
+                    GlobalVariable.AUDIT_PLUGIN_MAX_SQL_LENGTH, 2097152L,
+                    GlobalVariable.AUDIT_PLUGIN_MAX_BATCH_BYTES, 52428800L), replayed);
+        });
+        withAuditVariablesRestored(false, () -> {
+            GlobalVariable.enableAuditLoader = false;
+            VariableMgr.applyQueryAuditPolicyToGlobalValues();
+            Assertions.assertFalse(GlobalVariable.enableAuditLoader);
         });
     }
 

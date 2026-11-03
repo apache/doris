@@ -561,6 +561,34 @@ public class VariableMgr {
         LOG.info("upgrade FE from {}, set {} to new default value: {}", versionMsg, sessionVar, value);
     }
 
+    /**
+     * Rewrites the global values that query_audit_always_on does not allow, such as an enable_audit_plugin=false
+     * from the image, to the values they take effect with, so that SHOW VARIABLES shows what the FE enforces. The
+     * master runs it when it takes over and writes each rewrite to the edit log as SET GLOBAL does, so the followers
+     * show the same values.
+     */
+    public static void applyQueryAuditPolicyToGlobalValues() throws DdlException {
+        if (!QueryAuditPolicy.isAlwaysOn()) {
+            return;
+        }
+        wlock.lock();
+        try {
+            for (String name : QueryAuditPolicy.protectedVariableNames()) {
+                VarContext ctx = ctxByVarName.get(name);
+                String value = getValue(ctx.getObj(), ctx.getField());
+                String effectiveValue = QueryAuditPolicy.effectiveVariableValue(name, value);
+                if (effectiveValue.equals(value)) {
+                    continue;
+                }
+                setGlobalVarAndWriteEditLog(ctx, name, effectiveValue);
+                LOG.info("{} is enabled, set global variable {} from {} to {}",
+                        QueryAuditPolicy.QUERY_AUDIT_ALWAYS_ON, name, value, effectiveValue);
+            }
+        } finally {
+            wlock.unlock();
+        }
+    }
+
     public static void setLowerCaseTableNames(int mode) throws DdlException {
         VarContext ctx = ctxByVarName.get(GlobalVariable.LOWER_CASE_TABLE_NAMES);
         setGlobalVarAndWriteEditLog(ctx, GlobalVariable.LOWER_CASE_TABLE_NAMES, "" + mode);
