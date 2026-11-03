@@ -44,6 +44,7 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
+import org.apache.doris.datasource.mvcc.MvccReadSelector;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonScanParams;
@@ -107,6 +108,7 @@ import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.AutoCloseSessionVariable;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.cache.SqlCacheVersionProvider;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -635,9 +637,18 @@ public class BindRelation extends OneAnalysisRuleFactory {
                             sqlCacheContext.setHasUnsupportedTables(true);
                         } else if (table instanceof OlapTable) {
                             sqlCacheContext.addUsedTable(table);
-                        } else if (table instanceof HMSExternalTable
+                        } else if ((table instanceof HMSExternalTable || table instanceof SqlCacheVersionProvider)
                                 && cascadesContext.getConnectContext().getSessionVariable().enableHiveSqlCache) {
-                            sqlCacheContext.addUsedTable(table);
+                            TableScanParams params = unboundRelation.getScanParams();
+                            if (params != null && !params.isBranch() && !params.isTag()) {
+                                sqlCacheContext.setHasUnsupportedTables(true);
+                            } else {
+                                MvccReadSelector selector = MvccReadSelector.of(unboundRelation.getTableSnapshot(),
+                                        Optional.ofNullable(params));
+                                sqlCacheContext.addUsedTable(table, cascadesContext.getStatementContext()
+                                        .getSnapshot(table, selector.getTableSnapshot(), selector.getScanParams()),
+                                        selector);
+                            }
                         } else {
                             sqlCacheContext.setHasUnsupportedTables(true);
                         }

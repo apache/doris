@@ -135,7 +135,8 @@ public class MTMVRefreshContext {
         knownMissing.addAll(stillMissing);
     }
 
-    void recordPartitionSnapshotFailure(
+    /** Preserve a per-partition failure reported by a related table's bulk loader. */
+    public void recordPartitionSnapshotFailure(
             MTMVRelatedTableIf table, String partitionName, AnalysisException failure) {
         partitionSnapshotFailureCache.computeIfAbsent(table, ignored -> new LinkedHashMap<>())
                 .put(partitionName, failure);

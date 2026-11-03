@@ -74,6 +74,8 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.cache.SqlCacheVersion;
+import org.apache.doris.qe.cache.SqlCacheVersionProvider;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
@@ -3209,6 +3211,13 @@ public class IcebergScanNode extends FileQueryScanNode {
         summaryProfile.getExecutionSummary().addInfoString("Manifest Cache",
                 String.format("hits=%d, misses=%d, failures=%d",
                         manifestCacheHits, manifestCacheMisses, manifestCacheFailures));
+    }
+
+    public Optional<SqlCacheVersion> getSqlCacheVersion() {
+        TableIf table = getTargetTable();
+        return table instanceof SqlCacheVersionProvider
+                ? ((SqlCacheVersionProvider) table)
+                        .getSqlCacheVersion(getPinnedRelationSnapshot()) : Optional.empty();
     }
 
     @Override
