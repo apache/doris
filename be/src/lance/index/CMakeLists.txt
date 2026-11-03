@@ -36,7 +36,10 @@
 #     cgroup v2 isolation (invocation-named groups), pidfd reaping, the kill
 #     ladder, and the synchronous execute() entry whose return is the
 #     respond-after-reap boundary.
-#   * (a later commit) lance_index_worker_service: the thrift-facing service.
+#   * lance_index_worker_service: the synchronous thrift-facing component
+#     behind lance_index_mutate — receive-rail validation (identity, dedup,
+#     budget), the bounded queue, the two-state executor slots, the wire
+#     result mapping, the metrics, and the stop drain.
 
 file(GLOB LANCE_SOURCES CONFIGURE_DEPENDS *.cpp)
 
