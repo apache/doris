@@ -28,6 +28,12 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DayHourAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HourSecondSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.YearMonthAdd;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -116,6 +122,56 @@ class BindExpressionTest extends TestWithFeService implements GeneratedPlanPatte
                 .nonMatch(any()
                         .when(e -> e.getExpressions().stream().anyMatch(Expression::hasUnbound)));
 
+    }
+
+    @Test
+    void testCompoundIntervalArithmetic() {
+        PlanChecker.from(connectContext)
+                .analyze("select cast(col1 as datetime) + interval '1-2' year_month from t1")
+                .matches(any().when(plan -> plan.getExpressions().stream()
+                        .anyMatch(expression -> expression.anyMatch(YearMonthAdd.class::isInstance))));
+
+        PlanChecker.from(connectContext)
+                .analyze("select interval '1 5' day_hour + cast(col1 as datetime) from t1")
+                .matches(any().when(plan -> plan.getExpressions().stream()
+                        .anyMatch(expression -> expression.anyMatch(DayHourAdd.class::isInstance))));
+
+        PlanChecker.from(connectContext)
+                .analyze("select cast(col1 as datetime) - interval '2 30' hour_second from t1")
+                .matches(any().when(plan -> plan.getExpressions().stream()
+                        .anyMatch(expression -> expression.anyMatch(HourSecondSub.class::isInstance))));
+    }
+
+    @Test
+    void testSimpleIntervalArithmeticBinding() {
+        PlanChecker.from(connectContext)
+                .analyze("select cast(col1 as datetime) + interval 1 microsecond from t1")
+                .matches(any().when(plan -> plan.getExpressions().stream()
+                        .anyMatch(expression -> expression.anyMatch(MicroSecondsAdd.class::isInstance))));
+
+        PlanChecker.from(connectContext)
+                .analyze("select cast(col1 as datetime) - interval 1 microsecond from t1")
+                .matches(any().when(plan -> plan.getExpressions().stream()
+                        .anyMatch(expression -> expression.anyMatch(MicroSecondsSub.class::isInstance))));
+    }
+
+    @Test
+    void testSimpleIntervalKeepsTimestampArithmetic() {
+        for (String unit : ImmutableList.of("year", "quarter", "month", "week", "day", "hour", "minute", "second")) {
+            for (String operation : ImmutableList.of("+", "-")) {
+                PlanChecker.from(connectContext)
+                        .analyze("select cast(col1 as datetime) " + operation + " interval 1 " + unit + " from t1")
+                        .matches(any().when(plan -> plan.getExpressions().stream()
+                                .anyMatch(expression -> expression.anyMatch(TimestampArithmetic.class::isInstance))));
+            }
+        }
+    }
+
+    @Test
+    void testSimpleIntervalRejectsObjectType() {
+        AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze("select bitmap_empty() + interval 1 year"));
+        Assertions.assertTrue(error.getMessage().contains("timestamp arithmetic could not contains object type"));
     }
 
     @Test

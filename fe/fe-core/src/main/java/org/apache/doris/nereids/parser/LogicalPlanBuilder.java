@@ -3255,7 +3255,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     throw new ParseException("Only supported: " + Operator.ADD, ctx);
                 }
                 Interval interval = (Interval) left;
-                return new TimestampArithmetic(Operator.ADD, right, interval.value(), interval.timeUnit());
+                return buildDateArithmetic(right, interval, Operator.ADD);
             }
 
             if (right instanceof Interval) {
@@ -3268,7 +3268,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     throw new ParseException("Only supported: " + Operator.ADD + " and " + Operator.SUBTRACT, ctx);
                 }
                 Interval interval = (Interval) right;
-                return new TimestampArithmetic(op, left, interval.value(), interval.timeUnit());
+                return buildDateArithmetic(left, interval, op);
             }
 
             return ParserUtils.withOrigin(ctx, () -> {
@@ -3299,6 +3299,25 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 }
             });
         });
+    }
+
+    private static Expression buildDateArithmetic(Expression date, Interval interval, Operator operation) {
+        switch (interval.timeUnit()) {
+            case YEAR:
+            case QUARTER:
+            case MONTH:
+            case WEEK:
+            case DAY:
+            case HOUR:
+            case MINUTE:
+            case SECOND:
+                // Preserve 4.2 timestamp arithmetic plans and object/complex type validation.
+                return new TimestampArithmetic(operation, date, interval.value(), interval.timeUnit());
+            default:
+                // Compound units and MICROSECOND require the date function binder.
+                String function = operation == Operator.ADD ? "DATE_ADD" : "DATE_SUB";
+                return new UnboundFunction(function, ImmutableList.of(date, interval));
+        }
     }
 
     @Override
