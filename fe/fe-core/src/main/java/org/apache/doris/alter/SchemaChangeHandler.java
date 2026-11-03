@@ -2588,6 +2588,10 @@ public class SchemaChangeHandler extends AlterHandler {
                         requiresHeavyChange = true;
                     }
                 } else if (alterOp instanceof BuildIndexOp) {
+                    // SNII BUILD can rebuild resident indexes from the same container.
+                    if (olapTable.getIndexes().stream().anyMatch(Index::isVariantValuesIndex)) {
+                        throw new DdlException("BUILD INDEX is not supported on a table with a VARIANT values index");
+                    }
                     BuildIndexOp buildIndexOp = (BuildIndexOp) alterOp;
                     IndexDefinition indexDef = buildIndexOp.getIndexDef();
                     Index index = buildIndexOp.getIndex();
