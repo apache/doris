@@ -21,11 +21,15 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampNsType;
+import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -36,11 +40,12 @@ import java.util.List;
  * ScalarFunction 'hour_second'.
  */
 public class HourSecond extends ScalarFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable {
+        implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable, RewriteWhenAnalyze {
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DateTimeV2Type.WILDCARD),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(TimeStampNsType.INSTANCE));
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(TimeStampNsType.INSTANCE),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(TimeV2Type.WILDCARD));
 
     public HourSecond(Expression arg) {
         super("hour_second", arg);
@@ -54,6 +59,15 @@ public class HourSecond extends ScalarFunction
     public HourSecond withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new HourSecond(getFunctionParams(children));
+    }
+
+    @Override
+    public Expression rewriteWhenAnalyze() {
+        Expression argument = getArgument(0);
+        if (!(argument.getDataType() instanceof TimeV2Type)) {
+            return this;
+        }
+        return TypeCoercionUtils.processBoundFunction(new TimeFormat(argument, new VarcharLiteral("%H:%i:%s")));
     }
 
     @Override
