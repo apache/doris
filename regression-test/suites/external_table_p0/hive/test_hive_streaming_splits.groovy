@@ -70,7 +70,6 @@ suite("test_hive_streaming_splits", "p0,external") {
         sql "set num_partitions_in_batch_mode=1024"
         sql "refresh table streaming_unpartitioned"
         explain {
-            verbose true
             sql "select * from streaming_unpartitioned limit 10"
             contains "(approximate)inputSplitNum"
         }
