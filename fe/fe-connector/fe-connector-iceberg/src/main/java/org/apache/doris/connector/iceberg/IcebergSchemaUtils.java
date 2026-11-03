@@ -484,6 +484,16 @@ public final class IcebergSchemaUtils {
             case STRING:
                 columnType.setType(TPrimitiveType.STRING);
                 break;
+            case GEOMETRY:
+                columnType.setType(TPrimitiveType.GEOMETRY);
+                columnType.setSpatialCrs(((Types.GeometryType) type).crs());
+                break;
+            case GEOGRAPHY:
+                Types.GeographyType geography = (Types.GeographyType) type;
+                columnType.setType(TPrimitiveType.GEOGRAPHY);
+                columnType.setSpatialCrs(geography.crs());
+                columnType.setSpatialAlgorithm(geography.algorithm().toString().toLowerCase(Locale.ROOT));
+                break;
             case UUID:
                 columnType.setType(TPrimitiveType.UUID);
                 break;

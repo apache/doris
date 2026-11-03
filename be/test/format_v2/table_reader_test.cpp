@@ -2944,6 +2944,46 @@ TEST(TableReaderTest, NestedCurrentNameWinsBeforeHistoricalAliasForComplexTypes)
     ASSERT_EQ(context.schema_column->children[1].children.size(), 2);
 }
 
+TEST(TableReaderTest, SchemaEvolutionRestoresSpatialIdentityWithoutProjection) {
+    const DataTypes types {
+            std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY),
+            std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY, "EPSG:3857"),
+            std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY),
+            std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "EPSG:4326", "karney")};
+    for (const auto& type : types) {
+        const auto& spatial = assert_cast<const DataTypeSpatial&>(*type);
+        TColumnType carrier;
+        carrier.__set_type(spatial.get_primitive_type() == TYPE_GEOMETRY
+                                   ? TPrimitiveType::GEOMETRY
+                                   : TPrimitiveType::GEOGRAPHY);
+        carrier.__set_spatial_crs(spatial.crs());
+        if (spatial.get_primitive_type() == TYPE_GEOGRAPHY) {
+            carrier.__set_spatial_algorithm(spatial.algorithm());
+        }
+        for (bool nullable : {false, true}) {
+            SCOPED_TRACE(type->get_name());
+            auto field = external_schema_field("shape", 1);
+            field.field_ptr->__set_type(carrier);
+            field.field_ptr->__set_is_optional(nullable);
+            TFileScanRangeParams params;
+            params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+            params.__set_current_schema_id(100);
+            params.__set_history_schema_info({external_schema(100, {field})});
+            TableReader reader;
+            reader._scan_params = &params;
+            DataTypePtr fallback = std::make_shared<DataTypeVarbinary>();
+            if (nullable) {
+                fallback = make_nullable(fallback);
+            }
+            const auto resolved = reader._find_table_column_by_field_id(1, fallback, true);
+            ASSERT_TRUE(resolved.has_value());
+            EXPECT_EQ(resolved->type->is_nullable(), nullable);
+            EXPECT_TRUE(remove_nullable(resolved->type)->equals(*type));
+            EXPECT_EQ(resolved->is_optional, nullable);
+        }
+    }
+}
+
 TEST(TableReaderTest, SchemaEvolutionKeepsResolvedSpatialIdentity) {
     const DataTypes types {
             std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY),

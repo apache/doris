@@ -474,6 +474,17 @@ DataTypes schema_evolution_spatial_types() {
             std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "EPSG:4326", "karney")};
 }
 
+TColumnType spatial_schema_carrier(const DataTypeSpatial& type) {
+    TColumnType carrier;
+    carrier.__set_type(type.get_primitive_type() == TYPE_GEOMETRY ? TPrimitiveType::GEOMETRY
+                                                                  : TPrimitiveType::GEOGRAPHY);
+    carrier.__set_spatial_crs(type.crs());
+    if (type.get_primitive_type() == TYPE_GEOGRAPHY) {
+        carrier.__set_spatial_algorithm(type.algorithm());
+    }
+    return carrier;
+}
+
 // Keep field ids while allowing newer spatial annotations and older writers' raw WKB.
 void write_iceberg_spatial_key_parquet_file(const std::string& file_path,
                                             const DataTypeSpatial& spatial,
@@ -6645,7 +6656,7 @@ TEST(IcebergV2ReaderTest, EqualityDeletesMatchSpatialAndRawWkbRepresentations) {
     for (const auto& type : schema_evolution_spatial_types()) {
         const auto& spatial = assert_cast<const DataTypeSpatial&>(*type);
         // The mixed assignments exercise both the data-side cast and converted delete block/hash.
-        // Same-representation controls retain annotated identity and hidden STRING carriers.
+        // The table carrier retains identity even for hidden, unannotated delete keys.
         for (const auto& [data_annotation, delete_annotation] :
              {std::pair {false, false}, std::pair {false, true}, std::pair {true, false},
               std::pair {true, true}}) {
@@ -6677,11 +6688,10 @@ TEST(IcebergV2ReaderTest, EqualityDeletesMatchSpatialAndRawWkbRepresentations) {
                             ICEBERG_SCAN_SEMANTICS_VERSION_2);
                     scan_params.__set_current_schema_id(100);
                     scan_params.__set_history_schema_info({external_schema(
-                            100,
-                            {external_schema_field("id", 0),
-                             external_schema_field("shape", 1, {}, std::nullopt,
-                                                   external_primitive_type(TPrimitiveType::STRING),
-                                                   false, true)})});
+                            100, {external_schema_field("id", 0),
+                                  external_schema_field("shape", 1, {}, std::nullopt,
+                                                        spatial_schema_carrier(spatial), false,
+                                                        true)})});
                     RuntimeProfile profile("spatial_raw_wkb_equality_delete");
                     RuntimeState state {TQueryOptions(), TQueryGlobals()};
                     io::FileReaderStats stats;
@@ -6703,12 +6713,7 @@ TEST(IcebergV2ReaderTest, EqualityDeletesMatchSpatialAndRawWkbRepresentations) {
                     const auto& filter = reader._equality_delete_filters[0];
                     EXPECT_EQ(remove_nullable(filter.delete_key_types[0])->get_primitive_type(),
                               delete_annotation ? spatial.get_primitive_type() : TYPE_VARBINARY);
-                    if (delete_annotation) {
-                        EXPECT_TRUE(remove_nullable(filter.key_types[0])->equals(*type));
-                    } else {
-                        EXPECT_EQ(remove_nullable(filter.key_types[0])->get_primitive_type(),
-                                  TYPE_STRING);
-                    }
+                    EXPECT_TRUE(remove_nullable(filter.key_types[0])->equals(*type));
                     ASSERT_TRUE(reader.close().ok());
                 }
             }

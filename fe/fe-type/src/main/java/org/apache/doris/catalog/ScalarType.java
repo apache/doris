@@ -1109,6 +1109,12 @@ public class ScalarType extends Type {
             thrift.setPrecision(precision);
             thrift.setScale(scale);
         }
+        if (isSpatialType()) {
+            thrift.setSpatialCrs(spatialCrs);
+            if (type == PrimitiveType.GEOGRAPHY) {
+                thrift.setSpatialAlgorithm(spatialAlgorithm);
+            }
+        }
         return thrift;
     }
 

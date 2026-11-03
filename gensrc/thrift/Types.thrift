@@ -298,6 +298,10 @@ struct TColumnType {
   5: optional i32 scale
   6: optional i32 variant_max_subcolumns_count = 0;
   7: optional bool variant_enable_doc_mode = false;
+  // Only set for Iceberg GEOMETRY/GEOGRAPHY types.
+  8: optional string spatial_crs;
+  // Only set for Iceberg GEOGRAPHY type.
+  9: optional string spatial_algorithm;
 }
 
 // A TNetworkAddress is the standard host, port representation of a

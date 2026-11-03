@@ -21,11 +21,32 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.VariantType;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.thrift.TColumnType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class ScalarTypeTest {
+    @Test
+    public void testSpatialColumnTypeThrift() {
+        for (ScalarType type : new ScalarType[] {
+                ScalarType.createGeometryType(), ScalarType.createGeometryType("EPSG:3857"),
+                ScalarType.createGeographyType(), ScalarType.createGeographyType("EPSG:4326", "karney")}) {
+            TColumnType thrift = type.toColumnTypeThrift();
+            Assertions.assertEquals(type.getPrimitiveType().toThrift(), thrift.getType());
+            Assertions.assertTrue(thrift.isSetSpatialCrs());
+            Assertions.assertEquals(type.getSpatialCrs(), thrift.getSpatialCrs());
+            Assertions.assertEquals(type.getPrimitiveType() == PrimitiveType.GEOGRAPHY,
+                    thrift.isSetSpatialAlgorithm());
+            if (type.getPrimitiveType() == PrimitiveType.GEOGRAPHY) {
+                Assertions.assertEquals(type.getSpatialAlgorithm(), thrift.getSpatialAlgorithm());
+            }
+        }
+        TColumnType ordinary = new ScalarType(PrimitiveType.INT).toColumnTypeThrift();
+        Assertions.assertFalse(ordinary.isSetSpatialCrs());
+        Assertions.assertFalse(ordinary.isSetSpatialAlgorithm());
+    }
+
     @Test
     public void testScalarType() {
         ScalarType scalarType = new ScalarType(PrimitiveType.VARIANT);
