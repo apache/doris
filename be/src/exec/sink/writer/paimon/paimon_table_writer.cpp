@@ -118,8 +118,7 @@ Status PaimonTableWriter::close(Status status) {
     }
     SCOPED_TIMER(_close_timer);
 
-    // Prepare messages first, but do not publish them until the backend confirms
-    // that every SDK user has stopped and its native backing memory is safe to release.
+    // Prepare locally; publish only after all SDK work has stopped.
     std::vector<TPaimonCommitMessage> messages;
     if (status.ok()) {
         DCHECK(_writer);
@@ -142,8 +141,7 @@ Status PaimonTableWriter::close(Status status) {
         }
     }
 
-    // If prepare_commit failed or the incoming status was already an error,
-    // abort the writer to clean up uncommitted data files.
+    // Failed prepare or upstream execution leaves these files BE-owned; abort them.
     if (!status.ok()) {
         LOG(WARNING) << "Paimon writer closing with error: " << status.to_string();
         if (_writer) {
@@ -171,9 +169,8 @@ Status PaimonTableWriter::close(Status status) {
         }
     }
 
-    // Only a fully prepared and cleanly stopped writer may contribute payloads
-    // to the FE transaction. An SDK close failure therefore aborts the Doris
-    // transaction instead of allowing it to commit potentially unsafe output.
+    // Publish only after the backend stops successfully; otherwise fail the transaction
+    // without handing its files to FE.
     if (status.ok()) {
         COUNTER_UPDATE(_commit_payload_count, static_cast<int64_t>(messages.size()));
         for (const auto& msg : messages) {
