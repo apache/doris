@@ -474,6 +474,17 @@ if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ||
     fi
 fi
 
+# The pinned Lance-C archive is unchanged, but its local C ABI now includes host execution.
+# Refresh only Lance when reusing an installation that predates that patch.
+if ! grep -q 'lance_host_executor_new_v1' \
+    "${DORIS_THIRDPARTY}/installed/include/lance/lance.h"; then
+    if [[ ! -f "${DORIS_THIRDPARTY}/build-thirdparty.sh" ]]; then
+        echo "Lance-C host executor support is missing. Refresh the third-party installation." >&2
+        exit 1
+    fi
+    bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" lance_c
+fi
+
 update_submodule() {
     local submodule_path=$1
     local submodule_name=$2

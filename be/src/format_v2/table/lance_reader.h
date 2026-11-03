@@ -34,6 +34,7 @@ struct LanceBatch;
 struct LanceDataset;
 struct LanceFtsQueryContext;
 struct LanceScanner;
+struct LanceHostExecutor;
 
 namespace doris {
 class ShardedKVCache;
@@ -101,6 +102,11 @@ private:
     Status _fill_block_from_lance_batch(LanceBatch* batch, Block* block, size_t* rows);
     Status _dataset_key(const TFileRangeDesc& range, DatasetKey* key) const;
 
+    struct HostExecutorDeleter {
+        void operator()(::LanceHostExecutor* executor) const;
+    };
+    std::unique_ptr<::LanceHostExecutor, HostExecutorDeleter> _host_executor;
+    RuntimeProfile::Counter* _host_executor_tasks = nullptr;
     LanceDataset* _dataset = nullptr;
     std::unique_ptr<LanceSessionCacheProfile> _session_cache_profile;
     std::shared_ptr<arrow::Schema> _dataset_schema;

@@ -1228,6 +1228,8 @@ DEFINE_Validator(variant_storage_parse_mode,
 // can be shared by all Lance dataset readers.
 DEFINE_Int64(lance_index_cache_size_bytes, "10737418240");   // 10 GiB
 DEFINE_Int64(lance_metadata_cache_size_bytes, "1073741824"); // 1GB
+// Keep the host executor opt-in while validating throughput for single-split scans.
+DEFINE_Bool(enable_lance_host_executor, "false");
 DEFINE_Bool(enable_lance_scalar_index_auto_selection, "true");
 DEFINE_Bool(enable_lance_data_cache, "true");
 DEFINE_String(lance_data_cache_path, "${DORIS_HOME}/lance_data_cache");

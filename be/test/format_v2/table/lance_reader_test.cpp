@@ -50,6 +50,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "common/consts.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
@@ -4385,4 +4386,53 @@ TEST(LanceTableReaderTypeTest, ReadsTemporalTypesFromAllTypesFixture) {
     EXPECT_TRUE(reader.close().ok());
 }
 
+} // namespace doris::format::lance
+
+namespace doris::format::lance {
+TEST(LanceTableReaderHostExecutorTest, PreservesRowsAcrossSplitsAndAbort) {
+    const bool previous = config::enable_lance_host_executor;
+    DEFER({ config::enable_lance_host_executor = previous; });
+    const std::filesystem::path uri = "./be/test/format_v2/table/lance/data/all_types.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(uri, &fixture).ok());
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false)};
+    std::vector<int64_t> expected;
+    for (const bool enabled : {false, true}) {
+        config::enable_lance_host_executor = enabled;
+        TQueryGlobals globals;
+        RuntimeState state(globals);
+        RuntimeProfile profile("lance_host_executor");
+        TFileScanRangeParams params;
+        LanceTableReader reader;
+        ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &params).ok());
+        std::vector<int64_t> actual;
+        for (const auto fragment : fixture.fragment_ids) {
+            const auto range = make_lance_range(uri, fixture.version, {fragment});
+            ASSERT_TRUE(prepare_range(&reader, range).ok());
+            ASSERT_TRUE(reader.abort_split().ok());
+            ASSERT_TRUE(prepare_range(&reader, range).ok());
+            bool eos = false;
+            while (!eos) {
+                Block block;
+                add_output_columns(&block, columns);
+                ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+                const auto& data = assert_cast<const ColumnInt64&>(*block.get_by_position(0).column)
+                                           .get_data();
+                actual.insert(actual.end(), data.begin(), data.end());
+            }
+        }
+        std::sort(actual.begin(), actual.end());
+        ASSERT_FALSE(actual.empty());
+        if (enabled) {
+            EXPECT_EQ(actual, expected);
+            const auto* counter = profile.get_counter("LanceHostExecutorTasks");
+            ASSERT_NE(counter, nullptr);
+            EXPECT_GT(counter->value(), 0);
+        } else {
+            expected = actual;
+        }
+        ASSERT_TRUE(reader.close().ok());
+        ASSERT_TRUE(reader.close().ok());
+    }
+}
 } // namespace doris::format::lance

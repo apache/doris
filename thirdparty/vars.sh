@@ -581,6 +581,12 @@ PUGIXML_NAME=pugixml-1.15.tar.gz
 PUGIXML_SOURCE=pugixml-1.15
 PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 
+# Lance Rust sources are pinned separately so local executor patches do not mutate Cargo's cache.
+LANCE_RUST_DOWNLOAD="https://codeload.github.com/lance-format/lance/tar.gz/68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+LANCE_RUST_NAME="lance-68c12dfd7efe02f90ad2d7f3a239a7eb64884e57.tar.gz"
+LANCE_RUST_SOURCE="lance-68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+LANCE_RUST_MD5SUM="6c9238690a2763316ffbfaaf4b249d84"
+
 # lance-c
 # Includes lance-c #98: bounded runtime BTree segment selection with decoded-memory guards.
 LANCE_C_DOWNLOAD="https://codeload.github.com/lance-format/lance-c/tar.gz/a51ab47a9c814a746cb1714c99fad93dd3a188b8"
@@ -681,6 +687,7 @@ export TP_ARCHIVES=(
     'JUICEFS'
     'PUGIXML'
     'LANCE_C'
+    'LANCE_RUST'
     'PAIMON_RUST'
 )
 

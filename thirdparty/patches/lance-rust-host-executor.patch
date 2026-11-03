@@ -1,0 +1,837 @@
+# Host executor support for operation-owned scan and decoder tasks.
+# Base: lance-format/lance 68c12dfd7efe02f90ad2d7f3a239a7eb64884e57.
+diff --git a/Cargo.lock b/Cargo.lock
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -462,6 +462,12 @@
+  "quote",
+  "syn 2.0.119",
+ ]
++
++[[package]]
++name = "async-task"
++version = "4.7.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8b75356056920673b02621b35afd0f7dda9306d03c79a30f5c56c44cf256e3de"
+
+ [[package]]
+ name = "async-trait"
+@@ -4625,6 +4631,7 @@
+ name = "lance-core"
+ version = "13.0.0-beta.18"
+ dependencies = [
++ "async-task",
+  "arrow-array",
+  "arrow-buffer",
+  "arrow-data",
+diff --git a/java/lance-jni/Cargo.lock b/java/lance-jni/Cargo.lock
+--- a/java/lance-jni/Cargo.lock
++++ b/java/lance-jni/Cargo.lock
+@@ -413,6 +413,12 @@
+  "quote",
+  "syn 2.0.118",
+ ]
++
++[[package]]
++name = "async-task"
++version = "4.7.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8b75356056920673b02621b35afd0f7dda9306d03c79a30f5c56c44cf256e3de"
+
+ [[package]]
+ name = "async-trait"
+@@ -3974,6 +3980,7 @@
+ name = "lance-core"
+ version = "13.0.0-beta.18"
+ dependencies = [
++ "async-task",
+  "arrow-array",
+  "arrow-buffer",
+  "arrow-data",
+diff --git a/python/Cargo.lock b/python/Cargo.lock
+--- a/python/Cargo.lock
++++ b/python/Cargo.lock
+@@ -447,6 +447,12 @@
+  "quote",
+  "syn 2.0.118",
+ ]
++
++[[package]]
++name = "async-task"
++version = "4.7.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8b75356056920673b02621b35afd0f7dda9306d03c79a30f5c56c44cf256e3de"
+
+ [[package]]
+ name = "async-trait"
+@@ -4142,6 +4148,7 @@
+ name = "lance-core"
+ version = "13.0.0-beta.18"
+ dependencies = [
++ "async-task",
+  "arrow-array",
+  "arrow-buffer",
+  "arrow-data",
+diff --git a/rust/lance-core/Cargo.toml b/rust/lance-core/Cargo.toml
+--- a/rust/lance-core/Cargo.toml
++++ b/rust/lance-core/Cargo.toml
+@@ -12,6 +12,7 @@
+ rust-version.workspace = true
+
+ [dependencies]
++async-task = "4.7"
+ arrow-array.workspace = true
+ arrow-buffer.workspace = true
+ arrow-data.workspace = true
+diff --git a/rust/lance-core/src/utils.rs b/rust/lance-core/src/utils.rs
+--- a/rust/lance-core/src/utils.rs
++++ b/rust/lance-core/src/utils.rs
+@@ -18,6 +18,7 @@
+ pub mod path;
+ pub mod row_addr_remap;
+ pub mod stable_partition;
++pub mod task_executor;
+ pub mod tempfile;
+ pub mod testing;
+ pub mod tokio;
+diff --git a/rust/lance-core/src/utils/task_executor.rs b/rust/lance-core/src/utils/task_executor.rs
+--- /dev/null
++++ b/rust/lance-core/src/utils/task_executor.rs
+@@ -0,0 +1,314 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: Copyright The Lance Authors
++
++//! Optional host scheduling for operation-owned tasks. Tokio remains the I/O reactor.
++
++use std::cell::RefCell;
++use std::future::Future;
++use std::panic::{AssertUnwindSafe, resume_unwind};
++use std::pin::Pin;
++use std::sync::{Arc, Weak};
++use std::task::{Context, Poll};
++
++use futures::FutureExt;
++use tokio::runtime::Handle;
++use tokio::task::JoinHandle;
++
++/// One nonblocking poll, or one blocking operation, scheduled by the host.
++pub type Task = Box<dyn FnOnce() + Send + 'static>;
++
++/// CPU polls and blocking I/O may use different host execution resources.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum TaskKind {
++    /// Async polls and CPU-intensive work.
++    Cpu,
++    /// Blocking file operations. A running operation must be allowed to finish.
++    Io,
++}
++
++/// The host must enqueue a task without blocking or executing it inline.
++pub trait Executor: Send + Sync + 'static {
++    /// Schedule exactly one execution of `task`, including during cancellation.
++    fn schedule(&self, kind: TaskKind, task: Task);
++}
++
++thread_local! {
++    static CURRENT_EXECUTOR: RefCell<Option<Weak<dyn Executor>>> = RefCell::new(None);
++}
++
++/// Returns the operation's executor, if the caller installed one for this poll.
++pub fn current_executor() -> Option<Arc<dyn Executor>> {
++    CURRENT_EXECUTOR.with(|current| current.borrow().as_ref().and_then(Weak::upgrade))
++}
++
++struct ContextGuard(Option<Weak<dyn Executor>>);
++impl ContextGuard {
++    fn enter(executor: Weak<dyn Executor>) -> Self {
++        Self(CURRENT_EXECUTOR.with(|current| current.replace(Some(executor))))
++    }
++}
++impl Drop for ContextGuard {
++    fn drop(&mut self) {
++        CURRENT_EXECUTOR.with(|current| current.replace(self.0.take()));
++    }
++}
++
++/// A scoped future restores the previous executor after every poll and on panic.
++/// The caller must keep the executor alive until the operation has been cancelled or completed.
++pub fn scope<F: Future>(executor: Arc<dyn Executor>, future: F) -> impl Future<Output = F::Output> {
++    ScopedFuture {
++        future: Box::pin(future),
++        executor: Arc::downgrade(&executor),
++        reactor: Handle::current(),
++    }
++}
++
++struct ScopedFuture<F> {
++    future: Pin<Box<F>>,
++    executor: Weak<dyn Executor>,
++    reactor: Handle,
++}
++impl<F: Future> Future for ScopedFuture<F> {
++    type Output = F::Output;
++    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
++        let reactor = self.reactor.clone();
++        let _reactor = reactor.enter();
++        let _context = ContextGuard::enter(self.executor.clone());
++        self.future.as_mut().poll(cx)
++    }
++}
++
++fn spawn_host<F>(executor: Arc<dyn Executor>, kind: TaskKind, future: F) -> JoinHandle<F::Output>
++where
++    F: Future + Send + 'static,
++    F::Output: Send + 'static,
++{
++    let reactor = Handle::current();
++    let weak = Arc::downgrade(&executor);
++    let wrapped = ScopedFuture {
++        future: Box::pin(future),
++        executor: weak.clone(),
++        reactor: reactor.clone(),
++    };
++    let cleanup_reactor = reactor.clone();
++    let schedule = move |runnable: async_task::Runnable| {
++        if let Some(executor) = weak.upgrade() {
++            executor.schedule(
++                kind,
++                Box::new(move || {
++                    runnable.run();
++                }),
++            );
++        } else {
++            // A wake may hold a channel lock. Drop a retired future on the control runtime,
++            // outside the wake callback, because its destructor can acquire that same lock.
++            cleanup_reactor.spawn(async move {
++                drop(runnable);
++            });
++        }
++    };
++    let (runnable, task) = async_task::spawn(AssertUnwindSafe(wrapped).catch_unwind(), schedule);
++    runnable.schedule();
++    // Preserve Tokio JoinHandle's panic, abort, and detach semantics. This task only waits;
++    // the user future's polls execute on the host, including nested task submissions.
++    reactor.spawn(async move {
++        match task.await {
++            Ok(value) => value,
++            Err(payload) => resume_unwind(payload),
++        }
++    })
++}
++
++/// Spawn an operation-owned future, using Tokio when no host executor is installed.
++pub fn spawn<F>(future: F) -> JoinHandle<F::Output>
++where
++    F: Future + Send + 'static,
++    F::Output: Send + 'static,
++{
++    match current_executor() {
++        Some(executor) => spawn_host(executor, TaskKind::Cpu, future),
++        None => tokio::spawn(future),
++    }
++}
++
++/// Spawn one blocking operation. The host must keep blocking I/O separate from CPU work.
++pub fn spawn_blocking<F, T>(kind: TaskKind, function: F) -> JoinHandle<T>
++where
++    F: FnOnce() -> T + Send + 'static,
++    T: Send + 'static,
++{
++    match current_executor() {
++        Some(executor) => spawn_host(executor, kind, async move { function() }),
++        None => tokio::task::spawn_blocking(function),
++    }
++}
++
++/// A thread-bound scope for synchronous entry points. Do not hold it across `.await`.
++pub struct ExecutorGuard {
++    _context: ContextGuard,
++    _owner: Arc<dyn Executor>,
++    _thread_bound: std::marker::PhantomData<*const ()>,
++}
++impl ExecutorGuard {
++    /// Install the executor until the guard is dropped on this same thread.
++    pub fn enter(executor: Arc<dyn Executor>) -> Self {
++        Self {
++            _context: ContextGuard::enter(Arc::downgrade(&executor)),
++            _owner: executor,
++            _thread_bound: std::marker::PhantomData,
++        }
++    }
++}
++
++/// Preserve the operation context when another task polls an execution-plan stream.
++pub fn scope_stream<S: futures::Stream>(
++    executor: Arc<dyn Executor>,
++    stream: S,
++) -> impl futures::Stream<Item = S::Item> {
++    ScopedStream {
++        stream: Box::pin(stream),
++        executor: Arc::downgrade(&executor),
++        reactor: Handle::current(),
++    }
++}
++
++struct ScopedStream<S> {
++    stream: Pin<Box<S>>,
++    executor: Weak<dyn Executor>,
++    reactor: Handle,
++}
++impl<S: futures::Stream> futures::Stream for ScopedStream<S> {
++    type Item = S::Item;
++    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
++        let reactor = self.reactor.clone();
++        let _reactor = reactor.enter();
++        let _context = ContextGuard::enter(self.executor.clone());
++        self.stream.as_mut().poll_next(cx)
++    }
++}
++
++/// Cancellation-safe operation task, matching DataFusion's abort-on-drop contract.
++pub struct SpawnedTask<T>(JoinHandle<T>);
++impl<T> std::fmt::Debug for SpawnedTask<T> {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        f.debug_struct("SpawnedTask").finish_non_exhaustive()
++    }
++}
++impl<T: Send + 'static> SpawnedTask<T> {
++    /// Submit through the operation's executor, retaining abort-on-drop behavior.
++    pub fn spawn<F: Future<Output = T> + Send + 'static>(future: F) -> Self {
++        Self(spawn(future))
++    }
++}
++impl<T> Future for SpawnedTask<T> {
++    type Output = Result<T, tokio::task::JoinError>;
++    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
++        Pin::new(&mut self.0).poll(cx)
++    }
++}
++impl<T> Drop for SpawnedTask<T> {
++    fn drop(&mut self) {
++        self.0.abort();
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use std::collections::VecDeque;
++    use std::sync::Mutex;
++
++    #[derive(Default)]
++    struct ManualExecutor(Mutex<VecDeque<Task>>, futures::task::AtomicWaker);
++
++    impl Executor for ManualExecutor {
++        fn schedule(&self, _kind: TaskKind, task: Task) {
++            self.0.lock().unwrap().push_back(task);
++            self.1.wake();
++        }
++    }
++
++    impl ManualExecutor {
++        fn run(&self) {
++            loop {
++                let task = self.0.lock().unwrap().pop_front();
++                match task {
++                    Some(task) => task(),
++                    None => break,
++                }
++            }
++        }
++    }
++
++    #[tokio::test(flavor = "current_thread")]
++    async fn nested_tasks_execute_on_host_and_restore_context() {
++        let executor = Arc::new(ManualExecutor::default());
++        let host_thread = std::thread::current().id();
++        let future = scope(executor.clone(), async move {
++            spawn(async move {
++                assert_eq!(std::thread::current().id(), host_thread);
++                spawn_blocking(TaskKind::Cpu, move || std::thread::current().id())
++                    .await
++                    .unwrap()
++            })
++            .await
++            .unwrap()
++        });
++        tokio::pin!(future);
++        let actual = futures::future::poll_fn(|cx| {
++            executor.1.register(cx.waker());
++            executor.run();
++            future.as_mut().poll(cx)
++        });
++        let actual = tokio::time::timeout(std::time::Duration::from_secs(2), actual)
++            .await
++            .unwrap();
++        assert_eq!(actual, host_thread);
++        assert!(current_executor().is_none());
++    }
++
++    #[tokio::test(flavor = "current_thread")]
++    async fn abort_drops_pending_host_future() {
++        struct Dropped(Arc<std::sync::atomic::AtomicBool>);
++        impl Drop for Dropped {
++            fn drop(&mut self) {
++                self.0.store(true, std::sync::atomic::Ordering::SeqCst);
++            }
++        }
++        let executor = Arc::new(ManualExecutor::default());
++        let dropped = Arc::new(std::sync::atomic::AtomicBool::new(false));
++        let guard = Dropped(dropped.clone());
++        let handle = scope(executor.clone(), async move {
++            spawn(async move {
++                let _guard = guard;
++                futures::future::pending::<()>().await;
++            })
++        })
++        .await;
++        executor.run();
++        tokio::task::yield_now().await;
++        handle.abort();
++        assert!(handle.await.unwrap_err().is_cancelled());
++        executor.run();
++        assert!(dropped.load(std::sync::atomic::Ordering::SeqCst));
++    }
++
++    #[tokio::test(flavor = "current_thread")]
++    async fn panic_is_a_join_error_without_crossing_host_callback() {
++        let executor = Arc::new(ManualExecutor::default());
++        let handle = scope(executor.clone(), async {
++            spawn(async {
++                panic!("host task panic");
++            })
++        })
++        .await;
++        executor.run();
++        assert!(handle.await.unwrap_err().is_panic());
++    }
++
++    #[tokio::test(flavor = "current_thread")]
++    async fn default_executor_remains_tokio() {
++        let handle = spawn(async { 42 });
++        assert_eq!(handle.await.unwrap(), 42);
++    }
++}
+diff --git a/rust/lance-core/src/utils/tokio.rs b/rust/lance-core/src/utils/tokio.rs
+--- a/rust/lance-core/src/utils/tokio.rs
++++ b/rust/lance-core/src/utils/tokio.rs
+@@ -186,10 +186,15 @@
+ ) -> impl Future<Output = std::result::Result<R, E>> {
+     // Propagate the current span into the task
+     let span = Span::current();
+-    let handle = global_cpu_runtime().spawn_blocking(move || {
++    let task = move || {
+         let _span_guard = span.enter();
+         func()
+-    });
++    };
++    let handle = if super::task_executor::current_executor().is_some() {
++        super::task_executor::spawn_blocking(super::task_executor::TaskKind::Cpu, task)
++    } else {
++        global_cpu_runtime().spawn_blocking(task)
++    };
+     // Awaited through the join handle, not a result channel: a panic in `func`
+     // arrives as a `JoinError` still carrying its payload, so resuming it
+     // re-raises the original panic in the caller. Reporting the closure's
+diff --git a/rust/lance-datafusion/src/exec.rs b/rust/lance-datafusion/src/exec.rs
+--- a/rust/lance-datafusion/src/exec.rs
++++ b/rust/lance-datafusion/src/exec.rs
+@@ -734,6 +734,12 @@
+         Arc::new(CoalescePartitionsExec::new(plan))
+     };
+
++    // Partition tasks can be polled by DataFusion workers. Reinstall the operation's
++    // executor at every plan boundary rather than relying on the caller thread's TLS.
++    let plan = match lance_core::utils::task_executor::current_executor() {
++        Some(executor) => crate::host_executor::wrap(plan, executor)?,
++        None => plan,
++    };
+     let stream = plan.execute(0, get_task_context(&session_ctx, &options))?;
+
+     let schema = stream.schema();
+diff --git a/rust/lance-datafusion/src/host_executor.rs b/rust/lance-datafusion/src/host_executor.rs
+--- /dev/null
++++ b/rust/lance-datafusion/src/host_executor.rs
+@@ -0,0 +1,95 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: Copyright The Lance Authors
++
++//! Keep an operation's executor across DataFusion's partition/stream task boundaries.
++
++use std::fmt;
++use std::sync::{Arc, Weak};
++
++use arrow_schema::SchemaRef;
++use datafusion::execution::TaskContext;
++use datafusion::physical_plan::{
++    DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties, SendableRecordBatchStream,
++    metrics::MetricsSet, stream::RecordBatchStreamAdapter,
++};
++use datafusion_common::{DataFusionError, Result};
++use lance_core::utils::task_executor::{self, Executor, ExecutorGuard};
++
++pub(crate) fn wrap(
++    plan: Arc<dyn ExecutionPlan>,
++    executor: Arc<dyn Executor>,
++) -> Result<Arc<dyn ExecutionPlan>> {
++    let children = plan.children();
++    let inner = if children.is_empty() {
++        plan
++    } else {
++        let children = children
++            .into_iter()
++            .map(|child| wrap(Arc::clone(child), Arc::clone(&executor)))
++            .collect::<Result<Vec<_>>>()?;
++        plan.with_new_children(children)?
++    };
++    Ok(Arc::new(HostExecutorExec {
++        inner,
++        executor: Arc::downgrade(&executor),
++    }))
++}
++
++struct HostExecutorExec {
++    inner: Arc<dyn ExecutionPlan>,
++    executor: Weak<dyn Executor>,
++}
++impl fmt::Debug for HostExecutorExec {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        f.debug_struct("HostExecutorExec")
++            .field("inner", &self.inner)
++            .finish()
++    }
++}
++impl DisplayAs for HostExecutorExec {
++    fn fmt_as(&self, format: DisplayFormatType, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        self.inner.fmt_as(format, f)
++    }
++}
++impl ExecutionPlan for HostExecutorExec {
++    fn name(&self) -> &str {
++        "HostExecutorExec"
++    }
++    fn schema(&self) -> SchemaRef {
++        self.inner.schema()
++    }
++    fn properties(&self) -> &Arc<PlanProperties> {
++        self.inner.properties()
++    }
++    fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
++        self.inner.children()
++    }
++    fn with_new_children(
++        self: Arc<Self>,
++        children: Vec<Arc<dyn ExecutionPlan>>,
++    ) -> Result<Arc<dyn ExecutionPlan>> {
++        Ok(Arc::new(Self {
++            inner: Arc::clone(&self.inner).with_new_children(children)?,
++            executor: self.executor.clone(),
++        }))
++    }
++    fn metrics(&self) -> Option<MetricsSet> {
++        self.inner.metrics()
++    }
++    fn execute(
++        &self,
++        partition: usize,
++        context: Arc<TaskContext>,
++    ) -> Result<SendableRecordBatchStream> {
++        let executor = self.executor.upgrade().ok_or_else(|| {
++            DataFusionError::Execution("Lance host executor has been closed".into())
++        })?;
++        let _scope = ExecutorGuard::enter(Arc::clone(&executor));
++        let stream = self.inner.execute(partition, context)?;
++        let schema = stream.schema();
++        Ok(Box::pin(RecordBatchStreamAdapter::new(
++            schema,
++            task_executor::scope_stream(executor, stream),
++        )))
++    }
++}
+diff --git a/rust/lance-datafusion/src/lib.rs b/rust/lance-datafusion/src/lib.rs
+--- a/rust/lance-datafusion/src/lib.rs
++++ b/rust/lance-datafusion/src/lib.rs
+@@ -29,3 +29,5 @@
+ pub mod substrait;
+ pub mod udf;
+ pub mod utils;
++
++mod host_executor;
+diff --git a/rust/lance-encoding/src/array_encoding/logical/list.rs b/rust/lance-encoding/src/array_encoding/logical/list.rs
+--- a/rust/lance-encoding/src/array_encoding/logical/list.rs
++++ b/rust/lance-encoding/src/array_encoding/logical/list.rs
+@@ -481,7 +481,7 @@
+         let cache = context.cache().clone();
+
+         // Immediately spawn the indirect scheduling
+-        let indirect_fut = tokio::spawn(indirect_schedule_task(
++        let indirect_fut = lance_core::utils::task_executor::spawn(indirect_schedule_task(
+             next_offsets_decoder,
+             list_reqs,
+             null_offset_adjustment,
+@@ -1040,7 +1040,7 @@
+         let offset_arrays = arrays.iter().step_by(2).cloned().collect::<Vec<_>>();
+         let validity_arrays = arrays.into_iter().skip(1).step_by(2).collect::<Vec<_>>();
+
+-        tokio::task::spawn(async move {
++        lance_core::utils::task_executor::spawn(async move {
+             let num_rows =
+                 offset_arrays.iter().map(|arr| arr.len()).sum::<usize>() - offset_arrays.len();
+             let num_rows = num_rows as u64;
+diff --git a/rust/lance-encoding/src/array_encoding/logical/primitive.rs b/rust/lance-encoding/src/array_encoding/logical/primitive.rs
+--- a/rust/lance-encoding/src/array_encoding/logical/primitive.rs
++++ b/rust/lance-encoding/src/array_encoding/logical/primitive.rs
+@@ -483,7 +483,7 @@
+         let column_idx = self.column_index;
+         let data_type = self.field.data_type();
+
+-        Ok(tokio::task::spawn(async move {
++        Ok(lance_core::utils::task_executor::spawn(async move {
+             let num_values = arrays.iter().map(|arr| arr.len() as u64).sum();
+             let data = DataBlock::from_arrays(&arrays, num_values);
+             let mut buffer_index = 0;
+diff --git a/rust/lance-encoding/src/array_encoding/physical/binary.rs b/rust/lance-encoding/src/array_encoding/physical/binary.rs
+--- a/rust/lance-encoding/src/array_encoding/physical/binary.rs
++++ b/rust/lance-encoding/src/array_encoding/physical/binary.rs
+@@ -187,7 +187,7 @@
+         let null_adjustment = self.null_adjustment;
+         let offsets_type = self.offsets_type.clone();
+
+-        tokio::spawn(async move {
++        lance_core::utils::task_executor::spawn(async move {
+             // For the following data:
+             // "abcd", "hello", "abcd", "apple", "hello", "abcd"
+             //   4,        9,     13,      18,      23,     27
+diff --git a/rust/lance-encoding/src/array_encoding/physical/dictionary.rs b/rust/lance-encoding/src/array_encoding/physical/dictionary.rs
+--- a/rust/lance-encoding/src/array_encoding/physical/dictionary.rs
++++ b/rust/lance-encoding/src/array_encoding/physical/dictionary.rs
+@@ -87,7 +87,7 @@
+         let copy_size = self.num_dictionary_items as u64;
+
+         if self.should_decode_dict {
+-            tokio::spawn(async move {
++            lance_core::utils::task_executor::spawn(async move {
+                 let items_decoder: Arc<dyn PrimitivePageDecoder> =
+                     Arc::from(items_page_decoder.await?);
+
+@@ -114,7 +114,7 @@
+             .boxed()
+         } else {
+             let num_dictionary_items = self.num_dictionary_items;
+-            tokio::spawn(async move {
++            lance_core::utils::task_executor::spawn(async move {
+                 let items_decoder: Arc<dyn PrimitivePageDecoder> =
+                     Arc::from(items_page_decoder.await?);
+
+diff --git a/rust/lance-encoding/src/array_encoding/physical/packed_struct.rs b/rust/lance-encoding/src/array_encoding/physical/packed_struct.rs
+--- a/rust/lance-encoding/src/array_encoding/physical/packed_struct.rs
++++ b/rust/lance-encoding/src/array_encoding/physical/packed_struct.rs
+@@ -81,7 +81,7 @@
+
+         let copy_struct_fields = self.fields.clone();
+
+-        tokio::spawn(async move {
++        lance_core::utils::task_executor::spawn(async move {
+             let bytes = bytes.await?;
+
+             let mut combined_bytes = BytesMut::default();
+diff --git a/rust/lance-encoding/src/decoder.rs b/rust/lance-encoding/src/decoder.rs
+--- a/rust/lance-encoding/src/decoder.rs
++++ b/rust/lance-encoding/src/decoder.rs
+@@ -1713,10 +1713,11 @@
+                 // Real decode work happens inside into_batch, which can block the current
+                 // thread for a long time. By spawning it as a new task, we allow Tokio's
+                 // worker threads to keep making progress.
+-                let (batch, _data_size) =
+-                    tokio::spawn(async move { next_task.into_batch(emitted_batch_size_warning) })
+-                        .await
+-                        .map_err(|err| Error::wrapped(err.into()))??;
++                let (batch, _data_size) = lance_core::utils::task_executor::spawn(async move {
++                    next_task.into_batch(emitted_batch_size_warning)
++                })
++                .await
++                .map_err(|err| Error::wrapped(err.into()))??;
+                 Ok(batch)
+             };
+             // This should be true since batch size is u32
+@@ -2161,9 +2162,11 @@
+             let spawn_batch_decode_tasks = slf.spawn_batch_decode_tasks;
+             let task = async move {
+                 let (batch, data_size) = if spawn_batch_decode_tasks {
+-                    tokio::spawn(async move { next_task.into_batch(emitted_batch_size_warning) })
+-                        .await
+-                        .map_err(|err| Error::wrapped(err.into()))??
++                    lance_core::utils::task_executor::spawn(async move {
++                        next_task.into_batch(emitted_batch_size_warning)
++                    })
++                    .await
++                    .map_err(|err| Error::wrapped(err.into()))??
+                 } else {
+                     next_task.into_batch(emitted_batch_size_warning)?
+                 };
+@@ -2536,7 +2539,7 @@
+         let scheduling = async move {
+             decode_scheduler.schedule_ranges(&requested_ranges, &filter, tx, config.io)
+         };
+-        let scheduler_handle = tokio::task::spawn(scheduling);
++        let scheduler_handle = lance_core::utils::task_executor::spawn(scheduling);
+         Ok(check_scheduler_on_drop(decode_stream, scheduler_handle))
+     }
+ }
+diff --git a/rust/lance/src/io/exec/filtered_read.rs b/rust/lance/src/io/exec/filtered_read.rs
+--- a/rust/lance/src/io/exec/filtered_read.rs
++++ b/rust/lance/src/io/exec/filtered_read.rs
+@@ -14,7 +14,6 @@
+ use arrow_array::{Array, BooleanArray, RecordBatch, RecordBatchOptions, UInt32Array};
+ use arrow_schema::{Schema as ArrowSchema, SchemaRef};
+ use datafusion::catalog::Session;
+-use datafusion::common::runtime::SpawnedTask;
+ use datafusion::common::stats::Precision;
+ use datafusion::error::{DataFusionError, Result as DataFusionResult};
+ use datafusion::execution::{SendableRecordBatchStream, TaskContext};
+@@ -36,6 +35,7 @@
+ use lance_core::datatypes::{OnMissing, Schema as LanceSchema};
+ use lance_core::utils::deletion::DeletionVector;
+ use lance_core::utils::futures::FinallyStreamExt;
++use lance_core::utils::task_executor::SpawnedTask;
+ use lance_core::utils::tokio::get_num_compute_intensive_cpus;
+ use lance_core::{
+     Error, ROW_ADDR, ROW_ADDR_FIELD, ROW_ID, ROW_ID_FIELD, Result, datatypes::Projection,
+@@ -482,7 +482,7 @@
+ ) -> SendableRecordBatchStream {
+     let mut builder = RecordBatchReceiverStream::builder(inner.schema(), 4);
+     let tx = builder.tx();
+-    builder.spawn(async move {
++    let pump = async move {
+         let mut stream = coalesce_batches(inner, target).boxed();
+         while let Some(item) = stream.next().await {
+             if tx.send(item).await.is_err() {
+@@ -491,7 +491,16 @@
+             }
+         }
+         Ok(())
+-    });
++    };
++    if lance_core::utils::task_executor::current_executor().is_some() {
++        let task = SpawnedTask::spawn(pump);
++        builder.spawn(async move {
++            task.await
++                .map_err(|error| DataFusionError::External(Box::new(error)))?
++        });
++    } else {
++        builder.spawn(pump);
++    }
+     builder.build()
+ }
+
+diff --git a/rust/lance/src/io/exec/knn.rs b/rust/lance/src/io/exec/knn.rs
+--- a/rust/lance/src/io/exec/knn.rs
++++ b/rust/lance/src/io/exec/knn.rs
+@@ -3448,7 +3448,7 @@
+             // Mirror the production streaming path (v2.rs): search prepared partitions
+             // in batches of STREAMING_SEARCH_BATCH_SIZE, one `spawn_cpu` per batch, with
+             // the channel send in async code so no CPU-pool thread parks (#7642).
+-            tokio::spawn(async move {
++            lance_core::utils::task_executor::spawn(async move {
+                 for chunk in prepared_partition_ids.chunks(*STREAMING_SEARCH_BATCH_SIZE) {
+                     if control
+                         .as_ref()
+diff --git a/rust/lance/src/io/exec/pushdown_scan.rs b/rust/lance/src/io/exec/pushdown_scan.rs
+--- a/rust/lance/src/io/exec/pushdown_scan.rs
++++ b/rust/lance/src/io/exec/pushdown_scan.rs
+@@ -347,12 +347,14 @@
+             })
+             .map(move |(batch_id, predicate)| {
+                 let scanner_ref = scanner.clone();
+-                tokio::task::spawn(async move { scanner_ref.read_batch(batch_id, predicate).await })
+-                    .map(|res| match res {
+-                        Ok(Ok(batch)) => Ok(batch),
+-                        Ok(Err(err)) => Err(err),
+-                        Err(join_err) => Err(DataFusionError::ExecutionJoin(Box::new(join_err))),
+-                    })
++                lance_core::utils::task_executor::spawn(async move {
++                    scanner_ref.read_batch(batch_id, predicate).await
++                })
++                .map(|res| match res {
++                    Ok(Ok(batch)) => Ok(batch),
++                    Ok(Err(err)) => Err(err),
++                    Err(join_err) => Err(DataFusionError::ExecutionJoin(Box::new(join_err))),
++                })
+             });
+
+         let stream = if ordered_output {
+diff --git a/rust/lance/src/io/exec/scan.rs b/rust/lance/src/io/exec/scan.rs
+--- a/rust/lance/src/io/exec/scan.rs
++++ b/rust/lance/src/io/exec/scan.rs
+@@ -318,7 +318,7 @@
+                 #[allow(clippy::type_complexity)]
+                 let frag_task: BoxFuture<
+                     Result<BoxStream<Result<BoxFuture<Result<RecordBatch>>>>>,
+-                > = tokio::spawn(
++                > = lance_core::utils::task_executor::spawn(
+                     (async move {
+                         let mut frag_config = FragReadConfig::default()
+                             .with_row_id(config.with_row_id)
+diff --git a/rust/lance/src/io/exec/take.rs b/rust/lance/src/io/exec/take.rs
+--- a/rust/lance/src/io/exec/take.rs
++++ b/rust/lance/src/io/exec/take.rs
+@@ -428,10 +428,10 @@
+             .map(move |(batch_index, batch)| {
+                 let batch = batch?;
+                 let this = self.clone();
+-                Ok(
+-                    tokio::task::spawn(this.map_batch(batch, batch_index as u32))
+-                        .map(|res| res.unwrap()),
++                Ok(lance_core::utils::task_executor::spawn(
++                    this.map_batch(batch, batch_index as u32),
+                 )
++                .map(|res| res.unwrap()))
+             })
+             .boxed();
+         batches
+diff --git a/rust/lance/src/io/exec/utils.rs b/rust/lance/src/io/exec/utils.rs
+--- a/rust/lance/src/io/exec/utils.rs
++++ b/rust/lance/src/io/exec/utils.rs
+@@ -20,7 +20,6 @@
+ use arrow_array::{Array, RecordBatch, UInt64Array};
+ use arrow_schema::SchemaRef;
+ use async_trait::async_trait;
+-use datafusion::common::runtime::SpawnedTask;
+ use datafusion::error::{DataFusionError, Result as DataFusionResult};
+ use datafusion::physical_plan::metrics::{
+     BaselineMetrics, Count, ExecutionPlanMetricsSet, Gauge, MetricBuilder, MetricValue, Time,
+@@ -36,6 +35,7 @@
+ use futures::{FutureExt, Stream, StreamExt, TryStreamExt};
+ use lance_core::error::{CloneableResult, Error};
+ use lance_core::utils::futures::{Capacity, SharedStreamExt};
++use lance_core::utils::task_executor::SpawnedTask;
+ use lance_core::{ROW_ID, Result};
+ use lance_index::prefilter::FilterLoader;
+ use lance_select::{RowAddrMask, RowAddrTreeMap, result::IndexExprResult};
+@@ -1354,7 +1354,7 @@
+         let shared_sources = source.shared_for_multimatch_fields(2);
+         let materialization = shared_materialization(&shared_sources[0]);
+         let context = Arc::new(datafusion::execution::TaskContext::default());
+-        let first = tokio::spawn(shared_prefilter_future(
++        let first = lance_core::utils::task_executor::spawn(shared_prefilter_future(
+             materialization.clone(),
+             shared_source(&shared_sources[0]),
+             false,
+@@ -1365,7 +1365,7 @@
+             .await
+             .expect("shared prefilter source should start")
+             .expect("shared prefilter startup sender should remain alive");
+-        let second = tokio::spawn(shared_prefilter_future(
++        let second = lance_core::utils::task_executor::spawn(shared_prefilter_future(
+             materialization.clone(),
+             shared_source(&shared_sources[1]),
+             false,
+@@ -1417,7 +1417,7 @@
+         let source = PreFilterSource::FilteredRowIds(Arc::new(OneShotExec::new(stream)));
+         let shared_sources = source.shared_for_multimatch_fields(2);
+         let materialization = shared_materialization(&shared_sources[0]);
+-        let waiter = tokio::spawn(shared_prefilter_future(
++        let waiter = lance_core::utils::task_executor::spawn(shared_prefilter_future(
+             materialization.clone(),
+             shared_source(&shared_sources[0]),
+             false,

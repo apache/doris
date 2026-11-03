@@ -1,0 +1,1051 @@
+# Scoped C ABI for optional host execution. Applied after lance-c-foyer.patch.
+# Base: lance-format/lance-c a51ab47a9c814a746cb1714c99fad93dd3a188b8.
+diff --git a/Cargo.lock b/Cargo.lock
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -1403,9 +1403,9 @@
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "a034b3a7b624016c6e13f5df875747cc25f884156aad2abd12b6c46797971342"
+ dependencies = [
+- "libc 0.2.189",
+- "num_cpus 1.17.0",
+- "winapi 0.3.9",
++ "libc",
++ "num_cpus",
++ "winapi",
+ ]
+
+
+@@ -2613,8 +2613,8 @@
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "2e825441bfb2d831c47c97d05821552db8832479f44c571b97fededbf0099c07"
+ dependencies = [
+- "small_ctor 0.1.2",
+- "web-time 1.1.0",
++ "small_ctor",
++ "web-time",
+ ]
+
+
+@@ -2716,18 +2716,18 @@
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "6a59f42276891c0a4ce683fcda1aa1b4fd1065d68116c264e4bf49b9d318a0ed"
+ dependencies = [
+- "anyhow 1.0.102",
+- "asyncband 0.7.2",
+- "equivalent 1.0.2",
+- "foyer-common 0.22.6",
+- "foyer-memory 0.22.6",
+- "foyer-storage 0.22.6",
+- "foyer-tokio 0.22.6",
+- "futures-util 0.3.32",
+- "mixtrics 0.2.5",
+- "pin-project 1.1.11",
+- "serde 1.0.228",
+- "tracing 0.1.44",
++ "anyhow",
++ "asyncband",
++ "equivalent",
++ "foyer-common",
++ "foyer-memory",
++ "foyer-storage",
++ "foyer-tokio",
++ "futures-util",
++ "mixtrics",
++ "pin-project",
++ "serde",
++ "tracing",
+ ]
+
+
+@@ -2793,30 +2793,30 @@
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "118192f532ba013f0cdc607efc22324b9ed855baed185608af0daa986e835c6b"
+ dependencies = [
+- "allocator-api2 0.2.21",
+- "anyhow 1.0.102",
+- "asyncband 0.7.2",
+- "bytes 1.11.1",
+- "core_affinity 0.8.3",
+- "equivalent 1.0.2",
+- "fastant 0.1.11",
+- "foyer-common 0.22.6",
+- "foyer-memory 0.22.6",
+- "foyer-tokio 0.22.6",
+- "fs4 0.13.1",
+- "futures-core 0.3.32",
+- "futures-util 0.3.32",
++ "allocator-api2",
++ "anyhow",
++ "asyncband",
++ "bytes",
++ "core_affinity",
++ "equivalent",
++ "fastant",
++ "foyer-common",
++ "foyer-memory",
++ "foyer-tokio",
++ "fs4",
++ "futures-core",
++ "futures-util",
+  "hashbrown 0.17.1",
+- "io-uring 0.7.12",
++ "io-uring",
+  "itertools 0.15.0",
+- "libc 0.2.189",
+- "lz4 1.28.1",
+- "parking_lot 0.12.5",
+- "pin-project 1.1.11",
++ "libc",
++ "lz4",
++ "parking_lot",
++ "pin-project",
+  "rand 0.10.1",
+- "tracing 0.1.44",
+- "twox-hash 2.1.2",
+- "zstd 0.13.3",
++ "tracing",
++ "twox-hash",
++ "zstd",
+ ]
+
+
+@@ -2846,7 +2846,7 @@
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "8640e34b88f7652208ce9e88b1a37a2ae95227d84abec377ccd3c5cfeb141ed4"
+ dependencies = [
+- "rustix 1.1.4",
++ "rustix",
+  "windows-sys 0.59.0",
+ ]
+
+@@ -2863,7 +2863,6 @@
+ [[package]]
+ name = "fsst"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arrow-array",
+  "rand 0.9.2",
+@@ -4276,7 +4275,6 @@
+ [[package]]
+ name = "lance"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arc-swap",
+  "arrow",
+@@ -4351,7 +4349,6 @@
+ [[package]]
+ name = "lance-arrow"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arrow-array",
+  "arrow-buffer",
+@@ -4375,7 +4372,6 @@
+ [[package]]
+ name = "lance-arrow-scalar"
+ version = "58.0.0"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arrow-array",
+  "arrow-buffer",
+@@ -4391,7 +4387,6 @@
+ [[package]]
+ name = "lance-arrow-stats"
+ version = "58.0.0"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arrow-array",
+  "arrow-schema",
+@@ -4403,7 +4398,6 @@
+ [[package]]
+ name = "lance-bitpacking"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arrayref",
+  "crunchy",
+@@ -4453,12 +4447,12 @@
+ [[package]]
+ name = "lance-core"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arrow-array",
+  "arrow-buffer",
+  "arrow-data",
+  "arrow-schema",
++ "async-task",
+  "async-trait",
+  "blake3",
+  "bytes",
+@@ -4493,7 +4487,6 @@
+ [[package]]
+ name = "lance-datafusion"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arrow",
+  "arrow-array",
+@@ -4528,7 +4521,6 @@
+ [[package]]
+ name = "lance-datagen"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arrow",
+  "arrow-array",
+@@ -4548,7 +4540,6 @@
+ [[package]]
+ name = "lance-derive"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "proc-macro2",
+  "quote",
+@@ -4560,7 +4551,6 @@
+ [[package]]
+ name = "lance-encoding"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arrow-arith",
+  "arrow-array",
+@@ -4596,7 +4586,6 @@
+ [[package]]
+ name = "lance-file"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arrow-arith",
+  "arrow-array",
+@@ -4631,7 +4620,6 @@
+ [[package]]
+ name = "lance-geo"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "datafusion",
+  "geo-traits",
+@@ -4648,7 +4636,6 @@
+ [[package]]
+ name = "lance-index"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arc-swap",
+  "arrow",
+@@ -4720,7 +4707,6 @@
+ [[package]]
+ name = "lance-index-core"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arrow-array",
+  "arrow-schema",
+@@ -4746,7 +4732,6 @@
+ [[package]]
+ name = "lance-io"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arrow",
+  "arrow-array",
+@@ -4790,7 +4775,6 @@
+ [[package]]
+ name = "lance-linalg"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arrow-array",
+  "arrow-schema",
+@@ -4807,7 +4791,6 @@
+ [[package]]
+ name = "lance-namespace"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arrow",
+  "async-trait",
+@@ -4840,7 +4823,6 @@
+ [[package]]
+ name = "lance-select"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arrow-array",
+  "arrow-buffer",
+@@ -4857,7 +4839,6 @@
+ [[package]]
+ name = "lance-table"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arrow",
+  "arrow-array",
+@@ -4898,7 +4879,6 @@
+ [[package]]
+ name = "lance-tokenizer"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "frostem",
+  "icu_segmenter",
+@@ -9358,7 +9338,7 @@
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "ae137229bcbd6cdf0f7b80a31df61766145077ddf49416a728b02cb3921ff3fc"
+ dependencies = [
+- "windows-link 0.2.1",
++ "windows-link",
+ ]
+
+
+@@ -10027,3 +10007,11 @@
+  "cc",
+  "pkg-config",
+ ]
++[[package]]
++name = "async-task"
++version = "4.7.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8b75356056920673b02621b35afd0f7dda9306d03c79a30f5c56c44cf256e3de"
++
++
++
+diff --git a/Cargo.toml b/Cargo.toml
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -23,14 +23,14 @@
+ # transitively via lance-index.
+ async-trait = "0.1"
+ # Keep the dependency on the segment-prefilter fix and its float-consistent PQ prerequisite.
+-lance = { git = "https://github.com/lance-format/lance.git", rev = "68c12dfd7efe02f90ad2d7f3a239a7eb64884e57", features = ["substrait"] }
+-lance-core = { git = "https://github.com/lance-format/lance.git", rev = "68c12dfd7efe02f90ad2d7f3a239a7eb64884e57" }
+-lance-file = { git = "https://github.com/lance-format/lance.git", rev = "68c12dfd7efe02f90ad2d7f3a239a7eb64884e57" }
+-lance-index = { git = "https://github.com/lance-format/lance.git", rev = "68c12dfd7efe02f90ad2d7f3a239a7eb64884e57" }
+-lance-io = { git = "https://github.com/lance-format/lance.git", rev = "68c12dfd7efe02f90ad2d7f3a239a7eb64884e57" }
+-lance-linalg = { git = "https://github.com/lance-format/lance.git", rev = "68c12dfd7efe02f90ad2d7f3a239a7eb64884e57" }
+-lance-table = { git = "https://github.com/lance-format/lance.git", rev = "68c12dfd7efe02f90ad2d7f3a239a7eb64884e57" }
+-lance-datafusion = { git = "https://github.com/lance-format/lance.git", rev = "68c12dfd7efe02f90ad2d7f3a239a7eb64884e57", features = ["substrait"] }
++lance = { path = "../lance-68c12dfd7efe02f90ad2d7f3a239a7eb64884e57/rust/lance", features = ["substrait"] }
++lance-core = { path = "../lance-68c12dfd7efe02f90ad2d7f3a239a7eb64884e57/rust/lance-core" }
++lance-file = { path = "../lance-68c12dfd7efe02f90ad2d7f3a239a7eb64884e57/rust/lance-file" }
++lance-index = { path = "../lance-68c12dfd7efe02f90ad2d7f3a239a7eb64884e57/rust/lance-index" }
++lance-io = { path = "../lance-68c12dfd7efe02f90ad2d7f3a239a7eb64884e57/rust/lance-io" }
++lance-linalg = { path = "../lance-68c12dfd7efe02f90ad2d7f3a239a7eb64884e57/rust/lance-linalg" }
++lance-table = { path = "../lance-68c12dfd7efe02f90ad2d7f3a239a7eb64884e57/rust/lance-table" }
++lance-datafusion = { path = "../lance-68c12dfd7efe02f90ad2d7f3a239a7eb64884e57/rust/lance-datafusion", features = ["substrait"] }
+ datafusion = { version = "54.0.0", default-features = false }
+ arrow = { version = "58.0.0", features = ["prettyprint", "ffi"] }
+ arrow-array = "58.0.0"
+@@ -55,9 +55,9 @@
+ uuid = { version = "1", features = ["v4"] }
+
+ [dev-dependencies]
+-lance = { git = "https://github.com/lance-format/lance.git", rev = "68c12dfd7efe02f90ad2d7f3a239a7eb64884e57", features = ["substrait"] }
+-lance-datagen = { git = "https://github.com/lance-format/lance.git", rev = "68c12dfd7efe02f90ad2d7f3a239a7eb64884e57" }
+-lance-file = { git = "https://github.com/lance-format/lance.git", rev = "68c12dfd7efe02f90ad2d7f3a239a7eb64884e57" }
++lance = { path = "../lance-68c12dfd7efe02f90ad2d7f3a239a7eb64884e57/rust/lance", features = ["substrait"] }
++lance-datagen = { path = "../lance-68c12dfd7efe02f90ad2d7f3a239a7eb64884e57/rust/lance-datagen" }
++lance-file = { path = "../lance-68c12dfd7efe02f90ad2d7f3a239a7eb64884e57/rust/lance-file" }
+ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+ arrow-array = "58.0.0"
+ arrow-schema = "58.0.0"
+diff --git a/include/lance/host_executor.hpp b/include/lance/host_executor.hpp
+--- /dev/null
++++ b/include/lance/host_executor.hpp
+@@ -0,0 +1,51 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: Copyright The Lance Authors
++#pragma once
++
++#include <stdexcept>
++#include <utility>
++
++#include "lance.h"
++
++namespace lance {
++/// Thread-bound injection scope. Destroy before closing the executor; do not cross await points.
++class HostExecutorScope {
++public:
++    explicit HostExecutorScope(const LanceHostExecutor* executor)
++            : scope_(lance_host_executor_enter(executor)) {
++        if (!scope_) throw std::runtime_error(lance_last_error_message());
++    }
++    ~HostExecutorScope() { lance_host_executor_leave(scope_); }
++    HostExecutorScope(const HostExecutorScope&) = delete;
++    HostExecutorScope& operator=(const HostExecutorScope&) = delete;
++    HostExecutorScope(HostExecutorScope&&) = delete;
++    HostExecutorScope& operator=(HostExecutorScope&&) = delete;
++
++private:
++    LanceHostExecutorScope* scope_;
++};
++
++/// Queue owner for an operation. A null notifier enables cooperative execution on the caller.
++class HostExecutor {
++public:
++    explicit HostExecutor(const LanceHostExecutorOptionsV1& options)
++            : executor_(lance_host_executor_new_v1(&options)) {
++        if (!executor_) throw std::runtime_error(lance_last_error_message());
++    }
++    ~HostExecutor() {
++        if (executor_) lance_host_executor_free(executor_);
++    }
++    HostExecutor(const HostExecutor&) = delete;
++    HostExecutor& operator=(const HostExecutor&) = delete;
++    HostExecutor(HostExecutor&& other) noexcept
++            : executor_(std::exchange(other.executor_, nullptr)) {}
++    HostExecutor& operator=(HostExecutor&&) = delete;
++    [[nodiscard]] LanceHostExecutor* get() const { return executor_; }
++    int64_t run(uint32_t queue, uint32_t max_tasks) const {
++        return lance_host_executor_run(executor_, queue, max_tasks);
++    }
++
++private:
++    LanceHostExecutor* executor_;
++};
++} // namespace lance
+diff --git a/include/lance/lance.h b/include/lance/lance.h
+--- a/include/lance/lance.h
++++ b/include/lance/lance.h
+@@ -187,6 +187,52 @@
+
+ typedef struct LanceDataset  LanceDataset;
+ typedef struct LanceScanner  LanceScanner;
++
++/** Host-driven task queues. These handles do not create worker threads.
++ * Tokio remains responsible for network readiness, timers, join notifications and shared I/O services.
++ * Operation-owned scan/decoder tasks and spawn_cpu use the injected executor.
++ */
++typedef struct LanceHostExecutor LanceHostExecutor;
++typedef struct LanceHostExecutorScope LanceHostExecutorScope;
++
++typedef struct LanceHostExecutorOptionsV1 {
++    uint32_t abi_version;  /* Must be 1. */
++    uint32_t struct_size;  /* Must be at least sizeof(LanceHostExecutorOptionsV1). */
++    void* context;
++    void (*retain_context)(void* context);
++    void (*release_context)(void* context);
++    /* Called on any thread after enqueueing. Never block, reenter, or run tasks inline here.
++     * Schedule lance_host_executor_run on a host worker. NULL enables caller-only execution.
++     * queue: 0 = CPU, 1 = blocking I/O. Worker concurrency and scheduling are the host's responsibility.
++     */
++    void (*notify_ready)(void* context, uint32_t queue);
++} LanceHostExecutorOptionsV1;
++
++/** Copies the descriptor and retains context once. Retain/release must both be set or both NULL.
++ * Callbacks must be thread-safe and must not unwind exceptions across the C boundary.
++ * NULL context callbacks require the caller to keep context alive until all executor work is gone.
++ */
++LanceHostExecutor* lance_host_executor_new_v1(const LanceHostExecutorOptionsV1* options);
++/** Enter before Dataset open, Scanner calls and Arrow stream consumption.
++ * Leave on the same thread in strict LIFO order. Never hold a scope across an async suspension.
++ * Objects/streams created under a scope must not outlive their executor.
++ * Keep the same executor when operating on a live scanner or exported stream.
++ */
++LanceHostExecutorScope* lance_host_executor_enter(const LanceHostExecutor* executor);
++int32_t lance_host_executor_leave(LanceHostExecutorScope* scope);
++/** Runs up to max_tasks tasks on the calling thread. max_tasks must be positive.
++ * Returns count or -1 on error. Concurrent workers may drive the same queue.
++ * A single task/poll cannot be preempted. Blocking I/O occupies its worker until it returns.
++ */
++int64_t lance_host_executor_run(const LanceHostExecutor* executor, uint32_t queue, uint32_t max_tasks);
++/** Close SDK objects first and wait for all active scopes/run calls before freeing.
++ * Retires pending work; callback context release can occur later on the control runtime.
++ */
++void lance_host_executor_free(LanceHostExecutor* executor);
++/** Cumulative task poll count, for host-side profiling. */
++uint64_t lance_host_executor_completed_tasks(const LanceHostExecutor* executor);
++
++
+ typedef struct LanceBatch    LanceBatch;
+ typedef struct LanceSession  LanceSession;
+ typedef struct LanceVersions LanceVersions;
+diff --git a/src/host_executor.rs b/src/host_executor.rs
+--- /dev/null
++++ b/src/host_executor.rs
+@@ -0,0 +1,485 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: Copyright The Lance Authors
++
++//! Host-driven operation queues; Tokio is retained for I/O readiness and join notifications.
++
++use std::cell::RefCell;
++use std::collections::VecDeque;
++use std::ffi::c_void;
++use std::future::Future;
++use std::panic::{AssertUnwindSafe, catch_unwind};
++use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
++use std::sync::{Arc, Mutex};
++use std::task::{Context, Poll};
++use std::thread::{Thread, ThreadId};
++
++use futures::task::{ArcWake, waker};
++use lance_core::utils::task_executor::{self, Executor, ExecutorGuard, Task, TaskKind};
++
++use crate::error::{LanceErrorCode, clear_last_error, set_last_error};
++use crate::runtime::RT;
++
++/// Versioned callbacks. Context callbacks must be paired; notify only schedules asynchronous work.
++#[repr(C)]
++#[derive(Clone, Copy)]
++pub struct LanceHostExecutorOptionsV1 {
++    pub abi_version: u32,
++    pub struct_size: u32,
++    pub context: *mut c_void,
++    pub retain_context: Option<unsafe extern "C" fn(*mut c_void)>,
++    pub release_context: Option<unsafe extern "C" fn(*mut c_void)>,
++    pub notify_ready: Option<unsafe extern "C" fn(*mut c_void, u32)>,
++}
++impl Default for LanceHostExecutorOptionsV1 {
++    fn default() -> Self {
++        Self {
++            abi_version: 1,
++            struct_size: std::mem::size_of::<Self>() as u32,
++            context: std::ptr::null_mut(),
++            retain_context: None,
++            release_context: None,
++            notify_ready: None,
++        }
++    }
++}
++
++/// Opaque executor. It owns queues, not worker threads.
++pub struct LanceHostExecutor {
++    inner: Arc<HostRuntime>,
++}
++
++pub(crate) struct HostRuntime {
++    queues: [Mutex<VecDeque<Task>>; 2],
++    context: usize,
++    release_context: Option<unsafe extern "C" fn(*mut c_void)>,
++    notify_ready: Option<unsafe extern "C" fn(*mut c_void, u32)>,
++    parked: Mutex<Vec<(u64, Thread)>>,
++    next_id: AtomicU64,
++    closed: AtomicBool,
++    completed: AtomicU64,
++}
++impl HostRuntime {
++    fn new(options: LanceHostExecutorOptionsV1) -> Arc<Self> {
++        if let Some(retain) = options.retain_context {
++            unsafe { retain(options.context) };
++        }
++        Arc::new(Self {
++            queues: std::array::from_fn(|_| Mutex::new(VecDeque::new())),
++            context: options.context as usize,
++            release_context: options.release_context,
++            notify_ready: options.notify_ready,
++            parked: Mutex::new(Vec::new()),
++            next_id: AtomicU64::new(0),
++            closed: AtomicBool::new(false),
++            completed: AtomicU64::new(0),
++        })
++    }
++    fn run(&self, queue: usize, max_tasks: u32) -> u32 {
++        let mut count = 0;
++        while count < max_tasks {
++            let task = self.queues[queue]
++                .lock()
++                .unwrap_or_else(|e| e.into_inner())
++                .pop_front();
++            let Some(task) = task else {
++                break;
++            };
++            task();
++            self.completed.fetch_add(1, Ordering::Relaxed);
++            count += 1;
++        }
++        count
++    }
++    pub(crate) fn block_on<F: Future>(self: &Arc<Self>, future: F) -> F::Output {
++        let _reactor = RT.enter();
++        let executor: Arc<dyn Executor> = self.clone();
++        let future = task_executor::scope(executor, future);
++        let mut future = std::pin::pin!(future);
++        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
++        self.parked
++            .lock()
++            .unwrap_or_else(|e| e.into_inner())
++            .push((id, std::thread::current()));
++        let _registration = ParkedRegistration { runtime: self, id };
++        let wake = waker(Arc::new(ThreadWake(std::thread::current())));
++        let mut cx = Context::from_waker(&wake);
++        loop {
++            if let Poll::Ready(value) = future.as_mut().poll(&mut cx) {
++                return value;
++            }
++            // The caller helps its own children while waiting. Saturating the host pool with
++            // synchronous readers must not leave all child tasks waiting for those same slots.
++            let cpu = self.run(0, 1);
++            let io = self.run(1, 1);
++            if cpu == 0 && io == 0 {
++                std::thread::park();
++            }
++        }
++    }
++    fn retire(&self) {
++        self.closed.store(true, Ordering::Release);
++        let tasks: Vec<_> = self
++            .queues
++            .iter()
++            .flat_map(|queue| {
++                queue
++                    .lock()
++                    .unwrap_or_else(|e| e.into_inner())
++                    .drain(..)
++                    .collect::<Vec<_>>()
++            })
++            .collect();
++        // Destructors may acquire SDK locks, so they run after queue locks are released.
++        drop(tasks);
++    }
++}
++impl Executor for HostRuntime {
++    fn schedule(&self, kind: TaskKind, task: Task) {
++        let queue = match kind {
++            TaskKind::Cpu => 0,
++            TaskKind::Io => 1,
++        };
++        {
++            let mut tasks = self.queues[queue].lock().unwrap_or_else(|e| e.into_inner());
++            if self.closed.load(Ordering::Acquire) {
++                // Cancellation can wake a task while holding a library lock.
++                RT.spawn(async move {
++                    drop(task);
++                });
++                return;
++            }
++            tasks.push_back(task);
++        }
++        for (_, thread) in self.parked.lock().unwrap_or_else(|e| e.into_inner()).iter() {
++            thread.unpark();
++        }
++        if let Some(notify) = self.notify_ready {
++            unsafe { notify(self.context as *mut c_void, queue as u32) };
++        }
++    }
++}
++impl Drop for HostRuntime {
++    fn drop(&mut self) {
++        // The last reference can disappear inside a wake callback. Defer both queued future
++        // destruction and the foreign context release until that callback has returned.
++        let tasks: Vec<_> = self
++            .queues
++            .iter_mut()
++            .flat_map(|queue| std::mem::take(queue.get_mut().unwrap_or_else(|e| e.into_inner())))
++            .collect();
++        let context = self.context;
++        let release = self.release_context;
++        RT.spawn(async move {
++            drop(tasks);
++            if let Some(release) = release {
++                unsafe { release(context as *mut c_void) };
++            }
++        });
++    }
++}
++struct ParkedRegistration<'a> {
++    runtime: &'a HostRuntime,
++    id: u64,
++}
++impl Drop for ParkedRegistration<'_> {
++    fn drop(&mut self) {
++        self.runtime
++            .parked
++            .lock()
++            .unwrap_or_else(|e| e.into_inner())
++            .retain(|(id, _)| *id != self.id);
++    }
++}
++struct ThreadWake(Thread);
++impl ArcWake for ThreadWake {
++    fn wake_by_ref(this: &Arc<Self>) {
++        this.0.unpark();
++    }
++}
++
++thread_local! {
++    static CURRENT: RefCell<Option<Arc<HostRuntime>>> = const { RefCell::new(None) };
++}
++pub(crate) fn current() -> Option<Arc<HostRuntime>> {
++    CURRENT.with(|current| current.borrow().clone())
++}
++
++/// Thread-bound, LIFO scope for synchronous C API calls. Never move it across threads.
++pub struct LanceHostExecutorScope {
++    previous: Option<Arc<HostRuntime>>,
++    thread: ThreadId,
++    _executor: ExecutorGuard,
++    _reactor: tokio::runtime::EnterGuard<'static>,
++}
++impl Drop for LanceHostExecutorScope {
++    fn drop(&mut self) {
++        CURRENT.with(|current| current.replace(self.previous.take()));
++    }
++}
++
++fn ffi<T>(fallback: T, operation: impl FnOnce() -> Result<T, String>) -> T {
++    match catch_unwind(AssertUnwindSafe(operation)) {
++        Ok(Ok(value)) => {
++            clear_last_error();
++            value
++        }
++        Ok(Err(error)) => {
++            set_last_error(LanceErrorCode::InvalidArgument, error);
++            fallback
++        }
++        Err(_) => {
++            set_last_error(LanceErrorCode::Panic, "panic in host executor API");
++            fallback
++        }
++    }
++}
++
++/// Create an executor, retaining the callback context once. Null options are invalid.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_host_executor_new_v1(
++    options: *const LanceHostExecutorOptionsV1,
++) -> *mut LanceHostExecutor {
++    ffi(std::ptr::null_mut(), || {
++        if options.is_null() {
++            return Err("host executor options must not be NULL".into());
++        }
++        // Read the fixed prefix before accessing v1 fields: an older/smaller descriptor must
++        // be rejected without reading past the memory the caller supplied.
++        let prefix = options.cast::<u32>();
++        let version = unsafe { prefix.read() };
++        let size = unsafe { prefix.add(1).read() };
++        if version != 1 || size < std::mem::size_of::<LanceHostExecutorOptionsV1>() as u32 {
++            return Err(format!(
++                "unsupported host executor ABI version {version}, struct_size {size}"
++            ));
++        }
++        let options = unsafe { options.read() };
++        if options.retain_context.is_some() != options.release_context.is_some() {
++            return Err(
++                "retain_context and release_context must both be set or both be NULL".into(),
++            );
++        }
++        Ok(Box::into_raw(Box::new(LanceHostExecutor {
++            inner: HostRuntime::new(options),
++        })))
++    })
++}
++
++/// Enter on this thread before any Dataset/Scanner/Arrow-stream operation. Nest in LIFO order.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_host_executor_enter(
++    executor: *const LanceHostExecutor,
++) -> *mut LanceHostExecutorScope {
++    ffi(std::ptr::null_mut(), || {
++        if executor.is_null() {
++            return Err("host executor must not be NULL".into());
++        }
++        let runtime = Arc::clone(&unsafe { &*executor }.inner);
++        let reactor = RT.enter();
++        let executor: Arc<dyn Executor> = runtime.clone();
++        let guard = ExecutorGuard::enter(executor);
++        let previous = CURRENT.with(|current| current.replace(Some(runtime)));
++        Ok(Box::into_raw(Box::new(LanceHostExecutorScope {
++            previous,
++            thread: std::thread::current().id(),
++            _executor: guard,
++            _reactor: reactor,
++        })))
++    })
++}
++
++/// Leave on the entering thread. All nested scopes must already have been left.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_host_executor_leave(scope: *mut LanceHostExecutorScope) -> i32 {
++    ffi(-1, || {
++        if scope.is_null() {
++            return Err("host executor scope must not be NULL".into());
++        }
++        if unsafe { &*scope }.thread != std::thread::current().id() {
++            return Err("host executor scope must be left on its entering thread".into());
++        }
++        unsafe { drop(Box::from_raw(scope)) };
++        Ok(0)
++    })
++}
++
++/// Run at most max_tasks polls of queue 0 (CPU) or 1 (blocking I/O) on this calling thread.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_host_executor_run(
++    executor: *const LanceHostExecutor,
++    queue: u32,
++    max_tasks: u32,
++) -> i64 {
++    ffi(-1, || {
++        if executor.is_null() || queue > 1 || max_tasks == 0 {
++            return Err("host executor, queue 0/1 and positive max_tasks are required".into());
++        }
++        Ok(unsafe { &*executor }.inner.run(queue as usize, max_tasks) as i64)
++    })
++}
++
++/// Number of task polls completed by this executor, including cooperative caller polls.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_host_executor_completed_tasks(
++    executor: *const LanceHostExecutor,
++) -> u64 {
++    if executor.is_null() {
++        return 0;
++    }
++    unsafe { &*executor }
++        .inner
++        .completed
++        .load(Ordering::Relaxed)
++}
++
++/// Retire queues after all operation scopes/calls and their SDK handles have been closed.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_host_executor_free(executor: *mut LanceHostExecutor) {
++    ffi((), || {
++        if !executor.is_null() {
++            let executor = unsafe { Box::from_raw(executor) };
++            executor.inner.retire();
++            drop(executor);
++        }
++        Ok(())
++    });
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use std::sync::atomic::{AtomicUsize, Ordering};
++
++    #[test]
++    fn cooperative_host_executes_nested_tasks_without_worker_threads() {
++        let runtime = HostRuntime::new(LanceHostExecutorOptionsV1::default());
++        let host_thread = std::thread::current().id();
++        let result = runtime.block_on(async move {
++            lance_core::utils::task_executor::spawn(async move {
++                lance_core::utils::task_executor::spawn_blocking(TaskKind::Cpu, move || {
++                    std::thread::current().id()
++                })
++                .await
++                .unwrap()
++            })
++            .await
++            .unwrap()
++        });
++        assert_eq!(result, host_thread);
++        assert_eq!(runtime.run(0, 16), 0);
++    }
++
++    #[test]
++    fn lance_cpu_helper_uses_host_instead_of_global_cpu_runtime() {
++        let runtime = HostRuntime::new(LanceHostExecutorOptionsV1::default());
++        let host_thread = std::thread::current().id();
++        let actual = runtime.block_on(async {
++            lance_core::utils::tokio::spawn_cpu(|| {
++                Ok::<_, std::io::Error>(std::thread::current().id())
++            })
++            .await
++            .unwrap()
++        });
++        assert_eq!(actual, host_thread);
++    }
++
++    #[test]
++    fn ffi_scopes_restore_the_previous_executor() {
++        unsafe {
++            let options = LanceHostExecutorOptionsV1::default();
++            let first = lance_host_executor_new_v1(&options);
++            let second = lance_host_executor_new_v1(&options);
++            assert!(!first.is_null() && !second.is_null());
++            let outer = lance_host_executor_enter(first);
++            assert!(Arc::ptr_eq(&current().unwrap(), &(*first).inner));
++            let inner = lance_host_executor_enter(second);
++            assert!(Arc::ptr_eq(&current().unwrap(), &(*second).inner));
++            assert_eq!(lance_host_executor_leave(inner), 0);
++            assert!(Arc::ptr_eq(&current().unwrap(), &(*first).inner));
++            assert_eq!(lance_host_executor_leave(outer), 0);
++            assert!(current().is_none());
++            lance_host_executor_free(second);
++            lance_host_executor_free(first);
++        }
++    }
++
++    #[test]
++    fn ready_callback_and_host_run_drive_detached_work() {
++        unsafe extern "C" fn notify(context: *mut c_void, _queue: u32) {
++            unsafe { &*context.cast::<AtomicUsize>() }.fetch_add(1, Ordering::SeqCst);
++        }
++        let notifications = AtomicUsize::new(0);
++        let options = LanceHostExecutorOptionsV1 {
++            context: &notifications as *const _ as *mut _,
++            notify_ready: Some(notify),
++            ..Default::default()
++        };
++        unsafe {
++            let executor = lance_host_executor_new_v1(&options);
++            let scope = lance_host_executor_enter(executor);
++            let handle = task_executor::spawn(async { 42 });
++            assert_eq!(lance_host_executor_leave(scope), 0);
++            assert!(notifications.load(Ordering::SeqCst) > 0);
++            assert_eq!(lance_host_executor_run(executor, 0, 1), 1);
++            assert_eq!(RT.block_on(handle).unwrap(), 42);
++            lance_host_executor_free(executor);
++        }
++    }
++
++    #[test]
++    fn invalid_abi_and_queue_are_rejected() {
++        unsafe {
++            assert!(lance_host_executor_new_v1(std::ptr::null()).is_null());
++            let mut options = LanceHostExecutorOptionsV1::default();
++            options.abi_version = 2;
++            assert!(lance_host_executor_new_v1(&options).is_null());
++            options.abi_version = 1;
++            options.struct_size = 8;
++            assert!(lance_host_executor_new_v1(&options).is_null());
++            options.struct_size = std::mem::size_of::<LanceHostExecutorOptionsV1>() as u32;
++            let runtime = lance_host_executor_new_v1(&options);
++            assert!(!runtime.is_null());
++            assert_eq!(lance_host_executor_run(runtime, 2, 16), -1);
++            lance_host_executor_free(runtime);
++        }
++    }
++
++    #[test]
++    fn callback_context_has_one_balanced_reference() {
++        struct Counts {
++            retained: AtomicUsize,
++            released: AtomicUsize,
++        }
++        unsafe extern "C" fn retain(ctx: *mut std::ffi::c_void) {
++            unsafe { &*ctx.cast::<Counts>() }
++                .retained
++                .fetch_add(1, Ordering::SeqCst);
++        }
++        unsafe extern "C" fn release(ctx: *mut std::ffi::c_void) {
++            unsafe { &*ctx.cast::<Counts>() }
++                .released
++                .fetch_add(1, Ordering::SeqCst);
++        }
++        let counts = Arc::new(Counts {
++            retained: AtomicUsize::new(0),
++            released: AtomicUsize::new(0),
++        });
++        let options = LanceHostExecutorOptionsV1 {
++            context: Arc::as_ptr(&counts) as *mut _,
++            retain_context: Some(retain),
++            release_context: Some(release),
++            ..Default::default()
++        };
++        unsafe {
++            let runtime = lance_host_executor_new_v1(&options);
++            assert_eq!(counts.retained.load(Ordering::SeqCst), 1);
++            lance_host_executor_free(runtime);
++        }
++        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
++        while counts.released.load(Ordering::SeqCst) == 0 {
++            assert!(std::time::Instant::now() < deadline);
++            std::thread::yield_now();
++        }
++        assert_eq!(counts.released.load(Ordering::SeqCst), 1);
++    }
++}
+diff --git a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -36,6 +36,7 @@
+ mod fragment_writer;
+ mod fts_query;
+ mod helpers;
++mod host_executor;
+ mod index;
+ mod index_model;
+ mod index_segment;
+@@ -43,6 +44,7 @@
+ mod multivector;
+ mod restore;
+ pub mod runtime;
++pub use host_executor::*;
+ mod scalar_index_selection;
+ mod scalar_segment;
+ mod scanner;
+diff --git a/src/runtime.rs b/src/runtime.rs
+--- a/src/runtime.rs
++++ b/src/runtime.rs
+@@ -21,5 +21,8 @@
+
+ /// Block the current thread on an async future using the global runtime.
+ pub fn block_on<F: std::future::Future>(f: F) -> F::Output {
+-    RT.block_on(f)
++    match crate::host_executor::current() {
++        Some(executor) => executor.block_on(f),
++        None => RT.block_on(f),
++    }
+ }
+diff --git a/src/scanner.rs b/src/scanner.rs
+--- a/src/scanner.rs
++++ b/src/scanner.rs
+@@ -2350,7 +2350,7 @@
+     // it if a panic is caught during the consumer's later `get_next` calls.
+     let poisoned = s.poison_flag();
+
+-    RT.spawn(async move {
++    lance_core::utils::task_executor::spawn(async move {
+         // Copies kept outside the inner future (which consumes the originals)
+         // so the panic arm below can still poison the handle and report.
+         let poisoned_on_panic = Arc::clone(&poisoned);
+diff --git a/src/stream_guard.rs b/src/stream_guard.rs
+--- a/src/stream_guard.rs
++++ b/src/stream_guard.rs
+@@ -170,7 +170,13 @@
+         // `extern "C"` callback, so neither can unwind across the FFI
+         // boundary.
+         let polled = catch_unwind(AssertUnwindSafe(|| {
+-            match handle.block_on(inner.next()) {
++            // Exported Arrow callbacks must help the same host queues as scanner_next;
++            // a plain Tokio wait would strand their operation-owned decoder tasks.
++            let item = match crate::host_executor::current() {
++                Some(executor) => executor.block_on(inner.next()),
++                None => handle.block_on(inner.next()),
++            };
++            match item {
+                 Some(Ok(batch)) => Some(Ok(batch)),
+                 Some(Err(err)) => {
+                     // Format and detach the arbitrary Lance error while still
+diff --git a/tests/c_api_test.rs b/tests/c_api_test.rs
+--- a/tests/c_api_test.rs
++++ b/tests/c_api_test.rs
+@@ -18723,3 +18723,30 @@
+         lance_dataset_close(reopened);
+     }
+ }
++
++#[test]
++fn test_host_executor_scan_take_search_and_early_close() {
++    struct HostScope(*mut LanceHostExecutor, *mut LanceHostExecutorScope);
++    impl Drop for HostScope {
++        fn drop(&mut self) {
++            unsafe {
++                assert_eq!(lance_host_executor_leave(self.1), 0);
++                lance_host_executor_free(self.0);
++            }
++        }
++    }
++    let executor = unsafe { lance_host_executor_new_v1(&LanceHostExecutorOptionsV1::default()) };
++    assert!(!executor.is_null());
++    let scope = unsafe { lance_host_executor_enter(executor) };
++    assert!(!scope.is_null());
++    let _host = HostScope(executor, scope);
++    // Exercise the same result and ownership contracts under an injected executor.
++    test_scanner_full_scan();
++    test_scanner_to_arrow_stream();
++    test_scanner_with_filter();
++    test_dataset_take();
++    test_scanner_nearest_brute_force();
++    test_scanner_full_text_search();
++    test_scanner_statistics_callback_not_called_on_early_scanner_close();
++    assert!(unsafe { lance_host_executor_completed_tasks(executor) } > 0);
++}
