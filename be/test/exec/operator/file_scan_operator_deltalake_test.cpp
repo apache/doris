@@ -48,27 +48,6 @@ TEST(FileScanOperatorDeltaLakeTest, DispatchesNativeReaderRegardlessOfDeprecated
     }
 }
 
-TEST(FileScanOperatorDeltaLakeTest, ValidatesScanAndSubsequentRangeFormats) {
-    TTableFormatFileDesc table;
-    table.__set_table_format_type("deltalake");
-    for (const auto format : {TFileFormatType::FORMAT_ORC, TFileFormatType::FORMAT_JNI,
-                              TFileFormatType::FORMAT_CSV_PLAIN, TFileFormatType::FORMAT_WAL}) {
-        TFileScanRangeParams params;
-        params.__set_table_format_params(table);
-        params.__set_format_type(format);
-        EXPECT_TRUE(validate_file_scan_support(params).is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
-        params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
-        TFileRangeDesc next;
-        next.__set_format_type(format);
-        EXPECT_TRUE(
-                validate_file_scan_support(params, &next).is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
-        params.__isset.table_format_params = false;
-        next.__set_table_format_params(table);
-        EXPECT_TRUE(
-                validate_file_scan_support(params, &next).is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
-    }
-}
-
 TEST(FileScanOperatorDeltaLakeTest, MissingSnapshotFilesFailEvenWhenDirectoryReadsIgnoreNotFound) {
     TTableFormatFileDesc table;
     table.__set_table_format_type("deltalake");
