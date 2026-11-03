@@ -111,6 +111,11 @@ Status PaimonTableWriter::write(RuntimeState* state, Block& block) {
 }
 
 Status PaimonTableWriter::close(Status status) {
+    // Cancellation or early pipeline completion can close the sink before open().
+    // No backend exists until the profile has been initialized.
+    if (_profile == nullptr) {
+        return status;
+    }
     SCOPED_TIMER(_close_timer);
 
     // Prepare messages first, but do not publish them until the backend confirms
@@ -184,10 +189,7 @@ Status PaimonTableWriter::close(Status status) {
         }
     }
 
-    // Cancellation or an upstream open failure can close this writer before open().
-    if (_profile != nullptr) {
-        _profile->add_info_string("PaimonWriterResult", status.ok() ? "PREPARED" : "FAILED");
-    }
+    _profile->add_info_string("PaimonWriterResult", status.ok() ? "PREPARED" : "FAILED");
     _backend.reset();
     return status;
 }
