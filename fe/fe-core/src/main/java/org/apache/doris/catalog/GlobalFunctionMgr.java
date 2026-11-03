@@ -45,6 +45,21 @@ public class GlobalFunctionMgr extends MetaObject implements GsonPostProcessable
     // user define function
     @SerializedName(value = "name2Function")
     private ConcurrentMap<String, ImmutableList<Function>> name2Function = Maps.newConcurrentMap();
+    private transient ConcurrentMap<Long, Function> id2Function;
+
+    synchronized void registerFunctionsById(ConcurrentMap<Long, Function> functionsById) {
+        id2Function = functionsById;
+        for (Function function : getFunctions()) {
+            id2Function.put(function.getId(), function);
+        }
+    }
+
+    synchronized void unregisterFunctionsById() {
+        for (Function function : getFunctions()) {
+            id2Function.remove(function.getId(), function);
+        }
+        id2Function = null;
+    }
 
     public static GlobalFunctionMgr read(DataInput in) throws IOException {
         String json = Text.readString(in);
@@ -73,12 +88,12 @@ public class GlobalFunctionMgr extends MetaObject implements GsonPostProcessable
     public synchronized void addFunction(Function function, boolean ifNotExists) throws UserException {
         function.setGlobal(true);
         function.checkWritable();
-        if (FunctionUtil.addFunctionImpl(function, ifNotExists, false, name2Function)) {
+        if (FunctionUtil.addFunctionImpl(function, ifNotExists, false, name2Function, id2Function)) {
             try {
                 FunctionUtil.translateToNereidsThrows(null, function);
             } catch (Exception e) {
                 LOG.warn("Nereids add function failed", e);
-                FunctionUtil.removeFunctionImpl(function, true, name2Function);
+                FunctionUtil.removeFunctionImpl(function, true, name2Function, id2Function);
                 throw e;
             }
             Env.getCurrentEnv().getEditLog().logAddGlobalFunction(function);
@@ -89,7 +104,7 @@ public class GlobalFunctionMgr extends MetaObject implements GsonPostProcessable
     public synchronized void replayAddFunction(Function function) {
         try {
             function.setGlobal(true);
-            FunctionUtil.addFunctionImpl(function, false, true, name2Function);
+            FunctionUtil.addFunctionImpl(function, false, true, name2Function, id2Function);
             FunctionUtil.translateToNereids(null, function);
         } catch (UserException e) {
             throw new RuntimeException(e);
@@ -103,7 +118,7 @@ public class GlobalFunctionMgr extends MetaObject implements GsonPostProcessable
         } catch (AnalysisException e) {
             // Let dropFunctionImpl preserve the existing IF EXISTS and error behavior.
         }
-        if (FunctionUtil.dropFunctionImpl(function, ifExists, name2Function)) {
+        if (FunctionUtil.dropFunctionImpl(function, ifExists, name2Function, id2Function)) {
             Env.getCurrentEnv().getEditLog().logDropGlobalFunction(function);
             FunctionUtil.dropFromNereids(null, function);
             return ImmutableList.of(droppedFunction.getId());
@@ -113,7 +128,7 @@ public class GlobalFunctionMgr extends MetaObject implements GsonPostProcessable
 
     public synchronized void replayDropFunction(FunctionSearchDesc functionSearchDesc) {
         try {
-            FunctionUtil.dropFunctionImpl(functionSearchDesc, true, name2Function);
+            FunctionUtil.dropFunctionImpl(functionSearchDesc, true, name2Function, id2Function);
             FunctionUtil.dropFromNereids(null, functionSearchDesc);
         } catch (UserException e) {
             throw new RuntimeException(e);

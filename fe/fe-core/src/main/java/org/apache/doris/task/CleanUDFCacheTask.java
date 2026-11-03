@@ -23,8 +23,10 @@ import org.apache.doris.thrift.TTaskType;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.concurrent.TimeUnit;
 
 public class CleanUDFCacheTask extends AgentTask {
+    private static final long RETENTION_MS = TimeUnit.MINUTES.toMillis(5);
     private static final Logger LOG = LogManager.getLogger(CleanUDFCacheTask.class);
     private String functionSignature;
     private long functionId;
@@ -36,9 +38,13 @@ public class CleanUDFCacheTask extends AgentTask {
     public CleanUDFCacheTask(long backendId, String signature, long functionId, boolean retry) {
         // Use functionId to track retries; -1 means no execution result is expected.
         super(null, backendId, TTaskType.CLEAN_UDF_CACHE, -1, -1, -1, -1, -1,
-                retry ? functionId : -1, -1);
+                retry ? functionId : -1, System.currentTimeMillis());
         this.functionSignature = signature;
         this.functionId = functionId;
+    }
+
+    public boolean isExpired(long currentTimeMillis) {
+        return currentTimeMillis - createTime >= RETENTION_MS;
     }
 
     public TCleanUDFCacheReq toThrift() {

@@ -23,6 +23,7 @@ import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FunctionUtil;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.LocalReplica;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -66,6 +67,7 @@ import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.task.CleanUDFCacheTask;
 import org.apache.doris.task.ClearTransactionTask;
 import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.DropReplicaTask;
@@ -242,7 +244,7 @@ public class ReportHandler extends Daemon {
         ReportTask reportTask = new ReportTask(beId, reportType, tasks, disks, tablets, partitionsVersion,
                 reportVersion, request.getStoragePolicy(), request.getResource(), request.getNumCores(),
                 request.getPipelineExecutorSize(), numTablets, request.getIndexPolicy(),
-                request.isSetRunningTasks() ? request.getRunningTasks() : -1);
+                request.isSetRunningTasks() ? request.getRunningTasks() : -1, request.getPythonUdfIds());
         try {
             putToQueue(reportTask);
         } catch (Exception e) {
@@ -272,6 +274,11 @@ public class ReportHandler extends Daemon {
         BackendReportType backendReportType = new BackendReportType(reportTask.beId, reportTask.reportType);
 
         synchronized (reportTasks) {
+            ReportTask previous = reportTasks.get(backendReportType);
+            // Task-only reports must preserve pending Python UDF resource reports.
+            if (reportTask.pythonUdfIds == null && previous != null) {
+                reportTask.pythonUdfIds = previous.pythonUdfIds;
+            }
             reportTasks.put(backendReportType, reportTask);
         }
 
@@ -335,12 +342,14 @@ public class ReportHandler extends Daemon {
         private long runningTasks;
         private long numTablets;
         private List<TIndexPolicy> indexPolicys;
+        private Set<Long> pythonUdfIds;
 
         public ReportTask(long beId, ReportType reportType, Map<TTaskType, Set<Long>> tasks,
                 Map<String, TDisk> disks, Map<Long, TTablet> tablets,
                 Map<Long, Long> partitionsVersion, long reportVersion,
                 List<TStoragePolicy> storagePolicies, List<TStorageResource> storageResources, int cpuCores,
-                int pipelineExecutorSize, long numTablets, List<TIndexPolicy> indexPolicys, long runningTasks) {
+                int pipelineExecutorSize, long numTablets, List<TIndexPolicy> indexPolicys, long runningTasks,
+                Set<Long> pythonUdfIds) {
             this.beId = beId;
             this.reportType = reportType;
             this.tasks = tasks;
@@ -355,10 +364,14 @@ public class ReportHandler extends Daemon {
             this.numTablets = numTablets;
             this.indexPolicys = indexPolicys;
             this.runningTasks = runningTasks;
+            this.pythonUdfIds = pythonUdfIds;
         }
 
         @Override
         protected void exec() {
+            if (pythonUdfIds != null) {
+                pythonUdfReport(beId, pythonUdfIds);
+            }
             if (tasks != null) {
                 ReportHandler.taskReport(beId, tasks, runningTasks);
             }
@@ -387,6 +400,23 @@ public class ReportHandler extends Daemon {
                 }
             }
         }
+    }
+
+    static void pythonUdfReport(long backendId, Set<Long> functionIds) {
+        if (functionIds.isEmpty()) {
+            return;
+        }
+        // A queued report can outlive removal of its backend.
+        if (Env.getCurrentSystemInfo().getBackend(backendId) == null) {
+            return;
+        }
+        List<CleanUDFCacheTask> cleanups = new ArrayList<>();
+        for (long functionId : functionIds) {
+            if (Env.getCurrentEnv().getFunctionById(functionId) == null) {
+                cleanups.add(new CleanUDFCacheTask(backendId, "", functionId, true));
+            }
+        }
+        FunctionUtil.submitUdfCacheCleanupTasks(cleanups);
     }
 
     private static void handlePushCooldownConf(long backendId, List<CooldownConf> cooldownConfToPush) {

@@ -358,6 +358,7 @@ import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -397,6 +398,7 @@ public class Env {
     private MonitoredReentrantLock lock;
 
     private CatalogMgr catalogMgr;
+    private final ConcurrentMap<Long, Function> id2Function = Maps.newConcurrentMap();
     private GlobalFunctionMgr globalFunctionMgr;
     protected LoadManager loadManager;
     private ProgressManager progressManager;
@@ -877,6 +879,7 @@ public class Env {
         this.statisticsJobAppender = new StatisticsJobAppender();
         this.statisticsMetricCollector = new StatisticsMetricCollector();
         this.globalFunctionMgr = new GlobalFunctionMgr();
+        this.globalFunctionMgr.registerFunctionsById(id2Function);
         this.workloadGroupMgr = new WorkloadGroupMgr();
         this.computeGroupMgr = new ComputeGroupMgr(systemInfo);
         this.workloadSchedPolicyMgr = new WorkloadSchedPolicyMgr();
@@ -2743,7 +2746,10 @@ public class Env {
      * Load global function.
      **/
     public long loadGlobalFunction(DataInputStream in, long checksum) throws IOException {
-        this.globalFunctionMgr = GlobalFunctionMgr.read(in);
+        GlobalFunctionMgr loaded = GlobalFunctionMgr.read(in);
+        globalFunctionMgr.unregisterFunctionsById();
+        globalFunctionMgr = loaded;
+        globalFunctionMgr.registerFunctionsById(id2Function);
         LOG.info("finished replay global function from image");
         return checksum;
     }
@@ -7790,6 +7796,14 @@ public class Env {
 
     public GlobalFunctionMgr getGlobalFunctionMgr() {
         return globalFunctionMgr;
+    }
+
+    public Function getFunctionById(long functionId) {
+        return id2Function.get(functionId);
+    }
+
+    public void registerDbFunctionsById(Database db) {
+        db.registerFunctionsById(id2Function);
     }
 
     public StatisticsCleaner getStatisticsCleaner() {
