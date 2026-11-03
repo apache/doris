@@ -20,6 +20,7 @@ package org.apache.doris.datasource.mvcc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
@@ -53,20 +54,19 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.ColumnStatisticBuilder;
-import org.apache.doris.statistics.Statistics;
-import org.apache.doris.statistics.StatisticsCache;
+import org.apache.doris.statistics.cache.StatisticsCache;
+import org.apache.doris.statistics.model.ColumnStatistic;
+import org.apache.doris.statistics.model.ColumnStatisticBuilder;
+import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Map;
@@ -236,32 +236,33 @@ public class PluginDrivenFileScanStatsTest {
         FeConstants.enableInternalSchemaDb = true;
         setSnapshot(10, 10, 10, false);
         ColumnStatistic columnStats = new ColumnStatisticBuilder(30).setNdv(2).setNumNulls(9).build();
-        new MockUp<StatisticsCache>() {
-            @Mock
-            public ColumnStatistic getColumnStatistics(long catalogId, long dbId, long tableId,
-                    long indexId, String columnName, ConnectContext context) {
-                return columnStats;
-            }
-        };
-        LogicalFileScan selected = selectedScan("p3");
-        Statistics statistics = selected.accept(new StatsCalculator(null), null);
-        ColumnStatistic selectedStats = statistics.findColumnStatistics(slot);
-        Assertions.assertEquals(10, selectedStats.count, 0.001);
-        Assertions.assertEquals(3, selectedStats.numNulls, 0.001);
-        Assertions.assertTrue(statistics.checkColumnStatsValid(selectedStats, 10));
-        assertRowCount(selected, 10);
+        Env env = Mockito.mock(Env.class);
+        StatisticsCache statisticsCache = Mockito.mock(StatisticsCache.class);
+        Mockito.when(env.getStatisticsCache()).thenReturn(statisticsCache);
+        Mockito.when(statisticsCache.getColumnStatistics(Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong(),
+                Mockito.anyLong(), Mockito.anyString(), Mockito.any())).thenReturn(columnStats);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            LogicalFileScan selected = selectedScan("p3");
+            Statistics statistics = selected.accept(new StatsCalculator(null), null);
+            ColumnStatistic selectedStats = statistics.findColumnStatistics(slot);
+            Assertions.assertEquals(10, selectedStats.count, 0.001);
+            Assertions.assertEquals(3, selectedStats.numNulls, 0.001);
+            Assertions.assertTrue(statistics.checkColumnStatsValid(selectedStats, 10));
+            assertRowCount(selected, 10);
 
-        setSnapshot(1, 1, 1, false);
-        Statistics singleRowStats = selectedScan("p3").accept(new StatsCalculator(null), null);
-        Assertions.assertTrue(singleRowStats.checkColumnStatsValid(singleRowStats.findColumnStatistics(slot), 1));
+            setSnapshot(1, 1, 1, false);
+            Statistics singleRowStats = selectedScan("p3").accept(new StatsCalculator(null), null);
+            Assertions.assertTrue(singleRowStats.checkColumnStatsValid(singleRowStats.findColumnStatistics(slot), 1));
 
-        LogicalFileScan emptyScan = newScan(table, new SelectedPartitions(3, ImmutableMap.of(), true));
-        Statistics emptyStats = emptyScan.accept(new StatsCalculator(null), null);
-        ColumnStatistic emptyColumnStats = emptyStats.findColumnStatistics(slot);
-        Assertions.assertEquals(0, emptyColumnStats.count, 0.001);
-        Assertions.assertEquals(0, emptyColumnStats.ndv, 0.001);
-        Assertions.assertEquals(0, emptyColumnStats.numNulls, 0.001);
-        assertRowCount(emptyScan, 0);
+            LogicalFileScan emptyScan = newScan(table, new SelectedPartitions(3, ImmutableMap.of(), true));
+            Statistics emptyStats = emptyScan.accept(new StatsCalculator(null), null);
+            ColumnStatistic emptyColumnStats = emptyStats.findColumnStatistics(slot);
+            Assertions.assertEquals(0, emptyColumnStats.count, 0.001);
+            Assertions.assertEquals(0, emptyColumnStats.ndv, 0.001);
+            Assertions.assertEquals(0, emptyColumnStats.numNulls, 0.001);
+            assertRowCount(emptyScan, 0);
+        }
     }
 
     private void setSnapshot(long p1Rows, long p2Rows, long p3Rows, boolean unknownRows) {
