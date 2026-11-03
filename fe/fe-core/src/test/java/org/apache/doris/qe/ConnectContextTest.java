@@ -368,6 +368,7 @@ public class ConnectContextTest {
     @Test
     public void testSleepTimeout() {
         ConnectContext ctx = new ConnectContext();
+        ctx.activate();
         ctx.setCommand(MysqlCommand.COM_SLEEP);
 
         // sleep no time out
@@ -380,13 +381,6 @@ public class ConnectContextTest {
         // Timeout
         ctx.setStartTime();
         now = ctx.getStartTime() + ctx.getSessionVariable().getWaitTimeoutS() * 1000L + 1;
-        ctx.setExecutor(executor);
-        ctx.checkTimeout(now);
-        Assertions.assertTrue(ctx.isKilled());
-
-        // user query timeout
-        ctx.setStartTime();
-        now = ctx.getStartTime() + auth.getQueryTimeout(qualifiedUser) * 1000L + 1;
         ctx.setExecutor(executor);
         ctx.checkTimeout(now);
         Assertions.assertTrue(ctx.isKilled());

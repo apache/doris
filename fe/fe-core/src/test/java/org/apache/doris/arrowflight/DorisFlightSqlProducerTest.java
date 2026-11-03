@@ -198,6 +198,7 @@ public class DorisFlightSqlProducerTest {
         // A real flight session context owns a real FlightSqlChannel (and thus a real Arrow allocator),
         // so allocator bookkeeping is exercised for real instead of mocked away.
         ConnectContext connectContext = ConnectContext.forFlight("test-peer-identity");
+        connectContext.activate();
         FlightSqlChannel channel = connectContext.getFlightSqlChannel();
         Assertions.assertEquals(0L, channel.getAllocatedMemory(), "channel allocator should start empty");
 
@@ -286,6 +287,7 @@ public class DorisFlightSqlProducerTest {
     @Test
     public void testGetFlightInfoFinalizesDeferredExecutorWhenSchemaFetchFails() throws Exception {
         ConnectContext ctx = Mockito.spy(ConnectContext.forFlight("token"));
+        ctx.activate();
 
         // Stands in for the just-planned external-table query whose results DoGet would pull from BE.
         StmtExecutor deferred = Mockito.mock(StmtExecutor.class);
@@ -381,6 +383,7 @@ public class DorisFlightSqlProducerTest {
     @Test
     public void testSessionOptionsAreAnsweredThroughTheListener() throws Exception {
         ConnectContext ctx = ConnectContext.forFlight("token");
+        ctx.activate();
         DorisFlightSqlProducer producer = new DorisFlightSqlProducer(
                 Location.forGrpcInsecure("127.0.0.1", 9090), sessionsOf(ctx));
         try {
@@ -414,6 +417,7 @@ public class DorisFlightSqlProducerTest {
     @Test
     public void testSessionOptionsWaitForTheRunningCommand() throws Exception {
         ConnectContext ctx = ConnectContext.forFlight("token");
+        ctx.activate();
         ctx.getSessionVariable().setQueryTimeoutS(1);
         FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
         DorisFlightSqlProducer producer = new DorisFlightSqlProducer(
@@ -463,7 +467,7 @@ public class DorisFlightSqlProducerTest {
         ConnectScheduler scheduler = new ConnectScheduler(10, 10);
         ctx.setConnectScheduler(scheduler);
         scheduler.submit(ctx);
-        Assertions.assertEquals(-1, scheduler.getConnectPoolMgr().registerConnection(ctx));
+        Assertions.assertEquals(-1, ctx.activateClientSession(scheduler.getConnectPoolMgr()));
         ctx.setCommand(MysqlCommand.COM_SLEEP);
         ctx.setStartTime();
         long waitTimeoutMs = ctx.getSessionVariable().getWaitTimeoutS() * 1000L;

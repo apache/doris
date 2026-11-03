@@ -67,7 +67,7 @@ import java.util.concurrent.TimeUnit;
  * An Arrow Flight SQL session is a ConnectContext bound to a FlightProtocolAdapter. The adapter
  * owns what only that protocol has (result cache, endpoints, deferred executors) and serializes
  * the session's commands, which gRPC does not do; the session is registered in the one connection
- * pool every protocol shares, which asks the adapter to release those on teardown.
+ * pool every protocol shares. ConnectContext asks the adapter to release those on teardown.
  */
 public class FlightProtocolAdapterTest {
     private boolean savedRunningUnitTest;
@@ -85,11 +85,15 @@ public class FlightProtocolAdapterTest {
         ConnectContext.remove();
     }
 
-    private static ConnectContext flightSession() {
-        // Registrable in the one pool: the pool files a session under its user and asks its Env
-        // for the user's connection limit.
+    private static ConnectContext initializingFlightSession() {
         return ConnectPoolTestSupport.flightSession(ConnectPoolTestSupport.envAllowing(100), UserIdentity.ROOT,
                 "test-peer-identity");
+    }
+
+    private static ConnectContext flightSession() {
+        ConnectContext ctx = initializingFlightSession();
+        ctx.activate();
+        return ctx;
     }
 
     // A command that blocks on a latch, run from a plain thread.
@@ -150,10 +154,10 @@ public class FlightProtocolAdapterTest {
     @Test
     public void testKillUnregistersTheSessionFromThePool() {
         ConnectScheduler scheduler = new ConnectScheduler(10, 10);
-        ConnectContext ctx = flightSession();
+        ConnectContext ctx = initializingFlightSession();
         ctx.setConnectScheduler(scheduler);
         scheduler.submit(ctx);
-        Assertions.assertEquals(-1, scheduler.getConnectPoolMgr().registerConnection(ctx));
+        Assertions.assertEquals(-1, ctx.activateClientSession(scheduler.getConnectPoolMgr()));
         Assertions.assertSame(ctx, scheduler.getContext(ctx.getConnectionId()));
         Assertions.assertSame(ctx, scheduler.getContextWithPeerIdentity(ctx.getPeerIdentity()));
 
@@ -164,9 +168,8 @@ public class FlightProtocolAdapterTest {
         Assertions.assertNull(scheduler.getContextWithPeerIdentity(ctx.getPeerIdentity()));
     }
 
-    // Every Flight session teardown path meets in the pool's unregisterConnection, which asks the
-    // protocol to release what it holds: the channel-cached results first, then the deferred
-    // executors (tearDown), whether or not the session was ever registered.
+    // The release hook closes the channel-cached results and deferred executors even if the
+    // session was never registered. ConnectContext invokes it after draining the running command.
     @Test
     public void testReleaseSessionClosesTheChannelAndTearsTheSessionDown() {
         ConnectContext ctx = flightSession();
@@ -497,16 +500,19 @@ public class FlightProtocolAdapterTest {
     @Test
     public void testATornDownSessionFinalizesWhatIsDeferredToItOnTheSpot() throws Exception {
         ConnectScheduler scheduler = new ConnectScheduler(10, 10);
-        ConnectContext ctx = flightSession();
+        ConnectContext ctx = initializingFlightSession();
         ctx.setConnectScheduler(scheduler);
         scheduler.submit(ctx);
-        Assertions.assertEquals(-1, scheduler.getConnectPoolMgr().registerConnection(ctx));
+        Assertions.assertEquals(-1, ctx.activateClientSession(scheduler.getConnectPoolMgr()));
         FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
         StmtExecutor before = Mockito.mock(StmtExecutor.class);
         StmtExecutor late = Mockito.mock(StmtExecutor.class);
         CountDownLatch commandStarted = new CountDownLatch(1);
         CountDownLatch tornDown = new CountDownLatch(1);
         ctx.addFlightSqlDeferredExecutor(before);
+
+        adapter.getChannel().addOKResult("cached", "SELECT 1");
+        Assertions.assertTrue(adapter.getChannel().getAllocatedMemory() > 0);
 
         // A command of the session is running, and defers its query once the session is gone.
         Thread command = new Thread(() -> holdSession(adapter, ctx, () -> {
@@ -517,13 +523,17 @@ public class FlightProtocolAdapterTest {
         command.start();
         Assertions.assertTrue(commandStarted.await(10, TimeUnit.SECONDS));
 
-        // Teardown (here KILL, the same unregisterConnection as CloseSession and token expiry) goes
+        // Teardown (here KILL, the same cleanup as CloseSession and idle expiry) goes
         // through without waiting for the command ...
         ctx.kill(true);
         Assertions.assertNull(scheduler.getContext(ctx.getConnectionId()));
         Mockito.verify(before).finalizeArrowFlightQuery();
         Mockito.verify(late, Mockito.never()).finalizeArrowFlightQuery();
         Assertions.assertTrue(ctx.getFlightSqlDeferredExecutors().isEmpty());
+
+        Assertions.assertEquals(ConnectContext.LifecycleState.CLOSING, ctx.getLifecycleState());
+        Assertions.assertFalse(ctx.getCleanupCompletion().toCompletableFuture().isDone());
+        Assertions.assertTrue(adapter.getChannel().getAllocatedMemory() > 0);
 
         // ... and what the command defers afterwards is finalized by the command itself, once.
         tornDown.countDown();
@@ -533,6 +543,9 @@ public class FlightProtocolAdapterTest {
         Assertions.assertTrue(ctx.getFlightSqlDeferredExecutors().isEmpty());
         ctx.closeFlightSqlDeferredExecutors();
         Mockito.verify(late, Mockito.times(1)).finalizeArrowFlightQuery();
+
+        Assertions.assertEquals(ConnectContext.LifecycleState.CLOSED, ctx.getLifecycleState());
+        Assertions.assertEquals(0, adapter.getChannel().getAllocatedMemory());
 
         // A command that gets its turn after teardown does not run on the session, and leaves the
         // thread as it found it.

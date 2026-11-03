@@ -133,8 +133,8 @@ public class MetricsTest {
         ConnectContext flight = ConnectPoolTestSupport.flightSession(env, UserIdentity.ROOT, "metric-token");
         scheduler.submit(mysql);
         scheduler.submit(flight);
-        Assertions.assertEquals(-1, scheduler.getConnectPoolMgr().registerConnection(mysql));
-        Assertions.assertEquals(-1, scheduler.getConnectPoolMgr().registerConnection(flight));
+        Assertions.assertEquals(-1, mysql.activateClientSession(scheduler.getConnectPoolMgr()));
+        Assertions.assertEquals(-1, flight.activateClientSession(scheduler.getConnectPoolMgr()));
         ExecuteEnv executeEnv = Mockito.mock(ExecuteEnv.class);
         Mockito.when(executeEnv.getScheduler()).thenReturn(scheduler);
         try (MockedStatic<ExecuteEnv> mockedExecuteEnv = Mockito.mockStatic(ExecuteEnv.class)) {

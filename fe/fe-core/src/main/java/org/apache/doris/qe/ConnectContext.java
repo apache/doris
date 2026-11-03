@@ -87,6 +87,7 @@ import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -107,6 +108,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.annotation.Nullable;
@@ -143,6 +146,21 @@ public class ConnectContext {
     }
 
     private final ProtocolAdapter protocolAdapter;
+
+    public enum LifecycleState {
+        INITIALIZING, ACTIVE, CLOSING, CLOSED
+    }
+
+    // Lock order: lifecycleLock -> ConnectPoolMgr.admissionLock. The pool never calls back into
+    // the lifecycle. Cancellation, channel callbacks and resource release run outside both locks.
+    private final Object lifecycleLock = new Object();
+    private volatile LifecycleState lifecycleState = LifecycleState.INITIALIZING;
+    private ConnectPoolMgr registeredPool;
+    private int activeOperations;
+    private boolean closeInitiated;
+    private boolean releasingResources;
+    private Throwable cleanupFailure;
+    private final CompletableFuture<Void> cleanupCompletion = new CompletableFuture<>();
     // set this id before analyze
     protected volatile long stmtId;
     protected volatile long forwardedStmtId;
@@ -415,17 +433,22 @@ public class ConnectContext {
         return protocolAdapter.type();
     }
 
-    public void init() {
-        state = new QueryState();
-        returnRows = 0;
-        isKilled = false;
-        resetSessionVariable();
-        userVars = new HashMap<>();
-        command = MysqlCommand.COM_SLEEP;
+    private void init() {
+        try {
+            state = new QueryState();
+            returnRows = 0;
+            isKilled = false;
+            resetSessionVariable();
+            userVars = new HashMap<>();
+            command = MysqlCommand.COM_SLEEP;
 
-        sessionId = UUID.randomUUID().toString();
-        if (!FeConstants.runningUnitTest) {
-            Env.getCurrentEnv().registerSessionInfo(sessionId);
+            sessionId = UUID.randomUUID().toString();
+            if (!FeConstants.runningUnitTest) {
+                Env.getCurrentEnv().registerSessionInfo(sessionId);
+            }
+        } catch (Throwable failure) {
+            cleanup();
+            throw failure;
         }
     }
 
@@ -1025,7 +1048,17 @@ public class ConnectContext {
     }
 
     public void setExecutor(StmtExecutor executor) {
-        this.executor = executor;
+        boolean closing;
+        synchronized (lifecycleLock) {
+            Preconditions.checkState(lifecycleState != LifecycleState.CLOSED, "Context is closed");
+            this.executor = executor;
+            closing = lifecycleState == LifecycleState.CLOSING || lifecycleState == LifecycleState.CLOSED;
+        }
+        // Closing may win before the command publishes its executor. StmtExecutor remembers
+        // cancellation even before it has a coordinator, so that late publication cannot escape it.
+        if (closing && executor != null) {
+            executor.cancel(new Status(TStatusCode.CANCELLED, "session closed"), false);
+        }
     }
 
     public StmtExecutor getExecutor() {
@@ -1061,13 +1094,78 @@ public class ConnectContext {
     }
 
     /**
-     * Releases what the protocol still holds for this session, when the connection leaves the pool
-     * (see {@link ConnectPoolMgr#unregisterConnection}): for Arrow Flight SQL the channel-cached
-     * results and the deferred executors, after which the session keeps none and runs no command
+     * Releases what the protocol still holds for this session, after its operations exit:
+     * for Arrow Flight SQL the channel-cached results and the deferred executors, after which
+     * the session keeps none and runs no command
      * (see {@code FlightProtocolAdapter.tearDown}); nothing for a MySQL connection. Idempotent.
      */
     public void releaseProtocolSession() {
         protocolAdapter.releaseSession(this);
+    }
+
+    public LifecycleState getLifecycleState() {
+        return lifecycleState;
+    }
+
+    /** Completion of local teardown, including any command that was running when close began. */
+    public CompletionStage<Void> getCleanupCompletion() {
+        return cleanupCompletion.minimalCompletionStage();
+    }
+
+    /** Activate an owned internal context without putting it in the client connection pool. */
+    public void activate() {
+        synchronized (lifecycleLock) {
+            Preconditions.checkState(lifecycleState == LifecycleState.INITIALIZING,
+                    "Cannot activate a context in %s", lifecycleState);
+            lifecycleState = LifecycleState.ACTIVE;
+        }
+    }
+
+    /** Returns -1 on admission, or the pool's connection count on quota refusal. */
+    public int activateClientSession(ConnectPoolMgr pool) {
+        synchronized (lifecycleLock) {
+            Preconditions.checkState(lifecycleState == LifecycleState.INITIALIZING,
+                    "Cannot register a context in %s", lifecycleState);
+            int result = pool.registerConnection(this);
+            if (result == -1) {
+                registeredPool = pool;
+                refreshStartTime();
+                lifecycleState = LifecycleState.ACTIVE;
+            }
+            return result;
+        }
+    }
+
+    /** Pin resources while a protocol entry initializes the context, before publication. */
+    public boolean beginInitialization() {
+        synchronized (lifecycleLock) {
+            if (lifecycleState != LifecycleState.INITIALIZING) {
+                return false;
+            }
+            activeOperations++;
+            return true;
+        }
+    }
+
+    /** Admission and idle-timeout decisions share this lock; a stale lookup grants no admission. */
+    public boolean tryBeginCommand() {
+        synchronized (lifecycleLock) {
+            if (lifecycleState != LifecycleState.ACTIVE) {
+                return false;
+            }
+            activeOperations++;
+            refreshStartTime();
+            return true;
+        }
+    }
+
+    /** Paired with a successful beginInitialization/tryBeginCommand, including exceptional exits. */
+    public void endOperation() {
+        synchronized (lifecycleLock) {
+            Preconditions.checkState(activeOperations > 0, "No context operation to finish");
+            activeOperations--;
+        }
+        finishCleanup();
     }
 
     // A snapshot; empty for a connection of any other protocol.
@@ -1110,23 +1208,112 @@ public class ConnectContext {
      * kill connection by other thread
      */
     protected void killConnection() {
-        isKilled = true;
-        // Close channel to break connection with client
-        closeChannel();
-        returnRows = 0;
-        deleteTempTable();
-        Env.getCurrentEnv().unregisterSessionInfo(this.sessionId);
+        cleanup();
     }
 
     /**
      * kill connection by self
      */
     public void cleanup() {
-        closeChannel();
-        MoreFieldsThread.removeConnectContext();
-        returnRows = 0;
-        deleteTempTable();
-        Env.getCurrentEnv().unregisterSessionInfo(this.sessionId);
+        synchronized (lifecycleLock) {
+            if (!startClosing()) {
+                return;
+            }
+        }
+        initiateCleanup();
+    }
+
+    // Called with lifecycleLock held. Only the winning caller initiates teardown.
+    private boolean startClosing() {
+        if (lifecycleState == LifecycleState.CLOSING || lifecycleState == LifecycleState.CLOSED) {
+            return false;
+        }
+        lifecycleState = LifecycleState.CLOSING;
+        isKilled = true;
+        return true;
+    }
+
+    private void initiateCleanup() {
+        ConnectContext previous = ConnectContext.get();
+        setThreadLocalInfo();
+        try {
+            // No other caller can change registeredPool after startClosing wins. A channel close
+            // callback may re-enter cleanup, but cannot repeat any of these steps.
+            ConnectPoolMgr pool = registeredPool;
+            registeredPool = null;
+            if (pool != null) {
+                cleanupStep("unregister connection", () -> pool.unregisterConnection(this));
+            }
+            cleanupStep("cancel query", () -> {
+                StmtExecutor running = executor;
+                if (running != null) {
+                    running.cancel(new Status(TStatusCode.CANCELLED, "session closed"), false);
+                }
+            });
+            cleanupStep("close transport", this::closeChannel);
+            synchronized (lifecycleLock) {
+                closeInitiated = true;
+            }
+            finishCleanup();
+        } finally {
+            restoreAfterCleanup(previous);
+        }
+    }
+
+    private void finishCleanup() {
+        synchronized (lifecycleLock) {
+            if (!closeInitiated || activeOperations != 0 || releasingResources) {
+                return;
+            }
+            releasingResources = true;
+        }
+        // Transaction rollback/forwarding uses ConnectContext.get(). Bind the closing context,
+        // even when the caller is the timeout checker or another connection's KILL command.
+        ConnectContext previous = ConnectContext.get();
+        setThreadLocalInfo();
+        try {
+            cleanupStep("release protocol session", this::releaseProtocolSession);
+            cleanupStep("close transaction", this::closeTxn);
+            cleanupStep("drop temporary tables", this::deleteTempTable);
+            // init can fail before it allocates a session id.
+            if (sessionId != null) {
+                cleanupStep("unregister session info", () -> Env.getCurrentEnv().unregisterSessionInfo(sessionId));
+            }
+            cleanupStep("clear statement", this::clear);
+            preparedStatementContextMap.clear();
+            returnRows = 0;
+            if (cleanupFailure == null) {
+                lifecycleState = LifecycleState.CLOSED;
+                cleanupCompletion.complete(null);
+            } else {
+                // Do not publish successful closure when a cleanup action failed. The completion
+                // reports the failure; the other cleanup actions have nevertheless all been attempted.
+                cleanupCompletion.completeExceptionally(cleanupFailure);
+            }
+        } finally {
+            restoreAfterCleanup(previous);
+        }
+    }
+
+    private void restoreAfterCleanup(ConnectContext previous) {
+        if (previous == null || (previous == this && cleanupCompletion.isDone())) {
+            ConnectContext.remove();
+        } else {
+            previous.setThreadLocalInfo();
+        }
+    }
+
+    private void cleanupStep(String action, Runnable step) {
+        try {
+            step.run();
+        } catch (Throwable failure) {
+            LOG.warn("Failed to {} for connection {}", action, connectionId, failure);
+            if (cleanupFailure == null) {
+                cleanupFailure = failure;
+            } else if (cleanupFailure != failure) {
+                cleanupFailure.addSuppressed(failure);
+            }
+        }
     }
 
     protected void deleteTempTable() {
@@ -1309,30 +1496,10 @@ public class ConnectContext {
 
         if (killConnection) {
             killConnection();
+            return;
         }
         // Now, cancel running query.
         cancelQuery(new Status(TStatusCode.CANCELLED, "cancel query by user from " + getRemoteHostPortString()));
-    }
-
-    // kill operation with no protect by timeout.
-    private void killByTimeout(boolean killConnection) {
-        if (killConnection) {
-            LOG.warn("kill wait timeout connection, connection type: {}, connectionId: {}, remote: {}, "
-                            + "wait timeout: {}",
-                    getConnectType(), connectionId, getRemoteHostPortString(), sessionVariable.getWaitTimeoutS());
-            killConnection();
-        }
-        // Now, cancel running query.
-        // cancelQuery by time out
-        StmtExecutor executorRef = executor;
-        if (executorRef != null) {
-            LOG.warn("kill time out query, remote: {}, at the same time kill connection is {},"
-                            + " connection type: {}, connectionId: {}",
-                    getRemoteHostPortString(), killConnection,
-                    getConnectType(), connectionId);
-            executorRef.cancel(new Status(TStatusCode.TIMEOUT,
-                    "query is timeout, killed by timeout checker"));
-        }
     }
 
     public void cancelQuery(Status cancelReason) {
@@ -1343,38 +1510,35 @@ public class ConnectContext {
     }
 
     public void checkTimeout(long now) {
-        if (startTime <= 0) {
-            return;
-        }
-
-        long delta = now - startTime;
-        boolean killFlag = false;
-        boolean killConnection = false;
-        if (command == MysqlCommand.COM_SLEEP) {
-            if (delta > sessionVariable.getWaitTimeoutS() * 1000L) {
-                // Need kill this connection.
-                killFlag = true;
-                killConnection = true;
-            } else {
-                reapIdleFlightSqlDeferredExecutors(now);
+        boolean closeIdle = false;
+        StmtExecutor timedOut = null;
+        synchronized (lifecycleLock) {
+            if (lifecycleState != LifecycleState.ACTIVE || startTime <= 0) {
+                return;
             }
-        } else {
-            String timeoutTag = "query";
-            // insert stmt particularly
-            if (executor != null && executor.isSyncLoadKindStmt()) {
-                timeoutTag = "insert";
-            }
-            // to ms
-            long timeout = getExecTimeoutS() * 1000L;
-            if (delta > timeout) {
-                LOG.warn("kill {} timeout, remote: {}, query timeout: {}ms, query id: {}",
-                        timeoutTag, getRemoteHostPortString(), timeout, DebugUtil.printId(queryId));
-                killFlag = true;
+            long delta = now - startTime;
+            if (command == MysqlCommand.COM_SLEEP) {
+                // Flight metadata/option commands can show COM_SLEEP while using session resources.
+                // MySQL, however, can block reading an incomplete packet before dispatch sets its
+                // command. Keep wait_timeout able to close that transport and unblock the reader.
+                boolean idle = activeOperations == 0 || getConnectType() == ConnectType.MYSQL;
+                if (idle && delta > sessionVariable.getWaitTimeoutS() * 1000L) {
+                    closeIdle = startClosing();
+                }
+            } else if (delta > getExecTimeoutS() * 1000L) {
+                // Cancel the executor observed here, never one installed by a later statement.
+                timedOut = executor;
             }
         }
-
-        if (killFlag) {
-            killByTimeout(killConnection);
+        if (closeIdle) {
+            LOG.warn("kill wait timeout connection, connection type: {}, connectionId: {}, wait timeout: {}",
+                    getConnectType(), connectionId, sessionVariable.getWaitTimeoutS());
+            initiateCleanup();
+        } else if (timedOut != null) {
+            LOG.warn("cancel timeout query for connection {}, connection type: {}", connectionId, getConnectType());
+            timedOut.cancel(new Status(TStatusCode.TIMEOUT, "query is timeout, killed by timeout checker"), false);
+        } else if (command == MysqlCommand.COM_SLEEP) {
+            reapIdleFlightSqlDeferredExecutors(now);
         }
     }
 

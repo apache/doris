@@ -53,6 +53,9 @@ public class ReadListener implements ChannelListener<ConduitStreamSourceChannel>
         // start async query handle in task thread.
         try {
             channel.getWorker().execute(() -> {
+                if (!ctx.tryBeginCommand()) {
+                    return;
+                }
                 ctx.setThreadLocalInfo();
                 try {
                     connectProcessor.processOnce();
@@ -67,7 +70,11 @@ public class ReadListener implements ChannelListener<ConduitStreamSourceChannel>
                     ctx.setKilled();
                     ctx.cleanup();
                 } finally {
-                    ConnectContext.remove();
+                    try {
+                        ctx.endOperation();
+                    } finally {
+                        ConnectContext.remove();
+                    }
                 }
             });
         } catch (RejectedExecutionException e) {

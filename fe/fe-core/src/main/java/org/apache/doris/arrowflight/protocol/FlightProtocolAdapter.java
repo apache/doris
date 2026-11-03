@@ -270,10 +270,8 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
 
     /**
      * Every Flight SQL session teardown path - the idle timeout (wait_timeout), CloseSession, a
-     * KILL CONNECTION from another connection - reaches here through the pool's
-     * unregisterConnection. The channel-cached Arrow results go first, then the session is closed
-     * for good: teardown does not wait for a command that may still be running, and what that
-     * command defers afterwards is finalized on the spot ({@link #tearDown}).
+     * KILL CONNECTION from another connection - reaches here through ConnectContext.cleanup,
+     * after the running command has exited. The channel allocator is no longer in use then.
      */
     @Override
     public void releaseSession(ConnectContext ctx) {
@@ -284,7 +282,7 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
             // bytes. The error is actionable, but session teardown must still release the
             // coordinator, transaction and pool bookkeeping. The peer identity IS the bearer
             // token, so it is logged as a masked id, the same one the sessions manager uses.
-            LOG.warn("failed to close Flight SQL channel while unregistering connection {}, peer identity {}",
+            LOG.warn("failed to close Flight SQL channel while closing connection {}, peer identity {}",
                     ctx.getConnectionId(), TokenMasker.tokenId(peerIdentity), t);
         }
         tearDown();
@@ -363,8 +361,9 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
 
     @Override
     public void closeConnection(ConnectContext ctx) {
-        // Releases the channel, the deferred executors and the transaction of the session.
-        ctx.getConnectScheduler().getConnectPoolMgr().unregisterConnection(ctx);
+        // Seal the deferred-result handoff immediately. The channel allocator is released by
+        // releaseSession only after ConnectContext has drained the running command.
+        tearDown();
     }
 
     public String getPeerIdentity() {
@@ -480,7 +479,7 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
      * wait for the command that may be running, so that command may still defer its query
      * afterwards, which is then finalized on the spot ({@link #addDeferredExecutor}); and a command
      * that was waiting for the session does not run on it ({@link #callCommand}). Reached through
-     * the pool's unregisterConnection.
+     * ConnectContext.cleanup via closeConnection.
      */
     public void tearDown() {
         List<StmtExecutor> taken;
@@ -634,22 +633,29 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     public <T, E extends Exception> T callCommand(ConnectContext ctx, SessionCommand<T, E> command) throws E {
         acquireCommandLock(ctx);
         ConnectContext previous = ConnectContext.get();
+        boolean admitted = false;
         try {
-            if (closed) {
+            admitted = ctx.tryBeginCommand();
+            if (!admitted) {
                 throw CallStatus.UNAUTHENTICATED.withDescription(String.format("this Arrow Flight SQL session "
                         + "was closed, connection id: %d; reconnect to run further commands", ctx.getConnectionId()))
                         .toRuntimeException();
             }
-            ctx.refreshStartTime();
             ctx.setThreadLocalInfo();
             return command.call();
         } finally {
-            if (previous == null) {
-                ConnectContext.remove();
-            } else {
-                previous.setThreadLocalInfo();
+            try {
+                if (admitted) {
+                    ctx.endOperation();
+                }
+            } finally {
+                if (previous == null) {
+                    ConnectContext.remove();
+                } else {
+                    previous.setThreadLocalInfo();
+                }
+                commandLock.unlock();
             }
-            commandLock.unlock();
         }
     }
 
