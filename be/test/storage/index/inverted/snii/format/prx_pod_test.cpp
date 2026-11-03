@@ -957,6 +957,81 @@ TEST(SniiPrxPod, SelectiveCsrRejectsInvalidOrdinals) {
     }
 }
 
+// The counts of a PFOR run are added up whole, then walked from one selected document to the next.
+// Sparse and dense selections, the first and last documents of runs, and documents with no positions
+// or with enough to be PFOR exceptions all come out as the input, with the shape of the whole window.
+TEST(SniiPrxPod, SelectivePforMatchesInputForRandomWindows) {
+    std::mt19937 rng(20261030);
+    for (int round = 0; round < 300; ++round) {
+        const uint32_t doc_count = 1 + rng() % (3 * kFrqBaseUnit + 20);
+        const uint32_t style = rng() % 3;
+        PerDoc docs(doc_count);
+        PrxDecodedShape want_shape {.total_docs = doc_count};
+        for (auto& doc : docs) {
+            uint32_t count = 1 + rng() % 3;
+            if (style >= 1 && rng() % 5 == 0) {
+                count = 0;
+            } else if (style == 2 && rng() % 50 == 0) {
+                count = 300 + rng() % 900;
+            }
+            uint32_t position = rng() % 50;
+            for (uint32_t i = 0; i < count; ++i) {
+                doc.push_back(position);
+                position += 1 + rng() % 40;
+            }
+            want_shape.total_positions += count;
+            want_shape.max_frequency = std::max(want_shape.max_frequency, count);
+            want_shape.has_zero_frequency |= count == 0;
+        }
+        std::vector<uint32_t> ordinals;
+        const uint32_t mode = rng() % 4;
+        for (uint32_t d = 0; d < doc_count; ++d) {
+            const bool run_edge = d % kFrqBaseUnit == 0 || d % kFrqBaseUnit == kFrqBaseUnit - 1;
+            const bool take = mode == 0   ? (rng() % 40 == 0)
+                              : mode == 1 ? (rng() % 2 == 0)
+                              : mode == 2 ? run_edge
+                                          : (d == 0 || d + 1 == doc_count);
+            if (take) {
+                ordinals.push_back(d);
+            }
+        }
+        SCOPED_TRACE("round=" + std::to_string(round) + " docs=" + std::to_string(doc_count) +
+                     " style=" + std::to_string(style) + " mode=" + std::to_string(mode));
+        const std::vector<uint8_t> encoded = BuildProfileFrame(docs, PrxCodec::kPfor);
+        std::vector<uint32_t> expected_flat;
+        std::vector<uint32_t> expected_offsets;
+        ExpectedSelectiveCsr(docs, ordinals, &expected_flat, &expected_offsets);
+        std::vector<uint32_t> flat;
+        std::vector<uint32_t> offsets;
+        PrxDecodedShape shape;
+        PrxDecodeContext context {.shape = &shape};
+        ByteSource source((Slice(encoded)));
+        ASSERT_TRUE(
+                read_prx_window_csr_selective(&source, ordinals, &flat, &offsets, &context).ok());
+        EXPECT_EQ(flat, expected_flat);
+        EXPECT_EQ(offsets, expected_offsets);
+        EXPECT_EQ(shape.total_docs, want_shape.total_docs);
+        EXPECT_EQ(shape.total_positions, want_shape.total_positions);
+        EXPECT_EQ(shape.max_frequency, want_shape.max_frequency);
+        EXPECT_EQ(shape.has_zero_frequency, want_shape.has_zero_frequency);
+    }
+}
+
+// A run is checked against the cap as a whole, and its sum is kept in 64 bits: these counts add up
+// to 2^38, which is 0 in 32 bits and would match the declared total.
+TEST(SniiPrxPod, SelectivePforRejectsCountsAboveTheCap) {
+    const std::vector<uint32_t> freqs(kFrqBaseUnit, 1U << 30);
+    const std::vector<uint8_t> encoded = MakePforWindow(kFrqBaseUnit, 0, freqs, {});
+    const std::vector<uint32_t> ordinals = {3};
+    std::vector<uint32_t> flat;
+    std::vector<uint32_t> offsets;
+    ByteSource source((Slice(encoded)));
+    const Status status = read_prx_window_csr_selective(&source, ordinals, &flat, &offsets);
+    EXPECT_TRUE(status.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status;
+    EXPECT_NE(status.to_string().find("pos_count sum exceeds sane cap"), std::string::npos)
+            << status;
+}
+
 // Multiple docs, positions ascending within each doc, no shared baseline across
 // docs.
 TEST(SniiPrxPod, MultiDocRoundTrip) {
