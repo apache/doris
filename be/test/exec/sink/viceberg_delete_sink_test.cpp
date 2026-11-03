@@ -53,8 +53,10 @@ protected:
         delete_sink.__set_delete_type(TFileContent::POSITION_DELETES);
         delete_sink.__set_file_format(TFileFormatType::FORMAT_PARQUET);
         delete_sink.__set_compress_type(TFileCompressType::SNAPPYBLOCK);
-        delete_sink.__set_output_path("/tmp/iceberg/test");
-        delete_sink.__set_table_location("/tmp/iceberg/test_table");
+        // The same directory in two URI forms, as the FE sends it: output_path normalized for
+        // backend I/O, table_location as the catalog reports it. They are never two directories.
+        delete_sink.__set_output_path("s3://container/tbl/data");
+        delete_sink.__set_table_location("abfss://container@account.dfs.core.windows.net/tbl/data");
 
         std::map<std::string, std::string> hadoop_conf;
         hadoop_conf["fs.defaultFS"] = "hdfs://localhost:9000";
@@ -64,6 +66,13 @@ protected:
     }
 
     TDataSink build_local_delete_sink(const std::string& output_path, int32_t format_version) {
+        return build_local_delete_sink(output_path, output_path, format_version);
+    }
+
+    // `table_location` is the location as the catalog reports it, `output_path` the form the
+    // backend actually writes through. They differ whenever the FE rewrites the URI (ADLS).
+    TDataSink build_local_delete_sink(const std::string& output_path,
+                                      const std::string& table_location, int32_t format_version) {
         TDataSink t_data_sink;
         t_data_sink.__set_type(TDataSinkType::ICEBERG_DELETE_SINK);
 
@@ -74,7 +83,7 @@ protected:
         delete_sink.__set_file_format(TFileFormatType::FORMAT_PARQUET);
         delete_sink.__set_compress_type(TFileCompressType::SNAPPYBLOCK);
         delete_sink.__set_output_path(output_path);
-        delete_sink.__set_table_location(output_path);
+        delete_sink.__set_table_location(table_location);
         delete_sink.__set_file_type(TFileType::FILE_LOCAL);
         delete_sink.__set_format_version(format_version);
 
@@ -479,18 +488,90 @@ TEST_F(VIcebergDeleteSinkTest, TestGenerateDeleteFilePath) {
     ASSERT_TRUE(status.ok());
 
     std::string data_file_path = "data/file1.parquet";
-    std::string delete_file_path = sink->_generate_delete_file_path(data_file_path);
+    auto delete_file = sink->_generate_delete_file_path(data_file_path);
 
     // Verify the path format
-    ASSERT_FALSE(delete_file_path.empty());
+    ASSERT_FALSE(delete_file.write_path.empty());
     const auto& delete_sink = _t_data_sink.iceberg_delete_sink;
-    std::string expected_base =
-            delete_sink.__isset.output_path ? delete_sink.output_path : delete_sink.table_location;
-    if (!expected_base.empty() && expected_base.back() != '/') {
-        expected_base += '/';
+    std::string expected_base = delete_sink.output_path + "/";
+    ASSERT_TRUE(delete_file.write_path.rfind(expected_base, 0) == 0);
+    ASSERT_NE(std::string::npos, delete_file.write_path.find("delete_pos_"));
+
+    std::string expected_original_base = delete_sink.table_location + "/";
+    ASSERT_TRUE(delete_file.original_path.rfind(expected_original_base, 0) == 0);
+
+    // One file, two URIs: the name must not differ between what is written and what is committed.
+    ASSERT_EQ(delete_file.write_path.substr(expected_base.size()),
+              delete_file.original_path.substr(expected_original_base.size()));
+}
+
+// Regression for apache/doris#67544: an ADLS location reaches the backend normalized to an
+// internal `s3://` form. That form is fine for I/O but unresolvable on a read, so committing it to
+// the manifest leaves the table permanently unreadable. Both delete lanes must place the same file
+// name under the catalog's own URI for the manifest.
+TEST_F(VIcebergDeleteSinkTest, TestDeleteFilePathsKeepCatalogUriForManifest) {
+    const std::string normalized_location = "s3://container/tbl/data";
+    const std::string original_location = "abfss://container@account.dfs.core.windows.net/tbl/data";
+    TDataSink t_data_sink = build_local_delete_sink(normalized_location, original_location, 2);
+
+    VExprContextSPtrs output_exprs;
+    auto sink = std::make_shared<VIcebergDeleteSink>(t_data_sink, output_exprs, nullptr, nullptr);
+    ObjectPool pool;
+    ASSERT_TRUE(sink->init_properties(&pool).ok());
+
+    auto position_delete = sink->_generate_delete_file_path("data/file1.parquet");
+    ASSERT_EQ(normalized_location + "/",
+              position_delete.write_path.substr(0, normalized_location.size() + 1));
+    ASSERT_EQ(original_location + "/",
+              position_delete.original_path.substr(0, original_location.size() + 1));
+    // Same file, two URIs: only the directory prefix may differ.
+    ASSERT_EQ(position_delete.write_path.substr(normalized_location.size() + 1),
+              position_delete.original_path.substr(original_location.size() + 1));
+
+    auto puffin = sink->_generate_puffin_file_path();
+    ASSERT_EQ(normalized_location + "/",
+              puffin.write_path.substr(0, normalized_location.size() + 1));
+    ASSERT_EQ(original_location + "/",
+              puffin.original_path.substr(0, original_location.size() + 1));
+    ASSERT_EQ(puffin.write_path.substr(normalized_location.size() + 1),
+              puffin.original_path.substr(original_location.size() + 1));
+}
+
+// When only one form is present it has to stand in for both: a location that was never rewritten
+// is identical either way, and an older FE may send only one of the two fields.
+TEST_F(VIcebergDeleteSinkTest, TestDeleteFilePathsFallBackWhenOneFormIsMissing) {
+    VExprContextSPtrs output_exprs;
+    ObjectPool pool;
+
+    {
+        TDataSink t_data_sink = build_local_delete_sink("s3://bucket/tbl/data", "", 2);
+        auto sink =
+                std::make_shared<VIcebergDeleteSink>(t_data_sink, output_exprs, nullptr, nullptr);
+        ASSERT_TRUE(sink->init_properties(&pool).ok());
+        auto location = sink->_generate_delete_file_path("data/file1.parquet");
+        ASSERT_EQ(location.write_path, location.original_path);
+        ASSERT_EQ("s3://bucket/tbl/data/", location.write_path.substr(0, 21));
     }
-    ASSERT_TRUE(delete_file_path.rfind(expected_base, 0) == 0);
-    ASSERT_NE(std::string::npos, delete_file_path.find("delete_pos_"));
+    {
+        TDataSink t_data_sink = build_local_delete_sink("", "s3://bucket/tbl/data", 2);
+        auto sink =
+                std::make_shared<VIcebergDeleteSink>(t_data_sink, output_exprs, nullptr, nullptr);
+        ASSERT_TRUE(sink->init_properties(&pool).ok());
+        auto location = sink->_generate_delete_file_path("data/file1.parquet");
+        ASSERT_EQ(location.write_path, location.original_path);
+        ASSERT_EQ("s3://bucket/tbl/data/", location.write_path.substr(0, 21));
+    }
+    {
+        // The old-FE shape: table_location is not merely empty, it is never set at all.
+        TDataSink t_data_sink = build_local_delete_sink("s3://bucket/tbl/data", "", 2);
+        t_data_sink.iceberg_delete_sink.__isset.table_location = false;
+        auto sink =
+                std::make_shared<VIcebergDeleteSink>(t_data_sink, output_exprs, nullptr, nullptr);
+        ASSERT_TRUE(sink->init_properties(&pool).ok());
+        auto location = sink->_generate_delete_file_path("data/file1.parquet");
+        ASSERT_EQ(location.write_path, location.original_path);
+        ASSERT_EQ("s3://bucket/tbl/data/", location.write_path.substr(0, 21));
+    }
 }
 
 TEST_F(VIcebergDeleteSinkTest, TestUnsupportedDeleteType) {
@@ -574,6 +655,8 @@ TEST_F(VIcebergDeleteSinkTest, TestWriteDeletionVectorsToSingleSharedPuffin) {
     }
     ASSERT_EQ(1, puffin_file_count);
 
+    // file_path is the manifest path; it doubles as the on-disk path only because this sink was
+    // built with table_location == output_path. See the divergent-URI test below.
     std::ifstream input(first_commit.file_path, std::ios::binary);
     ASSERT_TRUE(input.good());
     std::string file_bytes((std::istreambuf_iterator<char>(input)),
@@ -615,6 +698,90 @@ TEST_F(VIcebergDeleteSinkTest, TestWriteDeletionVectorsToSingleSharedPuffin) {
         ASSERT_EQ(commit_data->content_size_in_bytes, blob["length"].GetInt64());
         ASSERT_EQ(std::to_string(commit_data->row_count), properties["cardinality"].GetString());
     }
+
+    std::filesystem::remove_all(temp_dir);
+}
+
+// End-to-end counterpart of TestDeleteFilePathsKeepCatalogUriForManifest on the v3 deletion-vector
+// lane: the puffin file is created under the path the backend writes through, while the commit
+// data that becomes the manifest entry carries the catalog's own URI.
+TEST_F(VIcebergDeleteSinkTest, TestDeletionVectorCommitsCatalogUriAndWritesNormalizedPath) {
+    std::filesystem::path temp_dir = std::filesystem::temp_directory_path() /
+                                     ("iceberg_delete_sink_test_" + generate_uuid_string());
+    ASSERT_TRUE(std::filesystem::create_directories(temp_dir));
+
+    const std::string original_location = "abfss://container@account.dfs.core.windows.net/tbl/data";
+    TDataSink t_data_sink = build_local_delete_sink(temp_dir.string(), original_location, 3);
+    VExprContextSPtrs output_exprs;
+    auto sink = std::make_shared<VIcebergDeleteSink>(t_data_sink, output_exprs, nullptr, nullptr);
+    ObjectPool pool;
+    ASSERT_TRUE(sink->init_properties(&pool).ok());
+
+    std::map<std::string, IcebergFileDeletion> file_deletions;
+    auto [it, inserted] = file_deletions.emplace("file1.parquet", IcebergFileDeletion(0, ""));
+    ASSERT_TRUE(inserted);
+    it->second.rows_to_delete.add((uint32_t)10);
+
+    ASSERT_TRUE(sink->_write_deletion_vector_files(file_deletions).ok());
+    ASSERT_EQ(1, sink->_commit_data_list.size());
+
+    const auto& commit = sink->_commit_data_list[0];
+    ASSERT_EQ(original_location + "/", commit.file_path.substr(0, original_location.size() + 1));
+    ASSERT_NE(std::string::npos, commit.file_path.find("delete_dv_"));
+
+    // The bytes themselves went to the local (normalized) location, under the same file name.
+    std::filesystem::path written_puffin;
+    for (const auto& entry : std::filesystem::directory_iterator(temp_dir)) {
+        if (entry.path().extension() == ".puffin") {
+            ASSERT_TRUE(written_puffin.empty());
+            written_puffin = entry.path();
+        }
+    }
+    ASSERT_FALSE(written_puffin.empty());
+    ASSERT_EQ(written_puffin.filename().string(),
+              commit.file_path.substr(original_location.size() + 1));
+    ASSERT_EQ(static_cast<int64_t>(std::filesystem::file_size(written_puffin)), commit.file_size);
+
+    std::filesystem::remove_all(temp_dir);
+}
+
+// TestWriteDeletionVectorsToSingleSharedPuffin covers many blobs sharing one puffin, but with
+// table_location == output_path, so it cannot see a normalized path leaking into the manifest.
+// This covers the combination: several blobs, one puffin, two URI forms -- every commit entry must
+// carry the catalog URI, not just the first.
+TEST_F(VIcebergDeleteSinkTest, TestSharedPuffinCommitsCatalogUriForEveryBlob) {
+    std::filesystem::path temp_dir = std::filesystem::temp_directory_path() /
+                                     ("iceberg_delete_sink_test_" + generate_uuid_string());
+    ASSERT_TRUE(std::filesystem::create_directories(temp_dir));
+
+    const std::string original_location = "abfss://container@account.dfs.core.windows.net/tbl/data";
+    TDataSink t_data_sink = build_local_delete_sink(temp_dir.string(), original_location, 3);
+    VExprContextSPtrs output_exprs;
+    auto sink = std::make_shared<VIcebergDeleteSink>(t_data_sink, output_exprs, nullptr, nullptr);
+    ObjectPool pool;
+    ASSERT_TRUE(sink->init_properties(&pool).ok());
+
+    std::map<std::string, IcebergFileDeletion> file_deletions;
+    auto [file1_it, file1_inserted] =
+            file_deletions.emplace("file1.parquet", IcebergFileDeletion(1, "[\"p=1\"]"));
+    ASSERT_TRUE(file1_inserted);
+    file1_it->second.rows_to_delete.add(static_cast<uint32_t>(10));
+
+    auto [file2_it, file2_inserted] =
+            file_deletions.emplace("file2.parquet", IcebergFileDeletion(2, "[\"p=2\"]"));
+    ASSERT_TRUE(file2_inserted);
+    file2_it->second.rows_to_delete.add(static_cast<uint32_t>(30));
+
+    ASSERT_TRUE(sink->_write_deletion_vector_files(file_deletions).ok());
+    ASSERT_EQ(2, sink->_commit_data_list.size());
+
+    for (const auto& commit : sink->_commit_data_list) {
+        ASSERT_EQ(original_location + "/", commit.file_path.substr(0, original_location.size() + 1))
+                << "commit for " << commit.referenced_data_file_path
+                << " leaked the write path into the manifest: " << commit.file_path;
+    }
+    // Both entries still name the one physical puffin.
+    ASSERT_EQ(sink->_commit_data_list[0].file_path, sink->_commit_data_list[1].file_path);
 
     std::filesystem::remove_all(temp_dir);
 }

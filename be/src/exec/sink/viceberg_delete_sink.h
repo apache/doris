@@ -114,12 +114,33 @@ private:
 
     std::string _build_puffin_footer_json(const std::vector<DeletionVectorBlob>& blobs);
 
-    std::string _generate_puffin_file_path();
+    /**
+     * The two full paths every delete artifact needs. `write_path` is the backend-normalized URI
+     * used for filesystem I/O; `original_path` is the same file expressed with the URI the catalog
+     * itself uses, and is the one committed to the iceberg manifest.
+     *
+     * The two differ whenever the FE rewrites the location on the way to the backend: an ADLS
+     * `abfss://` location is normalized to an internal `s3://` form that names no real bucket.
+     * Committing that form leaves the table unreadable, so it must stay on the I/O side only.
+     * This mirrors the data lane's write_path / original_write_path pair in
+     * VIcebergPartitionWriter.
+     */
+    struct DeleteFileLocation {
+        std::string write_path;
+        std::string original_path;
+    };
+
+    /**
+     * Place `file_name` in the delete-file directory, resolving both the I/O and the manifest form.
+     */
+    DeleteFileLocation _resolve_delete_file_location(const std::string& file_name) const;
+
+    DeleteFileLocation _generate_puffin_file_path();
 
     /**
      * Generate unique delete file path
      */
-    std::string _generate_delete_file_path(const std::string& referenced_data_file = "");
+    DeleteFileLocation _generate_delete_file_path(const std::string& referenced_data_file = "");
 
     /**
      * Get $row_id column index from block
@@ -163,7 +184,9 @@ private:
     TFileFormatType::type _file_format_type = TFileFormatType::FORMAT_PARQUET;
     TFileCompressType::type _compress_type = TFileCompressType::SNAPPYBLOCK;
 
-    // Output directory for delete files
+    // Output directory for delete files. Both name the same directory: `_output_path` in the
+    // backend-normalized form used for I/O, `_table_location` in the catalog's original form used
+    // for the manifest (IcebergWritePlanProvider#buildDeleteSink sends both).
     std::string _output_path;
     std::string _table_location;
 
