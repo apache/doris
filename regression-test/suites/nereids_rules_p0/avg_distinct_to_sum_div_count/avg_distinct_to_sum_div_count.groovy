@@ -26,4 +26,17 @@ suite("avg_distinct_to_sum_div_count") {
     sql "drop table if exists testctas;"
     sql """create table  testctas properties("replication_num" = "1") select sum(distinct c1),avg(distinct c1) from t1;"""
     qt_ctas "select * from testctas;"
+
+    qt_bigint_avg_distinct_overflow """
+        SELECT COUNT(*) AS matched_rows, MAX(c) AS distinct_count
+        FROM (
+            SELECT AVG(DISTINCT x) AS a, COUNT(DISTINCT y) AS c
+            FROM (
+                SELECT CAST(9223372036854775807 AS BIGINT) AS x, CAST(1 AS INT) AS y
+                UNION ALL
+                SELECT CAST(9223372036854775806 AS BIGINT) AS x, CAST(2 AS INT) AS y
+            ) t
+        ) q
+        WHERE a > 0
+    """
 }
