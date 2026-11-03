@@ -23,6 +23,7 @@ import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -196,7 +197,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
             for (Expression conjunct : join.getHashJoinConjuncts()) {
                 if (conjunct.anyMatch(e -> VariantType.isLegacyVariant(((Expression) e).getDataType()))) {
                     throw new AnalysisException("variant type could not in join equal conditions: " + conjunct.toSql());
-                } else if (conjunct.anyMatch(e -> ((Expression) e).getDataType().isVarBinaryType())) {
+                } else if (comparesVarBinary(conjunct)) {
                     throw new AnalysisException(
                             "varbinary type could not in join equal conditions: " + conjunct.toSql());
                 }
@@ -204,12 +205,19 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
             for (Expression conjunct : join.getMarkJoinConjuncts()) {
                 if (conjunct.anyMatch(e -> VariantType.isLegacyVariant(((Expression) e).getDataType()))) {
                     throw new AnalysisException("variant type could not in join equal conditions: " + conjunct.toSql());
-                } else if (conjunct.anyMatch(e -> ((Expression) e).getDataType().isVarBinaryType())) {
+                } else if (comparesVarBinary(conjunct)) {
                     throw new AnalysisException(
                             "varbinary type could not in join equal conditions: " + conjunct.toSql());
                 }
             }
         }
+    }
+
+    // BE cannot hash or compare VARBINARY values, but a join condition may compare strings cast from VARBINARY,
+    // such as CAST(X'FF' AS STRING) = s, so only the compared operands are checked.
+    private static boolean comparesVarBinary(Expression conjunct) {
+        return conjunct.anyMatch(e -> e instanceof ComparisonPredicate && ((ComparisonPredicate) e).children()
+                .stream().anyMatch(operand -> operand.getDataType().isVarBinaryType()));
     }
 
     private void checkMatchIsUsedCorrectly(Plan plan) {

@@ -28,6 +28,14 @@
 
 #include "core/block/block.h"
 #include "core/column/column.h"
+#include "core/column/column_array.h"
+#include "core/column/column_complex.h"
+#include "core/column/column_const.h"
+#include "core/column/column_fixed_length_object.h"
+#include "core/column/column_map.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_struct.h"
+#include "core/column/column_varbinary.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/field.h"
 #include "core/types.h"
@@ -35,6 +43,43 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
+
+namespace {
+
+bool supports_literal_digest(const IColumn& column) {
+    // These concrete columns inherit IColumn's throwing xxHash implementation.
+    // Inspect the column rather than the SQL type: AGG_STATE can use either a
+    // hashable string column or an unsupported fixed-length object column.
+    if (is_column<ColumnBitmap>(column) || is_column<ColumnHLL>(column) ||
+        is_column<ColumnQuantileState>(column) || is_column<ColumnVarbinary>(column) ||
+        is_column<ColumnFixedLengthObject>(column)) {
+        return false;
+    }
+
+    // The branch's mutable subcolumn traversal moves array offsets and updates variant state.
+    // Inspect wrappers and containers through const accessors instead.
+    if (const auto* constant = check_and_get_column<ColumnConst>(column)) {
+        return supports_literal_digest(constant->get_data_column());
+    }
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(column)) {
+        return supports_literal_digest(nullable->get_nested_column());
+    }
+    if (const auto* array = check_and_get_column<ColumnArray>(column)) {
+        return supports_literal_digest(array->get_data());
+    }
+    if (const auto* map = check_and_get_column<ColumnMap>(column)) {
+        return supports_literal_digest(map->get_keys()) &&
+               supports_literal_digest(map->get_values());
+    }
+    if (const auto* structure = check_and_get_column<ColumnStruct>(column)) {
+        return std::ranges::all_of(structure->get_columns(), [](const auto& child) {
+            return supports_literal_digest(*child);
+        });
+    }
+    return true;
+}
+
+} // namespace
 
 class VExprContext;
 
@@ -101,6 +146,11 @@ bool VLiteral::equals(const VExpr& other) {
 }
 
 uint64_t VLiteral::get_digest(uint64_t seed) const {
+    // Wrappers and containers delegate hashing to their nested columns. A zero
+    // digest disables the condition cache without changing the column hash contract.
+    if (!supports_literal_digest(*_column_ptr)) {
+        return 0;
+    }
     _column_ptr->update_xxHash_with_value(0, 1, seed, nullptr);
     return seed;
 }
