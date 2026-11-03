@@ -27,8 +27,11 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <climits>
 #include <fstream>
+#include <functional>
 #include <memory>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -42,6 +45,10 @@
 #include "storage/index/inverted/analysis/golden/golden_configs.h"
 #include "storage/index/inverted/analysis/golden/golden_corpus.h"
 #include "storage/index/inverted/analysis/golden/golden_environment.h"
+#include "storage/index/inverted/analysis/inverted_index_parser.h"
+#include "storage/index/inverted/clucene/inverted_index_writer.h"
+#include "storage/index/inverted/clucene/lucene_analyzer_bridge.h"
+#include "storage/index/inverted/clucene/lucene_backed_text_analyzer.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/tablet/tablet_schema.h"
 #include "testutil/golden_file.h"
@@ -64,6 +71,17 @@ constexpr const char* kConfigs[] = {
         "builtin/ik/ik_max_word/lower_case=unset/stopwords=unset",
         "builtin/icu/lower_case=unset/stopwords=unset",
         "custom/char_replace+standard+word_delimiter+asciifolding+lowercase",
+};
+
+// The configurations of kConfigs whose array elements the V1 and V2 writers index nothing of. The
+// writer asks Analyzer::tokenStream() for a stream per element, ICUAnalyzer resets that stream
+// before it returns it, and SDocumentsWriter::invertField() resets it again. ICUTokenizer reads its
+// reader in reset(), so the second time it finds the reader consumed and makes no token: an
+// element "hello world" is indexed as nothing. LuceneAnalyzerBridge starts each element once, so
+// through it the elements are indexed. No table has such an index: the FE accepts no parser and no
+// analyzer on an array column (InvertedIndexUtil.checkInvertedIndexParser).
+const std::set<std::string> kOldArrayPathLosesElements = {
+        "builtin/icu/lower_case=unset/stopwords=unset",
 };
 
 struct Format {
@@ -115,6 +133,24 @@ TabletColumn text_column() {
     return column;
 }
 
+TabletColumn array_column() {
+    TabletColumn element;
+    element.set_name("text");
+    element.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    element.set_length(INT_MAX);
+    element.set_is_nullable(true);
+    TabletColumn column;
+    column.set_unique_id(0);
+    column.set_name("texts");
+    column.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+    column.set_is_nullable(true);
+    column.add_sub_column(element);
+    return column;
+}
+
+// Called on the column writer before the rows go in.
+using WriterHook = std::function<void(IndexColumnWriter*)>;
+
 // What every index gets: the first lines of four families, one batch each, nulls after each.
 std::vector<std::vector<std::string>> row_batches(const std::vector<CorpusFamily>& families) {
     std::vector<std::vector<std::string>> batches;
@@ -131,7 +167,8 @@ std::vector<std::vector<std::string>> row_batches(const std::vector<CorpusFamily
 // Writes the batches through the production writer factory; returns the index path prefix.
 std::string write_index(const std::string& name, InvertedIndexStorageFormatPB format,
                         const TabletIndex& meta,
-                        const std::vector<std::vector<std::string>>& batches) {
+                        const std::vector<std::vector<std::string>>& batches,
+                        const WriterHook& before_rows = {}) {
     const std::string prefix = std::string(kTestDir) + "/" + name;
     const auto fs = io::global_local_filesystem();
     io::FileWriterPtr file_writer;
@@ -150,6 +187,9 @@ std::string write_index(const std::string& name, InvertedIndexStorageFormatPB fo
     if (!created.ok()) {
         return prefix;
     }
+    if (before_rows) {
+        before_rows(writer.get());
+    }
     for (const std::vector<std::string>& batch : batches) {
         std::vector<Slice> slices;
         for (const std::string& row : batch) {
@@ -164,6 +204,74 @@ std::string write_index(const std::string& name, InvertedIndexStorageFormatPB fo
     EXPECT_TRUE(index_file_writer.begin_close().ok());
     EXPECT_TRUE(index_file_writer.finish_close().ok());
     return prefix;
+}
+
+// The lines of the batches as array rows of 0 to 3 elements, with a null element now and then.
+struct ArrayRows {
+    std::vector<Slice> elements;
+    std::vector<uint8_t> null_map;
+    std::vector<uint64_t> offsets; // one more than the rows
+};
+
+ArrayRows array_rows(const std::vector<std::vector<std::string>>& batches) {
+    ArrayRows rows;
+    rows.offsets.push_back(0);
+    for (const std::vector<std::string>& batch : batches) {
+        for (size_t i = 0; i < batch.size();) {
+            const size_t size = std::min((rows.offsets.size() - 1) % 4, batch.size() - i);
+            for (size_t end = i + size; i < end; ++i) {
+                rows.null_map.push_back(rows.elements.size() % 7 == 3 ? 1 : 0);
+                rows.elements.emplace_back(batch[i]);
+            }
+            rows.offsets.push_back(rows.elements.size());
+        }
+    }
+    return rows;
+}
+
+// Writes the rows into the V2 index of an array column; returns the index path prefix.
+std::string write_array_index(const std::string& name, const TabletIndex& meta,
+                              const ArrayRows& rows, const WriterHook& before_rows = {}) {
+    const std::string prefix = std::string(kTestDir) + "/" + name;
+    const auto fs = io::global_local_filesystem();
+    io::FileWriterPtr file_writer;
+    EXPECT_TRUE(
+            fs->create_file(InvertedIndexDescriptor::get_index_file_path_v2(prefix), &file_writer)
+                    .ok());
+    IndexFileWriter index_file_writer(fs, prefix, "write_golden_rowset", /*seg_id=*/0,
+                                      InvertedIndexStorageFormatPB::V2, std::move(file_writer),
+                                      /*can_use_ram_dir=*/true, /*tablet_id=*/7700);
+    const TabletColumn column = array_column();
+    std::unique_ptr<IndexColumnWriter> writer;
+    const Status created = IndexColumnWriter::create(&column, &writer, &index_file_writer, &meta);
+    EXPECT_TRUE(created.ok()) << created.to_string();
+    if (!created.ok()) {
+        return prefix;
+    }
+    if (before_rows) {
+        before_rows(writer.get());
+    }
+    const Status added = writer->add_array_values(
+            sizeof(Slice), reinterpret_cast<const uint8_t*>(rows.elements.data()),
+            rows.null_map.data(), rows.offsets.data(), rows.offsets.size() - 1);
+    EXPECT_TRUE(added.ok()) << added.to_string();
+    EXPECT_TRUE(writer->finish().ok());
+    EXPECT_TRUE(index_file_writer.begin_close().ok());
+    EXPECT_TRUE(index_file_writer.finish_close().ok());
+    return prefix;
+}
+
+// Puts the V2 writer's analyzer behind LuceneBackedTextAnalyzer and LuceneAnalyzerBridge, as the
+// writer sees it once the consumers use the TextAnalyzer interface; the bridge reads each value
+// from a plain reader. The CLucene IndexWriter keeps a raw pointer to the analyzer it was made
+// with, which the LuceneBackedTextAnalyzer keeps alive. The index has no char filter of its own:
+// the writer gives array elements the index's char filter itself, which would apply it twice.
+void use_bridge(IndexColumnWriter* writer) {
+    auto* legacy =
+            static_cast<InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_STRING>*>(writer);
+    auto analyzer = std::make_shared<LuceneBackedTextAnalyzer>(legacy->_analyzer, CharFilterMap {});
+    legacy->set_analysis_for_test(std::make_shared<lucene::util::SStringReader<char>>(),
+                                  std::make_shared<LuceneAnalyzerBridge>(std::move(analyzer)));
 }
 
 struct WriteDigest {
@@ -281,6 +389,46 @@ TEST_F(AnalysisWriteGolden, MatchesTheFrozenDigests) {
         }
     }
     file.finish([](const std::string& name) { return name.starts_with(kWritePrefix); }, true);
+}
+
+// The V1 and V2 writers reach the analyzers through LuceneAnalyzerBridge once the consumers use
+// the TextAnalyzer interface. Through the bridge, over the analyzer in a LuceneBackedTextAnalyzer,
+// the V2 writer writes the terms, documents and positions it writes with the analyzer itself: the
+// frozen ones for a string column, and for an array column, whose elements take the other way
+// into the analyzer, the ones the analyzer itself gives, except where it gives none
+// (kOldArrayPathLosesElements).
+TEST_F(AnalysisWriteGolden, LuceneAnalyzerBridgeWritesTheSameV2Index) {
+    const std::vector<std::vector<std::string>> batches =
+            row_batches(default_families(_environment.corpus_sources()));
+    const ArrayRows arrays = array_rows(batches);
+    test::GoldenFile file(kGoldenFile);
+    for (const char* name : kConfigs) {
+        const auto config = std::ranges::find_if(
+                _configs, [&](const GoldenConfig& c) { return c.name == name; });
+        ASSERT_NE(config, _configs.end()) << name;
+        ASSERT_TRUE(get_parser_char_filter_map_from_properties(config->properties).empty()) << name;
+        const TabletIndex meta = index_meta(*config);
+        const std::string id = std::to_string(config - _configs.begin());
+        constexpr auto kV2 = InvertedIndexStorageFormatPB::V2;
+
+        const WriteDigest scalar = clucene_digest(
+                write_index("bridge_" + id, kV2, meta, batches, use_bridge), kV2, meta);
+        file.check(std::string(kWritePrefix) + "v2/" + config->name, "rows", scalar.count,
+                   scalar.digest, describe(*config));
+
+        const WriteDigest array =
+                clucene_digest(write_array_index("array_" + id, meta, arrays), kV2, meta);
+        const WriteDigest bridged_array = clucene_digest(
+                write_array_index("array_bridge_" + id, meta, arrays, use_bridge), kV2, meta);
+        EXPECT_GT(bridged_array.count, 0) << name;
+        if (kOldArrayPathLosesElements.contains(name)) {
+            EXPECT_EQ(array.count, 0) << name;
+        } else {
+            EXPECT_EQ(bridged_array.count, array.count) << name;
+            EXPECT_EQ(bridged_array.digest, array.digest) << name;
+        }
+    }
+    file.finish([](const std::string& name) { return name.starts_with(kWritePrefix); }, false);
 }
 
 } // namespace doris::segment_v2::inverted_index::golden
