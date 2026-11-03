@@ -331,14 +331,13 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             // 2. erase each expired database one at a time
             for (Long dbId : expiredIds) {
-                Database db;
                 writeLock();
                 try {
                     RecycleDatabaseInfo dbInfo = idToDatabase.remove(dbId);
                     if (dbInfo == null) {
                         continue;
                     }
-                    db = dbInfo.getDb();
+                    Database db = dbInfo.getDb();
                     idToRecycleTime.remove(dbId);
 
                     dbNameToIds.computeIfPresent(db.getFullName(), (k, v) -> {
@@ -352,7 +351,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 } finally {
                     writeUnlock();
                 }
-                FunctionUtil.cleanUdfCache(db);
             }
 
             // 3. erase exceed number
@@ -386,7 +384,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             readUnlock();
         }
         for (Long dbId : dbIdToErase) {
-            Database db;
             writeLock();
             try {
                 RecycleDatabaseInfo dbInfo = idToDatabase.get(dbId);
@@ -396,7 +393,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 if (!eraseAllTables(dbInfo)) {
                     continue;
                 }
-                db = dbInfo.getDb();
                 idToDatabase.remove(dbId);
                 idToRecycleTime.remove(dbId);
 
@@ -410,7 +406,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             } finally {
                 writeUnlock();
             }
-            FunctionUtil.cleanUdfCache(db);
         }
     }
 
@@ -1235,9 +1230,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             }
         } finally {
             writeUnlock();
-        }
-        if (dbInfo != null) {
-            FunctionUtil.cleanUdfCache(dbInfo.getDb());
         }
 
         // 2. collect tables with same dbId

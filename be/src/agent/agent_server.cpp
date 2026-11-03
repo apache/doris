@@ -189,7 +189,10 @@ void AgentServer::start_workers(StorageEngine& engine, ExecEnv* exec_env) {
             "UPDATE_VISIBLE_VERSION", 1, [&engine](auto&& task) { return visible_version_callback(engine, task); });
 
     _report_workers.push_back(std::make_unique<ReportWorker>(
-            "REPORT_TASK", _cluster_info, config::report_task_interval_seconds, [&cluster_info = _cluster_info] { report_task_callback(cluster_info); }));
+            "REPORT_TASK", _cluster_info, config::report_task_interval_seconds,
+            [&cluster_info = _cluster_info, next_python_udf_report_time = int64_t {0}]() mutable {
+                report_task_callback(cluster_info, next_python_udf_report_time);
+            }));
 
     _report_workers.push_back(std::make_unique<ReportWorker>(
             "REPORT_DISK_STATE", _cluster_info, config::report_disk_state_interval_seconds, [&engine, &cluster_info = _cluster_info] { report_disk_callback(engine, cluster_info); }));
@@ -256,7 +259,9 @@ void AgentServer::cloud_start_workers(CloudStorageEngine& engine, ExecEnv* exec_
 
     _report_workers.push_back(std::make_unique<ReportWorker>(
             "REPORT_TASK", _cluster_info, config::report_task_interval_seconds,
-            [&cluster_info = _cluster_info] { report_task_callback(cluster_info); }));
+            [&cluster_info = _cluster_info, next_python_udf_report_time = int64_t {0}]() mutable {
+                report_task_callback(cluster_info, next_python_udf_report_time);
+            }));
 
     _report_workers.push_back(std::make_unique<ReportWorker>(
             "REPORT_DISK_STATE", _cluster_info, config::report_disk_state_interval_seconds,

@@ -387,7 +387,7 @@ public class CreateFunctionTest extends TestWithFeService {
             Assertions.assertSame(existingFunction, db.getFunction(searchDesc(existingFunction)));
             Assertions.assertThrows(AnalysisException.class, () -> db.getFunction(searchDesc(failedFunction)));
             mockedFunctionUtil.verify(() -> FunctionUtil.removeFunctionImpl(
-                    Mockito.eq(failedFunction), Mockito.eq(true), Mockito.any()));
+                    Mockito.eq(failedFunction), Mockito.eq(true), Mockito.any(), Mockito.any()));
         } finally {
             Env.getCurrentEnv().setEditLog(editLog);
         }
@@ -460,10 +460,10 @@ public class CreateFunctionTest extends TestWithFeService {
                             Type.INT)));
             mockedFunctionUtil.verify(() -> FunctionUtil.removeFunctionImpl(
                     Mockito.argThat(function -> "rollback_table_fn".equals(function.functionName())),
-                    Mockito.eq(true), Mockito.any()));
+                    Mockito.eq(true), Mockito.any(), Mockito.any()));
             mockedFunctionUtil.verify(() -> FunctionUtil.removeFunctionImpl(
                     Mockito.argThat(function -> "rollback_table_fn_outer".equals(function.functionName())),
-                    Mockito.eq(true), Mockito.any()));
+                    Mockito.eq(true), Mockito.any(), Mockito.any()));
             mockedFunctionUtil.verify(() -> FunctionUtil.dropFromNereids(Mockito.eq("rollback_table_function_db"),
                     Mockito.argThat(function -> "rollback_table_fn".equals(function.getName().getFunction()))));
             mockedFunctionUtil.verify(() -> FunctionUtil.dropFromNereids(Mockito.eq("rollback_table_function_db"),
@@ -646,7 +646,7 @@ public class CreateFunctionTest extends TestWithFeService {
             Assertions.assertSame(existingFunction, globalFunctionMgr.getFunction(existingFunctionDesc));
             Assertions.assertThrows(AnalysisException.class, () -> globalFunctionMgr.getFunction(failedFunctionDesc));
             mockedFunctionUtil.verify(() -> FunctionUtil.removeFunctionImpl(
-                    Mockito.eq(failedFunction), Mockito.eq(true), Mockito.any()));
+                    Mockito.eq(failedFunction), Mockito.eq(true), Mockito.any(), Mockito.any()));
         } finally {
             Env.getCurrentEnv().setEditLog(editLog);
             globalFunctionMgr.dropFunction(existingFunctionDesc, true);

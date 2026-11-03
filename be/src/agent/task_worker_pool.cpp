@@ -1130,7 +1130,7 @@ void check_consistency_callback(StorageEngine& engine, const TAgentTaskRequest& 
     remove_task_info(req.task_type, req.signature);
 }
 
-void report_task_callback(const ClusterInfo* cluster_info) {
+void report_task_callback(const ClusterInfo* cluster_info, int64_t& next_python_udf_report_time) {
     TReportRequest request;
     if (config::report_random_wait) {
         random_sleep(5);
@@ -1148,10 +1148,21 @@ void report_task_callback(const ClusterInfo* cluster_info) {
     }
     request.__set_backend(BackendOptions::get_local_backend());
     request.__set_running_tasks(ExecEnv::GetInstance()->fragment_mgr()->running_query_num());
+    const auto now = MonotonicSeconds();
+    // Include Python UDF resources once every six hours.
+    if (now >= next_python_udf_report_time) {
+        auto function_ids = UserFunctionCache::instance()->collect_pyudf_ids();
+        auto runtime_ids = PythonServerManager::instance().collect_pyudf_ids();
+        function_ids.insert(runtime_ids.begin(), runtime_ids.end());
+        request.__set_python_udf_ids(function_ids);
+    }
     bool succ = handle_report(request, cluster_info, "task");
     report_task_total << 1;
     if (!succ) [[unlikely]] {
         report_task_failed << 1;
+    } else if (request.__isset.python_udf_ids) {
+        // Failed reports retry with the next task report.
+        next_python_udf_report_time = now + std::chrono::seconds(std::chrono::hours(6)).count();
     }
 }
 

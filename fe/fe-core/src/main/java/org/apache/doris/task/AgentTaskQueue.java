@@ -34,6 +34,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 /**
  * Task queue
@@ -95,6 +96,18 @@ public class AgentTaskQueue {
             LOG.debug("remove task: type[{}], backend[{}], signature[{}]", type, backendId, signature);
         }
         --taskNum;
+    }
+
+    public static synchronized void removeTasks(TTaskType type, Predicate<AgentTask> shouldRemove) {
+        for (Map<Long, AgentTask> taskSet : tasks.column(type).values()) {
+            Iterator<AgentTask> it = taskSet.values().iterator();
+            while (it.hasNext()) {
+                if (shouldRemove.test(it.next())) {
+                    it.remove();
+                    --taskNum;
+                }
+            }
+        }
     }
 
     public static synchronized void removeTask(long backendId, Consumer<AgentTask> onTaskRemoved) {

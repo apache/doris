@@ -452,6 +452,7 @@ public class InternalCatalog implements CatalogIf<Database> {
      * @param db
      */
     public void unprotectCreateDb(Database db) {
+        Env.getCurrentEnv().registerDbFunctionsById(db);
         idToDb.put(db.getId(), db);
         fullNameToDb.put(db.getFullName(), db);
         Env.getCurrentGlobalTransactionMgr().addDatabaseTransactionMgr(db.getId());
@@ -538,16 +539,13 @@ public class InternalCatalog implements CatalogIf<Database> {
 
                 Env.getCurrentRecycleBin().recycleDatabase(db, tableNames, tableIds, false, force, 0);
                 recycleTime = Env.getCurrentRecycleBin().getRecycleTimeById(db.getId());
-                if (force) {
-                    functionSignatures = db.getFunctions().stream()
-                            .filter(function -> function.getBinaryType() == Function.BinaryType.PYTHON_UDF)
-                            .collect(Collectors.toMap(Function::getId, Function::signatureString));
-                }
+                functionSignatures = FunctionUtil.collectPythonFunctions(db);
             } finally {
                 db.writeUnlock();
             }
 
             // 3. remove db from catalog
+            db.unregisterFunctionsById();
             idToDb.remove(db.getId());
             fullNameToDb.remove(db.getFullName());
             Env.getCurrentEnv().getFunctionRegistry().dropUdfByDb(db.getFullName());
@@ -559,7 +557,6 @@ public class InternalCatalog implements CatalogIf<Database> {
             unlock();
         }
 
-        // Recoverable databases retain their function generations until the recycle bin erases them.
         FunctionUtil.cleanUdfCache(functionSignatures);
         LOG.info("finish drop database[{}], is force : {}", dbName, force);
     }
@@ -609,6 +606,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 db.writeUnlock();
             }
 
+            db.unregisterFunctionsById();
             fullNameToDb.remove(dbName);
             idToDb.remove(db.getId());
             Env.getCurrentEnv().getFunctionRegistry().dropUdfByDb(dbName);
@@ -655,6 +653,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (!Strings.isNullOrEmpty(newDbName)) {
                 db.setNameWithLock(newDbName);
             }
+            Env.getCurrentEnv().registerDbFunctionsById(db);
             fullNameToDb.put(db.getFullName(), db);
             idToDb.put(db.getId(), db);
             // log
@@ -4207,10 +4206,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
                 throw new IOException(errMsg);
             }
-            idToDb.put(db.getId(), db);
-            fullNameToDb.put(db.getFullName(), db);
-            Env.getCurrentGlobalTransactionMgr().addDatabaseTransactionMgr(db.getId());
-
+            unprotectCreateDb(db);
             db.analyze();
         }
         // ATTN: this should be done after load Db, and before loadAlterJob
