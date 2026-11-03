@@ -21,16 +21,20 @@
 
 namespace doris {
 
-/// Placeholder for the future paimon-rust writer implementation. Keeping this
-/// backend in the factory makes the integration boundary explicit without
-/// introducing a BE commit contract that the Rust writer will not own.
+/// Rust file writer. Prepared messages are handed to the FE Java committer.
 class FfiPaimonWriteBackend final : public IPaimonWriteBackend {
 public:
+    FfiPaimonWriteBackend();
+    ~FfiPaimonWriteBackend() override;
     Status open(const TPaimonTableSink& sink, RuntimeState* state,
                 RuntimeProfile* profile) override;
     Status create_writer(std::unique_ptr<IPaimonWriter>* writer) override;
     Status close() override;
     PaimonBackendType type() const override { return PaimonBackendType::FFI; }
+
+private:
+    class Impl;
+    std::shared_ptr<Impl> _impl;
 };
 
 } // namespace doris
