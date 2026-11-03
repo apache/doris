@@ -122,8 +122,8 @@ public class VariantPropertyChangePolicyTest {
             templatedWithCount(count, "a").checkSchemaChangeAllowed(source);
         }
         Assertions.assertTrue(VariantPropertyChangePolicy.hasBudgetChange(source, templatedWithCount(5, "a")));
-        // A count change that also edits templates keeps master's children rule.
-        Assertions.assertEquals("Can not change variant schema templates",
+        // A count change that also edits templates is checked by the template ADD rules.
+        Assertions.assertEquals("Can not change variant schema templates: removed entry: a",
                 Assertions.assertThrows(DdlException.class,
                         () -> source.checkSchemaChangeAllowed(templatedWithCount(5, "b"))).getDetailMessage());
         // DOC mode still rejects the count change before the template check.
@@ -142,19 +142,163 @@ public class VariantPropertyChangePolicyTest {
                 false));
     }
 
+    private static final VariantField A = entry("a", Type.INT, PatternType.MATCH_NAME);
+    private static final VariantField GLOB = entry("a*", Type.STRING, PatternType.MATCH_NAME_GLOB);
+    private static final VariantField B = entry("b", Type.BIGINT, PatternType.MATCH_NAME);
+
+    private static VariantField entry(String pattern, Type type, PatternType mode) {
+        return new VariantField(pattern, type, "", mode);
+    }
+
+    private static Column templated(Map<String, Object> changes, VariantField... fields) {
+        return new Column("v", new VariantType(new ArrayList<>(List.of(fields)),
+                (int) changes.getOrDefault("count", 0),
+                (boolean) changes.getOrDefault("typedToSparse", false), 10000, 0,
+                (boolean) changes.getOrDefault("doc", false), 0L, 64,
+                (boolean) changes.getOrDefault("nested", false)));
+    }
+
+    private static String rejection(Column source, Column target) {
+        return Assertions.assertThrows(DdlException.class,
+                () -> source.checkSchemaChangeAllowed(target)).getDetailMessage();
+    }
+
     @Test
-    public void testTemplatesRemainRejectedEvenWhenUnchanged() {
-        Column templated = new Column("v", new VariantType(new ArrayList<>(List.of(
-                new VariantField("a", Type.INT, "", PatternType.MATCH_NAME)))));
-        Column plain = column(Map.of());
-        for (Column source : List.of(plain, templated)) {
-            Assertions.assertEquals("Can not change variant schema templates",
-                    Assertions.assertThrows(DdlException.class,
-                            () -> source.checkSchemaChangeAllowed(templated)).getDetailMessage());
-        }
+    public void testWithoutTemplateDeltaMasterChildrenRuleRemains() throws Exception {
+        Column templatedA = templated(Map.of(), A);
+        Assertions.assertFalse(VariantPropertyChangePolicy.hasTemplateChange(templatedA, templated(Map.of(), A)));
         Assertions.assertEquals("Can not change variant schema templates",
-                Assertions.assertThrows(DdlException.class,
-                        () -> templated.checkSchemaChangeAllowed(plain)).getDetailMessage());
+                rejection(templatedA, templated(Map.of(), A)));
+        // A count change on a column that already has templates is accepted, alone or with an ADD.
+        templatedA.checkSchemaChangeAllowed(templated(Map.of("count", 5), A));
+        templatedA.checkSchemaChangeAllowed(templated(Map.of("count", 5), A, B));
+        Assertions.assertTrue(VariantPropertyChangePolicy.hasTemplateChange(templatedA,
+                templated(Map.of("count", 5), A, B)));
+    }
+
+    @Test
+    public void testAppendOnlyTemplateChangesAccepted() throws Exception {
+        Column plain = column(Map.of());
+        Column templatedA = templated(Map.of(), A);
+        Assertions.assertTrue(VariantPropertyChangePolicy.hasTemplateChange(plain, templatedA));
+        plain.checkSchemaChangeAllowed(templatedA);
+        // Several appended entries, including a glob overlapping the retained exact entry.
+        templatedA.checkSchemaChangeAllowed(templated(Map.of(), A, GLOB, B));
+        // Count plus the first ADD on a template-less column passes both rules.
+        plain.checkSchemaChangeAllowed(templated(Map.of("count", 5), A));
+        Assertions.assertTrue(VariantPropertyChangePolicy.hasCountOrTemplateChange(plain, templatedA));
+    }
+
+    @Test
+    public void testTemplateChangesRejectedWithDesignMessages() {
+        Column templatedA = templated(Map.of(), A);
+        Column twoEntries = templated(Map.of(), A, GLOB);
+        Map<String, Column[]> cases = new java.util.LinkedHashMap<>();
+        cases.put("Can not change variant schema templates: removed entry: a",
+                new Column[] {twoEntries, templated(Map.of(), GLOB)});
+        cases.put("Can not change variant schema templates: removed entry: a ",
+                new Column[] {templatedA, column(Map.of())});
+        cases.put("Can not change variant schema templates: removed entry: a  ",
+                new Column[] {templatedA, templated(Map.of(), entry("A", Type.INT, PatternType.MATCH_NAME))});
+        cases.put("Can not change variant schema templates: removed entry: a   ",
+                new Column[] {templatedA, templated(Map.of(), B)});
+        cases.put("Can not change type of existing variant schema template entry: a",
+                new Column[] {templatedA, templated(Map.of(), entry("a", Type.BIGINT, PatternType.MATCH_NAME))});
+        cases.put("Can not change type of existing variant schema template entry: d",
+                new Column[] {templated(Map.of(), entry("d", ScalarType.createDecimalV3Type(10, 2),
+                        PatternType.MATCH_NAME)), templated(Map.of(), entry("d",
+                        ScalarType.createDecimalV3Type(12, 2), PatternType.MATCH_NAME))});
+        // Catalog ARRAY elements are always nullable, so nested nullability is exercised through STRUCT.
+        StructType nullableStruct = new StructType(new StructField("f", Type.INT, "", true));
+        StructType notNullStruct = new StructType(new StructField("f", Type.INT, "", false));
+        Column nullableS = templated(Map.of(), entry("s", nullableStruct, PatternType.MATCH_NAME));
+        Column notNullS = templated(Map.of(), entry("s", notNullStruct, PatternType.MATCH_NAME));
+        cases.put("Can not change nullability of existing variant schema template entry: s",
+                new Column[] {nullableS, notNullS});
+        cases.put("Can not change field_pattern_type of existing variant schema template entry: a",
+                new Column[] {templatedA, templated(Map.of(), entry("a", Type.INT, PatternType.MATCH_NAME_GLOB))});
+        cases.put("Can not change existing variant schema template entry: a",
+                new Column[] {templatedA, templated(Map.of(), new VariantField("a", Type.INT, "changed",
+                        PatternType.MATCH_NAME))});
+        cases.put("Can not reorder existing variant schema template entries",
+                new Column[] {twoEntries, templated(Map.of(), GLOB, A)});
+        cases.put("Can not reorder existing variant schema template entries ",
+                new Column[] {templatedA, templated(Map.of(), B, A)});
+        cases.put("Can not change variant schema templates on a DOC-mode column",
+                new Column[] {templated(Map.of("doc", true)), templated(Map.of("doc", true), A)});
+        cases.put("Can not change variant schema templates on a NestedGroup column",
+                new Column[] {templated(Map.of("nested", true)), templated(Map.of("nested", true), A)});
+        cases.put("Can not change variant schema templates when typed_paths_to_sparse is enabled",
+                new Column[] {templated(Map.of("typedToSparse", true)), templated(Map.of("typedToSparse", true), A)});
+        cases.put("Duplicate variant schema template entry: a",
+                new Column[] {templatedA, templated(Map.of(), A, entry("a", Type.INT, PatternType.MATCH_NAME))});
+        cases.put("Duplicate variant schema template entry: a ",
+                new Column[] {templatedA, templated(Map.of(), A, entry("a", Type.STRING,
+                        PatternType.MATCH_NAME_GLOB))});
+        cases.put("Can not add variant schema template entry with DECIMAL256 type: d",
+                new Column[] {column(Map.of()), templated(Map.of(), entry("d",
+                        ScalarType.createDecimalV3Type(76, 2), PatternType.MATCH_NAME))});
+        cases.put("Can not add variant schema template entry with DECIMAL256 type: arr",
+                new Column[] {templatedA, templated(Map.of(), A, entry("arr",
+                        new ArrayType(ScalarType.createDecimalV3Type(76, 2), true), PatternType.MATCH_NAME))});
+        // Keys carry trailing spaces only to keep repeated expectations distinct.
+        for (Map.Entry<String, Column[]> c : cases.entrySet()) {
+            Assertions.assertEquals(c.getKey().trim(), rejection(c.getValue()[0], c.getValue()[1]), c.getKey());
+        }
+    }
+
+    @Test
+    public void testTemplateAddMustBeIsolated() throws Exception {
+        Column plain = column(Map.of());
+        Column commented = templated(Map.of(), A);
+        commented.setComment("changed");
+        Assertions.assertEquals("Can not change variant schema templates together with other column attributes",
+                Assertions.assertThrows(DdlException.class, () -> VariantPropertyChangePolicy
+                        .checkPropertyChangeIsolated(plain, commented)).getMessage().replace("errCode = 2, "
+                                + "detailMessage = ", ""));
+        Column nullability = templated(Map.of(), A);
+        nullability.setIsAllowNull(!plain.isAllowNull());
+        Assertions.assertThrows(DdlException.class,
+                () -> VariantPropertyChangePolicy.checkPropertyChangeIsolated(plain, nullability));
+        VariantPropertyChangePolicy.checkPropertyChangeIsolated(plain, templated(Map.of(), A));
+        // Combined count + ADD reports the count diagnostic first.
+        Column both = templated(Map.of("count", 5), A);
+        both.setComment("changed");
+        Assertions.assertTrue(Assertions.assertThrows(DdlException.class,
+                () -> VariantPropertyChangePolicy.checkPropertyChangeIsolated(plain, both)).getMessage()
+                .contains("Can not change variant max subcolumns count together with other column attributes"));
+    }
+
+    @Test
+    public void testAppendedTemplatesSurviveJournalAndImageRoundTrip() throws Exception {
+        long seed = Long.getLong("variant.template.seed", 20261103L);
+        java.util.Random random = new java.util.Random(seed);
+        int added = 1 + random.nextInt(8);
+        System.out.println("variant template journal seed=" + seed + " added=" + added);
+        Type[] types = {Type.INT, Type.BIGINT, Type.STRING, Type.DOUBLE, new ArrayType(Type.INT, true)};
+        List<VariantField> fields = new ArrayList<>(List.of(A));
+        for (int i = 0; i < added; i++) {
+            fields.add(entry("p" + i + (random.nextBoolean() ? "*" : ""), types[random.nextInt(types.length)],
+                    random.nextBoolean() ? PatternType.MATCH_NAME : PatternType.MATCH_NAME_GLOB));
+        }
+        Column source = templated(Map.of(), A);
+        Column column = templated(Map.of(), fields.toArray(new VariantField[0]));
+        source.checkSchemaChangeAllowed(column);
+        Column image = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(column), Column.class);
+        Assertions.assertFalse(VariantPropertyChangePolicy.hasTemplateChange(column, image), "seed=" + seed);
+        Assertions.assertEquals(column, image, "seed=" + seed);
+        LinkedList<Column> schema = new LinkedList<>(List.of(column));
+        Map<Long, LinkedList<Column>> indexSchemaMap = new HashMap<>();
+        indexSchemaMap.put(2L, schema);
+        Map<Long, List<Column>> oldSchemaMap = new HashMap<>();
+        oldSchemaMap.put(2L, List.of(source));
+        TableAddOrDropColumnsInfo info = new TableAddOrDropColumnsInfo(
+                "", 1L, 2L, 2L, indexSchemaMap, oldSchemaMap, new HashMap<>(), new ArrayList<>(), 3L);
+        TableAddOrDropColumnsInfo replayed = GsonUtils.GSON.fromJson(
+                GsonUtils.GSON.toJson(info), TableAddOrDropColumnsInfo.class);
+        Column replayedColumn = replayed.getIndexSchemaMap().get(2L).get(0);
+        Assertions.assertFalse(VariantPropertyChangePolicy.hasTemplateChange(column, replayedColumn), "seed=" + seed);
+        Assertions.assertEquals(column.getChildren(), replayedColumn.getChildren(), "seed=" + seed);
     }
 
     @Test

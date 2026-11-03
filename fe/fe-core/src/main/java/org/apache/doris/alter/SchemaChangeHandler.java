@@ -1023,14 +1023,14 @@ public class SchemaChangeHandler extends AlterHandler {
                         lightSchemaChange = olapTable.getEnableLightSchemaChange();
                     }
                     if (col.getType().isVariantType() && modColumn.getType().isVariantType()
-                            && VariantPropertyChangePolicy.hasBudgetChange(col, modColumn)) {
+                            && VariantPropertyChangePolicy.hasCountOrTemplateChange(col, modColumn)) {
                         if (columnPos != null) {
                             throw new DdlException("Can not change variant properties together with column position");
                         }
                         VariantPropertyChangePolicy.checkPropertyChangeIsolated(col, modColumn);
                     }
                     // variant property-only change (e.g. variant_doc_materialization_min_rows,
-                    // variant_max_subcolumns_count)
+                    // variant_max_subcolumns_count, appended schema template entries)
                     if (columnPos == null && col.getDataType() == PrimitiveType.VARIANT
                             && modColumn.getDataType() == PrimitiveType.VARIANT) {
                         lightSchemaChange = olapTable.getEnableLightSchemaChange();

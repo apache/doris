@@ -296,6 +296,113 @@ suite("test_variant_modify_max_subcolumns_count", "p0") {
     }
     sql "DROP TABLE IF EXISTS ${tplTable}"
 
+    // ADDed templates over pre-existing dynamic data: old n* cells are dynamic BIGINT (exact match
+    // with the added BIGINT template, so compaction may keep a typed leaf) and old m* cells are
+    // dynamic BIGINT under an added STRING template (mismatch: old values stay uncast in a
+    // carrier). Oracle: an identical control table that never gets the templates.
+    def addTable = "test_variant_budget_add_template"
+    def addCtl = "test_variant_budget_add_template_ctl"
+    def addKey = 5000
+    def addRows = [:]
+    def addJson = { int key, boolean afterAdd ->
+        def obj = [:]
+        if (rnd.nextInt(4) != 0) {
+            obj["n1"] = rnd.nextInt(1000)
+        }
+        if (rnd.nextInt(4) != 0) {
+            obj["m1"] = afterAdd ? "m${rnd.nextInt(1000)}".toString() : rnd.nextInt(1000)
+        }
+        obj["d0"] = rnd.nextInt(1000)
+        obj["k"] = key
+        addRows[key] = obj
+        groovy.json.JsonOutput.toJson(obj)
+    }
+    for (t in [addTable, addCtl]) {
+        sql "DROP TABLE IF EXISTS ${t}"
+        sql """
+            CREATE TABLE ${t} (k INT, v ${variantType(2)})
+            DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
+            PROPERTIES ("replication_num" = "1", "disable_auto_compaction" = "true");
+        """
+    }
+    def addLoad = { int rows, boolean afterAdd ->
+        List<String> values = []
+        for (int i = 0; i < rows; i++) {
+            int key = addKey++
+            values << "(${key}, parse_to_variant('${addJson(key, afterAdd)}'))"
+        }
+        for (t in [addTable, addCtl]) {
+            sql "INSERT INTO ${t} VALUES ${values.join(',')}"
+            assertLoaded(t, addKey - rows, addKey - 1)
+        }
+    }
+    def addVerify = { String stage ->
+        logger.info("variant add template verify ${stage}")
+        // Whole values use an exact oracle: old m* cells keep their BIGINT values (D1), while the control
+        // table's dynamic m1 may be promoted to a common type by its own compaction.
+        String wholeQuery = "SELECT k, CAST(v AS STRING) FROM @T ORDER BY k"
+        def whole = sql wholeQuery.replace("@T", addTable)
+        assertEquals(addRows.keySet().sort(), whole.collect { it[0] as int }, "seed=${seed} ${stage} keys")
+        for (def row : whole) {
+            assertEquals(addRows[row[0] as int], new groovy.json.JsonSlurper().parseText(row[1]),
+                    "seed=${seed} ${stage} exact value of k=${row[0]}")
+        }
+        for (String query : [
+                wholeQuery,
+                "SELECT k, CAST(v['n1'] AS BIGINT), CAST(v['m1'] AS STRING) FROM @T ORDER BY k",
+                "SELECT k FROM @T WHERE CAST(v['n1'] AS BIGINT) > 500 ORDER BY k",
+                "SELECT COUNT(*) FROM @T WHERE v['m1'] IS NOT NULL"]) {
+            sql "set enable_inverted_index_query = true"
+            def indexed = sql query.replace("@T", addTable)
+            sql "set enable_inverted_index_query = false"
+            def scanned = sql query.replace("@T", addTable)
+            sql "set enable_inverted_index_query = true"
+            def expected = sql query.replace("@T", addCtl)
+            if (query != wholeQuery) {
+                assertEquals(expected, indexed, "seed=${seed} ${stage}: ${query}")
+            }
+            assertEquals(scanned, indexed, "seed=${seed} ${stage} index on/off: ${query}")
+        }
+    }
+    addLoad(20, false)
+    for (t in [addTable, addCtl]) {
+        fullCompaction(t)
+    }
+    addLoad(10, false)
+    addVerify("add-template before ADD")
+    sql "ALTER TABLE ${addTable} MODIFY COLUMN v variant<'n*' : bigint, 'm*' : string, properties(\"variant_max_subcolumns_count\" = \"2\")>"
+    addVerify("add-template after ADD")
+    [0, 1, n, 0].eachWithIndex { int budget, int step ->
+        sql "ALTER TABLE ${addTable} MODIFY COLUMN v variant<'n*' : bigint, 'm*' : string, properties(\"variant_max_subcolumns_count\" = \"${budget}\")>"
+        sql "ALTER TABLE ${addCtl} MODIFY COLUMN v ${variantType(budget)}"
+        addLoad(5 + rnd.nextInt(10), true)
+        addVerify("add-template step ${step} budget ${budget} after load")
+        for (t in [addTable, addCtl]) {
+            trigger_and_wait_compaction(t, "cumulative", 300)
+            fullCompaction(t)
+        }
+        addVerify("add-template step ${step} budget ${budget} after compaction")
+    }
+    for (t in [addTable, addCtl]) {
+        sql "ALTER TABLE ${t} ADD COLUMN c9 INT DEFAULT '0'"
+        sql "ALTER TABLE ${t} MODIFY COLUMN c9 BIGINT DEFAULT '0'"
+        waitForSchemaChangeDone {
+            sql "SHOW ALTER TABLE COLUMN WHERE TableName='${t}' ORDER BY createtime DESC LIMIT 1"
+            time 600
+        }
+    }
+    // Intended behavior: heavy SC rewrites old values under the current template, so old BIGINT m*
+    // cells become STRING under the added 'm*' : string template (n* already match BIGINT).
+    addRows.each { rk, obj -> if (obj["m1"] instanceof Integer) { obj["m1"] = obj["m1"].toString() } }
+    addVerify("add-template after heavy schema change")
+    for (t in [addTable, addCtl]) {
+        fullCompaction(t)
+    }
+    addVerify("add-template after heavy schema change compaction")
+    for (t in [addTable, addCtl]) {
+        sql "DROP TABLE IF EXISTS ${t}"
+    }
+
     // DOC mode: the parser normalizes DOC budgets to 0, and switching DOC off stays immutable.
     def docTable = "test_variant_budget_alter_doc"
     sql "DROP TABLE IF EXISTS ${docTable}"

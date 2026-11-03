@@ -32,6 +32,7 @@ import org.apache.doris.catalog.PatternType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.VariantPropertyChangePolicy;
 import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.DdlException;
@@ -912,6 +913,157 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             Assertions.assertEquals(1, v.getChildren().size());
             Assertions.assertEquals(PatternType.MATCH_NAME, v.getChildren().get(0).getFieldPatternType());
             Assertions.assertEquals(replicaIndexId, replica.getBaseIndexId());
+        } finally {
+            replica.readUnlock();
+        }
+        Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2().values()
+                .removeIf(job -> job.getTableId() == tbl.getId() || job.getTableId() == replica.getId());
+    }
+
+    @Test
+    public void testVariantTemplateAddIsLightAndRejectsOtherChanges() throws Exception {
+        String tableName = "sc_variant_template_add";
+        dropTable("test." + tableName, false);
+        createTable("CREATE TABLE test." + tableName + " (\n"
+                + "id INT,\n"
+                + "name VARCHAR(10),\n"
+                + "v VARIANT<MATCH_NAME 'a':int>\n"
+                + ") DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true');");
+        String prefix = "ALTER TABLE test." + tableName + " MODIFY COLUMN v ";
+        expectException(prefix + "VARIANT<MATCH_NAME 'a':int, MATCH_NAME_GLOB 'b*':string> AFTER id",
+                "Can not change variant properties together with column position");
+        expectException(prefix + "VARIANT<MATCH_NAME 'a':int, MATCH_NAME_GLOB 'b*':string> COMMENT 'changed'",
+                "Can not change variant schema templates together with other column attributes");
+        expectException(prefix + "VARIANT<MATCH_NAME_GLOB 'b*':string>",
+                "Can not change variant schema templates: removed entry: a");
+        expectException(prefix + "VARIANT<MATCH_NAME 'a':bigint>",
+                "Can not change type of existing variant schema template entry: a");
+        expectException(prefix + "VARIANT<MATCH_NAME_GLOB 'b*':string, MATCH_NAME 'a':int>",
+                "Can not reorder existing variant schema template entries");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        long indexId = tbl.getBaseIndexId();
+        alterTable(prefix + "VARIANT<MATCH_NAME 'a':int, MATCH_NAME_GLOB 'b*':string>", connectContext);
+        waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
+        tbl.readLock();
+        try {
+            Column v = tbl.getColumn("v");
+            Assertions.assertEquals(2, v.getChildren().size());
+            Assertions.assertEquals("a", v.getChildren().get(0).getName());
+            Assertions.assertEquals("b*", v.getChildren().get(1).getName());
+            Assertions.assertEquals(PatternType.MATCH_NAME_GLOB, v.getChildren().get(1).getFieldPatternType());
+            Assertions.assertEquals(2, tbl.getBaseSchema().indexOf(v));
+            // Light route: same index, no shadow index created.
+            Assertions.assertEquals(indexId, tbl.getBaseIndexId());
+        } finally {
+            tbl.readUnlock();
+        }
+        Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2().values()
+                .removeIf(job -> job.getTableId() == tbl.getId());
+    }
+
+    @Test
+    public void testVariantTemplateAddFromEmptyIsLightAndReplays() throws Exception {
+        String tableName = "sc_variant_template_add_empty";
+        String replicaName = tableName + "_replica";
+        String docName = tableName + "_doc";
+        String ddl = " (\n"
+                + "id INT,\n"
+                + "v VARIANT<PROPERTIES(\"variant_max_subcolumns_count\" = \"2\")>,\n"
+                + "INDEX idx_v (v) USING INVERTED\n"
+                + ") DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true');";
+        for (String name : new String[] {tableName, replicaName, docName}) {
+            dropTable("test." + name, false);
+        }
+        createTable("CREATE TABLE test." + tableName + ddl);
+        createTable("CREATE TABLE test." + replicaName + ddl);
+        createTable("CREATE TABLE test." + docName + " (\n"
+                + "id INT,\n"
+                + "v VARIANT<PROPERTIES(\"variant_enable_doc_mode\" = \"true\")>\n"
+                + ") DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true');");
+        // DOC mode rejects the first template just like any later one (D7).
+        expectException("ALTER TABLE test." + docName + " MODIFY COLUMN v VARIANT<MATCH_NAME_GLOB 'b*':string, "
+                + "PROPERTIES(\"variant_enable_doc_mode\" = \"true\")>",
+                "Can not change variant schema templates on a DOC-mode column");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        OlapTable replica = (OlapTable) db.getTableOrMetaException(replicaName, Table.TableType.OLAP);
+        long indexId = tbl.getBaseIndexId();
+        List<List<String>> paths = List.of(List.of("b1"), List.of("x"), List.of("n1"));
+        List<Index> rootBefore = new java.util.ArrayList<>();
+        tbl.readLock();
+        try {
+            Assertions.assertTrue(tbl.getColumn("v").getChildren() == null
+                    || tbl.getColumn("v").getChildren().isEmpty());
+            for (List<String> path : paths) {
+                rootBefore.add(tbl.getInvertedIndex(tbl.getColumn("v"), path, null));
+            }
+        } finally {
+            tbl.readUnlock();
+        }
+        Assertions.assertNotNull(rootBefore.get(0));
+
+        alterTable("ALTER TABLE test." + tableName + " MODIFY COLUMN v VARIANT<MATCH_NAME_GLOB 'b*':string, "
+                + "MATCH_NAME 'n1':bigint, PROPERTIES(\"variant_max_subcolumns_count\" = \"2\")>", connectContext);
+        waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
+        LinkedList<Column> newSchema = new LinkedList<>();
+        tbl.readLock();
+        try {
+            Column v = tbl.getColumn("v");
+            Assertions.assertEquals(2, v.getChildren().size());
+            Assertions.assertEquals("b*", v.getChildren().get(0).getName());
+            Assertions.assertEquals(PatternType.MATCH_NAME_GLOB, v.getChildren().get(0).getFieldPatternType());
+            Assertions.assertEquals("n1", v.getChildren().get(1).getName());
+            Assertions.assertEquals(PatternType.MATCH_NAME, v.getChildren().get(1).getFieldPatternType());
+            Assertions.assertEquals(2, v.getVariantMaxSubcolumnsCount());
+            // Light route: same index, no shadow index created.
+            Assertions.assertEquals(indexId, tbl.getBaseIndexId());
+            // No field_pattern index can exist on a template-less column, so the root index stays the
+            // binding for every path: new template paths fall back to it, other paths keep it.
+            for (int i = 0; i < paths.size(); i++) {
+                Assertions.assertEquals(rootBefore.get(i), tbl.getInvertedIndex(v, paths.get(i), null),
+                        String.join(".", paths.get(i)));
+            }
+            // Image: the table and the column keep the appended templates through GSON.
+            OlapTable image = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(tbl), OlapTable.class);
+            Column imageV = image.getColumn("v");
+            Assertions.assertEquals(v.getChildren(), imageV.getChildren());
+            Assertions.assertFalse(VariantPropertyChangePolicy.hasTemplateChange(v, imageV));
+            for (Column column : tbl.getBaseSchema(true)) {
+                newSchema.add(GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(column), Column.class));
+            }
+        } finally {
+            tbl.readUnlock();
+        }
+
+        // Journal: replay the persisted light modify onto an identical template-less table.
+        Map<Long, LinkedList<Column>> indexSchemaMap = Maps.newHashMap();
+        indexSchemaMap.put(replica.getBaseIndexId(), newSchema);
+        TableAddOrDropColumnsInfo info = new TableAddOrDropColumnsInfo("", db.getId(), replica.getId(),
+                replica.getBaseIndexId(), indexSchemaMap, replica.getCopiedIndexIdToSchema(true, true),
+                Maps.newHashMap(replica.getIndexNameToId()), replica.getCopiedIndexes(),
+                Env.getCurrentEnv().getNextId());
+        TableAddOrDropColumnsInfo replayed = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(info),
+                TableAddOrDropColumnsInfo.class);
+        Env.getCurrentEnv().getSchemaChangeHandler().replayModifyTableLightSchemaChange(replayed);
+        Column newV = newSchema.stream().filter(c -> c.getName().equals("v")).findFirst().get();
+        replica.readLock();
+        try {
+            Column v = replica.getColumn("v");
+            Assertions.assertEquals(newV.getChildren(), v.getChildren());
+            Assertions.assertFalse(VariantPropertyChangePolicy.hasTemplateChange(newV, v));
+            Assertions.assertEquals(2, v.getVariantMaxSubcolumnsCount());
+            for (int i = 0; i < paths.size(); i++) {
+                Assertions.assertEquals(rootBefore.get(i).getIndexName(),
+                        replica.getInvertedIndex(v, paths.get(i), null).getIndexName());
+            }
         } finally {
             replica.readUnlock();
         }

@@ -183,4 +183,27 @@ public class VariantTemplateIndexBinderTest {
         Assertions.assertEquals(List.of(root), VariantTemplateIndexBinder.getMatchingIndexes(
                 column(), List.of("x"), List.of(index, root)));
     }
+
+    @Test
+    public void testAppendedTemplatesKeepExistingBindings() {
+        VariantField exact = field("a", Type.INT, PatternType.MATCH_NAME);
+        VariantField glob = field("k*", Type.STRING, PatternType.MATCH_NAME_GLOB);
+        Column before = column(exact, glob);
+        // Appended entries: an overlapping glob and a new exact entry.
+        Column after = column(exact, glob, field("*", Type.STRING, PatternType.MATCH_NAME_GLOB),
+                field("z", Type.BIGINT, PatternType.MATCH_NAME));
+        List<Index> indexes = List.of(index(1, "a"), index(2, "k*"), index(3, ""));
+        for (String path : List.of("a", "k1", "kz", "z", "other")) {
+            List<Index> old = VariantTemplateIndexBinder.getMatchingIndexes(before, List.of(path), indexes);
+            List<Index> now = VariantTemplateIndexBinder.getMatchingIndexes(after, List.of(path), indexes);
+            if (!old.isEmpty() && !old.get(0).getInvertedIndexFieldPattern().isEmpty()) {
+                Assertions.assertEquals(old, now, path);
+            } else {
+                // Previously dynamic paths now hit a new entry, which no existing field-pattern index names.
+                for (Index index : now) {
+                    Assertions.assertTrue(index.getInvertedIndexFieldPattern().isEmpty(), path);
+                }
+            }
+        }
+    }
 }

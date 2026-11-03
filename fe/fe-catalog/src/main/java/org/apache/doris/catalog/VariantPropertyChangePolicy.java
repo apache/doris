@@ -23,8 +23,10 @@ import org.apache.commons.collections4.CollectionUtils;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Function;
 
 /** Statement-time validation of Variant write-property changes; not used during metadata replay. */
@@ -52,8 +54,9 @@ public final class VariantPropertyChangePolicy {
                 "Can not change variant enable nested group"),
         DOC_MATERIALIZATION_MIN_ROWS("variantDocMaterializationMinRows", ChangeKind.LIGHT,
                 Column::getvariantDocMaterializationMinRows),
-        FIELDS("fields", ChangeKind.TEMPLATE, null),
-        FIELD_MAP("fieldMap", ChangeKind.TEMPLATE, null);
+        // fieldMap is derived from fields (keyed by pattern), so both are judged by the ordered entry list.
+        FIELDS("fields", ChangeKind.TEMPLATE, VariantPropertyChangePolicy::templates),
+        FIELD_MAP("fieldMap", ChangeKind.TEMPLATE, VariantPropertyChangePolicy::templates);
 
         final String serializedName;
         final ChangeKind kind;
@@ -92,13 +95,96 @@ public final class VariantPropertyChangePolicy {
         if (source.getVariantEnableDocMode() && FieldPolicy.MAX_SUBCOLUMNS_COUNT.changed(source, target)) {
             throw new DdlException("Can not change variant max subcolumns count on a DOC-mode column");
         }
+        if (hasTemplateChange(source, target)) {
+            checkTemplateAdd(source, target);
+            return;
+        }
         // A pure count change keeps every template entry, so master's children rule does not apply to it.
-        if (hasBudgetChange(source, target) && sameEntries(templates(source), templates(target))) {
+        if (hasBudgetChange(source, target)) {
             return;
         }
         // Otherwise both persisted template fields follow master's children rule, even when unchanged.
         if (CollectionUtils.isNotEmpty(source.getChildren()) || CollectionUtils.isNotEmpty(target.getChildren())) {
             throw new DdlException("Can not change variant schema templates");
+        }
+    }
+
+    /** True when any TEMPLATE-kind persisted field differs, comparing every stored entry attribute. */
+    public static boolean hasTemplateChange(Column source, Column target) {
+        for (FieldPolicy field : FieldPolicy.values()) {
+            if (field.kind == ChangeKind.TEMPLATE && !sameEntries(templates(source), templates(target))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** The light route carries only a count delta, a template ADD, or both. */
+    public static boolean hasCountOrTemplateChange(Column source, Column target) {
+        return hasBudgetChange(source, target) || hasTemplateChange(source, target);
+    }
+
+    // D9: templates are ADD-only. Old entries must survive unchanged as an identical prefix.
+    static void checkTemplateAdd(Column source, Column target) throws DdlException {
+        if (source.getVariantEnableDocMode()) {
+            throw new DdlException("Can not change variant schema templates on a DOC-mode column");
+        }
+        if (source.getVariantEnableNestedGroup()) {
+            throw new DdlException("Can not change variant schema templates on a NestedGroup column");
+        }
+        if (source.getVariantEnableTypedPathsToSparse()) {
+            throw new DdlException("Can not change variant schema templates when typed_paths_to_sparse is enabled");
+        }
+        List<VariantField> oldEntries = templates(source);
+        List<VariantField> newEntries = templates(target);
+        for (VariantField oldEntry : oldEntries) {
+            String pattern = oldEntry.getPattern();
+            VariantField newEntry = null;
+            for (VariantField candidate : newEntries) {
+                if (candidate.getPattern().equals(pattern)) {
+                    newEntry = candidate;
+                    break;
+                }
+            }
+            if (newEntry == null) {
+                throw new DdlException("Can not change variant schema templates: removed entry: " + pattern);
+            }
+            if (patternType(oldEntry) != patternType(newEntry)) {
+                throw new DdlException(
+                        "Can not change field_pattern_type of existing variant schema template entry: " + pattern);
+            }
+            if (nullabilityDiffers(oldEntry.getType(), newEntry.getType())) {
+                throw new DdlException(
+                        "Can not change nullability of existing variant schema template entry: " + pattern);
+            }
+            if (!oldEntry.getType().equals(newEntry.getType())) {
+                throw new DdlException("Can not change type of existing variant schema template entry: " + pattern);
+            }
+            if (!sameEntry(oldEntry, newEntry)) {
+                throw new DdlException("Can not change existing variant schema template entry: " + pattern);
+            }
+        }
+        for (int i = 0; i < oldEntries.size(); i++) {
+            if (!oldEntries.get(i).getPattern().equals(newEntries.get(i).getPattern())) {
+                throw new DdlException("Can not reorder existing variant schema template entries");
+            }
+        }
+        // Pattern text identifies an entry (fieldMap and index field_pattern are keyed by it), so a new
+        // entry may not reuse an existing pattern under any match mode. Overlapping globs are allowed:
+        // the retained prefix keeps first-match precedence for every old entry.
+        Set<String> patterns = new HashSet<>();
+        for (VariantField oldEntry : oldEntries) {
+            patterns.add(oldEntry.getPattern());
+        }
+        for (int i = oldEntries.size(); i < newEntries.size(); i++) {
+            VariantField added = newEntries.get(i);
+            if (!patterns.add(added.getPattern())) {
+                throw new DdlException("Duplicate variant schema template entry: " + added.getPattern());
+            }
+            if (containsDecimal256(added.getType())) {
+                throw new DdlException(
+                        "Can not add variant schema template entry with DECIMAL256 type: " + added.getPattern());
+            }
         }
     }
 
@@ -170,17 +256,37 @@ public final class VariantPropertyChangePolicy {
         return false;
     }
 
+    private static boolean containsDecimal256(Type type) {
+        if (type instanceof ArrayType) {
+            return containsDecimal256(((ArrayType) type).getItemType());
+        }
+        if (type instanceof MapType) {
+            return containsDecimal256(((MapType) type).getKeyType())
+                    || containsDecimal256(((MapType) type).getValueType());
+        }
+        if (type instanceof StructType) {
+            for (StructField field : ((StructType) type).getFields()) {
+                if (containsDecimal256(field.getType())) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        return type.getPrimitiveType() == PrimitiveType.DECIMAL256;
+    }
+
     /** True when the dynamic subcolumn budget differs. Only this delta is new in the light route. */
     public static boolean hasBudgetChange(Column source, Column target) {
         return FieldPolicy.MAX_SUBCOLUMNS_COUNT.changed(source, target);
     }
 
     /**
-     * A budget change is accepted only as a pure Variant property change, so it never carries
-     * nullability, default, comment, key or aggregation deltas through the light route.
+     * A count change or template ADD is accepted only as a pure Variant property change, so it never
+     * carries nullability, default, comment, key or aggregation deltas through the light route.
      */
     public static void checkPropertyChangeIsolated(Column source, Column target) throws DdlException {
-        if (!hasBudgetChange(source, target)) {
+        boolean budget = hasBudgetChange(source, target);
+        if (!budget && !hasTemplateChange(source, target)) {
             return;
         }
         if (source.isAllowNull() != target.isAllowNull()
@@ -188,8 +294,9 @@ public final class VariantPropertyChangePolicy {
                 || !Objects.equals(source.getComment(), target.getComment())
                 || source.isKey() != target.isKey()
                 || !Objects.equals(source.getAggregationType(), target.getAggregationType())) {
-            throw new DdlException(
-                    "Can not change variant max subcolumns count together with other column attributes");
+            throw new DdlException(budget
+                    ? "Can not change variant max subcolumns count together with other column attributes"
+                    : "Can not change variant schema templates together with other column attributes");
         }
     }
 }
