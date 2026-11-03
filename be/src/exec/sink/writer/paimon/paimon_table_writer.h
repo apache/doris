@@ -35,7 +35,7 @@ class RuntimeState;
 /// owns one IPaimonWriteBackend and one IPaimonWriter. Pipeline parallelism
 /// therefore determines the number of independent Paimon writer sessions;
 /// each writer session delegates partition and bucket routing to the Paimon
-/// SDK (Java via JNI, or Rust via FFI in the future).
+/// SDK (Java via JNI or Rust via FFI).
 ///
 /// Doris does NOT compute partition values or bucket ids — it passes complete
 /// Blocks through the selected backend (JNI/FFI) to the Paimon SDK, which
