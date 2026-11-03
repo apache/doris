@@ -43,6 +43,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * The real thrift dispatcher against real sockets and the real shared backend pool: the
@@ -54,6 +55,37 @@ import java.util.concurrent.Executors;
  * clean NOT_IMPLEMENTED rejection the shipped backend stub gives.
  */
 public class LanceIndexMutationDispatcherTest {
+
+    @Test
+    public void expiredWhileBorrowingNeverSendsAndInvalidatesConnection() throws Exception {
+        BackendService.Client client = Mockito.mock(BackendService.Client.class);
+        GenericPool<BackendService.Client> pool = mockedPoolReturning(client);
+        TLanceIndexMutationRequest wire = request();
+        Mockito.when(pool.borrowObject(Mockito.any(TNetworkAddress.class), Mockito.anyInt())).thenAnswer(call -> {
+            wire.setDeadlineMs(System.currentTimeMillis() - 1L);
+            return client;
+        });
+        Assertions.assertThrows(LanceIndexMutationDispatcher.PreDispatchTransportException.class,
+                () -> new ThriftLanceIndexMutationDispatcher(pool).dispatch(wire, backendAt("127.0.0.1", 9020), 5_000L));
+        Mockito.verify(client, Mockito.never()).lanceIndexMutate(Mockito.any());
+        Mockito.verify(pool).invalidateObject(Mockito.any(), Mockito.eq(client));
+    }
+
+    @Test
+    public void cancelledWhileBorrowingNeverSendsAndInvalidatesConnection() throws Exception {
+        BackendService.Client client = Mockito.mock(BackendService.Client.class);
+        GenericPool<BackendService.Client> pool = mockedPoolReturning(client);
+        AtomicBoolean cancelled = new AtomicBoolean();
+        Mockito.when(pool.borrowObject(Mockito.any(TNetworkAddress.class), Mockito.anyInt())).thenAnswer(call -> {
+            cancelled.set(true);
+            return client;
+        });
+        Assertions.assertThrows(LanceIndexMutationDispatcher.PreDispatchTransportException.class,
+                () -> new ThriftLanceIndexMutationDispatcher(pool).dispatch(request(), backendAt("127.0.0.1", 9020),
+                        5_000L, () -> !cancelled.get()));
+        Mockito.verify(client, Mockito.never()).lanceIndexMutate(Mockito.any());
+        Mockito.verify(pool).invalidateObject(Mockito.any(), Mockito.eq(client));
+    }
 
     @Test
     public void connectionRefusalIsTypedAsPreDispatchFailure() throws Exception {

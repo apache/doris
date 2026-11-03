@@ -24,6 +24,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.lance.index.LanceIndexInspection;
+import org.apache.doris.datasource.lance.index.LanceIndexInspectionExecutor;
 import org.apache.doris.datasource.lance.index.LanceIndexMutationExecutor.PreflightResult;
 import org.apache.doris.datasource.lance.index.LanceShowIndexInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
@@ -36,9 +37,12 @@ import org.lance.schema.LanceField;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.Callable;
 import javax.annotation.Nullable;
 
 /**
@@ -98,6 +102,13 @@ public final class LanceIndexAdmission {
         return admitCreate(DEFAULT_LOADER, catalog, db, table, def, ifNotExists);
     }
 
+    public static LanceIndexMutationPlan admitCreate(LanceExternalCatalog catalog,
+            LanceExternalDatabase db, LanceExternalTable table, IndexDefinition def,
+            boolean ifNotExists, long deadlineMs) throws Exception {
+        return withAdmissionBudget(deadlineMs,
+                () -> admitCreate(DEFAULT_LOADER, catalog, db, table, def, ifNotExists));
+    }
+
     @Nullable
     static LanceIndexMutationPlan admitCreate(SnapshotLoader loader, LanceExternalCatalog catalog,
             LanceExternalDatabase db, LanceExternalTable table, IndexDefinition def, boolean ifNotExists)
@@ -108,6 +119,7 @@ public final class LanceIndexAdmission {
         // static layer rejects it first and this is the defense-in-depth copy at admission depth.
         String displayName = def.getIndexName();
         String normalizedName = LanceIndexNameNormalizer.normalize(displayName);
+        long deadlineMs = LanceIndexInspectionExecutor.statementDeadlineMs();
         LanceIndexMutationValidator.rejectIfReservedIndexName(displayName);
         // 2. One pinned snapshot for every authoritative decision below.
         CatalogMgr catalogMgr = Env.getCurrentEnv().getCatalogMgr();
@@ -142,12 +154,18 @@ public final class LanceIndexAdmission {
         return catalogMgr.withLanceIndexAdmission(catalog, target, () -> new LanceIndexMutationPlan(
                 catalog,
                 def.isOrReplace() ? TLanceIndexMutationType.REPLACE : TLanceIndexMutationType.CREATE,
-                snapshot.getDatasetUri(), snapshot.getDatasetVersion(), normalizedName,
+                snapshot.getDatasetUri(), snapshot.getDatasetVersion(), normalizedName, displayName,
                 storedColumn, requestedAlgorithm(def), def.getProperties(), ifNotExists, false,
                 schemaContract,
-                () -> decideCreateAgainstSnapshot(
-                        loader.load(catalog, db.getRemoteName(), table.getRemoteName()),
-                        def, ifNotExists, displayName, normalizedName)));
+                () -> withAdmissionBudget(deadlineMs, () -> {
+                    catalogMgr.withLanceIndexAdmission(catalog, target, () -> null);
+                    LanceIndexAdmissionSnapshot current = loader.load(
+                            catalog, db.getRemoteName(), table.getRemoteName());
+                    return catalogMgr.withLanceIndexAdmission(catalog, target, () -> {
+                        requireSameDataset(snapshot, current);
+                        return decideCreateAgainstSnapshot(current, def, ifNotExists, displayName, normalizedName);
+                    });
+                })));
     }
 
     /**
@@ -165,6 +183,13 @@ public final class LanceIndexAdmission {
         return admitDrop(DEFAULT_LOADER, catalog, db, table, indexName, ifExists);
     }
 
+    public static LanceIndexMutationPlan admitDrop(LanceExternalCatalog catalog,
+            LanceExternalDatabase db, LanceExternalTable table, String indexName,
+            boolean ifExists, long deadlineMs) throws Exception {
+        return withAdmissionBudget(deadlineMs,
+                () -> admitDrop(DEFAULT_LOADER, catalog, db, table, indexName, ifExists));
+    }
+
     @Nullable
     static LanceIndexMutationPlan admitDrop(SnapshotLoader loader, LanceExternalCatalog catalog,
             LanceExternalDatabase db, LanceExternalTable table, String indexName, boolean ifExists)
@@ -172,6 +197,7 @@ public final class LanceIndexAdmission {
         // Fail cheap-first: the reserved prefix is rejected before target capture and the
         // snapshot read, so it costs no remote read.
         String normalizedName = LanceIndexNameNormalizer.normalize(indexName);
+        long deadlineMs = LanceIndexInspectionExecutor.statementDeadlineMs();
         LanceIndexMutationValidator.rejectIfReservedIndexName(indexName);
         CatalogMgr catalogMgr = Env.getCurrentEnv().getCatalogMgr();
         CatalogMgr.LanceIndexTarget target = catalogMgr.captureLanceIndexTarget(catalog);
@@ -187,10 +213,32 @@ public final class LanceIndexAdmission {
         // no algorithm and no schema contract.
         return catalogMgr.withLanceIndexAdmission(catalog, target, () -> new LanceIndexMutationPlan(
                 catalog, TLanceIndexMutationType.DROP, snapshot.getDatasetUri(),
-                snapshot.getDatasetVersion(), normalizedName, "", "", null, false, ifExists,
-                null, () -> decideDropAgainstSnapshot(
-                        loader.load(catalog, db.getRemoteName(), table.getRemoteName()),
-                        indexName, normalizedName, ifExists)));
+                snapshot.getDatasetVersion(), normalizedName, indexName, "", "", null, false, ifExists,
+                null, () -> withAdmissionBudget(deadlineMs, () -> {
+                    catalogMgr.withLanceIndexAdmission(catalog, target, () -> null);
+                    LanceIndexAdmissionSnapshot current = loader.load(
+                            catalog, db.getRemoteName(), table.getRemoteName());
+                    return catalogMgr.withLanceIndexAdmission(catalog, target, () -> {
+                        requireSameDataset(snapshot, current);
+                        return decideDropAgainstSnapshot(current, indexName, normalizedName, ifExists);
+                    });
+                })));
+    }
+
+    private static <T> T withAdmissionBudget(long deadlineMs, Callable<T> action) throws Exception {
+        try {
+            return LanceIndexInspectionExecutor.withDeadline(deadlineMs, action);
+        } catch (LanceIndexInspectionExecutor.MetadataReadTimeoutException e) {
+            throw LanceIndexMutationOutcome.confirmedFailure(0,
+                    "the statement budget was exhausted during admission; nothing was sent").toUserException();
+        }
+    }
+
+    private static void requireSameDataset(LanceIndexAdmissionSnapshot admitted, LanceIndexAdmissionSnapshot current)
+            throws AnalysisException {
+        if (!admitted.getDatasetUri().equals(current.getDatasetUri())) {
+            rejectInvalid("the Lance dataset target changed after admission; nothing was sent");
+        }
     }
 
     /**
@@ -445,11 +493,16 @@ public final class LanceIndexAdmission {
     }
 
     private static List<String> logicalIndexNames(LanceIndexAdmissionSnapshot snapshot) {
-        List<String> names = new ArrayList<>(snapshot.getLogicalIndexes().size());
+        Set<String> names = new LinkedHashSet<>();
         for (LanceShowIndexInfo index : snapshot.getLogicalIndexes()) {
             names.add(index.getName());
         }
-        return names;
+        // A legacy index can have no readable logical description and still occupy its
+        // physical name. Such an index is droppable, but cannot corroborate an IF match.
+        for (LanceIndexAdmissionSnapshot.PhysicalIndexInfo index : snapshot.getPhysicalIndexes()) {
+            names.add(index.getName());
+        }
+        return new ArrayList<>(names);
     }
 
     private static void rejectInvalid(String detail) throws AnalysisException {

@@ -862,6 +862,68 @@ public class LanceIndexAdmissionTest {
     // ------------------------------------------------------------------
 
     @Test
+    public void physicalOnlyLegacyNameIsOccupiedAndDroppable() throws Exception {
+        LanceIndexAdmissionSnapshot legacy = snapshot(Collections.emptyList(),
+                Collections.singletonList(physicalIndex("IdxA", "VECTOR")));
+        assertInvalid(() -> admitCreate(legacy, annDef("idxa", false, false), false),
+                "index 'idxa' already exists");
+        assertInvalid(() -> admitCreate(legacy, annDef("idxa", true, false), true),
+                "index 'idxa' already exists with a different definition");
+        Assertions.assertNotNull(admitDrop(legacy, "IDXA", false));
+        Assertions.assertNotNull(admitDrop(legacy, "IDXA", true));
+    }
+
+    @Test
+    public void createPlanPreservesDisplaySpellingSeparatelyFromIdentity() throws Exception {
+        LanceIndexMutationPlan plan = admitCreate(emptySnapshot(), annDef("MiXeD", false, false), false);
+        Assertions.assertEquals("MiXeD", plan.getDisplayIndexName());
+        Assertions.assertEquals("mixed", plan.getNormalizedIndexName());
+    }
+
+    @Test
+    public void physicalOnlyCaseCollisionRejectsEveryMutation() throws Exception {
+        LanceIndexAdmissionSnapshot ambiguous = snapshot(Collections.emptyList(),
+                Arrays.asList(physicalIndex("IdxA", "VECTOR"), physicalIndex("idxa", "VECTOR")));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> admitCreate(ambiguous, annDef("IDXA", false, true), false));
+        Assertions.assertThrows(AnalysisException.class, () -> admitDrop(ambiguous, "IDXA", true));
+    }
+
+    @Test
+    public void finalPreflightRejectsTargetEpochChangeAndCatalogRemoval() throws Exception {
+        LanceIndexAdmissionSnapshot present = snapshot(
+                Collections.singletonList(logicalIndex("idx", "v", "IVF_PQ", MATCHING_ANN_PROPERTIES_JSON)),
+                Collections.singletonList(physicalIndex("idx", "VECTOR")));
+        LanceIndexMutationPlan create = admitCreate(emptySnapshot(), annDef("fresh", false, false), false);
+        LanceIndexMutationPlan drop = admitDrop(present, "idx", true);
+        Mockito.when(catalog.getIndexTargetVersion()).thenReturn(1L);
+        Assertions.assertThrows(DdlException.class, () -> create.getFinalPreflight().run());
+        Assertions.assertThrows(DdlException.class, () -> drop.getFinalPreflight().run());
+        Mockito.when(catalog.getIndexTargetVersion()).thenReturn(0L);
+        java.lang.reflect.Field catalogs = CatalogMgr.class.getDeclaredField("idToCatalog");
+        catalogs.setAccessible(true);
+        ((Map<?, ?>) catalogs.get(env.getCatalogMgr())).clear();
+        Assertions.assertThrows(DdlException.class, () -> drop.getFinalPreflight().run());
+    }
+
+    @Test
+    public void finalPreflightRejectsChangedDatasetUriAndIdentityDuringRead() throws Exception {
+        LanceIndexAdmissionSnapshot moved = new LanceIndexAdmissionSnapshot(DATASET_VERSION,
+                "s3://bucket/other-dataset", Collections.emptyList(), Collections.emptyList(), defaultFields());
+        LanceIndexMutationPlan plan = admitCreate(sequencedLoader(emptySnapshot(), moved),
+                annDef("idx", false, false), false);
+        Assertions.assertThrows(AnalysisException.class, () -> plan.getFinalPreflight().run());
+        AtomicInteger reads = new AtomicInteger();
+        LanceIndexMutationPlan changing = admitCreate((cat, db, tbl) -> {
+            if (reads.incrementAndGet() == 2) {
+                cat.getProperties().put("warehouse", "changed");
+            }
+            return emptySnapshot();
+        }, annDef("idx", false, false), false);
+        Assertions.assertThrows(DdlException.class, () -> changing.getFinalPreflight().run());
+    }
+
+    @Test
     public void identityChangeDuringSnapshotRejectsCreateAndDropBeforeAllocatingId() throws Exception {
         LanceIndexAdmission.SnapshotLoader changingLoader = (cat, dbName, tblName) -> {
             // Emulate an identity ALTER completing during the remote metadata read.

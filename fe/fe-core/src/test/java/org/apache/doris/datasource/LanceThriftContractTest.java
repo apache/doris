@@ -213,7 +213,10 @@ public class LanceThriftContractTest {
                 metaDataMap);
         // Adding a field is fine (append an id, extend this pin); silently renumbering or
         // reusing an id is not, so the struct width is pinned too.
-        Assert.assertEquals(14, metaDataMap.size());
+        assertContractField("TLanceIndexMutationRequest",
+                TLanceIndexMutationRequest._Fields.INDEX_DISPLAY_NAME, (short) 15,
+                "index_display_name", metaDataMap);
+        Assert.assertEquals(15, metaDataMap.size());
     }
 
     @Test
@@ -259,6 +262,7 @@ public class LanceThriftContractTest {
                 .setDeadlineMs(1760000000000L)
                 .setMutationType(TLanceIndexMutationType.REPLACE)
                 .setIndexName("embedding")
+                .setIndexDisplayName("Embedding")
                 .setColumnName("embedding")
                 .setIndexType("IVF_PQ")
                 .setPropertiesJson("{\"metric\":\"l2\"}")

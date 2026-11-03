@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.lance;
 
+import org.apache.doris.datasource.lance.index.LanceIndexInspectionExecutor;
+
 import org.apache.arrow.memory.ArrowBuf;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.OutOfMemoryException;
@@ -36,6 +38,40 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 public class LanceCatalogClientTest {
+    @Test
+    public void testTimedOutNamespaceReadOwnsRetiredGenerationUntilItReturns() throws Exception {
+        LanceNamespace namespace = Mockito.mock(LanceNamespace.class,
+                Mockito.withSettings().extraInterfaces(AutoCloseable.class));
+        Session session = Mockito.mock(Session.class);
+        BufferAllocator allocator = Mockito.mock(BufferAllocator.class);
+        LanceCatalogClient client = client(namespace, allocator, session);
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        Mockito.when(namespace.describeTable(Mockito.any())).thenAnswer(call -> {
+            started.countDown();
+            release.await(30, TimeUnit.SECONDS);
+            throw new RuntimeException("provider read failed");
+        });
+        try {
+            try (LanceCatalogClient.Lease ignored = client.acquire()) {
+                Assertions.assertThrows(LanceIndexInspectionExecutor.MetadataReadTimeoutException.class,
+                        () -> LanceIndexInspectionExecutor.withDeadline(System.currentTimeMillis() + 500L,
+                                () -> client.loadTableIndexAdmissionSnapshot("default", "table")));
+            }
+            Assertions.assertEquals(0L, started.getCount());
+            client.close();
+            Mockito.verify((AutoCloseable) namespace, Mockito.never()).close();
+            Mockito.verifyNoInteractions(session, allocator);
+            release.countDown();
+            Mockito.verify((AutoCloseable) namespace, Mockito.timeout(5_000L)).close();
+            Mockito.verify(session, Mockito.timeout(5_000L)).close();
+            Mockito.verify(allocator, Mockito.timeout(5_000L)).close();
+        } finally {
+            release.countDown();
+            client.close();
+        }
+    }
+
     @Test
     public void testCloseWaitsForOperationAndNewGenerationRemainsUsable() throws Exception {
         LanceNamespace namespace = Mockito.mock(LanceNamespace.class,

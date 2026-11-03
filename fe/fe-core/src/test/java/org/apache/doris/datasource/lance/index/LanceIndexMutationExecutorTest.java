@@ -20,12 +20,14 @@ package org.apache.doris.datasource.lance.index;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.GenericPool;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.lance.LanceExternalCatalog;
 import org.apache.doris.datasource.lance.LanceIndexMutationOutcome;
 import org.apache.doris.datasource.lance.LanceIndexSchemaContract;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TLanceIndexMutationRequest;
 import org.apache.doris.thrift.TLanceIndexMutationResult;
 import org.apache.doris.thrift.TLanceIndexMutationType;
@@ -255,7 +257,7 @@ public class LanceIndexMutationExecutorTest {
         Assertions.assertEquals(LanceIndexMutationOutcome.Kind.CONFIRMED_FAILURE, outcome.getKind());
         Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_MUTATION_REJECTED,
                 outcome.toUserException().getMysqlErrorCode());
-        Assertions.assertTrue(outcome.getMessage().contains("could not be established"),
+        Assertions.assertTrue(outcome.getMessage().contains("stopped before the send"),
                 outcome.getMessage());
         Assertions.assertTrue(outcome.getMessage().contains("nothing was sent"),
                 outcome.getMessage());
@@ -312,8 +314,7 @@ public class LanceIndexMutationExecutorTest {
         // The budget is already gone when the queued task starts: it must converge as the
         // typed confirmed failure without spending the preflight read - the most expensive
         // pre-dispatch step (a JNI snapshot read) whose verdict cannot change this outcome.
-        // (A no-op reached by a task that starts with budget left still completes budget-free;
-        // the refresh suite pins that success.)
+        // A no-op reached with budget left also shares that budget with its refresh.
         AtomicInteger preflightRuns = new AtomicInteger();
         LanceIndexMutationExecutor.MutationRequest request = LanceIndexMutationExecutor
                 .MutationRequest.newBuilder(catalog, TLanceIndexMutationType.CREATE, DATASET_URI,
@@ -452,12 +453,12 @@ public class LanceIndexMutationExecutorTest {
                             dispatcher, admission));
             Assertions.assertTrue(dispatchEntered.await(30, TimeUnit.SECONDS));
             // The queued statement has no budget left, so its statement-side wait ends
-            // immediately in the indeterminate class (it cannot know whether its entry task
-            // dispatched); the task itself later converges as a confirmed failure without a send.
+            // immediately as a confirmed pre-send failure. The queued task still holds its
+            // capacity until it converges and releases its owner without sending anything.
             Future<LanceIndexMutationOutcome> queued = drivers.submit(
                     () -> LanceIndexMutationExecutor.execute(requestBuilder("queued", -1L).build(),
                             dispatcher, admission));
-            Assertions.assertEquals(LanceIndexMutationOutcome.Kind.INDETERMINATE,
+            Assertions.assertEquals(LanceIndexMutationOutcome.Kind.CONFIRMED_FAILURE,
                     queued.get(1, TimeUnit.SECONDS).getKind());
             AnalysisException busy = Assertions.assertThrows(AnalysisException.class,
                     () -> LanceIndexMutationExecutor.execute(requestBuilder("rejected").build(),
@@ -479,6 +480,124 @@ public class LanceIndexMutationExecutorTest {
     }
 
     // ---------------------------------------------------------------- single-send and liveness
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testWaitExpiryDuringBorrowPreventsSendAndRetainsEntryUntilBorrowEnds() throws Exception {
+        GenericPool<BackendService.Client> pool = Mockito.mock(GenericPool.class);
+        BackendService.Client client = Mockito.mock(BackendService.Client.class);
+        CountDownLatch borrowing = new CountDownLatch(1);
+        CountDownLatch releaseBorrow = new CountDownLatch(1);
+        Mockito.when(pool.borrowObject(Mockito.any(), Mockito.anyInt())).thenAnswer(call -> {
+            borrowing.countDown();
+            Assertions.assertTrue(releaseBorrow.await(30, TimeUnit.SECONDS));
+            return client;
+        });
+        ExecutorService admission = Executors.newSingleThreadExecutor();
+        try {
+            LanceIndexMutationOutcome outcome = LanceIndexMutationExecutor.execute(
+                    requestBuilder("idx", 1_000L).build(), new ThriftLanceIndexMutationDispatcher(pool), admission);
+            Assertions.assertEquals(0L, borrowing.getCount());
+            Assertions.assertEquals(LanceIndexMutationOutcome.Kind.CONFIRMED_FAILURE, outcome.getKind());
+            Assertions.assertTrue(outcome.getMessage().contains("nothing was sent"));
+            Assertions.assertEquals(1, LanceIndexMutationExecutor.inFlightCount());
+        } finally {
+            releaseBorrow.countDown();
+            admission.shutdown();
+            Assertions.assertTrue(admission.awaitTermination(30, TimeUnit.SECONDS));
+        }
+        Mockito.verify(client, Mockito.never()).lanceIndexMutate(Mockito.any());
+        Mockito.verify(pool).invalidateObject(Mockito.any(), Mockito.eq(client));
+        Assertions.assertEquals(0, LanceIndexMutationExecutor.inFlightCount());
+    }
+
+    @Test
+    public void testAdmissionNoOpRefreshTimeoutIsTypedAndDoesNotInterruptCleanup() throws Exception {
+        CountDownLatch refreshing = new CountDownLatch(1);
+        CountDownLatch releaseRefresh = new CountDownLatch(1);
+        CountDownLatch finished = new CountDownLatch(1);
+        try {
+            AnalysisException failure = Assertions.assertThrows(AnalysisException.class,
+                    () -> LanceIndexMutationExecutor.completeAdmissionNoOp(() -> {
+                        refreshing.countDown();
+                        try {
+                            Assertions.assertTrue(releaseRefresh.await(30, TimeUnit.SECONDS));
+                        } catch (InterruptedException e) {
+                            throw new AssertionError("cleanup must not be interrupted", e);
+                        } finally {
+                            finished.countDown();
+                        }
+                        return null;
+                    }, System.currentTimeMillis() + 1_000L));
+            Assertions.assertEquals(0L, refreshing.getCount());
+            Assertions.assertEquals(1L, finished.getCount());
+            Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_MUTATION_REFRESH_FAILED, failure.getMysqlErrorCode());
+        } finally {
+            releaseRefresh.countDown();
+            Assertions.assertTrue(finished.await(30, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    public void testSuccessBeforeRefreshTimeoutKeepsCommitFactAndEntry() throws Exception {
+        assertRefreshTimeoutKeepsFact(0, LanceIndexMutationExecutor.PreflightResult.PROCEED,
+                ErrorCode.ERR_LANCE_INDEX_MUTATION_COMMITTED_REFRESH_INCOMPLETE);
+    }
+
+    @Test
+    public void testConflictBeforeRefreshTimeoutKeepsConfirmedFailureAndEntry() throws Exception {
+        assertRefreshTimeoutKeepsFact(LanceIndexMutationExecutor.LANCE_ERR_COMMIT_CONFLICT,
+                LanceIndexMutationExecutor.PreflightResult.PROCEED, ErrorCode.ERR_LANCE_INDEX_MUTATION_REJECTED);
+    }
+
+    @Test
+    public void testNoOpBeforeRefreshTimeoutKeepsNoMutationFactAndEntry() throws Exception {
+        assertRefreshTimeoutKeepsFact(0, LanceIndexMutationExecutor.PreflightResult.NO_OP,
+                ErrorCode.ERR_LANCE_INDEX_MUTATION_REFRESH_FAILED);
+    }
+
+    private void assertRefreshTimeoutKeepsFact(int resultCode,
+            LanceIndexMutationExecutor.PreflightResult preflight, ErrorCode expected) throws Exception {
+        CountDownLatch refreshing = new CountDownLatch(1);
+        CountDownLatch releaseRefresh = new CountDownLatch(1);
+        ExecutorService admission = Executors.newSingleThreadExecutor();
+        FakeDispatcher dispatcher = new FakeDispatcher(request -> okResult(resultCode));
+        LanceIndexMutationExecutor.MutationRequest request = requestBuilder("idx", 1_000L)
+                .setFinalPreflight(() -> preflight)
+                .setRefresher(() -> {
+                    refreshing.countDown();
+                    try {
+                        Assertions.assertTrue(releaseRefresh.await(30, TimeUnit.SECONDS));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    return null;
+                }).build();
+        try {
+            AnalysisException exception;
+            if (preflight == LanceIndexMutationExecutor.PreflightResult.NO_OP) {
+                exception = Assertions.assertThrows(AnalysisException.class,
+                        () -> LanceIndexMutationExecutor.execute(request, dispatcher, admission));
+            } else {
+                LanceIndexMutationOutcome outcome = LanceIndexMutationExecutor.execute(request, dispatcher, admission);
+                exception = outcome.toUserException();
+                Assertions.assertEquals(resultCode, outcome.getLanceResultCode());
+            }
+            Assertions.assertEquals(0, refreshing.getCount(), "the result must be known before the timeout");
+            Assertions.assertEquals(expected, exception.getMysqlErrorCode());
+            Assertions.assertEquals(preflight == LanceIndexMutationExecutor.PreflightResult.NO_OP ? 0 : 1,
+                    dispatcher.sends.get());
+            Assertions.assertEquals(1, LanceIndexMutationExecutor.inFlightCount());
+            Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_MUTATION_BUSY,
+                    Assertions.assertThrows(AnalysisException.class,
+                            () -> LanceIndexMutationExecutor.execute(request, dispatcher, admission)).getMysqlErrorCode());
+        } finally {
+            releaseRefresh.countDown();
+            admission.shutdown();
+            Assertions.assertTrue(admission.awaitTermination(30, TimeUnit.SECONDS));
+            Assertions.assertTrue(awaitInFlightCount(0));
+        }
+    }
 
     @Test
     public void testStatementBudgetExpiryDuringWaitIsIndeterminateAndNeverResends() throws Exception {
@@ -623,6 +742,7 @@ public class LanceIndexMutationExecutorTest {
                 .setColumnName("v")
                 .setIndexType("IVF_PQ")
                 .setProperties(Collections.singletonMap("metric", "l2"))
+                .setDisplayIndexName("Idx")
                 .setIfNotExists(true)
                 .setSchemaContract(contract)
                 .build();
@@ -633,6 +753,7 @@ public class LanceIndexMutationExecutorTest {
         Assertions.assertEquals(deadline, wire.getDeadlineMs());
         Assertions.assertEquals(TLanceIndexMutationType.CREATE, wire.getMutationType());
         Assertions.assertEquals("idx", wire.getIndexName());
+        Assertions.assertEquals("Idx", wire.getIndexDisplayName());
         Assertions.assertEquals("v", wire.getColumnName());
         Assertions.assertEquals("IVF_PQ", wire.getIndexType());
         Assertions.assertEquals("{\"metric\":\"l2\"}", wire.getPropertiesJson());

@@ -154,6 +154,20 @@ public class LanceIndexMutationRefreshTest {
     }
 
     @Test
+    public void testUncheckedRefreshFailurePreservesMutationFactWithoutEchoingPayload() throws Exception {
+        LanceIndexMutationRefresher broken = () -> {
+            throw new RuntimeException("provider-secret-payload");
+        };
+        LanceIndexMutationOutcome committed = execute(dispatcherReturning(0), broken);
+        Assertions.assertEquals(LanceIndexMutationOutcome.Kind.COMMITTED_REFRESH_INCOMPLETE, committed.getKind());
+        Assertions.assertFalse(committed.getMessage().contains("provider-secret-payload"));
+        AnalysisException noOp = Assertions.assertThrows(AnalysisException.class,
+                () -> execute(dispatcherReturning(0), broken, LanceIndexMutationExecutor.PreflightResult.NO_OP));
+        Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_MUTATION_REFRESH_FAILED, noOp.getMysqlErrorCode());
+        Assertions.assertFalse(noOp.getMessage().contains("provider-secret-payload"));
+    }
+
+    @Test
     public void testNoOpWithFailedRefreshReportsTypedRefreshError() {
         FakeRefresher refresher = new FakeRefresher("local table metadata invalidation failed"
                 + " after 3 attempts: IllegalStateException");
