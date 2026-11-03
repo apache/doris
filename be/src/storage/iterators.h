@@ -21,6 +21,7 @@
 #include <memory>
 #include <set>
 
+#include "agent/be_exec_version_manager.h"
 #include "common/status.h"
 #include "core/block/block.h"
 #include "exprs/score_runtime.h"
@@ -51,6 +52,12 @@ public:
     StorageReadOptions() = delete;
 
     explicit StorageReadOptions(OlapReaderStatistics& stats_) noexcept : stats(&stats_) {}
+
+    // Query reads use their RuntimeState; background reads without one use the newest version.
+    int get_be_exec_version() const {
+        return runtime_state != nullptr ? runtime_state->be_exec_version()
+                                        : BeExecVersionManager::get_newest_version();
+    }
 
     struct KeyRange {
         KeyRange()

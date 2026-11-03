@@ -141,6 +141,9 @@ public:
                                    uint64_t num_rows, const io::FileReaderSPtr& file_reader,
                                    std::shared_ptr<ColumnReader>* reader);
 
+    // Validate this immutable disk reader for each request, including cache hits.
+    Status check_read_compatibility(int read_be_exec_version) const;
+
     enum class DictEncodingType { UNKNOWN_DICT_ENCODING, PARTIAL_DICT_ENCODING, ALL_DICT_ENCODING };
 
     static bool is_compaction_reader_type(ReaderType type);
@@ -277,6 +280,7 @@ private:
     PagePointer _meta_dict_page;
     CompressionTypePB _meta_compression;
 
+    // Creation options only: _opts.be_exec_version is not the current request version.
     ColumnReaderOptions _opts;
     uint64_t _num_rows;
 

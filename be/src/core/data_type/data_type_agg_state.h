@@ -129,6 +129,10 @@ public:
     DataTypePtr get_serialized_type() const { return _agg_serialized_type; }
 
     void check_function_compatibility(int read_be_exec_version) const {
+        // The default-constructed type represents legacy metadata without function details.
+        if (_agg_function == nullptr) {
+            return;
+        }
         BeExecVersionManager::check_function_compatibility(read_be_exec_version, _be_exec_version,
                                                            get_nested_function()->get_name());
     }

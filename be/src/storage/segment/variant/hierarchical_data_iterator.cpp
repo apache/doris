@@ -48,8 +48,8 @@ Status HierarchicalDataIterator::create(ColumnIteratorUPtr* reader, int32_t col_
                                         std::unique_ptr<SubstreamIterator>&& binary_column_reader,
                                         std::unique_ptr<SubstreamIterator>&& root_column_reader,
                                         ColumnReaderCache* column_reader_cache,
-                                        OlapReaderStatistics* stats, ReadType read_type,
-                                        const io::IOContext* io_ctx) {
+                                        int read_be_exec_version, OlapReaderStatistics* stats,
+                                        ReadType read_type, const io::IOContext* io_ctx) {
     if (read_type == ReadType::ROOT_ONLY) {
         DORIS_CHECK(root_column_reader != nullptr);
         DORIS_CHECK(binary_column_reader == nullptr);
@@ -73,8 +73,8 @@ Status HierarchicalDataIterator::create(ColumnIteratorUPtr* reader, int32_t col_
                 VLOG_DEBUG << "Skipping NestedGroup subcolumn: " << leaf_path;
                 continue;
             }
-            RETURN_IF_ERROR(stream_iter->add_stream(col_uid, leaves[i], column_reader_cache, stats,
-                                                    io_ctx));
+            RETURN_IF_ERROR(stream_iter->add_stream(col_uid, leaves[i], column_reader_cache,
+                                                    read_be_exec_version, stats, io_ctx));
         }
     }
     // need read from root column if not null
@@ -219,7 +219,7 @@ void HierarchicalDataIterator::_clear_read_columns() {
 Status HierarchicalDataIterator::add_stream(int32_t col_uid,
                                             const SubcolumnColumnMetaInfo::Node* node,
                                             ColumnReaderCache* column_reader_cache,
-                                            OlapReaderStatistics* stats,
+                                            int read_be_exec_version, OlapReaderStatistics* stats,
                                             const io::IOContext* io_ctx) {
     if (_substream_reader.find_leaf(node->path)) {
         VLOG_DEBUG << "Already exist sub column " << node->path.get_path();
@@ -228,8 +228,8 @@ Status HierarchicalDataIterator::add_stream(int32_t col_uid,
     CHECK(node);
     ColumnIteratorUPtr it;
     std::shared_ptr<ColumnReader> column_reader;
-    RETURN_IF_ERROR(column_reader_cache->get_path_column_reader(col_uid, node->path, &column_reader,
-                                                                stats, node, io_ctx));
+    RETURN_IF_ERROR(column_reader_cache->get_path_column_reader(
+            col_uid, node->path, read_be_exec_version, &column_reader, stats, node, io_ctx));
     RETURN_IF_ERROR(column_reader->new_iterator(&it, nullptr));
     SubstreamIterator reader(node->data.file_column_type->create_column(), std::move(it),
                              node->data.file_column_type);

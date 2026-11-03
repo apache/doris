@@ -1357,11 +1357,13 @@ public:
               _tablet_schema(tablet_schema) {}
 
     Status get_path_column_reader(int32_t col_uid, PathInData relative_path,
+                                  int read_be_exec_version,
                                   std::shared_ptr<segment_v2::ColumnReader>* column_reader,
                                   OlapReaderStatistics* stats,
                                   const SubcolumnColumnMetaInfo::Node* node_hint = nullptr,
                                   const io::IOContext* io_ctx = nullptr) override {
         ++_path_column_reader_calls;
+        _last_read_be_exec_version = read_be_exec_version;
         DCHECK(node_hint != nullptr);
         // Use node_hint's footer_ordinal to locate the specific ColumnMeta
         int32_t footer_ordinal = node_hint->data.footer_ordinal;
@@ -1373,13 +1375,15 @@ public:
         // Create ColumnReaderOptions
         ColumnReaderOptions opts;
         opts.kept_in_memory = false;
-        opts.be_exec_version = BeExecVersionManager::get_newest_version();
+        opts.be_exec_version = read_be_exec_version;
         opts.tablet_schema = _tablet_schema;
 
         // Use ColumnReader::create to generate the corresponding ColumnReader
         return segment_v2::ColumnReader::create(opts, _footer.columns(footer_ordinal),
                                                 _footer.num_rows(), _file_reader, column_reader);
     }
+
+    int last_read_be_exec_version() const { return _last_read_be_exec_version; }
 
     size_t path_column_reader_calls() const { return _path_column_reader_calls; }
 
@@ -1388,6 +1392,7 @@ private:
     const io::FileReaderSPtr& _file_reader;
     const std::shared_ptr<TabletSchema>& _tablet_schema;
     size_t _path_column_reader_calls = 0;
+    int _last_read_be_exec_version = -1;
 };
 
 // Helper to create a root VariantColumnReader using ColumnMetaAccessor, which
@@ -4202,10 +4207,15 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     OlapReaderStatistics stats;
     StorageReadOptions storage_read_opts(stats);
     storage_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
+    RuntimeState read_state;
+    read_state.set_be_exec_version(15);
+    storage_read_opts.runtime_state = &read_state;
     st = variant_column_reader->new_iterator(&it, &parent_column, &storage_read_opts,
                                              &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
     EXPECT_TRUE(assert_cast<HierarchicalDataIterator*>(it.get()) != nullptr);
+    EXPECT_GT(column_reader_cache.path_column_reader_calls(), 0);
+    EXPECT_EQ(column_reader_cache.last_read_be_exec_version(), 15);
     ColumnIteratorOptions column_iter_opts;
     column_iter_opts.stats = &stats;
     column_iter_opts.file_reader = file_reader.get();
@@ -4232,7 +4242,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
                 SubcolumnColumnMetaInfo::Node::Kind::SCALAR);
         exist_node->path = PathInData("key0");
         OlapReaderStatistics stats;
-        Status sts = iter->add_stream(0, exist_node.get(), &column_reader_cache, &stats);
+        Status sts = iter->add_stream(0, exist_node.get(), &column_reader_cache, 16, &stats);
         EXPECT_TRUE(sts.ok());
         auto jsonb_type = std::make_shared<DataTypeJsonb>();
         // if node path is emtpy we will meet error
@@ -4242,8 +4252,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
         r->path = PathInData("");
         // if we clear the parts manually, we will meet error, but it can be handled, and should not happen
         r->path.parts.clear();
-        sts = iter->add_stream(0, r.get(), &column_reader_cache, &stats);
+        sts = iter->add_stream(0, r.get(), &column_reader_cache, 16, &stats);
         EXPECT_FALSE(sts.ok());
+        EXPECT_EQ(column_reader_cache.last_read_be_exec_version(), 16);
     }
 
     DataTypeSerDe::FormatOptions options;
