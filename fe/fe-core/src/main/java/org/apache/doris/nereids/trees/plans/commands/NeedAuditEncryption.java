@@ -21,7 +21,6 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo;
 
-import java.util.Map;
 import java.util.TreeMap;
 
 /**
@@ -45,22 +44,6 @@ public interface NeedAuditEncryption {
         TreeMap<Pair<Integer, Integer>, String> indexInSqlToString = new TreeMap<>(new Pair.PairComparator<>());
         NereidsParser parser = new NereidsParser();
         parser.parseForEncryption(sql, indexInSqlToString, preserveFormatting);
-        if (preserveFormatting) {
-            // ANTLR indexes code points, while rewriteSql indexes UTF-16 chars. Advance through the
-            // sorted ranges once so supplementary characters cannot leave part of a secret unmasked.
-            TreeMap<Pair<Integer, Integer>, String> charRanges = new TreeMap<>(new Pair.PairComparator<>());
-            int codePointOffset = 0;
-            int charOffset = 0;
-            for (Map.Entry<Pair<Integer, Integer>, String> entry : indexInSqlToString.entrySet()) {
-                Pair<Integer, Integer> range = entry.getKey();
-                int start = sql.offsetByCodePoints(charOffset, range.first - codePointOffset);
-                int end = sql.offsetByCodePoints(start, range.second - range.first + 1);
-                charRanges.put(Pair.of(start, end - 1), entry.getValue());
-                codePointOffset = range.second + 1;
-                charOffset = end;
-            }
-            return BaseViewInfo.rewriteSql(charRanges, sql);
-        }
         return BaseViewInfo.rewriteSql(indexInSqlToString, sql);
     }
 }
