@@ -52,6 +52,8 @@ Status SchemaSchemataScanner::start(RuntimeState* state) {
         return Status::InternalError("used before initial.");
     }
     TGetDbsParams db_params;
+    // SCHEMATA never reads database IDs; avoid creating one database object per namespace in FE.
+    db_params.__set_include_db_ids(false);
     if (nullptr != _param->common_param->wild) {
         db_params.__set_pattern(*(_param->common_param->wild));
     }
