@@ -39,6 +39,7 @@ import org.apache.iceberg.aws.AwsClientProperties;
 import org.apache.iceberg.aws.AwsProperties;
 import org.apache.iceberg.aws.HttpClientProperties;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
+import org.apache.iceberg.io.NativeGcsResolvingFileIO;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
 
 import java.io.File;
@@ -482,9 +483,10 @@ public final class IcebergCatalogFactory {
                 putIfNotBlank(opts, GcpCredential.IMPERSONATION_SERVICE_ACCOUNT,
                         credential.getImpersonationServiceAccount());
                 // Keep explicit FileIO choices. By default, S3 aliases use the GCP client factory,
-                // while gs/HDFS paths use HadoopFileIO with the native fs.gs.* configuration
-                // (the plugin does not bundle iceberg-gcp's GCSFileIO).
-                opts.putIfAbsent(CatalogProperties.FILE_IO_IMPL, "org.apache.iceberg.io.ResolvingFileIO");
+                // while gs/HDFS paths use HadoopFileIO with the native fs.gs.* configuration. The
+                // plugin bundles iceberg-gcp (REST GoogleAuthManager), so plain ResolvingFileIO would
+                // route gs to GCSFileIO and drop those credentials; NativeGcsResolvingFileIO pins gs.
+                opts.putIfAbsent(CatalogProperties.FILE_IO_IMPL, NativeGcsResolvingFileIO.class.getName());
                 opts.put(S3FileIOProperties.CLIENT_FACTORY, GcpS3FileIOAwsClientFactory.class.getName());
             });
         }));

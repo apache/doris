@@ -34,8 +34,10 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.aws.s3.S3FileIO;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
+import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.hadoop.HadoopTables;
 import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.io.NativeGcsResolvingFileIO;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.SerializationUtil;
 import org.junit.jupiter.api.Assertions;
@@ -109,6 +111,28 @@ public class IcebergPluginTest {
                 Assertions.assertNotNull(restored.client());
                 Assertions.assertEquals("s3://bucket/manifest.avro",
                         restored.newInputFile("s3://bucket/manifest.avro").location());
+            }
+        }
+    }
+
+    /**
+     * WHY: this plugin bundles iceberg-gcp, so an upstream ResolvingFileIO deserialized here would route gs:// to
+     * GCSFileIO and ignore the fs.gs.* native credentials the FE bound into the task's Hadoop configuration.
+     * MUTATION: making the FE default io-impl plain ResolvingFileIO, or dropping the implFromLocation override
+     * -> GCSFileIO -> red.
+     */
+    @Test
+    public void keepsGcsOnHadoopFileIoAfterSerialization() throws Exception {
+        Configuration conf = new Configuration();
+        conf.set("fs.gs.auth.type", "COMPUTE_ENGINE");
+        try (NativeGcsResolvingFileIO original = new NativeGcsResolvingFileIO()) {
+            original.setConf(conf);
+            original.initialize(new HashMap<>());
+            String wire = SerializationUtil.serializeToBase64(original);
+            try (NativeGcsResolvingFileIO restored = IcebergSerializationCompat.deserializeFromBase64(wire)) {
+                Assertions.assertEquals(HadoopFileIO.class, restored.ioClass("gs://bucket/manifest.avro"));
+                Assertions.assertEquals(S3FileIO.class, restored.ioClass("s3://bucket/manifest.avro"));
+                Assertions.assertEquals("COMPUTE_ENGINE", restored.getConf().get("fs.gs.auth.type"));
             }
         }
     }

@@ -39,6 +39,7 @@ import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.hadoop.HadoopInputFile;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
+import org.apache.iceberg.io.NativeGcsResolvingFileIO;
 import org.apache.iceberg.io.SeekableInputStream;
 import org.apache.iceberg.rest.responses.ConfigResponse;
 import org.junit.jupiter.api.Assertions;
@@ -1212,7 +1213,7 @@ public class IcebergCatalogFactoryTest {
                 properties.put("iceberg.jdbc.uri", "jdbc:postgresql://localhost/iceberg");
                 Map<String, String> options = IcebergCatalogFactory.buildCatalogProperties(
                         IcebergCatalogProperties.of(properties), Optional.of(storage), false);
-                Assertions.assertEquals("org.apache.iceberg.io.ResolvingFileIO", options.get("io-impl"));
+                Assertions.assertEquals(NativeGcsResolvingFileIO.class.getName(), options.get("io-impl"));
                 Assertions.assertEquals(GcpS3FileIOAwsClientFactory.class.getName(),
                         options.get(S3FileIOProperties.CLIENT_FACTORY));
                 Assertions.assertEquals(source, options.get("gs.credential_provider_type"));
