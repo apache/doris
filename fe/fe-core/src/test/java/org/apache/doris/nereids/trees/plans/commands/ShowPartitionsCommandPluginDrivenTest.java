@@ -28,7 +28,6 @@ import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.datasource.ExternalDatabase;
-import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.qe.ShowResultSet;
@@ -52,13 +51,13 @@ import java.util.Optional;
  * {@link PluginDrivenExternalCatalog}. The legacy handler keyed on
  * {@code instanceof MaxComputeExternalCatalog} no longer matches, so SHOW PARTITIONS
  * must route through the connector SPI instead. This test locks in that the new handler
- * resolves the table handle using the REMOTE db/table names and emits one row per
- * partition returned by {@code listPartitionNames}.</p>
+ * resolves the handle through the table's guarded resolver and retains its metadata observation
+ * while listing partition names or statistics.</p>
  */
 public class ShowPartitionsCommandPluginDrivenTest {
 
     @Test
-    public void testHandlerRoutesToSpiWithRemoteNames() throws Exception {
+    public void testHandlerRoutesThroughGuardedTable() throws Exception {
         TableNameInfo tableName = Mockito.mock(TableNameInfo.class);
         Mockito.when(tableName.getDb()).thenReturn("db");
         Mockito.when(tableName.getTbl()).thenReturn("t");
@@ -73,9 +72,7 @@ public class ShowPartitionsCommandPluginDrivenTest {
 
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
         ExternalDatabase<?> db = Mockito.mock(ExternalDatabase.class);
-        ExternalTable table = Mockito.mock(ExternalTable.class);
-        Mockito.when(table.getRemoteDbName()).thenReturn("remote_db");
-        Mockito.when(table.getRemoteName()).thenReturn("remote_tbl");
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
 
         // Resolution chain: catalog.getDbOrAnalysisException(db).getTableOrAnalysisException(t) -> table.
         // doReturn avoids generic-type checks on the default interface methods.
@@ -85,8 +82,11 @@ public class ShowPartitionsCommandPluginDrivenTest {
         Mockito.when(catalog.buildCrossStatementSession()).thenReturn(session);
         Mockito.when(catalog.getConnector()).thenReturn(connector);
         Mockito.when(connector.getMetadata(session)).thenReturn(metadata);
-        Mockito.when(metadata.getTableHandle(session, "remote_db", "remote_tbl"))
-                .thenReturn(Optional.of(handle));
+        Mockito.when(table.resolveConnectorTableHandle(session, metadata)).thenReturn(Optional.of(handle));
+        PluginDrivenExternalTable.MetadataRead read = Mockito.mock(PluginDrivenExternalTable.MetadataRead.class);
+        Mockito.when(table.observeConnectorMetadata(session, metadata)).thenReturn(read);
+        Mockito.when(read.execute(Mockito.any())).thenAnswer(call ->
+                ((java.util.function.Supplier<?>) call.getArgument(0)).get());
         Mockito.when(metadata.listPartitionNames(session, handle))
                 .thenReturn(Arrays.asList("pt=2", "pt=1"));
 
@@ -101,7 +101,8 @@ public class ShowPartitionsCommandPluginDrivenTest {
         // sorted ascending by partition name
         Assertions.assertEquals("pt=1", rows.get(0).get(0));
         Assertions.assertEquals("pt=2", rows.get(1).get(0));
-        Mockito.verify(metadata).getTableHandle(session, "remote_db", "remote_tbl");
+        Mockito.verify(table).resolveConnectorTableHandle(session, metadata);
+        Mockito.verify(read).execute(Mockito.any());
     }
 
     @Test
@@ -120,11 +121,8 @@ public class ShowPartitionsCommandPluginDrivenTest {
 
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
         ExternalDatabase<?> db = Mockito.mock(ExternalDatabase.class);
-        // Must be a PluginDrivenExternalTable: the 5-col path casts the table to read its partition
-        // columns for the PartitionKey column.
+        // The typed table supplies both the guarded read and the partition columns for the rich result.
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
-        Mockito.when(table.getRemoteDbName()).thenReturn("remote_db");
-        Mockito.when(table.getRemoteName()).thenReturn("remote_tbl");
         Mockito.when(table.getPartitionColumns()).thenReturn(Arrays.asList(
                 new Column("dt", PrimitiveType.INT), new Column("region", PrimitiveType.INT)));
 
@@ -139,8 +137,11 @@ public class ShowPartitionsCommandPluginDrivenTest {
         // derivation from the connector is pinned by PluginDrivenMvccTableFactoryTest.
         Mockito.when(catalog.hasConnectorCapability(ConnectorCapability.SUPPORTS_PARTITION_STATS))
                 .thenReturn(true);
-        Mockito.when(metadata.getTableHandle(session, "remote_db", "remote_tbl"))
-                .thenReturn(Optional.of(handle));
+        Mockito.when(table.resolveConnectorTableHandle(session, metadata)).thenReturn(Optional.of(handle));
+        PluginDrivenExternalTable.MetadataRead read = Mockito.mock(PluginDrivenExternalTable.MetadataRead.class);
+        Mockito.when(table.observeConnectorMetadata(session, metadata)).thenReturn(read);
+        Mockito.when(read.execute(Mockito.any())).thenAnswer(call ->
+                ((java.util.function.Supplier<?>) call.getArgument(0)).get());
         Mockito.when(metadata.listPartitions(Mockito.eq(session), Mockito.eq(handle), Mockito.any()))
                 .thenReturn(Collections.singletonList(new ConnectorPartitionInfo(
                         "dt=2024/region=cn", Collections.emptyMap(), Collections.emptyMap(),
@@ -175,6 +176,8 @@ public class ShowPartitionsCommandPluginDrivenTest {
         // getMetaData() MUST agree on the column count or ShowResultSet headers/rows diverge.
         Assertions.assertEquals(5, command.getMetaData().getColumnCount(),
                 "getMetaData must produce 5 headers to match the 5-col rows (same capability gate)");
+        Mockito.verify(table).resolveConnectorTableHandle(session, metadata);
+        Mockito.verify(read).execute(Mockito.any());
     }
 
     private static void setField(Object target, String name, Object value) throws Exception {

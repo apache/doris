@@ -1324,7 +1324,7 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
     @ParameterizedTest
     @ValueSource(strings = {"stats", "pinned-stats", "dml", "partition-values", "mvcc", "deferred-mvcc",
             "estimate", "stream-open", "stream-next", "batch-open", "batch-next", "show-partitions",
-            "show-partition-stats", "partition-names"})
+            "show-partition-stats", "partition-names", "mtmv-mvcc", "mtmv-pin-mvcc"})
     void remainingProviderReadsRepairConfirmedAbsence(String operation) throws Exception {
         verifyRemainingRead(operation, false);
     }
@@ -1332,7 +1332,7 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
     @ParameterizedTest
     @ValueSource(strings = {"stats", "pinned-stats", "dml", "partition-values", "mvcc", "deferred-mvcc",
             "estimate", "stream-open", "stream-next", "batch-open", "batch-next", "show-partitions",
-            "show-partition-stats", "partition-names"})
+            "show-partition-stats", "partition-names", "mtmv-mvcc", "mtmv-pin-mvcc"})
     void delayedRemainingReadsPreserveRecreatedSource(String operation) throws Exception {
         verifyRemainingRead(operation, true);
     }
@@ -1380,6 +1380,15 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
             Mockito.when(metadata.listPartitions(Mockito.any(), Mockito.any(), Mockito.any())).thenAnswer(absent);
             if ("partition-values".equals(operation)) {
                 read = () -> table.getNameToPartitionValues(Optional.empty());
+            } else if ("mtmv-mvcc".equals(operation) || "mtmv-pin-mvcc".equals(operation)) {
+                Mockito.when(connector.getCapabilities()).thenReturn(java.util.EnumSet.of(
+                        org.apache.doris.connector.spi.ConnectorCapability.SUPPORTS_CONNECTOR_PARTITION_PRUNING));
+                if ("mtmv-pin-mvcc".equals(operation)) {
+                    Mockito.when(metadata.applySnapshot(Mockito.any(), Mockito.any(), Mockito.any())).thenAnswer(absent);
+                }
+                PluginDrivenMvccSnapshot pin = PluginDrivenMvccSnapshot.deferred(
+                        ConnectorMvccSnapshot.builder().snapshotId(1L).build());
+                read = () -> ((PluginDrivenMvccExternalTable) table).materializePartitionViewForMtmv(pin);
             } else if ("deferred-mvcc".equals(operation)) {
                 ConnectContext ctx = ConnectContext.get();
                 StatementContext previous = ctx.getStatementContext();

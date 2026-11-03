@@ -929,6 +929,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         Connector connector = pluginCatalog.getConnector();
         ConnectorSession session = pluginCatalog.buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        MetadataRead read = observeConnectorMetadata(session, metadata);
         Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
             // No handle (e.g. the base table was concurrently dropped): the view cannot be materialized at
@@ -939,9 +940,9 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         // Enumerate from the SNAPSHOT-PINNED handle - the same generation the data scan reads - never the
         // freshly resolved latest one (see pinPartitionViewHandle).
         ConnectorTableHandle pinnedHandle =
-                pinPartitionViewHandle(handleOpt.get(), metadata, session, Optional.of(pin));
+                read.execute(() -> pinPartitionViewHandle(handleOpt.get(), metadata, session, Optional.of(pin)));
         PluginDrivenPartitionView view = listPartitions(
-                metadata, session, pinnedHandle, getPartitionColumns(Optional.of(pin)));
+                read, metadata, session, pinnedHandle, getPartitionColumns(Optional.of(pin)));
         return new PluginDrivenMvccSnapshot(pin.getConnectorSnapshot(), view, pin.getPinnedSchema());
     }
 
