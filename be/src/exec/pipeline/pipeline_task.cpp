@@ -48,6 +48,7 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_profile_counter_names.h"
 #include "runtime/thread_context.h"
+#include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "util/defer_op.h"
 #include "util/mem_info.h"

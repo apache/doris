@@ -31,6 +31,9 @@
 #include "common/status.h"
 #include "cpp/sync_point.h"
 #include "io/fs/local_file_system.h"
+#include "runtime/cluster_info.h"
+#include "runtime/exec_env.h"
+#include "storage/changelog.h"
 #include "storage/compaction/compaction.h"
 #include "storage/compaction/cumulative_compaction.h"
 #include "storage/compaction/cumulative_compaction_policy.h"
@@ -39,6 +42,7 @@
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_manager.h"
 #include "util/threadpool.h"
+#include "util/time.h"
 
 namespace doris {
 using namespace config;
@@ -244,6 +248,84 @@ TEST_F(CompactionMetricsTest, TestCompactionReadWriteThroughput) {
 
     EXPECT_EQ(DorisMetrics::instance()->local_compaction_read_bytes_total->value(), 1024 * 28);
     EXPECT_EQ(DorisMetrics::instance()->local_compaction_read_rows_total->value(), 50 * 28);
+}
+
+TEST_F(CompactionMetricsTest, TestChangelogTtlCleanupCountedAsCompactionFinishes) {
+    ClusterInfo cluster;
+    auto* previous_cluster = ExecEnv::GetInstance()->cluster_info();
+    ExecEnv::GetInstance()->set_cluster_info(&cluster);
+    Defer restore_cluster {[&]() { ExecEnv::GetInstance()->set_cluster_info(previous_cluster); }};
+    const int64_t reference_tso = 2000L << kTsoLogicalBits;
+    const int64_t cutoff = changelog_ttl_cutoff_tso(reference_tso, 1);
+    cluster.advance_changelog_ttl_reference_tso(reference_tso);
+
+    TabletMetaSharedPtr tablet_meta;
+    tablet_meta.reset(new TabletMeta(1, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}},
+                                     UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
+                                     TCompressionType::LZ4F));
+    tablet_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_CHANGELOG);
+    BinlogConfig binlog_config(true, 1, 1024, 10, BinlogFormatPB::CHANGELOG, false);
+    tablet_meta->set_binlog_config(binlog_config);
+    TabletSharedPtr tablet(new Tablet(*(_storage_engine.get()), tablet_meta, _data_dir.get(),
+                                      CUMULATIVE_SIZE_BASED_POLICY));
+    ASSERT_TRUE(tablet->init().ok());
+    auto visible = std::make_shared<VersionWithTime>();
+    visible->version.store(3);
+    tablet->set_visible_version(visible);
+    auto expired = create_rowset({2, 2}, 1, false, 1024);
+    expired->rowset_meta()->set_commit_tso(cutoff);
+    auto retained = create_rowset({3, 3}, 1, false, 2048);
+    retained->rowset_meta()->set_commit_tso(cutoff + 1);
+
+    // The compaction runs up to its merge, and the execution ends there with the status injected here: the merge and
+    // what follows it need the segment files these rowsets do not have.
+    Status execution_status;
+    auto* sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    auto return_ok = [](auto&& values) {
+        try_any_cast<std::pair<Status, bool>*>(values.back())->second = true;
+    };
+    sp->set_call_back("compaction::CompactionMixin::build_basic_info", return_ok);
+    sp->set_call_back("compaction::CompactionMixin::execute_compact_impl", [&](auto&& values) {
+        auto* pairs = try_any_cast<std::pair<Status, bool>*>(values.back());
+        pairs->first = execution_status;
+        pairs->second = true;
+    });
+    sp->set_call_back("compaction::CompactionMixin::execute_compact", return_ok);
+    sp->set_call_back("cumulative_compaction::CumulativeCompaction::execute_compact", return_ok);
+    Defer defer {[&]() {
+        sp->clear_call_back("compaction::CompactionMixin::build_basic_info");
+        sp->clear_call_back("compaction::CompactionMixin::execute_compact_impl");
+        sp->clear_call_back("compaction::CompactionMixin::execute_compact");
+        sp->clear_call_back("cumulative_compaction::CumulativeCompaction::execute_compact");
+    }};
+    auto execute = [&](Status status) {
+        execution_status = std::move(status);
+        CumulativeCompaction compaction(*_storage_engine, tablet);
+        compaction.snapshot_changelog_ttl();
+        compaction._input_rowsets = {expired, retained};
+        return compaction.execute_compact();
+    };
+
+    auto* metrics = DorisMetrics::instance();
+    const int64_t successes = metrics->changelog_ttl_cleanup_success_total->value();
+    const int64_t failures = metrics->changelog_ttl_cleanup_failed_total->value();
+    const int64_t reclaimed_bytes = metrics->changelog_ttl_reclaimed_bytes_total->value();
+    const int64_t started_s = UnixSeconds();
+    ASSERT_TRUE(execute(Status::OK()).ok());
+    EXPECT_EQ(metrics->changelog_ttl_cleanup_success_total->value(), successes + 1);
+    EXPECT_EQ(metrics->changelog_ttl_cleanup_failed_total->value(), failures);
+    // the expired rowset is dropped, the retained one is merged
+    EXPECT_EQ(metrics->changelog_ttl_reclaimed_bytes_total->value(), reclaimed_bytes + 1024);
+    const int64_t last_success_s = metrics->changelog_ttl_last_success_timestamp_seconds->value();
+    EXPECT_GE(last_success_s, started_s);
+    EXPECT_LE(last_success_s, UnixSeconds());
+
+    EXPECT_FALSE(execute(Status::InternalError("injected execution failure")).ok());
+    EXPECT_EQ(metrics->changelog_ttl_cleanup_success_total->value(), successes + 1);
+    EXPECT_EQ(metrics->changelog_ttl_cleanup_failed_total->value(), failures + 1);
+    EXPECT_EQ(metrics->changelog_ttl_reclaimed_bytes_total->value(), reclaimed_bytes + 1024);
+    EXPECT_EQ(metrics->changelog_ttl_last_success_timestamp_seconds->value(), last_success_s);
 }
 
 } // namespace doris

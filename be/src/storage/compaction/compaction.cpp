@@ -334,13 +334,17 @@ void Compaction::snapshot_changelog_ttl() {
     _changelog_ttl_seconds = config.ttl_seconds();
 }
 
+bool Compaction::is_expired_changelog_rowset(const RowsetSharedPtr& rowset) const {
+    return rowset->end_version() <= _changelog_ttl_visible_version &&
+           changelog_rowset_expired(*rowset->rowset_meta(), _changelog_ttl_cutoff_tso);
+}
+
 bool Compaction::pick_expired_changelog_rowset(const std::vector<RowsetSharedPtr>& candidates) {
     if (_changelog_ttl_cutoff_tso < 0) {
         return false;
     }
     auto expired = std::ranges::find_if(candidates, [this](const RowsetSharedPtr& rowset) {
-        return rowset->end_version() <= _changelog_ttl_visible_version &&
-               changelog_rowset_expired(*rowset->rowset_meta(), _changelog_ttl_cutoff_tso);
+        return is_expired_changelog_rowset(rowset);
     });
     if (expired == candidates.end()) {
         return false;
@@ -388,13 +392,39 @@ void Compaction::filter_changelog_ttl_rowsets() {
         if (rowset->num_rows() == 0) {
             continue;
         }
-        if (rowset->end_version() > _changelog_ttl_visible_version ||
-            !changelog_rowset_expired(*rowset->rowset_meta(), _changelog_ttl_cutoff_tso)) {
+        if (!is_expired_changelog_rowset(rowset)) {
             _data_input_rowsets.push_back(rowset);
             continue;
         }
         _changelog_ttl_filtered_rows += rowset->num_rows();
     }
+}
+
+void Compaction::record_changelog_ttl_cleanup(bool succeeded) const {
+    if (_changelog_ttl_cutoff_tso < 0) {
+        return;
+    }
+    // Told from the inputs rather than from what the merge filtered, which is nothing yet for a cleanup that fails
+    // before its merge: a cloud compaction that cannot refresh its tablet meta, for example.
+    bool drops_expired_changelog = false;
+    int64_t expired_bytes = 0;
+    for (const auto& rowset : _input_rowsets) {
+        if (is_expired_changelog_rowset(rowset)) {
+            drops_expired_changelog = true;
+            expired_bytes += rowset->total_disk_size();
+        }
+    }
+    if (!drops_expired_changelog) {
+        return;
+    }
+    if (!succeeded) {
+        DorisMetrics::instance()->changelog_ttl_cleanup_failed_total->increment(1);
+        return;
+    }
+    DorisMetrics::instance()->changelog_ttl_cleanup_success_total->increment(1);
+    DorisMetrics::instance()->changelog_ttl_reclaimed_bytes_total->increment(expired_bytes);
+    DorisMetrics::instance()->changelog_ttl_last_success_timestamp_seconds->set_value(
+            UnixSeconds());
 }
 
 Status Compaction::merge_input_rowsets() {
