@@ -187,27 +187,29 @@ public final class GlobalVariable {
     @VarAttrDef.VarAttr(name = SQL_CONVERTER_SERVICE_URL, flag = VarAttrDef.GLOBAL)
     public static String sqlConverterServiceUrl = "";
 
+    // While query_audit_always_on is on, the audit variables below stay on or keep at least the strength of their
+    // defaults; see QueryAuditPolicy.
     @VarAttrDef.VarAttr(name = ENABLE_AUDIT_PLUGIN, flag = VarAttrDef.GLOBAL)
     public static boolean enableAuditLoader = true;
 
     @VarAttrDef.VarAttr(name = AUDIT_PLUGIN_MAX_BATCH_BYTES, flag = VarAttrDef.GLOBAL)
-    public static long auditPluginMaxBatchBytes = 50 * 1024 * 1024;
+    public static long auditPluginMaxBatchBytes = QueryAuditPolicy.DEFAULT_AUDIT_PLUGIN_MAX_BATCH_BYTES;
 
     @VarAttrDef.VarAttr(name = AUDIT_PLUGIN_MAX_BATCH_INTERVAL_SEC, flag = VarAttrDef.GLOBAL)
-    public static long auditPluginMaxBatchInternalSec = 60;
+    public static long auditPluginMaxBatchInternalSec = QueryAuditPolicy.DEFAULT_AUDIT_PLUGIN_MAX_BATCH_INTERVAL_SEC;
 
     @VarAttrDef.VarAttr(name = AUDIT_PLUGIN_MAX_SQL_LENGTH, flag = VarAttrDef.GLOBAL)
-    public static int auditPluginMaxSqlLength = 2097152;
+    public static int auditPluginMaxSqlLength = QueryAuditPolicy.DEFAULT_AUDIT_PLUGIN_MAX_SQL_LENGTH;
 
     @VarAttrDef.VarAttr(name = AUDIT_PLUGIN_MAX_INSERT_STMT_LENGTH, flag = VarAttrDef.GLOBAL,
             description = "This is specifically used to limit the length of INSERT statements. "
                     + "If this value is greater than AUDIT_PLUGIN_MAX_SQL_LENGTH, "
                     + "it will use the value of AUDIT_PLUGIN_MAX_SQL_LENGTH. "
                     + "If an INSERT statement exceeds this length, it will be truncated.")
-    public static int auditPluginMaxInsertStmtLength = Integer.MAX_VALUE;
+    public static int auditPluginMaxInsertStmtLength = QueryAuditPolicy.DEFAULT_AUDIT_PLUGIN_MAX_INSERT_STMT_LENGTH;
 
     @VarAttrDef.VarAttr(name = AUDIT_PLUGIN_LOAD_TIMEOUT, flag = VarAttrDef.GLOBAL)
-    public static int auditPluginLoadTimeoutS = 600;
+    public static int auditPluginLoadTimeoutS = QueryAuditPolicy.DEFAULT_AUDIT_PLUGIN_LOAD_TIMEOUT_S;
 
     @VarAttrDef.VarAttr(name = ENABLE_GET_ROW_COUNT_FROM_FILE_LIST, flag = VarAttrDef.GLOBAL,
             description = "For external tables, whether to enable getting row count from file list. "
