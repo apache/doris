@@ -1149,38 +1149,6 @@ static bool geography_rounded_vertex_collision(const GeographyEdgeNodes::RawEdge
     return collision(a, b) || collision(b, a);
 }
 
-static bool geography_has_raw_polygon_edge_crossing(const GeographyEdgeNodes::RawEdges& left_edges,
-                                                    const GeographyEdgeNodes::RawEdges& right_edges,
-                                                    const GeographyEdgeNodes& nodes) {
-    const auto crosses = [&](const auto& left, const auto& right) {
-#ifdef BE_TEST
-        ++geography_polygon_crossing_checks;
-#endif
-        if (S2::CrossingSign(left.first.point, left.second.point, right.first.point,
-                             right.second.point) <= 0) {
-            return false;
-        }
-        const auto intersection = S2::GetIntersection(left.first.point, left.second.point,
-                                                      right.first.point, right.second.point);
-        const auto lat_lng = S2LatLng(intersection);
-        const GeographyVertex raw_intersection(
-                {.x = lat_lng.lng().degrees(), .y = lat_lng.lat().degrees()});
-        return nodes.contains_point(left.first, left.second, raw_intersection) &&
-               nodes.contains_point(right.first, right.second, raw_intersection);
-    };
-    for (const auto& left_ring : left_edges.polygon) {
-        for (const auto& right_ring : right_edges.polygon) {
-            for (const auto& left : left_ring) {
-                if (std::ranges::any_of(right_ring,
-                                        [&](const auto& right) { return crosses(left, right); })) {
-                    return true;
-                }
-            }
-        }
-    }
-    return false;
-}
-
 static Status geography_check_polygon_interiors(std::string_view name, const S2ShapeIndex& left,
                                                 const S2ShapeIndex& right,
                                                 const GeographyEdgeNodes& nodes,
@@ -1199,13 +1167,11 @@ static Status geography_check_polygon_interiors(std::string_view name, const S2S
 
 static S1ChordAngle geography_conversion_error();
 
-// Return the side of a raw spherical edge using the original degree values. The
-// calculation index uses binary64 S2 points, so a point one ULP outside an edge
-// can move to the other side after conversion. Keep this check local to points
-// already within the conversion error of a polygon edge; distant points cannot
-// be affected by the bounded coordinate conversion.
-static int geography_raw_side(const GeoCoordinate& a, const GeoCoordinate& b,
-                              const GeoCoordinate& point) {
+// Preserve the determinant of the original degree values for polygon side admission
+// and crossing certificates. A point one ULP outside an edge can move to the other
+// side when independently converted to binary64 S2 points.
+static boost::multiprecision::cpp_bin_float_quad geography_raw_determinant(
+        const GeoCoordinate& a, const GeoCoordinate& b, const GeoCoordinate& point) {
     using RawSideFloat = boost::multiprecision::cpp_bin_float_quad;
     const auto vector = [](const GeoCoordinate& coordinate) {
         const auto [sin_lon, cos_lon] = geography_degree_sincos<RawSideFloat>(coordinate.x);
@@ -1218,7 +1184,54 @@ static int geography_raw_side(const GeoCoordinate& a, const GeoCoordinate& b,
     const RawSideFloat determinant = (first[1] * second[2] - first[2] * second[1]) * query[0] +
                                      (first[2] * second[0] - first[0] * second[2]) * query[1] +
                                      (first[0] * second[1] - first[1] * second[0]) * query[2];
-    return (determinant > 0) - (determinant < 0);
+    return determinant;
+}
+
+static bool geography_has_raw_polygon_edge_crossing(
+        const GeographyEdgeNodes::RawEdges& left_edges,
+        const GeographyEdgeNodes::RawEdges& right_edges) {
+    const auto side = [](const GeoCoordinate& a, const GeoCoordinate& b,
+                         const GeoCoordinate& point) {
+        const auto determinant = geography_raw_determinant(a, b, point);
+        using Float = boost::multiprecision::cpp_bin_float_quad;
+        using std::abs;
+        // Allow for trigonometric conversion and the determinant's six bounded products.
+        // Sides within this software-quad rounding bound, including coplanar edges, prove nothing.
+        if (abs(determinant) <= 256 * std::numeric_limits<Float>::epsilon()) {
+            return 0;
+        }
+        return (determinant > 0) - (determinant < 0);
+    };
+    const auto crosses = [&](const auto& left, const auto& right) {
+#ifdef BE_TEST
+        ++geography_polygon_crossing_checks;
+#endif
+        if (S2::CrossingSign(left.first.point, left.second.point, right.first.point,
+                             right.second.point) <= 0) {
+            return false;
+        }
+        const auto& a = left.first.coordinate;
+        const auto& b = left.second.coordinate;
+        const auto& c = right.first.coordinate;
+        const auto& d = right.second.coordinate;
+        // Crossing arcs need not have an intersection representable in binary64 degrees.
+        // For example, (0,58+ulp)->(2,60) crosses (0,58)->(0.5,61), but converting S2's
+        // approximate intersection back to degrees cannot prove exact raw coplanarity.
+        // ACB, CBD, BDA and DAC must instead have the same nonzero orientation, as in S2.
+        const int acb = side(a, c, b);
+        return acb != 0 && side(c, b, d) == acb && side(b, d, a) == acb && side(d, a, c) == acb;
+    };
+    for (const auto& left_ring : left_edges.polygon) {
+        for (const auto& right_ring : right_edges.polygon) {
+            for (const auto& left : left_ring) {
+                if (std::ranges::any_of(right_ring,
+                                        [&](const auto& right) { return crosses(left, right); })) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
 }
 
 static bool geography_raw_rounded_side_mismatch(const GeographyCoordinates& polygon,
@@ -1232,8 +1245,9 @@ static bool geography_raw_rounded_side_mismatch(const GeographyCoordinates& poly
                 S2::GetDistance(point.point, start.point, end.point) > conversion_error) {
                 continue;
             }
-            const int raw_side =
-                    geography_raw_side(start.coordinate, end.coordinate, point.coordinate);
+            const auto determinant =
+                    geography_raw_determinant(start.coordinate, end.coordinate, point.coordinate);
+            const int raw_side = (determinant > 0) - (determinant < 0);
             const int rounded_side =
                     s2pred::ExpensiveSign(start.point, end.point, point.point, false);
             if (raw_side != 0 && rounded_side != 0 && raw_side != rounded_side) {
@@ -1577,14 +1591,13 @@ static Status geography_relation_impl(std::string_view name, const GeoShape& lhs
         // Interior/vertex witnesses prove the contact without inspecting every edge pair. Keep
         // the raw crossing fallback last: nested N-edge polygons can otherwise perform N^2
         // CrossingSign calls even though a cheap inner vertex already proves the intersection.
-        const bool has_witness =
-                (lhs.type() == GeoShapeType::GEO_SHAPE_POLYGON &&
-                 geography_has_polygon_intersection_witness(nodes.left, left, nodes.right,
-                                                            nodes)) ||
-                (rhs.type() == GeoShapeType::GEO_SHAPE_POLYGON &&
-                 geography_has_polygon_intersection_witness(nodes.right, right, nodes.left,
-                                                            nodes)) ||
-                geography_has_raw_polygon_edge_crossing(left_edges, right_edges, nodes);
+        const bool has_witness = (lhs.type() == GeoShapeType::GEO_SHAPE_POLYGON &&
+                                  geography_has_polygon_intersection_witness(nodes.left, left,
+                                                                             nodes.right, nodes)) ||
+                                 (rhs.type() == GeoShapeType::GEO_SHAPE_POLYGON &&
+                                  geography_has_polygon_intersection_witness(nodes.right, right,
+                                                                             nodes.left, nodes)) ||
+                                 geography_has_raw_polygon_edge_crossing(left_edges, right_edges);
         if (!has_witness) {
             return Status::NotSupported(
                     "{} does not support ambiguous spherical Polygon boundary intersection", name);

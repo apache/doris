@@ -2250,6 +2250,29 @@ static void expect_geography_zero_distance(const std::string& left, const std::s
     expect_dwithin_zero(left, right, true);
 }
 
+TEST(VGeoFunctionsTest, GeographyPolygonCrossingDoesNotRequireRepresentableIntersection) {
+    const Strings polygons {"POLYGON ((0 58.00000000000001,2 60,-2 60,0 58.00000000000001))",
+                            "POLYGON ((0 58.00000000000001,-2 60,2 60,0 58.00000000000001))",
+                            "POLYGON ((2 60,-2 60,0 58.00000000000001,2 60))"};
+    const std::string other = "POLYGON ((0 58,0.5 57,0.5 61,0 58))";
+    // There is no shared or interior raw vertex. Only proper edge crossings can certify
+    // contact despite the rounded-only apex collision at (0,58).
+    for (const auto& polygon : polygons) {
+        for (const bool reverse : {false, true}) {
+            const auto& left = reverse ? other : polygon;
+            const auto& right = reverse ? polygon : other;
+            SCOPED_TRACE(left + " versus " + right);
+            expect_geography_relation("st_intersects", left, right, true);
+            expect_geography_relation("st_disjoint", left, right, false);
+            expect_geography_zero_distance(left, right);
+            EXPECT_GT(geography_polygon_crossing_checks_for_test(
+                              spatial_test_wkb(geography_test_hex(left)),
+                              spatial_test_wkb(geography_test_hex(right))),
+                      0);
+        }
+    }
+}
+
 TEST(VGeoFunctionsTest, GeographyPointShapeZeroDistanceKeepsRawContactAndInteriors) {
     const std::string hole = "POLYGON ((0 0,4 0,4 4,0 4,0 0),(1 1,3 1,3 3,1 3,1 1))";
     const std::vector<std::pair<std::string, std::string>> cases {
