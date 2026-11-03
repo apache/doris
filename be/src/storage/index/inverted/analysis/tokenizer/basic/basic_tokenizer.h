@@ -18,36 +18,60 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
 
-#include "storage/index/inverted/analysis/per_token_stream.h"
+#include "storage/index/inverted/analysis/text_token_stream.h"
 
 namespace doris::segment_v2::inverted_index {
 
-// Runs of ASCII letters and digits, each Chinese char, and each extra char as tokens.
-class BasicTokenizer final : public PerTokenTokenizer {
+// Runs of ASCII letters and digits, cut to MAX_WORD_LEN bytes with the rest of the run dropped;
+// each character of five CJK ranges; and each extra char. Invalid bytes and other characters are
+// skipped. With `lowercase`, A-Z is folded to a-z, which is all a lowercase filter does to these
+// tokens.
+//
+// Without extra chars it classifies the value a block of BYTE_CLASS_BLOCK bytes at a time, cuts the
+// runs at the edges of the letter-and-digit bits and decodes a character only at a byte that can
+// start one: of the three bytes of 中 only the first is visited. A batch is handed over at the end
+// of the block that fills it. With extra chars it runs the scalar loop, which has no performance
+// target. The terms are views of the value or of its lowered copy, which keeps the offsets of the
+// value.
+class BasicTokenizer final : public TextTokenizer {
 public:
-    BasicTokenizer() : PerTokenTokenizer(TermLifetime::kUntilReset) {}
+    explicit BasicTokenizer(bool lowercase = false) : _lowercase(lowercase) {}
 
+    // ASCII characters that are tokens of their own; none together with `lowercase`.
     void initialize(const std::string& extra_chars = "");
 
-    // The tokens are views of the value; the list of them is kept.
+    void reset(std::string_view text) override;
+    bool next_batch(TokenBatch& batch) override;
+    // The lowered copy of the value, which only a lowercasing tokenizer has, and the token list
+    // of the scalar loop.
     size_t reserved_bytes() const override {
-        return _tokens_text.capacity() * sizeof(std::string_view);
+        return (_lowercase ? _lowered.capacity() : 0) +
+               _tokens_text.capacity() * sizeof(std::string_view);
     }
 
-protected:
-    void on_reset(std::string_view text) override;
-    bool next_token(TokenRef& token) override;
-
 private:
-    template <bool HasExtraChars>
-    void cut(std::string_view text);
+    template <bool kLower>
+    bool scan(TokenBatch& batch);
+    void cut_with_extra_chars(std::string_view text);
+    bool hand_out(TokenBatch& batch);
 
-    size_t _buffer_index = 0;
+    const bool _lowercase;
+    std::string_view _text;
+    // The value with A-Z folded, byte for byte at the offsets of the value; only with _lowercase.
+    std::string _lowered;
+    size_t _block = 0;       // the next block to classify
+    uint64_t _carry = 0;     // 1 when the last byte of the previous block is a letter or digit
+    int64_t _run_start = -1; // the offset of the run being read, or -1 between runs
+
+    // The scalar loop cuts the whole value in reset().
     std::vector<std::string_view> _tokens_text;
+    size_t _next = 0;
 
     std::array<bool, 128> _extra_char_set {};
     bool _has_extra_chars = false;
