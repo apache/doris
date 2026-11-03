@@ -17,7 +17,10 @@
 
 package org.apache.doris.datasource.plugin;
 
+import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -25,6 +28,7 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.RefreshManager;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
@@ -33,6 +37,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.hive.HiveCatalogProperties;
 import org.apache.doris.connector.hive.HiveConnectorMetadata;
+import org.apache.doris.connector.hive.HiveWritePlanProvider;
 import org.apache.doris.connector.hms.CachingHmsClient;
 import org.apache.doris.connector.hms.HmsClientException;
 import org.apache.doris.connector.hms.TestThriftHmsClient;
@@ -45,6 +50,7 @@ import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.ConnectorTableNotFoundException;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
@@ -54,6 +60,7 @@ import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
 import org.apache.doris.connector.spi.scan.ScanNodePropertiesResult;
 import org.apache.doris.connector.spi.write.ConnectorRowLevelDmlRequest;
+import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
@@ -63,6 +70,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.log.CatalogLog;
 import org.apache.doris.datasource.log.ExternalObjectLog;
 import org.apache.doris.datasource.metacache.ExternalMetaCache;
 import org.apache.doris.datasource.metacache.FeMetaCacheEntry;
@@ -87,6 +95,7 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
+import org.apache.hadoop.hive.metastore.api.CurrentNotificationEventId;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.NoSuchObjectException;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
@@ -1331,7 +1340,7 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
     @ValueSource(strings = {"stats", "pinned-stats", "dml", "partition-values", "mvcc", "deferred-mvcc",
             "estimate", "stream-open", "stream-next", "batch-open", "batch-next", "show-partitions",
             "show-partition-stats", "partition-names", "mtmv-mvcc", "mtmv-pin-mvcc",
-            "scan-filter", "scan-filter-list", "scan-pin-mvcc"})
+            "scan-filter", "scan-filter-list", "scan-pin-mvcc", "write-columns", "write-identity", "physical-filter"})
     void remainingProviderReadsRepairConfirmedAbsence(String operation) throws Exception {
         verifyRemainingRead(operation, false);
     }
@@ -1340,7 +1349,7 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
     @ValueSource(strings = {"stats", "pinned-stats", "dml", "partition-values", "mvcc", "deferred-mvcc",
             "estimate", "stream-open", "stream-next", "batch-open", "batch-next", "show-partitions",
             "show-partition-stats", "partition-names", "mtmv-mvcc", "mtmv-pin-mvcc",
-            "scan-filter", "scan-filter-list", "scan-pin-mvcc"})
+            "scan-filter", "scan-filter-list", "scan-pin-mvcc", "write-columns", "write-identity", "physical-filter"})
     void delayedRemainingReadsPreserveRecreatedSource(String operation) throws Exception {
         verifyRemainingRead(operation, true);
     }
@@ -1360,6 +1369,21 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
         if ("stats".equals(operation)) {
             Mockito.when(metadata.getTableStatistics(Mockito.any(), Mockito.any())).thenAnswer(absent);
             read = table::fetchRowCount;
+        } else if (operation.startsWith("write-")) {
+            ConnectorWritePlanProvider provider = Mockito.mock(ConnectorWritePlanProvider.class);
+            Mockito.when(connector.getWritePlanProvider(Mockito.any())).thenReturn(provider);
+            if ("write-columns".equals(operation)) {
+                Mockito.when(provider.getWriteColumns(Mockito.any(), Mockito.any(), Mockito.any())).thenAnswer(absent);
+            } else {
+                Mockito.when(provider.getWriteColumns(Mockito.any(), Mockito.any(), Mockito.any()))
+                        .thenReturn(Optional.of(Collections.emptyList()));
+                Mockito.when(provider.getWriteMetadataIdentity(Mockito.any(), Mockito.any())).thenAnswer(absent);
+            }
+            read = () -> table.resolveWriteColumns(Optional.empty());
+        } else if ("physical-filter".equals(operation)) {
+            Mockito.when(metadata.applyFilter(Mockito.any(), Mockito.any(), Mockito.any())).thenAnswer(absent);
+            PluginDrivenScanNode scan = scanWithPartitionPredicate(table);
+            read = () -> Deencapsulation.invoke(scan, "convertPredicate");
         } else if ("pinned-stats".equals(operation)) {
             Mockito.when(metadata.getTableStatistics(Mockito.any(), Mockito.any(), Mockito.any())).thenAnswer(absent);
             read = () -> Deencapsulation.invoke(table, "fetchRowCountAtSnapshot",
@@ -1564,14 +1588,14 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
 
     @ParameterizedTest
     @ValueSource(strings = {"show-partitions", "partition-names", "scan-mvcc", "eager-partitions",
-            "file-estimate", "file-sample"})
+            "file-estimate", "file-sample", "write-columns", "physical-filter"})
     void nativeHivePartitionAbsenceRepairsLookup(String operation) throws Exception {
         verifyNativeHivePartitionAbsence(operation, false);
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"show-partitions", "partition-names", "scan-mvcc", "eager-partitions",
-            "file-estimate", "file-sample"})
+            "file-estimate", "file-sample", "write-columns", "physical-filter"})
     void delayedNativeHivePartitionAbsencePreservesRecreatedTable(String operation) throws Exception {
         verifyNativeHivePartitionAbsence(operation, true);
     }
@@ -1585,9 +1609,19 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
         }
         boolean previousFileEstimate = GlobalVariable.enable_get_row_count_from_file_list;
         PluginDrivenExternalTable old = warmTarget();
+        AtomicBoolean freshWriteRead = new AtomicBoolean();
         IMetaStoreClient rpc = Mockito.mock(IMetaStoreClient.class);
+        Mockito.when(rpc.getCurrentNotificationEventId()).thenReturn(new CurrentNotificationEventId(1L));
+        Mockito.when(rpc.listPartitionsByFilter(Mockito.eq("db"), Mockito.eq("a"),
+                Mockito.anyString(), Mockito.anyShort())).thenThrow(new NoSuchObjectException("table a is gone"));
         Mockito.when(rpc.tableExists("db", "a")).thenAnswer(call -> remoteTables.containsKey("a"));
         Mockito.when(rpc.getTable("db", "a")).thenAnswer(call -> {
+            if (freshWriteRead.compareAndSet(true, false)) {
+                remoteTables.remove("a");
+                missingStarted.countDown();
+                Assertions.assertTrue(releaseMissing.await(10, TimeUnit.SECONDS));
+                throw new NoSuchObjectException("table a is gone");
+            }
             String column = remoteTables.get("a");
             if (column == null) {
                 throw new NoSuchObjectException("table a is gone");
@@ -1617,6 +1651,8 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
                 CachingHmsClient cached = new CachingHmsClient(owner,
                         new TestThriftHmsClient(rpc), Collections.emptyMap())) {
             ConnectorContext context = Mockito.mock(ConnectorContext.class);
+            Mockito.doAnswer(call -> ((java.util.concurrent.Callable<?>) call.getArgument(0)).call())
+                    .when(context).executeAuthenticated(Mockito.any());
             Mockito.when(context.getStorageContext()).thenReturn(Mockito.mock(ConnectorStorageContext.class));
             ConnectorMetadata hive = Mockito.spy(new HiveConnectorMetadata(cached,
                     HiveCatalogProperties.of(
@@ -1636,6 +1672,9 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
                 }).when(hive).listFileSizes(Mockito.any(), Mockito.any());
             }
             Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(hive);
+            Mockito.when(connector.getWritePlanProvider(Mockito.any())).thenReturn(new HiveWritePlanProvider(cached,
+                    HiveCatalogProperties.of(Collections.singletonMap(
+                            "hive.metastore.uris", "thrift://localhost:9083")), context));
             ConnectorSession warm = catalog.buildCrossStatementSession();
             try {
                 Assertions.assertTrue(hive.getTableHandle(warm, "db", "a").isPresent());
@@ -1647,8 +1686,12 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
                 remoteCache.remove("a");
                 return null;
             }).when(connector).invalidateTable("db", "a");
+            freshWriteRead.set("write-columns".equals(operation));
             Future<?> missing = worker.submit(() -> {
-                if ("file-estimate".equals(operation)) {
+                if ("write-columns".equals(operation)) {
+                    Assertions.assertThrows(DorisConnectorException.class,
+                            () -> old.resolveWriteColumns(Optional.empty()));
+                } else if ("file-estimate".equals(operation)) {
                     Assertions.assertEquals(-1L, old.fetchRowCount());
                 } else {
                     Assertions.assertThrows(HmsClientException.class, () -> readNativeHiveConsumer(operation, old));
@@ -1661,7 +1704,8 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
                 }
                 // The table is physically absent, but its hot cached handle still resolves.
                 cached.getTable("db", "a");
-                Mockito.verify(rpc, Mockito.times(1)).getTable("db", "a");
+                Mockito.verify(rpc, Mockito.times("write-columns".equals(operation) ? 2 : 1))
+                        .getTable("db", "a");
                 PluginDrivenExternalTable replacement = null;
                 List<Column> schema = null;
                 if (recreate) {
@@ -1697,12 +1741,24 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
         }
     }
 
+    private PluginDrivenScanNode scanWithPartitionPredicate(PluginDrivenExternalTable table) throws Exception {
+        PluginDrivenScanNode scan = scanForProperties(table, Mockito.mock(ConnectorScanPlanProvider.class));
+        SlotRef slot = Mockito.mock(SlotRef.class);
+        Mockito.when(slot.getColumnName()).thenReturn("p");
+        Mockito.when(slot.getType()).thenReturn(Type.INT);
+        Deencapsulation.setField(scan, "conjuncts", new ArrayList<>(Collections.singletonList(
+                new BinaryPredicate(BinaryPredicate.Operator.EQ, slot, new IntLiteral(1L, Type.INT)))));
+        return scan;
+    }
+
     private void readNativeHiveConsumer(String operation, PluginDrivenExternalTable table) throws Exception {
         if ("scan-mvcc".equals(operation)) {
             PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot) ((PluginDrivenMvccExternalTable) table)
                     .loadSnapshot(Optional.empty(), Optional.empty());
             Assertions.assertTrue(pin.isPartitionViewDeferred());
             table.getNameToPartitionItemsForScan(Optional.of(pin));
+        } else if ("physical-filter".equals(operation)) {
+            Deencapsulation.invoke(scanWithPartitionPredicate(table), "convertPredicate");
         } else if ("eager-partitions".equals(operation)) {
             table.getNameToPartitionItems(Optional.empty());
         } else if ("file-sample".equals(operation)) {
@@ -1830,6 +1886,75 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"command", "replay", "metadata-only"})
+    void catalogRefreshProtectsPostRetirementReplacement(String operation) throws Exception {
+        warmTarget();
+        CountDownLatch retired = new CountDownLatch(1);
+        CountDownLatch finishRefresh = new CountDownLatch(1);
+        FeMetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> original =
+                Deencapsulation.getField(catalog, "databases");
+        FeMetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> objects = Mockito.spy(original);
+        Deencapsulation.setField(catalog, "databases", objects);
+        Mockito.doAnswer(call -> {
+            call.callRealMethod();
+            retired.countDown();
+            Assertions.assertTrue(finishRefresh.await(10, TimeUnit.SECONDS));
+            return null;
+        }).when(objects).invalidateAll();
+        Future<?> refresh = worker.submit(() -> {
+            RefreshManager manager = new RefreshManager();
+            if (!"replay".equals(operation)) {
+                manager.handleRefreshCatalog(catalog.getName(), !"metadata-only".equals(operation));
+            } else {
+                manager.replayRefreshCatalog(CatalogLog.createForRefreshCatalog(catalog.getId(), true));
+            }
+            return null;
+        });
+        try {
+            Assertions.assertTrue(retired.await(10, TimeUnit.SECONDS));
+            database = (TestDatabase) catalog.getDbNullable("db");
+            database.getTableNamesWithLock();
+            PluginDrivenExternalTable replacement = database.getTableNullable("a");
+            Mockito.when(metadata.renderShowCreateTableDdl(Mockito.any(), Mockito.any())).thenAnswer(call -> {
+                remoteTables.remove("a");
+                missingStarted.countDown();
+                Assertions.assertTrue(releaseMissing.await(10, TimeUnit.SECONDS));
+                throw new ConnectorTableNotFoundException("db", "a", null);
+            });
+            Future<?> missing = worker.submit(() -> Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                    replacement::getShowCreateTableDdl));
+            Assertions.assertTrue(missingStarted.await(10, TimeUnit.SECONDS));
+            remoteTables.put("a", "recreated_column");
+            finishRefresh.countDown();
+            refresh.get(10, TimeUnit.SECONDS);
+            List<Column> schema = replacement.getFullSchema();
+            remoteCache.put("a", "recreated metadata");
+            releaseMissing.countDown();
+            missing.get(10, TimeUnit.SECONDS);
+            Assertions.assertSame(database, catalog.getDbNullable("db"));
+            Assertions.assertSame(replacement, database.getTableNullable(replacement.getId()));
+            Assertions.assertSame(schema, replacement.getFullSchema());
+            Assertions.assertEquals("recreated metadata", remoteCache.get("a"));
+        } finally {
+            finishRefresh.countDown();
+            releaseMissing.countDown();
+        }
+    }
+
+    @Test
+    void failedCatalogRefreshReleasesCleanupFence() {
+        warmTarget();
+        Mockito.doThrow(new IllegalStateException("connector refresh failed")).when(connector).invalidateAll();
+        Assertions.assertThrows(IllegalStateException.class, () -> catalog.onRefreshCache(true));
+        database = (TestDatabase) catalog.getDbNullable("db");
+        database.getTableNamesWithLock();
+        PluginDrivenExternalTable table = database.getTableNullable("a");
+        remoteTables.remove("a");
+        readMissingHandle(table);
+        Assertions.assertNull(database.getTableNullable(table.getId()));
+    }
+
     @Test
     void ordinaryWritesDoNotReloadNames() {
         verifyOrdinaryWrite(0);
@@ -1849,6 +1974,12 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
         catalog.lowerCaseMode = mode;
         PluginDrivenExternalTable table = warmTarget();
         int loads = catalog.nameLoads.get();
+        ConnectorWritePlanProvider provider = Mockito.mock(ConnectorWritePlanProvider.class);
+        Mockito.when(connector.getWritePlanProvider(Mockito.any())).thenReturn(provider);
+        Mockito.when(provider.getWriteColumns(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(Optional.of(Collections.emptyList()));
+        Mockito.when(provider.getWriteMetadataIdentity(Mockito.any(), Mockito.any())).thenReturn("write-generation");
+        Assertions.assertTrue(table.resolveWriteColumns(Optional.empty()).isPresent());
         new RefreshManager().refreshTableInternal(database, table, 123L);
         Assertions.assertEquals(Set.of("a", "b"), database.getTableNamesWithLock());
         Assertions.assertSame(table, database.getTableNullable("a"));

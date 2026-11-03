@@ -1215,6 +1215,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
         }
         ConnectorSession session = pluginCatalog.buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        MetadataRead read = observeConnectorMetadata(session, metadata);
         Optional<ConnectorTableHandle> handle = resolveConnectorTableHandle(session, metadata);
         if (!handle.isPresent()) {
             return Optional.empty();
@@ -1223,7 +1224,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
         if (provider == null) {
             return Optional.empty();
         }
-        return withPluginContextClassLoader(provider, () -> {
+        return read.execute(() -> withPluginContextClassLoader(provider, () -> {
             Optional<List<ConnectorColumn>> connectorColumns =
                     provider.getWriteColumns(session, handle.get(), branchName);
             if (!connectorColumns.isPresent()) {
@@ -1235,7 +1236,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 ctx.getStatementContext().setConnectorWriteMetadataIdentity(getId(), identity);
             }
             return connectorColumns.map(ConnectorColumnConverter::convertColumns);
-        });
+        }));
     }
 
     /** The raw connector-emitted table-property map (including FE-internal / render-hint keys). */
@@ -1906,7 +1907,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
         // row width, this time EXCLUDING partition columns because their values live in the directory path,
         // not the data files. Mirrors legacy HMSExternalTable.getRowCountFromFileList. Gated by the global
         // feature flag because the listing can be a costly remote round-trip; the connector self-samples,
-        // pins its classloader, and degrades to -1 rather than throwing.
+        // pins its classloader, and degrades ordinary failures to -1. Confirmed absence first repairs the lookup.
         if (GlobalVariable.enable_get_row_count_from_file_list) {
             long dataSize;
             try {

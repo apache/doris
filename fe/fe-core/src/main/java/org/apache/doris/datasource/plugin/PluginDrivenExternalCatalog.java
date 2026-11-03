@@ -535,14 +535,19 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
      */
     @Override
     public void onRefreshCache(boolean invalidCache) {
-        if (!invalidCache) {
-            super.onRefreshCache(false);
-            return;
-        }
+        beginTableLookupRefresh();
         try {
-            invalidateAllConnectorCachesIfPresent();
+            if (!invalidCache) {
+                super.onRefreshCache(false);
+                return;
+            }
+            try {
+                invalidateAllConnectorCachesIfPresent();
+            } finally {
+                super.onRefreshCache(true);
+            }
         } finally {
-            super.onRefreshCache(true);
+            endTableLookupRefresh();
         }
     }
 

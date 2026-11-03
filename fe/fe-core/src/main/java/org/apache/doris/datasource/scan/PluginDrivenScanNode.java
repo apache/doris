@@ -1326,7 +1326,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         ConnectorFilterConstraint constraint = buildFilterConstraint(conjuncts);
         Optional<FilterApplicationResult<ConnectorTableHandle>> result;
         try {
-            result = metadata.applyFilter(connectorSession, currentHandle, constraint);
+            result = readMetadata(() -> metadata.applyFilter(connectorSession, currentHandle, constraint));
         } catch (RuntimeException failure) {
             if (scanProvider != null) {
                 try {

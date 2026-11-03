@@ -777,7 +777,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * first, so the statement's read metadata and scan planning resolve the same metadata generation;
      * on a scope miss the loader consults the cross-query {@link IcebergTableCache} when enabled (else a direct
      * remote load). The remote loader's exception propagates verbatim (the cache re-throws it unwrapped), so a
-     * caller's own {@code NoSuchTableException} degradation (the partition-view readers) still fires. Callers
+     * caller can preserve confirmed table absence for guarded engine cleanup. Callers
      * needing the auth scope wrap the call in {@code executeAuthenticated} (see {@link #loadTable}). NOT used by
      * the sys-table path ({@link #loadSysTable}), which builds its metadata view from this same scoped base.
      */
@@ -901,7 +901,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      *   <li>{@code rowCount > 0} gate: legacy data-table consumer is {@code rowCount > 0 ? rowCount : UNKNOWN},
      *       but the NEW consumer takes the value whenever {@code >= 0}, so a 0-row table would wrongly report 0.
      *       Collapsing {@code <= 0} to empty pins the "0 -> UNKNOWN" semantics here (matches paimon).</li>
-     *   <li>Any failure degrades to empty (best effort): a statistics miss must never break query planning.</li>
+     *   <li>Ordinary failures degrade to empty; confirmed table absence propagates for guarded engine cleanup.</li>
      * </ul>
      */
     @Override
@@ -2656,7 +2656,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * {@code PluginDrivenExternalTable.getNameToPartitionItems} can populate {@code selectedPartitionNum}
      * (EXPLAIN {@code partition=N/M} + SQL-block-rule {@code partition_num} enforcement). Mirrors
      * {@link #listPartitionNames}: the remote PARTITIONS scan runs inside the auth context; a concurrent drop
-     * yields an empty list. The {@code filter} is ignored (iceberg planScan is predicate-driven; the reported
+     * propagates as typed table absence for guarded engine cleanup. The {@code filter} is ignored
+     * (iceberg planScan is predicate-driven; the reported
      * partition count is display/enforcement metadata only, never the read set). Unpartitioned tables map to
      * the SPI default empty list via {@link IcebergPartitionUtils#listPartitions}.
      */
