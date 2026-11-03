@@ -17,6 +17,7 @@
 
 #include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
 
+#include "common/exception.h"
 #include "exec/spill/spill_file_manager.h"
 #include "exec/spill/spill_file_reader.h"
 #include "exec/spill/spill_file_writer.h"
@@ -119,26 +120,33 @@ Status VIcebergSortWriter::close(const Status& status) {
 
 Status VIcebergSortWriter::_close_locked(const Status& status) {
     Status internal_status = status;
-    if (status.ok() && !_runtime_state->is_cancelled()) {
-        internal_status = Status::OK();
-        if (_sorter != nullptr && (!_sorter->merge_sort_state()->unsorted_block()->empty() ||
-                                   !_sorter->merge_sort_state()->get_sorted_block().empty())) {
-            if (_sorted_spill_files.empty()) {
-                internal_status = _sorter->do_sort();
-                if (internal_status.ok()) {
-                    internal_status = _sorter->prepare_for_read(false);
+    // Sort/merge/permute allocations can throw. Convert them before finalizing the partition so
+    // outer close still learns about the file even though close() marks this sorted writer closed.
+    ASSIGN_STATUS_IF_CATCH_EXCEPTION(
+            {
+                if (status.ok() && !_runtime_state->is_cancelled()) {
+                    internal_status = Status::OK();
+                    if (_sorter != nullptr &&
+                        (!_sorter->merge_sort_state()->unsorted_block()->empty() ||
+                         !_sorter->merge_sort_state()->get_sorted_block().empty())) {
+                        if (_sorted_spill_files.empty()) {
+                            internal_status = _sorter->do_sort();
+                            if (internal_status.ok()) {
+                                internal_status = _sorter->prepare_for_read(false);
+                            }
+                            if (internal_status.ok()) {
+                                internal_status = _write_sorted_data();
+                            }
+                        } else {
+                            internal_status = _do_spill();
+                        }
+                    }
+                    if (internal_status.ok() && !_sorted_spill_files.empty()) {
+                        internal_status = _combine_files_output();
+                    }
                 }
-                if (internal_status.ok()) {
-                    internal_status = _write_sorted_data();
-                }
-            } else {
-                internal_status = _do_spill();
-            }
-        }
-        if (internal_status.ok() && !_sorted_spill_files.empty()) {
-            internal_status = _combine_files_output();
-        }
-    }
+            },
+            internal_status);
 
     // Form the return value only after the underlying close runs; a deferred assignment is too late.
     Status close_status =
