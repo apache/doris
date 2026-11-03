@@ -40,6 +40,7 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -53,20 +54,20 @@ public class FunctionUtil {
     private static final Logger LOG = LogManager.getLogger(FunctionUtil.class);
 
     public static void cleanUdfCache(Map<Long, String> functionSignatures) {
-        if (functionSignatures.isEmpty()) {
-            // No function generation was removed. Never fall back to signature-based cleanup,
-            // which could delete a newly created function's cache when an old task arrives late.
-            return;
-        }
-        AgentBatchTask batchTask = new AgentBatchTask();
+        List<CleanUDFCacheTask> tasks = new ArrayList<>();
         for (long backendId : Env.getCurrentSystemInfo().getAllBackendIds(false)) {
             for (Map.Entry<Long, String> function : functionSignatures.entrySet()) {
-                CleanUDFCacheTask task = new CleanUDFCacheTask(backendId, function.getValue(), function.getKey(), true);
-                // DROP removes the metadata even if a backend is unavailable, so missed cleanup needs retries.
-                if (AgentTaskQueue.addTask(task)) {
-                    batchTask.addTask(task);
-                }
-                LOG.info("clean udf cache in be {}, functionId {}", backendId, function.getKey());
+                tasks.add(new CleanUDFCacheTask(backendId, function.getValue(), function.getKey(), true));
+            }
+        }
+        submitUdfCacheCleanupTasks(tasks);
+    }
+
+    public static void submitUdfCacheCleanupTasks(List<CleanUDFCacheTask> tasks) {
+        AgentBatchTask batchTask = new AgentBatchTask();
+        for (CleanUDFCacheTask task : tasks) {
+            if (AgentTaskQueue.addTask(task)) {
+                batchTask.addTask(task);
             }
         }
         if (batchTask.getTaskNum() > 0) {
@@ -74,17 +75,10 @@ public class FunctionUtil {
         }
     }
 
-    public static void cleanUdfCache(Database db) {
-        Map<Long, String> functionSignatures;
-        db.readLock();
-        try {
-            functionSignatures = db.getFunctions().stream()
-                    .filter(function -> function.getBinaryType() == Function.BinaryType.PYTHON_UDF)
-                    .collect(Collectors.toMap(Function::getId, Function::signatureString));
-        } finally {
-            db.readUnlock();
-        }
-        cleanUdfCache(functionSignatures);
+    public static Map<Long, String> collectPythonFunctions(Database db) {
+        return db.getFunctions().stream()
+                .filter(function -> function.getBinaryType() == Function.BinaryType.PYTHON_UDF)
+                .collect(Collectors.toMap(Function::getId, Function::signatureString));
     }
 
     /**
@@ -95,7 +89,8 @@ public class FunctionUtil {
      * @throws UserException
      */
     public static boolean dropFunctionImpl(FunctionSearchDesc function, boolean ifExists,
-            ConcurrentMap<String, ImmutableList<Function>> name2Function) throws UserException {
+            ConcurrentMap<String, ImmutableList<Function>> name2Function,
+            ConcurrentMap<Long, Function> id2Function) throws UserException {
         String functionName = function.getName().getFunction();
         List<Function> existFuncs = name2Function.get(functionName);
         if (existFuncs == null) {
@@ -112,6 +107,9 @@ public class FunctionUtil {
         for (Function existFunc : existFuncs) {
             if (function.isIdentical(existFunc)) {
                 isFound = true;
+                if (id2Function != null) {
+                    id2Function.remove(existFunc.getId(), existFunc);
+                }
             } else {
                 builder.add(existFunc);
             }
@@ -143,7 +141,8 @@ public class FunctionUtil {
      * @throws UserException
      */
     public static boolean addFunctionImpl(Function function, boolean ifNotExists, boolean isReplay,
-            ConcurrentMap<String, ImmutableList<Function>> name2Function) throws UserException {
+            ConcurrentMap<String, ImmutableList<Function>> name2Function,
+            ConcurrentMap<Long, Function> id2Function) throws UserException {
         String functionName = function.getFunctionName().getFunction();
         List<Function> existFuncs = name2Function.get(functionName);
         if (!isReplay) {
@@ -171,20 +170,26 @@ public class FunctionUtil {
             builder.addAll(existFuncs);
         }
         builder.add(function);
+        // Register the ID before publishing the name; detached databases do not update the index.
+        if (id2Function != null) {
+            id2Function.put(function.getId(), function);
+        }
         name2Function.put(functionName, builder.build());
         return true;
     }
 
     public static boolean removeFunctionImpl(Function function,
-            ConcurrentMap<String, ImmutableList<Function>> name2Function) throws UserException {
-        return removeFunctionImpl(function, false, name2Function);
+            ConcurrentMap<String, ImmutableList<Function>> name2Function,
+            ConcurrentMap<Long, Function> id2Function) throws UserException {
+        return removeFunctionImpl(function, false, name2Function, id2Function);
     }
 
     public static boolean removeFunctionImpl(Function function, boolean ifExists,
-            ConcurrentMap<String, ImmutableList<Function>> name2Function) throws UserException {
+            ConcurrentMap<String, ImmutableList<Function>> name2Function,
+            ConcurrentMap<Long, Function> id2Function) throws UserException {
         FunctionSearchDesc functionSearchDesc = new FunctionSearchDesc(function.getFunctionName(), function.getArgs(),
                 function.hasVarArgs());
-        return dropFunctionImpl(functionSearchDesc, ifExists, name2Function);
+        return dropFunctionImpl(functionSearchDesc, ifExists, name2Function, id2Function);
     }
 
     public static Function getFunction(FunctionSearchDesc function,

@@ -23,6 +23,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -43,7 +44,10 @@ public class AgentTaskCleanupDaemon extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        LOG.info("Begin to clean up inactive agent tasks");
+        LOG.info("Begin to clean up agent tasks");
+        long now = System.currentTimeMillis();
+        AgentTaskQueue.removeTasks(TTaskType.CLEAN_UDF_CACHE,
+                task -> ((CleanUDFCacheTask) task).isExpired(now));
         SystemInfoService infoService = Env.getCurrentSystemInfo();
         infoService.getAllClusterBackends(false)
                 .forEach(backend -> {
@@ -62,7 +66,7 @@ public class AgentTaskCleanupDaemon extends MasterDaemon {
                     }
                 });
 
-        LOG.info("Finish to clean up inactive agent tasks");
+        LOG.info("Finish to clean up agent tasks");
     }
 
     private void removeInactiveBeAgentTasks(Long beId) {
