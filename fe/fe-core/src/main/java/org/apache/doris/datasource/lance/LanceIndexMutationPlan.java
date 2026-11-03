@@ -21,13 +21,15 @@ import org.apache.doris.datasource.lance.index.LanceIndexMutationExecutor;
 import org.apache.doris.thrift.TLanceIndexMutationType;
 
 import java.util.Map;
+import java.util.concurrent.Callable;
 
 /**
  * The execution plan one admitted Lance index mutation statement carries out of admission
  * (design v6 sections 2.2 and 5.1): every input the synchronous executor needs, pinned at
  * capture time, plus the entry-internal final preflight that re-decides the authoritative
  * no-op/existence verdict against current metadata after the active-name entry is acquired
- * and before the single dispatch.
+ * and before the single dispatch. Send-time storage options are copied under the same
+ * captured target's catalog fence, allowing credential rotation without changing routing.
  *
  * <p>The plan is the handoff artifact of the three-phase statement shape:
  * <ol>
@@ -62,12 +64,14 @@ public final class LanceIndexMutationPlan {
     private final boolean ifExists;
     private final LanceIndexSchemaContract schemaContract;
     private final LanceIndexMutationExecutor.FinalPreflight finalPreflight;
+    private final Callable<Map<String, String>> storageOptionsSupplier;
 
     LanceIndexMutationPlan(LanceExternalCatalog catalog, TLanceIndexMutationType mutationType,
             String datasetUri, long admittedDatasetVersion, String normalizedIndexName, String displayIndexName,
             String columnName, String indexType, Map<String, String> properties,
             boolean ifNotExists, boolean ifExists, LanceIndexSchemaContract schemaContract,
-            LanceIndexMutationExecutor.FinalPreflight finalPreflight) {
+            LanceIndexMutationExecutor.FinalPreflight finalPreflight,
+            Callable<Map<String, String>> storageOptionsSupplier) {
         this.catalog = catalog;
         this.mutationType = mutationType;
         this.datasetUri = datasetUri;
@@ -81,6 +85,7 @@ public final class LanceIndexMutationPlan {
         this.ifExists = ifExists;
         this.schemaContract = schemaContract;
         this.finalPreflight = finalPreflight;
+        this.storageOptionsSupplier = storageOptionsSupplier;
     }
 
     /** The catalog owning the dataset; also the busy-guard namespace. */
@@ -167,6 +172,7 @@ public final class LanceIndexMutationPlan {
                 .setIfNotExists(ifNotExists)
                 .setIfExists(ifExists)
                 .setSchemaContract(schemaContract)
-                .setFinalPreflight(finalPreflight);
+                .setFinalPreflight(finalPreflight)
+                .setStorageOptionsSupplier(storageOptionsSupplier);
     }
 }

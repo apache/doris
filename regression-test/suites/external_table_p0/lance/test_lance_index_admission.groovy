@@ -76,6 +76,9 @@ suite("test_lance_index_admission", "p0,external,nonConcurrent") {
     // runner profile - true for the single-backend clusters this suite runs on; a
     // mixed-profile cluster would need the probe pinned to one backend first.
     boolean delegated = false
+    // A lost response can hide a committed probe even before its profile is known.
+    // Cleanup owns this suite's unique name as soon as a CREATE may be sent.
+    boolean probeAttempted = false
     // The armed probe leg's rejection text, kept for the retrospective check after the
     // profile is derived (see below).
     String armedLegMessage = null
@@ -148,6 +151,7 @@ suite("test_lance_index_admission", "p0,external,nonConcurrent") {
         try {
             Throwable armedFailure = null
             try {
+                probeAttempted = true
                 sql """CREATE INDEX `${createIndexName}` ON `${filesystemCatalog}`.`doris`.`${tableName}` (embedding) USING ANN
                         PROPERTIES("index_type"="IVF_PQ", "metric"="l2", "num_partitions"="4", "num_sub_vectors"="4", "num_bits"="8")"""
             } catch (Throwable failure) {
@@ -174,10 +178,8 @@ suite("test_lance_index_admission", "p0,external,nonConcurrent") {
         try {
             def committedRows = sql """CREATE INDEX `${createIndexName}` ON `${filesystemCatalog}`.`doris`.`${tableName}` (embedding) USING ANN
                     PROPERTIES("index_type"="IVF_PQ", "metric"="l2", "num_partitions"="4", "num_sub_vectors"="4", "num_bits"="8")"""
-            // The statement returned without throwing, so this name is spent on the
-            // dataset: flip the profile flag BEFORE the row-shape assertions below,
-            // so an unexpected shape (which fails this suite loudly) still leaves the
-            // finally cleanup armed to drop the possibly-committed orphan index.
+            // Record the successful runner profile before checking the returned row shape.
+            // Cleanup is already armed by probeAttempted, including for a lost response.
             delegated = true
             assertEquals(1, committedRows.size())
             assertEquals(0, committedRows[0][0])
@@ -359,20 +361,7 @@ suite("test_lance_index_admission", "p0,external,nonConcurrent") {
         // Attempt every cleanup, but never report success after a failed restore.
         // Preserve the scenario failure and attach cleanup failures to it.
         Throwable cleanupFailure = suiteFailure
-        [
-            { master_sql """ADMIN SET FRONTEND CONFIG ("enable_lance_index_mutation" = "${originalGate}")""" },
-            // On the delegated profile the probe CREATE may have committed before a later
-            // step failed; the best-effort removal keeps the shared preinstalled dataset
-            // clean for the suites that pin it (a no-op when the closed loop already
-            // dropped the index, skipped when nothing can have committed).
-            {
-                if (delegated) {
-                    sql """DROP INDEX IF EXISTS `${createIndexName}` ON `${filesystemCatalog}`.`doris`.`${tableName}`"""
-                }
-            },
-            { sql """DROP CATALOG IF EXISTS `${restCatalog}`""" },
-            { sql """DROP CATALOG IF EXISTS `${filesystemCatalog}`""" }
-        ].each { cleanup ->
+        def attemptCleanup = { cleanup ->
             try {
                 cleanup()
             } catch (Throwable failure) {
@@ -382,6 +371,24 @@ suite("test_lance_index_admission", "p0,external,nonConcurrent") {
                     cleanupFailure.addSuppressed(failure)
                 }
             }
+        }
+        try {
+            // Keep the gate open until the suite's unique probe name is cleaned up.
+            // A CREATE whose response was lost may also have committed; DROP IF EXISTS
+            // reconciles that name without ever touching the shared preloaded index.
+            if (probeAttempted) {
+                attemptCleanup {
+                    sql """DROP INDEX IF EXISTS `${createIndexName}` ON `${filesystemCatalog}`.`doris`.`${tableName}`"""
+                }
+            }
+        } finally {
+            // A cleanup rejection (including a still-busy name) must not prevent the
+            // original gate or either catalog from being restored independently.
+            [
+                { master_sql """ADMIN SET FRONTEND CONFIG ("enable_lance_index_mutation" = "${originalGate}")""" },
+                { sql """DROP CATALOG IF EXISTS `${restCatalog}`""" },
+                { sql """DROP CATALOG IF EXISTS `${filesystemCatalog}`""" }
+            ].each { cleanup -> attemptCleanup(cleanup) }
         }
         if (suiteFailure == null && cleanupFailure != null) {
             throw cleanupFailure

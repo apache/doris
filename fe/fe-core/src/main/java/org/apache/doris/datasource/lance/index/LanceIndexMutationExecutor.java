@@ -45,6 +45,7 @@ import org.apache.thrift.TApplicationException;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -188,6 +189,7 @@ public final class LanceIndexMutationExecutor {
         private final LanceIndexSchemaContract schemaContract;
         private final long deadlineMs;
         private final FinalPreflight finalPreflight;
+        private final Callable<Map<String, String>> storageOptionsSupplier;
         private final BooleanSupplier cancelSignal;
         private final LanceIndexMutationRefresher refresher;
 
@@ -206,6 +208,11 @@ public final class LanceIndexMutationExecutor {
             this.schemaContract = builder.schemaContract;
             this.deadlineMs = builder.deadlineMs;
             this.finalPreflight = builder.finalPreflight;
+            // Admission supplies a target-fenced, immutable snapshot at request-build time.
+            // Keep the direct builder's existing behavior for callers without an admission plan.
+            this.storageOptionsSupplier = builder.storageOptionsSupplier != null ? builder.storageOptionsSupplier
+                    : () -> LanceStorageOptions.fromDorisStorageProperties(datasetUri,
+                            catalog.getCatalogProperty().getOrderedStoragePropertiesList());
             this.cancelSignal = builder.cancelSignal;
             // Production wiring sets the table and gets the production refresher without
             // saying so; an explicit refresher wins; a request with neither (tests, or a
@@ -238,6 +245,7 @@ public final class LanceIndexMutationExecutor {
             private boolean ifExists = false;
             private LanceIndexSchemaContract schemaContract = null;
             private FinalPreflight finalPreflight = () -> PreflightResult.PROCEED;
+            private Callable<Map<String, String>> storageOptionsSupplier;
             private BooleanSupplier cancelSignal = () -> false;
             private LanceExternalTable table = null;
             private LanceIndexMutationRefresher refresher = null;
@@ -297,6 +305,12 @@ public final class LanceIndexMutationExecutor {
              */
             public Builder setFinalPreflight(FinalPreflight finalPreflight) {
                 this.finalPreflight = finalPreflight;
+                return this;
+            }
+
+            /** Capture send-time credentials under the admission target's local catalog fence. */
+            public Builder setStorageOptionsSupplier(Callable<Map<String, String>> storageOptionsSupplier) {
+                this.storageOptionsSupplier = storageOptionsSupplier;
                 return this;
             }
 
@@ -757,7 +771,7 @@ public final class LanceIndexMutationExecutor {
      * are resolved from the current catalog properties at send time (never persisted, logged,
      * or echoed); the schema contract travels for CREATE/REPLACE only.
      */
-    private static TLanceIndexMutationRequest buildRequest(MutationRequest request, Backend backend) {
+    private static TLanceIndexMutationRequest buildRequest(MutationRequest request, Backend backend) throws Exception {
         TLanceIndexMutationRequest wireRequest = new TLanceIndexMutationRequest();
         wireRequest.setInvocationId(UUID.randomUUID().toString());
         wireRequest.setBeProcessEpoch(backend.getProcessEpoch());
@@ -781,9 +795,7 @@ public final class LanceIndexMutationExecutor {
         if (request.schemaContract != null) {
             wireRequest.setSchemaContractJson(GsonUtils.GSON.toJson(request.schemaContract));
         }
-        wireRequest.setStorageOptions(LanceStorageOptions.fromDorisStorageProperties(
-                request.datasetUri, request.catalog.getCatalogProperty()
-                        .getOrderedStoragePropertiesList()));
+        wireRequest.setStorageOptions(request.storageOptionsSupplier.call());
         return wireRequest;
     }
 

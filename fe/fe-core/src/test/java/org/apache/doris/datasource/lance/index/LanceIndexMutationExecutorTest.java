@@ -17,13 +17,21 @@
 
 package org.apache.doris.datasource.lance.index;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.GenericPool;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.lance.LanceExternalCatalog;
+import org.apache.doris.datasource.lance.LanceExternalDatabase;
+import org.apache.doris.datasource.lance.LanceExternalTable;
+import org.apache.doris.datasource.lance.LanceIndexAdmission;
+import org.apache.doris.datasource.lance.LanceIndexAdmissionSnapshot;
 import org.apache.doris.datasource.lance.LanceIndexMutationOutcome;
+import org.apache.doris.datasource.lance.LanceIndexMutationPlan;
 import org.apache.doris.datasource.lance.LanceIndexSchemaContract;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -45,10 +53,13 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -605,6 +616,74 @@ public class LanceIndexMutationExecutorTest {
     }
 
     @Test
+    public void testTargetChangeAfterFinalPreflightPreventsDispatch() throws Exception {
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Map<String, String> properties = mutationStorageProperties();
+            LanceIndexMutationPlan plan = dropPlanForCatalogTarget(env, properties);
+            FakeDispatcher dispatcher = new FakeDispatcher(request -> okResult(0));
+            LanceIndexMutationExecutor.MutationRequest request = plan.populate(
+                    LanceIndexMutationExecutor.MutationRequest.newBuilder(catalog,
+                            plan.getMutationType(), DATASET_URI, DATASET_VERSION, "idx",
+                            System.currentTimeMillis() + 60_000L))
+                    .setFinalPreflight(() -> {
+                        LanceIndexMutationExecutor.PreflightResult verdict = plan.getFinalPreflight().run();
+                        // The DDL completes after the last metadata check but before request
+                        // construction. The old URI can name a different dataset at this endpoint.
+                        properties.put("s3.endpoint", "http://other-storage:9000");
+                        return verdict;
+                    }).build();
+
+            LanceIndexMutationOutcome outcome = executeWithDirectExecutor(dispatcher, request);
+
+            Assertions.assertEquals(LanceIndexMutationOutcome.Kind.CONFIRMED_FAILURE, outcome.getKind());
+            Assertions.assertTrue(outcome.getMessage().contains("target changed"), outcome.getMessage());
+            Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_MUTATION_REJECTED,
+                    outcome.toUserException().getMysqlErrorCode());
+            Assertions.assertEquals(0, dispatcher.sends.get());
+            Assertions.assertEquals(0, LanceIndexMutationExecutor.inFlightCount());
+        }
+    }
+
+    @Test
+    public void testSendTimeOptionsUseRotatedCredentialsAndKeepTheCapturedTarget() throws Exception {
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Map<String, String> properties = mutationStorageProperties();
+            LanceIndexMutationPlan plan = dropPlanForCatalogTarget(env, properties);
+            FakeDispatcher dispatcher = new FakeDispatcher(request -> {
+                // A later DDL cannot change the request's already captured routing or credentials.
+                properties.put("s3.endpoint", "http://other-storage:9000");
+                properties.put("s3.secret_key", "later-secret");
+                Map<String, String> options = request.getStorageOptions();
+                Assertions.assertEquals("http://original-storage:9000", options.get("aws_endpoint"));
+                Assertions.assertEquals("rotated-secret", options.get("aws_secret_access_key"));
+                Assertions.assertThrows(UnsupportedOperationException.class,
+                        () -> options.put("aws_endpoint", "http://unexpected:9000"));
+                return okResult(0);
+            });
+            LanceIndexMutationExecutor.MutationRequest request = plan.populate(
+                    LanceIndexMutationExecutor.MutationRequest.newBuilder(catalog,
+                            plan.getMutationType(), DATASET_URI, DATASET_VERSION, "idx",
+                            System.currentTimeMillis() + 60_000L))
+                    .setFinalPreflight(() -> {
+                        LanceIndexMutationExecutor.PreflightResult verdict = plan.getFinalPreflight().run();
+                        // Credential-only rotation remains allowed and is picked up at send time.
+                        properties.put("s3.secret_key", "rotated-secret");
+                        return verdict;
+                    }).build();
+
+            LanceIndexMutationOutcome outcome = executeWithDirectExecutor(dispatcher, request);
+
+            Assertions.assertEquals(LanceIndexMutationOutcome.Kind.SUCCESS, outcome.getKind());
+            Assertions.assertEquals(1, dispatcher.sends.get());
+            Assertions.assertEquals(0, LanceIndexMutationExecutor.inFlightCount());
+        }
+    }
+
+    @Test
     public void testPreflightRejectionPropagatesItsOwnTypedErrorAndReleasesEntry() throws Exception {
         FakeDispatcher dispatcher = new FakeDispatcher(request -> okResult(0));
         LanceIndexMutationExecutor.MutationRequest request = LanceIndexMutationExecutor
@@ -1045,6 +1124,40 @@ public class LanceIndexMutationExecutorTest {
     }
 
     // ---------------------------------------------------------------- helpers
+
+    private static Map<String, String> mutationStorageProperties() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "lance");
+        properties.put("lance.catalog.type", "filesystem");
+        properties.put("warehouse", "s3://bucket");
+        properties.put("s3.endpoint", "http://original-storage:9000");
+        properties.put("s3.region", "us-east-1");
+        properties.put("s3.access_key", "access-key");
+        properties.put("s3.secret_key", "original-secret");
+        return properties;
+    }
+
+    private LanceIndexMutationPlan dropPlanForCatalogTarget(Env env, Map<String, String> properties)
+            throws Exception {
+        Mockito.when(catalog.getProperties()).thenReturn(properties);
+        CatalogMgr catalogMgr = new CatalogMgr();
+        java.lang.reflect.Field catalogs = CatalogMgr.class.getDeclaredField("idToCatalog");
+        catalogs.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Map<Long, CatalogIf> registered = (Map<Long, CatalogIf>) catalogs.get(catalogMgr);
+        registered.put(CATALOG_ID, catalog);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        LanceExternalDatabase database = Mockito.mock(LanceExternalDatabase.class);
+        Mockito.when(database.getRemoteName()).thenReturn("db");
+        LanceExternalTable table = Mockito.mock(LanceExternalTable.class);
+        Mockito.when(table.getRemoteName()).thenReturn("tbl");
+        LanceIndexAdmissionSnapshot snapshot = new LanceIndexAdmissionSnapshot(DATASET_VERSION, DATASET_URI,
+                Collections.emptyList(), Collections.singletonList(
+                        new LanceIndexAdmissionSnapshot.PhysicalIndexInfo("idx", "uuid", DATASET_VERSION, "VECTOR")),
+                Collections.emptyList());
+        Mockito.when(catalog.loadTableIndexAdmissionSnapshot("db", "tbl")).thenReturn(snapshot);
+        return LanceIndexAdmission.admitDrop(catalog, database, table, "idx", false);
+    }
 
     private LanceIndexMutationExecutor.MutationRequest createRequest() {
         return requestBuilder("idx").build();

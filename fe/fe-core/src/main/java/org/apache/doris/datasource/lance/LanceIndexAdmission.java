@@ -22,10 +22,12 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.lance.index.LanceIndexInspection;
 import org.apache.doris.datasource.lance.index.LanceIndexInspectionExecutor;
 import org.apache.doris.datasource.lance.index.LanceIndexMutationExecutor.PreflightResult;
 import org.apache.doris.datasource.lance.index.LanceShowIndexInfo;
+import org.apache.doris.datasource.lance.storage.LanceStorageOptions;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.thrift.TLanceIndexMutationType;
 
@@ -35,6 +37,7 @@ import com.google.gson.JsonParser;
 import org.lance.schema.LanceField;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -164,7 +167,7 @@ public final class LanceIndexAdmission {
                         requireSameDataset(snapshot, current);
                         return decideCreateAgainstSnapshot(current, def, ifNotExists, displayName, normalizedName);
                     });
-                })));
+                }), storageOptionsSupplier(catalogMgr, catalog, target, snapshot.getDatasetUri())));
     }
 
     /**
@@ -221,7 +224,23 @@ public final class LanceIndexAdmission {
                         requireSameDataset(snapshot, current);
                         return decideDropAgainstSnapshot(current, indexName, normalizedName, ifExists);
                     });
-                })));
+                }), storageOptionsSupplier(catalogMgr, catalog, target, snapshot.getDatasetUri())));
+    }
+
+    /**
+     * Resolve current credentials without mixing an admitted dataset with a changed endpoint.
+     * Only the target check and property copy run under the short catalog fence. Parsing
+     * storage properties can load local configuration files, so it and the RPC run after
+     * the lock is released, using only the copied configuration.
+     */
+    private static Callable<Map<String, String>> storageOptionsSupplier(CatalogMgr catalogMgr,
+            LanceExternalCatalog catalog, CatalogMgr.LanceIndexTarget target, String datasetUri) {
+        return () -> {
+            CatalogProperty properties = catalogMgr.withLanceIndexAdmission(catalog, target,
+                    () -> new CatalogProperty(null, new HashMap<>(catalog.getProperties())));
+            return Collections.unmodifiableMap(new HashMap<>(LanceStorageOptions.fromDorisStorageProperties(
+                    datasetUri, properties.getOrderedStoragePropertiesList())));
+        };
     }
 
     /** Bounds resolution and cold schema loading before authoritative admission. */
