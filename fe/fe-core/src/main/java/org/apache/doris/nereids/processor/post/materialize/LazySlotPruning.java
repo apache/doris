@@ -40,7 +40,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
-import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
@@ -117,7 +116,7 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
 
     @Override
     public Plan visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, Context context) {
-        if (SessionVariable.getTopNLazyMaterializationUsingIndex() && filter.child() instanceof PhysicalOlapScan) {
+        if (MaterializeProbeVisitor.isIndexLazyFilter(filter)) {
             /*
              materialization(materializedSlots=[a, b], lazy=[c])
              ->topn(b)
@@ -128,7 +127,10 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
              ->topn(b)
               ->project(rowid, b)
                ->filter(a=1, output=(rowid, a, b))
-                ->materializeOlapScan(rowid, lazy=[a,c], T[a,b,c])
+                ->materializeOlapScan(rowid, lazy=[c], T[a,b,c])
+
+             The predicate slot a is dropped from the TopN tuple by the extra project, but the scan keeps
+             producing it for the predicate: a is removed from the scan's lazy slots below.
              */
             List<Slot> lazySlotsToScan = new ArrayList<>();
             boolean lazySlotsChanged = false;
