@@ -41,6 +41,7 @@ public class AnalyticWindow {
     public static final AnalyticWindow DEFAULT_WINDOW = new AnalyticWindow(Type.RANGE,
             new Boundary(BoundaryType.UNBOUNDED_PRECEDING, null),
             new Boundary(BoundaryType.CURRENT_ROW, null));
+    private static final BigDecimal MAX_ROWS_OFFSET_VALUE = BigDecimal.valueOf(Long.MAX_VALUE);
 
     public enum Type {
         ROWS("ROWS"),
@@ -200,7 +201,9 @@ public class AnalyticWindow {
             TAnalyticWindowBoundary result = new TAnalyticWindowBoundary(type.toThrift());
 
             if (type.isOffset() && windowType == Type.ROWS) {
-                result.setRowsOffsetValue(offsetValue.longValue());
+                Preconditions.checkState(offsetValue.compareTo(MAX_ROWS_OFFSET_VALUE) <= 0,
+                        "ROWS window offset must not exceed " + Long.MAX_VALUE);
+                result.setRowsOffsetValue(offsetValue.longValueExact());
             }
 
             // TODO: range windows need range_offset_predicate
