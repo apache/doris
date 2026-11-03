@@ -45,6 +45,9 @@ import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
+import org.apache.doris.persist.AlterMTMV;
+import org.apache.doris.persist.EditLog.EditLogItem;
+import org.apache.doris.persist.OperationType;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
@@ -176,10 +179,32 @@ public class MTMV extends OlapTable {
         }
     }
 
+    /** Apply and enqueue under one MV lock; the caller awaits after releasing the lock. */
+    public EditLogItem alterRefreshInfo(AlterMTMV alterMTMV, boolean isReplay) {
+        writeMvLock();
+        try {
+            alterRefreshInfo(alterMTMV.getRefreshInfo());
+            return isReplay ? null : submitAlterLog(alterMTMV);
+        } finally {
+            writeMvUnlock();
+        }
+    }
+
     public MTMVRefreshInfo alterRefreshInfo(MTMVRefreshInfo newRefreshInfo) {
         writeMvLock();
         try {
             return refreshInfo.updateNotNull(newRefreshInfo);
+        } finally {
+            writeMvUnlock();
+        }
+    }
+
+    /** Apply and enqueue under one MV lock; the caller awaits after releasing the lock. */
+    public EditLogItem alterStatus(AlterMTMV alterMTMV, boolean isReplay) {
+        writeMvLock();
+        try {
+            alterStatus(alterMTMV.getStatus());
+            return isReplay ? null : submitAlterLog(alterMTMV);
         } finally {
             writeMvUnlock();
         }
@@ -204,6 +229,17 @@ public class MTMV extends OlapTable {
 
     public boolean addTaskResult(MTMVTask task, MTMVRelation relation,
             Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots, boolean isReplay) {
+        return addTaskResult(task, relation, partitionSnapshots, isReplay, null);
+    }
+
+    public boolean addTaskResult(AlterMTMV alterMTMV, boolean isReplay) {
+        return addTaskResult(alterMTMV.getTask(), alterMTMV.getRelation(), alterMTMV.getPartitionSnapshots(),
+                isReplay, alterMTMV);
+    }
+
+    private boolean addTaskResult(MTMVTask task, MTMVRelation relation,
+            Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots, boolean isReplay, AlterMTMV alterMTMV) {
+        EditLogItem editLogItem = null;
         MTMVCache mtmvCacheWithGuard = null;
         MTMVCache mtmvCacheWithoutGuard = null;
         boolean needUpdateCache = false;
@@ -270,7 +306,29 @@ public class MTMV extends OlapTable {
             }
             Env.getCurrentEnv().getMtmvService()
                     .refreshComplete(this, relation, task);
-            return true;
+            if (!isReplay && alterMTMV != null) {
+                editLogItem = submitAlterLog(alterMTMV);
+            }
+        } finally {
+            writeMvUnlock();
+        }
+        if (editLogItem != null) {
+            editLogItem.await();
+        }
+        return true;
+    }
+
+    private EditLogItem submitAlterLog(AlterMTMV alterMTMV) {
+        // All journaled MTMV operations use this lock order, including properties and task results.
+        return Env.getCurrentEnv().getEditLog().submitEdit(OperationType.OP_ALTER_MTMV, alterMTMV);
+    }
+
+    /** Apply and enqueue under one MV lock; the caller awaits after releasing the lock. */
+    public EditLogItem alterMvProperties(AlterMTMV alterMTMV, boolean isReplay) {
+        writeMvLock();
+        try {
+            alterMvProperties(alterMTMV.getMvProperties());
+            return isReplay ? null : submitAlterLog(alterMTMV);
         } finally {
             writeMvUnlock();
         }
