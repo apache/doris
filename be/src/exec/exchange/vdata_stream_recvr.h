@@ -18,7 +18,6 @@
 #pragma once
 
 #include <gen_cpp/Types_types.h>
-#include <gen_cpp/data.pb.h>
 #include <glog/logging.h>
 #include <google/protobuf/stubs/callback.h>
 
@@ -258,12 +257,12 @@ protected:
         int64_t deserialize_time() const { return _deserialize_time; }
         int64_t decompress_time() const { return _decompress_time; }
         size_t decompress_bytes() const { return _decompress_bytes; }
-        BlockItem() = default;
-        BlockItem(BlockUPtr&& block, size_t block_byte_size)
-                : _block(std::move(block)), _block_byte_size(block_byte_size) {}
-
-        BlockItem(std::unique_ptr<PBlock>&& pblock, size_t block_byte_size)
-                : _block(nullptr), _pblock(std::move(pblock)), _block_byte_size(block_byte_size) {}
+        BlockItem();
+        BlockItem(BlockUPtr&& block, size_t block_byte_size);
+        BlockItem(std::unique_ptr<PBlock>&& pblock, size_t block_byte_size);
+        BlockItem(BlockItem&&) noexcept;
+        BlockItem& operator=(BlockItem&&) noexcept;
+        ~BlockItem();
 
         void set_done(google::protobuf::Closure* done) {
             // The done callback is only set when the queue memory limit is exceeded.
