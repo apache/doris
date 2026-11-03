@@ -425,6 +425,29 @@ TEST(DataTypeVariantV2SerdeInputTest, DecimalTemplatePathsStopAtAnObjectInsideAn
     EXPECT_NE(std::string::npos, sibling.find(R"("a":{"b":1.50})")) << sibling;
 }
 
+TEST(DataTypeVariantV2SerdeInputTest, DecimalTemplatePathsKeepTheLenientVerdictOnAMalformedTail) {
+    DataTypeVariantV2SerDe serde(
+            1, template_of({{.pattern = "amount", .is_glob = false, .is_decimal = true}}));
+    auto column = ColumnVariantV2::create();
+    // The ondemand pass checks depth and keys as it reads, the DOM parser rejects the malformed
+    // tail first and the lenient serde keeps the text: both documents must become string rows.
+    const std::string deep_then_malformed = R"({"d":)" + std::string(130, '[') + "0" +
+                                            std::string(130, ']') + R"(,"k":x})";
+    ASSERT_TRUE(deserialize_json(serde, *column, deep_then_malformed).ok());
+    EXPECT_EQ('"', json_at(serde, *column, 0).front());
+    ASSERT_TRUE(deserialize_json(serde, *column, R"({"o":{"a":1,"a":2},"k":x})").ok());
+    EXPECT_EQ('"', json_at(serde, *column, 1).front());
+    // A well-formed over-deep or duplicate-keyed document fails as it always did: the DOM
+    // collector runs the same checks.
+    const std::string deep_and_valid =
+            R"({"d":)" + std::string(130, '[') + "0" + std::string(130, ']') + "}";
+    EXPECT_FALSE(deserialize_json(serde, *column, deep_and_valid).ok());
+    EXPECT_FALSE(deserialize_json(serde, *column, R"({"o":{"a":1,"a":2}})").ok());
+    // and a later row still takes the text path
+    ASSERT_TRUE(deserialize_json(serde, *column, R"({"amount":1.50})").ok());
+    EXPECT_NE(std::string::npos, json_at(serde, *column, 2).find(R"("amount":1.50)"));
+}
+
 TEST(DataTypeVariantV2SerdeInputTest, DataTypeHandsItsDecimalPathsToTheSerde) {
     auto paths = std::make_shared<const VariantDecimalPathSet>(std::vector<VariantTemplatePath> {
             {.pattern = "amount", .is_glob = false, .is_decimal = true}});

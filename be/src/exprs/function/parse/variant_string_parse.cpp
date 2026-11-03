@@ -580,7 +580,25 @@ struct JsonStringToVariantEncoder::Impl {
         }
         if (json.size != 0 && options.decimal_paths != nullptr && !options.decimal_paths->empty()) {
             auto row = builder.begin_row();
-            if (collect_with_decimal_paths(row, json)) {
+            bool collected = false;
+            if (options.throw_on_invalid_json) {
+                collected = collect_with_decimal_paths(row, json);
+            } else {
+                // The lenient serde keeps a document the DOM parser rejects as a string row, and
+                // the DOM parser reads the whole text before any depth or key check runs. The
+                // ondemand pass checks as it reads, so on a document whose prefix is over-deep or
+                // duplicate-keyed AND whose tail is malformed, {"o":{"a":1,"a":2},"k":x}, it would
+                // throw where the DOM path stored the text. Let the DOM parser give the verdict: a
+                // well-formed document meets the same check there and fails as it always did.
+                try {
+                    collected = collect_with_decimal_paths(row, json);
+                } catch (const Exception& exception) {
+                    if (exception.code() != ErrorCode::INVALID_ARGUMENT) {
+                        throw;
+                    }
+                }
+            }
+            if (collected) {
                 row.finish();
                 return;
             }
