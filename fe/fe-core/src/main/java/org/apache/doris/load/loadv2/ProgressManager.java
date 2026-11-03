@@ -17,7 +17,6 @@
 
 package org.apache.doris.load.loadv2;
 
-import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.HashBasedTable;
@@ -53,14 +52,10 @@ public class ProgressManager {
     }
 
     public void updateProgress(String id, TUniqueId queryId, TUniqueId fragmentId, int finishedScannerNum) {
+        // INSERT jobs do not register scan progress, and bulk load reports can arrive after cleanup.
         Progress progress = idToProgress.get(id);
         if (progress != null) {
             progress.updateFinishedScanNums(queryId, fragmentId, finishedScannerNum);
-        } else if (LOG.isDebugEnabled()) {
-            // INSERT jobs do not register scan progress, and reports can also arrive after a
-            // bulk load has removed its progress. Neither case indicates a load failure.
-            LOG.debug("progress id {} missing meta information, queryId {}, fragmentId {}",
-                    id, DebugUtil.printId(queryId), DebugUtil.printId(fragmentId));
         }
     }
 

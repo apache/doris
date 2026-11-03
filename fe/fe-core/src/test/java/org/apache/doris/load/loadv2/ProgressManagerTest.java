@@ -26,7 +26,7 @@ import org.junit.jupiter.api.Test;
 
 public class ProgressManagerTest {
     @Test
-    public void testUnregisteredAndLateReportsDoNotWarn() {
+    public void testUnregisteredAndLateReportsDoNotLog() {
         ProgressManager manager = new ProgressManager();
         TUniqueId queryId = new TUniqueId(1, 1);
         TUniqueId fragmentId = new TUniqueId(2, 1);
@@ -41,8 +41,7 @@ public class ProgressManagerTest {
             manager.updateProgress("load", queryId, fragmentId, 8);
             Assertions.assertEquals("Unknown id: load", manager.getProgressInfo("load", true));
             Assertions.assertFalse(appender.contains(Level.WARN, "missing meta information"));
-            Assertions.assertTrue(appender.contains(Level.DEBUG, "progress id insert missing meta information"));
-            Assertions.assertTrue(appender.contains(Level.DEBUG, "progress id load missing meta information"));
+            Assertions.assertFalse(appender.contains(Level.DEBUG, "missing meta information"));
         }
     }
 
