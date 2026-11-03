@@ -58,6 +58,12 @@ suite("test_segment_iterator_lazy_read_ratio") {
             SELECT COUNT(*), SUM(LENGTH(payload)), SUM(ARRAY_SIZE(arr))
             FROM test_segment_iterator_lazy_read_ratio WHERE ABS(p - 50) < 10
         """)
+        // No LIMIT: TopN rowid fetch cannot bypass the segment output-column path.
+        // Check actual ARRAY elements and their association with nullable values and keys.
+        "order_qt_array_values_${ratio}"("""
+            SELECT k, arr, nullable_value, payload
+            FROM test_segment_iterator_lazy_read_ratio WHERE p < 51 AND k < 80 ORDER BY k
+        """)
         "order_qt_asc_${ratio}"("""
             SELECT k, payload, nullable_value, arr
             FROM test_segment_iterator_lazy_read_ratio WHERE p < 80 ORDER BY k LIMIT 10

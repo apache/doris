@@ -139,7 +139,7 @@ protected:
     // GTest assertions expand into several control-flow branches in clang-tidy.
     // NOLINTNEXTLINE(readability-function-cognitive-complexity)
     void check_read(int predicate_bound, int ratio, bool expected_lazy, size_t read_limit = 0,
-                    bool reverse = false) {
+                    bool reverse = false, bool sparse_candidates = false) {
         RuntimeState runtime_state;
         TQueryOptions query_options;
         if (ratio >= 0) {
@@ -154,6 +154,15 @@ protected:
         options.block_row_max = kRows;
         options.read_limit = read_limit;
         options.read_orderby_key_reverse = reverse;
+        if (sparse_candidates) {
+            // A delete bitmap leaves only even physical rowids. No 256-row candidate
+            // chunk is contiguous, so the output reader cannot use next_batch.
+            auto deleted = std::make_shared<roaring::Roaring>();
+            for (int rid = 1; rid < kRows; rid += 2) {
+                deleted->add(rid);
+            }
+            options.delete_bitmap.emplace(_segment->id(), std::move(deleted));
+        }
         auto predicate = std::shared_ptr<ColumnPredicate>(
                 new ComparisonPredicateBase<TYPE_INT, PredicateType::LT>(
                         1, "p", Field::create_field<TYPE_INT>(predicate_bound)));
@@ -178,7 +187,12 @@ protected:
 
         status = iterator->next_batch(&block);
         ASSERT_TRUE(status.ok()) << status;
-        const size_t expected_rows = predicate_bound * (kRows / 100);
+        size_t expected_rows = 0;
+        for (int rid = 0; rid < kRows; ++rid) {
+            if ((!sparse_candidates || rid % 2 == 0) && rid % 100 < predicate_bound) {
+                ++expected_rows;
+            }
+        }
         const size_t returned_rows =
                 read_limit == 0 ? expected_rows : std::min(read_limit, expected_rows);
         ASSERT_EQ(returned_rows, block.rows());
@@ -217,7 +231,9 @@ TEST_F(SegmentIteratorLazyReadRatioTest, StrictThresholdAndLimits) {
     check_read(49, 50, true);
     check_read(99, 0, true);
     check_read(1, 100, false);
-    check_read(80, 50, false, 2);
+    check_read(80, 50, true, 2);
+    check_read(80, 50, true, 2, true);
+    check_read(50, 50, true, 0, false, true);
 }
 
 TEST_F(SegmentIteratorLazyReadRatioTest, MissingQueryOptionDefaultsToFifty) {

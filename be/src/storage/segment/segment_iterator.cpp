@@ -145,6 +145,12 @@ private:
     ColumnIterator* _column_iter = nullptr;
 };
 
+// Both the reader and the adaptive decision must agree on which rowid groups
+// can use seek plus next_batch rather than sparse read_by_rowids.
+static bool has_contiguous_rowids(const rowid_t* rowids, uint32_t count) {
+    return count > 1 && rowids[count - 1] - rowids[0] == count - 1;
+}
+
 SegmentIterator::~SegmentIterator() = default;
 
 void SegmentIterator::_init_row_bitmap_by_condition_cache() {
@@ -2672,8 +2678,7 @@ Status SegmentIterator::_read_columns_by_index(const std::vector<ColumnId>& read
 // NOLINTNEXTLINE(readability-function-size)
 Status SegmentIterator::_read_columns_for_rowids(const std::vector<ColumnId>& read_ordinals,
                                                  uint16_t nrows_read, bool read_for_predicate) {
-    bool is_continuous = (nrows_read > 1) &&
-                         (_block_rowids[nrows_read - 1] - _block_rowids[0] == nrows_read - 1);
+    bool is_continuous = has_contiguous_rowids(_block_rowids.data(), nrows_read);
     VLOG_DEBUG << fmt::format(
             "nrows_read from range iterator: {}, is_continus {}, "
             "read_ordinals: [{}]",
@@ -2741,10 +2746,8 @@ Status SegmentIterator::_read_columns_for_rowids(const std::vector<ColumnId>& re
             uint32_t processed = 0;
             while (processed < nrows_read) {
                 uint32_t current_batch_size = std::min(batch_size, nrows_read - processed);
-                bool batch_continuous = (current_batch_size > 1) &&
-                                        (_block_rowids[processed + current_batch_size - 1] -
-                                                 _block_rowids[processed] ==
-                                         current_batch_size - 1);
+                bool batch_continuous =
+                        has_contiguous_rowids(&_block_rowids[processed], current_batch_size);
 
                 if (batch_continuous) {
                     size_t rows_read = current_batch_size;
@@ -3170,9 +3173,26 @@ Status SegmentIterator::_read_output_columns(uint16_t input_rows,
     // Virtual values may exist only for selected labels, so never batch-read them.
     const bool adaptive = _opts.io_ctx.reader_type == ReaderType::READER_QUERY &&
                           _opts.runtime_state != nullptr && _virtual_column_exprs.empty();
-    const bool use_lazy =
-            !adaptive || uint64_t(input_rows - predicate_selected_rows) * 100 >
-                                 uint64_t(input_rows) * _opts.runtime_state->lazy_read_ratio();
+    // A pushed-down LIMIT may retain two rows out of a thousand after the predicate.
+    // Reading all thousand wide values cannot pay off once the final selector is smaller.
+    bool use_lazy = !adaptive || _selected_size < predicate_selected_rows;
+    if (!use_lazy) {
+        use_lazy = uint64_t(input_rows - predicate_selected_rows) * 100 >
+                   uint64_t(input_rows) * _opts.runtime_state->lazy_read_ratio();
+    }
+    if (!use_lazy && !has_contiguous_rowids(_block_rowids.data(), input_rows)) {
+        // For candidates such as 0,2,4,... every reader chunk is sparse. Decoding
+        // rejected rows then adds work without gaining a sequential batch read.
+        use_lazy = true;
+        const uint32_t batch_size = BitmapRangeIterator::get_batch_size();
+        for (uint32_t begin = 0; begin < input_rows; begin += batch_size) {
+            uint32_t count = std::min<uint32_t>(batch_size, input_rows - begin);
+            if (has_contiguous_rowids(&_block_rowids[begin], count)) {
+                use_lazy = false;
+                break;
+            }
+        }
+    }
     if (use_lazy) {
         return _read_columns_by_rowids(_output_ordinals, _block_rowids, _sel_rowid_idx.data(),
                                        _selected_size, &_current_columns, false);
