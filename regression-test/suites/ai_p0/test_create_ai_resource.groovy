@@ -91,6 +91,36 @@ suite("test_create_ai_resource") {
         }
     }
 
+    def invalidNumericProperties = [
+        ['ai.temperature', 'NaN'],
+        ['ai.temperature', 'Infinity'],
+        ['ai.temperature', '-Infinity'],
+        ['ai.temperature', '-0.1'],
+        ['ai.temperature', '1.1'],
+        ['ai.max_token', '0'],
+        ['ai.max_token', '-2'],
+        ['ai.max_token', '9223372036854775808'],
+        ['ai.max_retries', '-1'],
+        ['ai.max_retries', '2147483648'],
+        ['ai.retry_delay_second', '-1'],
+        ['ai.retry_delay_second', '2147483648'],
+        ['ai.dimensions', '0'],
+        ['ai.dimensions', '-2'],
+        ['ai.dimensions', '2147483648']
+    ]
+    for (def entry : invalidNumericProperties) {
+        test {
+            sql """CREATE RESOURCE "${resourceName}" PROPERTIES(
+                'type' = 'ai',
+                'ai.provider_type' = 'local',
+                'ai.endpoint' = 'http://localhost:8000/v1/chat/completions',
+                'ai.model_name' = 'chat-model',
+                '${entry[0]}' = '${entry[1]}'
+            );"""
+            exception "Failed to set property '${entry[0]}'"
+        }
+    }
+
     sql """CREATE RESOURCE IF NOT EXISTS "${resourceName}"
             PROPERTIES(
                 'type' = 'ai',
@@ -115,6 +145,26 @@ suite("test_create_ai_resource") {
             }
         }
     }
+
+    for (def entry : invalidNumericProperties) {
+        test {
+            sql """ALTER RESOURCE "${resourceName}" PROPERTIES('${entry[0]}' = '${entry[1]}');"""
+            exception "Failed to set property '${entry[0]}'"
+        }
+    }
+
+    sql """ALTER RESOURCE "${resourceName}" PROPERTIES(
+        'ai.temperature' = '1', 'ai.max_token' = '9223372036854775807',
+        'ai.max_retries' = '2147483647', 'ai.retry_delay_second' = '2147483647',
+        'ai.dimensions' = '2147483647'
+    );"""
+    sql """ALTER RESOURCE "${resourceName}" PROPERTIES(
+        'ai.temperature' = '0', 'ai.max_token' = '1',
+        'ai.max_retries' = '0', 'ai.retry_delay_second' = '0', 'ai.dimensions' = '1'
+    );"""
+    sql """ALTER RESOURCE "${resourceName}" PROPERTIES(
+        'ai.temperature' = '-1', 'ai.max_token' = '-1', 'ai.dimensions' = '-1'
+    );"""
 
     try_sql("""DROP RESOURCE '${resourceName}'""")
 }

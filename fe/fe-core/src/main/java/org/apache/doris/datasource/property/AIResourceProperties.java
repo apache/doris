@@ -31,6 +31,7 @@ import java.lang.reflect.Field;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 public final class AIResourceProperties {
@@ -67,11 +68,13 @@ public final class AIResourceProperties {
     private String multimodalEmbedApiKey;
     @ConnectorProperty(names = {AIProperties.TEMPERATURE}, required = false, validator = TemperatureValidator.class)
     private double temperature;
-    @ConnectorProperty(names = {AIProperties.MAX_TOKEN}, required = false)
+    @ConnectorProperty(names = {AIProperties.MAX_TOKEN}, required = false, validator = MaxTokenValidator.class)
     private long maxTokens;
-    @ConnectorProperty(names = {AIProperties.MAX_RETRIES}, required = false)
+    @ConnectorProperty(names = {AIProperties.MAX_RETRIES}, required = false,
+            validator = NonNegativeIntegerValidator.class)
     private int maxRetries;
-    @ConnectorProperty(names = {AIProperties.RETRY_DELAY_SECOND}, required = false)
+    @ConnectorProperty(names = {AIProperties.RETRY_DELAY_SECOND}, required = false,
+            validator = NonNegativeIntegerValidator.class)
     private int retryDelaySecond;
     @ConnectorProperty(names = {AIProperties.DIMENSIONS}, required = false, validator = DimensionsValidator.class)
     private int dimensions;
@@ -115,7 +118,7 @@ public final class AIResourceProperties {
         if (value == null) {
             return null;
         }
-        String normalized = value.toUpperCase();
+        String normalized = value.toUpperCase(Locale.ROOT);
         properties.put(key, normalized);
         return normalized;
     }
@@ -251,7 +254,26 @@ public final class AIResourceProperties {
                 Map<String, String> properties) {
             double temperature = (Double) value;
             new ParamRules().check(() -> temperature != -1 && !(temperature >= 0 && temperature <= 1),
-                    "Temperature must be a double between 0 and 1").validate();
+                    "Temperature must be -1 or a double between 0 and 1").validate();
+        }
+    }
+
+    public static final class MaxTokenValidator implements ConnectorPropertyValidator {
+        @Override
+        public void validate(Object target, Field field, String propertyName, Object value,
+                Map<String, String> properties) {
+            long maxTokens = (Long) value;
+            new ParamRules().check(() -> maxTokens != -1 && maxTokens <= 0,
+                    "Max token must be a positive integer or -1").validate();
+        }
+    }
+
+    public static final class NonNegativeIntegerValidator implements ConnectorPropertyValidator {
+        @Override
+        public void validate(Object target, Field field, String propertyName, Object value,
+                Map<String, String> properties) {
+            new ParamRules().check(() -> (Integer) value < 0,
+                    "[" + propertyName + "] must be a non-negative integer").validate();
         }
     }
 
@@ -261,7 +283,7 @@ public final class AIResourceProperties {
                 Map<String, String> properties) {
             int dimensions = (Integer) value;
             new ParamRules().check(() -> dimensions != -1 && dimensions <= 0,
-                    "Dimensions must be a positive integer").validate();
+                    "Dimensions must be a positive integer or -1").validate();
         }
     }
 }

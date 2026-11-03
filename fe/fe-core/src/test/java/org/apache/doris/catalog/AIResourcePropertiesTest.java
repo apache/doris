@@ -25,13 +25,18 @@ import org.apache.doris.thrift.TAIResource;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
+import java.util.stream.Stream;
 
 public class AIResourcePropertiesTest {
     private Map<String, String> generalProperties() {
@@ -169,6 +174,136 @@ public class AIResourcePropertiesTest {
                         () -> AIResourceProperties.of(raw));
                 Assertions.assertTrue(failure.getMessage().contains(key));
             }
+        }
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidNumericProperties")
+    public void testInvalidNumericRangesOnCreateAndAlter(String key, String value) throws Exception {
+        Map<String, String> invalid = generalProperties();
+        invalid.put(key, value);
+        AIResource created = new AIResource("invalid-numeric-resource");
+        DdlException createFailure = Assertions.assertThrows(DdlException.class,
+                () -> created.setProperties(ImmutableMap.copyOf(invalid)));
+        Assertions.assertTrue(createFailure.getMessage().contains(key));
+
+        AIResource altered = new AIResource("valid-numeric-resource");
+        altered.setProperties(ImmutableMap.copyOf(generalProperties()));
+        Map<String, String> before = altered.getCopiedProperties();
+        long version = altered.version;
+        DdlException alterFailure = Assertions.assertThrows(DdlException.class,
+                () -> altered.modifyProperties(ImmutableMap.of(key, value)));
+        Assertions.assertTrue(alterFailure.getMessage().contains(key));
+        Assertions.assertEquals(before, altered.getCopiedProperties());
+        Assertions.assertEquals(version, altered.version);
+    }
+
+    private static Stream<Arguments> invalidNumericProperties() {
+        return Stream.of(
+                Arguments.of("ai.temperature", "NaN"),
+                Arguments.of("ai.temperature", "Infinity"),
+                Arguments.of("ai.temperature", "-Infinity"),
+                Arguments.of("ai.temperature", "1e309"),
+                Arguments.of("ai.temperature", "-0.1"),
+                Arguments.of("ai.temperature", "1.1"),
+                Arguments.of("ai.temperature", "-2"),
+                Arguments.of("ai.max_token", "0"),
+                Arguments.of("ai.max_token", "-2"),
+                Arguments.of("ai.max_token", "-9223372036854775808"),
+                Arguments.of("ai.max_token", "9223372036854775808"),
+                Arguments.of("ai.max_token", "1.5"),
+                Arguments.of("ai.max_retries", "-1"),
+                Arguments.of("ai.max_retries", "-2147483648"),
+                Arguments.of("ai.max_retries", "2147483648"),
+                Arguments.of("ai.max_retries", "1.5"),
+                Arguments.of("ai.retry_delay_second", "-1"),
+                Arguments.of("ai.retry_delay_second", "-2147483648"),
+                Arguments.of("ai.retry_delay_second", "2147483648"),
+                Arguments.of("ai.retry_delay_second", "1.5"),
+                Arguments.of("ai.dimensions", "0"),
+                Arguments.of("ai.dimensions", "-2"),
+                Arguments.of("ai.dimensions", "-2147483648"),
+                Arguments.of("ai.dimensions", "2147483648"),
+                Arguments.of("ai.dimensions", "1.5"));
+    }
+
+    @Test
+    public void testNumericBoundaryValues() throws Exception {
+        Map<String, String> raw = generalProperties();
+        raw.putAll(ImmutableMap.of("ai.temperature", "1", "ai.max_token", "9223372036854775807",
+                "ai.max_retries", "2147483647", "ai.retry_delay_second", "2147483647",
+                "ai.dimensions", "2147483647"));
+        AIResource resource = new AIResource("numeric-boundaries");
+        resource.setProperties(ImmutableMap.copyOf(raw));
+        TAIResource maximum = resource.toThrift();
+        Assertions.assertEquals(1.0, maximum.getTemperature());
+        Assertions.assertEquals(Long.MAX_VALUE, maximum.getMaxTokens());
+        Assertions.assertEquals(Integer.MAX_VALUE, maximum.getMaxRetries());
+        Assertions.assertEquals(Integer.MAX_VALUE, maximum.getRetryDelaySecond());
+        Assertions.assertEquals(Integer.MAX_VALUE, maximum.getDimensions());
+
+        resource.modifyProperties(ImmutableMap.of("ai.temperature", "0", "ai.max_token", "1",
+                "ai.max_retries", "0", "ai.retry_delay_second", "0", "ai.dimensions", "1"));
+        TAIResource minimum = resource.toThrift();
+        Assertions.assertEquals(0.0, minimum.getTemperature());
+        Assertions.assertEquals(1L, minimum.getMaxTokens());
+        Assertions.assertEquals(0, minimum.getMaxRetries());
+        Assertions.assertEquals(0, minimum.getRetryDelaySecond());
+        Assertions.assertEquals(1, minimum.getDimensions());
+
+        resource.modifyProperties(ImmutableMap.of("ai.temperature", "-1", "ai.max_token", "-1",
+                "ai.dimensions", "-1"));
+        Assertions.assertEquals(-1.0, resource.toThrift().getTemperature());
+        Assertions.assertEquals(-1L, resource.toThrift().getMaxTokens());
+        Assertions.assertEquals(-1, resource.toThrift().getDimensions());
+    }
+
+    @Test
+    public void testProviderNormalizationIsLocaleIndependent() throws Exception {
+        Locale original = Locale.getDefault();
+        try {
+            Locale.setDefault(Locale.forLanguageTag("tr-TR"));
+            Map<String, String> raw = generalProperties();
+            raw.put("ai.provider_type", "minimax");
+            raw.put("ai.api_key", "general-key");
+            raw.put("ai.embed.endpoint", "http://localhost:8001/embeddings");
+            raw.put("ai.embed.provider_type", "gemini");
+            raw.put("ai.embed.model_name", "text-model");
+            raw.put("ai.embed.api_key", "text-key");
+            raw.put("ai.embed.mm.endpoint", "http://localhost:8002/embeddings");
+            raw.put("ai.embed.mm.provider_type", "jina");
+            raw.put("ai.embed.mm.model_name", "image-model");
+            raw.put("ai.embed.mm.api_key", "image-key");
+            AIResource resource = new AIResource("locale-independent-resource");
+            resource.setProperties(ImmutableMap.copyOf(raw));
+            Assertions.assertEquals("MINIMAX", resource.toThrift().getProviderType());
+            Assertions.assertEquals("GEMINI", resource.toThrift().getEmbedProviderType());
+            Assertions.assertEquals("JINA", resource.toThrift().getEmbedMmProviderType());
+            resource.modifyProperties(ImmutableMap.of("ai.provider_type", "jina",
+                    "ai.embed.provider_type", "minimax", "ai.embed.mm.provider_type", "gemini"));
+            Assertions.assertEquals("JINA", resource.getProperty("ai.provider_type"));
+            Assertions.assertEquals("MINIMAX", resource.getProperty("ai.embed.provider_type"));
+            Assertions.assertEquals("GEMINI", resource.getProperty("ai.embed.mm.provider_type"));
+        } finally {
+            Locale.setDefault(original);
+        }
+    }
+
+    @Test
+    public void testLegacyOutOfRangeMetadataLoadsAndCanBeRepaired() throws Exception {
+        Map<String, String> invalid = ImmutableMap.of(
+                "ai.max_token", "0", "ai.max_retries", "-1", "ai.retry_delay_second", "-1");
+        for (Map.Entry<String, String> entry : invalid.entrySet()) {
+            Map<String, String> raw = generalProperties();
+            raw.put(entry.getKey(), entry.getValue());
+            AIResource loaded = readMetadata(raw);
+            Assertions.assertEquals(entry.getValue(), loaded.getProperty(entry.getKey()));
+            Assertions.assertTrue(loaded.hasCompleteGeneralProperties());
+            IllegalArgumentException failure = Assertions.assertThrows(IllegalArgumentException.class,
+                    loaded::toThrift);
+            Assertions.assertTrue(failure.getMessage().contains(entry.getKey()));
+            loaded.modifyProperties(ImmutableMap.of(entry.getKey(), "1"));
+            Assertions.assertNotNull(loaded.toThrift());
         }
     }
 
