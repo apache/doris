@@ -98,6 +98,7 @@ import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -393,6 +394,21 @@ public class ConnectContext {
         returnRows = 0;
     }
 
+    /**
+     * The SU switch: this session becomes the target identity under the role override, and the
+     * identity that authenticated the connection is kept for the audit row and the revert. What the
+     * session cached for the switcher goes with it: the compute group chosen for it (the next
+     * statement resolves placement for the target) and the prepared statements, whose plans were
+     * authorized under the switcher and would otherwise execute as the target.
+     */
+    public void applySessionNarrowing(UserIdentity target, Collection<String> roles) {
+        this.authenticatedIdentity = this.currentUserIdentity;
+        this.currentUserIdentity = target;
+        this.sessionRoleOverride = Collections.unmodifiableSet(new HashSet<>(roles));
+        this.cloudCluster = null;
+        this.preparedStatementContextMap.clear();
+    }
+
     /** Revert an SU switch: back to the authenticated identity, override cleared. No-op if not switched. */
     public void revertSessionNarrowing() {
         UserIdentity authed = this.authenticatedIdentity;
@@ -400,7 +416,16 @@ public class ConnectContext {
             this.currentUserIdentity = authed;
             this.authenticatedIdentity = null;
             this.sessionRoleOverride = null;
+            leaveSwitchedPlacement();
         }
+    }
+
+    // Leaving the switch leaves its placement: the compute group cached for the target and the
+    // workload-group lane the switch chose (its clause, or the cleared switcher's lane) go, so the
+    // identity that owns the session next resolves both for itself -- on COM_CHANGE_USER as on reset.
+    private void leaveSwitchedPlacement() {
+        this.cloudCluster = null;
+        this.sessionVariable.setWorkloadGroup("");
     }
 
     /**
@@ -417,6 +442,9 @@ public class ConnectContext {
 
     /** Drop SU state without restoring identity — only for paths that fully re-authenticate. */
     public void clearSessionNarrowing() {
+        if (this.authenticatedIdentity != null) {
+            leaveSwitchedPlacement();
+        }
         this.authenticatedIdentity = null;
         this.sessionRoleOverride = null;
     }

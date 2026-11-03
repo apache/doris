@@ -879,6 +879,11 @@ public class Auth implements Writable {
         }
     }
 
+    /** Whether LDAP authentication is on and names this user: the existence probe of an LDAP-only account. */
+    public boolean ldapUserExists(String qualifiedUser) {
+        return isLdapAuthEnabled() && ldapManager.doesUserExist(qualifiedUser);
+    }
+
     // Check if LDAP authentication is enabled.
     private boolean isLdapAuthEnabled() {
         return AuthenticateType.getAuthTypeConfig() == AuthenticateType.LDAP;

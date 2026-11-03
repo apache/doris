@@ -53,13 +53,17 @@ public class MysqlConnectProcessorSuTest extends TestWithFeService {
     }
 
     private ConnectContext switchedContext() throws Exception {
+        return switchedContext(null);
+    }
+
+    private ConnectContext switchedContext(String workloadGroup) throws Exception {
         ConnectContext ctx = new ConnectContext();
         ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("su_change_svc", "%"));
         ctx.setRemoteIP("127.0.0.1");
         MysqlProtocolAdapter.of(ctx).setHandshakePacket(new MysqlHandshakePacket(0));
         ctx.setThreadLocalInfo();
         new SuUserCommand(new UserIdentity("su_change_person", "%"),
-                Collections.singletonList("su_change_role"), null).run(ctx, null);
+                Collections.singletonList("su_change_role"), workloadGroup).run(ctx, null);
         return ctx;
     }
 
@@ -132,6 +136,21 @@ public class MysqlConnectProcessorSuTest extends TestWithFeService {
             Assertions.assertNull(ctx.getSessionRoleOverride());
             Assertions.assertTrue(canSelect(ctx, "su_change_personal"));
             Assertions.assertFalse(canSelect(ctx, "su_change_tenant"));
+        } finally {
+            connectContext.setThreadLocalInfo();
+        }
+    }
+
+    @Test
+    public void testSuccessfulChangeUserLeavesTheSwitchersLane() throws Exception {
+        try {
+            ConnectContext ctx = switchedContext("su_change_lane");
+            Assertions.assertEquals("su_change_lane", ctx.getSessionVariable().getWorkloadGroup());
+            changeUser(ctx, "su_change_login");
+            Assertions.assertEquals(QueryState.MysqlStateType.OK, ctx.getState().getStateType());
+            Assertions.assertEquals("su_change_login", ctx.getQualifiedUser());
+            // the lane the switch chose goes with the switch: the new identity resolves its own
+            Assertions.assertEquals("", ctx.getSessionVariable().getWorkloadGroup());
         } finally {
             connectContext.setThreadLocalInfo();
         }

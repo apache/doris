@@ -22,6 +22,7 @@ import org.apache.doris.analysis.PassVar;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.proc.AuthProcDir;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -45,6 +46,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -723,6 +725,76 @@ public class SuUserNarrowingTest extends TestWithFeService {
             } finally {
                 ctx.setThreadLocalInfo();
             }
+        } finally {
+            connectContext.setThreadLocalInfo();
+        }
+    }
+
+    /**
+     * The account state a login checks is checked by the switch too: a target locked by ACCOUNT_LOCK
+     * (or by failed logins, or with an expired password) cannot be assumed until it is unlocked.
+     */
+    @Test
+    public void testLockedTargetCannotBeAssumed() throws Exception {
+        addUser("locked_person", true);
+        createRole("locked_role");
+        grantRole("GRANT 'locked_role' TO 'locked_person'@'%'");
+        UserIdentity person = ident("locked_person");
+        PasswordPolicyManager policies = Env.getCurrentEnv().getAuth().getPasswdPolicyManager();
+
+        ConnectContext ctx = proxySession("locked_svc");
+        try {
+            policies.lockUser(person);
+            try {
+                AnalysisException refused = Assertions.assertThrows(AnalysisException.class, () ->
+                        new SuUserCommand(new UserIdentity("locked_person", "%"),
+                                Collections.singletonList("locked_role"), null).run(ctx, null));
+                Assertions.assertTrue(refused.getMessage().contains("cannot be assumed"), refused.getMessage());
+                Assertions.assertNull(ctx.getAuthenticatedIdentity());
+            } finally {
+                policies.unlockUser(person);
+            }
+            new SuUserCommand(new UserIdentity("locked_person", "%"),
+                    Collections.singletonList("locked_role"), null).run(ctx, null);
+            Assertions.assertEquals("locked_person", ctx.getQualifiedUser());
+        } finally {
+            connectContext.setThreadLocalInfo();
+        }
+    }
+
+    /**
+     * What the session cached for one identity does not survive the switch or its end: the
+     * prepared statements (their plans were authorized under the switcher) go at the switch; the
+     * compute group chosen for the current identity goes at the switch and when it is left.
+     */
+    @Test
+    public void testSwitchDropsTheSwitchersPreparedStatementsAndComputeGroup() throws Exception {
+        addUser("cache_person", true);
+        createRole("cache_role");
+        grantRole("GRANT 'cache_role' TO 'cache_person'@'%'");
+
+        ConnectContext ctx = proxySession("cache_svc");
+        try {
+            ctx.addPreparedStatementContext("stmt_of_switcher", null);
+            Map<?, ?> prepared = Deencapsulation.getField(ctx, "preparedStatementContextMap");
+            Assertions.assertEquals(1, prepared.size());
+            Deencapsulation.setField(ctx, "cloudCluster", "group_of_switcher");
+
+            new SuUserCommand(new UserIdentity("cache_person", "%"),
+                    Collections.singletonList("cache_role"), null).run(ctx, null);
+            Assertions.assertTrue(prepared.isEmpty());
+            Assertions.assertNull(Deencapsulation.getField(ctx, "cloudCluster"));
+
+            // the group the target's statements chose goes when the switch is left, either way
+            Deencapsulation.setField(ctx, "cloudCluster", "group_of_target");
+            ctx.revertSessionNarrowing();
+            Assertions.assertNull(Deencapsulation.getField(ctx, "cloudCluster"));
+
+            new SuUserCommand(new UserIdentity("cache_person", "%"),
+                    Collections.singletonList("cache_role"), null).run(ctx, null);
+            Deencapsulation.setField(ctx, "cloudCluster", "group_of_target");
+            ctx.clearSessionNarrowing();
+            Assertions.assertNull(Deencapsulation.getField(ctx, "cloudCluster"));
         } finally {
             connectContext.setThreadLocalInfo();
         }

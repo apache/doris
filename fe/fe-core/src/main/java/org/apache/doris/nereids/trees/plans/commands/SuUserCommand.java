@@ -21,6 +21,7 @@ import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
@@ -35,7 +36,6 @@ import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableSet;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -105,6 +105,25 @@ public class SuUserCommand extends Command implements NoForward {
             // every existing user holds at least its default role
             throw new AnalysisException("SU target user does not exist: " + userIdentity);
         }
+        if (!auth.doesUserExist(userIdentity)) {
+            // No local account: the roles came from LDAP, which is keyed by name alone. The target must
+            // exist there, and it is named the way an LDAP-only login is (no host of the switcher's
+            // choosing), so current_user() and the audit row name an identity that exists.
+            if (!auth.ldapUserExists(userIdentity.getQualifiedUser())) {
+                throw new AnalysisException("SU target user does not exist: " + userIdentity);
+            }
+            if (!"%".equals(userIdentity.getHost())) {
+                throw new AnalysisException("SU target " + userIdentity + " is an LDAP account without a Doris"
+                        + " user entry: name it with host '%'");
+            }
+        }
+        // the account state a login checks: a locked account, or one whose password expired, cannot
+        // be assumed through a switch either
+        try {
+            auth.getPasswdPolicyManager().checkAccountLockedAndPasswordExpiration(userIdentity);
+        } catch (AuthenticationException e) {
+            throw new AnalysisException("SU target " + userIdentity + " cannot be assumed: " + e.getMessage(), e);
+        }
         // narrowing only: the requested roles must be a subset of the target's granted roles
         for (String role : roles) {
             if (!targetRoles.contains(role)) {
@@ -118,9 +137,8 @@ public class SuUserCommand extends Command implements NoForward {
         checkNoAdministrativeEscalation(ctx, auth.getGlobalPrivsOfRoles(roles));
 
         UserIdentity authenticated = ctx.getCurrentUserIdentity();
-        ctx.setAuthenticatedIdentity(authenticated);
-        ctx.setCurrentUserIdentity(userIdentity);
-        ctx.setSessionRoleOverride(ImmutableSet.copyOf(roles));
+        // the switch, and with it the switcher's cached compute group and prepared statements
+        ctx.applySessionNarrowing(userIdentity, roles);
         // Placement only. USAGE on the session's workload group (this clause, or the target's
         // default_workload_group when omitted) is checked per query against the narrowed set, then
         // through the USAGE grants of the target's own roles (Auth.placementOnlyRoles): the
