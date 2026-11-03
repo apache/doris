@@ -535,6 +535,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_FILE_CACHE = "enable_file_cache";
 
     public static final String DISABLE_FILE_CACHE = "disable_file_cache";
+    public static final String ENABLE_FILE_CACHE_FOR_INSERT_SOURCE = "enable_file_cache_for_insert_source";
 
     public static final String ENABLE_TOPN_LAZY_MAT_PHASE2_NO_WRITE_FILE_CACHE
             = "enable_topn_lazy_mat_phase2_no_write_file_cache";
@@ -2412,6 +2413,20 @@ public class SessionVariable implements Serializable, Writable {
     // along with BE's config `enable_file_cache` true
     @VarAttrDef.VarAttr(name = DISABLE_FILE_CACHE, needForward = true)
     public boolean disableFileCache = false;
+
+    // The source scan of a non-result sink (INSERT ... SELECT, INSERT OVERWRITE, CTAS, UPDATE/DELETE
+    // rewritten as inserts) is forced onto the disposable file cache queue so a one-off load cannot
+    // evict the interactive working set. This opts out of that for recurring ETL whose source set IS
+    // the interactive working set and is re-read every cycle.
+    @VarAttrDef.VarAttr(name = ENABLE_FILE_CACHE_FOR_INSERT_SOURCE, needForward = true,
+            description = "When enabled, the source scans of INSERT-family statements (INSERT ... SELECT, "
+                    + "INSERT OVERWRITE, CTAS, UPDATE/DELETE) use the normal file cache queue instead of being "
+                    + "forced onto the disposable queue. Useful for recurring ETL whose source working set is "
+                    + "shared with interactive queries and re-read every cycle. For external tables and "
+                    + "table-valued functions this also requires enable_file_cache = true; TTL and index "
+                    + "blocks were never on the disposable queue. Disabled by default (preserves the existing "
+                    + "behavior).")
+    public boolean enableFileCacheForInsertSource = false;
 
     @VarAttrDef.VarAttr(name = ENABLE_TOPN_LAZY_MAT_PHASE2_NO_WRITE_FILE_CACHE, needForward = true,
             description = "When enabled, TopN lazy materialization phase-2 reads go remote-only on "
