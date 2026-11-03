@@ -43,7 +43,6 @@ import org.apache.doris.fs.FileSystemCache;
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import com.google.common.collect.Maps;
 import com.google.common.util.concurrent.Striped;
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -143,12 +142,11 @@ public class ExternalMetaCacheMgr {
                 Config.max_external_cache_loader_thread_pool_size * 1000,
                 "scheduleExecutor", 10, true);
 
-        splitTaskExecutor = new FairTaskExecutor(Config.external_scan_split_threads,
-                new ThreadFactoryBuilder()
-                        .setDaemon(true).setNameFormat("ExternalSplit-%d").build());
-        metadataTaskExecutor = new FairTaskExecutor(Config.external_scan_metadata_threads,
-                new ThreadFactoryBuilder()
-                        .setDaemon(true).setNameFormat("ExternalMetadata-%d").build());
+        String executorNamePrefix = isCheckpointCatalog ? "Checkpoint" : "NotCheckpoint";
+        splitTaskExecutor = ThreadPoolManager.newDaemonFairTaskExecutor(Config.external_scan_split_threads,
+                executorNamePrefix + "ExternalSplit", true);
+        metadataTaskExecutor = ThreadPoolManager.newDaemonFairTaskExecutor(Config.external_scan_metadata_threads,
+                executorNamePrefix + "ExternalMetadata", true);
 
         fsCache = new FileSystemCache();
         rowCountCache = new ExternalRowCountCache(rowCountRefreshExecutor);

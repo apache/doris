@@ -19,6 +19,7 @@ package org.apache.doris.common;
 
 
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.common.util.FairTaskExecutor;
 import org.apache.doris.metric.Metric;
 import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.metric.MetricLabel;
@@ -75,6 +76,7 @@ public class ThreadPoolManager {
 
     private static final Logger LOG = LogManager.getLogger(ThreadPoolManager.class);
     private static Map<String, ThreadPoolExecutor> nameToThreadPoolMap = Maps.newConcurrentMap();
+    private static final Map<String, FairTaskExecutor> nameToFairTaskExecutorMap = Maps.newConcurrentMap();
 
     private static String[] poolMetricTypes = {"pool_size", "active_thread_num", "task_in_queue"};
 
@@ -85,6 +87,21 @@ public class ThreadPoolManager {
             registerThreadPoolMetric(entry.getKey(), entry.getValue());
         }
         nameToThreadPoolMap.clear();
+        for (Map.Entry<String, FairTaskExecutor> entry : nameToFairTaskExecutorMap.entrySet()) {
+            registerThreadPoolMetric(entry.getKey(), entry.getValue());
+        }
+        nameToFairTaskExecutorMap.clear();
+    }
+
+    public static void registerThreadPoolMetric(String poolName, FairTaskExecutor executor) {
+        Metric.MetricType gauge = Metric.MetricType.GAUGE;
+        MetricUnit nounit = MetricUnit.NOUNIT;
+        registerMetric(poolName, "pool_size", gauge, nounit, executor::getPoolSize);
+        registerMetric(poolName, "active_thread_num", gauge, nounit, executor::getActiveCount);
+        registerMetric(poolName, "task_in_queue", gauge, nounit, executor::getQueuedTaskCount);
+        registerMetric(poolName, "completed_task_count", Metric.MetricType.COUNTER, nounit,
+                executor::getCompletedTaskCount);
+        registerMetric(poolName, "task_group_num", gauge, nounit, executor::getGroupCount);
     }
 
     public static void registerThreadPoolMetric(String poolName, ThreadPoolExecutor threadPool) {
@@ -115,6 +132,15 @@ public class ThreadPoolManager {
         };
         gauge.addLabel(new MetricLabel("name", poolName)).addLabel(new MetricLabel("type", metricName));
         MetricRepo.DORIS_METRIC_REGISTER.addMetrics(gauge);
+    }
+
+    public static FairTaskExecutor newDaemonFairTaskExecutor(int parallelism, String poolName,
+            boolean needRegisterMetric) {
+        FairTaskExecutor executor = new FairTaskExecutor(parallelism, namedThreadFactory(poolName));
+        if (needRegisterMetric) {
+            nameToFairTaskExecutorMap.put(poolName, executor);
+        }
+        return executor;
     }
 
     public static ThreadPoolExecutor newDaemonCacheThreadPool(int maxNumThread,
