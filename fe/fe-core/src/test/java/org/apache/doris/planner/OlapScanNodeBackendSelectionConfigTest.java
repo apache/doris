@@ -288,6 +288,54 @@ class OlapScanNodeBackendSelectionConfigTest {
         }
     }
 
+    @Test
+    void testQueryDisabledBackendExcludedFromScanCandidates() throws Exception {
+        Replica replica = replica(1, 10);
+        Backend disabledBackend = backend(1, "group_a");
+        disabledBackend.setQueryDisabled(true);
+        Backend otherBackend = backend(2, "group_b");
+
+        Tablet tablet = Mockito.mock(Tablet.class);
+        Mockito.when(tablet.getId()).thenReturn(20L);
+        Mockito.when(tablet.getQueryableReplicas(
+                        Mockito.eq(10L), Mockito.anyMap(), Mockito.eq(false)))
+                .thenReturn(new ArrayList<>(ImmutableList.of(replica)));
+        Mockito.when(tablet.getCooldownReplicaId()).thenReturn(-1L);
+
+        UserException ex = Assertions.assertThrows(UserException.class,
+                () -> createScanRanges(tablet, disabledBackend, otherBackend));
+        Assertions.assertTrue(ex.getMessage().contains("has no queryable replicas"));
+    }
+
+    @Test
+    void testCooldownReplicaOnQueryDisabledBackendIsNotNarrowed() throws Exception {
+        Replica preferredReplica = replica(1, 10);
+        Replica cooldownReplica = replica(2, 10);
+        Backend preferredBackend = backend(1, "group_a");
+        Backend cooldownBackend = backend(2, "group_b");
+        cooldownBackend.setQueryDisabled(true);
+
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.enableCooldownReplicaAffinity = true;
+        ConnectContext context = Mockito.mock(ConnectContext.class);
+        QueryState queryState = Mockito.mock(QueryState.class);
+        Mockito.when(context.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(context.getState()).thenReturn(queryState);
+        Mockito.when(context.getStatementContext()).thenReturn(new StatementContext());
+        Mockito.when(context.getComputeGroupSafely()).thenReturn(null);
+
+        try (MockedStatic<ConnectContext> mockedContext = Mockito.mockStatic(ConnectContext.class)) {
+            mockedContext.when(ConnectContext::get).thenReturn(context);
+
+            List<TScanRangeLocations> scanRanges = createScanRanges(
+                    preferredReplica, cooldownReplica, preferredBackend, cooldownBackend);
+
+            Assertions.assertEquals(ImmutableList.of(1L),
+                    scanRanges.get(0).getLocations().stream()
+                            .map(location -> location.getBackendId()).collect(Collectors.toList()));
+        }
+    }
+
     private List<TScanRangeLocations> createScanRanges(Replica preferredReplica, Replica cooldownReplica,
             Backend preferredBackend, Backend cooldownBackend) throws Exception {
         Tablet tablet = Mockito.mock(Tablet.class);
