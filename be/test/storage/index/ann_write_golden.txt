@@ -1,0 +1,29 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+# Frozen digests. Lines are added, never changed or removed: a changed line is a
+# changed output. See the test that checks this file.
+# <name> <part> <count> <digest>
+# added at 1aa505cb0be
+v2/hnsw ann.faiss 90042 a0e3af118bfa4a52
+v2/ivf ann.faiss 20779 fa9c11ea5d87cfed
+v2/ivf_on_disk ann.faiss 394 3d9a5d69f332cdad
+v2/ivf_on_disk ann.ivfdata 20480 a55002fc0e1384b5
+snii/hnsw ann.faiss 90042 a0e3af118bfa4a52
+snii/ivf ann.faiss 20779 fa9c11ea5d87cfed
+snii/ivf_on_disk ann.faiss 394 3d9a5d69f332cdad
+snii/ivf_on_disk ann.ivfdata 20480 a55002fc0e1384b5

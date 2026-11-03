@@ -24,7 +24,7 @@ every translation unit, so one stray include can multiply rebuild cost by an ord
 of magnitude and does so silently: the code still compiles, only the build slows
 down. This script turns that into a build error instead.
 
-Four kinds of guard, all on the same text include graph (be/src + be/test, all
+Five kinds of guard, all on the same text include graph (be/src + be/test, all
 ifdef branches -- not comparable to ninja-measured radii, each baseline compares
 only with itself):
 
@@ -41,6 +41,9 @@ only with itself):
   PCH whitelist            pch/pch.h's quoted project includes are pinned
                            exactly; the PCH is the single most leveraged
                            regression surface in the repo.
+  CLucene-free roots       SNII, the analysis layer, the query engine, the
+                           shared inverted index code and ANN must not include
+                           CLucene through any chain, nor name its symbols.
 
 Usage:
     build-support/check-header-deps.py                  # enforce everything
@@ -605,6 +608,136 @@ PCH_QUOTED_WHITELIST = {
 # declarations only, so they cost nothing to include.
 FWD_SUFFIX = "_fwd.h"
 
+# CLucene-free roots. The code under these roots is moving off CLucene, and the other guards
+# cannot hold it there: ANGLE_BANS reads only a header's own includes, load_includes() keeps no
+# angle includes while most CLucene edges are angle includes, and the PCH hands CLucene to every
+# translation unit without any include at all. So two rules of their own:
+#   closure  no file under a root, sources included, and no project header a root reaches
+#            includes a CLucene header;
+#   symbols  the code under a root, with comments, string literals and includes stripped, names
+#            no CLucene symbol.
+CLUCENE_FREE_ROOTS = [
+    "storage/index/inverted/snii/",
+    "storage/index/inverted/analysis/",
+    "storage/index/inverted/query/",
+    "storage/index/inverted/common/",
+    "storage/index/ann/",
+]
+CLUCENE_INCLUDE = re.compile(r'^\s*#\s*include\s+[<"](CLucene(?:\.h|/[^>"]*))[>"]')
+CLUCENE_SYMBOLS = re.compile(
+    r"\b(lucene::|CL_NS\w*|CLuceneError|_CL[A-Z]\w*|CL_ERR_\w+|LUCENE_\w+|TCHAR|StringUtil)"
+)
+# Comments, raw and plain string literals, character literals and include lines, which the symbol
+# rule ignores: a word in a log message or a comment is no dependency.
+CODE_NOISE = re.compile(
+    r'//[^\n]*|/\*.*?\*/|R"([^(\s]*)\(.*?\)\1"|"(?:\\.|[^"\\\n])*"|'
+    r"'(?:\\.|[^'\\\n])*'|^[ \t]*#[ \t]*include[^\n]*",
+    re.S | re.M,
+)
+CLUCENE_WHY = (
+    "SNII, the analysis layer and ANN are moving off CLucene, and an include anywhere in the "
+    "closure of a root, or a symbol the PCH makes visible, ties them back to it"
+)
+# What still breaks the rules while the migration goes on, keyed by the file that breaks them,
+# not by the roots: one shared header puts many roots in violation, and its entry goes when the
+# task that cuts it lands. A missing entry and an entry that no longer breaks the rule both fail
+# the gate, so the tables only shrink.
+# Files that include a CLucene header and are under a root or reached from one.
+CLUCENE_INCLUDING_FILES = {
+    # ANN storage (T11, T12).
+    "storage/index/ann/ann_index_writer.h",
+    "storage/index/ann/faiss_ann_index.cpp",
+    "storage/index/ann/faiss_ann_index.h",
+    # Shared index file headers the roots reach (T11 to T13).
+    "storage/index/index_common_impl.h",
+    "storage/index/index_compound_reader.h",
+    "storage/index/index_file_reader.h",
+    "storage/index/index_file_writer.h",
+    "storage/index/index_fs_directory.h",
+    "storage/index/inverted/clucene/inverted_index_searcher.h",
+    # The analysis layer (T3, T4, T8, T9).
+    "storage/index/inverted/analysis/analyzer/analyzer.cpp",
+    "storage/index/inverted/analysis/analyzer/ik/IKTokenizer.h",
+    "storage/index/inverted/analysis/analyzer/ik/core/AnalyzeContext.h",
+    "storage/index/inverted/analysis/analyzer/ik/core/CharacterUtil.h",
+    "storage/index/inverted/analysis/analyzer/ik/core/ISegmenter.h",
+    "storage/index/inverted/analysis/analyzer/ik/core/Lexeme.h",
+    "storage/index/inverted/analysis/analyzer/ik/core/LexemePath.h",
+    "storage/index/inverted/analysis/analyzer/ik/core/QuickSortSet.h",
+    "storage/index/inverted/analysis/analyzer/ik/dic/DictSegment.h",
+    "storage/index/inverted/analysis/analyzer/ik/dic/Dictionary.h",
+    "storage/index/inverted/analysis/analyzer/ik/dic/Hit.h",
+    "storage/index/inverted/analysis/analyzer/kuromoji/KuromojiTokenizer.h",
+    "storage/index/inverted/analysis/reader.h",
+    "storage/index/inverted/analysis/token_stream.h",
+    "storage/index/inverted/analysis/tokenizer/icu/icu_common.h",
+    "storage/index/inverted/analysis/tokenizer/pinyin/pinyin_alphabet_tokenizer.h",
+    "storage/index/inverted/analysis/tokenizer/pinyin/pinyin_tokenizer.cpp",
+    # SNII (T3, T12, T13).
+    "storage/index/inverted/snii/compaction/eligibility.cpp",
+    "storage/index/inverted/snii/snii_blob_directory.h",
+    "storage/index/inverted/snii/snii_blob_staging_directory.h",
+    "storage/index/inverted/snii/snii_index_reader.cpp",
+    "storage/index/inverted/snii/snii_index_writer.cpp",
+}
+# Files under a root whose code names a CLucene symbol.
+CLUCENE_SYMBOL_FILES = {
+    # ANN storage (T11, T12).
+    "storage/index/ann/ann_index.h",
+    "storage/index/ann/ann_index_reader.cpp",
+    "storage/index/ann/ann_index_writer.cpp",
+    "storage/index/ann/ann_index_writer.h",
+    "storage/index/ann/faiss_ann_index.cpp",
+    "storage/index/ann/faiss_ann_index.h",
+    # The analysis layer (T3, T4, T8, T9).
+    "storage/index/inverted/analysis/analyzer/analyzer.cpp",
+    "storage/index/inverted/analysis/analyzer/analyzer.h",
+    "storage/index/inverted/analysis/analyzer/analyzer_provider.h",
+    "storage/index/inverted/analysis/analyzer/basic/basic_analyzer.h",
+    "storage/index/inverted/analysis/analyzer/custom_analyzer.cpp",
+    "storage/index/inverted/analysis/analyzer/custom_analyzer.h",
+    "storage/index/inverted/analysis/analyzer/icu/icu_analyzer.h",
+    "storage/index/inverted/analysis/analyzer/ik/IKAnalyzer.h",
+    "storage/index/inverted/analysis/analyzer/ik/IKTokenizer.cpp",
+    "storage/index/inverted/analysis/analyzer/ik/IKTokenizer.h",
+    "storage/index/inverted/analysis/analyzer/ik/core/AnalyzeContext.cpp",
+    "storage/index/inverted/analysis/analyzer/ik/core/AnalyzeContext.h",
+    "storage/index/inverted/analysis/analyzer/ik/core/IKSegmenter.cpp",
+    "storage/index/inverted/analysis/analyzer/ik/core/IKSegmenter.h",
+    "storage/index/inverted/analysis/analyzer/ik/dic/Dictionary.cpp",
+    "storage/index/inverted/analysis/analyzer/ik/dic/Dictionary.h",
+    "storage/index/inverted/analysis/analyzer/kuromoji/KuromojiAnalyzer.h",
+    "storage/index/inverted/analysis/analyzer/kuromoji/KuromojiTokenizer.cpp",
+    "storage/index/inverted/analysis/analyzer/kuromoji/KuromojiTokenizer.h",
+    "storage/index/inverted/analysis/char_filter/char_filter.h",
+    "storage/index/inverted/analysis/char_filter/char_replace_char_filter.h",
+    "storage/index/inverted/analysis/char_filter/icu_normalizer_char_filter.h",
+    "storage/index/inverted/analysis/inverted_index_parser.h",
+    "storage/index/inverted/analysis/normalizer/custom_normalizer.cpp",
+    "storage/index/inverted/analysis/normalizer/custom_normalizer.h",
+    "storage/index/inverted/analysis/reader.h",
+    "storage/index/inverted/analysis/token_stream.h",
+    "storage/index/inverted/analysis/tokenizer/basic/basic_tokenizer.cpp",
+    "storage/index/inverted/analysis/tokenizer/basic/basic_tokenizer.h",
+    "storage/index/inverted/analysis/tokenizer/icu/break_iterator_wrapper.cpp",
+    "storage/index/inverted/analysis/tokenizer/icu/default_icu_tokenizer_config.cpp",
+    "storage/index/inverted/analysis/tokenizer/icu/icu_tokenizer.cpp",
+    "storage/index/inverted/analysis/tokenizer/icu/icu_tokenizer.h",
+    "storage/index/inverted/analysis/tokenizer/icu/script_iterator.cpp",
+    "storage/index/inverted/analysis/tokenizer/ngram/ngram_tokenizer.h",
+    "storage/index/inverted/analysis/tokenizer/pinyin/pinyin_alphabet_tokenizer.cpp",
+    "storage/index/inverted/analysis/tokenizer/pinyin/pinyin_tokenizer.cpp",
+    # SNII (T3, T12, T13).
+    "storage/index/inverted/snii/compaction/eligibility.cpp",
+    "storage/index/inverted/snii/snii_blob_directory.cpp",
+    "storage/index/inverted/snii/snii_blob_directory.h",
+    "storage/index/inverted/snii/snii_blob_staging_directory.cpp",
+    "storage/index/inverted/snii/snii_blob_staging_directory.h",
+    "storage/index/inverted/snii/snii_index_reader.cpp",
+    "storage/index/inverted/snii/snii_index_writer.cpp",
+    "storage/index/inverted/snii/snii_index_writer.h",
+}
+
 
 def load_includes():
     """Maps each repo file to the list of project headers it includes."""
@@ -625,6 +758,30 @@ def load_includes():
                         if match
                     ]
     return includes
+
+
+def load_clucene_includes(includes):
+    """Maps each repo file that includes a CLucene header to those include spellings."""
+    clucene = {}
+    for path in includes:
+        with open(path, encoding="utf-8", errors="ignore") as handle:
+            spellings = [m.group(1) for m in map(CLUCENE_INCLUDE.match, handle) if m]
+        if spellings:
+            clucene[path] = spellings
+    return clucene
+
+
+def clucene_free_files(includes):
+    """Every header and source under the CLucene-free roots, spelled from be/src."""
+    return sorted(
+        path[len(INCLUDE_ROOT) + 1 :]
+        for path in includes
+        if path.startswith(INCLUDE_ROOT + "/")
+        and path.endswith((".h", ".hpp", ".cpp", ".cc"))
+        and any(
+            path[len(INCLUDE_ROOT) + 1 :].startswith(root) for root in CLUCENE_FREE_ROOTS
+        )
+    )
 
 
 def hub_headers(hub, includes):
@@ -764,6 +921,75 @@ def enforce_angle_ban(headers, banned, why):
                 "message",
                 file=sys.stderr,
             )
+    return failures
+
+
+def enforce_clucene_closure(includes, clucene):
+    """No file under a root, and no project header it reaches, includes CLucene."""
+    failures = 0
+    offenders = {}
+    for root in clucene_free_files(includes):
+        for header, chain in reachable(root, includes).items():
+            path = resolve(header, includes)
+            if path in clucene and (header not in offenders or len(chain) < len(offenders[header])):
+                offenders[header] = chain
+    for header, chain in sorted(offenders.items()):
+        if header in CLUCENE_INCLUDING_FILES:
+            continue
+        failures += 1
+        include = clucene[resolve(header, includes)][0]
+        if len(chain) == 1:
+            print(f"error: {header} includes <{include}>", file=sys.stderr)
+        else:
+            print(f"error: {chain[0]} reaches CLucene through {header}", file=sys.stderr)
+        print(f"  reason: {CLUCENE_WHY}", file=sys.stderr)
+        print("  chain:  " + "\n       -> ".join(chain + [f"<{include}>"]), file=sys.stderr)
+        print(
+            "  fix:    keep the CLucene type out of the header (forward-declare it, or put "
+            "the code behind an interface the root does not see); CLUCENE_INCLUDING_FILES "
+            "only lists what the migration has not cut yet",
+            file=sys.stderr,
+        )
+    for header in sorted(CLUCENE_INCLUDING_FILES - offenders.keys()):
+        failures += 1
+        print(
+            f"error: CLUCENE_INCLUDING_FILES lists {header}, which no CLucene-free root "
+            "reaches with a CLucene include any more",
+            file=sys.stderr,
+        )
+        print("  fix:    delete the entry", file=sys.stderr)
+    return failures
+
+
+def enforce_clucene_symbols(includes):
+    """The code under a root names no CLucene symbol."""
+    failures = 0
+    offenders = {}
+    for name in clucene_free_files(includes):
+        with open(os.path.join(INCLUDE_ROOT, name), encoding="utf-8", errors="ignore") as handle:
+            # Every stripped piece becomes the newlines it held, so line numbers stay right.
+            code = CODE_NOISE.sub(lambda m: "\n" * m.group(0).count("\n"), handle.read())
+        match = CLUCENE_SYMBOLS.search(code)
+        if match:
+            offenders[name] = (code.count("\n", 0, match.start()) + 1, match.group(0))
+    for name, (line, symbol) in sorted(offenders.items()):
+        if name in CLUCENE_SYMBOL_FILES:
+            continue
+        failures += 1
+        print(f"error: {name}:{line} names the CLucene symbol {symbol}", file=sys.stderr)
+        print(f"  reason: {CLUCENE_WHY}", file=sys.stderr)
+        print(
+            "  fix:    use the Doris type or error instead; the PCH makes CLucene visible "
+            "without an include, so the compiler does not catch this",
+            file=sys.stderr,
+        )
+    for name in sorted(CLUCENE_SYMBOL_FILES - offenders.keys()):
+        failures += 1
+        print(
+            f"error: CLUCENE_SYMBOL_FILES lists {name}, which names no CLucene symbol any more",
+            file=sys.stderr,
+        )
+        print("  fix:    delete the entry", file=sys.stderr)
     return failures
 
 
@@ -986,6 +1212,8 @@ def main():
             + enforce_angle_bans(includes)
             + enforce_budgets(includes)
             + enforce_pch(includes)
+            + enforce_clucene_closure(includes, load_clucene_includes(includes))
+            + enforce_clucene_symbols(includes)
         )
     if failures:
         print(f"\n{failures} header hygiene violation(s)", file=sys.stderr)
@@ -1000,7 +1228,8 @@ def main():
             f"header hygiene: {len(RULES)} layering rule(s), "
             f"{len(ANGLE_BANS)} third-party ban(s), "
             f"{len(FORWARD_CLOSURE_BUDGETS)}+{len(REVERSE_REACH_BASELINES)} "
-            "budget(s), pch whitelist: all satisfied"
+            f"budget(s), pch whitelist, CLucene-free roots ({len(CLUCENE_INCLUDING_FILES)}+"
+            f"{len(CLUCENE_SYMBOL_FILES)} exception(s)): all satisfied"
         )
     return 0
 
