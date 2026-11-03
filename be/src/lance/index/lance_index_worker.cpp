@@ -901,7 +901,11 @@ int run_index_worker(const IndexWorkerParams& params) {
     // deadline then TERM->KILLs this process and the invocation converges
     // indeterminate). The block releases when the point is removed (the
     // in-process unit tests rely on that).
-    DBUG_EXECUTE_IF(WORKER_DEBUG_POINT_HANG, DBUG_BLOCK);
+    DBUG_EXECUTE_IF(WORKER_DEBUG_POINT_HANG, {
+        while (DebugPoints::instance()->is_enable(WORKER_DEBUG_POINT_HANG)) {
+            ::usleep(10 * 1000);
+        }
+    });
 
     // Step 6: the pinned open, never version 0. The storage options live in
     // one owned buffer until process exit; only the pointer view reaches

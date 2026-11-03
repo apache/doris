@@ -21,9 +21,13 @@
 #include <string>
 #include <vector>
 
+// Thrift's compact protocol defines UNLIKELY without guarding an existing macro.
+#pragma push_macro("UNLIKELY")
+#undef UNLIKELY
 #include <thrift/TConfiguration.h>
 #include <thrift/protocol/TCompactProtocol.h>
 #include <thrift/transport/TBufferTransports.h>
+#pragma pop_macro("UNLIKELY")
 
 namespace doris::lance {
 

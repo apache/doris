@@ -165,6 +165,8 @@ add_executable(lance_fake_worker lance/fake_worker/lance_fake_worker.c)
 target_link_libraries(lance_fake_worker pthread)
 
 add_executable(doris_be_test ${UT_FILES})
+# The supervisor tests also need the helper when only doris_be_test is built.
+add_dependencies(doris_be_test lance_fake_worker)
 if (TARGET phdr_cache_test_dso)
     add_dependencies(doris_be_test phdr_cache_test_dso)
 endif()
