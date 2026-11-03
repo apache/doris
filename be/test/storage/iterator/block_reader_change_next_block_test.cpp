@@ -458,7 +458,7 @@ protected:
 TEST_F(BlockReaderChangeNextBlockTest, ChangelogSchemaWithoutBeforeUsesCurrentColumn) {
     auto read_schema = make_read_schema({"key", "val", CHANGELOG_TSO_COL, CHANGELOG_OP_COL});
 
-    ASSERT_TRUE(read_schema->init_changelog_column_mappings({}, 2, -1, 3).ok());
+    ASSERT_TRUE(read_schema->_init_changelog_column_mappings({}, 2, -1, 3).ok());
     EXPECT_EQ(VAL_IDX, read_schema->before_column_ordinal(VAL_IDX));
 }
 
@@ -466,7 +466,7 @@ TEST_F(BlockReaderChangeNextBlockTest, ChangelogSchemaDoesNotRequireLsn) {
     auto read_schema = make_read_schema({"key", "val", changelog::build_before_column_name("val"),
                                          CHANGELOG_TSO_COL, CHANGELOG_OP_COL});
 
-    ASSERT_TRUE(read_schema->init_changelog_column_mappings({{1, 2}}, 3, -1, 4).ok());
+    ASSERT_TRUE(read_schema->_init_changelog_column_mappings({{1, 2}}, 3, -1, 4).ok());
     EXPECT_EQ(-1, read_schema->lsn_ordinal());
     EXPECT_EQ(2, read_schema->before_column_ordinal(VAL_IDX));
 }

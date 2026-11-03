@@ -181,9 +181,9 @@ void ReadSchema::append_compaction_rowid_column() {
     ++_num_block_columns;
 }
 
-Status ReadSchema::init_changelog_column_mappings(const ChangelogValueColumnPairs& pairs,
-                                                  int32_t tso_ordinal, int32_t lsn_ordinal,
-                                                  int32_t op_ordinal) {
+Status ReadSchema::_init_changelog_column_mappings(const ChangelogValueColumnPairs& pairs,
+                                                   int32_t tso_ordinal, int32_t lsn_ordinal,
+                                                   int32_t op_ordinal) {
     std::vector<bool> used(_num_block_columns, false);
     for (int32_t ordinal : {tso_ordinal, lsn_ordinal, op_ordinal}) {
         // -1 is the only absent-column sentinel; private delete columns cannot be in a Block.
@@ -242,9 +242,9 @@ Status ReadSchema::init_changelog_column_mappings(const TabletSchema& tablet_sch
         const int32_t ordinal = ordinal_by_uid(tablet_schema.column(cid).unique_id());
         return ordinal >= 0 && static_cast<size_t>(ordinal) < _num_block_columns ? ordinal : -1;
     };
-    return init_changelog_column_mappings(pairs, resolve(tablet_schema.changelog_tso_col_idx()),
-                                          resolve(tablet_schema.changelog_lsn_col_idx()),
-                                          resolve(tablet_schema.changelog_op_col_idx()));
+    return _init_changelog_column_mappings(pairs, resolve(tablet_schema.changelog_tso_col_idx()),
+                                           resolve(tablet_schema.changelog_lsn_col_idx()),
+                                           resolve(tablet_schema.changelog_op_col_idx()));
 }
 
 Block ReadSchema::create_read_block() const {
