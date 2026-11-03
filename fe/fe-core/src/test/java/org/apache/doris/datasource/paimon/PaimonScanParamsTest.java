@@ -38,6 +38,15 @@ import java.util.Map;
 public class PaimonScanParamsTest {
 
     @Test
+    public void testRejectLatestDeltaInsteadOfReadingFullSnapshot() {
+        IllegalArgumentException error = Assert.assertThrows(IllegalArgumentException.class,
+                () -> PaimonScanParams.validateOptions(ImmutableMap.of("scan.mode", "latest-delta")));
+        Assert.assertTrue(error.getMessage().contains("latest-delta' is not supported by Doris"));
+        Assert.assertThrows(IllegalArgumentException.class,
+                () -> PaimonScanParams.pinOptionsToSnapshot(ImmutableMap.of("scan.mode", "latest-delta"), 2L));
+    }
+
+    @Test
     public void testValidateKnownScanOptions() {
         PaimonScanParams.validateOptions(ImmutableMap.of(
                 "scan.snapshot-id", "1",
