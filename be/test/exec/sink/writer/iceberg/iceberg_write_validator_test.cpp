@@ -386,7 +386,9 @@ TEST(IcebergWriteValidatorTest, RejectsMapOffsetsBeyondEntries) {
     auto schema = field_schema(MapType::of_required(2, 3, std::make_unique<IntegerType>(),
                                                     std::make_unique<IntegerType>()));
     auto offsets = ColumnMap::COffsets::create();
-    offsets->get_data().push_back(1);
+    // MAP materialization reconstructs the column and checks its final offset. Keep that
+    // invariant while an intermediate offset still exceeds the available entries.
+    offsets->get_data().assign({1, 1});
     auto map = ColumnMap::create(nullable_int_column({1}, {0}), nullable_int_column({2}, {0}),
                                  std::move(offsets));
     map->get_offsets()[0] = 2;
