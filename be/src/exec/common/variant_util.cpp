@@ -74,6 +74,7 @@
 #include "core/types.h"
 #include "exec/common/field_visitors.h"
 #include "exec/common/sip_hash.h"
+#include "exec/common/variant_template_type.h"
 #include "exprs/function/function.h"
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/function_context.h"
@@ -1527,6 +1528,43 @@ struct ReconciledCompactionColumn {
     PathSet carrier_paths;
 };
 
+} // namespace
+
+bool old_leaf_matches_template_type(const VariantExtendedInfo& input, const std::string& path,
+                                    const DataTypePtr& template_type,
+                                    size_t max_sparse_column_statistics_size) {
+    if (template_type == nullptr || input.sparse_paths.contains(path) ||
+        // Truncated sparse stats cannot prove that no input has sparse cells at this path.
+        input.sparse_paths.size() >= max_sparse_column_statistics_size) {
+        return false;
+    }
+    const auto& expected = template_type;
+    bool has_dynamic_leaf = false;
+    for (const auto& [input_path, types] : input.path_to_data_types) {
+        if (input_path.get_path() != path) {
+            continue;
+        }
+        if (input_path.has_nested_part()) {
+            return false; // Nested (array-of-object) evidence is not a scalar leaf.
+        }
+        if (input_path.get_is_typed()) {
+            continue; // D9: a typed input leaf already has the unchanged template type.
+        }
+        if (types.empty()) {
+            return false;
+        }
+        for (const auto& type : types) {
+            if (!stored_type_equals_template(type, expected)) {
+                return false;
+            }
+        }
+        has_dynamic_leaf = true;
+    }
+    return has_dynamic_leaf;
+}
+
+namespace {
+
 Status reconcile_template_columns(const TabletSchema& target,
                                   ReconciledCompactionColumn& reconciled) {
     // Paths with old dynamic or sparse cells. Typed evidence needs no per-path record: D9 never
@@ -1553,9 +1591,15 @@ Status reconcile_template_columns(const TabletSchema& target,
             return Status::OK(); // An ordinary dynamic path remains subject to the budget.
         }
         reconciled.template_paths.insert(path);
-        if (dynamic_paths.contains(path)) {
-            // ADD over old dynamic/sparse cells uses one pinned VARIANT column, including when
-            // new rows use the template. sub_path_set excludes this owner from sparse routing.
+        // The single carrier-vs-typed decision. Old dynamic cells keep the template type and its
+        // index only when every input leaf already has exactly that type (an identity cast, so
+        // D1 holds) and no input has sparse cells there; otherwise the values are preserved
+        // verbatim in one pinned VARIANT carrier, including when new rows use the template.
+        if (dynamic_paths.contains(path) &&
+            !old_leaf_matches_template_type(
+                    input, path, DataTypeFactory::instance().create_data_type(info.column),
+                    reconciled.column->variant_max_sparse_column_statistics_size())) {
+            // sub_path_set excludes this owner from sparse routing.
             reconciled.carrier_paths.insert(path);
         } else {
             // Master behavior: a typed owner follows the target template. D9 forbids changing an

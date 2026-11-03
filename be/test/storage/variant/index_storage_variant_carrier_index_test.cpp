@@ -26,6 +26,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/primitive_type.h"
+#include "exec/common/variant_util.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
@@ -33,7 +34,6 @@
 #include "storage/segment/segment_loader.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/variant/index_storage_variant_test_base.h"
-#include "exec/common/variant_util.h"
 #include "testutil/mock/mock_slot_ref.h"
 
 namespace doris::index_storage_test {
@@ -42,10 +42,11 @@ namespace {
 constexpr int32_t kVariantUid = 2;
 constexpr int64_t kRootIndexId = 310001;
 
-VariantColumnSpec variant_with_b_template(std::optional<FieldType> type) {
+VariantColumnSpec variant_with_b_template(std::optional<FieldType> type,
+                                          int32_t max_subcolumns_count = 8) {
     VariantColumnSpec column;
     column.unique_id = kVariantUid;
-    column.max_subcolumns_count = 8;
+    column.max_subcolumns_count = max_subcolumns_count;
     if (type.has_value()) {
         column.predefined_paths.push_back(
                 VariantPathSpec {.path = "b*",
@@ -117,24 +118,28 @@ VExprSPtr make_fn(const std::string& name, TExprNodeType::type node_type,
 VExprContextSPtr int_plus_one_greater(int64_t value) {
     auto slot = std::make_shared<MockSlotRef>(1, make_nullable(std::make_shared<DataTypeInt32>()));
     auto add = make_fn("add", TExprNodeType::ARITHMETIC_EXPR,
-                       {PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT},
-                       PrimitiveType::TYPE_INT,
+                       {PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT}, PrimitiveType::TYPE_INT,
                        {slot, make_literal(PrimitiveType::TYPE_INT, "1")});
-    auto gt = make_fn("gt", TExprNodeType::BINARY_PRED,
-                      {PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT},
-                      PrimitiveType::TYPE_BOOLEAN,
-                      {add, make_literal(PrimitiveType::TYPE_INT, std::to_string(value))});
+    auto gt =
+            make_fn("gt", TExprNodeType::BINARY_PRED,
+                    {PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT}, PrimitiveType::TYPE_BOOLEAN,
+                    {add, make_literal(PrimitiveType::TYPE_INT, std::to_string(value))});
     return VExprContext::create_shared(gt);
 }
 
 // like(b1, pattern) on the STRING-bound slot.
 VExprContextSPtr string_like(const std::string& pattern) {
     auto slot = std::make_shared<MockSlotRef>(1, nullable_string_target_type());
-    return VExprContext::create_shared(
-            make_fn("like", TExprNodeType::FUNCTION_CALL,
-                    {PrimitiveType::TYPE_STRING, PrimitiveType::TYPE_STRING},
-                    PrimitiveType::TYPE_BOOLEAN,
-                    {slot, make_literal(PrimitiveType::TYPE_STRING, pattern)}));
+    return VExprContext::create_shared(make_fn(
+            "like", TExprNodeType::FUNCTION_CALL,
+            {PrimitiveType::TYPE_STRING, PrimitiveType::TYPE_STRING}, PrimitiveType::TYPE_BOOLEAN,
+            {slot, make_literal(PrimitiveType::TYPE_STRING, pattern)}));
+}
+
+std::shared_ptr<ColumnPredicate> bigint_equals(int32_t column_id, std::string name, int64_t value) {
+    return create_comparison_predicate<PredicateType::EQ>(
+            column_id, std::move(name), std::make_shared<DataTypeInt64>(),
+            Field::create_field<TYPE_BIGINT>(value), false);
 }
 
 } // namespace
@@ -197,7 +202,13 @@ protected:
         read.enable_inverted_index_query = use_index;
         read.inverted_index_skip_threshold = 100;
         read.collect_string_values = !value.has_value();
-        if (template_type == FieldType::OLAP_FIELD_TYPE_INT) {
+        if (template_type == FieldType::OLAP_FIELD_TYPE_BIGINT) {
+            read.target_cast_type_for_variants[column.name()] =
+                    make_nullable(std::make_shared<DataTypeInt64>());
+            if (value.has_value()) {
+                read.predicates.push_back(bigint_equals(cid, column.name(), std::stoll(*value)));
+            }
+        } else if (template_type == FieldType::OLAP_FIELD_TYPE_INT) {
             read.target_cast_type_for_variants[column.name()] =
                     make_nullable(std::make_shared<DataTypeInt32>());
             if (value.has_value()) {
@@ -233,6 +244,95 @@ protected:
         *compacted = output.value();
     }
 
+    // Several old dynamic rowsets, ADD template, recent typed rowset, then compaction.
+    void build_history(int64_t tablet_id, FieldType type,
+                       const std::vector<std::vector<std::string>>& old_batches,
+                       const std::vector<std::string>& recent_rows,
+                       std::vector<RowsetSharedPtr>* uncompacted, RowsetSharedPtr* compacted,
+                       int32_t max_subcolumns_count = 8) {
+        ASSERT_TRUE(
+                create_tablet(options(variant_with_b_template(std::nullopt, max_subcolumns_count),
+                                      tablet_id))
+                        .ok());
+        uncompacted->clear();
+        int64_t version = 0;
+        for (const auto& rows : old_batches) {
+            auto old = write(version++, rows);
+            ASSERT_TRUE(old.has_value()) << old.error();
+            uncompacted->push_back(old.value());
+        }
+        install_write_schema(variant_with_b_template(type, max_subcolumns_count));
+        auto recent = write(version, recent_rows);
+        ASSERT_TRUE(recent.has_value()) << recent.error();
+        uncompacted->push_back(recent.value());
+        auto output = compact_rowsets_and_reload(IndexCompactionKind::CUMULATIVE, *uncompacted);
+        ASSERT_TRUE(output.has_value()) << output.error();
+        *compacted = output.value();
+    }
+
+    // SELECT v: the whole root rendered as JSON, sorted.
+    Result<std::vector<std::string>> select_root(const std::vector<RowsetSharedPtr>& rowsets) {
+        const int32_t root = _tablet_schema->field_index(kVariantUid);
+        if (root < 0) {
+            return ResultError(Status::InternalError("no root"));
+        }
+        IndexReadOptions read;
+        read.return_columns = {0, static_cast<uint32_t>(root)};
+        read.collect_variant_values = true;
+        auto result = read_rowsets(rowsets, read);
+        if (!result.has_value()) {
+            return ResultError(result.error());
+        }
+        std::vector<std::string> values;
+        for (const auto& [uid, column_values] : result->variant_values_by_uid) {
+            for (const auto& v : column_values) {
+                values.push_back(v.value_or("<null>"));
+            }
+        }
+        std::sort(values.begin(), values.end());
+        return values;
+    }
+
+    // A value outside the segment zone map prunes the segment before any index is consulted, so
+    // an absent value proves index use only when it lies inside the zone map.
+    static void expect_index_use(const IndexReadResult& result, int64_t expected, bool expect_index,
+                                 const std::string& value) {
+        if (!expect_index) {
+            EXPECT_FALSE(result.inverted_index_used()) << "value=" << value;
+        } else if (expected > 0 || result.stats.filtered_segment_number == 0) {
+            EXPECT_TRUE(result.inverted_index_used()) << "value=" << value;
+        }
+    }
+
+    // Exact rows vs the uncompacted baseline for each (value, expected); index use as given.
+    void expect_b1_rows(const std::vector<RowsetSharedPtr>& uncompacted,
+                        const std::vector<RowsetSharedPtr>& compacted, FieldType type,
+                        const std::vector<std::pair<std::string, int64_t>>& cases,
+                        bool expect_index) {
+        for (const auto& [value, expected] : cases) {
+            auto baseline = query_b1(uncompacted, type, false, value);
+            ASSERT_TRUE(baseline.has_value()) << baseline.error();
+            ASSERT_EQ(baseline->rows_read, expected) << "uncompacted baseline, value=" << value;
+            for (bool use_index : {false, true}) {
+                auto result = query_b1(compacted, type, use_index, value);
+                ASSERT_TRUE(result.has_value()) << result.error();
+                EXPECT_EQ(result->rows_read, expected)
+                        << "compacted, value=" << value << " use_index=" << use_index;
+                if (use_index) {
+                    expect_index_use(*result, expected, expect_index, value);
+                } else {
+                    EXPECT_FALSE(result->inverted_index_used());
+                }
+            }
+        }
+        auto baseline_root = select_root(uncompacted);
+        ASSERT_TRUE(baseline_root.has_value()) << baseline_root.error();
+        auto root = select_root(compacted);
+        ASSERT_TRUE(root.has_value()) << root.error();
+        EXPECT_FALSE(baseline_root->empty());
+        EXPECT_EQ(*root, *baseline_root);
+    }
+
     static std::vector<std::string> sorted_strings(const IndexReadResult& result) {
         std::vector<std::string> values;
         for (const auto& [uid, column_values] : result.string_values_by_uid) {
@@ -245,9 +345,9 @@ protected:
     }
 };
 
-// A STRING template added over old dynamic STRING b1: compaction writes b1 as a JSONB carrier.
-// Typed predicates must return the same rows as the uncompacted read, with or without the index.
-TEST_F(IndexStorageVariantCarrierIndexTest, AddedStringTemplateCarrierFiltersExactRows) {
+// A STRING template added over old dynamic STRING b1: the old leaf type matches exactly, so
+// compaction writes the typed template leaf and the inherited index serves the predicate.
+TEST_F(IndexStorageVariantCarrierIndexTest, AddedStringTemplateMatchingLeafStaysTyped) {
     std::vector<RowsetSharedPtr> uncompacted;
     RowsetSharedPtr compacted;
     build_carrier(310100, FieldType::OLAP_FIELD_TYPE_STRING,
@@ -256,18 +356,22 @@ TEST_F(IndexStorageVariantCarrierIndexTest, AddedStringTemplateCarrierFiltersExa
     if (HasFatalFailure()) {
         return;
     }
-    for (const auto& [value, expected] :
-         std::vector<std::pair<std::string, int64_t>> {{"x1", 2}, {"x2", 1}, {"x9", 0}}) {
+    for (const auto& [value, expected] : std::vector<std::pair<std::string, int64_t>> {
+                 {"x1", 2}, {"x2", 1}, {"x15", 0}, {"x9", 0}}) {
         auto baseline = query_b1(uncompacted, FieldType::OLAP_FIELD_TYPE_STRING, false, value);
         ASSERT_TRUE(baseline.has_value()) << baseline.error();
         ASSERT_EQ(baseline->rows_read, expected) << "uncompacted baseline, value=" << value;
         for (bool use_index : {false, true}) {
-            auto result = query_b1({compacted}, FieldType::OLAP_FIELD_TYPE_STRING, use_index, value);
+            auto result =
+                    query_b1({compacted}, FieldType::OLAP_FIELD_TYPE_STRING, use_index, value);
             ASSERT_TRUE(result.has_value()) << result.error();
             EXPECT_EQ(result->rows_read, expected)
-                    << "compacted carrier, value=" << value << " use_index=" << use_index;
-            // The JSONB carrier has no physical index file entry to accelerate the predicate.
-            EXPECT_FALSE(result->inverted_index_used());
+                    << "compacted typed leaf, value=" << value << " use_index=" << use_index;
+            if (use_index) {
+                expect_index_use(*result, expected, true, value);
+            } else {
+                EXPECT_FALSE(result->inverted_index_used());
+            }
         }
     }
     auto baseline_values =
@@ -285,8 +389,8 @@ TEST_F(IndexStorageVariantCarrierIndexTest, AddedIntTemplateCarrierFiltersExactR
     std::vector<RowsetSharedPtr> uncompacted;
     RowsetSharedPtr compacted;
     build_carrier(310300, FieldType::OLAP_FIELD_TYPE_INT,
-                  {R"({"b1":7,"z":0})", R"({"b1":8,"z":1})"}, {R"({"b1":7,"z":2})"},
-                  &uncompacted, &compacted);
+                  {R"({"b1":7,"z":0})", R"({"b1":8,"z":1})"}, {R"({"b1":7,"z":2})"}, &uncompacted,
+                  &compacted);
     if (HasFatalFailure()) {
         return;
     }
@@ -309,8 +413,8 @@ TEST_F(IndexStorageVariantCarrierIndexTest, AddedIntTemplateCarrierFiltersExactR
 
 // Control: a never-altered templated column still uses the template-derived root index.
 TEST_F(IndexStorageVariantCarrierIndexTest, NeverAlteredTemplateKeepsInheritedIndex) {
-    ASSERT_TRUE(create_tablet(options(variant_with_b_template(FieldType::OLAP_FIELD_TYPE_STRING),
-                                      310200))
+    ASSERT_TRUE(create_tablet(
+                        options(variant_with_b_template(FieldType::OLAP_FIELD_TYPE_STRING), 310200))
                         .ok());
     auto first = write(0, {R"({"b1":"x1","z":0})", R"({"b1":"x2","z":1})"});
     ASSERT_TRUE(first.has_value()) << first.error();
@@ -334,8 +438,8 @@ TEST_F(IndexStorageVariantCarrierIndexTest, AddedIntTemplateCarrierCommonExprExa
     std::vector<RowsetSharedPtr> uncompacted;
     RowsetSharedPtr compacted;
     build_carrier(310400, FieldType::OLAP_FIELD_TYPE_INT,
-                  {R"({"b1":7,"z":0})", R"({"b1":8,"z":1})"}, {R"({"b1":7,"z":2})"},
-                  &uncompacted, &compacted);
+                  {R"({"b1":7,"z":0})", R"({"b1":8,"z":1})"}, {R"({"b1":7,"z":2})"}, &uncompacted,
+                  &compacted);
     if (HasFatalFailure()) {
         return;
     }
@@ -380,6 +484,88 @@ TEST_F(IndexStorageVariantCarrierIndexTest, AddedStringTemplateCarrierLikeExactR
             EXPECT_EQ(sorted_strings(*result), baseline_values) << "like " << pattern;
         }
     }
+}
+
+TEST_F(IndexStorageVariantCarrierIndexTest, AddedBigintTemplateMatchingLeafStaysTyped) {
+    std::vector<RowsetSharedPtr> uncompacted;
+    RowsetSharedPtr compacted;
+    build_history(310600, FieldType::OLAP_FIELD_TYPE_BIGINT,
+                  {{R"({"b1":3000000000,"z":0})", R"({"b1":3000000001,"z":1})"}},
+                  {R"({"b1":3000000000,"z":2})"}, &uncompacted, &compacted);
+    if (HasFatalFailure()) {
+        return;
+    }
+    expect_b1_rows(uncompacted, {compacted}, FieldType::OLAP_FIELD_TYPE_BIGINT,
+                   {{"3000000000", 2}, {"3000000001", 1}, {"7", 0}}, true);
+    if (HasFatalFailure()) {
+        return;
+    }
+    // A second compaction over the typed output plus a new typed rowset stays typed.
+    auto next = write(10, {R"({"b1":3000000001,"z":3})"});
+    ASSERT_TRUE(next.has_value()) << next.error();
+    auto again =
+            compact_rowsets_and_reload(IndexCompactionKind::CUMULATIVE, {compacted, next.value()});
+    ASSERT_TRUE(again.has_value()) << again.error();
+    auto all = uncompacted;
+    all.push_back(next.value());
+    expect_b1_rows(all, {again.value()}, FieldType::OLAP_FIELD_TYPE_BIGINT,
+                   {{"3000000000", 2}, {"3000000001", 2}, {"7", 0}}, true);
+}
+
+// BIGINT leaf under an INT template: not an exact match, so b1 stays a carrier and scans.
+TEST_F(IndexStorageVariantCarrierIndexTest, AddedIntTemplateOverBigintLeafStaysCarrier) {
+    std::vector<RowsetSharedPtr> uncompacted;
+    RowsetSharedPtr compacted;
+    build_history(310700, FieldType::OLAP_FIELD_TYPE_INT,
+                  {{R"({"b1":3000000000,"z":0})", R"({"b1":7,"z":1})"}}, {R"({"b1":7,"z":2})"},
+                  &uncompacted, &compacted);
+    if (HasFatalFailure()) {
+        return;
+    }
+    expect_b1_rows(uncompacted, {compacted}, FieldType::OLAP_FIELD_TYPE_INT, {{"7", 2}, {"8", 0}},
+                   false);
+}
+
+// STRING "001" under an INT template stays a carrier: no cast to 1 in storage (D1).
+TEST_F(IndexStorageVariantCarrierIndexTest, AddedIntTemplateOverStringLeafStaysCarrier) {
+    std::vector<RowsetSharedPtr> uncompacted;
+    RowsetSharedPtr compacted;
+    build_history(310800, FieldType::OLAP_FIELD_TYPE_INT,
+                  {{R"({"b1":"001","z":0})", R"({"b1":"x","z":1})"}}, {R"({"b1":7,"z":2})"},
+                  &uncompacted, &compacted);
+    if (HasFatalFailure()) {
+        return;
+    }
+    expect_b1_rows(uncompacted, {compacted}, FieldType::OLAP_FIELD_TYPE_INT, {{"7", 1}, {"9", 0}},
+                   false);
+}
+
+// Old b1 cells in the sparse column: types are unknown from metadata, so b1 stays a carrier.
+TEST_F(IndexStorageVariantCarrierIndexTest, AddedStringTemplateOverSparseLeafStaysCarrier) {
+    std::vector<RowsetSharedPtr> uncompacted;
+    RowsetSharedPtr compacted;
+    build_history(310900, FieldType::OLAP_FIELD_TYPE_STRING,
+                  {{R"({"z":0,"y":0})", R"({"z":1,"y":1})", R"({"b1":"x1","z":2,"y":2})"}},
+                  {R"({"b1":"x1","z":3,"y":3})"}, &uncompacted, &compacted, 1);
+    if (HasFatalFailure()) {
+        return;
+    }
+    expect_b1_rows(uncompacted, {compacted}, FieldType::OLAP_FIELD_TYPE_STRING,
+                   {{"x1", 2}, {"x9", 0}}, false);
+}
+
+// One old segment matches (STRING), another does not (integer): b1 stays a carrier.
+TEST_F(IndexStorageVariantCarrierIndexTest, AddedStringTemplateMixedInputsStayCarrier) {
+    std::vector<RowsetSharedPtr> uncompacted;
+    RowsetSharedPtr compacted;
+    build_history(311000, FieldType::OLAP_FIELD_TYPE_STRING,
+                  {{R"({"b1":"x1","z":0})"}, {R"({"b1":7,"z":1})"}}, {R"({"b1":"x1","z":2})"},
+                  &uncompacted, &compacted);
+    if (HasFatalFailure()) {
+        return;
+    }
+    expect_b1_rows(uncompacted, {compacted}, FieldType::OLAP_FIELD_TYPE_STRING,
+                   {{"x1", 2}, {"7", 1}, {"x9", 0}}, false);
 }
 
 } // namespace doris::index_storage_test

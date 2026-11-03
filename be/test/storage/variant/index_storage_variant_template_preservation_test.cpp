@@ -612,7 +612,8 @@ TEST_F(IndexStorageVariantTemplatePreservationTest, NewTemplateDataKeepsNativeTe
                   FieldType::OLAP_FIELD_TYPE_INT);
 }
 
-TEST_F(IndexStorageVariantTemplatePreservationTest, SameTypeTypedAndDynamicStillUsesCarrier) {
+// Old dynamic BIGINT under an added BIGINT template is an identity cast: keep the typed leaf.
+TEST_F(IndexStorageVariantTemplatePreservationTest, SameTypeTypedAndDynamicKeepsTypedLeaf) {
     initialize(variant_with_template(std::nullopt));
     ASSERT_FALSE(HasFatalFailure());
     auto old = write(0, {R"({"p":2000000,"z":0})"});
@@ -623,7 +624,7 @@ TEST_F(IndexStorageVariantTemplatePreservationTest, SameTypeTypedAndDynamicStill
     ASSERT_TRUE(recent.has_value()) << recent.error();
     expect_p_type(recent.value(), TYPE_BIGINT);
     expect_schema({old.value(), recent.value()}, std::make_shared<TabletSchema>(*tablet_schema()),
-                  FieldType::OLAP_FIELD_TYPE_VARIANT);
+                  FieldType::OLAP_FIELD_TYPE_BIGINT);
 }
 
 // Bounded/disabled statistics may hide p entirely; scan sparse KEYS, including glob matches.
@@ -891,13 +892,16 @@ TEST_P(IndexStorageVariantTemplateRewriteTest, AddOverSparsePreservesTimingAndTa
 
 // Newly typed rows after ADD have no none_null_size. Count their actual null gaps, not
 // segment rows, when they share a carrier with historical dynamic values.
-TEST_P(IndexStorageVariantTemplateRewriteTest, NullableTypedCarrierCountsOnlyPresentCells) {
+// Old dynamic p is stored as BIGINT, the added template type, so compaction keeps a typed leaf
+// (no carrier); present-cell counts, values and tags must still equal the uncompacted baseline.
+TEST_P(IndexStorageVariantTemplateRewriteTest, NullableSameTypeLeafCountsOnlyPresentCells) {
     verify_timings(variant_with_template(std::nullopt),
                    variant_with_template(FieldType::OLAP_FIELD_TYPE_BIGINT),
                    {R"({"p":2000000,"z":0})", R"({"z":1})", R"({"p":2000002,"z":2})", R"({"z":3})"},
                    {R"({"p":5000000000,"z":4})", R"({"z":5})"},
                    {VariantPrimitiveId::INT32, std::nullopt, VariantPrimitiveId::INT32,
-                    std::nullopt, VariantPrimitiveId::INT64, std::nullopt});
+                    std::nullopt, VariantPrimitiveId::INT64, std::nullopt},
+                   false, false);
 }
 
 // Exercise physical reopening, not just schema derivation: carriers persist a concrete JSONB

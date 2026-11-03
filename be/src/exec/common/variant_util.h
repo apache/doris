@@ -84,6 +84,15 @@ struct VariantExtendedInfo {
     bool has_nested_group = false;      // whether this variant column has nested group
 };
 
+// Compaction keeps an ADDed template path typed over old dynamic cells iff no input has sparse
+// cells at `path` (and sparse stats are not truncated), the path has no nested evidence, and every
+// dynamic input leaf type equals `template_type` (stored_type_equals_template). Typed input
+// leaves match.
+// Any other input keeps the values in a JSONB carrier (no cast, D1).
+bool old_leaf_matches_template_type(const VariantExtendedInfo& input, const std::string& path,
+                                    const DataTypePtr& template_type,
+                                    size_t max_sparse_column_statistics_size);
+
 /// Returns number of dimensions in Array type. 0 if type is not array.
 size_t get_number_of_dimensions(const IDataType& type);
 
