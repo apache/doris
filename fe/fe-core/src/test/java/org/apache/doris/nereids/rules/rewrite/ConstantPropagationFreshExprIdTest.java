@@ -34,7 +34,9 @@ import org.apache.doris.utframe.TestWithFeService;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -66,6 +68,23 @@ public class ConstantPropagationFreshExprIdTest extends TestWithFeService {
             + " select col_datetime_3__undef_signed_not_null, col_date_undef_signed_not_null"
             + " from table_100_undef_partitions2_keys3_properties4_distributed_by54 ;";
 
+    /** the reported query reduced to the shape which still trips the nullable check. */
+    private static final String SQL_11000259585_SIMPLIFIED = "select * from (("
+            + " select 'vZRgkfajsD', 'cKToNmsxok'"
+            + " except (select col_char_25__undef_signed_not_null, col_char_40__undef_signed"
+            + " from table_100_undef_partitions2_keys3_properties4_distributed_by54)"
+            + " union distinct"
+            + " select col_varchar_25__undef_signed, col_char_25__undef_signed"
+            + " from table_100_undef_partitions2_keys3_properties4_distributed_by53"
+            + " where col_tinyint_undef_signed_not_null = 4.4929476592789594"
+            + " intersect distinct"
+            + " select col_varchar_100__undef_signed, col_char_40__undef_signed"
+            + " from table_100_undef_partitions2_keys3_properties4_distributed_by53"
+            + " where col_bigint_undef_signed_not_null < 54)"
+            + " except (select col_char_25__undef_signed, col_varchar_100__undef_signed_not_null"
+            + " from table_100_undef_partitions2_keys3_properties4_distributed_by5)"
+            + " ) as t where exists (select 1);";
+
     private static final String SQL_11000259585 = "select * from ((select 'vZRgkfajsD', 'cKToNmsxok' except (select col_char_25__undef_signed_not_null, col_char_40__undef_signed from table_100_undef_partitions2_keys3_properties4_distributed_by54 where col_date_undef_signed = '2016-09-20' order by 1, 2 desc limit 1, 8) union distinct select col_varchar_25__undef_signed, col_char_25__undef_signed from table_100_undef_partitions2_keys3_properties4_distributed_by53 where col_tinyint_undef_signed_not_null = 4.4929476592789594 intersect distinct select col_date_undef_signed_not_null, col_date_undef_signed_not_null from table_100_undef_partitions2_keys3_properties4_distributed_by52 where col_decimal_12_2__undef_signed = 94.0212) as t1);";
 
     private static final String SQL_MATERIALIZED_CTE = "WITH c AS (SELECT k, v, count(*) AS cnt"
@@ -85,7 +104,7 @@ public class ConstantPropagationFreshExprIdTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
-        createTable("create table test.constant_propagation_fresh_expr_id_t(k int null, v int null)"
+        createTable("create table test.constant_propagation_fresh_expr_id_t(k int null, v int null, n int not null)"
                 + " distributed by hash(k) properties('replication_num' = '1');");
         createTable("create table test.table_100_undef_partitions2_keys3_properties4_distributed_by52 ("
                 + " col_datetime_3__undef_signed_not_null datetime(3) not null,"
@@ -138,7 +157,7 @@ public class ConstantPropagationFreshExprIdTest extends TestWithFeService {
     }
 
     @Test
-    void testConstantAggregateProjectKeepsTheExprId() {
+    void testConstantAggregateProjectRenamesNullableKeys() {
         // run this rule alone, so the project it materializes above the aggregate is still part of the plan
         PlanChecker checker = PlanChecker.from(connectContext)
                 .analyze("select k, v from constant_propagation_fresh_expr_id_t where k = 5 and v = 7 group by k, v")
@@ -147,34 +166,127 @@ public class ConstantPropagationFreshExprIdTest extends TestWithFeService {
         LogicalProject<?> constantProject = findConstantProject(plan);
         Assertions.assertNotNull(constantProject, plan.treeString());
         List<NamedExpression> items = constantProject.getProjects();
-        // the kept grouping key is still materialized as a constant above the aggregate, with the exprId of the
-        // aggregate output: no fresh exprId and no refresh of the plan above
-        NamedExpression keptKey = items.get(0);
-        Assertions.assertTrue(keptKey instanceof Alias, plan.treeString());
-        Assertions.assertEquals(new IntegerLiteral(5), ((Alias) keptKey).child());
-        Assertions.assertTrue(constantProject.child().getOutput().stream()
-                        .anyMatch(slot -> slot.getExprId().equals(keptKey.getExprId())),
-                "the kept grouping key keeps the exprId of the aggregate output:\n" + plan.treeString());
-        // the removed grouping key is materialized with the exprId it already had as well
-        NamedExpression removedKey = items.get(1);
-        Assertions.assertTrue(removedKey instanceof Alias, plan.treeString());
-        Assertions.assertEquals(new IntegerLiteral(7), ((Alias) removedKey).child());
-        // the plan above references the outputs of the project, unchanged
-        Set<ExprId> projectOutputIds = constantProject.getOutput().stream()
-                .map(Slot::getExprId).collect(Collectors.toSet());
-        Set<ExprId> rootOutputIds = plan.getOutput().stream()
-                .map(Slot::getExprId).collect(Collectors.toSet());
-        Assertions.assertTrue(rootOutputIds.containsAll(projectOutputIds),
-                "the plan above does not reference the project outputs:\n" + plan.treeString());
+        // the columns are nullable and the materialized constants are not, so both items get a fresh exprId and
+        // the plan above follows it: no exprId is left with two definitions of different nullability
+        for (NamedExpression item : items) {
+            Assertions.assertTrue(item instanceof Alias, plan.treeString());
+            Assertions.assertFalse(constantProject.child().getOutput().stream()
+                            .anyMatch(slot -> slot.getExprId().equals(item.getExprId())),
+                    "a nullable column materialized as a not-nullable constant must get a fresh exprId:\n"
+                            + plan.treeString());
+        }
+        Assertions.assertEquals(new IntegerLiteral(5), ((Alias) items.get(0)).child());
+        Assertions.assertEquals(new IntegerLiteral(7), ((Alias) items.get(1)).child());
+        Assertions.assertTrue(plan.getOutput().stream().map(Slot::getExprId).collect(Collectors.toSet())
+                        .containsAll(items.stream().map(NamedExpression::getExprId).collect(Collectors.toSet())),
+                "the plan above does not reference the materialized constants:\n" + plan.treeString());
     }
 
-    // The two RQG reproductions of the master version (testRqgCase11000258898 and testRqgCase11000259585) are
-    // not ported: on branch-4.2 both queries already trip "AdjustNullable convert slot 2004-04-28#55 from
-    // not-nullable to nullable" (and "cKToNmsxok#45") during the rewrite on the pristine branch, i.e. before this
-    // change, and the failure is unchanged after it. ConstantPropagation does not modify the plans of these
-    // queries on this branch at all (dumped with the rule applied alone: the plan is identical), so the failure
-    // comes from another rule here, while on master the rule does rewrite them. The tables those queries need
-    // are still created below, so the SQL constants stay usable if the branch is fixed later.
+    @Test
+    void testConstantAggregateProjectKeepsNotNullableKeyExprId() {
+        // a not-nullable column is materialized with the exprId of the aggregate output: the nullability does not
+        // change, so the consumers which rely on the identity of the column (e.g. the mv matching) keep working
+        PlanChecker checker = PlanChecker.from(connectContext)
+                .analyze("select n, v from constant_propagation_fresh_expr_id_t"
+                        + " where n = 5 and v = 7 group by n, v")
+                .applyCustom(new ConstantPropagation());
+        Plan plan = checker.getPlan();
+        LogicalProject<?> constantProject = findConstantProject(plan);
+        Assertions.assertNotNull(constantProject, plan.treeString());
+        List<NamedExpression> items = constantProject.getProjects();
+        // the not-nullable column keeps the exprId of the aggregate output, the nullable one gets a fresh exprId
+        Alias notNullableItem = (Alias) items.stream()
+                .filter(item -> item.getName().equals("n")).findFirst().orElseThrow(AssertionError::new);
+        Assertions.assertEquals(new IntegerLiteral(5), notNullableItem.child());
+        Assertions.assertTrue(constantProject.child().getOutput().stream()
+                        .anyMatch(slot -> slot.getExprId().equals(notNullableItem.getExprId())),
+                "a not-nullable column keeps the exprId of the aggregate output:\n" + plan.treeString());
+        Alias nullableItem = (Alias) items.stream()
+                .filter(item -> item.getName().equals("v")).findFirst().orElseThrow(AssertionError::new);
+        Assertions.assertEquals(new IntegerLiteral(7), nullableItem.child());
+        Assertions.assertFalse(constantProject.child().getOutput().stream()
+                        .anyMatch(slot -> slot.getExprId().equals(nullableItem.getExprId())),
+                "a nullable column materialized as a not-nullable constant gets a fresh exprId:\n"
+                        + plan.treeString());
+    }
+
+    @Test
+    void testSoleNullableGroupKeyKeepsTheAggregateUnchanged() {
+        // select k, count(*) from t where k = 5 group by k: the aggregate keeps its only group key, so it is
+        // returned unchanged and the fresh exprId recorded for the nullable key must not be published to the plan
+        // above, otherwise nothing defines that exprId any more
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze("select k, count(*) from constant_propagation_fresh_expr_id_t"
+                        + " where k = 5 group by k")
+                .applyCustom(new ConstantPropagation()).getPlan();
+        assertReferencedSlotsProducedByChildren(plan);
+        // the full rewrite has to stay plannable as well
+        PlanChecker.from(connectContext)
+                .analyze("select k, count(*) from constant_propagation_fresh_expr_id_t"
+                        + " where k = 5 group by k")
+                .rewrite();
+    }
+
+    /** Every slot a node references has to be an output slot of one of its children. */
+    private static void assertReferencedSlotsProducedByChildren(Plan plan) {
+        plan.foreach(node -> {
+            Plan planNode = (Plan) node;
+            Set<ExprId> childOutputIds = new java.util.HashSet<>();
+            planNode.children().forEach(child -> child.getOutput()
+                    .forEach(slot -> childOutputIds.add(slot.getExprId())));
+            for (org.apache.doris.nereids.trees.expressions.Expression expression : planNode.getExpressions()) {
+                java.util.Set<org.apache.doris.nereids.trees.expressions.Expression> slots
+                        = expression.collectToSet(e -> e instanceof Slot);
+                for (org.apache.doris.nereids.trees.expressions.Expression slot : slots) {
+                    ExprId exprId = ((Slot) slot).getExprId();
+                    Assertions.assertTrue(childOutputIds.contains(exprId)
+                                    || planNode.getOutput().stream()
+                                            .anyMatch(output -> output.getExprId().equals(exprId)),
+                            "slot " + exprId + " is referenced but not produced: " + planNode.treeString());
+                }
+            }
+            return false;
+        });
+    }
+
+    @Test
+    void testRqgCasesDoNotConvertNullableSlots() {
+        // the rewrite of the reported queries used to trip
+        // "AdjustNullable convert slot ... from not-nullable to nullable" once the check is enabled: one exprId
+        // must not have two definitions with different nullability, so rewrite them with the check enabled
+        boolean feDebug = connectContext.getSessionVariable().isFeDebug();
+        connectContext.getSessionVariable().feDebug = true;
+        try {
+            Plan reduced = PlanChecker.from(connectContext)
+                    .analyze(SQL_11000259585_SIMPLIFIED).rewrite().getPlan();
+            assertSingleNullabilityPerExprId(reduced);
+            PlanChecker.from(connectContext).checkPlannerResult(SQL_11000259585_SIMPLIFIED);
+            Plan reported = PlanChecker.from(connectContext).analyze(SQL_11000258898).rewrite().getPlan();
+            assertSingleNullabilityPerExprId(reported);
+            PlanChecker.from(connectContext).checkPlannerResult(SQL_11000258898);
+            Plan full = PlanChecker.from(connectContext).analyze(SQL_11000259585).rewrite().getPlan();
+            assertSingleNullabilityPerExprId(full);
+            PlanChecker.from(connectContext).checkPlannerResult(SQL_11000259585);
+        } finally {
+            connectContext.getSessionVariable().feDebug = feDebug;
+        }
+    }
+
+    /** One exprId must have one nullability in the rewritten plan, otherwise AdjustNullable widens it. */
+    private static void assertSingleNullabilityPerExprId(Plan plan) {
+        Map<ExprId, Boolean> nullabilityByExprId = new HashMap<>();
+        plan.foreach(node -> {
+            Plan planNode = (Plan) node;
+            for (Slot slot : planNode.getOutput()) {
+                Boolean previous = nullabilityByExprId.putIfAbsent(slot.getExprId(), slot.nullable());
+                if (previous != null) {
+                    Assertions.assertEquals(previous, slot.nullable(),
+                            "exprId " + slot.getExprId() + " has two nullabilities in:\n" + plan.treeString());
+                }
+            }
+            return false;
+        });
+    }
 
     @Test
     void testMaterializedCteConsumerMapsStayValid() throws Exception {
@@ -184,13 +296,12 @@ public class ConstantPropagationFreshExprIdTest extends TestWithFeService {
                 PlanChecker.from(connectContext).analyze(SQL_MATERIALIZED_CTE).getPlan());
         Plan plan = PlanChecker.from(connectContext).analyze(SQL_MATERIALIZED_CTE).rewrite().getPlan();
         assertCteConsumerMapsStayValid(plan);
-        // constant propagation keeps the exprIds of the producer outputs, so they are the same as in the analyzed
-        // plan and the consumer maps still resolve; a rule which renames them has to refresh the maps, which the
-        // assertCteConsumerMapsStayValid above checks
+        // a producer output whose column is nullable is renamed when it is materialized as a constant, and the
+        // consumer maps have to be refreshed with it, which assertCteConsumerMapsStayValid above checks
         Set<ExprId> rewrittenProducerOutputIds = cteProducerOutputIds(plan);
         Assertions.assertEquals(analyzedProducerOutputIds.size(), rewrittenProducerOutputIds.size(),
                 plan.treeString());
-        Assertions.assertEquals(analyzedProducerOutputIds, rewrittenProducerOutputIds, plan.treeString());
+        assertSingleNullabilityPerExprId(plan);
         // the query has to stay plannable
         PlanChecker.from(connectContext).checkPlannerResult(SQL_MATERIALIZED_CTE);
     }
