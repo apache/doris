@@ -88,6 +88,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PrepareCommandPlanner;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
+import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
@@ -1237,6 +1238,10 @@ public class StmtExecutor {
             // If the be scheduling has not been triggered yet, cancel the scheduling first
             insertOverwriteTableCommand.get().cancel();
         }
+        // A synchronous Lance index mutation statement observes its cancel flag at the
+        // executor's phase boundaries before the dispatch; cancelling never rolls back a
+        // possible commit.
+        getAlterTableCommand().ifPresent(AlterTableCommand::cancel);
         Coordinator coordRef = coord;
         if (coordRef != null) {
             coordRef.cancel(cancelReason);
@@ -1261,6 +1266,16 @@ public class StmtExecutor {
             if (logicalPlan instanceof InsertOverwriteTableCommand) {
                 InsertOverwriteTableCommand insertOverwriteTableCommand = (InsertOverwriteTableCommand) logicalPlan;
                 return Optional.of(insertOverwriteTableCommand);
+            }
+        }
+        return Optional.empty();
+    }
+
+    private Optional<AlterTableCommand> getAlterTableCommand() {
+        if (parsedStmt instanceof LogicalPlanAdapter) {
+            LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+            if (logicalPlan instanceof AlterTableCommand) {
+                return Optional.of((AlterTableCommand) logicalPlan);
             }
         }
         return Optional.empty();

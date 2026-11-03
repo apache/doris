@@ -65,10 +65,12 @@ import java.util.Map;
  * Command rewiring coverage for Lance index admission: with the gate off the typed rejection is
  * 5102 from {@code validate()} without any metadata read or id allocation; with the gate on the
  * top-level CREATE/DROP INDEX op bypasses the generic op loop and {@code alterTable}, runs
- * admission in {@code run()}, completes an IF preflight no-op as a plain success, and rejects a
- * mutation that would be admitted with the shared not-supported error (the synchronous
- * execution path has not landed). The 3A static-validation and REST/alter=true rejections
- * are unchanged in both modes.
+ * admission in {@code run()}, completes an IF preflight no-op as a plain success, and hands an
+ * admitted mutation to the synchronous executor outside the admission critical section — the
+ * unit-test chain has no alive backend, so the dispatch attempt ends as the typed confirmed
+ * failure, while the entry-internal final preflight re-decides the authoritative verdict and
+ * the command cancel flag converges the execution before the dispatch. The 3A
+ * static-validation and REST/alter=true rejections are unchanged in both modes.
  */
 public class AlterTableCommandLanceAdmissionTest {
     private static final String CTL = "lance_ctl";
@@ -132,6 +134,9 @@ public class AlterTableCommandLanceAdmissionTest {
                     Mockito.eq(CTL), Mockito.eq(DB), Mockito.eq(TBL),
                     Mockito.eq(PrivPredicate.ALTER))).thenReturn(true);
             Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+            // The synchronous executor asserts the master invariant on the statement thread;
+            // ForwardWithSync guarantees it in production, the fixture guarantees it here.
+            Mockito.when(env.isMaster()).thenReturn(true);
             registerCatalog();
             Mockito.doReturn(database).when(catalog).getDbOrDdlException(DB);
             Mockito.doReturn(table).when(database).getTableOrDdlException(TBL);
@@ -168,8 +173,17 @@ public class AlterTableCommandLanceAdmissionTest {
             ((Map<String, CatalogIf>) nameToCatalog.get(catalogMgr)).put(CTL, catalog);
         }
 
-        void respondWithSnapshot(List<LanceShowIndexInfo> logical, List<PhysicalIndexInfo> physical)
-                throws Exception {
+        LanceIndexAdmissionSnapshot respondWithSnapshot(List<LanceShowIndexInfo> logical,
+                List<PhysicalIndexInfo> physical) throws Exception {
+            LanceIndexAdmissionSnapshot snapshot = new LanceIndexAdmissionSnapshot(DATASET_VERSION,
+                    DATASET_URI, logical, physical, admissionFields());
+            Mockito.when(catalog.loadTableIndexAdmissionSnapshot(REMOTE_DB, REMOTE_TBL))
+                    .thenReturn(snapshot);
+            return snapshot;
+        }
+
+        /** The snapshot schema both CREATE targets resolve against (vector v, scalar c). */
+        private static List<LanceField> admissionFields() {
             // Mirrors the pinned SDK: the LanceField tree carries no children for a fixed-size
             // list; the element lives only in the synthesized child of the reconstructed Arrow
             // view, always nullable.
@@ -193,9 +207,7 @@ public class AlterTableCommandLanceAdmissionTest {
             List<LanceField> fields = new ArrayList<>();
             fields.add(vector);
             fields.add(scalar);
-            Mockito.when(catalog.loadTableIndexAdmissionSnapshot(REMOTE_DB, REMOTE_TBL))
-                    .thenReturn(new LanceIndexAdmissionSnapshot(DATASET_VERSION, DATASET_URI,
-                            logical, physical, fields));
+            return fields;
         }
 
         @Override
@@ -326,12 +338,14 @@ public class AlterTableCommandLanceAdmissionTest {
     }
 
     // ------------------------------------------------------------------
-    // Gate on: admission in run(), IF no-ops complete, mutations reject as
-    // unsupported, alterTable bypassed
+    // Gate on: admission in run(), IF no-ops complete, admitted mutations run
+    // the synchronous executor (dispatch attempted, no alive backend in the UT
+    // chain, so the terminal class is the typed confirmed failure), alterTable
+    // bypassed
     // ------------------------------------------------------------------
 
     @Test
-    public void gateOnCreateIndexValidatesThenRejectsAsUnsupported() throws Exception {
+    public void gateOnCreateIndexAttemptsTheDispatchAndEndsConfirmedFailure() throws Exception {
         Config.enable_lance_index_mutation = true;
         try (LanceFixture fixture = new LanceFixture(false)) {
             fixture.respondWithSnapshot(Collections.emptyList(), Collections.emptyList());
@@ -339,14 +353,19 @@ public class AlterTableCommandLanceAdmissionTest {
             AnalysisException exception = runAndGetCommonAnalysisException(fixture.executor,
                     "CREATE INDEX MyIdx ON " + CTL + "." + DB + "." + TBL
                             + " (v) USING ANN " + VALID_ANN_PROPERTIES);
-            Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_OPERATION_NOT_SUPPORTED,
+            // The dispatch was attempted and ended as a terminal confirmed failure: the unit
+            // chain has no alive backend, which is a pre-dispatch rejection, never an ambiguity.
+            Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_MUTATION_REJECTED,
                     exception.getMysqlErrorCode());
-            Assertions.assertEquals("CREATE INDEX is not supported for Lance catalog tables",
+            Assertions.assertTrue(exception.getDetailMessage().contains("no alive backend"),
+                    exception.getDetailMessage());
+            Assertions.assertTrue(exception.getDetailMessage().contains("nothing was sent"),
                     exception.getDetailMessage());
 
-            // The full preflight ran against the pinned snapshot, then rejected without any
-            // result set, id allocation, or generic alter path.
-            Mockito.verify(fixture.catalog, Mockito.times(1))
+            // Admission's pinned read plus the entry-internal final preflight's fresh read both
+            // ran, then the executor rejected without any result set, id allocation, or the
+            // generic alter path.
+            Mockito.verify(fixture.catalog, Mockito.times(2))
                     .loadTableIndexAdmissionSnapshot(REMOTE_DB, REMOTE_TBL);
             Mockito.verify(fixture.executor, Mockito.never()).sendResultSet(Mockito.any());
             Mockito.verify(fixture.env, Mockito.never()).getNextId();
@@ -355,7 +374,7 @@ public class AlterTableCommandLanceAdmissionTest {
     }
 
     @Test
-    public void gateOnDropIndexValidatesThenRejectsAsUnsupported() throws Exception {
+    public void gateOnDropIndexAttemptsTheDispatchAndEndsConfirmedFailure() throws Exception {
         Config.enable_lance_index_mutation = true;
         try (LanceFixture fixture = new LanceFixture(false)) {
             fixture.respondWithSnapshot(
@@ -366,11 +385,11 @@ public class AlterTableCommandLanceAdmissionTest {
 
             AnalysisException exception = runAndGetCommonAnalysisException(fixture.executor,
                     "DROP INDEX idx ON " + CTL + "." + DB + "." + TBL);
-            Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_OPERATION_NOT_SUPPORTED,
+            Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_MUTATION_REJECTED,
                     exception.getMysqlErrorCode());
-            Assertions.assertEquals("DROP INDEX is not supported for Lance catalog tables",
+            Assertions.assertTrue(exception.getDetailMessage().contains("no alive backend"),
                     exception.getDetailMessage());
-            Mockito.verify(fixture.catalog, Mockito.times(1))
+            Mockito.verify(fixture.catalog, Mockito.times(2))
                     .loadTableIndexAdmissionSnapshot(REMOTE_DB, REMOTE_TBL);
             Mockito.verify(fixture.env, Mockito.never()).getNextId();
             Mockito.verify(fixture.env, Mockito.never()).alterTable(Mockito.any());
@@ -429,6 +448,107 @@ public class AlterTableCommandLanceAdmissionTest {
             Mockito.verify(fixture.env, Mockito.never()).getNextId();
             Mockito.verify(fixture.env, Mockito.never()).alterTable(Mockito.any());
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Synchronous wiring: entry preflight re-decision, out-of-lock execution,
+    // cancel flag convergence
+    // ------------------------------------------------------------------
+
+    @Test
+    public void entryPreflightMismatchPropagatesItsTypedInvalidError() throws Exception {
+        Config.enable_lance_index_mutation = true;
+        try (LanceFixture fixture = new LanceFixture(false)) {
+            LanceIndexAdmissionSnapshot empty = fixture.respondWithSnapshot(
+                    Collections.emptyList(), Collections.emptyList());
+            // Another writer creates the index between capture and the entry: the
+            // entry-internal final preflight re-decides against current metadata and keeps
+            // the admission rejection semantics, before any dispatch happens. Materialize the
+            // snapshot before stubbing: building it mocks LanceField, and Mockito rejects
+            // nested stubbing inside a when(...) call.
+            LanceIndexAdmissionSnapshot taken = new LanceIndexAdmissionSnapshot(DATASET_VERSION,
+                    DATASET_URI,
+                    Collections.singletonList(new LanceShowIndexInfo("idx",
+                            Collections.singletonList("c"), "BTREE", "{}")),
+                    Collections.singletonList(
+                            new PhysicalIndexInfo("idx", "uuid-1", DATASET_VERSION, "SCALAR")),
+                    LanceFixture.admissionFields());
+            Mockito.when(fixture.catalog.loadTableIndexAdmissionSnapshot(REMOTE_DB, REMOTE_TBL))
+                    .thenReturn(empty, taken);
+
+            AnalysisException exception = runAndGetCommonAnalysisException(fixture.executor,
+                    "CREATE INDEX idx ON " + CTL + "." + DB + "." + TBL + " (c) USING BTREE");
+            Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_INVALID, exception.getMysqlErrorCode());
+            Assertions.assertEquals("index 'idx' already exists", exception.getDetailMessage());
+            Mockito.verify(fixture.catalog, Mockito.times(2))
+                    .loadTableIndexAdmissionSnapshot(REMOTE_DB, REMOTE_TBL);
+            Mockito.verify(fixture.env, Mockito.never()).getNextId();
+        }
+    }
+
+    @Test
+    public void executionRunsOutsideTheAdmissionCriticalSection() throws Exception {
+        Config.enable_lance_index_mutation = true;
+        try (LanceFixture fixture = new LanceFixture(false)) {
+            LanceIndexAdmissionSnapshot empty = fixture.respondWithSnapshot(
+                    Collections.emptyList(), Collections.emptyList());
+            Thread statementThread = Thread.currentThread();
+            java.util.concurrent.locks.ReentrantReadWriteLock catalogLock =
+                    catalogLockOf(fixture.catalogMgr);
+            // The entry-internal final preflight runs inside the executor; its fresh metadata
+            // read must find the admission read lock released — the exclusive side acquires
+            // only if the statement is not executing inside the critical section.
+            Mockito.when(fixture.catalog.loadTableIndexAdmissionSnapshot(REMOTE_DB, REMOTE_TBL))
+                    .thenAnswer(invocation -> {
+                        if (Thread.currentThread() != statementThread) {
+                            Assertions.assertTrue(catalogLock.writeLock().tryLock(),
+                                    "the executor must run outside the"
+                                            + " withLanceIndexAdmission critical section");
+                            catalogLock.writeLock().unlock();
+                        }
+                        return empty;
+                    });
+
+            AnalysisException exception = runAndGetCommonAnalysisException(fixture.executor,
+                    "CREATE INDEX idx ON " + CTL + "." + DB + "." + TBL + " (c) USING BTREE");
+            Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_MUTATION_REJECTED,
+                    exception.getMysqlErrorCode());
+            Mockito.verify(fixture.catalog, Mockito.times(2))
+                    .loadTableIndexAdmissionSnapshot(REMOTE_DB, REMOTE_TBL);
+        }
+    }
+
+    @Test
+    public void cancelledCommandConvergesAsConfirmedFailureWithoutDispatch() throws Exception {
+        Config.enable_lance_index_mutation = true;
+        try (LanceFixture fixture = new LanceFixture(false)) {
+            fixture.respondWithSnapshot(Collections.emptyList(), Collections.emptyList());
+            AlterTableCommand command = (AlterTableCommand) parser.parseSingle(
+                    "CREATE INDEX idx ON " + CTL + "." + DB + "." + TBL + " (c) USING BTREE");
+            // The StmtExecutor cancel hook's flag, set while the statement runs: the executor
+            // observes it at its phase boundaries, converges as a confirmed failure that
+            // provably sent nothing, and the statement never produces a second send.
+            command.cancel();
+
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> command.run(connectContext, fixture.executor));
+            Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_MUTATION_REJECTED,
+                    exception.getMysqlErrorCode());
+            Assertions.assertTrue(exception.getDetailMessage().contains("cancelled"),
+                    exception.getDetailMessage());
+            // The entry observed the flag before its final preflight: exactly one metadata
+            // read (admission's pinned one).
+            Mockito.verify(fixture.catalog, Mockito.times(1))
+                    .loadTableIndexAdmissionSnapshot(REMOTE_DB, REMOTE_TBL);
+            Mockito.verify(fixture.env, Mockito.never()).getNextId();
+        }
+    }
+
+    private static java.util.concurrent.locks.ReentrantReadWriteLock catalogLockOf(
+            CatalogMgr catalogMgr) throws ReflectiveOperationException {
+        java.lang.reflect.Field field = CatalogMgr.class.getDeclaredField("lock");
+        field.setAccessible(true);
+        return (java.util.concurrent.locks.ReentrantReadWriteLock) field.get(catalogMgr);
     }
 
     // ------------------------------------------------------------------
@@ -533,19 +653,20 @@ public class AlterTableCommandLanceAdmissionTest {
         Config.enable_lance_index_mutation = true;
         try (LanceFixture fixture = new LanceFixture(false)) {
             fixture.respondWithSnapshot(Collections.emptyList(), Collections.emptyList());
-            // The first run of a fresh command reaches admission (exactly one snapshot read)
-            // and ends in the shared not-supported rejection; a second run of the same
-            // command object re-validates, collects a second op, and trips the
-            // exactly-one-op precondition before any further metadata read.
+            // The first run of a fresh command reaches admission and the executor (two snapshot
+            // reads: the pinned admission read and the entry preflight's fresh one) and ends in
+            // the confirmed failure; a second run of the same command object re-validates,
+            // collects a second op, and trips the exactly-one-op precondition before any
+            // further metadata read.
             AlterTableCommand command = (AlterTableCommand) parser.parseSingle(
                     "CREATE INDEX idx ON " + CTL + "." + DB + "." + TBL + " (c) USING BTREE");
             AnalysisException first = Assertions.assertThrows(AnalysisException.class,
                     () -> command.run(connectContext, fixture.executor));
-            Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_OPERATION_NOT_SUPPORTED,
+            Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_MUTATION_REJECTED,
                     first.getMysqlErrorCode());
             Assertions.assertThrows(IllegalStateException.class,
                     () -> command.run(connectContext, fixture.executor));
-            Mockito.verify(fixture.catalog, Mockito.times(1))
+            Mockito.verify(fixture.catalog, Mockito.times(2))
                     .loadTableIndexAdmissionSnapshot(REMOTE_DB, REMOTE_TBL);
         }
     }
