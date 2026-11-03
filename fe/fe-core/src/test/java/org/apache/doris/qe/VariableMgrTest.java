@@ -297,6 +297,28 @@ public class VariableMgrTest extends TestWithFeService {
     }
 
     @Test
+    public void testLazyReadRatio() throws Exception {
+        SessionVariable var = new SessionVariable();
+        Assertions.assertEquals(50, var.toThrift().getLazyReadRatio());
+
+        for (String value : new String[] {"0", "50", "100"}) {
+            VariableMgr.setVar(var, new SetVar(SetType.SESSION, SessionVariable.LAZY_READ_RATIO,
+                    new StringLiteral(value)));
+            Assertions.assertEquals(Integer.parseInt(value), var.toThrift().getLazyReadRatio());
+            SessionVariable forwarded = new SessionVariable();
+            forwarded.setForwardedSessionVariables(var.getForwardVariables());
+            Assertions.assertEquals(Integer.parseInt(value), forwarded.toThrift().getLazyReadRatio());
+        }
+
+        for (String value : new String[] {"-1", "101", "1.5", "abc", "2147483648"}) {
+            DdlException exception = Assertions.assertThrows(DdlException.class, () -> VariableMgr.setVar(var,
+                    new SetVar(SetType.SESSION, SessionVariable.LAZY_READ_RATIO, new StringLiteral(value))));
+            Assertions.assertTrue(exception.getMessage().contains(SessionVariable.LAZY_READ_RATIO));
+            Assertions.assertEquals(100, var.toThrift().getLazyReadRatio());
+        }
+    }
+
+    @Test
     public void testExternalScanConsistentHashSpreadVariable() throws Exception {
         SessionVariable var = new SessionVariable();
         VariableMgr.setVar(var, new SetVar(SetType.SESSION,

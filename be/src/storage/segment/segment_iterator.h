@@ -211,17 +211,20 @@ private:
 
     [[nodiscard]] Status _read_columns_by_index(const std::vector<ColumnId>& read_ordinals,
                                                 uint32_t nrows_read_limit, uint16_t& nrows_read);
+    [[nodiscard]] Status _read_columns_for_rowids(const std::vector<ColumnId>& read_ordinals,
+                                                  uint16_t nrows_read, bool read_for_predicate);
     Status _init_current_block(Block* block, std::vector<MutableColumnPtr>& non_pred_vector,
                                uint32_t nrows_read_limit);
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     uint16_t _evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     Status _apply_read_limit_to_selected_rows(Block* block, uint16_t& selected_size);
     Status _output_columns_to_block(Block* block);
+    [[nodiscard]] Status _read_output_columns(uint16_t input_rows,
+                                              uint16_t predicate_selected_rows);
     [[nodiscard]] Status _read_columns_by_rowids(const std::vector<ColumnId>& read_ordinals,
                                                  std::vector<rowid_t>& rowid_vector,
                                                  uint16_t* sel_rowid_idx, size_t select_size,
                                                  MutableColumns* mutable_columns,
-                                                 bool init_condition_cache = false,
                                                  bool read_for_predicate = false);
     [[nodiscard]] Status _read_lazy_pruned_columns(Block* block);
 

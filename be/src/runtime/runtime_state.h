@@ -204,6 +204,10 @@ public:
         return kDefault;
     }
 
+    int lazy_read_ratio() const {
+        return _query_options.__isset.lazy_read_ratio ? _query_options.lazy_read_ratio : 50;
+    }
+
     int query_parallel_instance_num() const { return _query_options.parallel_instance; }
     int max_errors() const { return _query_options.max_errors; }
     int execution_timeout() const {

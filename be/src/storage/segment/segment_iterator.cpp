@@ -2665,6 +2665,13 @@ Status SegmentIterator::_read_columns_by_index(const std::vector<ColumnId>& read
     SCOPED_RAW_TIMER(&_opts.stats->predicate_column_read_ns);
 
     nrows_read = (uint16_t)_range_iter->read_batch_rowids(_block_rowids.data(), nrows_read_limit);
+    return _read_columns_for_rowids(read_ordinals, nrows_read, true);
+}
+
+// The existing contiguous/sparse chunk algorithm is kept intact for both read phases.
+// NOLINTNEXTLINE(readability-function-size)
+Status SegmentIterator::_read_columns_for_rowids(const std::vector<ColumnId>& read_ordinals,
+                                                 uint16_t nrows_read, bool read_for_predicate) {
     bool is_continuous = (nrows_read > 1) &&
                          (_block_rowids[nrows_read - 1] - _block_rowids[0] == nrows_read - 1);
     VLOG_DEBUG << fmt::format(
@@ -2708,13 +2715,17 @@ Status SegmentIterator::_read_columns_by_index(const std::vector<ColumnId>& read
 
         auto* column_iter = _column_iterators[cid].get();
         ScopedColumnIteratorReadPhase scoped_read_phase {
-                column_iter, _has_lazy_pruned_children(cid) ? ColumnIterator::ReadPhase::PREDICATE
-                                                            : ColumnIterator::ReadPhase::NORMAL};
+                column_iter, read_for_predicate && _has_lazy_pruned_children(cid)
+                                     ? ColumnIterator::ReadPhase::PREDICATE
+                                     : ColumnIterator::ReadPhase::NORMAL};
 
         if (is_continuous) {
             size_t rows_read = nrows_read;
-            _opts.stats->predicate_column_read_seek_num += 1;
-            if (_opts.runtime_state && _opts.runtime_state->enable_profile()) {
+            if (read_for_predicate) {
+                _opts.stats->predicate_column_read_seek_num += 1;
+            }
+            if (read_for_predicate && _opts.runtime_state &&
+                _opts.runtime_state->enable_profile()) {
                 SCOPED_RAW_TIMER(&_opts.stats->predicate_column_read_seek_ns);
                 RETURN_IF_ERROR(column_iter->seek_to_ordinal(_block_rowids[0]));
             } else {
@@ -2726,7 +2737,7 @@ Status SegmentIterator::_read_columns_by_index(const std::vector<ColumnId>& read
                                                                 nrows_read, rows_read);
             }
         } else {
-            const uint32_t batch_size = _range_iter->get_batch_size();
+            const uint32_t batch_size = BitmapRangeIterator::get_batch_size();
             uint32_t processed = 0;
             while (processed < nrows_read) {
                 uint32_t current_batch_size = std::min(batch_size, nrows_read - processed);
@@ -2737,8 +2748,11 @@ Status SegmentIterator::_read_columns_by_index(const std::vector<ColumnId>& read
 
                 if (batch_continuous) {
                     size_t rows_read = current_batch_size;
-                    _opts.stats->predicate_column_read_seek_num += 1;
-                    if (_opts.runtime_state && _opts.runtime_state->enable_profile()) {
+                    if (read_for_predicate) {
+                        _opts.stats->predicate_column_read_seek_num += 1;
+                    }
+                    if (read_for_predicate && _opts.runtime_state &&
+                        _opts.runtime_state->enable_profile()) {
                         SCOPED_RAW_TIMER(&_opts.stats->predicate_column_read_seek_ns);
                         RETURN_IF_ERROR(column_iter->seek_to_ordinal(_block_rowids[processed]));
                     } else {
@@ -2922,22 +2936,12 @@ Status SegmentIterator::_read_columns_by_rowids(const std::vector<ColumnId>& rea
                                                 std::vector<rowid_t>& rowid_vector,
                                                 uint16_t* sel_rowid_idx, size_t select_size,
                                                 MutableColumns* mutable_columns,
-                                                bool init_condition_cache,
                                                 bool read_for_predicate) {
     SCOPED_RAW_TIMER(&_opts.stats->lazy_read_ns);
     std::vector<rowid_t> rowids(select_size);
 
-    if (init_condition_cache) {
-        DCHECK(_condition_cache);
-        auto& condition_cache = *_condition_cache;
-        for (size_t i = 0; i < select_size; ++i) {
-            rowids[i] = rowid_vector[sel_rowid_idx[i]];
-            condition_cache[rowids[i] / SegmentIterator::CONDITION_CACHE_OFFSET] = true;
-        }
-    } else {
-        for (size_t i = 0; i < select_size; ++i) {
-            rowids[i] = rowid_vector[sel_rowid_idx[i]];
-        }
+    for (size_t i = 0; i < select_size; ++i) {
+        rowids[i] = rowid_vector[sel_rowid_idx[i]];
     }
 
     for (auto cid : read_ordinals) {
@@ -3141,6 +3145,66 @@ Status SegmentIterator::copy_column_data_by_selector(IColumn* input_col_ptr,
     return input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, output_col.get());
 }
 
+Status SegmentIterator::_read_output_columns(uint16_t input_rows,
+                                             uint16_t predicate_selected_rows) {
+    DCHECK_LE(_selected_size, predicate_selected_rows);
+    DCHECK_LE(predicate_selected_rows, input_rows);
+    DCHECK_GT(input_rows, 0);
+    if (_selected_size == 0) {
+        return Status::OK();
+    }
+
+    // A decoded batch may contain rejected rows; only the final selector is cache-visible.
+    if (_opts.condition_cache_digest && !_find_condition_cache) {
+        auto& condition_cache = *_condition_cache;
+        for (size_t i = 0; i < _selected_size; ++i) {
+            auto rowid = _block_rowids[_sel_rowid_idx[i]];
+            condition_cache[rowid / SegmentIterator::CONDITION_CACHE_OFFSET] = true;
+        }
+    }
+
+    if (_output_ordinals.empty()) {
+        return Status::OK();
+    }
+
+    // Virtual values may exist only for selected labels, so never batch-read them.
+    const bool adaptive = _opts.io_ctx.reader_type == ReaderType::READER_QUERY &&
+                          _opts.runtime_state != nullptr && _virtual_column_exprs.empty();
+    const bool use_lazy =
+            !adaptive || uint64_t(input_rows - predicate_selected_rows) * 100 >
+                                 uint64_t(input_rows) * _opts.runtime_state->lazy_read_ratio();
+    if (use_lazy) {
+        return _read_columns_by_rowids(_output_ordinals, _block_rowids, _sel_rowid_idx.data(),
+                                       _selected_size, &_current_columns, false);
+    }
+
+    // The range iterator was consumed by the predicate read. Reuse its rowids and
+    // compress by candidate positions (not physical rowids) after the full read.
+    {
+        SCOPED_RAW_TIMER(&_opts.stats->non_predicate_read_ns);
+        RETURN_IF_ERROR(_read_columns_for_rowids(_output_ordinals, input_rows, false));
+    }
+    if (_selected_size < input_rows) {
+        SCOPED_RAW_TIMER(&_opts.stats->output_col_ns);
+        // Predicate and LIMIT selection preserves candidate order, including the suffix kept
+        // by reverse LIMIT. A bitmap therefore preserves the final selector order while the
+        // column's own filter handles nested offsets and null maps (e.g. ARRAY values).
+        IColumn::Filter keep(input_rows, 0);
+        for (size_t i = 0; i < _selected_size; ++i) {
+            DCHECK(i == 0 || _sel_rowid_idx[i - 1] < _sel_rowid_idx[i]);
+            keep[_sel_rowid_idx[i]] = 1;
+        }
+        for (auto cid : _output_ordinals) {
+            DCHECK(!_current_columns[cid]->is_column_dictionary());
+            auto selected = _current_columns[cid]->filter(keep, _selected_size);
+            _current_columns[cid] = std::move(*selected).mutate();
+        }
+    }
+    return Status::OK();
+}
+
+// Existing multi-phase scan flow remains here; only output reads moved to a dedicated helper.
+// NOLINTNEXTLINE(readability-function-size,readability-function-cognitive-complexity)
 Status SegmentIterator::_next_batch_internal(Block* block) {
     SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().segment_iterator_next_batch);
 
@@ -3194,6 +3258,7 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
     _selected_size = 0;
     RETURN_IF_ERROR(
             _read_columns_by_index(initial_read_ordinals, nrows_read_limit, _selected_size));
+    const uint16_t input_rows = _selected_size;
 
     _opts.stats->blocks_load += 1;
     _opts.stats->raw_rows_read += _selected_size;
@@ -3232,7 +3297,7 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                         SCOPED_RAW_TIMER(&_opts.stats->non_predicate_read_ns);
                         RETURN_IF_ERROR(_read_columns_by_rowids(
                                 _common_expr_ordinals, _block_rowids, _sel_rowid_idx.data(),
-                                _selected_size, &_current_columns, false, true));
+                                _selected_size, &_current_columns, true));
                         RETURN_IF_ERROR(_process_columns(_common_expr_ordinals, block));
                     }
 
@@ -3254,25 +3319,11 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
             RETURN_IF_ERROR(_process_common_expr(_sel_rowid_idx.data(), _selected_size, block));
         }
 
+        const uint16_t predicate_selected_rows = _selected_size;
         RETURN_IF_ERROR(_apply_read_limit_to_selected_rows(block, _selected_size));
 
         // step4: read deferred output columns
-        if (_selected_size > 0) {
-            if (!_output_ordinals.empty()) {
-                RETURN_IF_ERROR(_read_columns_by_rowids(
-                        _output_ordinals, _block_rowids, _sel_rowid_idx.data(), _selected_size,
-                        &_current_columns, _opts.condition_cache_digest && !_find_condition_cache,
-                        false));
-            } else {
-                if (_opts.condition_cache_digest && !_find_condition_cache) {
-                    auto& condition_cache = *_condition_cache;
-                    for (size_t i = 0; i < _selected_size; ++i) {
-                        auto rowid = _block_rowids[_sel_rowid_idx[i]];
-                        condition_cache[rowid / SegmentIterator::CONDITION_CACHE_OFFSET] = true;
-                    }
-                }
-            }
-        }
+        RETURN_IF_ERROR(_read_output_columns(input_rows, predicate_selected_rows));
 
         RETURN_IF_ERROR(_read_lazy_pruned_columns(block));
     }
