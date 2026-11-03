@@ -95,6 +95,7 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * NereidsSqlCacheManager
@@ -326,8 +327,14 @@ public class NereidsSqlCacheManager {
         String currentCatalogName = currentCatalog != null ? currentCatalog.getName() : "";
         String currentDatabase = connectContext.getDatabase();
         String currentDatabaseName = currentDatabase != null ? currentDatabase : "";
-        return currentCatalogName + "." + currentDatabaseName + ":" + connectContext.getCurrentUserIdentity().toString()
-                + ":" + sqlOrMd5;
+        String key = currentCatalogName + "." + currentDatabaseName + ":"
+                + connectContext.getCurrentUserIdentity().toString() + ":" + sqlOrMd5;
+        if (connectContext.isSessionRoleNarrowed()) {
+            // a session-narrowed (SU) session and the identity's own session see different privilege
+            // and policy views: their entries are kept apart instead of evicting each other on every hit
+            key = key + ":su=" + new TreeSet<>(connectContext.getSessionRoleOverride());
+        }
+        return key;
     }
 
     private String normalizeSql(String sql) {

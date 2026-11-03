@@ -192,6 +192,8 @@ public class SchemaScanNode extends ScanNode {
         // SU narrowing: carry the session's active role subset (current_roles) in the plan so the
         // BE->FE metadata RPCs (getDbNames/getTableNames/listTableStatus/describeTables) narrow
         // name visibility to the same set the session sees; null = normal session (no narrowing).
+        // A BE of an older build drops the field and its RPCs reach the FE without roles, where the
+        // handler runs un-narrowed: BEs are upgraded before FEs, the documented rolling-upgrade order.
         if (ConnectContext.get().isSessionRoleNarrowed()) {
             msg.schema_scan_node.setCurrentRoles(new HashSet<>(ConnectContext.get().getSessionRoleOverride()));
         }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.expression;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.CastException;
@@ -95,6 +96,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Sec;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondMicrosecondAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionIsNarrowed;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sign;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sin;
@@ -108,6 +110,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Tanh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -145,6 +148,7 @@ import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
@@ -1928,6 +1932,38 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
                     FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(fn, context));
         } finally {
             cascadesContext.getConnectContext().setSessionRoleOverride(null);
+        }
+    }
+
+    /**
+     * MySQL proxy parity under SU: user() names the account that authenticated the connection (the
+     * switcher), while session_user() and current_user() name the effective identity (the target).
+     */
+    @Test
+    public void testUserNamesTheAuthenticatingAccountUnderSu() {
+        ConnectContext ctx = cascadesContext.getConnectContext();
+        UserIdentity before = ctx.getCurrentUserIdentity();
+        UserIdentity person = UserIdentity.createAnalyzedUserIdentWithIp("person", "%");
+        String personAtIp = UserIdentity.createAnalyzedUserIdentWithIp("person", ctx.getRemoteIP()).toString();
+        String svcAtIp = UserIdentity.createAnalyzedUserIdentWithIp("svc", ctx.getRemoteIP()).toString();
+        ctx.setCurrentUserIdentity(person);
+        try {
+            Assertions.assertEquals(new VarcharLiteral(personAtIp),
+                    FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(new User(), context));
+
+            ctx.setAuthenticatedIdentity(UserIdentity.createAnalyzedUserIdentWithIp("svc", "%"));
+            ctx.setSessionRoleOverride(Collections.singleton("tenant"));
+            Assertions.assertEquals(new VarcharLiteral(svcAtIp),
+                    FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(new User(), context));
+            Assertions.assertEquals(new VarcharLiteral(personAtIp),
+                    FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(new SessionUser(), context));
+            Assertions.assertEquals(new VarcharLiteral(person.toString()),
+                    FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(
+                            new org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser(), context));
+        } finally {
+            ctx.setSessionRoleOverride(null);
+            ctx.setAuthenticatedIdentity(null);
+            ctx.setCurrentUserIdentity(before);
         }
     }
 }

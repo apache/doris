@@ -845,6 +845,14 @@ public class ConnectContext {
         return UserIdentity.createAnalyzedUserIdentWithIp(getQualifiedUser(), remoteIP).toString();
     }
 
+    // used for select user(): the account that authenticated the connection, which in a
+    // session-narrowed (SU) session is the switcher -- MySQL's USER() names the proxying account
+    // and CURRENT_USER() the proxied one
+    public String getAuthenticatedUserWithLoginRemoteIpString() {
+        String user = authenticatedIdentity != null ? authenticatedIdentity.getQualifiedUser() : getQualifiedUser();
+        return UserIdentity.createAnalyzedUserIdentWithIp(user, remoteIP).toString();
+    }
+
     public void setCurrentUserIdentity(UserIdentity currentUserIdentity) {
         this.currentUserIdentity = currentUserIdentity;
     }

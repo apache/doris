@@ -23,6 +23,8 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.MysqlHandshakePacket;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.SuUserCommand;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -34,6 +36,7 @@ import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Collections;
 
 public class MysqlConnectProcessorSuTest extends TestWithFeService {
@@ -50,6 +53,10 @@ public class MysqlConnectProcessorSuTest extends TestWithFeService {
         grantRole("GRANT 'su_change_role' TO 'su_change_person'@'%'");
         grantPriv("GRANT SELECT_PRIV ON internal.su_change_personal.* TO 'su_change_person'@'%'");
         grantPriv("GRANT SELECT_PRIV ON internal.su_change_personal.* TO 'su_change_login'@'%'");
+        // an account WITH a password, for the rejected-password branch of COM_CHANGE_USER
+        String createWithPassword = "CREATE USER 'su_change_pwd'@'%' IDENTIFIED BY 'Secret_123'";
+        ((CreateUserCommand) new NereidsParser().parseSingle(createWithPassword))
+                .run(connectContext, new StmtExecutor(connectContext, createWithPassword));
     }
 
     private ConnectContext switchedContext() throws Exception {
@@ -73,10 +80,15 @@ public class MysqlConnectProcessorSuTest extends TestWithFeService {
     }
 
     private void changeUser(ConnectContext ctx, String user) throws Exception {
-        // COM_CHANGE_USER payload, with an empty native password and no default database.
+        changeUser(ctx, user, new byte[0]);
+    }
+
+    private void changeUser(ConnectContext ctx, String user, byte[] nativeScramble) throws Exception {
+        // COM_CHANGE_USER payload, with a native-password scramble (empty: no password) and no default database.
         ByteBuffer packet = ByteBuffer.allocate(256).order(ByteOrder.LITTLE_ENDIAN);
         packet.put(user.getBytes(StandardCharsets.UTF_8)).put((byte) 0);
-        packet.put((byte) 0);
+        packet.put((byte) nativeScramble.length);
+        packet.put(nativeScramble);
         packet.put((byte) 0);
         packet.putShort((short) 33);
         packet.put(MysqlHandshakePacket.AUTH_PLUGIN_NAME.getBytes(StandardCharsets.UTF_8)).put((byte) 0);
@@ -114,10 +126,25 @@ public class MysqlConnectProcessorSuTest extends TestWithFeService {
     }
 
     @Test
-    public void testFailedAuthenticationPreservesNarrowing() throws Exception {
+    public void testUnknownUserPreservesNarrowing() throws Exception {
         try {
             ConnectContext ctx = switchedContext();
             changeUser(ctx, "su_change_nonexistent");
+            Assertions.assertEquals(QueryState.MysqlStateType.ERR, ctx.getState().getStateType());
+            assertStillNarrowed(ctx);
+        } finally {
+            connectContext.setThreadLocalInfo();
+        }
+    }
+
+    @Test
+    public void testRejectedPasswordPreservesNarrowing() throws Exception {
+        try {
+            ConnectContext ctx = switchedContext();
+            // an existing account, a 20-byte native scramble that cannot match its password
+            byte[] wrongScramble = new byte[20];
+            Arrays.fill(wrongScramble, (byte) 1);
+            changeUser(ctx, "su_change_pwd", wrongScramble);
             Assertions.assertEquals(QueryState.MysqlStateType.ERR, ctx.getState().getStateType());
             assertStillNarrowed(ctx);
         } finally {

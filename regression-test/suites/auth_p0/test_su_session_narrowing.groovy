@@ -26,13 +26,18 @@ suite("test_su_session_narrowing", "p0,auth") {
     String pwd = 'C123_567p'
     String tenantRole = 'su_narrow_tenant'
     String otherRole = 'su_narrow_other'
+    String extraRole = 'su_narrow_extra'
     String roleDb = 'su_narrow_role_db'
     String ownDb = 'su_narrow_own_db'
 
+    try_sql("DROP ROW POLICY IF EXISTS su_narrow_tenant_rows ON ${roleDb}.t")
+    try_sql("DROP ROW POLICY IF EXISTS su_narrow_extra_rows ON ${roleDb}.t")
+    try_sql("DROP ROW POLICY IF EXISTS su_narrow_person_rows ON ${roleDb}.t")
     try_sql("DROP USER ${svc}")
     try_sql("DROP USER ${person}")
     try_sql("DROP ROLE ${tenantRole}")
     try_sql("DROP ROLE ${otherRole}")
+    try_sql("DROP ROLE ${extraRole}")
     sql """DROP DATABASE IF EXISTS ${roleDb}"""
     sql """DROP DATABASE IF EXISTS ${ownDb}"""
 
@@ -47,12 +52,24 @@ suite("test_su_session_narrowing", "p0,auth") {
 
     sql """CREATE ROLE ${tenantRole}"""
     sql """CREATE ROLE ${otherRole}"""
+    sql """CREATE ROLE ${extraRole}"""
     sql """CREATE USER '${person}' IDENTIFIED BY '${pwd}'"""
     sql """CREATE USER '${svc}' IDENTIFIED BY '${pwd}'"""
-    // the person: a tenant role on one database, a direct grant on another
+    // the person: a tenant role on one database, a direct grant on another, and a second role
+    // the switch will leave out
     sql """GRANT SELECT_PRIV ON ${roleDb}.* TO ROLE '${tenantRole}'"""
     sql """GRANT '${tenantRole}' TO '${person}'@'%'"""
+    sql """GRANT '${extraRole}' TO '${person}'@'%'"""
     sql """GRANT SELECT_PRIV ON ${ownDb}.* TO '${person}'@'%'"""
+    // row policies: one PERMISSIVE per role (OR-ed for whoever holds the roles), one RESTRICTIVE
+    // bound to the person (follows the identity): the person's own session sees k IN (1, 2), a
+    // session narrowed to the tenant role sees k = 1 only
+    sql """CREATE ROW POLICY su_narrow_tenant_rows ON ${roleDb}.t AS PERMISSIVE
+           TO ROLE '${tenantRole}' USING (k = 1)"""
+    sql """CREATE ROW POLICY su_narrow_extra_rows ON ${roleDb}.t AS PERMISSIVE
+           TO ROLE '${extraRole}' USING (k = 2)"""
+    sql """CREATE ROW POLICY su_narrow_person_rows ON ${roleDb}.t AS RESTRICTIVE
+           TO '${person}'@'%' USING (k < 3)"""
     // the service account: nothing but the right to switch
     sql """GRANT PROXY_PRIV ON *.*.* TO '${svc}'@'%'"""
     // the framework connects with the default database in the URL, which needs a privilege on it
@@ -117,9 +134,11 @@ suite("test_su_session_narrowing", "p0,auth") {
             def narrowed = sql """SELECT CAST(session_is_narrowed() AS INT)"""
             assertEquals(1, narrowed[0][0] as int)
 
-            // the requested role's grant works ...
-            def rows = sql """SELECT COUNT(*) FROM ${roleDb}.t"""
-            assertEquals(2, rows[0][0] as int)
+            // the requested role's grant works, under the requested role's row policy only: the
+            // excluded role's PERMISSIVE policy does not widen the rows, the person's own applies
+            def rows = sql """SELECT k FROM ${roleDb}.t ORDER BY k"""
+            assertEquals(1, rows.size())
+            assertEquals(1, rows[0][0] as int)
             // ... the person's direct grant is inert under the switch
             test {
                 sql """SELECT * FROM ${ownDb}.t"""
@@ -169,7 +188,8 @@ suite("test_su_session_narrowing", "p0,auth") {
             }
         }
 
-        // the person's own login is untouched: both grants live, nothing is narrowed
+        // the person's own login is untouched: both grants live, both roles' policies apply,
+        // nothing is narrowed
         connect(person, pwd, context.config.jdbcUrl) {
             def own = sql """SELECT COUNT(*) FROM ${ownDb}.t"""
             assertEquals(1, own[0][0] as int)
@@ -179,10 +199,14 @@ suite("test_su_session_narrowing", "p0,auth") {
             assertEquals(0, narrowed[0][0] as int)
         }
     } finally {
+        try_sql("DROP ROW POLICY IF EXISTS su_narrow_tenant_rows ON ${roleDb}.t")
+        try_sql("DROP ROW POLICY IF EXISTS su_narrow_extra_rows ON ${roleDb}.t")
+        try_sql("DROP ROW POLICY IF EXISTS su_narrow_person_rows ON ${roleDb}.t")
         try_sql("DROP USER ${svc}")
         try_sql("DROP USER ${person}")
         try_sql("DROP ROLE ${tenantRole}")
         try_sql("DROP ROLE ${otherRole}")
+        try_sql("DROP ROLE ${extraRole}")
         try_sql("DROP DATABASE IF EXISTS ${roleDb}")
         try_sql("DROP DATABASE IF EXISTS ${ownDb}")
     }

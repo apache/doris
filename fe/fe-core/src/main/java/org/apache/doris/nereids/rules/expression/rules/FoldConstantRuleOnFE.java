@@ -424,7 +424,9 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         if (!foldContextDependentExpressions) {
             return user;
         }
-        String res = context.cascadesContext.getConnectContext().getUserWithLoginRemoteIpString();
+        // MySQL proxy parity: USER() is the account that authenticated the connection (the switcher
+        // of a session-narrowed session); CURRENT_USER() and SESSION_USER() name the effective one
+        String res = context.cascadesContext.getConnectContext().getAuthenticatedUserWithLoginRemoteIpString();
         return new VarcharLiteral(res);
     }
 
