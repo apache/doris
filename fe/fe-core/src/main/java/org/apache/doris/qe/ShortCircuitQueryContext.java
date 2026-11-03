@@ -37,6 +37,7 @@ import org.apache.thrift.TSerializer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -57,6 +58,7 @@ public class ShortCircuitQueryContext {
     public final OlapTable tbl;
     private final long fileCacheQueryLimitBytes;
     private final long partitionTopologyVersion;
+    public final String tableName;
 
     public final OlapScanNode scanNode;
     public final Queriable analzyedQuery;
@@ -109,6 +111,7 @@ public class ShortCircuitQueryContext {
         this.cacheID = UUID.randomUUID();
         this.scanNode = olapScanNode;
         this.tbl = this.scanNode.getOlapTable();
+        this.tableName = this.scanNode.getTableNameInPlan();
         this.schemaVersion = this.tbl.getBaseSchemaVersion();
         this.partitionTopologyVersion = this.tbl.getPartitionTopologyVersion();
         this.analzyedQuery = analzyedQuery;
@@ -122,6 +125,7 @@ public class ShortCircuitQueryContext {
         this.serializedQueryOptions = ByteString.EMPTY;
         this.cacheID = UUID.randomUUID();
         this.tbl = tbl;
+        this.tableName = tbl.getName();
         this.schemaVersion = schemaVersion;
         this.fileCacheQueryLimitBytes = fileCacheQueryLimitBytes;
         this.partitionTopologyVersion = tbl.getPartitionTopologyVersion();
@@ -130,7 +134,8 @@ public class ShortCircuitQueryContext {
     }
 
     public boolean isReusable(ConnectContext ctx) {
-        return this.tbl.getBaseSchemaVersion() == this.schemaVersion
+        return !this.tbl.isDropped && Objects.equals(this.tableName, this.tbl.getName())
+                && this.tbl.getBaseSchemaVersion() == this.schemaVersion
                 && this.fileCacheQueryLimitBytes == ctx.getSessionVariable().fileCacheQueryLimitBytes
                 && this.tbl.getPartitionTopologyVersion() == this.partitionTopologyVersion;
     }
@@ -140,5 +145,6 @@ public class ShortCircuitQueryContext {
         Preconditions.checkNotNull(serializedOutputExpr);
         Preconditions.checkNotNull(cacheID);
         Preconditions.checkNotNull(tbl);
+        Preconditions.checkNotNull(tableName);
     }
 }

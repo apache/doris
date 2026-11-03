@@ -322,6 +322,7 @@ public class ExecuteCommandTest {
         Mockito.doReturn("tbl").when(table).getName();
         Mockito.doReturn(10).when(table).getBaseSchemaVersion();
         Mockito.when(scanNode.getOlapTable()).thenReturn(table);
+        Mockito.when(scanNode.getTableNameInPlan()).thenReturn("tbl");
         Mockito.when(scanNode.getConjuncts()).thenReturn(Collections.emptyList());
         Mockito.when(planner.getScanNodes()).thenReturn(Collections.singletonList(scanNode));
         ShortCircuitQueryContext cachedPlan = new ShortCircuitQueryContext(planner, Mockito.mock(Queriable.class));
