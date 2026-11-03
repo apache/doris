@@ -397,6 +397,34 @@ TEST(DataTypeVariantV2SerdeInputTest, DecimalTemplatePathsAtTheEdgesOfTheTextRea
     EXPECT_NE(std::string::npos, after_big_integer.find("amount")) << after_big_integer;
 }
 
+TEST(DataTypeVariantV2SerdeInputTest, DecimalTemplatePathsStopAtAnObjectInsideAnArray) {
+    DataTypeVariantV2SerDe serde(
+            1, template_of({{.pattern = "a.b", .is_glob = false, .is_decimal = true},
+                            {.pattern = "a.b.c", .is_glob = false, .is_decimal = true},
+                            {.pattern = "prices", .is_glob = false, .is_decimal = true}}));
+    auto column = ColumnVariantV2::create();
+    // The shredder treats the array under "a" as the leaf and never types the members of its
+    // element objects, so their numbers are parsed as before: doubles, rendered 1.5.
+    ASSERT_TRUE(deserialize_json(serde, *column, R"({"a":[{"b":1.50}]})").ok());
+    EXPECT_NE(std::string::npos, json_at(serde, *column, 0).find(R"("b":1.5)"));
+    EXPECT_EQ(std::string::npos, json_at(serde, *column, 0).find(R"("b":1.50)"));
+    ASSERT_TRUE(deserialize_json(serde, *column, R"({"a":[{"b":{"c":1.50}}]})").ok());
+    EXPECT_NE(std::string::npos, json_at(serde, *column, 1).find(R"("c":1.5)"));
+    EXPECT_EQ(std::string::npos, json_at(serde, *column, 1).find(R"("c":1.50)"));
+    // The same path through objects only is declared and exact.
+    ASSERT_TRUE(deserialize_json(serde, *column, R"({"a":{"b":1.50}})").ok());
+    EXPECT_NE(std::string::npos, json_at(serde, *column, 2).find(R"("b":1.50)"));
+    // Scalars directly inside an array keep the array's path: an ARRAY<DECIMAL> field.
+    ASSERT_TRUE(deserialize_json(serde, *column, R"({"prices":[1.50,2.5]})").ok());
+    EXPECT_NE(std::string::npos, json_at(serde, *column, 3).find(R"("prices":[1.50,2.5])"));
+    // Back out of the array, a sibling path is matched again.
+    ASSERT_TRUE(deserialize_json(serde, *column, R"({"x":[{"a":{"b":1.50}}],"a":{"b":1.50}})")
+                        .ok());
+    const std::string sibling = json_at(serde, *column, 4);
+    EXPECT_NE(std::string::npos, sibling.find(R"("x":[{"a":{"b":1.5}}])")) << sibling;
+    EXPECT_NE(std::string::npos, sibling.find(R"("a":{"b":1.50})")) << sibling;
+}
+
 TEST(DataTypeVariantV2SerdeInputTest, DataTypeHandsItsDecimalPathsToTheSerde) {
     auto paths = std::make_shared<const VariantDecimalPathSet>(std::vector<VariantTemplatePath> {
             {.pattern = "amount", .is_glob = false, .is_decimal = true}});

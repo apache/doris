@@ -250,7 +250,8 @@ private:
         simdjson::ondemand::number number;
         const simdjson::error_code error = value.get_number().get(number);
         const std::string_view token = trim_json_token(value.raw_json_token());
-        const bool decimal_path = _paths.matches(_path);
+        // under an object that is an array element nothing is on a declared path (collect_object)
+        const bool decimal_path = _unmatched == 0 && _paths.matches(_path);
         if (error == simdjson::SUCCESS) {
             switch (number.get_number_type()) {
             case simdjson::ondemand::number_type::signed_integer:
@@ -306,12 +307,15 @@ private:
             return false;
         }
         auto scope = _builder.start_array();
+        const bool was_in_array = _in_array;
+        _in_array = true;
         for (auto entry : array) {
             simdjson::ondemand::value element;
             if (std::move(entry).get(element) != simdjson::SUCCESS || !collect(element, depth + 1)) {
                 return false;
             }
         }
+        _in_array = was_in_array;
         scope.finish();
         return true;
     }
@@ -322,6 +326,15 @@ private:
             return false;
         }
         auto scope = _builder.start_object();
+        // The template addresses an array as a leaf (an ARRAY<DECIMAL> field covers the scalars
+        // directly inside it) and the shredder never types the members of an object element, so
+        // nothing under such an object is on a declared path: {"a":[{"b":1.50}]} with 'a.b'
+        // declared keeps the double 1.5 the shredder stores, instead of becoming the decimal 1.50.
+        const bool element_of_array = _in_array;
+        if (element_of_array) {
+            ++_unmatched;
+        }
+        _in_array = false;
         for (auto entry : object) {
             simdjson::ondemand::field field;
             if (std::move(entry).get(field) != simdjson::SUCCESS) {
@@ -346,6 +359,10 @@ private:
             }
         }
         scope.finish();
+        _in_array = element_of_array;
+        if (element_of_array) {
+            --_unmatched;
+        }
         return true;
     }
 
@@ -353,6 +370,11 @@ private:
     const JsonToVariantOptions& _options;
     const VariantDecimalPathSet& _paths;
     std::string _path;
+    // Set while an array's elements are collected; an object element raises `_unmatched` for its
+    // whole subtree. A `false` return abandons the collector with its row, so neither is restored
+    // on that path.
+    bool _in_array = false;
+    uint32_t _unmatched = 0;
 };
 
 } // namespace
