@@ -27,6 +27,8 @@ import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.ColumnRange;
 import org.apache.doris.nereids.rules.expression.rules.OneListPartitionEvaluator;
 import org.apache.doris.nereids.rules.expression.rules.OnePartitionEvaluator;
 import org.apache.doris.nereids.rules.expression.rules.OneRangePartitionEvaluator;
@@ -45,8 +47,11 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.RangeInferable;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -118,6 +123,53 @@ public class PartitionPrunerTest extends TestWithFeService {
         Pair<Boolean, Boolean> result =
                 (Pair<Boolean, Boolean>) canBePrunedOutMethod.invoke(null, predicate, evaluator);
         Assertions.assertEquals(expectedPruned, result.first, predicate.toSql());
+    }
+
+    @Test
+    public void testRangeInferenceWithoutMonotonicityInterface() throws Exception {
+        PartitionKey lower = PartitionKey.createPartitionKey(ImmutableList.of(new PartitionValue("-5")),
+                ImmutableList.of(partitionColumn));
+        PartitionKey upper = PartitionKey.createPartitionKey(ImmutableList.of(new PartitionValue("11")),
+                ImmutableList.of(partitionColumn));
+        Expression absolute = new RangeOnlyAbs(slotA);
+        for (int value : new int[] {5, 12}) {
+            OneRangePartitionEvaluator<String> evaluator = new OneRangePartitionEvaluator<>(
+                    "p1", ImmutableList.of(slotA), new RangePartitionItem(Range.closedOpen(lower, upper)),
+                    cascadesContext, 0);
+            Expression predicate = new EqualTo(absolute, new BigIntLiteral(value));
+            Pair<Boolean, Boolean> result =
+                    (Pair<Boolean, Boolean>) canBePrunedOutMethod.invoke(null, predicate, evaluator);
+            Assertions.assertEquals(value == 12, result.first);
+        }
+    }
+
+    // Test a range capability that does not implement Monotonic and crosses ABS's turning point.
+    private static class RangeOnlyAbs extends Abs implements RangeInferable {
+        RangeOnlyAbs(Expression child) {
+            super(child);
+        }
+
+        @Override
+        public int getRangeInputChildIndex() {
+            return 0;
+        }
+
+        @Override
+        public Expression withConstantArgs(Expression literal) {
+            return new Abs(literal);
+        }
+
+        @Override
+        public RangeOnlyAbs withChildren(List<Expression> children) {
+            return new RangeOnlyAbs(children.get(0));
+        }
+
+        @Override
+        public Optional<ColumnRange> inferRange(Literal lower, Literal upper, ExpressionRewriteContext context) {
+            long max = Math.max(Math.abs(((IntegerLiteral) lower).getIntValue()),
+                    Math.abs(((IntegerLiteral) upper).getIntValue()));
+            return Optional.of(ColumnRange.between(new BigIntLiteral(0), new BigIntLiteral(max)));
+        }
     }
 
     // test canBePrunedOut res

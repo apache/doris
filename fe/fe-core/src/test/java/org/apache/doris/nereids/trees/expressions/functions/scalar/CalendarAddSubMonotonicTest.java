@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.ColumnRange;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.CalendarAddSubMonotonic;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
@@ -33,8 +36,11 @@ import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
+import org.apache.doris.qe.ConnectContext;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
@@ -43,6 +49,26 @@ import java.util.Arrays;
 import java.util.List;
 
 class CalendarAddSubMonotonicTest {
+    private ConnectContext previousContext;
+    private ExpressionRewriteContext context;
+
+    @BeforeEach
+    void setUp() {
+        previousContext = ConnectContext.get();
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.getSessionVariable().setTimeZone("+00:00");
+        connectContext.setThreadLocalInfo();
+        context = new ExpressionRewriteContext(CascadesContext.initTempContext());
+    }
+
+    @AfterEach
+    void tearDown() {
+        ConnectContext.remove();
+        if (previousContext != null) {
+            previousContext.setThreadLocalInfo();
+        }
+    }
+
     @Test
     void testClampingCanResetTimeAcrossDays() {
         List<DataType> types = Arrays.asList(DateTimeV2Type.SYSTEM_DEFAULT,
@@ -122,6 +148,47 @@ class CalendarAddSubMonotonicTest {
     }
 
     @Test
+    void testRangeInferenceDoesNotImplyMonotonicity() {
+        List<DateLiteral> lowerBounds = calendarLiterals("2023-01-28 10:00:00.123456");
+        List<DateLiteral> upperBounds = calendarLiterals("2023-01-31 00:00:00.123456");
+        for (int i = 0; i < lowerBounds.size(); i++) {
+            DateLiteral lower = lowerBounds.get(i);
+            DateLiteral upper = upperBounds.get(i);
+            CalendarAddSubMonotonic function = new MonthsAdd(
+                    new SlotReference("dt", lower.getDataType()), new IntegerLiteral(1));
+            Assertions.assertFalse(function.isMonotonic(lower, upper));
+            ColumnRange range = function.inferRange(lower, upper, context).get();
+            Assertions.assertEquals(lower.getDataType(), range.getLowerBound().getValue().getDataType());
+            Assertions.assertEquals(upper.getDataType(), range.getUpperBound().getValue().getDataType());
+            Assertions.assertEquals(LocalDateTime.of(2023, 2, 28, 0, 0),
+                    ((DateLiteral) range.getLowerBound().getValue()).toJavaDateType());
+            int maxNano = lower instanceof TimeStampNsLiteral ? 999999999 : 999999000;
+            Assertions.assertEquals(LocalDateTime.of(2023, 2, 28, 23, 59, 59, maxNano),
+                    ((DateLiteral) range.getUpperBound().getValue()).toJavaDateType());
+            Assertions.assertFalse(function.inferRange(lower, null, context).get().span().hasUpperBound());
+            Assertions.assertFalse(function.inferRange(null, upper, context).get().span().hasLowerBound());
+        }
+    }
+
+    @Test
+    void testDateOnlyAndSameDayInferenceKeepsEndpointTimes() {
+        CalendarAddSubMonotonic dateOnly = new MonthsAdd(
+                new SlotReference("d", DateV2Type.INSTANCE), new IntegerLiteral(1));
+        ColumnRange dateRange = dateOnly.inferRange(new DateV2Literal("2023-01-28"),
+                new DateV2Literal("2023-01-31"), context).get();
+        Assertions.assertTrue(dateRange.isSingleton());
+        Assertions.assertEquals(new DateV2Literal("2023-02-28"), dateRange.getLowerBound().getValue());
+
+        DateLiteral lower = new DateTimeV2Literal("2023-01-29 10:00:00");
+        DateLiteral upper = new DateTimeV2Literal("2023-01-29 11:00:00");
+        CalendarAddSubMonotonic sameDay = new MonthsAdd(
+                new SlotReference("dt", lower.getDataType()), new IntegerLiteral(1));
+        ColumnRange range = sameDay.inferRange(lower, upper, context).get();
+        Assertions.assertEquals(new DateTimeV2Literal("2023-02-28 10:00:00"), range.getLowerBound().getValue());
+        Assertions.assertEquals(new DateTimeV2Literal("2023-02-28 11:00:00"), range.getUpperBound().getValue());
+    }
+
+    @Test
     void testRangeEnclosesMonthEndAndLeapDayValues() {
         String[][] ranges = {
                 {"2023-01-28T10:00:00", "2023-01-31T23:00:00"},
@@ -137,14 +204,11 @@ class CalendarAddSubMonotonicTest {
                 for (int type = 0; type < 3; type++) {
                     DateLiteral inputLower = calendarLiterals(start.toString()).get(type);
                     DateLiteral inputUpper = calendarLiterals(end.toString()).get(type);
-                    DateLiteral outputLower = calendarLiterals(start.plusMonths(months).toString()).get(type);
-                    DateLiteral outputUpper = calendarLiterals(end.plusMonths(months).toString()).get(type);
                     CalendarAddSubMonotonic function = new MonthsAdd(
                             new SlotReference("dt", inputLower.getDataType()), new IntegerLiteral(months));
-                    LocalDateTime lower = ((DateLiteral) function.getRangeLowerBound(
-                            inputLower, outputLower)).toJavaDateType();
-                    LocalDateTime upper = ((DateLiteral) function.getRangeUpperBound(
-                            inputUpper, outputUpper)).toJavaDateType();
+                    ColumnRange rangeResult = function.inferRange(inputLower, inputUpper, context).get();
+                    LocalDateTime lower = ((DateLiteral) rangeResult.getLowerBound().getValue()).toJavaDateType();
+                    LocalDateTime upper = ((DateLiteral) rangeResult.getUpperBound().getValue()).toJavaDateType();
                     for (LocalDateTime value = start; !value.isAfter(end); value = value.plusHours(1)) {
                         LocalDateTime shifted = value.plusMonths(months);
                         Assertions.assertFalse(shifted.isBefore(lower));

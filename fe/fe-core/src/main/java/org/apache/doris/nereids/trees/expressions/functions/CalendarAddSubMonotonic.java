@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.ColumnRange;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -25,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.util.Optional;
 
 /** Monotonicity of date arithmetic that can clamp the day to the end of a month. */
 public interface CalendarAddSubMonotonic extends DateAddSubMonotonic {
@@ -39,6 +42,19 @@ public interface CalendarAddSubMonotonic extends DateAddSubMonotonic {
     /** The date part remains non-decreasing even when clamping resets the time part. */
     default boolean canEvaluateRange() {
         return MonotonicityUtils.hasConstantOtherArguments(this, 0);
+    }
+
+    @Override
+    default Optional<ColumnRange> inferRange(Literal lower, Literal upper, ExpressionRewriteContext context) {
+        if (!canEvaluateRange()) {
+            return Optional.empty();
+        }
+        boolean monotonic = isMonotonic(lower, upper);
+        return evaluateRangeEndpoints(lower, upper, context).flatMap(bounds -> RangeInferable.createRange(
+                monotonic || lower == null ? bounds.first
+                        : getRangeLowerBound((DateLiteral) lower, (DateLiteral) bounds.first),
+                monotonic || upper == null ? bounds.second
+                        : getRangeUpperBound((DateLiteral) upper, (DateLiteral) bounds.second)));
     }
 
     /** Later input days can map to this output date with an earlier time. */
