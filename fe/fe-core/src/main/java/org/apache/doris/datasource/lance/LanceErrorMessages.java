@@ -66,14 +66,18 @@ final class LanceErrorMessages {
         return truncateUtf8(removeControlCharacters(message), MAX_PROVIDER_MESSAGE_BYTES);
     }
 
-    private static String removeControlCharacters(String value) {
+    // Package-private: LanceIndexMutationOutcome applies the same bounded-sanitized-text
+    // contract to its carried message, so both sides share one truncation/control-strip
+    // implementation instead of drifting apart.
+    static String removeControlCharacters(String value) {
         StringBuilder sanitized = new StringBuilder(value.length());
         value.codePoints().filter(codePoint -> !Character.isISOControl(codePoint))
                 .forEach(sanitized::appendCodePoint);
         return sanitized.toString();
     }
 
-    private static String truncateUtf8(String value, int maxBytes) {
+    // Package-private for the same reason as removeControlCharacters above.
+    static String truncateUtf8(String value, int maxBytes) {
         if (value.getBytes(StandardCharsets.UTF_8).length <= maxBytes) {
             return value;
         }
