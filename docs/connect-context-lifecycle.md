@@ -1,4 +1,4 @@
-# ConnectContext 生命周期与场景问题映射
+# ConnectContext 生命周期与重构方案
 
 核查日期：2026-11-03。源码基线：`015dbb6b0b0d02b5352b62a72c278fde975d0613`。
 
@@ -6,7 +6,7 @@
 
 本文覆盖客户端连接、协议请求、跨 FE 转发、内部作用域、后台任务和 HTTP 入口的代表性调用链；不是所有 `new ConnectContext()` 调用点的穷尽审计。问题分为“已确认调用链缺陷”和“待验证的生命周期契约”，后者不等同于已证明的资源泄漏。
 
-第 1–5 节记录当前调用链与问题，第 6–8 节给出目标状态机和实现归并方案。建议把入口视角的 11 类场景归并为“客户端长会话”和“请求或任务拥有的 Context”两种模板，共用 INITIALIZING、ACTIVE、CLOSING、CLOSED 四态；借用与线程绑定是使用方式，不再建立第三类生命周期。
+第 1–5 节记录当前调用链与问题，第 6–8 节给出目标状态机、实现归并、注册注销和 Flight 超时处理方案，第 9 节给出验证与迁移顺序。建议把入口视角的 11 类场景归并为“客户端长会话”和“请求或任务拥有的 Context”两种模板，共用 INITIALIZING、ACTIVE、CLOSING、CLOSED 四态；借用与线程绑定是使用方式，不再建立第三类生命周期。
 
 旧临时表的 `Env.registerSessionInfo / unregisterSessionInfo / aliveSessionSet` 登记机制及代理构造中的历史 sessionId 处理不列为问题，也不以恢复该机制为修复目标。当前 `registerSessionInfo()` 是停用的空实现。
 
@@ -380,6 +380,107 @@ owned 入口不能靠包装器接管前已经成功返回的对象来掩盖工�
 
 可以共享作用域原语，不代表所有框架入口能合成一个函数：HTTP 请求 finally、Load worker finally、Job 完成回调仍分别位于它们真实的执行边界。合并的是状态规则和资源责任，不是用一个大型 execute(mode, flags...) 分支覆盖所有业务。
 
+### 8.4 注册与注销的责任分配
+
+客户端入口负责发起注册，ConnectContext 负责统一编排激活和关闭，ConnectPoolMgr 执行实际的登记与注销。协议入口在会话结束或创建失败时调用同一个关闭入口，不直接操作连接计数；普通查询失败不自动结束会话。
+
+下表中的 `activateClientSession(pool)`、`cleanup(reason)` 是建议的接口表达，尚未实现；现有无参 cleanup 可在迁移中委托公共关闭入口。
+
+| 事件 | 谁触发 | ConnectContext 的职责 | ConnectPoolMgr 的职责 |
+| --- | --- | --- | --- |
+| MySQL 建连完成 | AcceptListener 在握手和必要配置完成后调用 activateClientSession | 与关闭协调，委托登记，成功后发布 ACTIVE | 检查配额，建立 connectionMap 条目和相关计数 |
+| Flight 创建逻辑会话 | FlightSessionsInConnectPool 在配置完成后调用同一激活入口 | 同一套激活与失败收尾规则 | 同样登记，建立 peer identity 到连接的索引 |
+| 正常断连或显式 CloseSession | 协议入口、Channel 关闭回调调用 cleanup | 进入 CLOSING，撤销自身登记，编排资源收尾 | 删除准确匹配的登记及索引，扣减一次计数 |
+| KILL CONNECTION 或会话空闲超时 | 命令处理器或定时扫描触发 cleanup | 同上；同时推动正在执行的请求退出 | 同上 |
+| 登记成功后发送响应失败 | 创建入口的异常保护调用 cleanup | 保留创建阶段的清理责任，不能因已入池而放弃 | 撤销已经成功的登记 |
+| 登记被拒绝或之前初始化失败 | 创建入口调用 cleanup，或在尚无 Context 时释放已分配资源 | 释放自己取得的资源；不执行不存在的登记注销 | 不扣减未取得的配额，不删除其他连接 |
+| 内部或代理 Context 结束 | 请求/任务的拥有者调用 cleanup | 只结束本地资源；代理不结束来源会话 | 未进行客户端登记，无注销步骤 |
+
+统一调用关系：
+
+```text
+AcceptListener / Flight 会话创建入口
+    → ctx.activateClientSession(pool)
+        → pool.registerConnection(ctx)
+        → 发布 ACTIVE（与登记、并发关闭协调）
+
+断连 / CloseSession / KILL CONNECTION / 空闲超时 / 创建后续失败
+    → ctx.cleanup(reason)
+        → 进入 CLOSING
+        → pool.unregisterConnection(ctx)（仅当本 Context 持有成功登记）
+        → 取消、事务及协议资源收尾
+        → CLOSED
+```
+
+登记配对必须落实到具体实例：Context 记住所属池及成功取得的登记责任，池移除时核对对象身份和索引归属，不能仅凭一个 connectionId 无条件删除或扣计数。登记失败无责任可撤销；重复 cleanup 不能第二次消费同一责任。该信息是现有登记的配对依据，不是新建一套会话注册系统。
+
+注册与关闭的线性化遵循第 6.3 节：关闭先发生则注册失败，注册先发生则关闭负责撤销。把登记操作移到公共入口后，各协议仍负责配置齐备再激活，不能让协议工厂把未配置的对象提前暴露为 ACTIVE。
+
+注销发生在关闭开始阶段，用于立即撤销会话的可查找性和准入资格；CLOSED 表示收尾完成，两者时间可以不同。池中移除 Flight token 后，已经查到 Context 的并发请求还必须经过 ACTIVE 检查，不能仅凭先前成功查找继续执行。
+
+### 8.5 ProtocolAdapter 保留的职责与调用边界
+
+ProtocolAdapter 是已有的协议差异封装，每个 Context 构造时绑定一个适配器。重构保留以下职责：[接口定义][protocol]
+
+- 保存 MySQL Channel、协商能力、游标状态，或 Flight 结果缓存、Endpoints 等协议专属状态。
+- 选择 ResultSink 和 ResultSender，描述缓存重放、转发结果、FE 结果、点查及重试等协议能力。
+- 在 beforeStatement、beforeAttempt、beforeQuery、finishStatement、afterStatement 中维护协议执行状态。
+- 关闭协议传输并释放协议资源；Flight 仍需管理跨 RPC 的 deferred 结果资源及其并发交接。
+
+握手和认证入口继续由现有协议接入代码负责，不要求把 MysqlProto 等入口全部迁入 Adapter。公共的连接池登记、生命周期状态转换及会话事务关闭不由 Adapter 再执行一遍。
+
+当前 MySQL 的 closeConnection 关闭 Channel，而 Flight 的 closeConnection 先调用池注销，再由池回调 releaseSession。目标是两者都由 Context.cleanup 编排，Adapter 只执行协议专属动作：
+
+```text
+ConnectContext.cleanup
+    → ConnectPoolMgr.unregisterConnection：仅登记、索引、计数
+    → ProtocolAdapter.closeConnection：关闭协议传输或入口
+    → ProtocolAdapter.releaseSession：释放协议资源
+
+MySQL Channel closeListener
+    → ConnectContext.cleanup：请求同一关闭流程，重入不重复执行
+```
+
+MySQL 的 releaseSession 可以继续为空；Flight 不应为关闭一个逻辑会话而关闭共享的整个 gRPC 服务。具体动作按协议资源归属实现，物理释放顺序服从第 6.4 节。Adapter 不反向调用完整 cleanup 或池注销；传输关闭引发的外部回调只请求已具备重入保护的公共关闭入口。
+
+### 8.6 Flight 超时扫描与注销
+
+Flight 复用现有 ConnectScheduler 定时扫描。当前 TimeoutChecker 每秒调用池的 timeoutChecker，遍历已登记的 Context，再调用 checkTimeout；这条扫描链路保留。[定时扫描][scheduler-timeout] [池扫描][pool-timeout] [超时分类][timeout]
+
+目标职责链如下：
+
+```text
+ConnectScheduler.TimeoutChecker：调度一次扫描
+    → ConnectPoolMgr.timeoutChecker(now)：遍历已登记 Context
+    → ctx.checkTimeout(now)：按会话/执行状态分类
+        ├─ 会话空闲超时 → ctx.cleanup(IDLE_TIMEOUT)
+        │                    → 进入 CLOSING
+        │                    → pool.unregisterConnection(ctx)
+        │                      删除连接、token 索引和计数
+        │                    → 取消执行，处理事务及 Flight 资源
+        │                    → 本地收尾完成后 CLOSED
+        ├─ 查询执行超时 → 取消对应执行，通常保留会话
+        └─ deferred 结果超时 → 回收对应结果/执行资源，保留会话
+```
+
+| 超时类型 | 判定依据 | 处理责任 | 对 Context 和登记的影响 |
+| --- | --- | --- | --- |
+| 会话空闲超时 | 有效命令活动时间、当前是否空闲、wait_timeout | Context 发起完整 cleanup，池注销，Adapter 释放协议资源 | ACTIVE → CLOSING → CLOSED；token 失效 |
+| 查询或写入执行超时 | 对应执行的开始时间及其超时配置 | Context 定位当前执行器并取消，执行 finally 完成收尾 | 通常保持 ACTIVE，不因查询失败直接注销会话 |
+| Flight deferred 结果超时 | 每个 deferred executor 自身的起始时间及保留期限 | 复用 Flight 容器的过期提取和 finalize 逻辑 | 只处理对应资源，保留连接及 token |
+
+Flight 命令入口在通过准入后刷新会话活动时间；语句之外的有效元数据、会话选项、取结果等命令也属于活动。仅排队等待的请求、定时扫描和后台资源回收不能自行刷新活动时间。deferred 的期限属于该结果，后续无关命令不能将它无限延长。保留现有配置含义，不引入另一套 Flight 会话计时器或新的超时配置。
+
+需要在重构中落实的并发约束：
+
+1. **空闲检查与命令准入协调。** 扫描观察到旧活动时间后，命令可能已开始；最终决定关闭时必须在同一状态协调边界重新确认 Context 仍 ACTIVE、仍空闲、活动版本未变化。命令先进入则重新判断，超时关闭先进入 CLOSING 则命令被拒绝。
+2. **执行超时针对具体执行。** 对检查到的执行器或 queryId 发起取消，避免扫描判断查询 A 超时后误取消随后启动的 B；取消与执行切换需要明确同步或稳定的执行句柄。
+3. **扫描不等待完整关闭。** 定时线程只做必要判定和关闭发起，回滚、远端 RPC 和等待执行退出由已有执行完成路径或明确接管的清理任务承担；一条连接不能长期阻塞整池超时扫描。交接失败必须保留责任，不能先注销再丢弃待清理任务。
+4. **重复关闭汇入同一路径。** CloseSession、KILL、空闲超时和命令异常可并发请求 cleanup，登记只撤销一次，协议资源也按各自幂等/所有权规则释放。
+5. **deferred 与关闭交错保持安全。** 过期扫描、正常消费收尾、会话关闭争用同一容器；每个 executor 的回收责任只能被取走一次。关闭后到达的 deferred 资源仍需立即转入收尾，不能漏入一个已经关闭的集合。
+
+正在执行的命令是否属于空闲，应由真实命令准入/完成状态确定，不能只依赖可能与元数据 RPC 不一致的瞬时 COM_SLEEP 字段。执行超时和空闲超时是两类决定，不能为统一入口而混成“超时一律注销”。
+
 ## 9. 验证矩阵与推进顺序
 
 | 验证场景 | 核心断言 |
@@ -395,6 +496,12 @@ owned 入口不能靠包装器接管前已经成功返回的对象来掩盖工�
 | COM_RESET_CONNECTION | 状态重置，连接及计数保留；失败不能报告完整成功 |
 | KILL、超时、读线程退出交错 | 状态终止一次，索引和计数正确，事务处理不重复产生错误 |
 | Flight 命令结束与会话结束 | RPC 结束不注销 token；CloseSession 后 token 不再可用 |
+| Flight 空闲超时 | 由公共扫描触发 cleanup；连接、token 索引和配额仅撤销一次，资源完成后 CLOSED |
+| Flight 查询超时与 deferred 超时 | 前者只取消目标执行，后者只回收目标资源；会话和 token 保持可用 |
+| Flight 新命令与空闲扫描交错 | 命令先进入则不按旧活动快照关闭；关闭先进入则拒绝新命令 |
+| 查询超时扫描与下一查询交错 | 过期的查询 A 的扫描不能取消查询 B |
+| 关闭耗时及清理任务交接失败 | 不阻塞其他 Context 的超时判定；CLOSING 对象和资源仍有明确责任方 |
+| 注册失败、重复关闭及陈旧注销 | 不扣未取得的配额，不删其他实例，不重复移除 token 或扣计数 |
 | Flight deferred 与关闭竞争 | 已登记及关闭后到达的 deferred executor 都有正确收尾 |
 | 内部 owned/borrowed/nested 作用域 | 新建对象按责任关闭；借用对象不关闭；外层线程绑定恢复 |
 | 同工作线程连续加载任务 | 前一个新建 Context 不残留给下一个任务 |
@@ -402,7 +509,9 @@ owned 入口不能靠包装器接管前已经成功返回的对象来掩盖工�
 | 代理转发成功和失败 | 本地 Query/语句资源结束，来源会话保留 |
 | FE 进程异常退出 | 不以 cleanup 回调发生作为集群资源回收的前提 |
 
-实现前先固定第 6–8 节的状态及所有权契约。随后建立最小公共关闭/登记协调与 owned/bind 原语，先迁移 MySQL 接入和一个内部拥有者路径；验证 P01/P02 后，再用同一原语迁移 P03/P04/P05。Flight、代理和异步任务按各自资源边界迁移，保留已有 deferred 保护，不做全仓 cleanup 机械替换。并发测试使用 latch/barrier 控制交错，不依靠 sleep 猜测，不通过 System.gc 验证正确性。
+实现前先固定第 6–8 节的状态及所有权契约。随后建立最小公共关闭/登记协调与 owned/bind 原语，先迁移 MySQL 接入和一个内部拥有者路径；验证 P01/P02 后，再用同一原语迁移 P03/P04/P05。迁移 Flight 时同时调整 openSession、CloseSession、协议关闭钩子及公共超时分派，保证旧的“Adapter 调池、池释放资源”路径不与新关闭编排重复执行。代理和异步任务按各自资源边界迁移，保留已有 deferred 保护，不做全仓 cleanup 机械替换。并发测试使用 latch/barrier 控制交错，不依靠 sleep 猜测，不通过 System.gc 验证正确性。
+
+完成重构的验收标准是：客户端入口统一发起激活，生命周期结束统一请求 cleanup，池只执行登记账务，协议适配器只释放其拥有的协议资源；三类超时分别通过对应验证。不得通过恢复旧临时表 session 登记、使用 GC 清理或增加平行会话对象来规避这些条件。
 
 现有 [ConnectPoolMgrTest][pool-test] 覆盖部分注销与计数行为，[FlightSessionsInConnectPoolTest][flight-test] 覆盖 CloseSession、KILL、空闲超时，[ConnectContextTest][ctx-test] 覆盖 reset、线程绑定和 deferred executor 部分清理。它们不是 P01–P05 已通过验证的证明；本次文档整理未运行这些测试。
 
@@ -410,7 +519,7 @@ owned 入口不能靠包装器接管前已经成功返回的对象来掩盖工�
 
 | 检查项 | 结论 |
 | --- | --- |
-| 目标与正确性 | 形成场景—调用链—问题—验证映射，并给出四态与两种拥有者模板；P01–P05 有具体触发路径，R01–R05 保留验证边界 |
+| 目标与正确性 | 形成场景—调用链—问题—验证映射，给出四态、两种拥有者模板、注册注销责任及三类 Flight 超时处理；P01–P05 有具体触发路径，R01–R05 保留验证边界 |
 | 最小范围与复用 | 仅文档变更；建议复用现有 Context/连接池、协议适配器和轻量作用域，未引入实现或新会话管理对象 |
 | 并发及锁 | 明确 MySQL 读任务、超时线程、关闭回调及 Flight 命令/关闭并发；尚未进行竞态故障注入 |
 | 生命周期 | 区分创建、登记、绑定、语句释放、任务完成、会话结束，覆盖 owned/borrowed 与部分构建失败 |
@@ -430,6 +539,7 @@ owned 入口不能靠包装器接管前已经成功返回的对象来掩盖工�
 
 - 基础机制：[初始化][ctx-init]、[连接登记][pool]、[线程绑定][thread]、[作用域包装器][auto-close]。
 - 客户端与转发：[MySQL 接入][accept]、[读事件][read]、[Flight 会话][flight-session]、[跨 FE 转发][forward]。
+- 协议与超时：[适配器接口][protocol]、[定时扫描][scheduler-timeout]、[池扫描][pool-timeout]、[超时分类][timeout]。
 - 内部执行：[统计查询][stats]、[导出][export]、[Job 任务框架][task-processor]、[Load 执行][load-once]、[回放解析][bulk-analyze]。
 - HTTP：[请求 Context][rest-context]、[Show 接口][http-show]、[Web SQL 会话][websql]。
 
@@ -468,3 +578,6 @@ owned 入口不能靠包装器接管前已经成功返回的对象来掩盖工�
 [pool-test]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/test/java/org/apache/doris/qe/ConnectPoolMgrTest.java:190
 [flight-test]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/test/java/org/apache/doris/arrowflight/sessions/FlightSessionsInConnectPoolTest.java:119
 [ctx-test]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/test/java/org/apache/doris/qe/ConnectContextTest.java:86
+[protocol]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/qe/protocol/ProtocolAdapter.java:29
+[scheduler-timeout]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/qe/ConnectScheduler.java:131
+[pool-timeout]: /Users/zhangwenxin/workplace/code/doris/incubator-doris/fe/fe-core/src/main/java/org/apache/doris/qe/ConnectPoolMgr.java:102
