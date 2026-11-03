@@ -337,12 +337,14 @@ Status ColumnWriter::create_variant_writer(const ColumnWriterOptions& opts,
                                            const TabletColumn* column, io::FileWriter* file_writer,
                                            std::unique_ptr<ColumnWriter>* writer) {
     // Variant extracted columns have two kinds of physical writers:
-    // - Doc-value snapshot column (`...__DORIS_VARIANT_DOC_VALUE__...`): use `VariantDocCompactWriter`
+    // - Doc-value snapshot column (`<root>.__DORIS_VARIANT_DOC_VALUE__.b<i>`): use `VariantDocCompactWriter`
     //   to store the doc snapshot in a compact binary form.
     // - Regular extracted subcolumns: use `VariantSubcolumnWriter`.
     // The root VARIANT column itself uses `VariantColumnWriter`.
     if (column->is_extracted_column()) {
-        if (column->name().find(DOC_VALUE_COLUMN_PATH) != std::string::npos) {
+        // User paths containing the marker must retain the ordinary subcolumn writer.
+        if (variant_util::variant_binary_column_bucket(column->path_info_ptr()->get_relative_path(),
+                                                       DOC_VALUE_COLUMN_PATH)) {
             *writer = std::make_unique<VariantDocCompactWriter>(
                     opts, std::make_shared<TabletColumn>(*column));
             return Status::OK();

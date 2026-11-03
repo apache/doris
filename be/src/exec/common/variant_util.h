@@ -23,6 +23,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -58,6 +59,12 @@ using ColumnString = ColumnStr<UInt32>;
 const std::string SPARSE_COLUMN_PATH = "__DORIS_VARIANT_SPARSE__";
 const std::string DOC_VALUE_COLUMN_PATH = "__DORIS_VARIANT_DOC_VALUE__";
 namespace doris::variant_util {
+
+// Recognize a relative physical path, never a full path or a marker substring.
+// Writers emit the single sparse name or `<internal_name>.b<canonical nonnegative int>`.
+// Doc columns always have a bucket suffix. Return the bucket (0 for single sparse).
+std::optional<int32_t> variant_binary_column_bucket(std::string_view relative_path,
+                                                    std::string_view internal_name);
 
 using PathToNoneNullValues = std::unordered_map<std::string, int64_t>;
 using PathToDataTypes = std::unordered_map<PathInData, std::vector<DataTypePtr>, PathInData::Hash>;

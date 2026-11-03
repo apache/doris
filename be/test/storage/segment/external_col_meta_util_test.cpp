@@ -19,6 +19,7 @@
 
 #include <crc32c/crc32c.h>
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -27,6 +28,7 @@
 #include <vector>
 
 #include "core/field.h"
+#include "exec/common/variant_util.h"
 #include "gtest/gtest.h"
 #include "io/cache/remote_scan_cache_write_limiter.h"
 #include "io/fs/local_file_system.h"
@@ -822,4 +824,90 @@ TEST(ExternalColMetaUtilTest, WriteExternalColumnMetaEmptyColumns) {
     EXPECT_EQ(footer.column_meta_entries_size(), 0);
     EXPECT_EQ(footer.col_meta_region_start(), 0);
     EXPECT_TRUE(fw->close().ok());
+}
+
+// Marker substrings and malformed bucket names are ordinary user paths.
+TEST(ExternalColMetaUtilTest, VariantReservedMarkerSubstringsAreExternalized) {
+    SegmentFooterPB footer;
+    auto* root = footer.add_columns();
+    root->set_unique_id(1);
+    root->set_type(int(FieldType::OLAP_FIELD_TYPE_VARIANT));
+    PathInData("v").to_protobuf(root->mutable_column_path_info(), 1);
+    const std::vector<std::string> ordinary {"x__DORIS_VARIANT_SPARSE__y",
+                                             "__DORIS_VARIANT_SPARSE__tail",
+                                             "head__DORIS_VARIANT_SPARSE__",
+                                             "__DORIS_VARIANT_SPARSE__.b0tail",
+                                             "nested.__DORIS_VARIANT_SPARSE__.b1",
+                                             "__DORIS_VARIANT_SPARSE__.b01",
+                                             "x__DORIS_VARIANT_DOC_VALUE__y",
+                                             "__DORIS_VARIANT_DOC_VALUE__tail",
+                                             "head__DORIS_VARIANT_DOC_VALUE__",
+                                             "__DORIS_VARIANT_DOC_VALUE__.b0tail",
+                                             "nested.__DORIS_VARIANT_DOC_VALUE__.b1",
+                                             "__DORIS_VARIANT_DOC_VALUE__.b01"};
+    const std::vector<std::string> internal {
+            "__DORIS_VARIANT_SPARSE__", "__DORIS_VARIANT_SPARSE__.b0",
+            "__DORIS_VARIANT_SPARSE__.b2", "__DORIS_VARIANT_DOC_VALUE__.b0",
+            "__DORIS_VARIANT_DOC_VALUE__.b2"};
+    for (const auto& paths : {ordinary, internal}) {
+        for (const auto& relative : paths) {
+            auto* col = footer.add_columns();
+            col->set_unique_id(-1);
+            col->set_type(int(FieldType::OLAP_FIELD_TYPE_INT));
+            PathInData("v." + relative).to_protobuf(col->mutable_column_path_info(), 1);
+        }
+    }
+    io::FileWriterPtr writer;
+    ASSERT_TRUE(io::global_local_filesystem()
+                        ->create_file(make_test_file_path("reserved_marker.bin"), &writer)
+                        .ok());
+    VariantExtMetaWriter ext_writer(writer.get(), CompressionTypePB::LZ4);
+    std::vector<ColumnMetaPB> metas;
+    ASSERT_TRUE(ext_writer.externalize_from_footer(&footer, &metas).ok());
+    ASSERT_TRUE(writer->close().ok());
+    ASSERT_EQ(metas.size(), ordinary.size() + 1);
+    EXPECT_EQ(metas[0].children_columns_size(), internal.size());
+    std::vector<std::string> actual;
+    for (size_t i = 1; i < metas.size(); ++i) {
+        PathInData path;
+        path.from_protobuf(metas[i].column_path_info());
+        actual.emplace_back(path.get_relative_path());
+    }
+    auto expected = ordinary;
+    std::sort(expected.begin(), expected.end());
+    EXPECT_EQ(actual, expected);
+}
+
+TEST(ExternalColMetaUtilTest, VariantBinaryColumnIdentityMatchesWriterNames) {
+    TabletColumn root;
+    root.set_name("v");
+    root.set_unique_id(1);
+    for (const auto& marker : {SPARSE_COLUMN_PATH, DOC_VALUE_COLUMN_PATH}) {
+        for (int index : {0, 1, 2, 17, 2147483647}) {
+            const auto column = marker == SPARSE_COLUMN_PATH
+                                        ? variant_util::create_sparse_shard_column(root, index)
+                                        : variant_util::create_doc_value_column(root, index);
+            const auto relative = column.path_info_ptr()->get_relative_path();
+            EXPECT_EQ(variant_util::variant_binary_column_bucket(relative, marker), index);
+        }
+        for (const char* suffix : {".b", ".b-1", ".b+1", ".b00", ".b01", ".b1tail", ".b1.child",
+                                   ".b2147483648", ".b4294967296"}) {
+            EXPECT_FALSE(variant_util::variant_binary_column_bucket(marker + suffix, marker))
+                    << marker << suffix;
+        }
+        for (const std::string& path : {"x" + marker + "y", marker + "tail", "head" + marker,
+                                        "nested." + marker + ".b0", "v." + marker + ".b1"}) {
+            EXPECT_FALSE(variant_util::variant_binary_column_bucket(path, marker)) << path;
+            EXPECT_TRUE(PathInData("v." + path).need_record_stats()) << path;
+        }
+        EXPECT_FALSE(PathInData("v." + DOC_VALUE_COLUMN_PATH + ".b0").need_record_stats());
+    }
+    const auto single = variant_util::create_sparse_column(root);
+    EXPECT_EQ(variant_util::variant_binary_column_bucket(
+                      single.path_info_ptr()->get_relative_path(), SPARSE_COLUMN_PATH),
+              0);
+    EXPECT_FALSE(variant_util::variant_binary_column_bucket(DOC_VALUE_COLUMN_PATH,
+                                                            DOC_VALUE_COLUMN_PATH));
+    // The full-path marker in a user's VARIANT column name must not suppress scalar stats.
+    EXPECT_TRUE(PathInData("x__DORIS_VARIANT_DOC_VALUE__y.user_key").need_record_stats());
 }

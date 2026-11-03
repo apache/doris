@@ -19,7 +19,6 @@
 #include <gen_cpp/segment_v2.pb.h>
 
 #include <algorithm>
-#include <charconv>
 #include <memory>
 #include <ranges>
 #include <span>
@@ -71,19 +70,15 @@
 namespace doris::segment_v2 {
 
 namespace {
-Status parse_doc_compact_bucket(std::string_view path, int* bucket) {
+Status parse_doc_compact_bucket(const PathInData& path, int* bucket) {
     DORIS_CHECK(bucket != nullptr);
-    const std::string marker = "." + DOC_VALUE_COLUMN_PATH + ".b";
-    const size_t marker_pos = path.rfind(marker);
-    if (marker_pos == std::string_view::npos) {
-        return Status::Corruption("Invalid Variant doc compact path {}", path);
+    const auto index = variant_util::variant_binary_column_bucket(path.get_relative_path(),
+                                                                  DOC_VALUE_COLUMN_PATH);
+    // Reuse writer dispatch's exact identity check; nested markers are ordinary user paths.
+    if (!index) {
+        return Status::Corruption("Invalid Variant doc compact path {}", path.get_path());
     }
-    const std::string_view suffix = path.substr(marker_pos + marker.size());
-    const auto [end, error] =
-            std::from_chars(suffix.data(), suffix.data() + suffix.size(), *bucket);
-    if (error != std::errc() || end != suffix.data() + suffix.size() || *bucket < 0) {
-        return Status::Corruption("Invalid Variant doc compact bucket in path {}", path);
-    }
+    *bucket = *index;
     return Status::OK();
 }
 
@@ -1023,8 +1018,7 @@ Status VariantDocCompactWriter::_finalize_v2(const TabletColumn& parent_column, 
     _v2_shredder.reset();
 
     int bucket_value = -1;
-    RETURN_IF_ERROR(
-            parse_doc_compact_bucket(get_column()->path_info_ptr()->get_path(), &bucket_value));
+    RETURN_IF_ERROR(parse_doc_compact_bucket(*get_column()->path_info_ptr(), &bucket_value));
     if (cast_set<size_t>(bucket_value) >= shredded.binary_buckets.size()) {
         return Status::Corruption("Invalid Variant doc compact bucket {} in path {}", bucket_value,
                                   get_column()->path_info_ptr()->get_path());

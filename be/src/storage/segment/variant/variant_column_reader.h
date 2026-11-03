@@ -421,6 +421,8 @@ private:
     // Protect `_subcolumns_meta_info` and `_statistics` when loading external meta.
     mutable std::shared_mutex _subcolumns_meta_mutex;
     std::unique_ptr<SubcolumnColumnMetaInfo> _subcolumns_meta_info;
+    // Ordinary user columns embedded by the old V3 substring classifier. Immutable after init.
+    std::unordered_map<std::string, ColumnMetaPB> _embedded_subcolumn_metas;
     // Sparse column readers (single or bucketized)
     std::shared_ptr<BinaryColumnReader> _binary_column_reader;
     std::shared_ptr<ColumnReader> _root_column_reader;

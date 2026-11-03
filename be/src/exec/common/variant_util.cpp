@@ -33,6 +33,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <charconv>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -138,6 +139,34 @@ void append_empty_key_subcolumn_from_stats(VariantCompactionPaths& paths_set_inf
 
 } // namespace
 
+std::optional<int32_t> variant_binary_column_bucket(std::string_view relative_path,
+                                                    std::string_view internal_name) {
+    if (relative_path == SPARSE_COLUMN_PATH && internal_name == SPARSE_COLUMN_PATH) {
+        return 0;
+    }
+    // A user key such as x__DORIS_VARIANT_SPARSE__y or a nested marker is ordinary data.
+    if (!relative_path.starts_with(internal_name)) {
+        return std::nullopt;
+    }
+    auto suffix = relative_path.substr(internal_name.size());
+    if (!suffix.starts_with(".b")) {
+        return std::nullopt;
+    }
+    suffix.remove_prefix(2);
+    // Match exactly the decimal names produced by std::to_string(bucket_index), including
+    // the suffix boundary: .b01, .b-1, .b1tail and .b1.child are all user paths.
+    if (suffix.empty() || suffix.front() < '0' || suffix.front() > '9' ||
+        (suffix.size() > 1 && suffix.front() == '0')) {
+        return std::nullopt;
+    }
+    int32_t bucket = 0;
+    const auto [end, error] = std::from_chars(suffix.data(), suffix.data() + suffix.size(), bucket);
+    if (error != std::errc() || end != suffix.data() + suffix.size()) {
+        return std::nullopt;
+    }
+    return bucket;
+}
+
 // NestedGroup's physical children and offsets are produced by NestedGroupWriteProvider, not by
 // appending TabletSchema extracted columns here. This predicate keeps only ordinary Variant paths
 // that are outside the NG tree, for example `v.owner` beside `v.items[*]`.
@@ -146,8 +175,8 @@ bool is_regular_path_outside_nested_group(const PathInData& path) {
     return !relative_path.empty() && !path.get_is_typed() && !path.has_nested_part() &&
            !segment_v2::contains_nested_group_marker(relative_path) &&
            !segment_v2::is_root_nested_group_path(relative_path) &&
-           relative_path != SPARSE_COLUMN_PATH &&
-           relative_path.find(DOC_VALUE_COLUMN_PATH) == std::string::npos;
+           !variant_binary_column_bucket(relative_path, SPARSE_COLUMN_PATH) &&
+           !variant_binary_column_bucket(relative_path, DOC_VALUE_COLUMN_PATH);
 }
 
 bool should_materialize_nested_group_regular_subcolumns(
@@ -908,10 +937,10 @@ Status VariantCompactionUtil::check_path_stats(const std::vector<RowsetSharedPtr
     // check no extended schema in output rowset
     for (const auto& column : output->tablet_schema()->columns()) {
         if (column->is_extracted_column()) {
-            const auto& name = column->name();
-            if (name.find("." + DOC_VALUE_COLUMN_PATH + ".") != std::string::npos ||
-                name.find("." + SPARSE_COLUMN_PATH + ".") != std::string::npos ||
-                name.ends_with("." + SPARSE_COLUMN_PATH)) {
+            const auto relative_path = column->path_info_ptr()->get_relative_path();
+            // Only physical binary columns are allowed here; marker substrings are extracted data.
+            if (variant_binary_column_bucket(relative_path, DOC_VALUE_COLUMN_PATH) ||
+                variant_binary_column_bucket(relative_path, SPARSE_COLUMN_PATH)) {
                 continue;
             }
             return Status::InternalError("Unexpected extracted column {} in output rowset",
