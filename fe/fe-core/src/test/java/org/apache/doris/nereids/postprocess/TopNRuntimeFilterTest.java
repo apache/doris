@@ -285,7 +285,7 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
 
     @Test
     public void testTopNFilterRejectsNullToNonNullThroughOuterJoin() {
-        checkTopNFilterThroughJoin(List.of(
+        checkTopNFilterThroughJoin(ImmutableList.of(
                 "coalesce(l.k, -1)",
                 "ifnull(l.k, -1)",
                 "if(l.k is null, -1, l.k)",
@@ -293,19 +293,20 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
                 "coalesce(l.k, -1) - 1",
                 "cast(l.k is null as int)",
                 "cast(l.k <=> 0 as int)",
-                "cast(to_json(array(l.k)) as string)"), List.of("RIGHT OUTER", "FULL OUTER"), false, false);
+                "cast(to_json(array(l.k)) as string)"), ImmutableList.of("RIGHT OUTER", "FULL OUTER"), false, false);
     }
 
     @Test
     public void testTopNFilterPreservesNullPropagatingOuterJoinExpressions() {
-        checkTopNFilterThroughJoin(List.of("l.k", "cast(l.k as bigint)", "abs(l.k)"),
-                List.of("RIGHT OUTER", "FULL OUTER"), false, true);
-        checkTopNFilterThroughJoin(List.of("l.k"), List.of("RIGHT OUTER", "FULL OUTER"), true, false);
+        checkTopNFilterThroughJoin(ImmutableList.of("l.k", "cast(l.k as bigint)", "abs(l.k)"),
+                ImmutableList.of("RIGHT OUTER", "FULL OUTER"), false, true);
+        checkTopNFilterThroughJoin(ImmutableList.of("l.k"), ImmutableList.of("RIGHT OUTER", "FULL OUTER"), true, false);
     }
 
     @Test
     public void testTopNFilterPreservesNonNullGeneratingJoinSide() {
-        checkTopNFilterThroughJoin(List.of("coalesce(l.k, -1)"), List.of("INNER", "LEFT OUTER"), false, true);
+        checkTopNFilterThroughJoin(ImmutableList.of("coalesce(l.k, -1)"),
+                ImmutableList.of("INNER", "LEFT OUTER"), false, true);
     }
 
     private void checkTopNFilterThroughJoin(List<String> expressions, List<String> joinTypes,
@@ -319,7 +320,7 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
         connectContext.getSessionVariable().setDisableNereidsRules(previousDisabledRules + ",PRUNE_EMPTY_PARTITION");
         try {
             for (String joinType : joinTypes) {
-                for (boolean hashJoin : List.of(true, false)) {
+                for (boolean hashJoin : ImmutableList.of(true, false)) {
                     String condition = hashJoin ? "l.id = r.id" : "l.id < r.id";
                     for (String expression : expressions) {
                         String sql = "SELECT " + expression + " AS sort_key FROM topn_safety l "
