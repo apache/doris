@@ -168,6 +168,7 @@ import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAgg;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAggProject;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinLogicalJoin;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinLogicalJoinProject;
+import org.apache.doris.nereids.rules.rewrite.TypeVariantTemplateParse;
 import org.apache.doris.nereids.rules.rewrite.VariantSubPathPruning;
 import org.apache.doris.nereids.rules.rewrite.batch.ApplyToJoin;
 import org.apache.doris.nereids.rules.rewrite.batch.CorrelateApplyToUnCorrelateApply;
@@ -903,6 +904,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 topic("cte inline and pull up all cte anchor",
                         custom(RuleType.PULL_UP_CTE_ANCHOR, PullUpCteAnchor::new),
                         custom(RuleType.CTE_INLINE, CTEInline::new)
+                ),
+                // after the inline so that a CTE's parse call sits below the sink it feeds
+                topic("type parse_to_variant with the sink's variant template",
+                        custom(RuleType.TYPE_VARIANT_TEMPLATE_PARSE, TypeVariantTemplateParse::new)
                 ),
                 topic("process limit session variables",
                         custom(RuleType.ADD_DEFAULT_LIMIT, AddDefaultLimit::new)

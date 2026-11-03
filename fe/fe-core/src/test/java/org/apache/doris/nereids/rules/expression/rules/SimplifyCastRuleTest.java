@@ -210,10 +210,14 @@ class SimplifyCastRuleTest extends ExpressionRewriteTestHelper {
         VariantType target = (VariantType) DataType.fromCatalogType(new org.apache.doris.catalog.VariantType(fields));
         SlotReference text = SlotReference.of("t", StringType.INSTANCE);
 
-        // The parse call takes the template instead of being cast after the fact.
-        assertRewrite(new Cast(new ParseToVariant(text), target), new ParseToVariant(text, target));
-        assertRewrite(new Cast(new TryParseToVariant(text), target), new TryParseToVariant(text, target));
-        // A cast to a plain VARIANT is the same type as the call: the cast is simply removed.
+        // The template is applied from the sink (TypeVariantTemplateParse); a cast over the untyped call is
+        // left alone, so a plain SELECT keeps returning what the DOM parser read.
+        Cast parseCast = new Cast(new ParseToVariant(text), target);
+        assertRewrite(parseCast, parseCast);
+        Cast tryParseCast = new Cast(new TryParseToVariant(text), target);
+        assertRewrite(tryParseCast, tryParseCast);
+        // A cast to the type the call already carries is redundant and removed, templated or plain.
+        assertRewrite(new Cast(new ParseToVariant(text, target), target), new ParseToVariant(text, target));
         assertRewrite(new Cast(new ParseToVariant(text), VariantType.INSTANCE), new ParseToVariant(text));
     }
 }
