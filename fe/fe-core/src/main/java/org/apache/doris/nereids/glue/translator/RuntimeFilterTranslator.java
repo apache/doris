@@ -20,21 +20,25 @@ package org.apache.doris.nereids.glue.translator;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.planner.CTEScanNode;
 import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.DistributionMode;
+import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanNode;
@@ -53,6 +57,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -65,6 +70,7 @@ public class RuntimeFilterTranslator {
     private static final Logger LOG = LogManager.getLogger(RuntimeFilterTranslator.class);
 
     private final RuntimeFilterContext context;
+    private final Map<Integer, ExchangeNode> exchangeNodes = new HashMap<>();
 
     private static final class RuntimeFilterGroupKey {
         private final Expression srcExpr;
@@ -123,6 +129,12 @@ public class RuntimeFilterTranslator {
     public void translateRuntimeFilterTarget(Slot slot, ScanNode node, PlanTranslatorContext ctx) {
         context.getExprIdToOlapScanNodeSlotRef().put(slot.getExprId(), ctx.findSlotRef(slot.getExprId()));
         context.getScanNodeOfLegacyRuntimeFilterTarget().put(slot, node);
+    }
+
+    public void registerExchangeNode(PhysicalDistribute<?> distribute, ExchangeNode node) {
+        if (context.getSessionVariable().enableRuntimeFilterOnExchange) {
+            exchangeNodes.put(distribute.getId(), node);
+        }
     }
 
     private class RuntimeFilterExpressionTranslator extends ExpressionTranslator {
@@ -226,13 +238,9 @@ public class RuntimeFilterTranslator {
                 } else {
                     origFilter.setIsBroadcast(true);
                 }
-                boolean isLocalTarget = scanNodeList.stream().allMatch(e ->
-                        !(e instanceof CTEScanNode) && e.getFragmentId().equals(node.getFragmentId()));
+                boolean isLocalTarget = addTargets(origFilter, group, scanNodeList, targetExprList, src, ctx);
                 for (int i = 0; i < targetExprList.size(); i++) {
                     ScanNode scanNode = scanNodeList.get(i);
-                    Expr targetExpr = targetExprList.get(i);
-                    origFilter.addTarget(new RuntimeFilterTarget(
-                            scanNode, targetExpr, true, isLocalTarget));
                     updateConditionCacheEligibility(scanNode, group.get(i));
                     // TRuntimeFilterDesc keys target expressions and pruning metadata by scan node ID.
                     // If one grouped RF has different targets on the same scan, BE cannot match
@@ -330,13 +338,10 @@ public class RuntimeFilterTranslator {
                     // nest loop join
                     origFilter.setIsBroadcast(true);
                 }
-                boolean isLocalTarget = scanNodeList.stream().allMatch(e ->
-                        !(e instanceof CTEScanNode) && e.getFragmentId().equals(node.getFragmentId()));
+                boolean isLocalTarget = addTargets(origFilter, ImmutableList.of(filter),
+                        scanNodeList, targetExprList, src, ctx);
                 for (int i = 0; i < targetExprList.size(); i++) {
                     ScanNode scanNode = scanNodeList.get(i);
-                    Expr targetExpr = targetExprList.get(i);
-                    origFilter.addTarget(new RuntimeFilterTarget(
-                            scanNode, targetExpr, true, isLocalTarget));
                     updateConditionCacheEligibility(scanNode, filter);
                     setPruningMetadata(origFilter, scanNode, filter);
                 }
@@ -359,6 +364,60 @@ public class RuntimeFilterTranslator {
                 throw e;
             }
         }
+    }
+
+    private boolean addTargets(org.apache.doris.planner.RuntimeFilter legacyFilter,
+            List<RuntimeFilter> filters, List<ScanNode> scans, List<Expr> scanExpressions,
+            Expr source, PlanTranslatorContext ctx) {
+        Map<Integer, Expression> exchangeExpressions = new LinkedHashMap<>();
+        for (int i = 0; i < filters.size(); i++) {
+            if (scans.get(i) instanceof CTEScanNode) {
+                // A CTE sink target shares its plan ID with the consumer exchange but uses the
+                // producer tuple. A receiver target would overwrite that expression in Thrift.
+                continue;
+            }
+            // Each candidate is a valid necessary predicate. The protocol carries one expression
+            // per node, so keep the first when join expansion supplies equivalent alternatives.
+            filters.get(i).getExchangeTargets().forEach(exchangeExpressions::putIfAbsent);
+        }
+        Map<ExchangeNode, Expr> exchangeTargets = new LinkedHashMap<>();
+        exchangeExpressions.forEach((planId, expression) -> {
+            ExchangeNode exchange = exchangeNodes.get(planId);
+            if (exchange == null) {
+                // Bucketed aggregation fusion can remove a PhysicalDistribute during translation.
+                return;
+            }
+            Map<ExprId, SlotRef> slots = new HashMap<>();
+            // Exchange evaluates RFs before its optional projection. getOutputTupleIds() would
+            // bind a slot from that projection, which does not exist in the received block yet.
+            for (TupleId tupleId : exchange.getTupleIds()) {
+                for (SlotDescriptor slot : ctx.getTupleDesc(tupleId).getSlots()) {
+                    slots.put(ctx.findExprId(slot.getId()), new SlotRef(slot));
+                }
+            }
+            ExpressionTranslator translator = new ExpressionTranslator() {
+                @Override
+                public Expr visitSlotReference(SlotReference slot, PlanTranslatorContext context) {
+                    return Preconditions.checkNotNull(slots.get(slot.getExprId()),
+                            "runtime filter slot %s is absent from exchange %s", slot, exchange.getId());
+                }
+            };
+            Expr target = expression.accept(translator, ctx);
+            exchangeTargets.put(exchange, castTargetToSourceTypeIfNeeded(source, target));
+        });
+        PlanNode builder = legacyFilter.getBuilderNode();
+        // BE merges/routes an entire filter as local or remote. Keep every target remote when
+        // any scan or exchange crosses a fragment boundary, including same-fragment receivers.
+        boolean isLocal = scans.stream().allMatch(scan -> !(scan instanceof CTEScanNode)
+                && scan.getFragmentId().equals(builder.getFragmentId()))
+                && exchangeTargets.keySet().stream().allMatch(exchange ->
+                        exchange.getFragmentId().equals(builder.getFragmentId()));
+        for (int i = 0; i < scans.size(); i++) {
+            legacyFilter.addTarget(new RuntimeFilterTarget(scans.get(i), scanExpressions.get(i), true, isLocal));
+        }
+        exchangeTargets.forEach((exchange, expression) -> legacyFilter.addTarget(
+                new RuntimeFilterTarget(exchange, expression, false, isLocal)));
+        return isLocal;
     }
 
     private org.apache.doris.planner.RuntimeFilter finalize(org.apache.doris.planner.RuntimeFilter origFilter) {
