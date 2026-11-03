@@ -169,6 +169,12 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             rightStats.enforceValid();
             double rowCount = leftStats.getRowCount() + rightStats.getRowCount() - andStatsRowCount;
             Statistics orStats = context.statistics.withRowCount(rowCount);
+            // A child of the OR may be compound (nested AND/OR) and restore the input null counts of the
+            // columns it does not touch. Scale them with the selectivity of this union before the key
+            // columns merged below get their own null counts, otherwise a following predicate which
+            // estimates from the absolute null count (e.g. `c is null`) uses the null count of the whole
+            // input and overestimates the overlap with this branch.
+            orStats.rescaleNumNulls(context.statistics.getRowCount());
 
             Set<Slot> rightInputSlots = child.getInputSlots();
             for (Slot slot : context.keyColumns) {

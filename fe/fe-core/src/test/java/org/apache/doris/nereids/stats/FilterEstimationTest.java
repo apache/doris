@@ -1245,6 +1245,54 @@ class FilterEstimationTest {
     }
 
     /**
+     * `((a in (1, 2) or b in (1, 2)) and e is not null) or c is null`
+     *
+     * <p>The left child of the outer OR is compound and reduces the row count while restoring the input
+     * null count of `c`, which it does not touch. The outer `c is null` then estimates its overlap with
+     * the base-table null count and the union is wrong. The null count inherited by the OR output has to
+     * be scaled with the OR selectivity.
+     */
+    @Test
+    public void testNestedOrScalesInheritedNumNulls() {
+        double rowCount = 1_000_000;
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE);
+        SlotReference e = new SlotReference("e", IntegerType.INSTANCE);
+        ColumnStatistic aStats = new ColumnStatisticBuilder(rowCount)
+                .setNdv(100).setAvgSizeByte(4).setNumNulls(0)
+                .setMinValue(1).setMaxValue(100).build();
+        ColumnStatistic bStats = new ColumnStatisticBuilder(rowCount)
+                .setNdv(100).setAvgSizeByte(4).setNumNulls(0)
+                .setMinValue(1).setMaxValue(100).build();
+        ColumnStatistic cStats = new ColumnStatisticBuilder(rowCount)
+                .setNdv(100).setAvgSizeByte(4).setNumNulls(20_000)
+                .setMinValue(1).setMaxValue(100).build();
+        ColumnStatistic eStats = new ColumnStatisticBuilder(rowCount)
+                .setNdv(100).setAvgSizeByte(4).setNumNulls(0)
+                .setMinValue(1).setMaxValue(100).build();
+        Statistics inputStats = new StatisticsBuilder()
+                .setRowCount(rowCount)
+                .putColumnStatistics(a, aStats)
+                .putColumnStatistics(b, bStats)
+                .putColumnStatistics(c, cStats)
+                .putColumnStatistics(e, eStats)
+                .build();
+
+        List<Expression> options = Lists.newArrayList(new IntegerLiteral(1), new IntegerLiteral(2));
+        Or innerOr = new Or(new InPredicate(a, options), new InPredicate(b, options));
+        Statistics innerStats = new FilterEstimation().estimate(innerOr, inputStats);
+        Assertions.assertEquals(39_600, innerStats.getRowCount(), 0.01);
+        // 20,000 * 39,600 / 1,000,000: the null count of `c` follows the rows kept by the inner OR
+        Assertions.assertEquals(792, innerStats.findColumnStatistics(c).numNulls, 0.01);
+
+        Expression predicate = new Or(new And(innerOr, new Not(new IsNull(e))), new IsNull(c));
+        Statistics result = new FilterEstimation().estimate(predicate, inputStats);
+        // 39,600 + 20,000 - 792
+        Assertions.assertEquals(58_808, result.getRowCount(), 0.01);
+    }
+
+    /**
      * a = 1
      */
     @Test
