@@ -63,7 +63,8 @@ public class ChangelogMonitor extends MasterDaemon {
     @Override
     protected void runAfterCatalogReady() {
         if (!isEnabled()) {
-            // Once enabled again, the monitor must not export what it sampled before it was disabled.
+            // A check that finds the monitor disabled drops the snapshot: once enabled again, the monitor does not
+            // export what it sampled before, and the sampled series are missing until a round completes.
             snapshot = null;
             return;
         }
