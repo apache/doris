@@ -24,6 +24,7 @@ import org.apache.doris.thrift.TLanceFileDesc;
 import org.apache.doris.thrift.TLanceIndexMutationRequest;
 import org.apache.doris.thrift.TLanceIndexMutationResult;
 import org.apache.doris.thrift.TLanceIndexMutationType;
+import org.apache.doris.thrift.TLanceIndexWorkerPhase;
 import org.apache.doris.thrift.TLanceScanParams;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
@@ -230,8 +231,24 @@ public class LanceThriftContractTest {
                 metaDataMap);
         assertContractField("TLanceIndexMutationResult",
                 TLanceIndexMutationResult._Fields.MESSAGE, (short) 3, "message", metaDataMap);
-        // Worker-phase markers of later slices must be appended at ids 4+.
-        Assert.assertEquals(3, metaDataMap.size());
+        // The worker-phase markers promised at ids 4+: the phase of the worker
+        // execution behind the typed code, plus the identity echo and the
+        // observed-advancement evidence.
+        assertContractField("TLanceIndexMutationResult",
+                TLanceIndexMutationResult._Fields.WORKER_PHASE, (short) 4, "worker_phase",
+                metaDataMap);
+        assertContractField("TLanceIndexMutationResult",
+                TLanceIndexMutationResult._Fields.INVOCATION_ID, (short) 5, "invocation_id",
+                metaDataMap);
+        assertContractField("TLanceIndexMutationResult",
+                TLanceIndexMutationResult._Fields.BE_PROCESS_EPOCH, (short) 6, "be_process_epoch",
+                metaDataMap);
+        assertContractField("TLanceIndexMutationResult",
+                TLanceIndexMutationResult._Fields.OBSERVED_LATEST_VERSION, (short) 7,
+                "observed_latest_version", metaDataMap);
+        // Adding a field is fine (append an id, extend this pin); silently renumbering or
+        // reusing an id is not, so the struct width is pinned too.
+        Assert.assertEquals(7, metaDataMap.size());
     }
 
     @Test
@@ -240,6 +257,14 @@ public class LanceThriftContractTest {
         Assert.assertEquals(2, TLanceIndexMutationType.REPLACE.getValue());
         Assert.assertEquals(3, TLanceIndexMutationType.DROP.getValue());
         Assert.assertEquals(3, TLanceIndexMutationType.values().length);
+    }
+
+    @Test
+    public void testLanceIndexWorkerPhaseValuesArePinned() {
+        Assert.assertEquals(1, TLanceIndexWorkerPhase.PRE_INVOCATION_REJECTED.getValue());
+        Assert.assertEquals(2, TLanceIndexWorkerPhase.NATIVE_RETURN.getValue());
+        Assert.assertEquals(3, TLanceIndexWorkerPhase.INDETERMINATE_AFTER_LAUNCH.getValue());
+        Assert.assertEquals(3, TLanceIndexWorkerPhase.values().length);
     }
 
     @Test
@@ -292,5 +317,25 @@ public class LanceThriftContractTest {
         // The typed code is optional on the wire: a clean pre-invocation rejection carries
         // no native result, and the status alone is the complete classification input.
         Assert.assertFalse(restoredResult.isSetLanceErrorCode());
+
+        // The worker answer form carries the phase, the identity echo, and the
+        // observed-advancement evidence; each must survive the wire untouched.
+        TLanceIndexMutationResult workerResult = new TLanceIndexMutationResult()
+                .setStatus(new TStatus(TStatusCode.OK))
+                .setLanceErrorCode(-13)
+                .setMessage("schema contract mismatch")
+                .setWorkerPhase(TLanceIndexWorkerPhase.PRE_INVOCATION_REJECTED)
+                .setInvocationId(request.getInvocationId())
+                .setBeProcessEpoch(request.getBeProcessEpoch())
+                .setObservedLatestVersion(43L);
+        byte[] workerBytes = serializer.serialize(workerResult);
+        TLanceIndexMutationResult restoredWorkerResult = new TLanceIndexMutationResult();
+        new TDeserializer(new TCompactProtocol.Factory()).deserialize(restoredWorkerResult, workerBytes);
+        Assert.assertEquals(workerResult, restoredWorkerResult);
+        Assert.assertEquals(TLanceIndexWorkerPhase.PRE_INVOCATION_REJECTED,
+                restoredWorkerResult.getWorkerPhase());
+        Assert.assertEquals(request.getInvocationId(), restoredWorkerResult.getInvocationId());
+        Assert.assertEquals(7L, restoredWorkerResult.getBeProcessEpoch());
+        Assert.assertEquals(43L, restoredWorkerResult.getObservedLatestVersion());
     }
 }

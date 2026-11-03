@@ -35,6 +35,7 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TLanceIndexMutationRequest;
 import org.apache.doris.thrift.TLanceIndexMutationResult;
 import org.apache.doris.thrift.TLanceIndexMutationType;
+import org.apache.doris.thrift.TLanceIndexWorkerPhase;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 
@@ -525,7 +526,7 @@ public final class LanceIndexMutationExecutor {
             return indeterminateAfterDispatch(e);
         }
         // 7. Classification (the refresh obligations hang off the trusted classes).
-        return classify(request, result, entry);
+        return classify(request, wireRequest, result, entry);
     }
 
     /**
@@ -561,16 +562,34 @@ public final class LanceIndexMutationExecutor {
     }
 
     /**
-     * Classification (design v6 section 6.5): trusts only complete answers, reads the status
-     * first and the typed code second, and never the message text. The shipped backend stub
-     * answers NOT_IMPLEMENTED_ERROR, so a dispatched statement against it classifies here as
-     * a confirmed failure.
+     * Classification (design v6 section 6.5): trusts only complete, identity-matching answers,
+     * reads the status first and the typed code second, and never the message text. The
+     * worker phase of the answer says where the typed code was produced:
+     * {@link TLanceIndexWorkerPhase#PRE_INVOCATION_REJECTED} proves the worker refused before
+     * any mutating native call - a confirmed failure with its own message branch; a complete
+     * non-OK status proves a backend-level refusal before execution (the shipped stub's
+     * NOT_IMPLEMENTED_ERROR, an old backend's UNKNOWN_METHOD) - also a confirmed failure;
+     * {@link TLanceIndexWorkerPhase#NATIVE_RETURN} keeps the native passthrough semantics
+     * (code 0 success, the typed commit conflict a confirmed failure, any other code
+     * indeterminate); {@link TLanceIndexWorkerPhase#INDETERMINATE_AFTER_LAUNCH} is a worker
+     * loss or protocol ambiguity after launch - indeterminate. An answer without the phase
+     * fields (an older backend) keeps the legacy reading: a set code is a native passthrough
+     * and no code is a partial answer. Echoed identity fields are compared with the dispatched
+     * request when present: a mismatch means the answer cannot be trusted for this invocation
+     * (indeterminate). A code outside its phase's band is a protocol ambiguity (indeterminate).
      */
     private static LanceIndexMutationOutcome classify(MutationRequest request,
-            TLanceIndexMutationResult result, MutationEntry entry) {
+            TLanceIndexMutationRequest wireRequest, TLanceIndexMutationResult result,
+            MutationEntry entry) {
         if (result == null || !result.isSetStatus() || result.getStatus().getStatusCode() == null) {
             return LanceIndexMutationOutcome.indeterminate(0,
                     "the dispatch returned no complete status");
+        }
+        if (identityEchoMismatches(wireRequest, result)) {
+            return LanceIndexMutationOutcome.indeterminate(0,
+                    "the backend answer echoed a different invocation identity than the one"
+                            + " dispatched; the answer cannot be trusted as this invocation's"
+                            + " result");
         }
         TStatus status = result.getStatus();
         if (status.getStatusCode() != TStatusCode.OK) {
@@ -578,11 +597,37 @@ public final class LanceIndexMutationExecutor {
                     "the backend refused the invocation before executing it: "
                             + status.getStatusCode() + backendMessages(status));
         }
+        // A phase value this FE does not know (a newer backend) reads back null and falls to
+        // the legacy phase-less interpretation below.
+        TLanceIndexWorkerPhase workerPhase =
+                result.isSetWorkerPhase() ? result.getWorkerPhase() : null;
         if (!result.isSetLanceErrorCode()) {
+            if (workerPhase == TLanceIndexWorkerPhase.INDETERMINATE_AFTER_LAUNCH) {
+                // The well-formed worker-loss shape: no trusted result exists, by design.
+                return LanceIndexMutationOutcome.indeterminate(0,
+                        "the worker was lost or the worker protocol turned ambiguous after"
+                                + " the launch; no complete trusted result exists");
+            }
             return LanceIndexMutationOutcome.indeterminate(0,
                     "an OK status carried no typed lance result code (partial answer)");
         }
         int lanceResultCode = result.getLanceErrorCode();
+        if (workerPhase == TLanceIndexWorkerPhase.PRE_INVOCATION_REJECTED) {
+            if (lanceResultCode >= 0) {
+                return workerPhaseBandViolation(workerPhase,
+                        "a negative worker-defined rejection code", lanceResultCode);
+            }
+            return confirmedWorkerPreInvocationRejection(request, result, entry, lanceResultCode);
+        }
+        if (workerPhase == TLanceIndexWorkerPhase.INDETERMINATE_AFTER_LAUNCH) {
+            return workerPhaseBandViolation(workerPhase, "no code", lanceResultCode);
+        }
+        if (workerPhase == TLanceIndexWorkerPhase.NATIVE_RETURN && lanceResultCode < 0) {
+            return workerPhaseBandViolation(workerPhase,
+                    "a non-negative native lance code", lanceResultCode);
+        }
+        // NATIVE_RETURN, or the legacy phase-less answer whose set code is a native
+        // passthrough by definition: the historical four-channel semantics.
         if (lanceResultCode == LanceIndexMutationOutcome.LANCE_RESULT_OK) {
             entry.recordOutcome(LanceIndexMutationOutcome.success());
             return completeWithCommitRefresh(request);
@@ -605,6 +650,74 @@ public final class LanceIndexMutationExecutor {
         return LanceIndexMutationOutcome.indeterminate(lanceResultCode,
                 "typed lance result code " + lanceResultCode + " arrived after the mutating"
                         + " invocation began; it cannot prove the mutation did not commit");
+    }
+
+    /**
+     * The identity echo check (design v6 section 5.3): a complete answer may echo the
+     * dispatched invocation id and backend process epoch; when present, the echo must match
+     * what was sent, because a mismatched answer cannot be trusted to describe this
+     * invocation. Absent echoes (the answers of older backends) are not mismatches.
+     */
+    private static boolean identityEchoMismatches(TLanceIndexMutationRequest wireRequest,
+            TLanceIndexMutationResult result) {
+        if (result.isSetInvocationId()
+                && !wireRequest.getInvocationId().equals(result.getInvocationId())) {
+            return true;
+        }
+        return result.isSetBeProcessEpoch()
+                && wireRequest.getBeProcessEpoch() != result.getBeProcessEpoch();
+    }
+
+    /**
+     * A code outside its worker phase's band (a negative code on a native passthrough, a
+     * non-negative code on a pre-invocation rejection, any code on a worker loss) is a
+     * protocol ambiguity the FE refuses to interpret: indeterminate, never a guessed class.
+     */
+    private static LanceIndexMutationOutcome workerPhaseBandViolation(TLanceIndexWorkerPhase phase,
+            String expectedBand, int lanceResultCode) {
+        return LanceIndexMutationOutcome.indeterminate(lanceResultCode,
+                "worker-phase code band violation: " + phase + " must carry " + expectedBand
+                        + ", but the answer carried " + lanceResultCode
+                        + "; treating the answer as protocol ambiguity");
+    }
+
+    /**
+     * Completes a worker pre-invocation rejection: the complete trusted answer proves the
+     * worker refused before any mutating native call, so nothing committed - a confirmed
+     * failure with a message branch distinct from the backend-level non-OK refusal. When the
+     * same answer observed the dataset's latest version above the admitted one, the evidence
+     * owes the local caches a refresh (design v6 section 6.4) through the same refresher
+     * entry point as the no-op and commit-conflict branches: the trusted fact is recorded
+     * first, the refresh is best-effort, and its failure only attaches a diagnostic.
+     */
+    private static LanceIndexMutationOutcome confirmedWorkerPreInvocationRejection(
+            MutationRequest request, TLanceIndexMutationResult result, MutationEntry entry,
+            int lanceResultCode) {
+        String message = "the worker rejected the invocation before the mutating native call:"
+                + " typed worker rejection code " + lanceResultCode + resultMessage(result);
+        entry.recordOutcome(LanceIndexMutationOutcome.confirmedFailure(lanceResultCode, message));
+        String refreshFailure = refreshObservedAdvancement(request, result);
+        if (refreshFailure != null) {
+            message += "; the best-effort refresh of the externally advanced metadata"
+                    + " also failed: " + refreshFailure;
+        }
+        return LanceIndexMutationOutcome.confirmedFailure(lanceResultCode, message);
+    }
+
+    /**
+     * The evidence-driven refresh of design v6 section 6.4: only a pre-invocation rejection
+     * whose worker observed the dataset's latest version above the admitted one (request
+     * field 12) refreshes the local table caches - no forced additional reads without
+     * evidence. Called only on the {@link TLanceIndexWorkerPhase#PRE_INVOCATION_REJECTED}
+     * path; any other answer, or no advancement, returns without refreshing.
+     */
+    private static String refreshObservedAdvancement(MutationRequest request,
+            TLanceIndexMutationResult result) {
+        if (!result.isSetObservedLatestVersion()
+                || result.getObservedLatestVersion() <= request.admittedDatasetVersion) {
+            return null;
+        }
+        return request.refresher.invalidateTableMetadata(request.deadlineMs);
     }
 
     private static LanceIndexMutationOutcome indeterminateAfterDispatch(Exception e) {
@@ -744,6 +857,14 @@ public final class LanceIndexMutationExecutor {
         }
         // Diagnostics only; the outcome model bounds and sanitizes whatever lands here.
         return ", message: " + String.join("; ", status.getErrorMsgs());
+    }
+
+    private static String resultMessage(TLanceIndexMutationResult result) {
+        if (!result.isSetMessage() || result.getMessage().isEmpty()) {
+            return "";
+        }
+        // Diagnostics only, same discipline as backendMessages: never classification input.
+        return ", worker message: " + result.getMessage();
     }
 
     private static String boundedDescription(Throwable t) {

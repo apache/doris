@@ -31,6 +31,7 @@ import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TLanceIndexMutationRequest;
 import org.apache.doris.thrift.TLanceIndexMutationResult;
 import org.apache.doris.thrift.TLanceIndexMutationType;
+import org.apache.doris.thrift.TLanceIndexWorkerPhase;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 
@@ -260,6 +261,227 @@ public class LanceIndexMutationExecutorTest {
         Assertions.assertTrue(outcome.getMessage().contains("stopped before the send"),
                 outcome.getMessage());
         Assertions.assertTrue(outcome.getMessage().contains("nothing was sent"),
+                outcome.getMessage());
+    }
+
+    // ---------------------------------------------------------------- worker phase matrix
+
+    @Test
+    public void testWorkerPreInvocationRejectionIsConfirmedFailureWithDistinctMessage() throws Exception {
+        FakeDispatcher dispatcher = new FakeDispatcher(
+                request -> workerResult(TLanceIndexWorkerPhase.PRE_INVOCATION_REJECTED, -13));
+        LanceIndexMutationOutcome outcome = executeWithDirectExecutor(dispatcher, createRequest());
+        Assertions.assertEquals(LanceIndexMutationOutcome.Kind.CONFIRMED_FAILURE, outcome.getKind());
+        Assertions.assertEquals(-13, outcome.getLanceResultCode());
+        Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_MUTATION_REJECTED,
+                outcome.toUserException().getMysqlErrorCode());
+        // The message branch must name the worker's pre-invocation rejection - distinct from
+        // the backend-level non-OK refusal branch.
+        Assertions.assertTrue(outcome.getMessage().contains(
+                "the worker rejected the invocation before the mutating native call"),
+                outcome.getMessage());
+        Assertions.assertFalse(outcome.getMessage().contains("the backend refused"),
+                outcome.getMessage());
+    }
+
+    @Test
+    public void testWorkerPreInvocationRejectionWithZeroCodeIsBandViolation() throws Exception {
+        FakeDispatcher dispatcher = new FakeDispatcher(
+                request -> workerResult(TLanceIndexWorkerPhase.PRE_INVOCATION_REJECTED, 0));
+        LanceIndexMutationOutcome outcome = executeWithDirectExecutor(dispatcher, createRequest());
+        Assertions.assertEquals(LanceIndexMutationOutcome.Kind.INDETERMINATE, outcome.getKind());
+        Assertions.assertTrue(outcome.getMessage().contains("code band violation"),
+                outcome.getMessage());
+    }
+
+    @Test
+    public void testWorkerPreInvocationRejectionWithPositiveCodeIsBandViolation() throws Exception {
+        FakeDispatcher dispatcher = new FakeDispatcher(
+                request -> workerResult(TLanceIndexWorkerPhase.PRE_INVOCATION_REJECTED, 5));
+        LanceIndexMutationOutcome outcome = executeWithDirectExecutor(dispatcher, createRequest());
+        Assertions.assertEquals(LanceIndexMutationOutcome.Kind.INDETERMINATE, outcome.getKind());
+        Assertions.assertTrue(outcome.getMessage().contains("code band violation"),
+                outcome.getMessage());
+    }
+
+    @Test
+    public void testWorkerNativeReturnSuccessClassifiesSuccessWithMatchingEcho() throws Exception {
+        FakeDispatcher dispatcher = new FakeDispatcher(request -> {
+            TLanceIndexMutationResult result =
+                    workerResult(TLanceIndexWorkerPhase.NATIVE_RETURN, 0);
+            result.setInvocationId(request.getInvocationId());
+            result.setBeProcessEpoch(request.getBeProcessEpoch());
+            return result;
+        });
+        LanceIndexMutationOutcome outcome = executeWithDirectExecutor(dispatcher, createRequest());
+        Assertions.assertEquals(LanceIndexMutationOutcome.Kind.SUCCESS, outcome.getKind());
+        Assertions.assertEquals(0, outcome.getLanceResultCode());
+        Assertions.assertEquals(1, dispatcher.sends.get());
+    }
+
+    @Test
+    public void testWorkerNativeReturnCommitConflictIsConfirmedFailure() throws Exception {
+        FakeDispatcher dispatcher = new FakeDispatcher(
+                request -> workerResult(TLanceIndexWorkerPhase.NATIVE_RETURN,
+                        LanceIndexMutationExecutor.LANCE_ERR_COMMIT_CONFLICT));
+        LanceIndexMutationOutcome outcome = executeWithDirectExecutor(dispatcher, createRequest());
+        Assertions.assertEquals(LanceIndexMutationOutcome.Kind.CONFIRMED_FAILURE, outcome.getKind());
+        Assertions.assertEquals(LanceIndexMutationExecutor.LANCE_ERR_COMMIT_CONFLICT,
+                outcome.getLanceResultCode());
+        Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_MUTATION_REJECTED,
+                outcome.toUserException().getMysqlErrorCode());
+    }
+
+    @Test
+    public void testWorkerNativeReturnOtherCodeIsIndeterminate() throws Exception {
+        FakeDispatcher dispatcher = new FakeDispatcher(
+                request -> workerResult(TLanceIndexWorkerPhase.NATIVE_RETURN, 2));
+        LanceIndexMutationOutcome outcome = executeWithDirectExecutor(dispatcher, createRequest());
+        Assertions.assertEquals(LanceIndexMutationOutcome.Kind.INDETERMINATE, outcome.getKind());
+        Assertions.assertEquals(2, outcome.getLanceResultCode());
+        Assertions.assertTrue(outcome.getMessage().contains("cannot prove"), outcome.getMessage());
+    }
+
+    @Test
+    public void testWorkerNativeReturnNegativeCodeIsBandViolation() throws Exception {
+        FakeDispatcher dispatcher = new FakeDispatcher(
+                request -> workerResult(TLanceIndexWorkerPhase.NATIVE_RETURN, -3));
+        LanceIndexMutationOutcome outcome = executeWithDirectExecutor(dispatcher, createRequest());
+        Assertions.assertEquals(LanceIndexMutationOutcome.Kind.INDETERMINATE, outcome.getKind());
+        Assertions.assertTrue(outcome.getMessage().contains("code band violation"),
+                outcome.getMessage());
+    }
+
+    @Test
+    public void testWorkerIndeterminateAfterLaunchIsIndeterminate() throws Exception {
+        // The well-formed worker-loss shape: no typed code, and the phase says why.
+        FakeDispatcher dispatcher = new FakeDispatcher(
+                request -> workerResult(TLanceIndexWorkerPhase.INDETERMINATE_AFTER_LAUNCH, null));
+        LanceIndexMutationOutcome outcome = executeWithDirectExecutor(dispatcher, createRequest());
+        Assertions.assertEquals(LanceIndexMutationOutcome.Kind.INDETERMINATE, outcome.getKind());
+        Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_MUTATION_INDETERMINATE,
+                outcome.toUserException().getMysqlErrorCode());
+        Assertions.assertTrue(outcome.getMessage().contains("after the launch"),
+                outcome.getMessage());
+    }
+
+    @Test
+    public void testWorkerIndeterminateAfterLaunchWithCodeIsBandViolation() throws Exception {
+        FakeDispatcher dispatcher = new FakeDispatcher(
+                request -> workerResult(TLanceIndexWorkerPhase.INDETERMINATE_AFTER_LAUNCH, 4));
+        LanceIndexMutationOutcome outcome = executeWithDirectExecutor(dispatcher, createRequest());
+        Assertions.assertEquals(LanceIndexMutationOutcome.Kind.INDETERMINATE, outcome.getKind());
+        Assertions.assertTrue(outcome.getMessage().contains("code band violation"),
+                outcome.getMessage());
+    }
+
+    @Test
+    public void testMismatchedInvocationIdEchoIsIndeterminate() throws Exception {
+        FakeDispatcher dispatcher = new FakeDispatcher(request -> {
+            TLanceIndexMutationResult result =
+                    workerResult(TLanceIndexWorkerPhase.NATIVE_RETURN, 0);
+            result.setInvocationId("a-different-invocation-id");
+            return result;
+        });
+        LanceIndexMutationOutcome outcome = executeWithDirectExecutor(dispatcher, createRequest());
+        // An answer that echoes a foreign identity cannot prove anything about this
+        // invocation - not even its would-be success code.
+        Assertions.assertEquals(LanceIndexMutationOutcome.Kind.INDETERMINATE, outcome.getKind());
+        Assertions.assertTrue(outcome.getMessage().contains(
+                "echoed a different invocation identity"), outcome.getMessage());
+    }
+
+    @Test
+    public void testMismatchedProcessEpochEchoIsIndeterminate() throws Exception {
+        FakeDispatcher dispatcher = new FakeDispatcher(request -> {
+            TLanceIndexMutationResult result = workerResult(TLanceIndexWorkerPhase.NATIVE_RETURN,
+                    LanceIndexMutationExecutor.LANCE_ERR_COMMIT_CONFLICT);
+            result.setInvocationId(request.getInvocationId());
+            result.setBeProcessEpoch(BE_PROCESS_EPOCH + 1);
+            return result;
+        });
+        LanceIndexMutationOutcome outcome = executeWithDirectExecutor(dispatcher, createRequest());
+        // The envelope mismatch dominates the would-be trusted conflict code.
+        Assertions.assertEquals(LanceIndexMutationOutcome.Kind.INDETERMINATE, outcome.getKind());
+        Assertions.assertTrue(outcome.getMessage().contains(
+                "echoed a different invocation identity"), outcome.getMessage());
+    }
+
+    @Test
+    public void testAbsentIdentityEchoIsCompatible() throws Exception {
+        // A phased answer without the echo fields (an older worker build) is not a
+        // mismatch: the phase and code classify it.
+        FakeDispatcher dispatcher = new FakeDispatcher(
+                request -> workerResult(TLanceIndexWorkerPhase.NATIVE_RETURN, 0));
+        LanceIndexMutationOutcome outcome = executeWithDirectExecutor(dispatcher, createRequest());
+        Assertions.assertEquals(LanceIndexMutationOutcome.Kind.SUCCESS, outcome.getKind());
+    }
+
+    @Test
+    public void testAbsentWorkerPhaseKeepsLegacyCodeSemantics() throws Exception {
+        FakeDispatcher conflict = new FakeDispatcher(
+                request -> workerResult(null, LanceIndexMutationExecutor.LANCE_ERR_COMMIT_CONFLICT));
+        Assertions.assertEquals(LanceIndexMutationOutcome.Kind.CONFIRMED_FAILURE,
+                executeWithDirectExecutor(conflict, requestBuilder("legacy-conflict").build()).getKind());
+        FakeDispatcher other = new FakeDispatcher(request -> workerResult(null, 2));
+        Assertions.assertEquals(LanceIndexMutationOutcome.Kind.INDETERMINATE,
+                executeWithDirectExecutor(other, requestBuilder("legacy-other").build()).getKind());
+        FakeDispatcher success = new FakeDispatcher(request -> workerResult(null, 0));
+        Assertions.assertEquals(LanceIndexMutationOutcome.Kind.SUCCESS,
+                executeWithDirectExecutor(success, requestBuilder("legacy-success").build()).getKind());
+    }
+
+    @Test
+    public void testPreInvocationRejectionWithObservedAdvancementRefreshesLocalCaches() throws Exception {
+        AtomicInteger refreshes = new AtomicInteger();
+        FakeDispatcher dispatcher = new FakeDispatcher(
+                request -> workerResult(TLanceIndexWorkerPhase.PRE_INVOCATION_REJECTED, -13)
+                        .setObservedLatestVersion(DATASET_VERSION + 1));
+        LanceIndexMutationOutcome outcome = executeWithDirectExecutor(dispatcher, requestBuilder("idx")
+                .setRefresher(() -> {
+                    refreshes.incrementAndGet();
+                    return null;
+                }).build());
+        Assertions.assertEquals(LanceIndexMutationOutcome.Kind.CONFIRMED_FAILURE, outcome.getKind());
+        Assertions.assertEquals(1, refreshes.get());
+    }
+
+    @Test
+    public void testPreInvocationRejectionWithoutAdvancementEvidenceDoesNotRefresh() throws Exception {
+        AtomicInteger refreshes = new AtomicInteger();
+        LanceIndexMutationRefresher counting = () -> {
+            refreshes.incrementAndGet();
+            return null;
+        };
+        // An observation equal to the admitted version is no advancement.
+        FakeDispatcher equal = new FakeDispatcher(
+                request -> workerResult(TLanceIndexWorkerPhase.PRE_INVOCATION_REJECTED, -13)
+                        .setObservedLatestVersion(DATASET_VERSION));
+        Assertions.assertEquals(LanceIndexMutationOutcome.Kind.CONFIRMED_FAILURE,
+                executeWithDirectExecutor(equal,
+                        requestBuilder("observed-equal").setRefresher(counting).build()).getKind());
+        // No observation at all: no evidence, no forced refresh.
+        FakeDispatcher absent = new FakeDispatcher(
+                request -> workerResult(TLanceIndexWorkerPhase.PRE_INVOCATION_REJECTED, -13));
+        Assertions.assertEquals(LanceIndexMutationOutcome.Kind.CONFIRMED_FAILURE,
+                executeWithDirectExecutor(absent,
+                        requestBuilder("observed-absent").setRefresher(counting).build()).getKind());
+        Assertions.assertEquals(0, refreshes.get());
+    }
+
+    @Test
+    public void testPreInvocationRejectionRefreshFailureKeepsConfirmedFailure() throws Exception {
+        FakeDispatcher dispatcher = new FakeDispatcher(
+                request -> workerResult(TLanceIndexWorkerPhase.PRE_INVOCATION_REJECTED, -13)
+                        .setObservedLatestVersion(DATASET_VERSION + 5));
+        LanceIndexMutationOutcome outcome = executeWithDirectExecutor(dispatcher, requestBuilder("idx")
+                .setRefresher(() -> "cache manager unavailable").build());
+        // A trusted confirmed failure is never rewritten by a refresh failure: the failure
+        // only attaches a diagnostic.
+        Assertions.assertEquals(LanceIndexMutationOutcome.Kind.CONFIRMED_FAILURE, outcome.getKind());
+        Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_MUTATION_REJECTED,
+                outcome.toUserException().getMysqlErrorCode());
+        Assertions.assertTrue(outcome.getMessage().contains("best-effort refresh"),
                 outcome.getMessage());
     }
 
@@ -842,6 +1064,21 @@ public class LanceIndexMutationExecutorTest {
         TLanceIndexMutationResult result = new TLanceIndexMutationResult();
         result.setStatus(new TStatus(TStatusCode.OK));
         result.setLanceErrorCode(lanceResultCode);
+        result.setMessage("worker diagnostic");
+        return result;
+    }
+
+    /** The worker answer form: an OK envelope with an optional phase and typed code. */
+    private static TLanceIndexMutationResult workerResult(TLanceIndexWorkerPhase workerPhase,
+            Integer lanceResultCode) {
+        TLanceIndexMutationResult result = new TLanceIndexMutationResult();
+        result.setStatus(new TStatus(TStatusCode.OK));
+        if (lanceResultCode != null) {
+            result.setLanceErrorCode(lanceResultCode);
+        }
+        if (workerPhase != null) {
+            result.setWorkerPhase(workerPhase);
+        }
         result.setMessage("worker diagnostic");
         return result;
     }
