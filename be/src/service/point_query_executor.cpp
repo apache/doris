@@ -18,9 +18,11 @@
 #include "service/point_query_executor.h"
 
 #include <fmt/format.h>
+#include <gen_cpp/Descriptors_constants.h>
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <glog/logging.h>
 #include <google/protobuf/extension_set.h>
@@ -137,25 +139,89 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
     _runtime_state->set_query_options(query_options);
     RETURN_IF_ERROR(DescriptorTbl::create(_runtime_state->obj_pool(), t_desc_tbl, &_desc_tbl));
     _runtime_state->set_desc_tbl(_desc_tbl);
+    // IDataType normalizes CHAR/VARCHAR/STRING to String. Keep the wire type for metadata
+    // validation: OFFSET is not a valid length-only request for padded CHAR columns.
+    std::unordered_map<SlotId, TPrimitiveType::type> scalar_types;
+    for (const auto& slot : t_desc_tbl.slotDescriptors) {
+        const bool has_paths =
+                (slot.__isset.all_access_paths && !slot.all_access_paths.empty()) ||
+                (slot.__isset.predicate_access_paths && !slot.predicate_access_paths.empty());
+        if (has_paths && slot.slotType.types.size() == 1 &&
+            slot.slotType.types[0].type == TTypeNodeType::SCALAR) {
+            scalar_types.emplace(slot.id, slot.slotType.types[0].scalar_type.type);
+        }
+    }
     for (const auto* slot : tuple_desc()->slots()) {
         const auto& all_paths = slot->all_access_paths();
         const auto& predicate_paths = slot->predicate_access_paths();
         if (all_paths.empty() && predicate_paths.empty()) {
             continue;
         }
-        auto is_whole_column_path = [&](const TColumnAccessPath& path) {
-            return path.type == TAccessPathType::DATA && path.__isset.data_access_path &&
-                   path.data_access_path.path.size() == 1 &&
-                   iequal(path.data_access_path.path[0], slot->col_name());
+        auto is_supported_path = [&](const TColumnAccessPath& path) {
+            const bool legacy =
+                    !path.__isset.version ||
+                    path.version == g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_LEGACY;
+            if (!legacy &&
+                path.version != g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_TYPED) {
+                return false;
+            }
+            const std::vector<std::string>* components = nullptr;
+            if (path.type == TAccessPathType::DATA && path.__isset.data_access_path) {
+                components = &path.data_access_path.path;
+            } else if (!legacy && path.type == TAccessPathType::META &&
+                       path.__isset.meta_access_path) {
+                components = &path.meta_access_path.path;
+            }
+            return components && !components->empty() &&
+                   iequal(components->front(), slot->col_name());
         };
-        const bool whole_column_only = std::ranges::all_of(all_paths, is_whole_column_path) &&
-                                       std::ranges::all_of(predicate_paths, is_whole_column_path);
-        int column_idx = schema.field_index(slot->col_unique_id());
-        if (column_idx < 0) {
-            column_idx = schema.field_index(slot->col_name());
+        auto supports_missing_column_default = [&](const TColumnAccessPath& path) {
+            if (!is_supported_path(path)) {
+                return false;
+            }
+            if (path.type == TAccessPathType::DATA && path.data_access_path.path.size() == 1) {
+                return true;
+            }
+            const bool legacy =
+                    !path.__isset.version ||
+                    path.version == g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_LEGACY;
+            // Legacy senders encode metadata as DATA; typed senders use META. Typed DATA
+            // suffixes are not metadata, even when they happen to be named NULL or OFFSET.
+            if (!(legacy && path.type == TAccessPathType::DATA) &&
+                !(!legacy && path.type == TAccessPathType::META)) {
+                return false;
+            }
+            const auto& components =
+                    legacy ? path.data_access_path.path : path.meta_access_path.path;
+            if (components.size() != 2) {
+                return false;
+            }
+            const auto it = scalar_types.find(slot->id());
+            if (it == scalar_types.end()) {
+                return false;
+            }
+            const auto type = it->second;
+            return (components.back() == "OFFSET" &&
+                    (type == TPrimitiveType::STRING || type == TPrimitiveType::VARCHAR)) ||
+                   (components.back() == "NULL" && slot->is_nullable() &&
+                    type != TPrimitiveType::VARIANT && type != TPrimitiveType::AGG_STATE);
+        };
+        const bool supports_default =
+                std::ranges::all_of(all_paths, supports_missing_column_default) &&
+                std::ranges::all_of(predicate_paths, supports_missing_column_default);
+        const int column_idx = slot->col_unique_id() >= 0
+                                       ? schema.field_index(slot->col_unique_id())
+                                       : schema.field_index(slot->col_name());
+        if (supports_default && column_idx < 0) {
+            // FE may add a column before the BE tablet schema is refreshed. Preserve the existing
+            // decoder fallback for whole columns and scalar metadata. Do not fill a default here:
+            // only the actual row-store payload can tell whether the requested UID is absent.
+            continue;
         }
+        const bool supported_paths = std::ranges::all_of(all_paths, is_supported_path) &&
+                                     std::ranges::all_of(predicate_paths, is_supported_path);
         bool full_type = false;
-        if (whole_column_only && column_idx >= 0) {
+        if (supported_paths && column_idx >= 0) {
             auto slot_type = slot->get_data_type_ptr();
             auto stored_type = DataTypeFactory::instance().create_data_type(
                     schema.column(column_idx), slot->is_nullable());
@@ -163,11 +229,12 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
             full_type = slot_type && stored_type && slot_type->equals(*stored_type) &&
                         slot_type->get_name() == stored_type->get_name();
         }
-        // Older FEs may attach a harmless root path, but a pruned STRUCT layout cannot decode
-        // the full row-store payload. Require both a root-only path and the full stored type.
-        if (!whole_column_only || !full_type) {
+        // Row-store decoding ignores access paths, so older FE DATA/META paths are safe with a
+        // full descriptor type. Pruned or reordered STRUCT layouts cannot decode the full payload.
+        if (!supported_paths || !full_type) {
             return Status::InternalError(
-                    "Short-circuit point query does not support nested column access paths, "
+                    "Short-circuit point query requires full column types and valid column access "
+                    "paths, "
                     "slot: {}. Please upgrade FE to disable nested column pruning for "
                     "short-circuit point queries.",
                     slot->col_name());
