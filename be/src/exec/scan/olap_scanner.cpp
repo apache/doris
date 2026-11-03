@@ -730,10 +730,9 @@ Status OlapScanner::_init_changelog_read_mappings(const TOlapScanNode& scan_node
         return Status::InvalidArgument("Changelog scan requires TSO and OP columns");
     }
     if (scan_type == TChangelogScanType::MIN_DELTA) {
-        std::unordered_set<ColumnId> paired;
-        for (const auto& [current, before] : pairs) {
-            paired.insert(current);
-            paired.insert(before);
+        // ReadSchema already computed pair coverage for the scan tuple.
+        if (!read_schema.changelog_value_pairs_complete()) {
+            return Status::InvalidArgument("MIN_DELTA requires complete current and before values");
         }
         for (ColumnId cid = 0; cid < tablet_schema.num_columns(); ++cid) {
             if (static_cast<int32_t>(cid) == tablet_schema.changelog_tso_col_idx() ||
@@ -745,12 +744,11 @@ Status OlapScanner::_init_changelog_read_mappings(const TOlapScanNode& scan_node
             const int32_t ordinal = read_schema.ordinal_by_uid(column.unique_id());
             // Even an unprojected value may change: comparing only v1 would incorrectly
             // suppress an UPDATE that changed v2. Require the entire original value shape.
+            const auto storage_type = remove_nullable(column.get_vec_type());
             if (ordinal < 0 || static_cast<size_t>(ordinal) >= read_schema.num_block_columns() ||
-                (!column.is_key() && !paired.contains(cast_set<ColumnId>(ordinal))) ||
-                !remove_nullable(read_schema.data_type(ordinal))
-                         ->equals(*remove_nullable(column.get_vec_type())) ||
+                !remove_nullable(read_schema.data_type(ordinal))->equals(*storage_type) ||
                 remove_nullable(read_schema.data_type(ordinal))->get_name() !=
-                        remove_nullable(column.get_vec_type())->get_name()) {
+                        storage_type->get_name()) {
                 return Status::InvalidArgument(
                         "MIN_DELTA requires complete current and before values: column uid {}",
                         column.unique_id());
