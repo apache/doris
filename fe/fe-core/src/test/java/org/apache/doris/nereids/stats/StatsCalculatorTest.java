@@ -295,6 +295,21 @@ public class StatsCalculatorTest {
                 .build();
     }
 
+    @Test
+    public void testSampledAllNullTableStatsBecomeUnknownBeforePartitionScaling() {
+        ColumnStatistic sampled = new ColumnStatisticBuilder(12).setNdv(0).setNumNulls(12)
+                .setMinExpr(new IntLiteral(1)).setMaxExpr(new IntLiteral(10)).build();
+        // Cover both the direct table read and fallback when partition statistics are absent.
+        for (boolean enablePartitionStats : new boolean[] {false, true}) {
+            try (MockPartitionPrunedScan fixture = mockPartitionPrunedScan(
+                    enablePartitionStats, sampled, PartitionColumnStatistic.UNKNOWN)) {
+                Statistics statistics = fixture.computeOlapScan();
+                Assertions.assertEquals(4, statistics.getRowCount());
+                Assertions.assertTrue(statistics.findColumnStatistics(fixture.slot).isUnKnown);
+            }
+        }
+    }
+
     private static Hll128 newHll128(long value) {
         Hll128 hll128 = new Hll128();
         hll128.update(value);

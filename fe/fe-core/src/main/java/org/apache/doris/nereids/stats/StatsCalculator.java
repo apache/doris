@@ -493,7 +493,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         OlapTableStatistics olapTableStats = Env.getCurrentEnv().getStatisticsCache().getOlapTableStats(olapScan);
         for (Slot slot : ((Plan) olapScan).getOutput()) {
             if (isVisibleSlotReference(slot)) {
-                ColumnStatistic cache = olapTableStats.getColumnStatistics(slot.getName(), connectContext);
+                ColumnStatistic cache = getTableColumnStatistic(olapTableStats, slot.getName());
                 if (!cache.isUnKnown) {
                     if ((cache.ndv == 0 && (cache.minExpr != null || cache.maxExpr != null))
                             || cache.ndv > rowCount * 10) {
@@ -607,10 +607,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     scaleNumNulls = cache == null;
                     if (scaleNumNulls) {
                         // partition level statistics are unavailable, fall back to table level statistics
-                        cache = olapTableStats.getColumnStatistics(slot.getName(), connectContext);
+                        cache = getTableColumnStatistic(olapTableStats, slot.getName());
                     }
                 } else {
-                    cache = olapTableStats.getColumnStatistics(slot.getName(), connectContext);
+                    cache = getTableColumnStatistic(olapTableStats, slot.getName());
                     scaleNumNulls = true;
                 }
                 if (slot.getOriginalColumn().isPresent()) {
@@ -630,7 +630,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         } else {
             // get table level stats
             for (SlotReference slot : visibleOutputSlots) {
-                ColumnStatistic cache = olapTableStats.getColumnStatistics(slot.getName(), connectContext);
+                ColumnStatistic cache = getTableColumnStatistic(olapTableStats, slot.getName());
                 ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache, tableRowCount);
                 colStatsBuilder.normalizeAvgSizeByte(slot.getDataType());
                 builder.putColumnStatistics(slot, colStatsBuilder.build());
@@ -1217,6 +1217,17 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
         ColumnStatistic columnStatistics = Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
                 catalogId, dbId, table.getId(), idxId, colName, connectContext);
+        return normalizeColumnStatistic(columnStatistics);
+    }
+
+    private ColumnStatistic getTableColumnStatistic(OlapTableStatistics tableStatistics, String colName) {
+        return normalizeColumnStatistic(tableStatistics.getColumnStatistics(colName, connectContext));
+    }
+
+    private static ColumnStatistic normalizeColumnStatistic(ColumnStatistic columnStatistics) {
+        // Sampling can see only NULLs while the separately collected MIN/MAX are non-null.
+        // Keep the raw statistics for diagnostics, but do not use this contradictory tuple
+        // for estimation or let an unused column disable join reordering for the whole query.
         if (!columnStatistics.isUnKnown
                 && columnStatistics.ndv == 0
                 && (columnStatistics.minExpr != null || columnStatistics.maxExpr != null)
