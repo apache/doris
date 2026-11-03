@@ -947,6 +947,10 @@ RowsetSharedPtr BaseBetaRowsetWriter::manual_build(const RowsetMetaSharedPtr& sp
 }
 
 Status BaseBetaRowsetWriter::_close_file_writers() {
+    // Index compaction runs after every segment is flushed, so its index files are still open.
+    if (_context.has_index_compaction()) {
+        RETURN_IF_ERROR(_close_inverted_index_file_writers());
+    }
     // Flush and close segment files
     RETURN_NOT_OK_STATUS_WITH_WARN(_segment_creator.close(),
                                    "failed to close segment creator when build new rowset");
