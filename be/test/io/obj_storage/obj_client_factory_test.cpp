@@ -172,8 +172,8 @@ TEST_F(ObjClientFactoryTest, ResolvesAzureParamIntoAzureBackend) {
     EXPECT_EQ(config.provider(), ObjStorageProvider::AZURE);
 }
 
-TEST_F(ObjClientFactoryTest, AzureAuthRulesAreSharedWithRecycler) {
-    // BE and Recycler both check, hash and name an AzureAuthConfig with these common functions.
+TEST_F(ObjClientFactoryTest, AzureAuthRulesLiveInCommon) {
+    // The config layer checks, hashes and names an AzureAuthConfig with these common functions.
     const AzureAuthConfig with_key = AzureSharedKeyConfig {.account_key = "key-a"};
     const AzureAuthConfig without_key = AzureSharedKeyConfig {.account_key = ""};
     EXPECT_FALSE(validate_azure_auth("account", with_key).has_value());

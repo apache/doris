@@ -139,7 +139,7 @@ Status validate_client_backend(const S3ClientConfig& s3) {
 }
 
 // Azure has no region, which the flat configuration used to require with a placeholder value
-// ("dummy_region" from FE). The authentication follows the rules it shares with Recycler.
+// ("dummy_region" from FE). The authentication follows the common rules (azure_auth.h).
 Status validate_client_backend(const AzureClientConfig& azure) {
     if (azure.endpoint.empty()) {
         return Status::InvalidArgument<false>("Invalid azure conf, empty endpoint");
