@@ -29,6 +29,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -148,8 +149,12 @@ public class ExecuteCommand extends Command {
         LogicalPlanAdapter planAdapter = new LogicalPlanAdapter(logicalPlan, statementContext);
         executor.setStatementContext(statementContext);
         executor.setParsedStmt(planAdapter);
+        // These fast paths serialize literals without expression evaluation. Non-UTF-8 string
+        // parameters contain a binary-to-string Cast that must be evaluated by the normal plan.
+        boolean hasLiteralBindings = statementContext.getIdToPlaceholderRealExpr().values().stream()
+                .allMatch(Literal.class::isInstance);
         boolean hasShortCircuitContext = preparedStmtCtx.shortCircuitQueryContext.isPresent();
-        boolean shortCircuitContextReusable = hasShortCircuitContext
+        boolean shortCircuitContextReusable = hasLiteralBindings && hasShortCircuitContext
                 && preparedStmtCtx.shortCircuitQueryContext.get().isReusable(ctx);
         // Reuse the cached short-circuit plan only when table metadata is unchanged and the statement
         // has no nondeterministic functions. Otherwise fall back to the normal execution path below.
@@ -165,7 +170,7 @@ public class ExecuteCommand extends Command {
             PointQueryExecutor.directExecuteShortCircuitQuery(executor, preparedStmtCtx, statementContext);
             return;
         }
-        if (ctx.getSessionVariable().enableGroupCommitFullPrepare) {
+        if (hasLiteralBindings && ctx.getSessionVariable().enableGroupCommitFullPrepare) {
             if (preparedStmtCtx.groupCommitPlanner.isPresent()) {
                 OlapGroupCommitInsertExecutor.fastAnalyzeGroupCommit(ctx, prepareCommand);
             } else {
@@ -180,6 +185,8 @@ public class ExecuteCommand extends Command {
         if (statementContext.isShortCircuitQuery() && hasShortCircuitContext && !shortCircuitContextReusable) {
             statementContext = refreshPreparedPlan(preparedStmtCtx, executor, prepareCommand, statementContext);
         } else {
+            // A failed execution can leave the flag set without publishing a cached context.
+            statementContext.setShortCircuitQuery(false);
             statementContext.setShortCircuitQueryContext(null);
         }
         // Drop the previously cached short-circuit context: either it was reusable and returned
