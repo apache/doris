@@ -298,6 +298,10 @@ public class PaimonScanNode extends FileQueryScanNode {
         node.source = new PaimonSource(desc, externalTable, boundTable);
         node.tvfSearchRequest = request.deepCopy();
         node.tvfPrefilter = new ArrayList<>(prefilter);
+        // Explicit prefilters remain scan dependencies even if the optimizer eliminates
+        // their outer Filter (e.g. id IS NOT NULL on a non-nullable column). Scan conjuncts
+        // keep these slots in the tuple when a parent Project materializes only _distance.
+        node.conjuncts.addAll(prefilter);
         node.tvfEmptySnapshot = emptySnapshot;
         TVectorSearchParams vector = request.getSearchQuery().getVectorSearch();
         ByteBuffer bytes = ByteBuffer.wrap(vector.getQueryVector().getValues()).order(ByteOrder.LITTLE_ENDIAN);

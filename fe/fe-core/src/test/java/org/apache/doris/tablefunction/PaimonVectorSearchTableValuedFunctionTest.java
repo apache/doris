@@ -32,18 +32,31 @@ import org.apache.doris.datasource.paimon.PaimonSnapshotCacheValue;
 import org.apache.doris.datasource.paimon.source.PaimonScanNode;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.processor.post.materialize.MaterializeProbeVisitor;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
+import org.apache.doris.nereids.rules.rewrite.EliminateNotNull;
 import org.apache.doris.nereids.trees.expressions.Properties;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.table.VectorSearch;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TExpr;
+import org.apache.doris.thrift.TExprNodeType;
+import org.apache.doris.thrift.TExprOpcode;
 import org.apache.doris.thrift.TExternalSearchRequest;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TVectorMetric;
@@ -78,6 +91,10 @@ public class PaimonVectorSearchTableValuedFunctionTest {
         private final PaimonExternalTable external = Mockito.mock(PaimonExternalTable.class);
 
         private Fixture(String metric) throws Exception {
+            this(metric, true);
+        }
+
+        private Fixture(String metric, boolean nullableId) throws Exception {
             MemoTestUtils.createConnectContext();
             Env realEnv = Env.getCurrentEnv();
             Env env = Mockito.mock(Env.class, Mockito.RETURNS_DEEP_STUBS);
@@ -96,14 +113,15 @@ public class PaimonVectorSearchTableValuedFunctionTest {
             Mockito.when(catalog.getName()).thenReturn("paimon_catalog");
             Mockito.when(database.getFullName()).thenReturn("db");
             Mockito.when(external.getName()).thenReturn("items");
-            Mockito.when(external.getPaimonTable(Mockito.<Optional<org.apache.doris.datasource.mvcc.MvccSnapshot>>any()))
+            Mockito.when(external.getPaimonTable(
+                    Mockito.<Optional<org.apache.doris.datasource.mvcc.MvccSnapshot>>any()))
                     .thenReturn(table);
             Map<String, String> options = new HashMap<>(ImmutableMap.of("pk-vector.index.columns", "embedding",
                     "fields.embedding.pk-vector.distance.metric", metric,
                     "fields.embedding.pk-vector.index.type", "ivf-rq"));
             options.put("deletion-vectors.enabled", "true");
             options.put("deletion-vectors.merge-on-read", "false");
-            List<DataField> fields = Arrays.asList(new DataField(0, "id", new IntType()),
+            List<DataField> fields = Arrays.asList(new DataField(0, "id", new IntType(nullableId)),
                     new DataField(1, "embedding", new VectorType(2, new FloatType())));
             Mockito.when(table.rowType()).thenReturn(new RowType(fields));
             Mockito.when(table.options()).thenReturn(options);
@@ -117,6 +135,7 @@ public class PaimonVectorSearchTableValuedFunctionTest {
                             new PaimonSnapshot(7L, 1L, table))));
             lookup = Mockito.mockStatic(Env.class);
             lookup.when(Env::getCurrentEnv).thenReturn(env);
+            lookup.when(Env::getCurrentSystemInfo).thenReturn(realEnv.getClusterInfo());
         }
 
         private PaimonVectorSearchTableValuedFunction function(Map<String, String> overrides) {
@@ -209,6 +228,138 @@ public class PaimonVectorSearchTableValuedFunctionTest {
     }
 
     @Test
+    public void testExplicitPrefilterNormalizesComparisons() throws Exception {
+        try (Fixture fixture = new Fixture("l2")) {
+            Map<String, TExprOpcode> comparisons = ImmutableMap.of(
+                    "id <=> 7", TExprOpcode.EQ,
+                    "7 <=> id", TExprOpcode.EQ,
+                    "7 < id", TExprOpcode.GT,
+                    "7 >= id", TExprOpcode.LE);
+            for (Map.Entry<String, TExprOpcode> comparison : comparisons.entrySet()) {
+                LogicalTVFRelation relation = analyzeSearch(comparison.getKey());
+                PaimonVectorSearchTableValuedFunction function =
+                        (PaimonVectorSearchTableValuedFunction) relation.getFunction().getCatalogFunction();
+                TExpr predicate = searchRequest(createScanNode(function))
+                        .getPaimonOptions().getPrefilter().get(0);
+                Assertions.assertEquals(comparison.getValue(), predicate.getNodes().get(0).getOpcode(),
+                        comparison.getKey());
+                Assertions.assertEquals(TExprNodeType.SLOT_REF, predicate.getNodes().get(1).getNodeType(),
+                        comparison.getKey());
+            }
+        }
+    }
+
+    @Test
+    public void testExplicitPrefilterNormalizesNullLiteral() throws Exception {
+        try (Fixture fixture = new Fixture("l2")) {
+            for (String filter : Arrays.asList("id <=> null", "null <=> id")) {
+                LogicalTVFRelation relation = analyzeSearch(filter);
+                PaimonVectorSearchTableValuedFunction function =
+                        (PaimonVectorSearchTableValuedFunction) relation.getFunction().getCatalogFunction();
+                TExpr predicate = searchRequest(createScanNode(function))
+                        .getPaimonOptions().getPrefilter().get(0);
+                Assertions.assertEquals("is_null_pred",
+                        predicate.getNodes().get(0).getFn().getName().getFunctionName());
+                Assertions.assertEquals(TExprNodeType.SLOT_REF, predicate.getNodes().get(1).getNodeType());
+            }
+        }
+    }
+
+    @Test
+    public void testPrefilterSlotSurvivesEliminatedFilterAndScanProjection() throws Exception {
+        try (Fixture fixture = new Fixture("l2", false)) {
+            CascadesContext cascades = analyzeSearchPlan("id IS NOT NULL");
+            // Eliminate the tautology, as the real rewrite pipeline does. The remaining
+            // distance-only projection cannot discover the private prefilter's id slot.
+            PlanChecker.from(cascades).applyTopDown(new EliminateNotNull()).customRewrite(new ColumnPruning());
+            Assertions.assertFalse(cascades.getRewritePlan().containsType(LogicalFilter.class));
+            LogicalProject<?> scanProjection = cascades.getRewritePlan().<LogicalProject<?>>collectToList(
+                    plan -> plan instanceof LogicalProject && plan.child(0) instanceof LogicalTVFRelation).get(0);
+            Assertions.assertEquals(Collections.singletonList("_distance"), scanProjection.getOutput().stream()
+                    .map(Slot::getName).collect(java.util.stream.Collectors.toList()));
+            LogicalTVFRelation relation = cascades.getRewritePlan().<LogicalTVFRelation>collectToList(
+                    LogicalTVFRelation.class::isInstance).get(0);
+            PlanTranslatorContext translation = new PlanTranslatorContext();
+            PaimonScanNode scan = translateDistanceProjection(relation, translation);
+            Assertions.assertEquals(Arrays.asList("id", "_distance"), scan.getTupleDesc().getSlots().stream()
+                    .map(slot -> slot.getColumn().getName()).collect(java.util.stream.Collectors.toList()));
+            TExpr prefilter = searchRequest(scan).getPaimonOptions().getPrefilter().get(0);
+            int slotId = prefilter.getNodes().stream().filter(node -> node.getNodeType() == TExprNodeType.SLOT_REF)
+                    .findFirst().get().getSlotRef().getSlotId();
+            Assertions.assertTrue(translation.getDescTable().toThrift().getSlotDescriptors().stream()
+                    .anyMatch(slot -> slot.getId() == slotId), "BE prefilter must reference a transmitted descriptor");
+        }
+    }
+
+    @Test
+    public void testPostfilterDoesNotRetainHiddenScanDependencies() throws Exception {
+        try (Fixture fixture = new Fixture("l2", false)) {
+            CascadesContext cascades = analyzeSearchPlan("id IS NOT NULL", false);
+            PlanChecker.from(cascades).applyTopDown(new EliminateNotNull()).customRewrite(new ColumnPruning());
+            Assertions.assertFalse(cascades.getRewritePlan().containsType(LogicalFilter.class));
+            LogicalTVFRelation relation = cascades.getRewritePlan().<LogicalTVFRelation>collectToList(
+                    LogicalTVFRelation.class::isInstance).get(0);
+            PaimonScanNode scan = translateDistanceProjection(relation, new PlanTranslatorContext());
+            Assertions.assertEquals(Collections.singletonList("_distance"), scan.getTupleDesc().getSlots().stream()
+                    .map(slot -> slot.getColumn().getName()).collect(java.util.stream.Collectors.toList()));
+            Assertions.assertFalse(searchRequest(scan).getPaimonOptions().isSetPrefilter());
+        }
+    }
+
+    private static LogicalTVFRelation analyzeSearch(String filter) {
+        return analyzeSearchPlan(filter).getRewritePlan().<LogicalTVFRelation>collectToList(
+                LogicalTVFRelation.class::isInstance).get(0);
+    }
+
+    private static CascadesContext analyzeSearchPlan(String filter) {
+        return analyzeSearchPlan(filter, true);
+    }
+
+    private static CascadesContext analyzeSearchPlan(String filter, boolean prefilter) {
+        LogicalPlan plan = new NereidsParser().parseSingle(
+                "select _distance from vector_search('table'='paimon_catalog.db.items',"
+                        + "'column'='embedding','query_vector'='[1,2]','top_k'='1',"
+                        + "'filter'='" + filter + "','prefilter'='" + prefilter + "')");
+        CascadesContext cascades = CascadesContext.initContext(
+                MemoTestUtils.createStatementContext(ConnectContext.get(), ""), plan, PhysicalProperties.ANY);
+        cascades.newAnalyzer().analyze();
+        return cascades;
+    }
+
+    private static PaimonScanNode translateDistanceProjection(LogicalTVFRelation relation,
+            PlanTranslatorContext translation) throws Exception {
+        PaimonVectorSearchTableValuedFunction function =
+                (PaimonVectorSearchTableValuedFunction) relation.getFunction().getCatalogFunction();
+        PaimonVectorSearchTableValuedFunction provider = Mockito.spy(function);
+        Mockito.doAnswer(call -> {
+            PaimonScanNode node = Mockito.spy((PaimonScanNode) function.getScanNode(
+                    call.getArgument(0), call.getArgument(1), call.getArgument(2)));
+            // Exercise real descriptor creation and projection pruning without external storage IO.
+            Mockito.doNothing().when(node).init();
+            return node;
+        }).when(provider).getScanNode(Mockito.any(), Mockito.any(), Mockito.any());
+        VectorSearch expression = Mockito.mock(VectorSearch.class);
+        Mockito.when(expression.getCatalogFunction()).thenReturn(provider);
+        Mockito.when(expression.getTable()).thenReturn(function.getTable());
+        Mockito.when(expression.getName()).thenReturn(VectorSearchTableValuedFunction.NAME);
+        PhysicalTVFRelation physical = new PhysicalTVFRelation(relation.getRelationId(), expression,
+                Collections.emptyList(), relation.getLogicalProperties());
+        Slot distance = relation.getOutput().stream().filter(slot -> slot.getName().equals("_distance"))
+                .findFirst().get();
+        PhysicalProject<PhysicalTVFRelation> project = new PhysicalProject<>(
+                Collections.singletonList(distance), null, physical);
+        PlanFragment fragment = project.accept(new PhysicalPlanTranslator(translation), translation);
+        return Assertions.assertInstanceOf(PaimonScanNode.class, fragment.getPlanRoot());
+    }
+
+    private static TExternalSearchRequest searchRequest(PaimonScanNode node) {
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        Deencapsulation.setField(node, "params", params);
+        Deencapsulation.invoke(node, "setExternalSearchRequest");
+        return params.getExternalSearchRequest();
+    }
+
+    @Test
     public void testPaimonDoesNotUseLanceRowIdMaterialization() throws Exception {
         try (Fixture fixture = new Fixture("l2")) {
             PaimonVectorSearchTableValuedFunction function = fixture.function(Collections.emptyMap());
@@ -258,7 +409,8 @@ public class PaimonVectorSearchTableValuedFunctionTest {
             Deencapsulation.setField(node, "params", params);
             Deencapsulation.invoke(node, "setExternalSearchRequest");
             Assertions.assertEquals(5, params.getExternalSearchRequest().getSearchQuery().getVectorSearch().getTopK());
-            Assertions.assertEquals(0, params.getExternalSearchRequest().getSearchQuery().getVectorSearch().getOffset());
+            Assertions.assertEquals(0,
+                    params.getExternalSearchRequest().getSearchQuery().getVectorSearch().getOffset());
             Assertions.assertEquals(3, function.getTopK());
             Assertions.assertEquals(2, function.getOffset());
         }

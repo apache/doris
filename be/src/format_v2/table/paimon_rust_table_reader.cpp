@@ -376,10 +376,19 @@ Status PaimonRustTableReader::_validate_rust_split(const TFileRangeDesc& range) 
     // point the reader at the wrong field when the real gap is the vector payload.
     if (params.__isset.vector_payload ||
         (params.__isset.paimon_split && params.paimon_split.empty())) {
-        if (!params.__isset.vector_payload || params.vector_payload.bytes.empty()) {
+        if (!params.__isset.vector_payload) {
             return Status::InternalError(
                     "missing vector_payload for paimon rust vector reader, possibly caused by "
                     "FE/BE protocol mismatch");
+        }
+        // Optional wire fields must be checked here: a missing payload_type would
+        // otherwise default to BUCKET_SPLIT_BYTES and accept an incomplete request.
+        const auto& payload = params.vector_payload;
+        if (!payload.__isset.payload_type) {
+            return Status::InternalError("paimon-rust vector payload missing payload_type");
+        }
+        if (!payload.__isset.bytes || payload.bytes.empty()) {
+            return Status::InternalError("paimon-rust vector payload missing or empty bytes");
         }
     } else if (!params.__isset.paimon_split || params.paimon_split.empty()) {
         return Status::InternalError(

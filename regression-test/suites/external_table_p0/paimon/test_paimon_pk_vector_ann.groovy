@@ -222,6 +222,27 @@ suite("test_paimon_pk_vector_ann", "p0,external") {
                 ", 'filter'='tag < 3', 'prefilter'='true'")} order by _distance, id""")).sort()
         assertEquals(bruteFiltered, tvfFiltered, "TVF prefilter must restrict candidate generation")
 
+        // Captured prefilters must use the same comparison normalization as ordinary SQL.
+        // Six neighbors keep both rows of each equal-distance pair when id=7 is excluded.
+        ["id <=> 7", "7 <=> id", "7 < id", "7 >= id"].each { String predicate ->
+            sql "set enable_paimon_rust_reader=0"
+            def expected = idsOf(sql("""select id from ann_l2 where ${predicate}
+                    order by l2_distance(embedding, ${probe}) limit 6""")).sort()
+            sql "set enable_paimon_rust_reader=1"
+            def actual = idsOf(sql("""select id from ${tvf("ann_l2", "l2", 6,
+                    ", 'filter'='${predicate}', 'prefilter'='true'")} order by _distance, id""")).sort()
+            assertEquals(expected, actual, "TVF prefilter must preserve ${predicate}")
+        }
+
+        // id is a non-nullable PK. Eliminating this tautology must not leave a
+        // prefilter referencing a descriptor removed by the distance-only projection.
+        def prefilterWithId = sql("""select id, _distance from ${tvf("ann_l2_single", "l2", 1,
+                ", 'filter'='id IS NOT NULL', 'prefilter'='true'")} order by _distance, id""")
+        def prefilterDistanceOnly = sql("""select _distance from ${tvf("ann_l2_single", "l2", 1,
+                ", 'filter'='id IS NOT NULL', 'prefilter'='true'")} order by _distance""")
+        assertEquals(prefilterWithId.collect { it[1] }, prefilterDistanceOnly.collect { it[0] },
+                "prefilter columns must survive scan projection")
+
         // A single bucket makes refill observable: its only candidate is the probe row.
         // Moving an outer WHERE into ANN would incorrectly replace that row with another neighbor.
         def postfiltered = sql("""select id from ${tvf("ann_l2_single", "l2", 1, "")}

@@ -1982,7 +1982,7 @@ public class BindExpression implements AnalysisRuleFactory {
                                     new NereidsParser().parseExpression(paimon.getFilter().get()));
                     LogicalFilter<Plan> filtered = new LogicalFilter<>(
                             ImmutableSet.copyOf(ExpressionUtils.extractConjunction(filter)), relation);
-                    paimon.bindFilter(filtered);
+                    paimon.bindFilter(filtered, ctx.cascadesContext);
                     searchInput = filtered;
                 }
             }

@@ -377,8 +377,8 @@ enum TPaimonVectorPayloadType {
 // BucketVectorSearchSplit.serialize form (NOT base64, NOT a Java
 // ObjectOutputStream envelope) whose meaning is determined by payload_type.
 struct TPaimonVectorPayload {
-    1: required TPaimonVectorPayloadType payload_type;
-    2: required binary bytes;
+    1: optional TPaimonVectorPayloadType payload_type;
+    2: optional binary bytes;
 }
 
 struct TPaimonFileDesc {
@@ -409,10 +409,9 @@ struct TPaimonFileDesc {
     // Primary-key vector (ANN) search payload for this split. When set, BE
     // routes to the paimon-rust vector-search read path instead of the normal
     // split read; paimon_split is set but empty in that case.
-    // Field 21: id 20 is reserved as `original_file_path` on master and must not
-    // be reused here — a mixed-version cluster skips mismatched wire types
-    // instead of receiving either field.
-    21: optional TPaimonVectorPayload vector_payload;
+    // Field 20 is reserved for original_file_path on master; fields 21-23 are
+    // reserved for blob_files, anchor_first_row_id and anchor_row_count on branch-4.1.
+    24: optional TPaimonVectorPayload vector_payload;
 }
 
 struct TTrinoConnectorFileDesc {

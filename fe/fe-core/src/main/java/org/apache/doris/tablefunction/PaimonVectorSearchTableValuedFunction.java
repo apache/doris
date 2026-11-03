@@ -39,8 +39,13 @@ import org.apache.doris.datasource.paimon.PaimonUtil;
 import org.apache.doris.datasource.paimon.source.PaimonScanNode;
 import org.apache.doris.datasource.paimon.source.PaimonVectorSearch;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.NormalizeBinaryPredicatesRule;
+import org.apache.doris.nereids.rules.expression.rules.NullSafeEqualToEqual;
 import org.apache.doris.nereids.rules.rewrite.PushDownVectorTopNIntoPaimonScan;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -88,6 +93,8 @@ public class PaimonVectorSearchTableValuedFunction extends ExternalSearchTableVa
     private static final Set<String> PROPERTIES = ImmutableSet.of(
             "table", "column", "query_vector", "top_k", "offset", "metric", "filter", "prefilter",
             "nprobes", "refine_factor", "use_index", "version", "timestamp", "tag", "branch");
+    private static final ExpressionRewrite PREFILTER_NORMALIZER = new ExpressionRewrite(
+            ExpressionRewrite.bottomUp(NormalizeBinaryPredicatesRule.INSTANCE, NullSafeEqualToEqual.INSTANCE));
 
     private final TableName tableName;
     private final PaimonExternalTable sourceTable;
@@ -238,10 +245,16 @@ public class PaimonVectorSearchTableValuedFunction extends ExternalSearchTableVa
         return filter;
     }
 
-    public void bindFilter(LogicalFilter<?> filterPlan) {
+    public void bindFilter(LogicalFilter<?> filterPlan, CascadesContext cascadesContext) {
         if (!prefilter) {
             return;
         }
+        // This copy survives later plan rewrites. Normalize it in filter context before
+        // retaining it: BE expects slot-on-left comparisons and <=> only for null checks.
+        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(filterPlan, cascadesContext);
+        filterPlan = filterPlan.withConjuncts(filterPlan.getConjuncts().stream()
+                .map(expression -> PREFILTER_NORMALIZER.rewrite(expression, rewriteContext))
+                .collect(ImmutableSet.toImmutableSet()));
         if (filterPlan.getInputSlots().isEmpty()) {
             return;
         }

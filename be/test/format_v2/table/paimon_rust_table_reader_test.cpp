@@ -262,12 +262,25 @@ TEST_F(PaimonRustTableReaderTest, ValidatesVectorSplit) {
     EXPECT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("missing vector_payload"), std::string::npos) << status;
 
+    // Missing optional payload members must fail before opening the Rust reader.
+    range = make_vector_range();
+    range.table_format_params.paimon_params.vector_payload.__isset.payload_type = false;
+    status = reader.TEST_validate_rust_split(range);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("missing payload_type"), std::string::npos) << status;
+
+    range = make_vector_range();
+    range.table_format_params.paimon_params.vector_payload.__isset.bytes = false;
+    status = reader.TEST_validate_rust_split(range);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("missing or empty bytes"), std::string::npos) << status;
+
     // Empty payload bytes are equally a protocol error.
     range = make_vector_range();
     range.table_format_params.paimon_params.vector_payload.bytes.clear();
     status = reader.TEST_validate_rust_split(range);
     EXPECT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("missing vector_payload"), std::string::npos) << status;
+    EXPECT_NE(status.to_string().find("missing or empty bytes"), std::string::npos) << status;
 
     // A complete vector range validates cleanly -- including the empty paimon_split,
     // which the normal path would reject.
