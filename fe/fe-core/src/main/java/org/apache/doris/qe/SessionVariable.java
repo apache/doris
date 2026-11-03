@@ -2904,7 +2904,7 @@ public class SessionVariable implements Serializable, Writable {
             "CTE inline mode. <0: disable; =0: only inline when CTE body contains UNION ALL "
                     + "and consumer filters can eliminate some union branches; "
                     + ">=1: both materialized and inlined alternatives are added to Memo for CBO." })
-    public int cteInlineMode = 0;
+    public int cteInlineMode = -1;
 
     @VariableMgr.VarAttr(name = ENABLE_ANALYZE_COMPLEX_TYPE_COLUMN)
     public boolean enableAnalyzeComplexTypeColumn = false;
