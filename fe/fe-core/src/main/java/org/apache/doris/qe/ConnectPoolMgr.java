@@ -167,6 +167,9 @@ public class ConnectPoolMgr {
         return message;
     }
 
+    // Called with the context lifecycle lock held. Keep this limited to local indexes/quotas:
+    // no lifecycle/protocol callbacks, resource cleanup or external IO. Lock order is always
+    // the context lifecycle lock followed by admissionLock, matching registration.
     void unregisterConnection(ConnectContext ctx) {
         synchronized (admissionLock) {
             if (connectionMap.remove(ctx.getConnectionId(), ctx)) {

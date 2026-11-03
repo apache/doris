@@ -122,14 +122,21 @@ import javax.annotation.Nullable;
  * registration, indexes and quotas; it does not own protocol release or transaction rollback.
  * Neither garbage collection nor removal of a thread-local binding performs lifecycle cleanup.
  *
- * <h2>Lifecycle states and transitions</h2>
+ * <h2>Control and lifecycle observations</h2>
+ * Only one control value is stored. It controls admission and the once-only claim of protocol
+ * closure; there is no stored close mode, cleanup phase, transport-closed flag or cleanup-owner flag.
  * <pre>
  * INITIALIZING -- activate / successful activateClientSession --&gt; ACTIVE
- * INITIALIZING -- requestClose / cleanup ----------------------&gt; CLOSING
- * ACTIVE ------ requestClose / cleanup / idle expiry -----------&gt; CLOSING
- * CLOSING ----- operations drained and cleanup succeeded -------&gt; CLOSED
+ * INITIALIZING / ACTIVE -- AFTER_RESPONSE, users remain --------&gt; CLOSE_PENDING
+ * INITIALIZING / ACTIVE -- IMMEDIATE, or no users --------------&gt; CLOSE_STARTED
+ * CLOSE_PENDING -- IMMEDIATE, or last operation exits ----------&gt; CLOSE_STARTED
  * </pre>
- * The lifecycle is distinct from {@link QueryState}, the current MySQL command, thread-local
+ * CLOSE_STARTED is never reset. {@link #getLifecycleState()} is a derived observation: the two
+ * closing controls report CLOSING until {@link #getCleanupCompletion()} succeeds, then CLOSED.
+ * Exceptional completion continues to report CLOSING and cannot restart cleanup. Completion
+ * reports the outcome; it does not decide which thread owns cleanup.
+ *
+ * <p>The lifecycle is distinct from {@link QueryState}, the current MySQL command, thread-local
  * binding and pool membership. ACTIVE means that work may be admitted, not that a query is
  * currently running. A context leaves the pool when closure starts, before it reaches CLOSED.
  * CLOSED is terminal: the same object must not be initialized, activated or registered again.
@@ -161,9 +168,10 @@ import javax.annotation.Nullable;
  * false, reject the request without using session resources; a prior pool or token lookup is
  * not permission to execute. On success, the method records an in-flight operation and refreshes
  * activity time. Always call {@link #endOperation()} in finally, including on exceptions or when
- * another thread has started cleanup. The inFlightOperations count protects resource lifetime; it does
- * not serialize commands. MySQL's read scheduling and Flight's command lock still provide that
- * serialization. Do not acquire another operation for an entry already guarded by those paths.
+ * another thread has started cleanup. Each successful begin acquires one resourceUsers reference;
+ * endOperation returns it. The counter protects resource lifetime and does not serialize commands.
+ * MySQL's read scheduling and Flight's command lock still provide that serialization. Do not
+ * acquire another operation for an entry already guarded by those paths.
  *
  * <p>Bind the context with {@link #setThreadLocalInfo()} only for the executing thread's scope,
  * and restore its previous binding on exit. {@link #clear()} releases statement references and
@@ -189,28 +197,41 @@ import javax.annotation.Nullable;
  * AFTER_RESPONSE close; a later deferred request never downgrades an immediate close. An executor
  * published through {@link #setExecutor(StmtExecutor)} during an immediate close also receives
  * cancellation. KILL QUERY and query timeout only cancel the query and keep the lifecycle ACTIVE.
- * Registration revocation, transport closure and resource release are each claimed once, even
- * when a channel callback re-enters cleanup or a forced close races with the final response.
- * A single cleanup phase records their sequential progress under the lifecycle lock. Advancing
- * to CLOSING_TRANSPORT or RELEASING_RESOURCES claims that step before executing it outside the
- * lock; concurrent and reentrant callers cannot repeat it. CloseMode is independent of cleanup
- * progress because an immediate request may arrive during any phase. The operation count is
- * independent of both: immediate closure still has to drain operations before releasing resources.
  *
- * <p>Cleanup does not wait for a running operation's command lock. Once close initiation has
- * finished and every successful begin has a matching endOperation, exactly one caller releases
- * protocol session resources, rolls back the session transaction, runs the existing temporary
- * table/session cleanup hooks and clears local references. With no in-flight operations this
- * happens in cleanup itself; otherwise the last exiting operation performs it. Flight seals its
- * deferred-executor handoff when transport closure runs, and releases the channel allocator only
- * after draining operations. Callers must not invoke pool unregistration, releaseProtocolSession or
- * closeTxn independently as a substitute for this coordinated session-close flow.
+ * <p>The first close request revokes registration while holding the lifecycle lock. Pool removal
+ * only updates local indexes and quotas: it must not call back into the lifecycle, close a channel,
+ * release resources or perform external IO. No separate unregistration handoff is needed.
+ *
+ * <p>Entering CLOSE_STARTED claims protocol closure exactly once and acquires one internal
+ * resourceUsers reference for the closer. The winning caller cancels execution when requested
+ * and closes the protocol outside the lifecycle lock, then returns its reference in finally.
+ * This reference prevents the last command from releasing resources while cancellation, a channel
+ * close callback or Flight deferred-executor teardown is still running. Cancellation of an executor
+ * can also occur on late publication and remains idempotent; protocol closure is claimed once.
+ *
+ * <p>Every reference return uses the same rule under the lifecycle lock. If users remain, it does
+ * nothing else. If the last operation exits in CLOSE_PENDING, it atomically replaces its reference
+ * with the closer's internal reference and enters CLOSE_STARTED; that thread closes the protocol
+ * without cancelling the finished command. If a reference return reaches zero in CLOSE_STARTED,
+ * it claims final cleanup. No reference can be acquired afterwards, so this zero transition has
+ * exactly one owner, including during reentrant callbacks and after cleanup failure.
+ *
+ * <p>The final owner can be the closer or the last exiting operation, whichever returns its
+ * reference last. It releases protocol session resources, rolls back the session transaction,
+ * runs the existing temporary table/session cleanup hooks and clears local references outside the
+ * lifecycle lock. These are ordinary sequential calls, not shared cleanup phases. Cleanup never
+ * waits for a running operation's command lock. Flight seals its deferred-executor handoff during
+ * protocol closure and releases its channel allocator only after all resource users have exited.
+ * Callers must not invoke pool unregistration, releaseProtocolSession or closeTxn independently
+ * as a substitute for this coordinated flow, or return the closer's reference themselves.
  *
  * <p>Use {@link #getCleanupCompletion()} to observe completion instead of assuming that a return
  * from cleanup means resources have been released. Never wait for completion while holding an
  * operation that must end before cleanup can finish. Cleanup temporarily binds the closing
  * context for helpers such as follower transaction rollback, restores a different caller's
- * binding, and preserves the binding of a closing operation that has not yet exited.</li>
+ * binding, and preserves the binding of a closing operation that has not yet exited. Final cleanup
+ * restores the caller's binding (or detaches the finished context itself) before completing the
+ * future, so synchronous completion callbacks do not inherit a borrowed cleanup binding.</li>
  *
  * <li><b>CLOSED: local cleanup completed successfully.</b>
  * The completion stage succeeds and repeated cleanup calls are no-ops. Construct a new context
@@ -274,22 +295,21 @@ public class ConnectContext {
         IMMEDIATE, AFTER_RESPONSE
     }
 
-    // Monotonic teardown progress, separate from admission and close policy. NOT_STARTED also
-    // covers unregistration in progress: startClosing's winner owns it. The completion future
-    // records the outcome after RELEASING_RESOURCES, including a failure that leaves us CLOSING.
-    private enum CleanupPhase {
-        NOT_STARTED, UNREGISTERED, CLOSING_TRANSPORT, TRANSPORT_CLOSED, RELEASING_RESOURCES
+    // The only stored control state. LifecycleState is an observation, including the completion
+    // outcome, not another mutable state machine. CLOSE_STARTED never transitions back.
+    private enum Control {
+        INITIALIZING, ACTIVE, CLOSE_PENDING, CLOSE_STARTED
     }
 
     // Lock order: lifecycleLock -> ConnectPoolMgr.admissionLock. The pool never calls back into
     // the lifecycle. Cancellation, channel callbacks and resource release run outside both locks.
     private final Object lifecycleLock = new Object();
-    private volatile LifecycleState lifecycleState = LifecycleState.INITIALIZING;
+    private volatile Control control = Control.INITIALIZING;
     private ConnectPoolMgr registeredPool;
-    private int inFlightOperations;
-    private CloseMode closeMode;
-    // Teardown progress is guarded by lifecycleLock. Admission depends only on lifecycleState.
-    private CleanupPhase cleanupPhase = CleanupPhase.NOT_STARTED;
+    // Guarded by lifecycleLock: admitted operations plus the protocol closer's internal reference.
+    private int resourceUsers;
+    // Writers are ordered by pool unregistration under lifecycleLock, the closer's reference,
+    // and finally the unique last reference holder. No two cleanup stages write concurrently.
     private Throwable cleanupFailure;
     private final CompletableFuture<Void> cleanupCompletion = new CompletableFuture<>();
     // set this id before analyze
@@ -1178,9 +1198,9 @@ public class ConnectContext {
     public void setExecutor(StmtExecutor executor) {
         boolean cancelOnPublication;
         synchronized (lifecycleLock) {
-            Preconditions.checkState(lifecycleState != LifecycleState.CLOSED, "Context is closed");
+            Preconditions.checkState(control != Control.CLOSE_STARTED || resourceUsers > 0, "Context is closed");
             this.executor = executor;
-            cancelOnPublication = lifecycleState == LifecycleState.CLOSING && closeMode == CloseMode.IMMEDIATE;
+            cancelOnPublication = control == Control.CLOSE_STARTED;
         }
         // An immediate close may win before the command publishes its executor. StmtExecutor
         // remembers cancellation before coordinator publication. A deferred close lets the
@@ -1233,7 +1253,15 @@ public class ConnectContext {
     }
 
     public LifecycleState getLifecycleState() {
-        return lifecycleState;
+        switch (control) {
+            case INITIALIZING:
+                return LifecycleState.INITIALIZING;
+            case ACTIVE:
+                return LifecycleState.ACTIVE;
+            default:
+                return cleanupCompletion.isDone() && !cleanupCompletion.isCompletedExceptionally()
+                        ? LifecycleState.CLOSED : LifecycleState.CLOSING;
+        }
     }
 
     /** Completion of local teardown, including any command that was running when close began. */
@@ -1244,22 +1272,22 @@ public class ConnectContext {
     /** Activate an owned internal context without putting it in the client connection pool. */
     public void activate() {
         synchronized (lifecycleLock) {
-            Preconditions.checkState(lifecycleState == LifecycleState.INITIALIZING,
-                    "Cannot activate a context in %s", lifecycleState);
-            lifecycleState = LifecycleState.ACTIVE;
+            Preconditions.checkState(control == Control.INITIALIZING,
+                    "Cannot activate a context in %s", control);
+            control = Control.ACTIVE;
         }
     }
 
     /** Returns -1 on admission, or the pool's connection count on quota refusal. */
     public int activateClientSession(ConnectPoolMgr pool) {
         synchronized (lifecycleLock) {
-            Preconditions.checkState(lifecycleState == LifecycleState.INITIALIZING,
-                    "Cannot register a context in %s", lifecycleState);
+            Preconditions.checkState(control == Control.INITIALIZING,
+                    "Cannot register a context in %s", control);
             int result = pool.registerConnection(this);
             if (result == -1) {
                 registeredPool = pool;
                 refreshStartTime();
-                lifecycleState = LifecycleState.ACTIVE;
+                control = Control.ACTIVE;
             }
             return result;
         }
@@ -1268,10 +1296,10 @@ public class ConnectContext {
     /** Pin resources while a protocol entry initializes the context, before publication. */
     public boolean beginInitialization() {
         synchronized (lifecycleLock) {
-            if (lifecycleState != LifecycleState.INITIALIZING) {
+            if (control != Control.INITIALIZING) {
                 return false;
             }
-            inFlightOperations++;
+            resourceUsers++;
             return true;
         }
     }
@@ -1279,10 +1307,10 @@ public class ConnectContext {
     /** Admission and idle-timeout decisions share this lock; a stale lookup grants no admission. */
     public boolean tryBeginCommand() {
         synchronized (lifecycleLock) {
-            if (lifecycleState != LifecycleState.ACTIVE) {
+            if (control != Control.ACTIVE) {
                 return false;
             }
-            inFlightOperations++;
+            resourceUsers++;
             refreshStartTime();
             return true;
         }
@@ -1290,11 +1318,28 @@ public class ConnectContext {
 
     /** Paired with a successful beginInitialization/tryBeginCommand, including exceptional exits. */
     public void endOperation() {
+        boolean closeTransport = false;
         synchronized (lifecycleLock) {
-            Preconditions.checkState(inFlightOperations > 0, "No context operation to finish");
-            inFlightOperations--;
+            Preconditions.checkState(resourceUsers > 0, "No context resource reference to release");
+            if (--resourceUsers != 0) {
+                return;
+            }
+            if (control == Control.CLOSE_PENDING) {
+                // Replace the last command/initialization reference with the closer's reference
+                // atomically. No other thread can claim closure or observe a cleanup opportunity.
+                control = Control.CLOSE_STARTED;
+                resourceUsers = 1;
+                closeTransport = true;
+            } else if (control != Control.CLOSE_STARTED) {
+                return;
+            }
         }
-        finishCleanup();
+        if (closeTransport) {
+            closeTransport(false);
+        } else {
+            // No references can be acquired after CLOSE_STARTED. This zero transition is unique.
+            finishCleanup();
+        }
     }
 
     // A snapshot; empty for a connection of any other protocol.
@@ -1352,75 +1397,70 @@ public class ConnectContext {
      */
     public void requestClose(CloseMode mode) {
         Preconditions.checkNotNull(mode, "close mode");
-        boolean initiate;
+        CloseRequest request;
         synchronized (lifecycleLock) {
-            if (lifecycleState == LifecycleState.CLOSED) {
-                return;
-            }
-            initiate = startClosing(mode);
-            if (!initiate && mode == CloseMode.IMMEDIATE) {
-                closeMode = CloseMode.IMMEDIATE;
-            }
+            request = requestCloseLocked(mode);
         }
-        if (initiate) {
-            initiateCleanup();
+        executeCloseRequest(request, mode);
+    }
+
+    // A local result of a close request, never stored on the context. Allocated only when a
+    // caller claims transport closure or needs to report an unregistration failure outside locks.
+    private record CloseRequest(boolean closeTransport, Throwable unregisterFailure) {
+    }
+
+    // Called with lifecycleLock held, including by idle expiry so that its decision cannot race
+    // with command admission. Pool unregistration only updates local indexes/quotas; it must not
+    // call lifecycle/protocol callbacks or do external IO under this lock.
+    private CloseRequest requestCloseLocked(CloseMode mode) {
+        if (control == Control.CLOSE_STARTED) {
+            return null;
+        }
+        boolean unregister = control != Control.CLOSE_PENDING;
+        boolean closeTransport = mode == CloseMode.IMMEDIATE || resourceUsers == 0;
+        if (closeTransport) {
+            control = Control.CLOSE_STARTED;
+            resourceUsers++; // The closer pins resources until cancellation and transport closure finish.
         } else {
-            finishCleanup();
+            control = Control.CLOSE_PENDING;
         }
-    }
-
-    // Called with lifecycleLock held. Only the winning caller revokes registration.
-    private boolean startClosing(CloseMode mode) {
-        if (lifecycleState == LifecycleState.CLOSING || lifecycleState == LifecycleState.CLOSED) {
-            return false;
-        }
-        lifecycleState = LifecycleState.CLOSING;
-        closeMode = mode;
-        return true;
-    }
-
-    private void initiateCleanup() {
-        ConnectContext previous = ConnectContext.get();
-        setThreadLocalInfo();
-        try {
-            // No other caller can change registeredPool after startClosing wins. A channel close
-            // callback may re-enter cleanup, but cannot repeat any of these steps.
+        Throwable unregisterFailure = null;
+        if (unregister) {
             ConnectPoolMgr pool = registeredPool;
             registeredPool = null;
             if (pool != null) {
-                cleanupStep("unregister connection", () -> pool.unregisterConnection(this));
-            }
-            synchronized (lifecycleLock) {
-                cleanupPhase = CleanupPhase.UNREGISTERED;
-            }
-            finishCleanup();
-        } finally {
-            restoreAfterCleanup(previous);
-        }
-    }
-
-    private void finishCleanup() {
-        boolean closeTransport = false;
-        boolean cancelExecution = false;
-        synchronized (lifecycleLock) {
-            if (cleanupPhase == CleanupPhase.UNREGISTERED
-                    && (closeMode == CloseMode.IMMEDIATE || inFlightOperations == 0)) {
-                cleanupPhase = CleanupPhase.CLOSING_TRANSPORT;
-                closeTransport = true;
-                cancelExecution = closeMode == CloseMode.IMMEDIATE;
-            } else if (cleanupPhase != CleanupPhase.TRANSPORT_CLOSED) {
-                return;
+                try {
+                    pool.unregisterConnection(this);
+                } catch (Throwable failure) {
+                    recordCleanupFailure(failure);
+                    unregisterFailure = failure;
+                }
             }
         }
         if (closeTransport) {
-            closeTransport(cancelExecution);
+            return new CloseRequest(true, unregisterFailure);
         }
-        synchronized (lifecycleLock) {
-            if (cleanupPhase != CleanupPhase.TRANSPORT_CLOSED || inFlightOperations != 0) {
-                return;
+        return unregisterFailure == null ? null : new CloseRequest(false, unregisterFailure);
+    }
+
+    private void executeCloseRequest(CloseRequest request, CloseMode mode) {
+        if (request == null) {
+            return;
+        }
+        try {
+            if (request.unregisterFailure() != null) {
+                LOG.warn("Failed to unregister connection {}", connectionId, request.unregisterFailure());
             }
-            cleanupPhase = CleanupPhase.RELEASING_RESOURCES;
+        } finally {
+            if (request.closeTransport()) {
+                closeTransport(mode == CloseMode.IMMEDIATE);
+            }
         }
+    }
+
+    // Only the unique reference decrement to zero in CLOSE_STARTED reaches this method. No
+    // additional cleanup flag or phase is needed, including during reentrant callbacks/failure.
+    private void finishCleanup() {
         // Transaction rollback/forwarding uses ConnectContext.get(). Bind the closing context,
         // even when the caller is the timeout checker or another connection's KILL command.
         ConnectContext previous = ConnectContext.get();
@@ -1436,16 +1476,21 @@ public class ConnectContext {
             cleanupStep("clear statement", this::clear);
             preparedStatementContextMap.clear();
             returnRows = 0;
-            if (cleanupFailure == null) {
-                lifecycleState = LifecycleState.CLOSED;
-                cleanupCompletion.complete(null);
-            } else {
-                // Do not publish successful closure when a cleanup action failed. The completion
-                // reports the failure; the other cleanup actions have nevertheless all been attempted.
-                cleanupCompletion.completeExceptionally(cleanupFailure);
-            }
         } finally {
-            restoreAfterCleanup(previous);
+            // Completion callbacks must see the caller's binding, not a borrowed cleanup binding.
+            // The closing operation has exited, so its own context must be detached as well.
+            if (previous == null || previous == this) {
+                ConnectContext.remove();
+            } else {
+                previous.setThreadLocalInfo();
+            }
+        }
+        if (cleanupFailure == null) {
+            cleanupCompletion.complete(null);
+        } else {
+            // Failure is a terminal outcome for cleanup, but not a successful CLOSED observation.
+            // Repeated close requests cannot acquire another reference and retry released resources.
+            cleanupCompletion.completeExceptionally(cleanupFailure);
         }
     }
 
@@ -1462,19 +1507,16 @@ public class ConnectContext {
                 });
             }
             cleanupStep("close transport", this::closeChannel);
-            synchronized (lifecycleLock) {
-                cleanupPhase = CleanupPhase.TRANSPORT_CLOSED;
-            }
         } finally {
-            restoreAfterCleanup(previous);
-        }
-    }
-
-    private void restoreAfterCleanup(ConnectContext previous) {
-        if (previous == null || (previous == this && cleanupCompletion.isDone())) {
-            ConnectContext.remove();
-        } else {
-            previous.setThreadLocalInfo();
+            try {
+                if (previous == null) {
+                    ConnectContext.remove();
+                } else {
+                    previous.setThreadLocalInfo();
+                }
+            } finally {
+                endOperation(); // Return the closer's reference even when cancellation/closure fails.
+            }
         }
     }
 
@@ -1483,11 +1525,15 @@ public class ConnectContext {
             step.run();
         } catch (Throwable failure) {
             LOG.warn("Failed to {} for connection {}", action, connectionId, failure);
-            if (cleanupFailure == null) {
-                cleanupFailure = failure;
-            } else if (cleanupFailure != failure) {
-                cleanupFailure.addSuppressed(failure);
-            }
+            recordCleanupFailure(failure);
+        }
+    }
+
+    private void recordCleanupFailure(Throwable failure) {
+        if (cleanupFailure == null) {
+            cleanupFailure = failure;
+        } else if (cleanupFailure != failure) {
+            cleanupFailure.addSuppressed(failure);
         }
     }
 
@@ -1560,14 +1606,12 @@ public class ConnectContext {
 
     /** True only while the current response is allowed to finish before transport closure. */
     public boolean isClosingAfterResponse() {
-        synchronized (lifecycleLock) {
-            return lifecycleState == LifecycleState.CLOSING && closeMode == CloseMode.AFTER_RESPONSE;
-        }
+        return control == Control.CLOSE_PENDING;
     }
 
     public boolean isClosingOrClosed() {
-        LifecycleState state = lifecycleState;
-        return state == LifecycleState.CLOSING || state == LifecycleState.CLOSED;
+        Control state = control;
+        return state == Control.CLOSE_PENDING || state == Control.CLOSE_STARTED;
     }
 
     public void setQueryId(TUniqueId queryId) {
@@ -1688,10 +1732,10 @@ public class ConnectContext {
     }
 
     public void checkTimeout(long now) {
-        boolean closeIdle = false;
+        CloseRequest idleClose = null;
         StmtExecutor timedOut = null;
         synchronized (lifecycleLock) {
-            if (lifecycleState != LifecycleState.ACTIVE || startTime <= 0) {
+            if (control != Control.ACTIVE || startTime <= 0) {
                 return;
             }
             long delta = now - startTime;
@@ -1699,19 +1743,19 @@ public class ConnectContext {
                 // Flight metadata/option commands can show COM_SLEEP while using session resources.
                 // MySQL, however, can block reading an incomplete packet before dispatch sets its
                 // command. Keep wait_timeout able to close that transport and unblock the reader.
-                boolean idle = inFlightOperations == 0 || getConnectType() == ConnectType.MYSQL;
+                boolean idle = resourceUsers == 0 || getConnectType() == ConnectType.MYSQL;
                 if (idle && delta > sessionVariable.getWaitTimeoutS() * 1000L) {
-                    closeIdle = startClosing(CloseMode.IMMEDIATE);
+                    idleClose = requestCloseLocked(CloseMode.IMMEDIATE);
                 }
             } else if (delta > getExecTimeoutS() * 1000L) {
                 // Cancel the executor observed here, never one installed by a later statement.
                 timedOut = executor;
             }
         }
-        if (closeIdle) {
+        if (idleClose != null) {
             LOG.warn("kill wait timeout connection, connection type: {}, connectionId: {}, wait timeout: {}",
                     getConnectType(), connectionId, sessionVariable.getWaitTimeoutS());
-            initiateCleanup();
+            executeCloseRequest(idleClose, CloseMode.IMMEDIATE);
         } else if (timedOut != null) {
             LOG.warn("cancel timeout query for connection {}, connection type: {}", connectionId, getConnectType());
             timedOut.cancel(new Status(TStatusCode.TIMEOUT, "query is timeout, killed by timeout checker"), false);
