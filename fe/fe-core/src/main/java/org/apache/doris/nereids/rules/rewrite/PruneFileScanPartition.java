@@ -106,9 +106,13 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
         }
         if (!connectorFilteredPartitions && partitionView.selectedPartitions.isEmpty()
                 && (partitionView.isNotPruned() || partitionView.isDeferredPartitionPruning())) {
-            Map<String, PartitionItem> partitionItems =
-                    externalTable.getNameToPartitionItems(scan.getRelationSnapshot());
-            partitionView = new SelectedPartitions(partitionItems.size(), partitionItems, false);
+            if (externalTable instanceof HMSExternalTable) {
+                partitionView = externalTable.preloadPartitionView(scan.getRelationSnapshot());
+            } else {
+                Map<String, PartitionItem> partitionItems =
+                        externalTable.getNameToPartitionItems(scan.getRelationSnapshot());
+                partitionView = new SelectedPartitions(partitionItems.size(), partitionItems, false);
+            }
         }
         Map<String, PartitionItem> partitionItems = partitionView.selectedPartitions;
         boolean enableBinarySearch = ctx.getConnectContext() == null

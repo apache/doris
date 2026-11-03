@@ -501,8 +501,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     @Override
     public SelectedPartitions preloadPartitionView(Optional<MvccSnapshot> snapshot) {
         if (getDlaType() == DLAType.HIVE && !getPartitionColumns(snapshot).isEmpty()) {
-            Map<String, PartitionItem> partitionItems = getNameToPartitionItems(snapshot);
-            return new SelectedPartitions(partitionItems.size(), partitionItems, false);
+            return toSelectedPartitions(getHivePartitionValues(snapshot));
         }
         return super.preloadPartitionView(snapshot);
     }
@@ -526,10 +525,15 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             return Optional.empty();
         }
         try {
-            List<Partition> partitions = ((HMSExternalCatalog) catalog).getClient()
-                    .listPartitionsByFilter(getRemoteDbName(), getRemoteName(), filter);
-            return Optional.of(toNameToPartitionItems(partitions, partitionColumns, snapshot));
+            return withMissingTableRepair(() -> {
+                List<Partition> partitions = ((HMSExternalCatalog) catalog).getClient()
+                        .listPartitionsByFilter(getRemoteDbName(), getRemoteName(), filter);
+                return Optional.of(toNameToPartitionItems(partitions, partitionColumns, snapshot));
+            });
         } catch (RuntimeException e) {
+            if (isMissingTable(e)) {
+                throw e;
+            }
             LOG.warn("Failed to prune Hive partitions through HMS filter for table {}.{}",
                     getDbName(), getName());
             return Optional.empty();
@@ -582,6 +586,11 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         }
         HiveExternalMetaCache.HivePartitionValues hivePartitionValues = getHivePartitionValues(
                 MvccUtil.getSnapshotFromContext(this));
+        return toNameToPartitionItems(hivePartitionValues);
+    }
+
+    private Map<String, PartitionItem> toNameToPartitionItems(
+            HiveExternalMetaCache.HivePartitionValues hivePartitionValues) {
         Map<Long, PartitionItem> idToPartitionItem = hivePartitionValues.getIdToPartitionItem();
         // transfer id to name
         BiMap<Long, String> idToName = hivePartitionValues.getPartitionNameToIdMap().inverse();
@@ -590,6 +599,13 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             nameToPartitionItem.put(idToName.get(entry.getKey()), entry.getValue());
         }
         return nameToPartitionItem;
+    }
+
+    private SelectedPartitions toSelectedPartitions(
+            HiveExternalMetaCache.HivePartitionValues hivePartitionValues) {
+        Map<String, PartitionItem> partitionItems = toNameToPartitionItems(hivePartitionValues);
+        return new SelectedPartitions(partitionItems.size(), partitionItems, false, false,
+                hivePartitionValues.getSortedPartitionRanges());
     }
 
     private Map<String, PartitionItem> toNameToPartitionItems(List<Partition> partitions,

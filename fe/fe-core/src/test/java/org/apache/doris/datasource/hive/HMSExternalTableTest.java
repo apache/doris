@@ -170,24 +170,35 @@ public class HMSExternalTableTest {
     }
 
     @Test
-    public void testHiveScanSelectionStaysDeferredWhilePreloadMaterializesFullView() {
+    public void testHiveScanSelectionStaysDeferredWhilePreloadMaterializesFullView() throws Exception {
         HMSExternalTable hiveTable = Mockito.mock(HMSExternalTable.class, Mockito.CALLS_REAL_METHODS);
         Column partitionColumn = new Column("day", Type.INT, true);
-        Map<String, PartitionItem> partitionItems = ImmutableMap.of(
-                "day=1", Mockito.mock(PartitionItem.class));
+        PartitionItem partitionItem = new ListPartitionItem(Collections.singletonList(
+                PartitionKey.createListPartitionKeyWithTypes(
+                        Collections.singletonList(new PartitionValue("1")),
+                        Collections.singletonList(Type.INT), true)));
+        Map<String, PartitionItem> partitionItems = ImmutableMap.of("day=1", partitionItem);
+        HiveExternalMetaCache.HivePartitionValues partitionValues =
+                new HiveExternalMetaCache.HivePartitionValues(
+                        ImmutableMap.of(1L, partitionItem),
+                        HashBiMap.create(ImmutableMap.of("day=1", 1L)),
+                        ImmutableMap.of(1L, Collections.singletonList("1")));
+        partitionValues.rebuildSortedPartitionRangesForPublication();
         Mockito.doReturn(HMSExternalTable.DLAType.HIVE).when(hiveTable).getDlaType();
         Mockito.doReturn(Collections.singletonList(partitionColumn))
                 .when(hiveTable).getPartitionColumns(Mockito.any());
-        Mockito.doReturn(partitionItems).when(hiveTable).getNameToPartitionItems(Mockito.any());
+        Mockito.doReturn(partitionValues).when(hiveTable).getHivePartitionValues(Mockito.any());
 
         Assertions.assertSame(SelectedPartitions.DEFERRED_PARTITION_PRUNING,
                 hiveTable.initSelectedPartitions(Optional.empty()));
-        Mockito.verify(hiveTable, Mockito.never()).getNameToPartitionItems(Mockito.any());
+        Mockito.verify(hiveTable, Mockito.never()).getHivePartitionValues(Mockito.any());
 
         SelectedPartitions preloaded = hiveTable.preloadPartitionView(Optional.empty());
         Assertions.assertEquals(1, preloaded.totalPartitionNum);
         Assertions.assertEquals(partitionItems, preloaded.selectedPartitions);
-        Mockito.verify(hiveTable).getNameToPartitionItems(Optional.empty());
+        Assertions.assertSame(partitionValues.getSortedPartitionRanges().get(),
+                preloaded.getSortedPartitionRanges().get());
+        Mockito.verify(hiveTable).getHivePartitionValues(Optional.empty());
     }
 
     @Test

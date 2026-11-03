@@ -19,6 +19,9 @@ package org.apache.doris.datasource.hive;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.ListPartitionItem;
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -26,9 +29,18 @@ import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.metacache.MetaCache;
 import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionsCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.qe.ShowResultSet;
 
+import com.google.common.collect.HashBiMap;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.NoSuchObjectException;
@@ -40,6 +52,7 @@ import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.ExecutorService;
@@ -167,6 +180,115 @@ class HMSPartitionListingTest {
         verifyBindingPartitionValues(true, false, true);
     }
 
+    @Test
+    void bindingStaysDeferredBeforePartitionMaterialization() throws Exception {
+        try (Fixture fixture = new Fixture()) {
+            configurePartitionColumns(fixture, Type.INT);
+            Assertions.assertSame(SelectedPartitions.DEFERRED_PARTITION_PRUNING,
+                    fixture.table.initSelectedPartitions(Optional.empty()));
+            Assertions.assertEquals(0, fixture.repairs.get());
+            fixture.assertCurrent(fixture.table);
+        }
+    }
+
+    @Test
+    void filteredPartitionAbsenceRepairsEvenWithWarmCompleteCache() throws Exception {
+        try (Fixture fixture = new Fixture()) {
+            configurePartitionColumns(fixture, Type.STRING);
+            HiveExternalMetaCache.HivePartitionValues partitionValues =
+                    publishedPartitionValues(1L, "p=x", "x");
+            Env env = mockWarmHiveCache(fixture, partitionValues);
+            RuntimeException missing = fixture.missingTable();
+            Mockito.when(fixture.client.listPartitionsByFilter(
+                    Mockito.anyString(), Mockito.anyString(), Mockito.anyString())).thenThrow(missing);
+            try (MockedStatic<Env> current = Mockito.mockStatic(Env.class)) {
+                current.when(Env::getCurrentEnv).thenReturn(env);
+                Assertions.assertFalse(fixture.table.getNameToPartitionItems(Optional.empty()).isEmpty());
+                Assertions.assertSame(missing, Assertions.assertThrows(RuntimeException.class,
+                        () -> fixture.table.getNameToPartitionItemsByFilter(
+                                Optional.empty(), stringPartitionPredicate())));
+            }
+            fixture.assertRetired();
+        }
+    }
+
+    @Test
+    void filteredPartitionAbsenceKeepsDelayedSameNameReplacement() throws Exception {
+        try (Fixture fixture = new Fixture()) {
+            configurePartitionColumns(fixture, Type.STRING);
+            HMSExternalTable replacement = fixture.newWarmTable();
+            RuntimeException missing = fixture.missingTable();
+            Mockito.when(fixture.client.listPartitionsByFilter(
+                    Mockito.anyString(), Mockito.anyString(), Mockito.anyString())).thenAnswer(ignored -> {
+                        fixture.cache.invalidateLookup("t", false);
+                        fixture.cache.updateCache("remote_t", "t", replacement, 10L);
+                        throw missing;
+                    });
+            Assertions.assertSame(missing, Assertions.assertThrows(RuntimeException.class,
+                    () -> fixture.table.getNameToPartitionItemsByFilter(
+                            Optional.empty(), stringPartitionPredicate())));
+            fixture.assertCurrent(replacement);
+        }
+    }
+
+    @Test
+    void filteredPartitionTransientFailureKeepsLookupAndFallback() throws Exception {
+        try (Fixture fixture = new Fixture()) {
+            configurePartitionColumns(fixture, Type.STRING);
+            HiveExternalMetaCache.HivePartitionValues partitionValues =
+                    publishedPartitionValues(1L, "p=x", "x");
+            Env env = mockWarmHiveCache(fixture, partitionValues);
+            HMSClientException timeout = new HMSClientException(
+                    "filter failed", new java.net.SocketTimeoutException());
+            Mockito.when(fixture.client.listPartitionsByFilter(
+                    Mockito.anyString(), Mockito.anyString(), Mockito.anyString())).thenThrow(timeout);
+            try (MockedStatic<Env> current = Mockito.mockStatic(Env.class)) {
+                current.when(Env::getCurrentEnv).thenReturn(env);
+                Assertions.assertFalse(fixture.table.getNameToPartitionItemsByFilter(
+                        Optional.empty(), stringPartitionPredicate()).isPresent());
+                Assertions.assertFalse(fixture.table.getNameToPartitionItems(Optional.empty()).isEmpty());
+            }
+            fixture.assertCurrent(fixture.table);
+        }
+    }
+
+    @Test
+    void preloadReusesOnePublishedGenerationIndexAcrossStatements() throws Exception {
+        HMSExternalTable table = Mockito.mock(HMSExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Mockito.doReturn(HMSExternalTable.DLAType.HIVE).when(table).getDlaType();
+        Mockito.doReturn(Collections.singletonList(new Column("p", Type.STRING)))
+                .when(table).getPartitionColumns(Mockito.any());
+        HiveExternalMetaCache.HivePartitionValues firstGeneration =
+                publishedPartitionValues(1L, "p=x", "x");
+        HiveExternalMetaCache.HivePartitionValues secondGeneration =
+                publishedPartitionValues(2L, "p=y", "y");
+        Mockito.doReturn(firstGeneration)
+                .doReturn(firstGeneration)
+                .doReturn(secondGeneration)
+                .when(table).getHivePartitionValues(Mockito.any());
+
+        try (MockedStatic<SortedPartitionRanges> ranges =
+                Mockito.mockStatic(SortedPartitionRanges.class, Mockito.CALLS_REAL_METHODS)) {
+            SelectedPartitions firstView = new StatementContext()
+                    .preloadExternalPartitionView(table, Optional.empty());
+            SelectedPartitions secondView = new StatementContext()
+                    .preloadExternalPartitionView(table, Optional.empty());
+            SelectedPartitions replacementView = new StatementContext()
+                    .preloadExternalPartitionView(table, Optional.empty());
+
+            SortedPartitionRanges<String> firstIndex = firstGeneration.getSortedPartitionRanges().get();
+            SortedPartitionRanges<String> secondIndex = secondGeneration.getSortedPartitionRanges().get();
+            Assertions.assertSame(firstIndex, firstView.getSortedPartitionRanges().get());
+            Assertions.assertSame(firstIndex, secondView.getSortedPartitionRanges().get());
+            Assertions.assertSame(secondIndex, replacementView.getSortedPartitionRanges().get());
+            Assertions.assertEquals(Collections.singleton("p=x"), firstView.selectedPartitions.keySet());
+            Assertions.assertEquals(Collections.singleton("p=y"), replacementView.selectedPartitions.keySet());
+            Assertions.assertEquals(Collections.singleton("p=x"), secondView.selectedPartitions.keySet());
+            ranges.verifyNoInteractions();
+            Mockito.verify(table, Mockito.times(3)).getHivePartitionValues(Mockito.any());
+        }
+    }
+
     private void verifyBindingPartitionValues(boolean missingTable, boolean recreateDuringLoad,
             boolean retryInconsistency) throws Exception {
         try (Fixture fixture = new Fixture()) {
@@ -198,9 +320,9 @@ class HMSPartitionListingTest {
             });
             try (MockedStatic<Env> current = Mockito.mockStatic(Env.class)) {
                 current.when(Env::getCurrentEnv).thenReturn(env);
-                // This is the query-binding partition initialization entry, after warm schema reads.
+                // Materialize the complete view, as deferred query binding does before pruning.
                 Assertions.assertSame(failure, Assertions.assertThrows(RuntimeException.class,
-                        () -> fixture.table.initSelectedPartitions(Optional.empty())));
+                        () -> fixture.table.preloadPartitionView(Optional.empty())));
             }
             Assertions.assertEquals(retryInconsistency ? 2 : 1, attempts.get());
             if (missingTable && !recreateDuringLoad) {
@@ -209,6 +331,47 @@ class HMSPartitionListingTest {
                 fixture.assertCurrent(recreateDuringLoad ? replacement : fixture.table);
             }
         }
+    }
+
+    private void configurePartitionColumns(Fixture fixture, Type type) {
+        List<Column> columns = Collections.singletonList(new Column("p", type));
+        Mockito.doReturn(columns).when(fixture.table).getPartitionColumns(Mockito.any());
+        Mockito.doReturn(columns).when(fixture.table).getPartitionColumns();
+        Mockito.doReturn(Collections.singletonList(type)).when(fixture.table).getPartitionColumnTypes(Mockito.any());
+        Mockito.doReturn(HMSExternalTable.DLAType.HIVE).when(fixture.table).getDlaType();
+        fixture.setRemotePartitionType(type.isStringType() ? "string" : "int");
+    }
+
+    private HiveExternalMetaCache.HivePartitionValues publishedPartitionValues(
+            long partitionId, String partitionName, String partitionValue) throws Exception {
+        PartitionKey partitionKey = PartitionKey.createListPartitionKeyWithTypes(
+                Collections.singletonList(new org.apache.doris.analysis.PartitionValue(partitionValue)),
+                Collections.singletonList(Type.STRING), true);
+        PartitionItem partitionItem = new ListPartitionItem(Collections.singletonList(partitionKey));
+        Map<Long, PartitionItem> idToPartitionItem = Collections.singletonMap(partitionId, partitionItem);
+        HashBiMap<String, Long> partitionNameToIdMap = HashBiMap.create();
+        partitionNameToIdMap.put(partitionName, partitionId);
+        HiveExternalMetaCache.HivePartitionValues values = new HiveExternalMetaCache.HivePartitionValues(
+                idToPartitionItem, partitionNameToIdMap,
+                ImmutableMap.of(partitionId, Collections.singletonList(partitionValue)));
+        values.rebuildSortedPartitionRangesForPublication();
+        return values;
+    }
+
+    private Env mockWarmHiveCache(
+            Fixture fixture, HiveExternalMetaCache.HivePartitionValues partitionValues) {
+        HiveExternalMetaCache hive = Mockito.mock(HiveExternalMetaCache.class);
+        Env env = Mockito.mock(Env.class);
+        ExternalMetaCacheMgr manager = Mockito.mock(ExternalMetaCacheMgr.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(manager);
+        Mockito.when(manager.hive(fixture.catalog.getId())).thenReturn(hive);
+        Mockito.when(hive.getPartitionValues(fixture.table, Collections.singletonList(Type.STRING)))
+                .thenReturn(partitionValues);
+        return env;
+    }
+
+    private EqualTo stringPartitionPredicate() {
+        return new EqualTo(new SlotReference("p", StringType.INSTANCE), new StringLiteral("x"));
     }
 
     private static class Fixture implements AutoCloseable {
@@ -254,6 +417,11 @@ class HMSPartitionListingTest {
             remote.setPartitionKeys(Collections.singletonList(new FieldSchema("p", "int", "")));
             Deencapsulation.setField(retained, "remoteTable", remote);
             return retained;
+        }
+
+        void setRemotePartitionType(String type) {
+            Deencapsulation.<Table>getField(table, "remoteTable")
+                    .setPartitionKeys(Collections.singletonList(new FieldSchema("p", type, "")));
         }
 
         RuntimeException missingTable() {

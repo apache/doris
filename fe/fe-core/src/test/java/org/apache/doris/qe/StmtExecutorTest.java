@@ -106,7 +106,9 @@ public class StmtExecutorTest extends TestWithFeService {
     @Test
     public void testInsertReplansAfterColumnRenameRestoresSchemaNames() throws Exception {
         assertInsertDefaultAfterRealColumnRename(true, false);
+        assertEmptyStatementSucceedsAfterCleanup();
         assertInsertDefaultAfterRealColumnRename(false, false);
+        assertEmptyStatementSucceedsAfterCleanup();
     }
 
     private void assertInsertDefaultAfterRealColumnRename(boolean fastPath, boolean reuseName) throws Exception {
@@ -193,7 +195,11 @@ public class StmtExecutorTest extends TestWithFeService {
                     Assertions.assertEquals(Arrays.asList("1", "2", "9"), boundValues);
                 } finally {
                     if (insert != null && insert.getTxnId() != -1) {
-                        Deencapsulation.invoke(insert, "onFail", new RuntimeException("test cleanup"));
+                        try {
+                            Deencapsulation.invoke(insert, "onFail", new RuntimeException("test cleanup"));
+                        } finally {
+                            connectContext.getState().reset();
+                        }
                     }
                     statement.close();
                 }
@@ -306,7 +312,11 @@ public class StmtExecutorTest extends TestWithFeService {
                 Assertions.assertEquals(replacement.getFullSchema(), statement.getInsertTargetSchema());
             } finally {
                 if (insert != null && insert.getTxnId() != -1) {
-                    Deencapsulation.invoke(insert, "onFail", new RuntimeException("test cleanup"));
+                    try {
+                        Deencapsulation.invoke(insert, "onFail", new RuntimeException("test cleanup"));
+                    } finally {
+                        connectContext.getState().reset();
+                    }
                 }
                 if (database.getTableOrMetaException(targetName) == replacement) {
                     Env.getCurrentEnv().getAlterInstance().processReplaceTable(
@@ -315,6 +325,12 @@ public class StmtExecutorTest extends TestWithFeService {
                 statement.close();
             }
         }
+        assertEmptyStatementSucceedsAfterCleanup();
+    }
+
+    private void assertEmptyStatementSucceedsAfterCleanup() throws Exception {
+        new StmtExecutor(connectContext, "").execute();
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
     }
 
     @Override

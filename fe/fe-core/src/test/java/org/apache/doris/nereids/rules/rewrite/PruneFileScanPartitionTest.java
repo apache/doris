@@ -83,8 +83,11 @@ public class PruneFileScanPartitionTest {
 
     @Test
     public void testCompleteViewAliasesReuseSortedRanges() throws Exception {
-        SelectedPartitions view = new SelectedPartitions(2, ImmutableMap.of(
-                "p=1", integerPartition("1"), "p=2", integerPartition("2")), false);
+        Map<String, PartitionItem> partitions = ImmutableMap.of(
+                "p=1", integerPartition("1"), "p=2", integerPartition("2"));
+        SortedPartitionRanges<String> publishedRanges = SortedPartitionRanges.build(partitions);
+        SelectedPartitions view = new SelectedPartitions(
+                2, partitions, false, false, Optional.of(publishedRanges));
         HMSExternalTable table = partitionedHiveTable(SelectedPartitions.DEFERRED_PARTITION_PRUNING);
         Mockito.when(table.preloadPartitionView(Mockito.any())).thenReturn(view);
         StatementContext statement = statementContext();
@@ -108,8 +111,7 @@ public class PruneFileScanPartitionTest {
             Assertions.assertEquals(Collections.singleton("p=2"), secondResult.selectedPartitions.keySet());
             Assertions.assertTrue(firstResult.hasPartitionPredicate);
             Assertions.assertTrue(secondResult.hasPartitionPredicate);
-            ranges.verify(() -> SortedPartitionRanges.build(Mockito.same(view.selectedPartitions)), Mockito.times(1));
-            ranges.verifyNoMoreInteractions();
+            ranges.verifyNoInteractions();
             Mockito.verify(table, Mockito.never()).getSortedPartitionRanges(Mockito.any());
             Mockito.verify(table, Mockito.never()).getNameToPartitionItemsByFilter(Mockito.any(), Mockito.any());
             Mockito.verify(table, Mockito.never()).getNameToPartitionItems(Mockito.any());
@@ -140,6 +142,36 @@ public class PruneFileScanPartitionTest {
             Assertions.assertTrue(result.hasPartitionPredicate);
             ranges.verify(() -> SortedPartitionRanges.build(Mockito.anyMap()), Mockito.times(1));
             Mockito.verify(table).getNameToPartitionItemsByFilter(Mockito.any(), Mockito.any());
+            Mockito.verify(table, Mockito.never()).getNameToPartitionItems(Mockito.any());
+            Mockito.verify(table, Mockito.never()).getSortedPartitionRanges(Mockito.any());
+        }
+    }
+
+    @Test
+    public void testCompleteFallbackReusesPublishedGenerationIndex() throws Exception {
+        Map<String, PartitionItem> partitions = ImmutableMap.of(
+                "p=1", integerPartition("1"), "p=2", integerPartition("2"));
+        SortedPartitionRanges<String> publishedRanges = SortedPartitionRanges.build(partitions);
+        SelectedPartitions view = new SelectedPartitions(
+                2, partitions, false, false, Optional.of(publishedRanges));
+        HMSExternalTable table = partitionedHiveTable(SelectedPartitions.DEFERRED_PARTITION_PRUNING);
+        Mockito.when(table.getNameToPartitionItemsByFilter(Mockito.any(), Mockito.any()))
+                .thenReturn(Optional.empty());
+        Mockito.when(table.preloadPartitionView(Mockito.any())).thenReturn(view);
+        StatementContext statement = statementContext();
+        try (MockedStatic<ConnectContext> current = Mockito.mockStatic(ConnectContext.class);
+                MockedStatic<SortedPartitionRanges> ranges =
+                        Mockito.mockStatic(SortedPartitionRanges.class, Mockito.CALLS_REAL_METHODS)) {
+            current.when(ConnectContext::get).thenReturn(statement.getConnectContext());
+            LogicalFileScan scan = hiveScan(table, 1);
+
+            SelectedPartitions result = pruneFilter(new LogicalFilter<>(Collections.singleton(
+                    new EqualTo(scan.getOutput().get(0), new IntegerLiteral(1))), scan), statement);
+
+            Assertions.assertEquals(Collections.singleton("p=1"), result.selectedPartitions.keySet());
+            Assertions.assertTrue(result.hasPartitionPredicate);
+            ranges.verifyNoInteractions();
+            Mockito.verify(table).preloadPartitionView(Mockito.any());
             Mockito.verify(table, Mockito.never()).getNameToPartitionItems(Mockito.any());
             Mockito.verify(table, Mockito.never()).getSortedPartitionRanges(Mockito.any());
         }
@@ -264,7 +296,8 @@ public class PruneFileScanPartitionTest {
         Mockito.when(table.initSelectedPartitions(Mockito.any())).thenReturn(preloaded
                 ? new SelectedPartitions(partitions.size(), partitions, false)
                 : SelectedPartitions.DEFERRED_PARTITION_PRUNING);
-        Mockito.when(table.getNameToPartitionItems(Mockito.any())).thenReturn(partitions);
+        Mockito.when(table.preloadPartitionView(Mockito.any()))
+                .thenReturn(new SelectedPartitions(partitions.size(), partitions, false));
         Mockito.when(table.getNameToPartitionItemsByFilter(Mockito.any(), Mockito.any())).thenAnswer(invocation -> {
             String filter = HivePartitionFilterBuilder.build(invocation.getArgument(1),
                     Collections.singletonList(partitionColumn), ImmutableMap.of("p", "int"));
@@ -291,9 +324,12 @@ public class PruneFileScanPartitionTest {
             ranges.verify(() -> SortedPartitionRanges.build(Mockito.anyMap()), Mockito.times(1));
         }
         Mockito.verify(table, Mockito.never()).getSortedPartitionRanges(Mockito.any());
+        Mockito.verify(table, Mockito.never()).getNameToPartitionItems(Mockito.any());
         if (preloaded) {
             Mockito.verify(table, Mockito.never()).getNameToPartitionItemsByFilter(Mockito.any(), Mockito.any());
-            Mockito.verify(table, Mockito.never()).getNameToPartitionItems(Mockito.any());
+            Mockito.verify(table, Mockito.never()).preloadPartitionView(Mockito.any());
+        } else {
+            Mockito.verify(table).preloadPartitionView(Mockito.any());
         }
     }
 

@@ -487,19 +487,38 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
          */
         public SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
                 boolean isPruned, boolean hasPartitionPredicate) {
-            this(totalPartitionNum, selectedPartitions, isPruned, hasPartitionPredicate, State.MATERIALIZED);
+            this(totalPartitionNum, selectedPartitions, isPruned, hasPartitionPredicate, State.MATERIALIZED,
+                    Optional.empty());
+        }
+
+        /**
+         * Constructor for a complete view whose sorted index was published with the same partition map.
+         */
+        public SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
+                boolean isPruned, boolean hasPartitionPredicate,
+                Optional<SortedPartitionRanges<String>> publishedPartitionRanges) {
+            this(totalPartitionNum, selectedPartitions, isPruned, hasPartitionPredicate, State.MATERIALIZED,
+                    publishedPartitionRanges);
         }
 
         private SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
                 boolean isPruned, boolean hasPartitionPredicate, State state) {
+            this(totalPartitionNum, selectedPartitions, isPruned, hasPartitionPredicate, state, Optional.empty());
+        }
+
+        private SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
+                boolean isPruned, boolean hasPartitionPredicate, State state,
+                Optional<SortedPartitionRanges<String>> publishedPartitionRanges) {
             this.totalPartitionNum = totalPartitionNum;
             this.selectedPartitions = ImmutableMap.copyOf(Objects.requireNonNull(selectedPartitions,
                     "selectedPartitions is null"));
             this.isPruned = isPruned;
             this.hasPartitionPredicate = hasPartitionPredicate;
             this.state = state;
-            this.sortedPartitionRanges = Suppliers.memoize(
-                    () -> Optional.ofNullable(SortedPartitionRanges.build(this.selectedPartitions)));
+            this.sortedPartitionRanges = publishedPartitionRanges.isPresent()
+                    ? Suppliers.memoize(() -> publishedPartitionRanges)
+                    : Suppliers.memoize(
+                            () -> Optional.ofNullable(SortedPartitionRanges.build(this.selectedPartitions)));
         }
 
         /** Lazily index this immutable view; relations sharing the view reuse the same index. */
