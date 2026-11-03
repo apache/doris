@@ -41,6 +41,7 @@ import org.apache.iceberg.mapping.NameMappingParser;
 import org.apache.iceberg.transforms.Transforms;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Type.TypeID;
+import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -56,6 +57,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Builds the native-reader schema dictionary ({@code current_schema_id} + {@code history_schema_info}) so BE
@@ -173,11 +175,12 @@ public final class IcebergSchemaUtils {
      * drop/re-add operations may legitimately contribute two fields with the same name and different IDs;
      * Iceberg validates names when a Schema is constructed even though BE consumes this carrier strictly by ID.
      */
-    static String encodeEqualitySchemaEvolutionProp(Table table, List<Types.NestedField> fields,
+    static String encodeEqualitySchemaEvolutionProp(Table table, Schema scanSchema, List<Types.NestedField> fields,
             boolean appendRowLineage, boolean enableVarbinary, boolean enableTimestampTz) {
         Optional<Map<Integer, List<String>>> nameMapping = extractNameMapping(table);
         TSchema current = buildCurrentSchema(fields, nameMapping.orElse(Collections.emptyMap()),
-                nameMapping.isPresent(), enableVarbinary, enableTimestampTz);
+                nameMapping.isPresent(), enableVarbinary, enableTimestampTz,
+                TypeUtil.indexById(scanSchema.asStruct()).keySet());
         if (appendRowLineage) {
             appendRowLineageFields(current.getRootField());
         }
@@ -324,13 +327,13 @@ public final class IcebergSchemaUtils {
 
     private static TSchema buildCurrentSchema(List<Types.NestedField> fields,
             Map<Integer, List<String>> nameMapping, boolean hasNameMapping, boolean enableVarbinary,
-            boolean enableTimestampTz) {
+            boolean enableTimestampTz, Set<Integer> currentFieldIds) {
         TSchema tSchema = new TSchema();
         tSchema.setSchemaId(CURRENT_SCHEMA_ID);
         TStructField root = new TStructField();
         for (Types.NestedField field : fields) {
             addField(root, buildField(field, field.name(), nameMapping,
-                    hasNameMapping, enableVarbinary, enableTimestampTz));
+                    hasNameMapping, enableVarbinary, enableTimestampTz, currentFieldIds));
         }
         tSchema.setRootField(root);
         return tSchema;
@@ -354,6 +357,13 @@ public final class IcebergSchemaUtils {
     private static TField buildField(Types.NestedField field, String nameOverride,
             Map<Integer, List<String>> nameMapping, boolean hasNameMapping, boolean enableVarbinary,
             boolean enableTimestampTz) {
+        return buildField(field, nameOverride, nameMapping, hasNameMapping,
+                enableVarbinary, enableTimestampTz, null);
+    }
+
+    private static TField buildField(Types.NestedField field, String nameOverride,
+            Map<Integer, List<String>> nameMapping, boolean hasNameMapping, boolean enableVarbinary,
+            boolean enableTimestampTz, Set<Integer> currentFieldIds) {
         TField tField = new TField();
         tField.setId(field.fieldId());
         tField.setName(nameOverride != null ? nameOverride : field.name().toLowerCase(Locale.ROOT));
@@ -394,7 +404,15 @@ public final class IcebergSchemaUtils {
         Type type = field.type();
         TColumnType columnType = new TColumnType();
         if (type.isPrimitiveType()) {
-            tField.setType(buildPrimitiveColumnType(type, enableVarbinary, enableTimestampTz));
+            TColumnType primitive = buildPrimitiveColumnType(type, enableVarbinary, enableTimestampTz);
+            if (type.typeId() == TypeID.UNKNOWN && currentFieldIds != null
+                    && !currentFieldIds.contains(field.fieldId())) {
+                // A dropped equality key may retain only its old UNKNOWN schema after promotion
+                // schemas expire. It is not a current unknown column: BE must still resolve the
+                // physical key's concrete type, as it did with the unsupported STRING placeholder.
+                primitive.setType(TPrimitiveType.STRING);
+            }
+            tField.setType(primitive);
             if (type.typeId() == TypeID.TIMESTAMP && ((Types.TimestampType) type).shouldAdjustToUTC()) {
                 // Iceberg decodes a Parquet timestamp by the table type, not by the file annotation. Spark and Hive
                 // write timestamptz as INT96, which has no annotation, so without this marker BE reads such a
@@ -421,7 +439,7 @@ public final class IcebergSchemaUtils {
                 TArrayField arrayField = new TArrayField();
                 arrayField.setItemField(fieldPtr(
                         buildField(listType.fields().get(0), null, nameMapping, hasNameMapping,
-                                enableVarbinary, enableTimestampTz)));
+                                enableVarbinary, enableTimestampTz, currentFieldIds)));
                 nestedField.setArrayField(arrayField);
                 break;
             }
@@ -432,10 +450,10 @@ public final class IcebergSchemaUtils {
                 TMapField mapField = new TMapField();
                 mapField.setKeyField(fieldPtr(
                         buildField(kv.get(0), null, nameMapping, hasNameMapping, enableVarbinary,
-                                enableTimestampTz)));
+                                enableTimestampTz, currentFieldIds)));
                 mapField.setValueField(fieldPtr(
                         buildField(kv.get(1), null, nameMapping, hasNameMapping, enableVarbinary,
-                                enableTimestampTz)));
+                                enableTimestampTz, currentFieldIds)));
                 nestedField.setMapField(mapField);
                 break;
             }
@@ -445,7 +463,7 @@ public final class IcebergSchemaUtils {
                 TStructField structField = new TStructField();
                 for (Types.NestedField child : structType.fields()) {
                     addField(structField, buildField(child, null, nameMapping, hasNameMapping,
-                            enableVarbinary, enableTimestampTz));
+                            enableVarbinary, enableTimestampTz, currentFieldIds));
                 }
                 nestedField.setStructField(structField);
                 break;
@@ -462,10 +480,23 @@ public final class IcebergSchemaUtils {
         return tField;
     }
 
+    /** Reject every data mutation, including writes that project only ordinary columns. */
+    static void validateNoUnknownForWrite(Schema schema) {
+        // Once unknown columns become queryable, projection-based write checks can miss a nested
+        // unknown or an omitted target column. Validate the authoritative target schema instead.
+        if (TypeUtil.indexById(schema.asStruct()).values().stream()
+                .anyMatch(field -> field.type().typeId() == TypeID.UNKNOWN)) {
+            throw new DorisConnectorException("Writing to Iceberg tables with unknown type columns is not supported");
+        }
+    }
+
     private static TColumnType buildPrimitiveColumnType(
             Type type, boolean enableVarbinary, boolean enableTimestampTz) {
         TColumnType columnType = new TColumnType();
         switch (type.typeId()) {
+            case UNKNOWN:
+                columnType.setType(TPrimitiveType.NULL_TYPE);
+                break;
             case BOOLEAN:
                 columnType.setType(TPrimitiveType.BOOLEAN);
                 break;

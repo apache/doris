@@ -100,6 +100,7 @@ final class IcebergWriteSchemaContext {
         // A branch selects only the parent snapshot / ref. Iceberg validates a branch write against the
         // table-current schema and stamps that schema on the new snapshot, and Spark binds it the same way.
         Schema schema = table.schema();
+        IcebergSchemaUtils.validateNoUnknownForWrite(schema);
         int formatVersion = IcebergWriterHelper.getFormatVersion(table);
         TableIdentity identity = pinTableIdentity(table, formatVersion);
         return new IcebergWriteSchemaContext(

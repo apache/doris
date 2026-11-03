@@ -54,6 +54,18 @@ import java.util.List;
  */
 public class IcebergPredicateConverterTest {
 
+    @Test
+    public void unknownNullPredicatesNeverUsePhysicalStatistics() {
+        Schema schema = new Schema(Types.NestedField.optional(1, "u", Types.UnknownType.get()));
+        for (IcebergPredicateConverter.Mode mode : IcebergPredicateConverter.Mode.values()) {
+            IcebergPredicateConverter converter = new IcebergPredicateConverter(schema, ZoneOffset.UTC, mode);
+            ConnectorColumnRef unknown = new ConnectorColumnRef("u", ConnectorType.of("UNKNOWN"));
+            ConnectorComparison predicate = new ConnectorComparison(ConnectorComparison.Operator.EQ_FOR_NULL,
+                    unknown, new ConnectorLiteral(ConnectorType.of("NULL_TYPE"), null));
+            Assertions.assertTrue(converter.convert(predicate).isEmpty());
+        }
+    }
+
     // Same schema (ids/types) as fe-core IcebergPredicateTest.
     private static final Schema SCHEMA = new Schema(
             Types.NestedField.required(1, "c_int", Types.IntegerType.get()),

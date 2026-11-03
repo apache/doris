@@ -215,7 +215,7 @@ public class IcebergSchemaUtilsTest {
         Table table = createTable("mixed_equality", schema);
 
         TFileScanRangeParams params = decode(IcebergSchemaUtils.encodeEqualitySchemaEvolutionProp(
-                table, schema.columns(), false, false, false));
+                table, schema, schema.columns(), false, false, false));
         List<TFieldPtr> fields = params.getHistorySchemaInfo().get(0).getRootField().getFields();
 
         Assertions.assertEquals("ID", fields.get(0).getFieldPtr().getName());
@@ -474,7 +474,7 @@ public class IcebergSchemaUtilsTest {
         Table table = createTable("carrier", SCHEMA);
 
         TStructField root = decode(IcebergSchemaUtils.encodeEqualitySchemaEvolutionProp(
-                table, fields, false, false, false)).getHistorySchemaInfo().get(0).getRootField();
+                table, table.schema(), fields, false, false, false)).getHistorySchemaInfo().get(0).getRootField();
 
         Assertions.assertEquals(Arrays.asList(10, 20, 30), root.getFields().stream()
                 .map(field -> field.getFieldPtr().getId()).collect(java.util.stream.Collectors.toList()));
@@ -614,6 +614,74 @@ public class IcebergSchemaUtilsTest {
                 mappedFields.get("timestamp_tz_col").getType().getType());
         Assertions.assertEquals(TPrimitiveType.VARBINARY,
                 mappedFields.get("binary_col").getType().getType());
+    }
+
+    @Test
+    public void unknownUsesNullCarrierAndConcreteEvolutionRebinds() {
+        Schema unknown = new Schema(Types.NestedField.optional(1, "u", Types.UnknownType.get()));
+        Schema concrete = new Schema(Types.NestedField.optional(1, "u", Types.LongType.get()));
+        TField oldField = topFields(IcebergSchemaUtils.buildCurrentSchema(unknown,
+                Collections.singletonList("u"), Collections.emptyMap())).get("u");
+        TField newField = topFields(IcebergSchemaUtils.buildCurrentSchema(concrete,
+                Collections.singletonList("u"), Collections.emptyMap())).get("u");
+        Assertions.assertEquals(TPrimitiveType.NULL_TYPE, oldField.getType().getType());
+        Assertions.assertEquals(TPrimitiveType.BIGINT, newField.getType().getType());
+        Assertions.assertEquals(oldField.getId(), newField.getId());
+        Assertions.assertEquals(TPrimitiveType.NULL_TYPE, oldField.getType().getType(),
+                "rebinding must not mutate an already bound schema");
+    }
+
+    @Test
+    public void nestedUnknownLeavesUseNullCarriersWithoutLosingFieldIds() {
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "s", Types.StructType.of(
+                        Types.NestedField.optional(2, "u", Types.UnknownType.get()))),
+                Types.NestedField.optional(3, "a", Types.ListType.ofOptional(4, Types.UnknownType.get())),
+                Types.NestedField.optional(5, "m", Types.MapType.ofOptional(6, 7,
+                        Types.StringType.get(), Types.UnknownType.get())));
+        Map<String, TField> fields = topFields(IcebergSchemaUtils.buildCurrentSchema(schema,
+                Arrays.asList("s", "a", "m"), Collections.emptyMap()));
+        TField structChild = childByName(fields.get("s"), "u");
+        TField arrayChild = fields.get("a").getNestedField().getArrayField().getItemField().getFieldPtr();
+        TField mapChild = fields.get("m").getNestedField().getMapField().getValueField().getFieldPtr();
+        Assertions.assertEquals(2, structChild.getId());
+        Assertions.assertEquals(4, arrayChild.getId());
+        Assertions.assertEquals(7, mapChild.getId());
+        for (TField field : Arrays.asList(structChild, arrayChild, mapChild)) {
+            Assertions.assertEquals(TPrimitiveType.NULL_TYPE, field.getType().getType());
+            Assertions.assertTrue(field.isIsOptional());
+        }
+    }
+
+    @Test
+    public void droppedUnknownEqualityCarrierKeepsPhysicalTypeResolution() throws Exception {
+        Schema current = new Schema(Types.NestedField.optional(1, "u", Types.UnknownType.get()));
+        Table table = createTable("unknown_equality_carrier", current,
+                Collections.singletonMap("format-version", "3"));
+        List<Types.NestedField> fields = Arrays.asList(current.columns().get(0),
+                Types.NestedField.optional(2, "dropped_u", Types.UnknownType.get()));
+        TSchema schema = decode(IcebergSchemaUtils.encodeEqualitySchemaEvolutionProp(
+                table, current, fields, false, false, false)).getHistorySchemaInfo().get(0);
+        Assertions.assertEquals(TPrimitiveType.NULL_TYPE, topFields(schema).get("u").getType().getType());
+        Assertions.assertEquals(TPrimitiveType.STRING, topFields(schema).get("dropped_u").getType().getType());
+    }
+
+    @Test
+    public void unknownWriteGuardVisitsNestedLeavesAndCreateRejectsUnknown() {
+        for (org.apache.iceberg.types.Type type : Arrays.asList(
+                Types.UnknownType.get(),
+                Types.StructType.of(Types.NestedField.optional(2, "u", Types.UnknownType.get())),
+                Types.ListType.ofOptional(3, Types.UnknownType.get()),
+                Types.MapType.ofOptional(4, 5, Types.StringType.get(), Types.UnknownType.get()))) {
+            Schema schema = new Schema(Types.NestedField.optional(1, "payload", type));
+            Assertions.assertThrows(org.apache.doris.connector.spi.DorisConnectorException.class,
+                    () -> IcebergSchemaUtils.validateNoUnknownForWrite(schema));
+        }
+        Assertions.assertDoesNotThrow(() -> IcebergSchemaUtils.validateNoUnknownForWrite(
+                new Schema(Types.NestedField.optional(1, "id", Types.IntegerType.get()))));
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> IcebergTypeMapping.toIcebergPrimitive(
+                        org.apache.doris.connector.spi.ConnectorType.of("UNKNOWN")));
     }
 
     @Test

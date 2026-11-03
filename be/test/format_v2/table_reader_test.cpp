@@ -491,8 +491,76 @@ private:
 class TableReaderMaterializeTestHelper final : public TableReader {
 public:
     using TableReader::_materialize_mapping_column;
+    using TableReader::_materialize_complex_mapping_column;
     using TableReader::_materialize_map_mapping_column;
 };
+
+TEST(TableReaderTest, UnknownCollectionChildrenPreserveOffsetsAndParentNulls) {
+    auto nested = std::make_shared<DataTypeUInt8>();
+    nested->set_null_literal(true);
+    const auto null_type = make_nullable(nested);
+    const auto string_type = std::make_shared<DataTypeString>();
+    ColumnMapping unknown;
+    unknown.table_column_name = "value";
+    unknown.table_type = null_type;
+    unknown.file_type = null_type;
+
+    for (const bool is_map : {false, true}) {
+        auto values = ColumnString::create();
+        values->insert_value("ignore-one");
+        values->insert_value("ignore-two");
+        auto offsets = ColumnArray::ColumnOffsets::create();
+        for (const auto offset : {2, 2, 2}) {
+            offsets->insert_value(offset);
+        }
+        ColumnMapping mapping;
+        mapping.child_mappings = {unknown};
+        ColumnPtr source;
+        if (is_map) {
+            auto keys = ColumnString::create();
+            keys->insert_value("a");
+            keys->insert_value("b");
+            source = ColumnMap::create(std::move(keys), std::move(values), std::move(offsets));
+            mapping.table_type =
+                    make_nullable(std::make_shared<DataTypeMap>(string_type, null_type));
+            mapping.file_type =
+                    make_nullable(std::make_shared<DataTypeMap>(string_type, string_type));
+        } else {
+            source = ColumnArray::create(std::move(values), std::move(offsets));
+            mapping.table_type = make_nullable(std::make_shared<DataTypeArray>(null_type));
+            mapping.file_type = make_nullable(std::make_shared<DataTypeArray>(string_type));
+        }
+        auto nulls = ColumnUInt8::create();
+        nulls->insert_value(0);
+        nulls->insert_value(1);
+        nulls->insert_value(0);
+        source = ColumnNullable::create(IColumn::mutate(std::move(source)), std::move(nulls));
+        TableReaderMaterializeTestHelper reader;
+        ColumnPtr result;
+        ASSERT_TRUE(reader._materialize_complex_mapping_column(mapping, source, 3, &result).ok());
+        const auto& nullable = assert_cast<const ColumnNullable&>(*result);
+        EXPECT_EQ(nullable.get_null_map_data()[0], 0);
+        EXPECT_EQ(nullable.get_null_map_data()[1], 1);
+        EXPECT_EQ(nullable.get_null_map_data()[2], 0);
+        const auto& parent = nullable.get_nested_column();
+        if (is_map) {
+            const auto& keys = assert_cast<const ColumnMap&>(parent).get_keys();
+            EXPECT_EQ(keys.get_data_at(0).to_string(), "a");
+            EXPECT_EQ(keys.get_data_at(1).to_string(), "b");
+        }
+        const auto& result_values = is_map ? assert_cast<const ColumnMap&>(parent).get_values()
+                                           : assert_cast<const ColumnArray&>(parent).get_data();
+        const auto& result_offsets = is_map ? assert_cast<const ColumnMap&>(parent).get_offsets()
+                                            : assert_cast<const ColumnArray&>(parent).get_offsets();
+        ASSERT_EQ(result_offsets.size(), 3);
+        EXPECT_EQ(result_offsets[0], 2);
+        EXPECT_EQ(result_offsets[1], 2);
+        EXPECT_EQ(result_offsets[2], 2);
+        ASSERT_EQ(result_values.size(), 2);
+        EXPECT_TRUE(result_values[0].is_null());
+        EXPECT_TRUE(result_values[1].is_null());
+    }
+}
 
 TEST(TableReaderTest, LastProjectionDetachesNestedMapWithoutCopyingStrings) {
     auto keys = ColumnString::create();

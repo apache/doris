@@ -237,16 +237,20 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
         // Resolve the per-request ops before the auth scope (see runInAuthScope): a session=user fail-closed
         // surfaces verbatim.
         IcebergCatalogOps ops = catalogOpsResolver.apply(session);
+        Function<Table, List<RewriteDataGroup>> planTasks = table -> {
+            IcebergSchemaUtils.validateNoUnknownForWrite(table.schema());
+            return planner.planAndOrganizeTasks(IcebergScanPlanning.requiresServerSideScanPlanning(table)
+                    ? table : wrapTableForProcedure(table));
+        };
         List<RewriteDataGroup> groups;
         if (context == null) {
-            groups = ops.withTable(handle.getDbName(), handle.getTableName(), planner::planAndOrganizeTasks);
+            groups = ops.withTable(handle.getDbName(), handle.getTableName(), planTasks);
         } else {
             try {
                 // A server-planned table (RESTTable) keeps its own newScan(), which asks the REST server for the
                 // file scan tasks; rebuilding it as a plain BaseTable would plan from local manifests instead.
                 groups = context.executeAuthenticated(() -> ops.withTable(handle.getDbName(), handle.getTableName(),
-                        table -> planner.planAndOrganizeTasks(IcebergScanPlanning.requiresServerSideScanPlanning(table)
-                                ? table : wrapTableForProcedure(table))));
+                        planTasks));
             } catch (DorisConnectorException e) {
                 throw e;
             } catch (Exception e) {
