@@ -232,7 +232,7 @@ public class JsonMetricVisitor extends MetricVisitor {
     }
 
     @Override
-    public void visitChangelogIvmMonitor() {
+    public void visitChangelogMonitor() {
         return;
     }
 

@@ -33,14 +33,14 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * Samples the changelog, the table streams and the IVM materialized views on the Master FE for monitoring.
  *
- * <p>Each round builds an immutable {@link ChangelogIvmMonitorSnapshot} and replaces the previous one at once, so
+ * <p>Each round builds an immutable {@link ChangelogMonitorSnapshot} and replaces the previous one at once, so
  * that /metrics renders the state from the snapshot instead of computing it while being scraped. A round that fails
  * keeps the previous snapshot, whose sample time then shows its age, and counts the failure.
  */
-public class ChangelogIvmMonitor extends MasterDaemon {
-    private static final Logger LOG = LogManager.getLogger(ChangelogIvmMonitor.class);
+public class ChangelogMonitor extends MasterDaemon {
+    private static final Logger LOG = LogManager.getLogger(ChangelogMonitor.class);
 
-    // The monitor checks every second whether changelog_ivm_monitor_interval_seconds has passed since its last
+    // The monitor checks every second whether changelog_monitor_interval_seconds has passed since its last
     // round, so that a change of the interval applies at once: a daemon sleeping its own interval would only see
     // the change once the old interval is over.
     private static final long CHECK_INTERVAL_MS = 1000L;
@@ -49,15 +49,15 @@ public class ChangelogIvmMonitor extends MasterDaemon {
     private long lastRoundMs = 0;
 
     // null before the first round completes, and while the monitor is disabled
-    private volatile ChangelogIvmMonitorSnapshot snapshot;
+    private volatile ChangelogMonitorSnapshot snapshot;
     private final AtomicLong sampleFailures = new AtomicLong();
 
-    public ChangelogIvmMonitor() {
-        super("changelog-ivm-monitor", CHECK_INTERVAL_MS);
+    public ChangelogMonitor() {
+        super("changelog-monitor", CHECK_INTERVAL_MS);
     }
 
     public static boolean isEnabled() {
-        return Config.enable_feature_changelog && Config.enable_changelog_ivm_monitor;
+        return Config.enable_feature_changelog && Config.enable_changelog_monitor;
     }
 
     @Override
@@ -68,7 +68,7 @@ public class ChangelogIvmMonitor extends MasterDaemon {
             return;
         }
         long now = System.currentTimeMillis();
-        if (now - lastRoundMs < Config.changelog_ivm_monitor_interval_seconds * 1000L) {
+        if (now - lastRoundMs < Config.changelog_monitor_interval_seconds * 1000L) {
             return;
         }
         lastRoundMs = now;
@@ -87,7 +87,7 @@ public class ChangelogIvmMonitor extends MasterDaemon {
     }
 
     @VisibleForTesting
-    ChangelogIvmMonitorSnapshot buildSnapshot(long startMs) {
+    ChangelogMonitorSnapshot buildSnapshot(long startMs) {
         // The statistics of a table are refreshed by TabletStatMgr or CloudTabletStatMgr, the same as SHOW DATA reads.
         long changelogSize = 0;
         long totalReplicaChangelogSize = 0;
@@ -100,10 +100,10 @@ public class ChangelogIvmMonitor extends MasterDaemon {
             }
         }
         long endMs = System.currentTimeMillis();
-        return new ChangelogIvmMonitorSnapshot(endMs, endMs - startMs, changelogSize, totalReplicaChangelogSize);
+        return new ChangelogMonitorSnapshot(endMs, endMs - startMs, changelogSize, totalReplicaChangelogSize);
     }
 
-    public ChangelogIvmMonitorSnapshot getSnapshot() {
+    public ChangelogMonitorSnapshot getSnapshot() {
         return snapshot;
     }
 

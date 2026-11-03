@@ -33,7 +33,7 @@ import org.mockito.Mockito;
 
 import java.util.List;
 
-public class ChangelogIvmMonitorTest {
+public class ChangelogMonitorTest {
     private boolean originEnableChangelog;
     private boolean originEnableMonitor;
     private int originInterval;
@@ -41,17 +41,17 @@ public class ChangelogIvmMonitorTest {
     @BeforeEach
     public void setUp() {
         originEnableChangelog = Config.enable_feature_changelog;
-        originEnableMonitor = Config.enable_changelog_ivm_monitor;
-        originInterval = Config.changelog_ivm_monitor_interval_seconds;
+        originEnableMonitor = Config.enable_changelog_monitor;
+        originInterval = Config.changelog_monitor_interval_seconds;
         Config.enable_feature_changelog = true;
-        Config.enable_changelog_ivm_monitor = true;
+        Config.enable_changelog_monitor = true;
     }
 
     @AfterEach
     public void tearDown() {
         Config.enable_feature_changelog = originEnableChangelog;
-        Config.enable_changelog_ivm_monitor = originEnableMonitor;
-        Config.changelog_ivm_monitor_interval_seconds = originInterval;
+        Config.enable_changelog_monitor = originEnableMonitor;
+        Config.changelog_monitor_interval_seconds = originInterval;
     }
 
     @Test
@@ -67,10 +67,10 @@ public class ChangelogIvmMonitorTest {
         Mockito.when(catalog.getDbs()).thenReturn(List.of(firstDb, secondDb));
         try (MockedStatic<Env> env = Mockito.mockStatic(Env.class)) {
             env.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
-            ChangelogIvmMonitor monitor = new ChangelogIvmMonitor();
+            ChangelogMonitor monitor = new ChangelogMonitor();
             long startMs = System.currentTimeMillis();
             monitor.sample();
-            ChangelogIvmMonitorSnapshot snapshot = monitor.getSnapshot();
+            ChangelogMonitorSnapshot snapshot = monitor.getSnapshot();
             Assertions.assertEquals(120L, snapshot.getChangelogSize());
             Assertions.assertEquals(360L, snapshot.getTotalReplicaChangelogSize());
             // SHOW DATA lists the changelog of all the replicas of each table
@@ -90,9 +90,9 @@ public class ChangelogIvmMonitorTest {
                 .thenReturn(List.of());
         try (MockedStatic<Env> env = Mockito.mockStatic(Env.class)) {
             env.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
-            ChangelogIvmMonitor monitor = new ChangelogIvmMonitor();
+            ChangelogMonitor monitor = new ChangelogMonitor();
             monitor.sample();
-            ChangelogIvmMonitorSnapshot first = monitor.getSnapshot();
+            ChangelogMonitorSnapshot first = monitor.getSnapshot();
             Assertions.assertNotNull(first);
 
             monitor.sample();
@@ -111,26 +111,26 @@ public class ChangelogIvmMonitorTest {
         Mockito.when(catalog.getDbs()).thenReturn(List.of());
         try (MockedStatic<Env> env = Mockito.mockStatic(Env.class)) {
             env.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
-            ChangelogIvmMonitor monitor = new ChangelogIvmMonitor();
-            Config.changelog_ivm_monitor_interval_seconds = 3600;
+            ChangelogMonitor monitor = new ChangelogMonitor();
+            Config.changelog_monitor_interval_seconds = 3600;
             monitor.runAfterCatalogReady();
-            ChangelogIvmMonitorSnapshot first = monitor.getSnapshot();
+            ChangelogMonitorSnapshot first = monitor.getSnapshot();
             Assertions.assertNotNull(first);
             // within the interval
             monitor.runAfterCatalogReady();
             Assertions.assertSame(first, monitor.getSnapshot());
             // a shorter interval applies at the next check, not after the old interval
-            Config.changelog_ivm_monitor_interval_seconds = 0;
+            Config.changelog_monitor_interval_seconds = 0;
             monitor.runAfterCatalogReady();
             Assertions.assertNotSame(first, monitor.getSnapshot());
             Mockito.verify(catalog, Mockito.times(2)).getDbs();
 
             // Disabled, the monitor samples nothing and drops the snapshot it has, so that it does not export the
             // snapshot once enabled again; the same without the changelog feature.
-            Config.enable_changelog_ivm_monitor = false;
+            Config.enable_changelog_monitor = false;
             monitor.runAfterCatalogReady();
             Assertions.assertNull(monitor.getSnapshot());
-            Config.enable_changelog_ivm_monitor = true;
+            Config.enable_changelog_monitor = true;
             Config.enable_feature_changelog = false;
             monitor.runAfterCatalogReady();
             Assertions.assertNull(monitor.getSnapshot());

@@ -18,10 +18,10 @@
 package org.apache.doris.changelog;
 
 /**
- * What one round of {@link ChangelogIvmMonitor} sampled. A snapshot never changes once built, and the monitor
+ * What one round of {@link ChangelogMonitor} sampled. A snapshot never changes once built, and the monitor
  * replaces it as a whole, so a reader such as /metrics sees a single round without taking any lock.
  */
-public class ChangelogIvmMonitorSnapshot {
+public class ChangelogMonitorSnapshot {
     // when the round completed, and how long it took
     private final long sampleTimeMs;
     private final long sampleDurationMs;
@@ -29,7 +29,7 @@ public class ChangelogIvmMonitorSnapshot {
     private final long changelogSize;
     private final long totalReplicaChangelogSize;
 
-    public ChangelogIvmMonitorSnapshot(long sampleTimeMs, long sampleDurationMs, long changelogSize,
+    public ChangelogMonitorSnapshot(long sampleTimeMs, long sampleDurationMs, long changelogSize,
             long totalReplicaChangelogSize) {
         this.sampleTimeMs = sampleTimeMs;
         this.sampleDurationMs = sampleDurationMs;

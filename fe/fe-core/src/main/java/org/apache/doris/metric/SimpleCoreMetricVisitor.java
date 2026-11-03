@@ -158,7 +158,7 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
     }
 
     @Override
-    public void visitChangelogIvmMonitor() {
+    public void visitChangelogMonitor() {
         return;
     }
 

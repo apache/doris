@@ -50,7 +50,7 @@ import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.TableStreamManager;
-import org.apache.doris.changelog.ChangelogIvmMonitor;
+import org.apache.doris.changelog.ChangelogMonitor;
 import org.apache.doris.changelog.ChangelogTtlDiscovery;
 import org.apache.doris.clone.ColocateTableCheckerAndBalancer;
 import org.apache.doris.clone.DynamicPartitionScheduler;
@@ -571,7 +571,7 @@ public class Env {
 
     private BinlogGcer binlogGcer;
     private final ChangelogTtlDiscovery changelogTtlDiscovery = new ChangelogTtlDiscovery();
-    private final ChangelogIvmMonitor changelogIvmMonitor = new ChangelogIvmMonitor();
+    private final ChangelogMonitor changelogMonitor = new ChangelogMonitor();
 
     private QueryCancelWorker queryCancelWorker;
 
@@ -746,8 +746,8 @@ public class Env {
         return tableStreamManager;
     }
 
-    public ChangelogIvmMonitor getChangelogIvmMonitor() {
-        return changelogIvmMonitor;
+    public ChangelogMonitor getChangelogMonitor() {
+        return changelogMonitor;
     }
 
     private static class SingletonHolder {
@@ -2093,7 +2093,7 @@ public class Env {
         if (Config.isCloudMode()) {
             changelogTtlDiscovery.start();
         }
-        changelogIvmMonitor.start();
+        changelogMonitor.start();
         columnIdFlusher.start();
         insertOverwriteManager.start();
         dictionaryManager.start();

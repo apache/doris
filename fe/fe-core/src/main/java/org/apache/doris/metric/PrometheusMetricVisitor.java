@@ -20,8 +20,8 @@ package org.apache.doris.metric;
 import org.apache.doris.catalog.CloudTabletStatMgr;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.changelog.ChangelogIvmMonitor;
-import org.apache.doris.changelog.ChangelogIvmMonitorSnapshot;
+import org.apache.doris.changelog.ChangelogMonitor;
+import org.apache.doris.changelog.ChangelogMonitorSnapshot;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.monitor.jvm.JvmStats;
@@ -62,13 +62,13 @@ public class PrometheusMetricVisitor extends MetricVisitor {
 
     private static final String JVM_GC = "jvm_gc";
 
-    // changelog and IVM monitor
-    private static final String CHANGELOG_IVM_MONITOR_LAST_SAMPLE_TIMESTAMP =
-            "doris_fe_changelog_ivm_monitor_last_sample_timestamp_seconds";
-    private static final String CHANGELOG_IVM_MONITOR_SAMPLE_DURATION =
-            "doris_fe_changelog_ivm_monitor_sample_duration_seconds";
-    private static final String CHANGELOG_IVM_MONITOR_SAMPLE_FAILURES =
-            "doris_fe_changelog_ivm_monitor_sample_failures_total";
+    // changelog monitor
+    private static final String CHANGELOG_MONITOR_LAST_SAMPLE_TIMESTAMP =
+            "doris_fe_changelog_monitor_last_sample_timestamp_seconds";
+    private static final String CHANGELOG_MONITOR_SAMPLE_DURATION =
+            "doris_fe_changelog_monitor_sample_duration_seconds";
+    private static final String CHANGELOG_MONITOR_SAMPLE_FAILURES =
+            "doris_fe_changelog_monitor_sample_failures_total";
     private static final String CHANGELOG_RETAINED_BYTES = "doris_fe_changelog_retained_bytes";
 
     private static final String HELP = "# HELP ";
@@ -353,29 +353,29 @@ public class PrometheusMetricVisitor extends MetricVisitor {
     }
 
     @Override
-    public void visitChangelogIvmMonitor() {
+    public void visitChangelogMonitor() {
         // Only the Master samples, and a Master that has been demoted must not export what it sampled before.
-        if (!Env.getCurrentEnv().isMaster() || !ChangelogIvmMonitor.isEnabled()) {
+        if (!Env.getCurrentEnv().isMaster() || !ChangelogMonitor.isEnabled()) {
             return;
         }
-        ChangelogIvmMonitor monitor = Env.getCurrentEnv().getChangelogIvmMonitor();
-        appendFamilyHeader(CHANGELOG_IVM_MONITOR_SAMPLE_FAILURES, "counter",
-                "number of the rounds of the changelog and IVM monitor that failed");
-        sb.append(CHANGELOG_IVM_MONITOR_SAMPLE_FAILURES).append(" ").append(monitor.getSampleFailures())
+        ChangelogMonitor monitor = Env.getCurrentEnv().getChangelogMonitor();
+        appendFamilyHeader(CHANGELOG_MONITOR_SAMPLE_FAILURES, "counter",
+                "number of the rounds of the changelog monitor that failed");
+        sb.append(CHANGELOG_MONITOR_SAMPLE_FAILURES).append(" ").append(monitor.getSampleFailures())
                 .append("\n");
 
         // Until a round completes, the sampled series are missing rather than 0.
-        ChangelogIvmMonitorSnapshot snapshot = monitor.getSnapshot();
+        ChangelogMonitorSnapshot snapshot = monitor.getSnapshot();
         if (snapshot == null) {
             return;
         }
-        appendFamilyHeader(CHANGELOG_IVM_MONITOR_LAST_SAMPLE_TIMESTAMP, "gauge",
-                "the time the latest round of the changelog and IVM monitor completed, in seconds since the epoch");
-        sb.append(CHANGELOG_IVM_MONITOR_LAST_SAMPLE_TIMESTAMP).append(" ")
+        appendFamilyHeader(CHANGELOG_MONITOR_LAST_SAMPLE_TIMESTAMP, "gauge",
+                "the time the latest round of the changelog monitor completed, in seconds since the epoch");
+        sb.append(CHANGELOG_MONITOR_LAST_SAMPLE_TIMESTAMP).append(" ")
                 .append(snapshot.getSampleTimeMs() / 1000).append("\n");
-        appendFamilyHeader(CHANGELOG_IVM_MONITOR_SAMPLE_DURATION, "gauge",
-                "how long the latest round of the changelog and IVM monitor took, in seconds");
-        sb.append(CHANGELOG_IVM_MONITOR_SAMPLE_DURATION).append(" ")
+        appendFamilyHeader(CHANGELOG_MONITOR_SAMPLE_DURATION, "gauge",
+                "how long the latest round of the changelog monitor took, in seconds");
+        sb.append(CHANGELOG_MONITOR_SAMPLE_DURATION).append(" ")
                 .append(snapshot.getSampleDurationMs() / 1000.0).append("\n");
 
         appendFamilyHeader(CHANGELOG_RETAINED_BYTES, "gauge",

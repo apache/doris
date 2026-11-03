@@ -1756,7 +1756,7 @@ public final class MetricRepo {
 
         visitor.visitCloudTableStats();
 
-        visitor.visitChangelogIvmMonitor();
+        visitor.visitChangelogMonitor();
 
         visitor.visitWorkloadGroup();
 
