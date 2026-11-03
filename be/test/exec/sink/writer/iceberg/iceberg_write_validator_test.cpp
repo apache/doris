@@ -61,6 +61,29 @@ void expect_data_quality_error(const Status& status, std::string_view path,
     EXPECT_NE(status.to_string().find(location), std::string::npos);
 }
 
+Schema field_schema(std::unique_ptr<Type> type, bool optional = false) {
+    std::vector<NestedField> fields;
+    fields.emplace_back(optional, 1, "payload", std::move(type), std::nullopt);
+    return {std::move(fields)};
+}
+
+std::vector<std::unique_ptr<Type>> required_container_types() {
+    std::vector<std::unique_ptr<Type>> types;
+    std::vector<NestedField> children;
+    children.emplace_back(false, 2, "id", std::make_unique<IntegerType>(), std::nullopt);
+    types.push_back(std::make_unique<StructType>(std::move(children)));
+    types.push_back(ListType::of_required(2, std::make_unique<IntegerType>()));
+    types.push_back(MapType::of_required(2, 3, std::make_unique<IntegerType>(),
+                                         std::make_unique<IntegerType>()));
+    return types;
+}
+
+void expect_invalid_block(const Schema& schema, const Block& block, std::string_view message) {
+    Status status = validate_write_block(schema, block);
+    EXPECT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>()) << status.to_string();
+    EXPECT_NE(status.to_string().find(message), std::string::npos) << status.to_string();
+}
+
 } // namespace
 
 TEST(IcebergWriteValidatorTest, RejectsTopLevelRequiredNullWithLocation) {
@@ -240,6 +263,161 @@ TEST(IcebergWriteValidatorTest, AcceptsValidRequiredNestedValues) {
             ColumnWithTypeAndName(ColumnNullable::create(std::move(array), std::move(array_nulls)),
                                   array_type, "items"),
     });
+
+    EXPECT_TRUE(validate_write_block(schema, block).ok());
+}
+
+TEST(IcebergWriteValidatorTest, RejectsSchemaColumnCountMismatch) {
+    auto schema = field_schema(std::make_unique<IntegerType>());
+    auto type = nullable_int();
+    Block block({ColumnWithTypeAndName(nullable_int_column({1}, {0}), type, "payload"),
+                 ColumnWithTypeAndName(nullable_int_column({2}, {0}), type, "extra")});
+
+    expect_invalid_block(schema, block, "pinned schema has 1 fields");
+}
+
+TEST(IcebergWriteValidatorTest, RejectsShortTopLevelColumn) {
+    std::vector<NestedField> fields;
+    fields.emplace_back(false, 1, "id", std::make_unique<IntegerType>(), std::nullopt);
+    fields.emplace_back(false, 2, "payload", std::make_unique<IntegerType>(), std::nullopt);
+    Schema schema(std::move(fields));
+    auto type = nullable_int();
+    Block block({ColumnWithTypeAndName(nullable_int_column({1, 2}, {0, 0}), type, "id"),
+                 ColumnWithTypeAndName(nullable_int_column({3}, {0}), type, "payload")});
+
+    expect_invalid_block(schema, block, "column 'payload' has 1 values, but block has 2 rows");
+}
+
+TEST(IcebergWriteValidatorTest, RejectsContainerTypeMismatches) {
+    for (auto& container : required_container_types()) {
+        SCOPED_TRACE(container->to_string());
+        auto schema = field_schema(std::move(container));
+        Block block(
+                {ColumnWithTypeAndName(nullable_int_column({1}, {0}), nullable_int(), "payload")});
+
+        expect_invalid_block(schema, block, "does not match Doris type");
+    }
+}
+
+TEST(IcebergWriteValidatorTest, RejectsPhysicalContainerColumnMismatches) {
+    auto containers = required_container_types();
+    DataTypes types {std::make_shared<DataTypeStruct>(DataTypes {nullable_int()}, Strings {"id"}),
+                     std::make_shared<DataTypeArray>(nullable_int()),
+                     std::make_shared<DataTypeMap>(nullable_int(), nullable_int())};
+    for (size_t i = 0; i < containers.size(); ++i) {
+        SCOPED_TRACE(containers[i]->to_string());
+        auto schema = field_schema(std::move(containers[i]));
+        auto data = ColumnInt32::create();
+        data->insert_value(1);
+        Block block({ColumnWithTypeAndName(std::move(data), types[i], "payload")});
+
+        expect_invalid_block(schema, block, "is not stored as");
+    }
+}
+
+TEST(IcebergWriteValidatorTest, RejectsStructArityMismatches) {
+    for (bool extra_type_field : {false, true}) {
+        auto containers = required_container_types();
+        auto schema = field_schema(std::move(containers[0]));
+        Columns children {nullable_int_column({1}, {0})};
+        DataTypes child_types {nullable_int()};
+        Strings child_names {"id"};
+        if (extra_type_field) {
+            child_types.push_back(nullable_int());
+            child_names.emplace_back("extra");
+        } else {
+            children.push_back(nullable_int_column({2}, {0}));
+        }
+        auto type = std::make_shared<DataTypeStruct>(child_types, child_names);
+        Block block({ColumnWithTypeAndName(ColumnStruct::create(std::move(children)), type,
+                                           "payload")});
+
+        expect_invalid_block(schema, block, "has 1 schema fields");
+    }
+}
+
+TEST(IcebergWriteValidatorTest, AcceptsOptionalStructChildrenUnderRequiredParent) {
+    std::vector<NestedField> children;
+    children.emplace_back(true, 2, "id", std::make_unique<IntegerType>(), std::nullopt);
+    auto schema = field_schema(std::make_unique<StructType>(std::move(children)));
+    auto type = std::make_shared<DataTypeStruct>(DataTypes {nullable_int()}, Strings {"id"});
+    Columns data {nullable_int_column({0}, {1})};
+    Block block({ColumnWithTypeAndName(ColumnStruct::create(std::move(data)), type, "payload")});
+
+    EXPECT_TRUE(validate_write_block(schema, block).ok());
+}
+
+TEST(IcebergWriteValidatorTest, RejectsListOffsetsBeyondElements) {
+    auto schema = field_schema(ListType::of_required(2, std::make_unique<IntegerType>()));
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    offsets->get_data().push_back(1);
+    auto array = ColumnArray::create(nullable_int_column({1}, {0}), std::move(offsets));
+    array->get_offsets()[0] = 2;
+    auto type = std::make_shared<DataTypeArray>(nullable_int());
+    Block block({ColumnWithTypeAndName(std::move(array), type, "payload")});
+
+    expect_invalid_block(schema, block, "element count 1");
+}
+
+TEST(IcebergWriteValidatorTest, RejectsDecreasingCollectionOffsets) {
+    auto schema = field_schema(ListType::of_required(2, std::make_unique<IntegerType>()));
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    offsets->get_data().assign({1, 1});
+    auto array = ColumnArray::create(nullable_int_column({1}, {0}), std::move(offsets));
+    array->get_offsets()[1] = 0;
+    auto type = std::make_shared<DataTypeArray>(nullable_int());
+    Block block({ColumnWithTypeAndName(std::move(array), type, "payload")});
+
+    expect_invalid_block(schema, block, "invalid offsets at row 1: [1, 0]");
+}
+
+TEST(IcebergWriteValidatorTest, AcceptsNullOptionalListElements) {
+    auto schema = field_schema(ListType::of_optional(2, std::make_unique<IntegerType>()));
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    offsets->get_data().push_back(2);
+    auto array = ColumnArray::create(nullable_int_column({1, 0}, {0, 1}), std::move(offsets));
+    auto type = std::make_shared<DataTypeArray>(nullable_int());
+    Block block({ColumnWithTypeAndName(std::move(array), type, "payload")});
+
+    EXPECT_TRUE(validate_write_block(schema, block).ok());
+}
+
+TEST(IcebergWriteValidatorTest, RejectsMapOffsetsBeyondEntries) {
+    auto schema = field_schema(MapType::of_required(2, 3, std::make_unique<IntegerType>(),
+                                                    std::make_unique<IntegerType>()));
+    auto offsets = ColumnMap::COffsets::create();
+    offsets->get_data().push_back(1);
+    auto map = ColumnMap::create(nullable_int_column({1}, {0}), nullable_int_column({2}, {0}),
+                                 std::move(offsets));
+    map->get_offsets()[0] = 2;
+    auto type = std::make_shared<DataTypeMap>(nullable_int(), nullable_int());
+    Block block({ColumnWithTypeAndName(std::move(map), type, "payload")});
+
+    expect_invalid_block(schema, block, "key count 1, value count 1");
+}
+
+TEST(IcebergWriteValidatorTest, AcceptsNullOptionalMapValues) {
+    auto schema = field_schema(MapType::of_optional(2, 3, std::make_unique<IntegerType>(),
+                                                    std::make_unique<IntegerType>()));
+    auto offsets = ColumnMap::COffsets::create();
+    offsets->get_data().push_back(1);
+    auto map = ColumnMap::create(nullable_int_column({1}, {0}), nullable_int_column({0}, {1}),
+                                 std::move(offsets));
+    auto type = std::make_shared<DataTypeMap>(nullable_int(), nullable_int());
+    Block block({ColumnWithTypeAndName(std::move(map), type, "payload")});
+
+    EXPECT_TRUE(validate_write_block(schema, block).ok());
+}
+
+TEST(IcebergWriteValidatorTest, AcceptsValidRequiredMapEntries) {
+    auto schema = field_schema(MapType::of_required(2, 3, std::make_unique<IntegerType>(),
+                                                    std::make_unique<IntegerType>()));
+    auto offsets = ColumnMap::COffsets::create();
+    offsets->get_data().assign({1, 2});
+    auto map = ColumnMap::create(nullable_int_column({1, 2}, {0, 0}),
+                                 nullable_int_column({10, 20}, {0, 0}), std::move(offsets));
+    auto type = std::make_shared<DataTypeMap>(nullable_int(), nullable_int());
+    Block block({ColumnWithTypeAndName(std::move(map), type, "payload")});
 
     EXPECT_TRUE(validate_write_block(schema, block).ok());
 }

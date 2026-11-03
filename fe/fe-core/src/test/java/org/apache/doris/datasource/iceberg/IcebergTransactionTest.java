@@ -51,6 +51,7 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
+import org.apache.iceberg.exceptions.RESTException;
 import org.apache.iceberg.expressions.Binder;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
@@ -67,6 +68,7 @@ import org.apache.iceberg.util.DateTimeUtil;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.AdditionalAnswers;
 import org.mockito.ArgumentMatchers;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -1438,6 +1440,81 @@ public class IcebergTransactionTest {
             txn.updateIcebergCommitData(Collections.singletonList(data));
 
             Assert.assertThrows(CommitStateUnknownException.class, txn::commit);
+            txn.rollback();
+
+            Mockito.verify(fileIO, Mockito.never()).deleteFile(ArgumentMatchers.anyString());
+        }
+    }
+
+    @Test
+    public void testRestResponseLossPreservesPublishedFileThroughRollback() throws Exception {
+        assertPublishedFileSurvivesCommitFailure(new RESTException(
+                new IOException("truncated commit response"), "Failed to parse REST commit response"));
+    }
+
+    @Test
+    public void testOtherIndeterminateFailurePreservesPublishedFileThroughRollback() throws Exception {
+        assertPublishedFileSurvivesCommitFailure(new IllegalStateException("response lost after publication"));
+    }
+
+    private void assertPublishedFileSurvivesCommitFailure(RuntimeException failure) throws Exception {
+        Table actualTable = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithoutPartition));
+        String path = actualTable.location() + "/data/published.parquet";
+        try (PositionOutputStream stream = actualTable.io().newOutputFile(path).create()) {
+            stream.write(1);
+        }
+        org.apache.iceberg.Transaction actualTransaction = actualTable.newTransaction();
+        actualTransaction.newAppend().appendFile(DataFiles.builder(actualTable.spec())
+                .withPath(path).withFormat(FileFormat.PARQUET)
+                .withRecordCount(1).withFileSizeInBytes(1).build()).commit();
+        org.apache.iceberg.Transaction sdkTransaction = Mockito.mock(org.apache.iceberg.Transaction.class,
+                AdditionalAnswers.delegatesTo(actualTransaction));
+        Mockito.doAnswer(invocation -> {
+            actualTransaction.commitTransaction();
+            throw failure;
+        }).when(sdkTransaction).commitTransaction();
+        Table table = Mockito.mock(Table.class, AdditionalAnswers.delegatesTo(actualTable));
+        Mockito.when(table.newTransaction()).thenReturn(sdkTransaction);
+
+        try (MockedStatic<IcebergUtils> mockedUtils = Mockito.mockStatic(IcebergUtils.class)) {
+            mockWritableTable(mockedUtils, table);
+            IcebergTransaction txn = getTxn();
+            txn.beginInsert(Mockito.mock(IcebergExternalTable.class), table, Optional.empty());
+            TIcebergCommitData data = new TIcebergCommitData();
+            data.setFilePath(path);
+            txn.updateIcebergCommitData(Collections.singletonList(data));
+
+            Assert.assertSame(failure, Assert.assertThrows(failure.getClass(), txn::commit));
+            actualTable.refresh();
+            Assert.assertNotNull("the server-side metadata commit succeeded", actualTable.currentSnapshot());
+            Assert.assertTrue(actualTable.io().newInputFile(path).exists());
+
+            // Retain another fragment report to verify rollback consults the publication state,
+            // rather than relying only on commit() clearing its first pending-file inventory.
+            txn.updateIcebergCommitData(Collections.singletonList(data));
+            txn.rollback();
+
+            Assert.assertTrue("rollback must preserve files referenced by the published snapshot",
+                    actualTable.io().newInputFile(path).exists());
+            Assert.assertTrue(txn.getCommitDataList().isEmpty());
+        }
+    }
+
+    @Test
+    public void testRollbackAfterSuccessfulCommitPreservesReportedFiles() throws Exception {
+        Table table = Mockito.mock(Table.class);
+        FileIO fileIO = Mockito.mock(FileIO.class);
+        Mockito.when(table.io()).thenReturn(fileIO);
+        Mockito.when(table.newTransaction()).thenReturn(Mockito.mock(org.apache.iceberg.Transaction.class));
+        try (MockedStatic<IcebergUtils> mockedUtils = Mockito.mockStatic(IcebergUtils.class)) {
+            mockWritableTable(mockedUtils, table);
+            IcebergTransaction txn = getTxn();
+            txn.beginInsert(Mockito.mock(IcebergExternalTable.class), table, Optional.empty());
+            TIcebergCommitData data = new TIcebergCommitData();
+            data.setFilePath("committed.parquet");
+            txn.updateIcebergCommitData(Collections.singletonList(data));
+
+            txn.commit();
             txn.rollback();
 
             Mockito.verify(fileIO, Mockito.never()).deleteFile(ArgumentMatchers.anyString());

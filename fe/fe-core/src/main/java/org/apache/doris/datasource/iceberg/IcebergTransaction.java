@@ -58,7 +58,7 @@ import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.encryption.EncryptionManager;
-import org.apache.iceberg.exceptions.CommitStateUnknownException;
+import org.apache.iceberg.exceptions.CleanableFailure;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.io.CloseableIterable;
@@ -103,6 +103,7 @@ public class IcebergTransaction implements Transaction {
     private String branchName;
     private Long baseSnapshotId;
     private boolean hasStagedUpdates;
+    private boolean commitMayHaveSucceeded;
     private Map<String, List<DeleteFile>> rewrittenDeleteFilesByReferencedDataFile = Collections.emptyMap();
 
     // Rewrite operation support
@@ -702,16 +703,15 @@ public class IcebergTransaction implements Transaction {
                 if (!hasStagedUpdates) {
                     validatePinnedWriterMetadata();
                 }
+                // A REST catalog may publish metadata before its response is lost or malformed.
+                // From this point, only an SDK CleanableFailure proves that deletion is safe.
+                commitMayHaveSucceeded = true;
                 transaction.commitTransaction();
             });
-        } catch (CommitStateUnknownException e) {
-            // The metadata commit may have succeeded. A later rollback must not delete files
-            // that could already be referenced by a published snapshot.
-            synchronized (this) {
-                commitDataList.clear();
-            }
-            throw e;
         } catch (RuntimeException e) {
+            if (e instanceof CleanableFailure) {
+                commitMayHaveSucceeded = false;
+            }
             cleanupReportedFiles();
             throw e;
         } catch (Exception e) {
@@ -875,6 +875,10 @@ public class IcebergTransaction implements Transaction {
             commitDataList.clear();
         }
         Table rollbackTable = table;
+        if (commitMayHaveSucceeded) {
+            LOG.warn("Preserving {} reported Iceberg files because the commit may have succeeded", pending.size());
+            return;
+        }
         if (rollbackTable == null || pending.isEmpty()) {
             return;
         }
