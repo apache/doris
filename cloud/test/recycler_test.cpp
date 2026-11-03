@@ -28,11 +28,14 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
 #include <future>
+#include <initializer_list>
 #include <memory>
+#include <mutex>
 #include <numeric>
 #include <random>
 #include <string>
@@ -11567,8 +11570,7 @@ TEST(RecyclerTest, enable_recycler_skip_recycle_callback) {
 
     InstanceInfoPB instance;
     instance.set_instance_id("test_instance");
-    recycler.pending_instance_queue_.push_back(instance);
-    recycler.pending_instance_set_.insert("test_instance");
+    recycler.enqueue_instance_locked(std::move(instance), 0);
 
     std::thread t([&]() { recycler.recycle_callback(); });
 
@@ -11590,8 +11592,524 @@ TEST(RecyclerTest, enable_recycler_skip_recycle_callback) {
     t.join();
 
     EXPECT_TRUE(recycler.pending_instance_queue_.empty());
-    EXPECT_TRUE(recycler.pending_instance_set_.empty());
+    EXPECT_TRUE(recycler.pending_instance_map_.empty());
     EXPECT_TRUE(recycler.recycling_instance_map_.empty());
+}
+
+TEST(RecyclerTest, RetryRecycleAtIntervalAfterEarlyWorkerCheck) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    constexpr int64_t interval_ms = 2000;
+    const auto old_interval = config::recycle_interval_seconds;
+    config::recycle_interval_seconds = interval_ms / 1000;
+    DORIS_CLOUD_DEFER {
+        config::recycle_interval_seconds = old_interval;
+    };
+
+    const std::string id = "recycle_interval_boundary";
+    std::string key;
+    job_recycle_key({id}, &key);
+    JobRecyclePB job_info;
+    job_info.set_instance_id(id);
+    job_info.set_status(JobRecyclePB::IDLE);
+    const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::system_clock::now().time_since_epoch())
+                                .count();
+    job_info.set_last_ctime_ms(now_ms - 250);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(key, job_info.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    ASSERT_EQ(prepare_instance_recycle_job(txn_kv.get(), key, id, "test:5000", interval_ms), 1);
+
+    std::mutex callback_mutex;
+    std::condition_variable callback_cond;
+    int recycle_calls = 0;
+    int64_t recycle_at_ms = 0;
+    auto* sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "InstanceRecycler.do_recycle",
+            [&](auto&&) {
+                std::lock_guard lock(callback_mutex);
+                ++recycle_calls;
+                recycle_at_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                        std::chrono::system_clock::now().time_since_epoch())
+                                        .count();
+                callback_cond.notify_all();
+            },
+            &guard);
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->disable_processing();
+    };
+
+    Recycler recycler(txn_kv);
+    InstanceInfoPB instance;
+    instance.set_instance_id(id);
+    recycler.enqueue_instance_locked(std::move(instance), 0);
+    std::thread worker([&]() { recycler.recycle_callback(); });
+
+    std::unique_lock lock(callback_mutex);
+    bool recycled = callback_cond.wait_for(lock, std::chrono::seconds(5),
+                                           [&] { return recycle_calls > 0; });
+    lock.unlock();
+    recycler.stop();
+    worker.join();
+
+    EXPECT_TRUE(recycled)
+            << "an early check must not defer recycling until the next full scan interval";
+    if (recycled) EXPECT_GE(recycle_at_ms, now_ms - 250 + interval_ms + 1);
+}
+
+TEST(RecyclerTest, PrepareRecycleJobIntervalBoundary) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    const std::string id = "prepare_interval_boundary";
+    std::string key;
+    job_recycle_key({id}, &key);
+    constexpr int64_t now_ms = 1700000000000;
+    constexpr int64_t interval_ms = 3600000;
+    auto* sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "prepare_instance_recycle_job::now_ms",
+            [&](auto&& args) { *try_any_cast<int64_t*>(args[0]) = now_ms; }, &guard);
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->disable_processing();
+    };
+
+    for (int64_t elapsed : {interval_ms - 2, interval_ms - 1, interval_ms, interval_ms + 1}) {
+        JobRecyclePB job;
+        job.set_instance_id(id);
+        job.set_status(JobRecyclePB::IDLE);
+        job.set_last_ctime_ms(now_ms - elapsed);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(key, job.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        int64_t retry_at_ms = -1;
+        int ret = prepare_instance_recycle_job(txn_kv.get(), key, id, "test:5000", interval_ms,
+                                               &retry_at_ms);
+        EXPECT_EQ(ret, elapsed > interval_ms ? 0 : 1);
+        EXPECT_EQ(retry_at_ms, elapsed > interval_ms ? 0 : now_ms - elapsed + interval_ms + 1);
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        JobRecyclePB stored;
+        ASSERT_TRUE(stored.ParseFromString(val));
+        EXPECT_EQ(stored.status(), elapsed > interval_ms ? JobRecyclePB::BUSY : JobRecyclePB::IDLE);
+        if (elapsed > interval_ms) {
+            EXPECT_EQ(stored.expiration_time_ms(), now_ms + config::recycle_job_lease_expired_ms);
+        }
+    }
+}
+
+TEST(RecyclerTest, PrepareRecycleJobBusyLease) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    const std::string id = "prepare_busy_lease";
+    std::string key;
+    job_recycle_key({id}, &key);
+    constexpr int64_t now_ms = 1700000000000;
+    constexpr int64_t interval_ms = 2000;
+    auto* sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "prepare_instance_recycle_job::now_ms",
+            [&](auto&& args) { *try_any_cast<int64_t*>(args[0]) = now_ms; }, &guard);
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->disable_processing();
+    };
+
+    auto put_job = [&](int64_t last_ctime_ms, int64_t expiration_ms) {
+        JobRecyclePB job;
+        job.set_instance_id(id);
+        job.set_status(JobRecyclePB::BUSY);
+        job.set_ip_port("other:5000");
+        job.set_expiration_time_ms(expiration_ms);
+        job.set_last_ctime_ms(last_ctime_ms);
+        std::unique_ptr<Transaction> txn;
+        EXPECT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(key, job.SerializeAsString());
+        EXPECT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    };
+
+    put_job(now_ms - interval_ms - 100, now_ms + 1000);
+    int64_t retry_at_ms = -1;
+    EXPECT_EQ(prepare_instance_recycle_job(txn_kv.get(), key, id, "test:5000", interval_ms,
+                                           &retry_at_ms),
+              1);
+    EXPECT_EQ(retry_at_ms, 0);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string val;
+    ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+    JobRecyclePB stored;
+    ASSERT_TRUE(stored.ParseFromString(val));
+    EXPECT_EQ(stored.ip_port(), "other:5000");
+    EXPECT_EQ(stored.expiration_time_ms(), now_ms + 1000);
+
+    put_job(now_ms - interval_ms + 1, now_ms - 1);
+    retry_at_ms = -1;
+    EXPECT_EQ(prepare_instance_recycle_job(txn_kv.get(), key, id, "test:5000", interval_ms,
+                                           &retry_at_ms),
+              1);
+    EXPECT_EQ(retry_at_ms, now_ms + 2);
+
+    put_job(now_ms - interval_ms - 1, now_ms - 1);
+    retry_at_ms = -1;
+    EXPECT_EQ(prepare_instance_recycle_job(txn_kv.get(), key, id, "test:5000", interval_ms,
+                                           &retry_at_ms),
+              0);
+    EXPECT_EQ(retry_at_ms, 0);
+
+    std::string missing_key;
+    job_recycle_key({"prepare_missing_job"}, &missing_key);
+    retry_at_ms = -1;
+    EXPECT_EQ(prepare_instance_recycle_job(txn_kv.get(), missing_key, "prepare_missing_job",
+                                           "test:5000", interval_ms, &retry_at_ms),
+              0);
+    EXPECT_EQ(retry_at_ms, 0);
+}
+
+TEST(RecyclerTest, PendingRecycleDeduplicatesAndExpedites) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    Recycler recycler(txn_kv);
+    InstanceInfoPB first;
+    first.set_instance_id("pending_dedup");
+    first.set_name("first");
+    recycler.enqueue_instance_locked(first, 100);
+    InstanceInfoPB later = first;
+    later.set_name("later");
+    recycler.enqueue_instance_locked(later, 200);
+    EXPECT_EQ(recycler.pending_instance_queue_.size(), 1);
+    EXPECT_EQ(recycler.pending_instance_map_.at("pending_dedup")->second.name(), "first");
+    InstanceInfoPB earlier = first;
+    earlier.set_name("earlier");
+    recycler.enqueue_instance_locked(earlier, 50);
+    EXPECT_EQ(recycler.pending_instance_queue_.size(), 1);
+    EXPECT_EQ(recycler.pending_instance_map_.size(), 1);
+    EXPECT_EQ(recycler.pending_instance_queue_.begin()->first, 50);
+    EXPECT_EQ(recycler.pending_instance_map_.at("pending_dedup"),
+              recycler.pending_instance_queue_.begin());
+    EXPECT_EQ(recycler.pending_instance_queue_.begin()->second.name(), "earlier");
+}
+
+TEST(RecyclerTest, DelayedRecycleDoesNotBlockReadyInstance) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    Recycler recycler(txn_kv);
+    std::mutex signal_mutex;
+    std::condition_variable signal_cond;
+    bool waiting = false;
+    bool recycled = false;
+    auto* sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard wait_guard;
+    SyncPoint::CallbackGuard recycle_guard;
+    sp->set_call_back(
+            "Recycler::recycle_callback::before_wait_until",
+            [&](auto&&) {
+                std::lock_guard lock(signal_mutex);
+                waiting = true;
+                signal_cond.notify_all();
+            },
+            &wait_guard);
+    sp->set_call_back(
+            "InstanceRecycler.do_recycle",
+            [&](auto&&) {
+                std::lock_guard lock(signal_mutex);
+                recycled = true;
+                signal_cond.notify_all();
+            },
+            &recycle_guard);
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->disable_processing();
+    };
+
+    auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count();
+    InstanceInfoPB delayed;
+    delayed.set_instance_id("delayed_fairness");
+    recycler.enqueue_instance_locked(std::move(delayed), now_ms + 60000);
+    recycler.workers_.emplace_back([&] { recycler.recycle_callback(); });
+    {
+        std::unique_lock lock(signal_mutex);
+        EXPECT_TRUE(signal_cond.wait_for(lock, std::chrono::seconds(3), [&] { return waiting; }));
+    }
+
+    InstanceInfoPB ready;
+    ready.set_instance_id("ready_fairness");
+    {
+        std::lock_guard lock(recycler.mtx_);
+        recycler.enqueue_instance_locked(std::move(ready), now_ms);
+    }
+    recycler.pending_instance_cond_.notify_all();
+    {
+        std::unique_lock lock(signal_mutex);
+        EXPECT_TRUE(signal_cond.wait_for(lock, std::chrono::seconds(3), [&] { return recycled; }));
+    }
+    recycler.stop();
+    EXPECT_EQ(recycler.pending_instance_queue_.size(), 1);
+    EXPECT_EQ(recycler.pending_instance_map_.size(), 1);
+    EXPECT_NE(recycler.pending_instance_map_.find("delayed_fairness"),
+              recycler.pending_instance_map_.end());
+}
+
+TEST(RecyclerTest, DelayedRecycleWakesForEarlierDeadline) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    Recycler recycler(txn_kv);
+    std::mutex signal_mutex;
+    std::condition_variable signal_cond;
+    bool waiting = false;
+    bool recycled = false;
+    int64_t recycle_at_ms = 0;
+    auto* sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard wait_guard;
+    SyncPoint::CallbackGuard recycle_guard;
+    sp->set_call_back(
+            "Recycler::recycle_callback::before_wait_until",
+            [&](auto&&) {
+                std::lock_guard lock(signal_mutex);
+                waiting = true;
+                signal_cond.notify_all();
+            },
+            &wait_guard);
+    sp->set_call_back(
+            "InstanceRecycler.do_recycle",
+            [&](auto&&) {
+                std::lock_guard lock(signal_mutex);
+                recycled = true;
+                recycle_at_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                        std::chrono::system_clock::now().time_since_epoch())
+                                        .count();
+                signal_cond.notify_all();
+            },
+            &recycle_guard);
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->disable_processing();
+    };
+
+    auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count();
+    InstanceInfoPB delayed;
+    delayed.set_instance_id("delayed_wakeup");
+    recycler.enqueue_instance_locked(std::move(delayed), now_ms + 60000);
+    recycler.workers_.emplace_back([&] { recycler.recycle_callback(); });
+    {
+        std::unique_lock lock(signal_mutex);
+        EXPECT_TRUE(signal_cond.wait_for(lock, std::chrono::seconds(3), [&] { return waiting; }));
+    }
+
+    int64_t earlier_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::system_clock::now().time_since_epoch())
+                                 .count() +
+                         100;
+    InstanceInfoPB earlier;
+    earlier.set_instance_id("earlier_wakeup");
+    {
+        std::lock_guard lock(recycler.mtx_);
+        recycler.enqueue_instance_locked(std::move(earlier), earlier_ms);
+    }
+    recycler.pending_instance_cond_.notify_all();
+    {
+        std::unique_lock lock(signal_mutex);
+        EXPECT_TRUE(signal_cond.wait_for(lock, std::chrono::seconds(3), [&] { return recycled; }));
+    }
+    recycler.stop();
+    if (recycled) {
+        EXPECT_GE(recycle_at_ms, earlier_ms);
+        EXPECT_LT(recycle_at_ms, now_ms + 60000);
+    }
+}
+
+TEST(RecyclerTest, StopWakesDelayedRecycle) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    Recycler recycler(txn_kv);
+    std::mutex signal_mutex;
+    std::condition_variable signal_cond;
+    bool waiting = false;
+    std::atomic<int> recycle_calls {0};
+    auto* sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard wait_guard;
+    SyncPoint::CallbackGuard recycle_guard;
+    sp->set_call_back(
+            "Recycler::recycle_callback::before_wait_until",
+            [&](auto&&) {
+                std::lock_guard lock(signal_mutex);
+                waiting = true;
+                signal_cond.notify_all();
+            },
+            &wait_guard);
+    sp->set_call_back(
+            "InstanceRecycler.do_recycle", [&](auto&&) { recycle_calls.fetch_add(1); },
+            &recycle_guard);
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->disable_processing();
+    };
+
+    auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count();
+    InstanceInfoPB delayed;
+    delayed.set_instance_id("delayed_stop");
+    recycler.enqueue_instance_locked(std::move(delayed), now_ms + 60000);
+    recycler.workers_.emplace_back([&] { recycler.recycle_callback(); });
+    {
+        std::unique_lock lock(signal_mutex);
+        EXPECT_TRUE(signal_cond.wait_for(lock, std::chrono::seconds(3), [&] { return waiting; }));
+    }
+    auto start = std::chrono::steady_clock::now();
+    recycler.stop();
+    EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(2));
+    EXPECT_EQ(recycle_calls.load(), 0);
+}
+
+TEST(RecyclerTest, DelayedRecycleRechecksLongerInterval) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    const auto old_interval = config::recycle_interval_seconds;
+    config::recycle_interval_seconds = 2;
+    DORIS_CLOUD_DEFER {
+        config::recycle_interval_seconds = old_interval;
+    };
+
+    const std::string id = "delayed_interval_extension";
+    std::string key;
+    job_recycle_key({id}, &key);
+    auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count();
+    JobRecyclePB job;
+    job.set_instance_id(id);
+    job.set_status(JobRecyclePB::IDLE);
+    job.set_last_ctime_ms(now_ms - 250);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(key, job.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    std::atomic<int> recycle_calls {0};
+    auto* sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "InstanceRecycler.do_recycle", [&](auto&&) { recycle_calls.fetch_add(1); }, &guard);
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->disable_processing();
+    };
+    Recycler recycler(txn_kv);
+    InstanceInfoPB instance;
+    instance.set_instance_id(id);
+    recycler.enqueue_instance_locked(std::move(instance), 0);
+    recycler.workers_.emplace_back([&] { recycler.recycle_callback(); });
+
+    int64_t first_retry_at_ms = 0;
+    auto timeout = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (std::chrono::steady_clock::now() < timeout) {
+        {
+            std::lock_guard lock(recycler.mtx_);
+            auto it = recycler.pending_instance_map_.find(id);
+            if (it != recycler.pending_instance_map_.end() && it->second->first > now_ms) {
+                first_retry_at_ms = it->second->first;
+                break;
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    EXPECT_GT(first_retry_at_ms, now_ms);
+    if (first_retry_at_ms > 0) {
+        // The first prepare has completed; the worker cannot read the new interval until retry.
+        config::recycle_interval_seconds = 4;
+        std::this_thread::sleep_until(std::chrono::system_clock::time_point(
+                std::chrono::milliseconds(first_retry_at_ms + 200)));
+        std::lock_guard lock(recycler.mtx_);
+        auto it = recycler.pending_instance_map_.find(id);
+        ASSERT_NE(it, recycler.pending_instance_map_.end());
+        EXPECT_EQ(it->second->first, now_ms - 250 + 4001);
+    }
+    recycler.stop();
+    EXPECT_EQ(recycle_calls.load(), 0);
+}
+
+TEST(RecyclerTest, DelayedRecycleRespectsDisable) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    const auto old_interval = config::recycle_interval_seconds;
+    const auto old_enabled = config::enable_recycler;
+    config::recycle_interval_seconds = 2;
+    config::enable_recycler = true;
+    DORIS_CLOUD_DEFER {
+        config::recycle_interval_seconds = old_interval;
+        config::enable_recycler = old_enabled;
+    };
+
+    const std::string id = "delayed_disabled";
+    std::string key;
+    job_recycle_key({id}, &key);
+    auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count();
+    JobRecyclePB job;
+    job.set_instance_id(id);
+    job.set_status(JobRecyclePB::IDLE);
+    job.set_last_ctime_ms(now_ms - 250);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(key, job.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    std::atomic<int> recycle_calls {0};
+    auto* sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "InstanceRecycler.do_recycle", [&](auto&&) { recycle_calls.fetch_add(1); }, &guard);
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->disable_processing();
+    };
+    Recycler recycler(txn_kv);
+    InstanceInfoPB instance;
+    instance.set_instance_id(id);
+    recycler.enqueue_instance_locked(std::move(instance), 0);
+    recycler.workers_.emplace_back([&] { recycler.recycle_callback(); });
+
+    int64_t retry_at_ms = 0;
+    auto timeout = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (std::chrono::steady_clock::now() < timeout) {
+        {
+            std::lock_guard lock(recycler.mtx_);
+            auto it = recycler.pending_instance_map_.find(id);
+            if (it != recycler.pending_instance_map_.end() && it->second->first > now_ms) {
+                retry_at_ms = it->second->first;
+                break;
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    EXPECT_GT(retry_at_ms, now_ms);
+    if (retry_at_ms > 0) {
+        config::enable_recycler = false;
+        std::this_thread::sleep_until(std::chrono::system_clock::time_point(
+                std::chrono::milliseconds(retry_at_ms + 200)));
+        std::lock_guard lock(recycler.mtx_);
+        EXPECT_TRUE(recycler.pending_instance_map_.empty());
+    }
+    recycler.stop();
+    EXPECT_EQ(recycle_calls.load(), 0);
 }
 
 TEST(RecyclerTest, RecycleInstanceFilterReadsConfigDynamically) {

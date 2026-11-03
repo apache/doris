@@ -21,6 +21,7 @@
 #include <gen_cpp/cloud.pb.h>
 #include <glog/logging.h>
 
+#include <cstdint>
 #include <string>
 
 #include "common/defer.h"
@@ -42,13 +43,12 @@ class TxnKv;
  */
 int get_all_instances(TxnKv* txn_kv, std::vector<InstanceInfoPB>& res);
 
-/**
- *
- * @return 0 for success
- */
+// Returns 0 when the job lease is acquired, 1 when the job cannot run yet, or -1 on KV error.
+// On an interval rejection, retry_at_ms is the earliest system-clock millisecond at which the
+// strict interval check can succeed. It is zero for all other outcomes, including an active lease.
 int prepare_instance_recycle_job(TxnKv* txn_kv, std::string_view key,
                                  const std::string& instance_id, const std::string& ip_port,
-                                 int64_t interval_ms);
+                                 int64_t interval_ms, int64_t* retry_at_ms = nullptr);
 
 void finish_instance_recycle_job(TxnKv* txn_kv, std::string_view key,
                                  const std::string& instance_id, const std::string& ip_port,
