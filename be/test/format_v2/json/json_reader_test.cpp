@@ -47,6 +47,7 @@
 #include "exprs/vexpr_context.h"
 #include "format_v2/column_data.h"
 #include "io/io_common.h"
+#include "io/obj_storage/obj_client_factory.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
@@ -606,7 +607,7 @@ TEST_P(JsonReaderPrefetchTest, ClosePublishesReadStatisticsOnce) {
         env->_buffered_reader_prefetch_thread_pool.reset();
         env->_buffered_reader_prefetch_thread_pool = std::move(saved_pool);
         config::in_memory_file_size = saved_in_memory_size;
-        S3ClientFactory::instance().clear_client_creator_for_test();
+        io::ObjClientFactory::instance().set_client_creator_for_test(nullptr);
     });
     ASSERT_TRUE(ThreadPoolBuilder("JsonPrefetchTest")
                         .set_min_threads(1)
@@ -616,8 +617,8 @@ TEST_P(JsonReaderPrefetchTest, ClosePublishesReadStatisticsOnce) {
     // A small fixture must still use prefetch rather than the in-memory S3 optimization.
     config::in_memory_file_size = 0;
     auto client = std::make_shared<JsonPrefetchS3Client>();
-    S3ClientFactory::instance().set_client_creator_for_test(
-            [client](const S3ClientConf&) { return client; });
+    io::ObjClientFactory::instance().set_client_creator_for_test(
+            [client](const io::ObjClientConfig&) { return client; });
     auto properties = std::make_shared<io::FileSystemProperties>();
     properties->system_type = TFileType::FILE_S3;
     properties->properties = {{"AWS_ENDPOINT", "http://json-prefetch.invalid"},
