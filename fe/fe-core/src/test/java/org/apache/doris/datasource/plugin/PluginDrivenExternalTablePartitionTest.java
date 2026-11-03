@@ -34,6 +34,7 @@ import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -109,6 +110,35 @@ public class PluginDrivenExternalTablePartitionTest {
         Assertions.assertTrue(table.supportInternalPartitionPruned(),
                 "a non-partitioned table must STILL opt into internal partition pruning, or filtered "
                         + "queries silently return zero rows (FIX-NONPART-PRUNE-DATALOSS)");
+    }
+
+    @Test
+    public void testConnectorPartitionPruningDefersInitialPartitionMaterialization() {
+        List<Column> schema = Arrays.asList(
+                new Column("year", PrimitiveType.INT), new Column("val", PrimitiveType.INT));
+        PluginDrivenSchemaCacheValue cacheValue = new PluginDrivenSchemaCacheValue(
+                schema, Collections.singletonList(schema.get(0)), Collections.singletonList("year"));
+        PluginDrivenExternalTable table = new PluginDrivenExternalTable(1L, "tbl", "REMOTE_TBL",
+                new TestablePluginCatalog("max_compute", Mockito.mock(ConnectorMetadata.class), noneScopedSession()),
+                mockDb("REMOTE_DB")) {
+            @Override
+            protected synchronized void makeSureInitialized() {
+                // no-op: skip Env-backed catalog/db init
+            }
+
+            @Override
+            public Optional<SchemaCacheValue> getSchemaCacheValue() {
+                return Optional.of(cacheValue);
+            }
+
+            @Override
+            public boolean supportsConnectorPartitionPruning() {
+                return true;
+            }
+        };
+
+        Assertions.assertSame(SelectedPartitions.DEFERRED_PARTITION_PRUNING,
+                table.initSelectedPartitions(Optional.empty()));
     }
 
     // ==================== getNameToPartitionItems (raw remote-name addressing) ====================
