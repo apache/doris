@@ -51,7 +51,7 @@ prepare() {
     mkdir -p "${dest}/src"
     cp "${ROOT}/vars.sh" "${dest}/vars.sh"
     ln -s "${ROOT}/patches" "${dest}/patches"
-    cp "${ARCHIVE_DIR}/${LANCE_C_NAME}" "${ARCHIVE_DIR}/${LANCE_RUST_NAME}" "${dest}/src/"
+    cp "${ARCHIVE_DIR}/${LANCE_C_NAME}" "${ARCHIVE_DIR}/${LANCE_RUST_NAME}" "${ARCHIVE_DIR}/${LANCE_TOKIO_NAME}" "${dest}/src/"
 }
 
 run_download() {
@@ -72,6 +72,8 @@ check_sources() {
         || fail "missing host executor C API"
     grep -q 'pub trait Executor' "$1/src/${LANCE_RUST_SOURCE}/rust/lance-core/src/utils/task_executor.rs" \
         || fail "missing Rust executor injection API"
+    grep -q 'pub fn blocking_task_executor' "$1/src/${LANCE_TOKIO_SOURCE}/src/runtime/builder.rs" \
+        || fail "missing Tokio blocking executor hook"
     # Refreshing the Foyer patch must preserve the upstream prewarm binding and tests.
     grep -q 'lance_dataset_prewarm_index' "${source}/include/lance/lance.h" \
         || fail "missing upstream C prewarm API"
@@ -150,3 +152,12 @@ check_sources "${tmpdir}/cached"
 cmp "${tmpdir}/fresh/src/${LANCE_RUST_SOURCE}/rust/lance-core/src/utils/task_executor.rs" \
     "${rust_source}/rust/lance-core/src/utils/task_executor.rs"
 echo "PASS: mismatched Rust patch marker refreshes cached sources"
+
+tokio_source="${tmpdir}/cached/src/${LANCE_TOKIO_SOURCE}"
+printf '%s\n' stale > "${tokio_source}/patched_mark_host_executor"
+printf '%s\n' stale > "${tokio_source}/src/runtime/builder.rs"
+run_download "${tmpdir}/cached"
+check_sources "${tmpdir}/cached"
+cmp "${tmpdir}/fresh/src/${LANCE_TOKIO_SOURCE}/src/runtime/builder.rs" \
+    "${tokio_source}/src/runtime/builder.rs"
+echo "PASS: mismatched Tokio patch marker refreshes cached sources"

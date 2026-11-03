@@ -293,7 +293,16 @@ diff --git a/Cargo.lock b/Cargo.lock
  dependencies = [
   "frostem",
   "icu_segmenter",
-@@ -9358,7 +9338,7 @@
+@@ -8303,8 +8283,6 @@
+ [[package]]
+ name = "tokio"
+ version = "1.53.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "202caea871b69668250d242070849eb495be178ed697a3e98aebce5bc81a0bed"
+ dependencies = [
+  "bytes",
+  "libc",
+@@ -9358,7 +9336,7 @@
  source = "registry+https://github.com/rust-lang/crates.io-index"
  checksum = "ae137229bcbd6cdf0f7b80a31df61766145077ddf49416a728b02cb3921ff3fc"
  dependencies = [
@@ -302,7 +311,7 @@ diff --git a/Cargo.lock b/Cargo.lock
  ]
 
 
-@@ -10027,3 +10007,11 @@
+@@ -10027,3 +10005,11 @@
   "cc",
   "pkg-config",
  ]
@@ -353,6 +362,13 @@ diff --git a/Cargo.toml b/Cargo.toml
  tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
  arrow-array = "58.0.0"
  arrow-schema = "58.0.0"
+@@ -78,3 +78,6 @@
+ [package.metadata.capi.library]
+ name = "lance_c"
+ versioning = false  # 0.x ABI is unstable; revisit at 1.0
++
++[patch.crates-io]
++tokio = { path = "../tokio-1.53.1" }
 diff --git a/include/lance/host_executor.hpp b/include/lance/host_executor.hpp
 --- /dev/null
 +++ b/include/lance/host_executor.hpp
@@ -411,7 +427,7 @@ diff --git a/include/lance/host_executor.hpp b/include/lance/host_executor.hpp
 diff --git a/include/lance/lance.h b/include/lance/lance.h
 --- a/include/lance/lance.h
 +++ b/include/lance/lance.h
-@@ -187,6 +187,52 @@
+@@ -187,6 +187,74 @@
 
  typedef struct LanceDataset  LanceDataset;
  typedef struct LanceScanner  LanceScanner;
@@ -420,12 +436,30 @@ diff --git a/include/lance/lance.h b/include/lance/lance.h
 + * Tokio remains responsible for network readiness, timers, join notifications and shared I/O services.
 + * Operation-owned scan/decoder tasks and spawn_cpu use the injected executor.
 + */
++#define LANCE_DORIS_HOST_RUNTIME_ABI 2
 +typedef struct LanceHostExecutor LanceHostExecutor;
 +typedef struct LanceHostExecutorScope LanceHostExecutorScope;
 +
++/* Host-owned process services. submit consumes task_context and must call run or discard once.
++ * Install before any Doris SDK call; drive the reactor on a host service thread. It creates no
++ * Rust worker or blocking threads. Keep context alive until all objects and the driver are closed.
++ */
++typedef void (*LanceHostRunTask)(void* task_context);
++typedef void (*LanceHostSubmitTask)(void* context, uint32_t queue, LanceHostRunTask run,
++                                    LanceHostRunTask discard, void* task_context);
++typedef struct LanceHostServicesOptionsV1 {
++    uint32_t abi_version;
++    uint32_t struct_size;
++    void* context;
++    LanceHostSubmitTask submit;
++} LanceHostServicesOptionsV1;
++int32_t lance_runtime_install_host_services_v1(const LanceHostServicesOptionsV1* options);
++int32_t lance_runtime_drive(void);
++void lance_runtime_stop(void);
++
 +typedef struct LanceHostExecutorOptionsV1 {
-+    uint32_t abi_version;  /* Must be 1. */
-+    uint32_t struct_size;  /* Must be at least sizeof(LanceHostExecutorOptionsV1). */
++    uint32_t abi_version; /* Must be 1. */
++    uint32_t struct_size; /* Must be at least sizeof(LanceHostExecutorOptionsV1). */
 +    void* context;
 +    void (*retain_context)(void* context);
 +    void (*release_context)(void* context);
@@ -434,6 +468,11 @@ diff --git a/include/lance/lance.h b/include/lance/lance.h
 +     * queue: 0 = CPU, 1 = blocking I/O. Worker concurrency and scheduling are the host's responsibility.
 +     */
 +    void (*notify_ready)(void* context, uint32_t queue);
++    /* Optional host dispatch. The caller still helps queued children while synchronously waiting. */
++    LanceHostSubmitTask submit_task;
++    /* Maximum outstanding host drivers per queue. Zero is treated as one. */
++    uint32_t max_cpu_drivers;
++    uint32_t max_io_drivers;
 +} LanceHostExecutorOptionsV1;
 +
 +/** Copies the descriptor and retains context once. Retain/release must both be set or both NULL.
@@ -452,22 +491,21 @@ diff --git a/include/lance/lance.h b/include/lance/lance.h
 + * Returns count or -1 on error. Concurrent workers may drive the same queue.
 + * A single task/poll cannot be preempted. Blocking I/O occupies its worker until it returns.
 + */
-+int64_t lance_host_executor_run(const LanceHostExecutor* executor, uint32_t queue, uint32_t max_tasks);
++int64_t lance_host_executor_run(const LanceHostExecutor* executor, uint32_t queue,
++                                uint32_t max_tasks);
 +/** Close SDK objects first and wait for all active scopes/run calls before freeing.
 + * Retires pending work; callback context release can occur later on the control runtime.
 + */
 +void lance_host_executor_free(LanceHostExecutor* executor);
 +/** Cumulative task poll count, for host-side profiling. */
 +uint64_t lance_host_executor_completed_tasks(const LanceHostExecutor* executor);
-+
-+
  typedef struct LanceBatch    LanceBatch;
  typedef struct LanceSession  LanceSession;
  typedef struct LanceVersions LanceVersions;
 diff --git a/src/host_executor.rs b/src/host_executor.rs
 --- /dev/null
 +++ b/src/host_executor.rs
-@@ -0,0 +1,485 @@
+@@ -0,0 +1,625 @@
 +// SPDX-License-Identifier: Apache-2.0
 +// SPDX-FileCopyrightText: Copyright The Lance Authors
 +
@@ -478,8 +516,8 @@ diff --git a/src/host_executor.rs b/src/host_executor.rs
 +use std::ffi::c_void;
 +use std::future::Future;
 +use std::panic::{AssertUnwindSafe, catch_unwind};
-+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-+use std::sync::{Arc, Mutex};
++use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
++use std::sync::{Arc, Mutex, Weak};
 +use std::task::{Context, Poll};
 +use std::thread::{Thread, ThreadId};
 +
@@ -499,6 +537,9 @@ diff --git a/src/host_executor.rs b/src/host_executor.rs
 +    pub retain_context: Option<unsafe extern "C" fn(*mut c_void)>,
 +    pub release_context: Option<unsafe extern "C" fn(*mut c_void)>,
 +    pub notify_ready: Option<unsafe extern "C" fn(*mut c_void, u32)>,
++    pub submit_task: Option<crate::host_services::SubmitTask>,
++    pub max_cpu_drivers: u32,
++    pub max_io_drivers: u32,
 +}
 +impl Default for LanceHostExecutorOptionsV1 {
 +    fn default() -> Self {
@@ -509,6 +550,9 @@ diff --git a/src/host_executor.rs b/src/host_executor.rs
 +            retain_context: None,
 +            release_context: None,
 +            notify_ready: None,
++            submit_task: None,
++            max_cpu_drivers: 1,
++            max_io_drivers: 1,
 +        }
 +    }
 +}
@@ -519,6 +563,10 @@ diff --git a/src/host_executor.rs b/src/host_executor.rs
 +}
 +
 +pub(crate) struct HostRuntime {
++    weak_self: Weak<HostRuntime>,
++    submitted: [AtomicU32; 2],
++    driver_limits: [u32; 2],
++    submit_task: Option<crate::host_services::SubmitTask>,
 +    queues: [Mutex<VecDeque<Task>>; 2],
 +    context: usize,
 +    release_context: Option<unsafe extern "C" fn(*mut c_void)>,
@@ -533,7 +581,14 @@ diff --git a/src/host_executor.rs b/src/host_executor.rs
 +        if let Some(retain) = options.retain_context {
 +            unsafe { retain(options.context) };
 +        }
-+        Arc::new(Self {
++        Arc::new_cyclic(|weak| Self {
++            weak_self: weak.clone(),
++            submitted: std::array::from_fn(|_| AtomicU32::new(0)),
++            driver_limits: [
++                options.max_cpu_drivers.max(1),
++                options.max_io_drivers.max(1),
++            ],
++            submit_task: options.submit_task,
 +            queues: std::array::from_fn(|_| Mutex::new(VecDeque::new())),
 +            context: options.context as usize,
 +            release_context: options.release_context,
@@ -580,11 +635,48 @@ diff --git a/src/host_executor.rs b/src/host_executor.rs
 +            // The caller helps its own children while waiting. Saturating the host pool with
 +            // synchronous readers must not leave all child tasks waiting for those same slots.
 +            let cpu = self.run(0, 1);
-+            let io = self.run(1, 1);
++            let io = if self.submit_task.is_none() || self.submitted[1].load(Ordering::Acquire) == 0
++            {
++                self.run(1, 1)
++            } else {
++                0
++            };
 +            if cpu == 0 && io == 0 {
 +                std::thread::park();
 +            }
 +        }
++    }
++    fn submit_driver(&self, queue: usize) {
++        let Some(submit) = self.submit_task else {
++            return;
++        };
++        if self.closed.load(Ordering::Acquire)
++            || self.submitted[queue]
++                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
++                    if current < self.driver_limits[queue] {
++                        Some(current + 1)
++                    } else {
++                        None
++                    }
++                })
++                .is_err()
++        {
++            return;
++        }
++        let driver = QueueDriver {
++            runtime: self.weak_self.clone(),
++            queue,
++        };
++        crate::host_services::submit(
++            submit,
++            self.context,
++            if queue == 0 {
++                TaskKind::Cpu
++            } else {
++                TaskKind::Io
++            },
++            Box::new(move || driver.run()),
++        );
 +    }
 +    fn retire(&self) {
 +        self.closed.store(true, Ordering::Release);
@@ -623,6 +715,7 @@ diff --git a/src/host_executor.rs b/src/host_executor.rs
 +        for (_, thread) in self.parked.lock().unwrap_or_else(|e| e.into_inner()).iter() {
 +            thread.unpark();
 +        }
++        self.submit_driver(queue);
 +        if let Some(notify) = self.notify_ready {
 +            unsafe { notify(self.context as *mut c_void, queue as u32) };
 +        }
@@ -647,6 +740,45 @@ diff --git a/src/host_executor.rs b/src/host_executor.rs
 +        });
 +    }
 +}
++// The host can discard a queued driver during shutdown; no raw SDK pointer outlives its reader.
++struct QueueDriver {
++    runtime: Weak<HostRuntime>,
++    queue: usize,
++}
++impl QueueDriver {
++    fn run(self) {
++        if let Some(runtime) = self.runtime.upgrade() {
++            if !runtime.closed.load(Ordering::Acquire) {
++                runtime.run(self.queue, 16);
++            }
++            let queue = self.queue;
++            drop(self);
++            let pending = !runtime.queues[queue]
++                .lock()
++                .unwrap_or_else(|e| e.into_inner())
++                .is_empty();
++            if pending {
++                runtime.submit_driver(queue);
++            }
++        }
++    }
++}
++impl Drop for QueueDriver {
++    fn drop(&mut self) {
++        if let Some(runtime) = self.runtime.upgrade() {
++            runtime.submitted[self.queue].fetch_sub(1, Ordering::AcqRel);
++            for (_, thread) in runtime
++                .parked
++                .lock()
++                .unwrap_or_else(|e| e.into_inner())
++                .iter()
++            {
++                thread.unpark();
++            }
++        }
++    }
++}
++
 +struct ParkedRegistration<'a> {
 +    runtime: &'a HostRuntime,
 +    id: u64,
@@ -897,6 +1029,52 @@ diff --git a/src/host_executor.rs b/src/host_executor.rs
 +    }
 +
 +    #[test]
++    fn submitted_host_drivers_obey_per_queue_limits() {
++        struct Job {
++            run: crate::host_services::RunTask,
++            context: usize,
++        }
++        unsafe extern "C" fn submit(
++            context: *mut c_void,
++            _queue: u32,
++            run: crate::host_services::RunTask,
++            _discard: crate::host_services::RunTask,
++            task: *mut c_void,
++        ) {
++            unsafe { &*context.cast::<Mutex<Vec<Job>>>() }
++                .lock()
++                .unwrap()
++                .push(Job {
++                    run,
++                    context: task as usize,
++                });
++        }
++        let jobs = Mutex::new(Vec::<Job>::new());
++        let runtime = HostRuntime::new(LanceHostExecutorOptionsV1 {
++            context: &jobs as *const _ as *mut c_void,
++            submit_task: Some(submit),
++            max_cpu_drivers: 3,
++            max_io_drivers: 2,
++            ..Default::default()
++        });
++        for _ in 0..10 {
++            runtime.schedule(TaskKind::Cpu, Box::new(|| {}));
++        }
++        for _ in 0..10 {
++            runtime.schedule(TaskKind::Io, Box::new(|| {}));
++        }
++        assert_eq!(jobs.lock().unwrap().len(), 5);
++        loop {
++            let job = jobs.lock().unwrap().pop();
++            let Some(job) = job else {
++                break;
++            };
++            unsafe { (job.run)(job.context as *mut c_void) };
++        }
++        assert_eq!(runtime.completed.load(Ordering::Relaxed), 20);
++    }
++
++    #[test]
 +    fn invalid_abi_and_queue_are_rejected() {
 +        unsafe {
 +            assert!(lance_host_executor_new_v1(std::ptr::null()).is_null());
@@ -953,46 +1131,280 @@ diff --git a/src/host_executor.rs b/src/host_executor.rs
 +        assert_eq!(counts.released.load(Ordering::SeqCst), 1);
 +    }
 +}
+diff --git a/src/host_services.rs b/src/host_services.rs
+--- /dev/null
++++ b/src/host_services.rs
+@@ -0,0 +1,153 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: Copyright The Lance Authors
++
++//! Process services whose threads and shutdown are owned by the embedding host.
++
++use crate::error::{LanceErrorCode, set_last_error};
++use lance_core::utils::task_executor::{self, Executor, Task, TaskKind};
++use std::ffi::c_void;
++use std::panic::{AssertUnwindSafe, catch_unwind};
++use std::sync::atomic::{AtomicBool, Ordering};
++use std::sync::{Arc, OnceLock};
++
++pub type RunTask = unsafe extern "C" fn(*mut c_void);
++pub type SubmitTask = unsafe extern "C" fn(*mut c_void, u32, RunTask, RunTask, *mut c_void);
++
++/// A submit callback consumes each task and must eventually run or discard it exactly once.
++#[repr(C)]
++#[derive(Clone, Copy)]
++pub struct LanceHostServicesOptionsV1 {
++    pub abi_version: u32,
++    pub struct_size: u32,
++    pub context: *mut c_void,
++    pub submit: Option<SubmitTask>,
++}
++
++pub(crate) struct HostServices {
++    pub context: usize,
++    pub submit: SubmitTask,
++}
++pub(crate) static SERVICES: OnceLock<Arc<HostServices>> = OnceLock::new();
++static DRIVING: AtomicBool = AtomicBool::new(false);
++static STOPPED: AtomicBool = AtomicBool::new(false);
++static STOP: tokio::sync::Notify = tokio::sync::Notify::const_new();
++
++struct NativeTask(Option<Task>);
++unsafe extern "C" fn run_task(context: *mut c_void) {
++    let _ = catch_unwind(AssertUnwindSafe(|| {
++        let mut task = unsafe { Box::from_raw(context.cast::<NativeTask>()) };
++        if let Some(task) = task.0.take() {
++            task();
++        }
++    }));
++}
++unsafe extern "C" fn discard_task(context: *mut c_void) {
++    let _ = catch_unwind(AssertUnwindSafe(|| {
++        let task = unsafe { Box::from_raw(context.cast::<NativeTask>()) };
++        // Rejection may occur inside a wake callback that holds an SDK lock. Future
++        // destruction belongs on the host-driven control reactor, outside that callback.
++        crate::runtime::RT.spawn(async move {
++            drop(task);
++        });
++    }));
++}
++
++pub(crate) fn submit(submit: SubmitTask, context: usize, kind: TaskKind, task: Task) {
++    let task = Box::into_raw(Box::new(NativeTask(Some(task))));
++    let queue = match kind {
++        TaskKind::Cpu => 0,
++        TaskKind::Io => 1,
++    };
++    unsafe {
++        submit(
++            context as *mut c_void,
++            queue,
++            run_task,
++            discard_task,
++            task.cast(),
++        )
++    };
++}
++impl Executor for HostServices {
++    fn schedule(&self, kind: TaskKind, task: Task) {
++        submit(self.submit, self.context, kind, task);
++    }
++}
++
++/// Install before the first Doris Lance call. Context must outlive all SDK calls and the driver.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_runtime_install_host_services_v1(
++    options: *const LanceHostServicesOptionsV1,
++) -> i32 {
++    if options.is_null() {
++        return -1;
++    }
++    let prefix = options.cast::<u32>();
++    if unsafe { prefix.read() } != 1
++        || unsafe { prefix.add(1).read() }
++            < std::mem::size_of::<LanceHostServicesOptionsV1>() as u32
++    {
++        return -1;
++    }
++    let options = unsafe { &*options };
++    if options.abi_version != 1
++        || options.struct_size < std::mem::size_of::<LanceHostServicesOptionsV1>() as u32
++        || options.submit.is_none()
++    {
++        set_last_error(
++            LanceErrorCode::InvalidArgument,
++            "invalid host runtime services descriptor",
++        );
++        return -1;
++    }
++    let service = Arc::new(HostServices {
++        context: options.context as usize,
++        submit: options.submit.unwrap(),
++    });
++    if SERVICES.set(service.clone()).is_err() {
++        set_last_error(
++            LanceErrorCode::InvalidArgument,
++            "host runtime services already installed",
++        );
++        return -1;
++    }
++    task_executor::set_default_executor(service);
++    0
++}
++
++/// Drive the threadless Tokio reactor on a host-owned service thread until stop is requested.
++#[unsafe(no_mangle)]
++pub extern "C" fn lance_runtime_drive() -> i32 {
++    catch_unwind(AssertUnwindSafe(|| {
++        if SERVICES.get().is_none() {
++            return -1;
++        }
++        if DRIVING
++            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
++            .is_err()
++        {
++            return -1;
++        }
++        struct Driving;
++        impl Drop for Driving {
++            fn drop(&mut self) {
++                DRIVING.store(false, Ordering::Release);
++            }
++        }
++        let _driving = Driving;
++        crate::runtime::HOST_RT.block_on(async {
++            while !STOPPED.load(Ordering::Acquire) {
++                STOP.notified().await;
++            }
++        });
++        0
++    }))
++    .unwrap_or(-1)
++}
++
++/// Call after all sessions and readers are closed, before shutting down the host service pools.
++#[unsafe(no_mangle)]
++pub extern "C" fn lance_runtime_stop() {
++    STOPPED.store(true, Ordering::Release);
++    STOP.notify_one();
++}
 diff --git a/src/lib.rs b/src/lib.rs
 --- a/src/lib.rs
 +++ b/src/lib.rs
-@@ -36,6 +36,7 @@
+@@ -36,6 +36,8 @@
  mod fragment_writer;
  mod fts_query;
  mod helpers;
 +mod host_executor;
++mod host_services;
  mod index;
  mod index_model;
  mod index_segment;
-@@ -43,6 +44,7 @@
+@@ -43,6 +45,8 @@
  mod multivector;
  mod restore;
  pub mod runtime;
 +pub use host_executor::*;
++pub use host_services::*;
  mod scalar_index_selection;
  mod scalar_segment;
  mod scanner;
 diff --git a/src/runtime.rs b/src/runtime.rs
 --- a/src/runtime.rs
 +++ b/src/runtime.rs
-@@ -21,5 +21,8 @@
+@@ -1,25 +1,69 @@
+ // SPDX-License-Identifier: Apache-2.0
+ // SPDX-FileCopyrightText: Copyright The Lance Authors
 
- /// Block the current thread on an async future using the global runtime.
- pub fn block_on<F: std::future::Future>(f: F) -> F::Output {
+-//! Global Tokio runtime for the C FFI layer.
+-
++//! The embedding host owns all service threads when host services have been installed.
++use lance_core::utils::task_executor::{self, TaskKind};
++use std::future::Future;
+ use std::sync::LazyLock;
+
+-/// Global multi-threaded Tokio runtime, shared across all FFI calls.
+-/// Initialized lazily on first access.
+-pub static RT: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
+-    // A native linker can omit OpenDAL's automatic constructor from liblance_c.a.
+-    // Keep initialization reachable from the FFI entry points, before any HTTP I/O.
+-    // Installation is idempotent and preserves an already installed transport.
++static LEGACY_RT: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
+     opendal::install_default();
+-
+     tokio::runtime::Builder::new_multi_thread()
+         .enable_all()
+         .build()
+-        .expect("Failed to create tokio runtime")
++        .unwrap()
++});
++pub(crate) static HOST_RT: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
++    opendal::install_default();
++    tokio::runtime::Builder::new_current_thread()
++        .enable_all()
++        .blocking_task_executor(|task| {
++            // This also covers blocking operations hidden inside Tokio fs, DNS and caches.
++            // Every task has cancellation ownership even when the host rejects it.
++            task_executor::current_executor()
++                .expect("host executor installed")
++                .schedule(TaskKind::Io, task);
++        })
++        .build()
++        .unwrap()
+ });
+
+-/// Block the current thread on an async future using the global runtime.
+-pub fn block_on<F: std::future::Future>(f: F) -> F::Output {
 -    RT.block_on(f)
-+    match crate::host_executor::current() {
-+        Some(executor) => executor.block_on(f),
-+        None => RT.block_on(f),
++pub struct RuntimeRouter;
++pub static RT: RuntimeRouter = RuntimeRouter;
++impl RuntimeRouter {
++    fn selected(&self) -> &'static tokio::runtime::Runtime {
++        if crate::host_services::SERVICES.get().is_some() {
++            &HOST_RT
++        } else {
++            &LEGACY_RT
++        }
++    }
++    pub fn handle(&self) -> &'static tokio::runtime::Handle {
++        self.selected().handle()
++    }
++    pub fn enter(&self) -> tokio::runtime::EnterGuard<'static> {
++        self.selected().enter()
++    }
++    pub fn spawn<F>(&self, future: F) -> tokio::task::JoinHandle<F::Output>
++    where
++        F: Future + Send + 'static,
++        F::Output: Send + 'static,
++    {
++        self.selected().spawn(future)
++    }
++    pub fn block_on<F: Future>(&self, future: F) -> F::Output {
++        if crate::host_services::SERVICES.get().is_some() {
++            let _runtime = self.enter();
++            futures::executor::block_on(future)
++        } else {
++            self.selected().block_on(future)
++        }
 +    }
  }
++
++pub fn block_on<F: Future>(future: F) -> F::Output {
++    match crate::host_executor::current() {
++        Some(executor) => executor.block_on(future),
++        None => RT.block_on(future),
++    }
++}
 diff --git a/src/scanner.rs b/src/scanner.rs
 --- a/src/scanner.rs
 +++ b/src/scanner.rs
-@@ -2350,7 +2350,7 @@
+@@ -2350,7 +2350,9 @@
      // it if a panic is caught during the consumer's later `get_next` calls.
      let poisoned = s.poison_flag();
 
 -    RT.spawn(async move {
++    // Standalone callers need not enter a runtime before using this asynchronous C API.
++    let _runtime = RT.enter();
 +    lance_core::utils::task_executor::spawn(async move {
          // Copies kept outside the inner future (which consumes the originals)
          // so the panic arm below can still poison the handle and report.
@@ -1018,7 +1430,7 @@ diff --git a/src/stream_guard.rs b/src/stream_guard.rs
 diff --git a/tests/c_api_test.rs b/tests/c_api_test.rs
 --- a/tests/c_api_test.rs
 +++ b/tests/c_api_test.rs
-@@ -18723,3 +18723,30 @@
+@@ -18723,3 +18723,175 @@
          lance_dataset_close(reopened);
      }
  }
@@ -1047,5 +1459,150 @@ diff --git a/tests/c_api_test.rs b/tests/c_api_test.rs
 +    test_scanner_nearest_brute_force();
 +    test_scanner_full_text_search();
 +    test_scanner_statistics_callback_not_called_on_early_scanner_close();
++    test_scanner_statistics_callback_not_called_on_early_arrow_stream_release();
++    test_dataset_take_rows_from_multi_fragment_ann_result();
++    test_dataset_take_rows_from_multi_fragment_ann_result_with_stable_row_ids();
 +    assert!(unsafe { lance_host_executor_completed_tasks(executor) } > 0);
++}
++
++#[cfg(target_os = "linux")]
++#[test]
++fn test_host_services_never_create_sdk_threads() {
++    const CHILD: &str = "LANCE_HOST_SERVICES_TEST_CHILD";
++    if std::env::var_os(CHILD).is_none() {
++        let status = std::process::Command::new(std::env::current_exe().unwrap())
++            .args([
++                "--exact",
++                "test_host_services_never_create_sdk_threads",
++                "--nocapture",
++            ])
++            .env(CHILD, "1")
++            .status()
++            .unwrap();
++        assert!(status.success());
++        return;
++    }
++    struct Job {
++        run: RunTask,
++        discard: RunTask,
++        context: usize,
++    }
++    impl Job {
++        fn execute(mut self) {
++            let context = std::mem::replace(&mut self.context, 0);
++            unsafe { (self.run)(context as *mut c_void) };
++        }
++    }
++    impl Drop for Job {
++        fn drop(&mut self) {
++            if self.context != 0 {
++                unsafe { (self.discard)(self.context as *mut c_void) };
++            }
++        }
++    }
++    unsafe extern "C" fn submit(
++        context: *mut c_void,
++        _queue: u32,
++        run: RunTask,
++        discard: RunTask,
++        task: *mut c_void,
++    ) {
++        let sender = unsafe { &*context.cast::<std::sync::mpsc::Sender<Option<Job>>>() };
++        let _ = sender.send(Some(Job {
++            run,
++            discard,
++            context: task as usize,
++        }));
++    }
++    let (sender, receiver) = std::sync::mpsc::channel::<Option<Job>>();
++    let sender = Box::new(sender);
++    let receiver = Arc::new(Mutex::new(receiver));
++    let mut workers = Vec::new();
++    for _ in 0..4 {
++        let receiver = receiver.clone();
++        workers.push(std::thread::spawn(move || {
++            loop {
++                let job = receiver.lock().unwrap().recv();
++                match job {
++                    Ok(Some(job)) => job.execute(),
++                    Ok(None) | Err(_) => break,
++                }
++            }
++        }));
++    }
++    let options = LanceHostServicesOptionsV1 {
++        abi_version: 1,
++        struct_size: std::mem::size_of::<LanceHostServicesOptionsV1>() as u32,
++        context: &*sender as *const _ as *mut c_void,
++        submit: Some(submit),
++    };
++    assert_eq!(
++        unsafe { lance_runtime_install_host_services_v1(&options) },
++        0
++    );
++    let driver = std::thread::spawn(|| assert_eq!(lance_runtime_drive(), 0));
++    let http = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
++    let address = http.local_addr().unwrap();
++    let server_done = Arc::new(std::sync::Barrier::new(2));
++    let done = server_done.clone();
++    let server = std::thread::spawn(move || {
++        use std::io::{BufRead, Write};
++        let (mut socket, _) = http.accept().unwrap();
++        socket
++            .set_read_timeout(Some(std::time::Duration::from_secs(10)))
++            .unwrap();
++        {
++            let mut input = std::io::BufReader::new(&mut socket);
++            loop {
++                let mut line = String::new();
++                input.read_line(&mut line).unwrap();
++                if line == "\r\n" || line.is_empty() {
++                    break;
++                }
++            }
++        }
++        socket.write_all(b"HTTP/1.1 206 Partial Content\r\nContent-Length: 3\r\nContent-Range: bytes 2-4/6\r\nETag: \"sample\"\r\nConnection: close\r\n\r\ncde").unwrap();
++        done.wait();
++    });
++    let count_threads = || std::fs::read_dir("/proc/self/task").unwrap().count();
++    let before = count_threads();
++    test_host_executor_scan_take_search_and_early_close();
++    // Exercise the SDK's real HTTP/DNS stack on the threadless host reactor as well.
++    lance_c::runtime::block_on(async {
++        use object_store::ObjectStoreExt;
++        let store = object_store::aws::AmazonS3Builder::new()
++            .with_bucket_name("example-bucket")
++            .with_region("us-east-1")
++            .with_endpoint(format!("http://localhost:{}", address.port()))
++            .with_allow_http(true)
++            .with_skip_signature(true)
++            .with_proxy_url("http://127.0.0.1:1")
++            .with_proxy_excludes("localhost")
++            .build()
++            .unwrap();
++        let bytes = store
++            .get_range(&object_store::path::Path::from("sample.lance"), 2..5)
++            .await
++            .unwrap();
++        assert_eq!(bytes.as_ref(), b"cde");
++    });
++    // The scope above closes all SDK objects before stopping host execution resources.
++    let after = count_threads();
++    server_done.wait();
++    server.join().unwrap();
++    lance_runtime_stop();
++    driver.join().unwrap();
++    for _ in &workers {
++        let _ = sender.send(None);
++    }
++    for worker in workers {
++        worker.join().unwrap();
++    }
++    drop(receiver);
++    drop(sender);
++    println!("host services: threads {before}->{after}");
++    assert_eq!(
++        before, after,
++        "the SDK created a worker thread instead of using the host"
++    );
 +}

@@ -30,6 +30,7 @@ struct LanceSession;
 namespace doris::format::lance {
 
 class LanceSessionMetrics;
+class LanceHostRuntime;
 
 // Owns the single Lance session shared by all queries in one BE process. The session always owns
 // Lance's metadata/index caches and optionally installs the Foyer data-file cache. Readers only
@@ -63,6 +64,7 @@ public:
     // manager tests. Production readers use instance().
     explicit LanceSessionManager(Config config);
     ~LanceSessionManager();
+    void shutdown();
 
     LanceSessionManager(const LanceSessionManager&) = delete;
     LanceSessionManager& operator=(const LanceSessionManager&) = delete;
@@ -77,6 +79,7 @@ private:
     Status _initialize();
     Status _ensure_initialized();
 
+    std::shared_ptr<LanceHostRuntime> _host_runtime;
     Config _config;
     std::once_flag _initialize_once;
     LanceSession* _session = nullptr;

@@ -29,6 +29,7 @@
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/metrics/metrics.h"
+#include "format_v2/lance/lance_host_runtime.h"
 #include "format_v2/lance/lance_reader_helper.h"
 
 namespace doris::format::lance {
@@ -148,6 +149,8 @@ private:
 LanceSessionManager& LanceSessionManager::instance() {
     // Function-local static initialization is thread safe. Cache configuration is process scoped,
     // so changing it requires a BE restart.
+    // Register the runtime owner before this session so its reactor outlives cache cleanup.
+    if (config::enable_lance_host_executor) static_cast<void>(LanceHostRuntime::instance());
     static LanceSessionManager manager(load_lance_session_config());
     return manager;
 }
@@ -166,11 +169,19 @@ LanceSessionManager::LanceSessionManager(Config config) : _config(std::move(conf
 }
 
 LanceSessionManager::~LanceSessionManager() {
+    shutdown();
+}
+
+void LanceSessionManager::shutdown() {
     _metrics.reset();
-    lance_session_close(_session);
+    lance_session_close(std::exchange(_session, nullptr));
 }
 
 Status LanceSessionManager::_initialize() {
+    if (config::enable_lance_host_executor) {
+        _host_runtime = LanceHostRuntime::instance();
+        RETURN_IF_ERROR(_host_runtime->ensure_started());
+    }
     if (_config.enable_lance_data_cache) {
         if (_config.lance_data_cache_memory_capacity_bytes < 0) {
             return Status::InvalidArgument(

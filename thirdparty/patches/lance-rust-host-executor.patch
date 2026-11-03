@@ -97,7 +97,7 @@ diff --git a/rust/lance-core/src/utils.rs b/rust/lance-core/src/utils.rs
 diff --git a/rust/lance-core/src/utils/task_executor.rs b/rust/lance-core/src/utils/task_executor.rs
 --- /dev/null
 +++ b/rust/lance-core/src/utils/task_executor.rs
-@@ -0,0 +1,314 @@
+@@ -0,0 +1,387 @@
 +// SPDX-License-Identifier: Apache-2.0
 +// SPDX-FileCopyrightText: Copyright The Lance Authors
 +
@@ -107,7 +107,7 @@ diff --git a/rust/lance-core/src/utils/task_executor.rs b/rust/lance-core/src/ut
 +use std::future::Future;
 +use std::panic::{AssertUnwindSafe, resume_unwind};
 +use std::pin::Pin;
-+use std::sync::{Arc, Weak};
++use std::sync::{Arc, OnceLock, Weak};
 +use std::task::{Context, Poll};
 +
 +use futures::FutureExt;
@@ -136,9 +136,18 @@ diff --git a/rust/lance-core/src/utils/task_executor.rs b/rust/lance-core/src/ut
 +    static CURRENT_EXECUTOR: RefCell<Option<Weak<dyn Executor>>> = RefCell::new(None);
 +}
 +
-+/// Returns the operation's executor, if the caller installed one for this poll.
++static DEFAULT_EXECUTOR: OnceLock<Arc<dyn Executor>> = OnceLock::new();
++
++/// Install process services for work that is not owned by a query.
++pub fn set_default_executor(executor: Arc<dyn Executor>) {
++    let _ = DEFAULT_EXECUTOR.set(executor);
++}
++
++/// Returns the operation executor, or the host-owned process services.
 +pub fn current_executor() -> Option<Arc<dyn Executor>> {
-+    CURRENT_EXECUTOR.with(|current| current.borrow().as_ref().and_then(Weak::upgrade))
++    CURRENT_EXECUTOR
++        .with(|current| current.borrow().as_ref().and_then(Weak::upgrade))
++        .or_else(|| DEFAULT_EXECUTOR.get().cloned())
 +}
 +
 +struct ContextGuard(Option<Weak<dyn Executor>>);
@@ -261,14 +270,78 @@ diff --git a/rust/lance-core/src/utils/task_executor.rs b/rust/lance-core/src/ut
 +}
 +
 +/// Preserve the operation context when another task polls an execution-plan stream.
-+pub fn scope_stream<S: futures::Stream>(
++pub fn scope_stream<S>(
 +    executor: Arc<dyn Executor>,
 +    stream: S,
-+) -> impl futures::Stream<Item = S::Item> {
-+    ScopedStream {
++) -> impl futures::Stream<Item = S::Item>
++where
++    S: futures::Stream + Send + 'static,
++    S::Item: Send + 'static,
++{
++    use futures::{SinkExt, StreamExt};
++    let stream = ScopedStream {
 +        stream: Box::pin(stream),
 +        executor: Arc::downgrade(&executor),
 +        reactor: Handle::current(),
++    };
++    let (mut sender, receiver) = futures::channel::mpsc::channel(1);
++    // DataFusion may consume a stream from a Tokio control task. Poll each plan node on
++    // the host instead, so filters/merges cannot turn the reactor into a hidden CPU pool.
++    let task = spawn_host(executor, TaskKind::Cpu, async move {
++        let mut stream = std::pin::pin!(stream);
++        while let Some(item) = stream.next().await {
++            if sender.send(item).await.is_err() {
++                break;
++            }
++        }
++    });
++    DrivenStream {
++        receiver,
++        task: Some(task),
++        finished: false,
++    }
++}
++
++struct DrivenStream<T> {
++    receiver: futures::channel::mpsc::Receiver<T>,
++    task: Option<JoinHandle<()>>,
++    finished: bool,
++}
++impl<T> futures::Stream for DrivenStream<T> {
++    type Item = T;
++    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<T>> {
++        if self.finished {
++            return Poll::Ready(None);
++        }
++        match Pin::new(&mut self.receiver).poll_next(cx) {
++            Poll::Ready(None) => {
++                let Some(task) = self.task.as_mut() else {
++                    return Poll::Ready(None);
++                };
++                match Pin::new(task).poll(cx) {
++                    Poll::Pending => Poll::Pending,
++                    Poll::Ready(result) => {
++                        self.task = None;
++                        self.finished = true;
++                        if let Err(error) = result {
++                            if error.is_panic() {
++                                resume_unwind(error.into_panic());
++                            }
++                            panic!("host stream task was cancelled while still being consumed");
++                        }
++                        Poll::Ready(None)
++                    }
++                }
++            }
++            item => item,
++        }
++    }
++}
++impl<T> Drop for DrivenStream<T> {
++    fn drop(&mut self) {
++        if let Some(task) = self.task.take() {
++            task.abort();
++        }
 +    }
 +}
 +

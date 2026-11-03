@@ -32,6 +32,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "exec/common/endian.h"
+#include "format_v2/lance/lance_host_runtime.h"
 #include "format_v2/lance/lance_reader_helper.h"
 #include "format_v2/lance/lance_runtime_filter_helper.h"
 #include "format_v2/lance/lance_session_cache_profile.h"
@@ -42,18 +43,10 @@
 namespace doris::format::lance {
 
 namespace {
-Status create_host_executor(::LanceHostExecutor** executor) {
+Status create_host_executor(::LanceHostExecutor** executor, RuntimeState* state = nullptr) {
     *executor = nullptr;
-    if (!config::enable_lance_host_executor) {
-        return Status::OK();
-    }
-    LanceHostExecutorOptionsV1 options {};
-    options.abi_version = 1;
-    options.struct_size = sizeof(options);
-    // A null notifier lets the synchronous scanner cooperatively execute its children.
-    // Submitting children to the same saturated scan pool and only waiting would deadlock.
-    *executor = lance_host_executor_new_v1(&options);
-    return *executor != nullptr ? Status::OK() : lance_error("create host executor");
+    if (!config::enable_lance_host_executor) return Status::OK();
+    return LanceHostRuntime::instance()->create_executor(state, executor);
 }
 
 class ScopedHostExecutor {
@@ -177,12 +170,14 @@ Status LanceTableReader::init(TableReadOptions&& options) {
     DORIS_CHECK(_runtime_state != nullptr);
     DORIS_CHECK(_scanner_profile != nullptr);
     DORIS_CHECK(_scan_params != nullptr);
-    RETURN_IF_ERROR(_resolve_search_kind());
     ::LanceHostExecutor* raw_executor = nullptr;
-    RETURN_IF_ERROR(create_host_executor(&raw_executor));
+    RETURN_IF_ERROR(create_host_executor(&raw_executor, _runtime_state));
     _host_executor.reset(raw_executor);
+    ScopedHostExecutor init_scope(_host_executor.get());
+    RETURN_IF_ERROR(init_scope.status());
+    RETURN_IF_ERROR(_resolve_search_kind());
     _scanner_profile->add_info_string("LanceHostExecutorMode",
-                                      _host_executor ? "cooperative" : "disabled");
+                                      _host_executor ? "host" : "disabled");
     if (_search_kind == SearchKind::NORMAL) {
         _scanner_profile->add_info_string(
                 "LanceScalarIndexAutoSelection",

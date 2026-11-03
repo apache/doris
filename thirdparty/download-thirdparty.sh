@@ -89,6 +89,11 @@ if [[ "${SPEC_LIB}" != "" ]]; then
         SPEC_ARCHIVES+=("LANCE_RUST")
     fi
 
+    if [[ " ${SPEC_ARCHIVES[*]} " == *' LANCE_C '* ]] &&
+        [[ " ${SPEC_ARCHIVES[*]} " != *' LANCE_TOKIO '* ]]; then
+        SPEC_ARCHIVES+=("LANCE_TOKIO")
+    fi
+
     TP_ARCHIVES=("${SPEC_ARCHIVES[@]}")
     echo "Download and build specified libs only: ${TP_ARCHIVES[*]}"
 fi
@@ -771,6 +776,24 @@ if [[ " ${TP_ARCHIVES[*]} " == *' LANCE_RUST '* ]]; then
     fi
     cd -
     echo "Finished patching ${LANCE_RUST_SOURCE}"
+fi
+
+if [[ " ${TP_ARCHIVES[*]} " == *' LANCE_TOKIO '* ]]; then
+    lance_tokio_checksum="$(cksum < "${TP_PATCH_DIR}/tokio-host-blocking-executor.patch")"
+    lance_tokio_marker="${TP_SOURCE_DIR}/${LANCE_TOKIO_SOURCE}/${PATCHED_MARK}_host_executor"
+    if [[ -f "${lance_tokio_marker}" ]] &&
+        [[ "$(cat "${lance_tokio_marker}")" != "${lance_tokio_checksum}" ]]; then
+        rm -rf "${TP_SOURCE_DIR}/${LANCE_TOKIO_SOURCE}"
+        "${TAR_CMD}" xzf "${TP_SOURCE_DIR}/${LANCE_TOKIO_NAME}" -C "${TP_SOURCE_DIR}/"
+    fi
+    cd "${TP_SOURCE_DIR}/${LANCE_TOKIO_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}_host_executor" ]]; then
+        patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
+            -p1 <"${TP_PATCH_DIR}/tokio-host-blocking-executor.patch"
+        printf '%s\n' "${lance_tokio_checksum}" > "${PATCHED_MARK}_host_executor"
+    fi
+    cd -
+    echo "Finished patching ${LANCE_TOKIO_SOURCE}"
 fi
 
 if [[ " ${TP_ARCHIVES[*]} " =~ " CCTZ " ]] ; then

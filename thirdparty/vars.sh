@@ -587,6 +587,12 @@ LANCE_RUST_NAME="lance-68c12dfd7efe02f90ad2d7f3a239a7eb64884e57.tar.gz"
 LANCE_RUST_SOURCE="lance-68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
 LANCE_RUST_MD5SUM="6c9238690a2763316ffbfaaf4b249d84"
 
+# Tokio is patched only for Lance-C's host-driven runtime and blocking I/O dispatch.
+LANCE_TOKIO_DOWNLOAD="https://static.crates.io/crates/tokio/tokio-1.53.1.crate"
+LANCE_TOKIO_NAME="tokio-1.53.1.tar.gz"
+LANCE_TOKIO_SOURCE="tokio-1.53.1"
+LANCE_TOKIO_MD5SUM="5352e5cfaf666d5068d860908e19c082"
+
 # lance-c
 # Includes lance-c #98: bounded runtime BTree segment selection with decoded-memory guards.
 LANCE_C_DOWNLOAD="https://codeload.github.com/lance-format/lance-c/tar.gz/a51ab47a9c814a746cb1714c99fad93dd3a188b8"
@@ -688,6 +694,7 @@ export TP_ARCHIVES=(
     'PUGIXML'
     'LANCE_C'
     'LANCE_RUST'
+    'LANCE_TOKIO'
     'PAIMON_RUST'
 )
 
