@@ -1881,10 +1881,10 @@ DEFINE_Validator(read_io_trace_flush_bytes, [](int64_t value) { return value > 0
 DEFINE_Int32(read_io_trace_flush_interval_ms, "1000");
 DEFINE_Validator(read_io_trace_flush_interval_ms, [](int32_t value) { return value > 0; });
 // Query-level resident read-ahead buffer limit
-DEFINE_Int64(read_ahead_max_bytes_per_query, "268435456"); // 256 MiB
+DEFINE_Int64(read_ahead_max_bytes_per_query, "1073741824"); // 1 GiB
 DEFINE_Validator(read_ahead_max_bytes_per_query, [](int64_t value) { return value > 0; });
 // BE-level resident read-ahead buffer limit
-DEFINE_Int64(read_ahead_max_bytes_per_be, "1073741824"); // 1 GiB
+DEFINE_Int64(read_ahead_max_bytes_per_be, "4294967296"); // 4 GiB
 DEFINE_Validator(read_ahead_max_bytes_per_be, [](int64_t value) { return value > 0; });
 // Compressed page bytes per eager read-ahead window; entering its trigger page appends the next.
 DEFINE_mInt64(read_ahead_eager_window_bytes, "4194304"); // 4 MiB
