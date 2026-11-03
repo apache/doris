@@ -59,6 +59,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletBinlogConfig;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.VariantPropertyChangePolicy;
 import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.cloud.qe.ComputeGroupException;
@@ -1021,7 +1022,15 @@ public class SchemaChangeHandler extends AlterHandler {
                         ColumnType.checkSupportSchemaChangeForComplexType(col.getType(), modColumn.getType(), true);
                         lightSchemaChange = olapTable.getEnableLightSchemaChange();
                     }
-                    // variant property-only change (e.g. variant_doc_materialization_min_rows)
+                    if (col.getType().isVariantType() && modColumn.getType().isVariantType()
+                            && VariantPropertyChangePolicy.hasBudgetChange(col, modColumn)) {
+                        if (columnPos != null) {
+                            throw new DdlException("Can not change variant properties together with column position");
+                        }
+                        VariantPropertyChangePolicy.checkPropertyChangeIsolated(col, modColumn);
+                    }
+                    // variant property-only change (e.g. variant_doc_materialization_min_rows,
+                    // variant_max_subcolumns_count)
                     if (columnPos == null && col.getDataType() == PrimitiveType.VARIANT
                             && modColumn.getDataType() == PrimitiveType.VARIANT) {
                         lightSchemaChange = olapTable.getEnableLightSchemaChange();

@@ -18,7 +18,12 @@
 #include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cstdlib>
 #include <initializer_list>
+#include <iostream>
+#include <limits>
+#include <random>
 #include <string>
 #include <string_view>
 
@@ -461,6 +466,78 @@ TEST_F(SchemaUtilTest, get_subpaths_selects_empty_key_as_subpath) {
     EXPECT_TRUE(low_rank_empty_key_paths.sparse_path_set.contains(""));
     EXPECT_TRUE(low_rank_empty_key_paths.sub_path_set.contains("path1"));
     EXPECT_TRUE(low_rank_empty_key_paths.sub_path_set.contains("path2"));
+}
+
+// Seeded boundary fuzz for lightweight variant_max_subcolumns_count changes: each rowset history
+// may be compacted under 0 -> N, N -> 0, N -> larger/smaller M (including 1, and budgets above
+// and below the distinct path count). Every collected path keeps exactly one destination and the
+// old-only low-frequency sentinel "lost" is never dropped. Override with
+// DORIS_VARIANT_BUDGET_SEED=<seed> to replay a failure.
+TEST_F(SchemaUtilTest, get_subpaths_budget_transitions_fuzz) {
+    uint64_t seed = 20261103;
+    if (const char* env = std::getenv("DORIS_VARIANT_BUDGET_SEED"); env != nullptr) {
+        seed = std::strtoull(env, nullptr, 10);
+    }
+    std::cout << "variant budget fuzz seed=" << seed << std::endl;
+    std::mt19937_64 rng(seed);
+    auto uniform = [&](int64_t lo, int64_t hi) {
+        return std::uniform_int_distribution<int64_t>(lo, hi)(rng);
+    };
+    for (int iteration = 0; iteration < 200; ++iteration) {
+        variant_util::PathToNoneNullValues stats;
+        const auto distinct = uniform(0, 12);
+        for (int64_t i = 0; i < distinct; ++i) {
+            stats.emplace("p" + std::to_string(i), uniform(2, 1000));
+        }
+        // Old-only sentinel: lowest frequency, so any bounded budget pushes it to sparse.
+        stats.emplace("lost", 1);
+        const auto total = static_cast<int64_t>(stats.size());
+        const auto n = uniform(1, total + 3);
+        const auto larger = n + uniform(1, 4);
+        const auto smaller = std::max<int64_t>(1, n - uniform(1, 4));
+        const std::vector<int64_t> budgets = {0,       n, 0,         n,     larger,
+                                              smaller, 1, total - 1, total, total + 1};
+        std::string trace = "seed=" + std::to_string(seed) +
+                            " iteration=" + std::to_string(iteration) +
+                            " paths=" + std::to_string(total) + " budgets=";
+        for (auto budget : budgets) {
+            trace += std::to_string(budget) + ",";
+        }
+        SCOPED_TRACE(trace);
+        for (auto budget : budgets) {
+            if (budget < 0) {
+                continue;
+            }
+            VariantCompactionPaths paths;
+            variant_util::VariantCompactionUtil::get_subpaths(static_cast<int32_t>(budget), stats,
+                                                              paths);
+            ASSERT_EQ(paths.sub_path_set.size() + paths.sparse_path_set.size(), stats.size())
+                    << "budget=" << budget;
+            for (const auto& [path, _] : stats) {
+                ASSERT_NE(paths.sub_path_set.contains(path), paths.sparse_path_set.contains(path))
+                        << "budget=" << budget << " path=" << path;
+            }
+            if (budget == 0 || total <= budget) {
+                ASSERT_TRUE(paths.sparse_path_set.empty()) << "budget=" << budget;
+                continue;
+            }
+            ASSERT_EQ(static_cast<int64_t>(paths.sub_path_set.size()), budget);
+            ASSERT_TRUE(paths.sparse_path_set.contains("lost")) << "budget=" << budget;
+            int64_t min_sub = std::numeric_limits<int64_t>::max();
+            int64_t max_sparse = 0;
+            for (const auto& path : paths.sub_path_set) {
+                min_sub = std::min(min_sub, stats.at(std::string(path)));
+            }
+            for (const auto& path : paths.sparse_path_set) {
+                max_sparse = std::max(max_sparse, stats.at(std::string(path)));
+            }
+            ASSERT_GE(min_sub, max_sparse) << "budget=" << budget;
+            VariantCompactionPaths again;
+            variant_util::VariantCompactionUtil::get_subpaths(static_cast<int32_t>(budget), stats,
+                                                              again);
+            ASSERT_EQ(paths.sub_path_set, again.sub_path_set) << "budget=" << budget;
+        }
+    }
 }
 
 TEST_F(SchemaUtilTest, get_subpaths_multiple_variants) {

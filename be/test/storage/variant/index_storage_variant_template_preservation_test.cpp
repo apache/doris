@@ -17,11 +17,16 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstdlib>
+#include <iostream>
+#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
+#include <random>
 #include <string>
 #include <tuple>
 #include <unordered_map>
@@ -305,6 +310,156 @@ TEST_F(IndexStorageVariantTemplatePreservationTest, UnchangedTypedSchemaKeepsNat
     EXPECT_EQ(before.SerializeAsString(), after.SerializeAsString());
     EXPECT_EQ(meta_before, old.value()->rowset_meta()->get_rowset_pb().SerializeAsString());
     expect_single_destination(old.value());
+}
+
+// Seeded fuzz for lightweight variant_max_subcolumns_count changes on a templated column. The
+// table keeps glob template t* BIGINT while the budget moves 0->N, N->0 and up/down, with loads
+// and compactions in between. Template-owned typed paths never consume or lose a budget slot;
+// only dynamic d* paths obey the budget, hottest first. Override with
+// DORIS_VARIANT_BUDGET_SEED=<seed> to replay a failure.
+TEST_F(IndexStorageVariantTemplatePreservationTest, BudgetTransitionsWithTemplatesFuzz) {
+    uint64_t seed = 20261103;
+    if (const char* env = std::getenv("DORIS_VARIANT_BUDGET_SEED"); env != nullptr) {
+        seed = std::strtoull(env, nullptr, 10);
+    }
+    std::cout << "variant budget template fuzz seed=" << seed << std::endl;
+    std::mt19937_64 rng(seed);
+    auto uniform = [&](int64_t lo, int64_t hi) {
+        return std::uniform_int_distribution<int64_t>(lo, hi)(rng);
+    };
+    auto spec_with_budget = [](int32_t budget) {
+        VariantColumnSpec column;
+        column.max_subcolumns_count = budget;
+        column.predefined_paths.push_back(
+                VariantPathSpec {.path = "t*",
+                                 .type = FieldType::OLAP_FIELD_TYPE_BIGINT,
+                                 .nullable = true,
+                                 .pattern_type = PatternTypePB::MATCH_NAME_GLOB,
+                                 .array_item_type = {},
+                                 .array_item_nullable = true});
+        return column;
+    };
+    constexpr int kTemplatePaths = 3;
+    for (int iteration = 0; iteration < 6; ++iteration) {
+        const auto dynamic_paths = uniform(2, 9);
+        const auto n = uniform(1, dynamic_paths + 2);
+        std::vector<int32_t> budgets = {static_cast<int32_t>(uniform(0, 1) == 0 ? 0 : n), 0,
+                                        static_cast<int32_t>(n), 0, static_cast<int32_t>(n)};
+        for (int i = 0; i < 4; ++i) {
+            const auto next = budgets.back() + (uniform(0, 1) == 0 ? -1 : 1) * uniform(1, 3);
+            budgets.push_back(static_cast<int32_t>(std::max<int64_t>(1, next)));
+        }
+        budgets.push_back(1);
+        std::string trace = "seed=" + std::to_string(seed) +
+                            " iteration=" + std::to_string(iteration) +
+                            " dynamic_paths=" + std::to_string(dynamic_paths) + " budgets=";
+        for (auto budget : budgets) {
+            trace += std::to_string(budget) + ",";
+        }
+        SCOPED_TRACE(trace);
+        std::cout << trace << std::endl;
+        std::vector<double> presence;
+        for (int64_t i = 0; i < dynamic_paths; ++i) {
+            presence.push_back(static_cast<double>(uniform(5, 100)) / 100.0);
+        }
+        initialize(spec_with_budget(budgets.front()), 110901 + iteration);
+        ASSERT_FALSE(HasFatalFailure());
+        std::vector<RowsetSharedPtr> rowsets;
+        std::vector<std::string> expected;
+        std::map<std::string, int64_t> dynamic_counts;
+        int64_t version = 0;
+        for (size_t step = 0; step < budgets.size(); ++step) {
+            SCOPED_TRACE(::testing::Message() << "step=" << step << " budget=" << budgets[step]);
+            if (step > 0) {
+                install_write_schema(target_schema(spec_with_budget(budgets[step])));
+            }
+            std::vector<std::string> jsons;
+            const auto rows = uniform(1, 6);
+            for (int64_t row = 0; row < rows; ++row) {
+                // Keys are emitted sorted (d* < t*) so the expected text is canonical.
+                std::string json = "{";
+                auto add = [&](const std::string& key, int64_t value) {
+                    json += (json.size() > 1 ? "," : "");
+                    json += "\"" + key + "\":" + std::to_string(value);
+                };
+                for (int64_t i = 0; i < dynamic_paths; ++i) {
+                    if (std::bernoulli_distribution(presence[i])(rng)) {
+                        const auto key = "d" + std::to_string(i);
+                        add(key, uniform(0, 1000));
+                        ++dynamic_counts[key];
+                    }
+                }
+                add("t0", uniform(0, 1000));
+                for (int i = 1; i < kTemplatePaths; ++i) {
+                    if (uniform(0, 1) == 1) {
+                        add("t" + std::to_string(i), uniform(0, 1000));
+                    }
+                }
+                jsons.push_back(json + "}");
+            }
+            // Keys must be unique across rowsets so the ordered read matches load order.
+            IndexRowsetSpec spec;
+            spec.version = version;
+            spec.batches.push_back(
+                    IndexBatch::single_variant(jsons, static_cast<int32_t>(expected.size())));
+            auto written = write_rowset(spec);
+            ASSERT_TRUE(written.has_value()) << written.error();
+            SegmentLoader::instance()->erase_segments(*written.value()->rowset_meta());
+            version += 1;
+            rowsets.push_back(written.value());
+            expected.insert(expected.end(), jsons.begin(), jsons.end());
+
+            // Plan under the current budget: t* stays typed BIGINT and outside the budget.
+            auto target = std::make_shared<TabletSchema>(*tablet_schema());
+            VariantCompactionPathsMap planned;
+            auto status = variant_util::VariantCompactionUtil::get_extended_compaction_schema(
+                    rowsets, target, planned);
+            ASSERT_TRUE(status.ok()) << status;
+            const auto& paths = planned.at(kVariantUid);
+            for (int i = 0; i < kTemplatePaths; ++i) {
+                const auto key = "t" + std::to_string(i);
+                EXPECT_FALSE(paths.sub_path_set.contains(StringRef(key))) << key;
+                EXPECT_FALSE(paths.sparse_path_set.contains(StringRef(key))) << key;
+                EXPECT_TRUE(paths.carrier_path_set.empty());
+            }
+            size_t typed_t0 = 0;
+            for (const auto& column : target->columns()) {
+                if (column->is_extracted_column() && column->parent_unique_id() == kVariantUid &&
+                    column->has_path_info() && column->path_info_ptr()->get_path() == "v.t0") {
+                    ++typed_t0;
+                    EXPECT_EQ(column->type(), FieldType::OLAP_FIELD_TYPE_BIGINT);
+                }
+            }
+            EXPECT_EQ(typed_t0, 1) << dump_schema_paths(*target);
+            const int64_t budget = budgets[step];
+            const auto observed = static_cast<int64_t>(dynamic_counts.size());
+            EXPECT_EQ(paths.sub_path_set.size() + paths.sparse_path_set.size(), observed);
+            const auto expected_sub = (budget == 0 || observed <= budget) ? observed : budget;
+            EXPECT_EQ(static_cast<int64_t>(paths.sub_path_set.size()), expected_sub);
+            int64_t min_sub = std::numeric_limits<int64_t>::max();
+            int64_t max_sparse = 0;
+            for (const auto& [key, count] : dynamic_counts) {
+                const bool sub = paths.sub_path_set.contains(StringRef(key));
+                EXPECT_NE(sub, paths.sparse_path_set.contains(StringRef(key))) << key;
+                if (sub) {
+                    min_sub = std::min(min_sub, count);
+                } else {
+                    max_sparse = std::max(max_sparse, count);
+                }
+            }
+            EXPECT_GE(min_sub, max_sparse);
+            ASSERT_FALSE(HasFailure());
+
+            if (rowsets.size() > 1 && uniform(0, 2) == 0) {
+                auto output = compact(rowsets, false, uniform(0, 1) == 1);
+                ASSERT_TRUE(output.has_value()) << output.error();
+                rowsets = {output.value()};
+                expect_single_destination(output.value());
+            }
+            expect_values(rowsets, expected);
+            ASSERT_FALSE(HasFailure());
+        }
+    }
 }
 
 TEST_F(IndexStorageVariantTemplatePreservationTest, DocUnchangedLayoutKeepsDocBuckets) {

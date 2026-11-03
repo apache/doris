@@ -28,6 +28,7 @@ import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PatternType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
@@ -46,6 +47,8 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.persist.TableAddOrDropColumnsInfo;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.task.UpdateTabletMetaInfoTask;
@@ -773,6 +776,147 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
 
         String alterStmt = "ALTER TABLE test." + tableName + " MODIFY COLUMN v VARIANT";
         expectException(alterStmt, "Variant type rely on light schema change");
+    }
+
+    @Test
+    public void testVariantBudgetChangeIsLightAndRejectsPosition() throws Exception {
+        String tableName = "sc_variant_budget";
+        dropTable("test." + tableName, false);
+        long seed = Long.getLong("variant.budget.seed", 20261103L);
+        java.util.Random random = new java.util.Random(seed);
+        int n = 1 + random.nextInt(1000);
+        LOG.info("variant budget alter seed={} n={}", seed, n);
+        createTable("CREATE TABLE test." + tableName + " (\n"
+                + "id INT,\n"
+                + "name VARCHAR(10),\n"
+                + "v VARIANT<PROPERTIES(\"variant_max_subcolumns_count\" = \"0\")>\n"
+                + ") DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true');");
+        expectException("ALTER TABLE test." + tableName + " MODIFY COLUMN v VARIANT<PROPERTIES("
+                + "\"variant_max_subcolumns_count\" = \"" + n + "\")> AFTER id",
+                "Can not change variant properties together with column position");
+        expectException("ALTER TABLE test." + tableName + " MODIFY COLUMN v VARIANT<PROPERTIES("
+                + "\"variant_max_subcolumns_count\" = \"" + n + "\")> AFTER name",
+                "Can not change variant properties together with column position");
+        // The budget delta may not carry other column attribute changes through the light route.
+        expectException("ALTER TABLE test." + tableName + " MODIFY COLUMN v VARIANT<PROPERTIES("
+                + "\"variant_max_subcolumns_count\" = \"" + n + "\")> COMMENT 'changed'",
+                "Can not change variant max subcolumns count together with other column attributes");
+        expectException("ALTER TABLE test." + tableName + " MODIFY COLUMN v VARIANT<PROPERTIES("
+                + "\"variant_max_subcolumns_count\" = \"" + n + "\")> NOT NULL",
+                "Can not change from nullable to non-nullable");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        // 0 -> N -> 0 -> N -> N+1 -> 1, all as metadata-only changes on the existing route.
+        for (int count : new int[] {n, 0, n, n + 1, 1}) {
+            alterTable("ALTER TABLE test." + tableName + " MODIFY COLUMN v VARIANT<PROPERTIES("
+                    + "\"variant_max_subcolumns_count\" = \"" + count + "\")>", connectContext);
+            waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
+            tbl.readLock();
+            try {
+                Assertions.assertEquals(count, tbl.getColumn("v").getVariantMaxSubcolumnsCount(),
+                        "seed=" + seed + " count=" + count);
+                Assertions.assertEquals(2, tbl.getBaseSchema().indexOf(tbl.getColumn("v")));
+            } finally {
+                tbl.readUnlock();
+            }
+        }
+        // Other tests in this class assert the global alter-job count; keep this test independent of order.
+        Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2().values()
+                .removeIf(job -> job.getTableId() == tbl.getId());
+    }
+
+    @Test
+    public void testVariantBudgetChangeOnTemplatedColumnIsLight() throws Exception {
+        String tableName = "sc_variant_budget_templated";
+        dropTable("test." + tableName, false);
+        createTable("CREATE TABLE test." + tableName + " (\n"
+                + "id INT,\n"
+                + "v VARIANT<MATCH_NAME 'a':int, PROPERTIES(\"variant_max_subcolumns_count\" = \"0\")>\n"
+                + ") DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true');");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        long indexId = tbl.getBaseIndexId();
+        for (int count : new int[] {5, 1, 0}) {
+            alterTable("ALTER TABLE test." + tableName + " MODIFY COLUMN v VARIANT<MATCH_NAME 'a':int, "
+                    + "PROPERTIES(\"variant_max_subcolumns_count\" = \"" + count + "\")>", connectContext);
+            waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
+            tbl.readLock();
+            try {
+                Column v = tbl.getColumn("v");
+                Assertions.assertEquals(count, v.getVariantMaxSubcolumnsCount());
+                // The templates are kept as they were and no shadow index is created.
+                Assertions.assertEquals(1, v.getChildren().size());
+                Assertions.assertEquals("a", v.getChildren().get(0).getName());
+                Assertions.assertEquals(indexId, tbl.getBaseIndexId());
+            } finally {
+                tbl.readUnlock();
+            }
+        }
+        Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2().values()
+                .removeIf(job -> job.getTableId() == tbl.getId());
+    }
+
+    @Test
+    public void testVariantBudgetChangeReplaysFromJournalAndImage() throws Exception {
+        String tableName = "sc_variant_budget_replay";
+        String replicaName = tableName + "_replica";
+        String ddl = " (\n"
+                + "id INT,\n"
+                + "v VARIANT<MATCH_NAME 'a':int, PROPERTIES(\"variant_max_subcolumns_count\" = \"3\")>\n"
+                + ") DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true');";
+        for (String name : new String[] {tableName, replicaName}) {
+            dropTable("test." + name, false);
+            createTable("CREATE TABLE test." + name + ddl);
+        }
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        OlapTable replica = (OlapTable) db.getTableOrMetaException(replicaName, Table.TableType.OLAP);
+        // N -> 0 is the boundary an upgraded follower must replay without a shadow index.
+        alterTable("ALTER TABLE test." + tableName + " MODIFY COLUMN v VARIANT<MATCH_NAME 'a':int, "
+                + "PROPERTIES(\"variant_max_subcolumns_count\" = \"0\")>", connectContext);
+        waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
+        LinkedList<Column> newSchema = new LinkedList<>();
+        tbl.readLock();
+        try {
+            Column v = tbl.getColumn("v");
+            Assertions.assertEquals(0, v.getVariantMaxSubcolumnsCount());
+            OlapTable image = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(tbl), OlapTable.class);
+            Assertions.assertEquals(0, image.getColumn("v").getVariantMaxSubcolumnsCount());
+            Assertions.assertEquals(v.getChildren(), image.getColumn("v").getChildren());
+            for (Column column : tbl.getBaseSchema(true)) {
+                newSchema.add(GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(column), Column.class));
+            }
+        } finally {
+            tbl.readUnlock();
+        }
+        long replicaIndexId = replica.getBaseIndexId();
+        Map<Long, LinkedList<Column>> indexSchemaMap = Maps.newHashMap();
+        indexSchemaMap.put(replicaIndexId, newSchema);
+        TableAddOrDropColumnsInfo info = new TableAddOrDropColumnsInfo("", db.getId(), replica.getId(),
+                replicaIndexId, indexSchemaMap, replica.getCopiedIndexIdToSchema(true, true),
+                Maps.newHashMap(replica.getIndexNameToId()), replica.getCopiedIndexes(),
+                Env.getCurrentEnv().getNextId());
+        TableAddOrDropColumnsInfo replayed = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(info),
+                TableAddOrDropColumnsInfo.class);
+        Env.getCurrentEnv().getSchemaChangeHandler().replayModifyTableLightSchemaChange(replayed);
+        replica.readLock();
+        try {
+            Column v = replica.getColumn("v");
+            Assertions.assertEquals(0, v.getVariantMaxSubcolumnsCount());
+            Assertions.assertEquals(1, v.getChildren().size());
+            Assertions.assertEquals(PatternType.MATCH_NAME, v.getChildren().get(0).getFieldPatternType());
+            Assertions.assertEquals(replicaIndexId, replica.getBaseIndexId());
+        } finally {
+            replica.readUnlock();
+        }
+        Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2().values()
+                .removeIf(job -> job.getTableId() == tbl.getId() || job.getTableId() == replica.getId());
     }
 
     @Test
