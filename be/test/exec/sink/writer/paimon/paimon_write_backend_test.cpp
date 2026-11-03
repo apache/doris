@@ -107,6 +107,17 @@ TEST(PaimonTableWriterTest, RejectsCoordinatorWithoutExternalFileReportAck) {
     EXPECT_NE(std::string::npos, status.to_string().find("acknowledges external-file reports"));
 }
 
+TEST(PaimonTableWriterTest, ClosesEarlyCompletedWriterBeforeOpen) {
+    TPaimonTableSink paimon_sink;
+    TDataSink data_sink;
+    data_sink.__set_type(TDataSinkType::PAIMON_TABLE_SINK);
+    data_sink.__set_paimon_table_sink(paimon_sink);
+    VExprContextSPtrs output_exprs;
+    PaimonTableWriter writer(std::move(data_sink), output_exprs);
+
+    EXPECT_TRUE(writer.close(Status::OK()).ok());
+}
+
 TEST(PaimonTableWriterTest, ClosesCancelledWriterBeforeOpen) {
     TPaimonTableSink paimon_sink;
     TDataSink data_sink;
