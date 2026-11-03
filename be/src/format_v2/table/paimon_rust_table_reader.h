@@ -94,11 +94,7 @@ public:
     // Exposed for unit tests so the keys-only option-logging contract can be
     // checked without a live table open.
     static std::string TEST_format_options(const std::map<std::string, std::string>& options);
-    // Storage options the reader would build for the given FE-planned scan
-    // params and split (S3 key remapping, provider modes, scheme dispatch);
-    // both must outlive the call. Exposed for unit tests.
-    std::map<std::string, std::string> TEST_build_options(TFileScanRangeParams* scan_params,
-                                                          const TFileRangeDesc& range);
+    void TEST_set_scan_params(TFileScanRangeParams* params) { _scan_params = params; }
 #endif
 
 private:
@@ -106,12 +102,11 @@ private:
     // paimon_rust/paimon.h does not leak into other translation units).
     struct PaimonHandles;
 
-    // Fail fast (without filesystem IO) when the schema-json pipeline fields are
-    // missing from the split; the error text points at an FE/BE protocol mismatch.
+    // Validate the per-split payload and shared scan-level table metadata before FFI.
     Status _validate_rust_split(const TFileRangeDesc& range) const;
     // Open (or reuse the cached) paimon_table and build the per-split read
     // pipeline: read_builder -> projection -> filter -> plan -> arrow reader.
-    Status _open_split_reader(const TFileRangeDesc& range);
+    Status _open_split_reader();
     // Drop the per-split pipeline (read_builder .. record batch reader), keeping
     // the cached table handle for the next split of the same table.
     void _close_split_reader();
@@ -145,30 +140,18 @@ private:
     Status _materialize_constant_column(const VExprContextSPtr& expr, const DataTypePtr& type,
                                         const std::string& name, size_t rows, ColumnPtr* column);
 
-    std::optional<std::string> _resolve_table_path(const TFileRangeDesc& range) const;
-    std::optional<std::string> _resolve_db_name(const TFileRangeDesc& range) const;
-    std::optional<std::string> _resolve_table_name(const TFileRangeDesc& range) const;
-    std::optional<std::string> _resolve_table_schema_json(const TFileRangeDesc& range) const;
-    // Non-default branch name (unset means main branch, matching upstream
-    // paimon commit 742da63: null-if-DEFAULT_MAIN_BRANCH).
-    std::optional<std::string> _resolve_branch(const TFileRangeDesc& range) const;
     // Base64-decode the FE-planned split into the raw serialized DataSplit bytes.
     Status _decode_split_bytes(std::string* out) const;
     // Projected column names the rust reader actually reads (partition keys are
     // excluded; they are materialized from split metadata, not from arrow).
     std::vector<std::string> _build_read_columns() const;
-    // Storage options: FE paimon_options + hadoop conf/properties, with the
-    // OSS/S3 -> AWS_* key remap (v1 semantics).
-    std::map<std::string, std::string> _build_options() const;
-
     std::unique_ptr<PaimonHandles> _handles; // cached table + per-split pipeline
     std::shared_ptr<arrow::RecordBatch> _pending_record_batch;
     size_t _pending_record_batch_offset = 0;
     // Identity of the opened table so consecutive splits reuse the handle.
-    std::optional<
-            std::tuple<std::string /*table_path*/, std::string /*schema_json*/, std::string /*db*/,
-                       std::string /*table*/, std::optional<std::string> /*branch*/,
-                       std::map<std::string, std::string> /*options*/>>
+    std::optional<std::tuple<std::string /*table_path*/, std::string /*schema_json*/,
+                             std::string /*db*/, std::string /*table*/, std::string /*branch*/,
+                             std::map<std::string, std::string> /*options*/>>
             _opened_table_key;
     // Projected column name (exact and lower-case) -> output block position.
     std::unordered_map<std::string, size_t> _output_name_to_idx;

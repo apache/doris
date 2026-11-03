@@ -554,3 +554,25 @@ struct TDescriptorTable {
   // all table descriptors referenced by tupleDescriptors
   3: optional list<TTableDescriptor> tableDescriptors;
 }
+
+// Portable catalog services used when rebuilding a Java Paimon table. No serialized SDK objects.
+struct TPaimonCatalogContext {
+    1: optional map<string, string> options
+    2: optional map<string, string> hadoop_config
+    3: optional string table_uuid
+    4: optional bool catalog_loader_enabled
+    5: optional bool supports_version_management
+    6: optional bool supports_partition_modification
+}
+
+// Resolved, statement-pinned metadata shared by Paimon SDK backends.
+struct TPaimonTableDesc {
+    1: optional string table_path
+    2: optional string schema_json
+    3: optional string database_name
+    4: optional string table_name
+    5: optional string branch
+    6: optional map<string, string> storage_options
+    // Field 7 was commit_message_version; commit protocol belongs to the sink.
+    8: optional TPaimonCatalogContext catalog_context
+}

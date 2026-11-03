@@ -54,7 +54,8 @@ public class PaimonConnectorTransaction implements ConnectorTransaction {
         PREPARED,
         COMMITTING,
         COMMITTED,
-        OUTCOME_UNKNOWN
+        OUTCOME_UNKNOWN,
+        ABORTED
     }
 
     private final long transactionId;
@@ -104,11 +105,16 @@ public class PaimonConnectorTransaction implements ConnectorTransaction {
         Preconditions.checkState(message.isSetPayload(), "Paimon commit message payload is missing");
         byte[] payload = message.getPayload();
         Preconditions.checkState(payload.length > 0, "Paimon commit message payload is empty");
+        List<byte[]> aborted = Collections.emptyList();
         synchronized (this) {
             if (commitPayloadSet.add(new CommitPayloadKey(payload))) {
                 commitPayloads.add(payload);
             }
+            if (state == CommitState.ABORTED) {
+                aborted = drainPayloads();
+            }
         }
+        abortPayloads(aborted);
     }
 
     @Override
@@ -129,16 +135,26 @@ public class PaimonConnectorTransaction implements ConnectorTransaction {
 
     @Override
     public void rollback() {
-        CommitState current = getState();
-        if (current == CommitState.COMMITTED) {
-            return;
+        List<byte[]> payloads;
+        synchronized (this) {
+            if (state != CommitState.PREPARED) {
+                return;
+            }
+            state = CommitState.ABORTED;
+            context.recordWriteEvent("paimon:aborted");
+            payloads = drainPayloads();
         }
-        if (current == CommitState.COMMITTING || current == CommitState.OUTCOME_UNKNOWN) {
-            LOG.warn("Skip rollback for Paimon transaction in state {}, txnId={}, table={}",
-                    current, transactionId, tableName());
-            return;
-        }
-        List<byte[]> payloads = snapshotPayloads();
+        abortPayloads(payloads);
+    }
+
+    private List<byte[]> drainPayloads() {
+        List<byte[]> payloads = new ArrayList<>(commitPayloads);
+        commitPayloads.clear();
+        commitPayloadSet.clear();
+        return payloads;
+    }
+
+    private void abortPayloads(List<byte[]> payloads) {
         if (payloads.isEmpty()) {
             return;
         }
@@ -152,9 +168,15 @@ public class PaimonConnectorTransaction implements ConnectorTransaction {
                 return null;
             });
         } catch (Exception e) {
+            context.recordWriteEvent("paimon:cleanup_failure");
             LOG.warn("Failed to rollback Paimon transaction, txnId={}, table={}",
                     transactionId, tableName(), e);
         }
+    }
+
+    @Override
+    public synchronized Map<String, String> getProfileInfo() {
+        return Collections.singletonMap("PaimonTransactionState", state.name());
     }
 
     @Override
@@ -177,12 +199,13 @@ public class PaimonConnectorTransaction implements ConnectorTransaction {
             if (getState() == CommitState.COMMITTED) {
                 return;
             }
-            if (getState() == CommitState.PREPARED) {
+            if (getState() != CommitState.COMMITTING) {
                 throw e;
             }
             firstFailure = e;
         }
 
+        context.recordWriteEvent("paimon:commit_retry");
         Exception retryFailure;
         try {
             doCommit(writeBinding, messages);
@@ -213,6 +236,9 @@ public class PaimonConnectorTransaction implements ConnectorTransaction {
     private void doCommit(PaimonWriteBinding writeBinding, List<CommitMessage> messages)
             throws Exception {
         context.executeAuthenticated(() -> {
+            if (context.isDebugPointEnabled("PaimonTransaction.commit.before")) {
+                throw new IOException("Injected Paimon failure before commit");
+            }
             try (InnerTableCommit committer = writeBinding.getTable().newCommit(commitUser)) {
                 if (writeBinding.isOverwrite()) {
                     committer.withOverwrite(writeBinding.getStaticPartition());
@@ -220,7 +246,13 @@ public class PaimonConnectorTransaction implements ConnectorTransaction {
                 Map<Long, List<CommitMessage>> commitMap = new HashMap<>();
                 commitMap.put(transactionId, messages);
                 markCommitting();
+                if (context.isDebugPointEnabled("PaimonTransaction.commit.unknown")) {
+                    throw new IOException("Injected Paimon commit failure with unknown outcome");
+                }
                 committer.filterAndCommit(commitMap);
+                if (context.isDebugPointEnabled("PaimonTransaction.commit.after")) {
+                    throw new IOException("Injected Paimon failure after snapshot publication");
+                }
                 markCommitted();
             }
             return null;
@@ -241,6 +273,7 @@ public class PaimonConnectorTransaction implements ConnectorTransaction {
         Preconditions.checkState(state == CommitState.PREPARED,
                 "Only a prepared Paimon transaction can complete without a commit");
         state = CommitState.COMMITTED;
+        context.recordWriteEvent("paimon:committed");
     }
 
     private synchronized void markCommitting() {
@@ -253,12 +286,14 @@ public class PaimonConnectorTransaction implements ConnectorTransaction {
         Preconditions.checkState(state == CommitState.COMMITTING,
                 "Only a committing Paimon transaction can be committed");
         state = CommitState.COMMITTED;
+        context.recordWriteEvent("paimon:committed");
     }
 
     private synchronized void markOutcomeUnknown() {
         Preconditions.checkState(state == CommitState.COMMITTING,
                 "Only a committing Paimon transaction can have an unknown outcome");
         state = CommitState.OUTCOME_UNKNOWN;
+        context.recordWriteEvent("paimon:outcome_unknown");
     }
 
     private synchronized List<byte[]> snapshotPayloads() {

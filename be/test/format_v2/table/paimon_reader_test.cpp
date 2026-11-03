@@ -363,10 +363,6 @@ TFileRangeDesc make_paimon_rust_range() {
     paimon_params.__set_file_format("parquet");
     paimon_params.__set_reader_type(TPaimonReaderType::PAIMON_RUST);
     paimon_params.__set_paimon_split("serialized-paimon-split");
-    paimon_params.__set_paimon_table("/paimon/warehouse/db.db/t");
-    paimon_params.__set_db_name("db");
-    paimon_params.__set_table_name("t");
-    paimon_params.__set_paimon_table_schema_json("{}");
     table_format_params.__set_paimon_params(paimon_params);
     range.__set_table_format_params(table_format_params);
     return range;

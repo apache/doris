@@ -39,6 +39,7 @@ import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TPaimonDeletionFileDesc;
 import org.apache.doris.thrift.TPaimonFileDesc;
+import org.apache.doris.thrift.TPaimonTableDesc;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 import org.apache.doris.thrift.schema.external.TArrayField;
@@ -91,7 +92,6 @@ import org.apache.paimon.types.DataTypeRoot;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.utils.InstantiationUtil;
-import org.apache.paimon.utils.JsonSerdeUtil;
 import org.apache.paimon.utils.RowDataToObjectArrayConverter;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TSerializer;
@@ -913,7 +913,6 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                         (FileStoreTable) table, columns, backendStorageProperties(),
                         usesFallbackRead(table, paimonHandle), incrementalRead, hasVariantProjection)
                 : null;
-        RustScanMetadata rustScanMetadata = null;
 
         List<ConnectorScanRange> ranges = new ArrayList<>();
 
@@ -1027,10 +1026,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 if (ignoreJni) {
                     continue;
                 }
-                if (rustScanMetadata == null) {
-                    rustScanMetadata = RustScanMetadata.from((FileStoreTable) table);
-                }
-                ranges.add(buildRustScanRange(dataSplit, rustScanMetadata, paimonHandle,
+                ranges.add(buildRustScanRange(dataSplit,
                         defaultFileFormat, partitionValues, weightDenominator));
                 continue;
             }
@@ -1357,6 +1353,25 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
 
+        // Offline metadata callers have no session and cannot select a Rust split.
+        if (table instanceof FileStoreTable && session != null && Boolean.parseBoolean(
+                session.getSessionProperties().get("enable_paimon_rust_reader"))) {
+            Map<String, String> storageOptions = new LinkedHashMap<>(backendOptions);
+            String locationPrefix = ScanNodePropertyKeys.LOCATION_PREFIX;
+            props.forEach((key, value) -> {
+                if (key.startsWith(locationPrefix)) {
+                    storageOptions.put(key.substring(locationPrefix.length()), value);
+                }
+            });
+            TPaimonTableDesc descriptor = PaimonTableDescriptor.describeForScan((FileStoreTable) table,
+                    paimonHandle.getDatabaseName(), paimonHandle.getTableName(), storageOptions);
+            try {
+                props.put("paimon.table_descriptor", Base64.getEncoder().encodeToString(
+                        new TSerializer(new TBinaryProtocol.Factory()).serialize(descriptor)));
+            } catch (org.apache.thrift.TException e) {
+                throw new DorisConnectorException("Failed to serialize Paimon table descriptor", e);
+            }
+        }
         return props;
     }
 
@@ -1924,37 +1939,16 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         return builder.build();
     }
 
-    private PaimonScanRange buildRustScanRange(DataSplit split, RustScanMetadata metadata,
-            PaimonTableHandle handle, String defaultFileFormat,
+    private PaimonScanRange buildRustScanRange(DataSplit split, String defaultFileFormat,
             Map<String, String> partitionValues, long weightDenominator) {
         return new PaimonScanRange.Builder()
                 .fileFormat(dataSplitFileFormat(split, defaultFileFormat))
-                .rustSplit(encodeDataSplit(split), metadata.tableLocation, handle.getDatabaseName(),
-                        handle.getTableName(), metadata.schemaJson, metadata.branch)
+                .rustSplit(encodeDataSplit(split))
                 .partitionValues(partitionValues)
                 .selfSplitWeight(computeSplitWeight(split))
                 .targetSplitSize(weightDenominator)
                 .bucket(split.bucket())
                 .build();
-    }
-
-    static final class RustScanMetadata {
-        final String tableLocation;
-        final String schemaJson;
-        final String branch;
-
-        private RustScanMetadata(String tableLocation, String schemaJson, String branch) {
-            this.tableLocation = tableLocation;
-            this.schemaJson = schemaJson;
-            this.branch = branch;
-        }
-
-        static RustScanMetadata from(FileStoreTable table) {
-            TableSchema schema = PaimonScanParams.withoutTimeTravelSelectors(table.schema());
-            String branch = CoreOptions.branch(schema.options());
-            return new RustScanMetadata(table.location().toString(), encodeTableSchema(schema),
-                    Identifier.DEFAULT_MAIN_BRANCH.equals(branch) ? null : branch);
-        }
     }
 
     /**
@@ -2700,6 +2694,18 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             params.setSerializedTableCacheKey(properties.get(PROP_SERIALIZED_TABLE_CACHE_KEY));
         }
 
+        String tableDescriptor = properties.get("paimon.table_descriptor");
+        if (tableDescriptor != null) {
+            TPaimonTableDesc descriptor = new TPaimonTableDesc();
+            try {
+                new TDeserializer(new TBinaryProtocol.Factory()).deserialize(descriptor,
+                        Base64.getDecoder().decode(tableDescriptor));
+            } catch (org.apache.thrift.TException e) {
+                throw new DorisConnectorException("Failed to deserialize Paimon table descriptor", e);
+            }
+            params.setPaimonTableDesc(descriptor);
+        }
+
         String predicate = properties.get("paimon.predicate");
         if (predicate != null) {
             params.setPaimonPredicate(predicate);
@@ -3144,14 +3150,6 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             return Base64.getEncoder().encodeToString(output.toByteArray());
         } catch (IOException e) {
             throw new DorisConnectorException("Failed to serialize Paimon DataSplit", e);
-        }
-    }
-
-    static String encodeTableSchema(TableSchema schema) {
-        try {
-            return JsonSerdeUtil.toJson(schema);
-        } catch (Exception e) {
-            throw new DorisConnectorException("Failed to serialize Paimon table schema", e);
         }
     }
 

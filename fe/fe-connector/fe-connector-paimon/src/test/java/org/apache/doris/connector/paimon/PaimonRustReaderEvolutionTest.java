@@ -196,7 +196,7 @@ public class PaimonRustReaderEvolutionTest {
         java.nio.file.Path directory = Files.createTempDirectory(temporaryFolder, "history");
         Files.createDirectories(directory.resolve("schema"));
         Files.write(directory.resolve("schema/schema-1"),
-                PaimonScanPlanProvider.encodeTableSchema(schema(1, source)).getBytes(StandardCharsets.UTF_8));
+                org.apache.paimon.utils.JsonSerdeUtil.toJson(schema(1, source)).getBytes(StandardCharsets.UTF_8));
         FileStoreTable table = FileStoreTableFactory.create(LocalFileIO.create(), new Path(directory.toUri()),
                 schema(2, target), CatalogEnvironment.empty());
         DataFileMeta file = DataFileMeta.forAppend("historical.parquet", 100L, 1L, SimpleStats.EMPTY_STATS,

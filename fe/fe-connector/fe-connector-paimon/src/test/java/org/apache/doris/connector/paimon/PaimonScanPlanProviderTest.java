@@ -1861,9 +1861,14 @@ public class PaimonScanPlanProviderTest {
             Assertions.assertFalse(pinnedRanges.isEmpty());
             Map<String, String> payload = pinnedRanges.get(0).getProperties();
             Assertions.assertEquals("PAIMON_RUST", payload.get("paimon.reader_type"));
-            Assertions.assertEquals("db", payload.get("paimon.database_name"));
-            Assertions.assertEquals("rust_reader_priority", payload.get("paimon.table_name"));
-            TableSchema schema = JsonSerdeUtil.fromJson(payload.get("paimon.table_schema_json"), TableSchema.class);
+            Map<String, String> scanProperties = provider.getScanNodeProperties(sessionWithProps(rustProperties),
+                    pinned, columns, Optional.empty());
+            TFileScanRangeParams scanParams = new TFileScanRangeParams();
+            provider.populateScanLevelParams(scanParams, scanProperties);
+            Assertions.assertEquals("db", scanParams.getPaimonTableDesc().getDatabaseName());
+            Assertions.assertEquals("rust_reader_priority", scanParams.getPaimonTableDesc().getTableName());
+            TableSchema schema = JsonSerdeUtil.fromJson(scanParams.getPaimonTableDesc().getSchemaJson(),
+                    TableSchema.class);
             Assertions.assertFalse(schema.options().containsKey(CoreOptions.SCAN_SNAPSHOT_ID.key()));
             int expectedParallelism = Math.min(17,
                     PaimonReaderOptions.backendManifestParallelismCap(table).getAsInt());

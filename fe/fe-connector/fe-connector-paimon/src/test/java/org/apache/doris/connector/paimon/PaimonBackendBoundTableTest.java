@@ -124,15 +124,18 @@ public class PaimonBackendBoundTableTest {
         PaimonWriteBinding binding = PaimonWriteBinding.create(
                 dataHandle(), table, Collections.emptyMap(),
                 writeHandle(false, Collections.emptyMap(), Collections.emptySet()), true);
-        FileStoreTable backendTable = deserializeTable(binding.getSerializedTable());
+        org.apache.doris.thrift.TPaimonTableDesc descriptor =
+                binding.getTableDescriptor(Collections.emptyMap(), false);
+        TableSchema backendSchema = org.apache.paimon.utils.JsonSerdeUtil.fromJson(
+                descriptor.getSchemaJson(), TableSchema.class);
 
         Assertions.assertNotNull(binding.getTable().catalogEnvironment().catalogLoader());
-        Assertions.assertNull(backendTable.catalogEnvironment().catalogLoader());
+        Assertions.assertFalse(descriptor.getCatalogContext().isCatalogLoaderEnabled());
         // The BE table also tells the writer whether to pad CHAR values; its schema is the FE one otherwise.
-        Map<String, String> backendOptions = new HashMap<>(backendTable.schema().options());
+        Map<String, String> backendOptions = new HashMap<>(backendSchema.options());
         Assertions.assertEquals("true", backendOptions.remove(PaimonWriteBinding.DORIS_WRITE_CHAR_PADDING));
-        Assertions.assertEquals(table.schema(), backendTable.schema().copy(backendOptions));
-        Assertions.assertEquals(table.location(), backendTable.location());
+        Assertions.assertEquals(table.schema(), backendSchema.copy(backendOptions));
+        Assertions.assertEquals(table.location().toString(), descriptor.getTablePath());
     }
 
     @Test
@@ -147,7 +150,9 @@ public class PaimonBackendBoundTableTest {
                     writeHandle(false, Collections.emptyMap(), Collections.emptySet()), charPadding);
 
             Assertions.assertEquals(String.valueOf(charPadding),
-                    deserializeTable(binding.getSerializedTable()).options().get("doris.write.char-padding"));
+                    org.apache.paimon.utils.JsonSerdeUtil.fromJson(
+                            binding.getTableDescriptor(Collections.emptyMap(), false).getSchemaJson(), TableSchema.class)
+                            .options().get("doris.write.char-padding"));
             Assertions.assertFalse(binding.getTable().options().containsKey("doris.write.char-padding"));
         }
     }

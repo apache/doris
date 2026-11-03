@@ -238,10 +238,11 @@ public class PaimonRustReaderSelectorTest {
         options.put(CoreOptions.SCAN_MODE.key(), "from-snapshot");
         options.put(CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "17");
         FileStoreTable table = table(fileLocation("branch-metadata"), options, DataTypes.INT());
-        PaimonScanPlanProvider.RustScanMetadata metadata = PaimonScanPlanProvider.RustScanMetadata.from(table);
-        TableSchema schema = org.apache.paimon.utils.JsonSerdeUtil.fromJson(metadata.schemaJson, TableSchema.class);
-        Assertions.assertEquals("audit", metadata.branch);
-        Assertions.assertEquals(table.location().toString(), metadata.tableLocation);
+        org.apache.doris.thrift.TPaimonTableDesc metadata =
+                PaimonTableDescriptor.describeForScan(table, "db", "t", Collections.emptyMap());
+        TableSchema schema = org.apache.paimon.utils.JsonSerdeUtil.fromJson(metadata.getSchemaJson(), TableSchema.class);
+        Assertions.assertEquals("audit", metadata.getBranch());
+        Assertions.assertEquals(table.location().toString(), metadata.getTablePath());
         Assertions.assertEquals("17", schema.options().get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
         Assertions.assertFalse(schema.options().containsKey(CoreOptions.SCAN_SNAPSHOT_ID.key()));
         Assertions.assertFalse(schema.options().containsKey(CoreOptions.SCAN_MODE.key()));

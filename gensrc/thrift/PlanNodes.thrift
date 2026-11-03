@@ -432,8 +432,8 @@ struct TPaimonFileDesc {
     // Reader implementation for logical paimon split. Native file split uses range format type.
     17: optional TPaimonReaderType reader_type;
     // Reserved for the Paimon Rust reader. Keep these ids aligned with branch-4.1.
-    18: optional string paimon_table_schema_json
-    19: optional string paimon_branch
+    18: optional string paimon_table_schema_json // deprecated; use scan-level paimon_table_desc
+    19: optional string paimon_branch // deprecated; use scan-level paimon_table_desc
     // Original Paimon RawFile.path() before Doris storage path normalization. Native readers use this
     // to materialize the public file-location metadata column. This master-only field is appended after
     // the branch-4.1 fields instead of reusing field 18.
@@ -694,6 +694,8 @@ struct TFileScanRangeParams {
     // Reserved for the scan-level Paimon vector search request in #69493.
     // The per-split physical payload stays in TPaimonFileDesc.vector_payload.
     42: optional TExternalSearchRequest external_search_request
+    // FE-pinned Paimon table, shared by all Rust splits in this scan node.
+    43: optional Descriptors.TPaimonTableDesc paimon_table_desc
 }
 
 struct TFileRangeDesc {

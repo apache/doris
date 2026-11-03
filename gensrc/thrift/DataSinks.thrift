@@ -694,13 +694,17 @@ struct TPaimonCommitMessage {
 }
 
 struct TPaimonTableSink {
-    1: optional string serialized_table           // required at runtime; serialized Paimon Table object (base64)
+    // Deprecated Java table serialization. New BEs require table_desc.
+    1: optional string serialized_table
     2: optional map<string, string> hadoop_config
     3: optional list<string> column_names
     4: optional TPaimonWriteBackendType backend_type
     5: optional TPaimonWriteMode write_mode
     6: optional i64 transaction_id
     7: optional string commit_user
+    8: optional Descriptors.TPaimonTableDesc table_desc
+    9: optional string backend_selection_reason
+    10: optional i32 commit_message_version
 }
 
 struct TDataSink {

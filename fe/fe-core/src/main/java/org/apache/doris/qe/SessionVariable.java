@@ -829,6 +829,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String FORCE_JNI_SCANNER = "force_jni_scanner";
 
     public static final String ENABLE_PAIMON_RUST_READER = "enable_paimon_rust_reader";
+    public static final String ENABLE_PAIMON_RUST_WRITER = "enable_paimon_rust_writer";
 
     public static final String ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE = "enable_count_push_down_for_external_table";
 
@@ -3080,6 +3081,10 @@ public class SessionVariable implements Serializable, Writable {
             fuzzy = true,
             description = "Prefer paimon-rust for eligible Paimon reads")
     private boolean enablePaimonRustReader = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_PAIMON_RUST_WRITER, needForward = true,
+            description = "Prefer the Paimon Rust writer; unsupported writes use JNI")
+    private boolean enablePaimonRustWriter = true;
 
     @VarAttrDef.VarAttr(name = ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE,
             fuzzy = true,
@@ -6676,6 +6681,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnablePaimonRustReader() {
         return enablePaimonRustReader;
+    }
+
+    public boolean isEnablePaimonRustWriter() {
+        return enablePaimonRustWriter;
+    }
+
+    public void setEnablePaimonRustWriter(boolean enable) {
+        enablePaimonRustWriter = enable;
     }
 
     public String getIgnoreSplitType() {

@@ -81,21 +81,6 @@ public class PaimonScanRange implements ConnectorScanRange {
             props.put("paimon.split", builder.paimonSplit);
             props.put("paimon.reader_type", builder.readerType.name());
         }
-        if (builder.paimonTable != null) {
-            props.put("paimon.table", builder.paimonTable);
-        }
-        if (builder.databaseName != null) {
-            props.put("paimon.database_name", builder.databaseName);
-        }
-        if (builder.tableName != null) {
-            props.put("paimon.table_name", builder.tableName);
-        }
-        if (builder.tableSchemaJson != null) {
-            props.put("paimon.table_schema_json", builder.tableSchemaJson);
-        }
-        if (builder.branchName != null) {
-            props.put("paimon.branch_name", builder.branchName);
-        }
         if (builder.schemaId != null) {
             props.put("paimon.schema_id", String.valueOf(builder.schemaId));
         }
@@ -235,16 +220,6 @@ public class PaimonScanRange implements ConnectorScanRange {
             rangeDesc.setFormatType(TFileFormatType.FORMAT_JNI);
             fileDesc.setReaderType(TPaimonReaderType.valueOf(props.get("paimon.reader_type")));
             fileDesc.setPaimonSplit(paimonSplitVal);
-            if (fileDesc.getReaderType() == TPaimonReaderType.PAIMON_RUST) {
-                fileDesc.setPaimonTable(props.get("paimon.table"));
-                fileDesc.setDbName(props.get("paimon.database_name"));
-                fileDesc.setTableName(props.get("paimon.table_name"));
-                fileDesc.setPaimonTableSchemaJson(props.get("paimon.table_schema_json"));
-                String branchName = props.get("paimon.branch_name");
-                if (branchName != null) {
-                    fileDesc.setPaimonBranch(branchName);
-                }
-            }
             String weightStr = props.get("paimon.self_split_weight");
             if (weightStr != null) {
                 rangeDesc.setSelfSplitWeight(Long.parseLong(weightStr));
@@ -339,11 +314,6 @@ public class PaimonScanRange implements ConnectorScanRange {
         // JNI reader fields
         private String paimonSplit;
         private TPaimonReaderType readerType = TPaimonReaderType.PAIMON_JNI;
-        private String paimonTable;
-        private String databaseName;
-        private String tableName;
-        private String tableSchemaJson;
-        private String branchName;
 
         // Native reader fields
         private Long schemaId;
@@ -403,15 +373,9 @@ public class PaimonScanRange implements ConnectorScanRange {
             return this;
         }
 
-        public Builder rustSplit(String paimonSplit, String paimonTable, String databaseName,
-                String tableName, String tableSchemaJson, String branchName) {
+        public Builder rustSplit(String paimonSplit) {
             this.paimonSplit = paimonSplit;
             this.readerType = TPaimonReaderType.PAIMON_RUST;
-            this.paimonTable = paimonTable;
-            this.databaseName = databaseName;
-            this.tableName = tableName;
-            this.tableSchemaJson = tableSchemaJson;
-            this.branchName = branchName;
             return this;
         }
 

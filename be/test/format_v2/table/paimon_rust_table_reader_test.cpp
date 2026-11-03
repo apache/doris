@@ -65,22 +65,20 @@ TFileRangeDesc make_rust_range() {
     std::string encoded;
     base64_encode("dummy-split-bytes", &encoded);
     paimon_params.__set_paimon_split(encoded);
-    paimon_params.__set_paimon_table("/paimon/warehouse/db.db/t");
-    paimon_params.__set_db_name("db");
-    paimon_params.__set_table_name("t");
-    paimon_params.__set_paimon_table_schema_json("{}");
     table_format_params.__set_paimon_params(paimon_params);
     range.__set_table_format_params(table_format_params);
     return range;
 }
 
-// A range whose table path carries the given URI scheme — the production
-// shape FE ships in paimon_table (PaimonScanNode sets it from the catalog's
-// table location).
-TFileRangeDesc make_rust_range_with_table_path(const std::string& table_path) {
-    auto range = make_rust_range();
-    range.table_format_params.paimon_params.__set_paimon_table(table_path);
-    return range;
+TPaimonTableDesc make_table_descriptor() {
+    TPaimonTableDesc descriptor;
+    descriptor.__set_table_path("/paimon/warehouse/db.db/t");
+    descriptor.__set_schema_json("{}");
+    descriptor.__set_database_name("db");
+    descriptor.__set_table_name("t");
+    descriptor.__set_branch("main");
+    descriptor.__set_storage_options({});
+    return descriptor;
 }
 
 } // namespace
@@ -88,6 +86,7 @@ TFileRangeDesc make_rust_range_with_table_path(const std::string& table_path) {
 class PaimonRustTableReaderTest : public testing::Test {
 protected:
     void SetUp() override {
+        _scan_params.__set_paimon_table_desc(make_table_descriptor());
         _query_options.__set_batch_size(3);
         _runtime_state = RuntimeState::create_unique(_query_options, _query_globals);
     }
@@ -97,7 +96,7 @@ protected:
         return reader->init({.projected_columns = {_projected_column},
                              .conjuncts = {},
                              .format = FileFormat::JNI,
-                             .scan_params = nullptr,
+                             .scan_params = &_scan_params,
                              .io_ctx = nullptr,
                              .runtime_state = _runtime_state.get(),
                              .scanner_profile = nullptr,
@@ -105,6 +104,7 @@ protected:
                              .push_down_count_columns = std::move(count_columns)});
     }
 
+    TFileScanRangeParams _scan_params;
     TQueryOptions _query_options;
     TQueryGlobals _query_globals;
     std::unique_ptr<RuntimeState> _runtime_state;
@@ -121,34 +121,40 @@ TEST_F(PaimonRustTableReaderTest, ValidatesRustSplit) {
     EXPECT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("missing paimon_split"), std::string::npos) << status;
 
-    // Missing paimon_table (table path).
+    // The table is a scan-level descriptor; old per-split metadata is insufficient.
     range = make_rust_range();
-    range.table_format_params.paimon_params.__isset.paimon_table = false;
+    EXPECT_FALSE(reader.TEST_validate_rust_split(range).ok());
+    reader.TEST_set_scan_params(&_scan_params);
+    _scan_params.__isset.paimon_table_desc = false;
     status = reader.TEST_validate_rust_split(range);
     EXPECT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("missing paimon_table"), std::string::npos) << status;
+    EXPECT_NE(status.to_string().find("missing scan-level paimon_table_desc"), std::string::npos);
+    _scan_params.__isset.paimon_table_desc = true;
 
-    // Missing db_name.
-    range = make_rust_range();
-    range.table_format_params.paimon_params.__isset.db_name = false;
-    status = reader.TEST_validate_rust_split(range);
-    EXPECT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("missing db_name"), std::string::npos) << status;
-
-    // Missing table_name.
-    range = make_rust_range();
-    range.table_format_params.paimon_params.__isset.table_name = false;
-    status = reader.TEST_validate_rust_split(range);
-    EXPECT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("missing table_name"), std::string::npos) << status;
-
-    // Missing paimon_table_schema_json.
-    range = make_rust_range();
-    range.table_format_params.paimon_params.__isset.paimon_table_schema_json = false;
-    status = reader.TEST_validate_rust_split(range);
-    EXPECT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("missing paimon_table_schema_json"), std::string::npos)
-            << status;
+    auto& descriptor = _scan_params.paimon_table_desc;
+    // Reject missing or empty fields before crossing the FFI boundary.
+    for (const auto field : {"table_path", "schema_json", "database_name", "table_name", "branch",
+                             "storage_options"}) {
+        descriptor = make_table_descriptor();
+        const std::string name(field);
+        if (name == "table_path") {
+            descriptor.__isset.table_path = false;
+        } else if (name == "schema_json") {
+            descriptor.__set_schema_json("");
+        } else if (name == "database_name") {
+            descriptor.__isset.database_name = false;
+        } else if (name == "table_name") {
+            descriptor.__set_table_name("");
+        } else if (name == "branch") {
+            descriptor.__isset.branch = false;
+        } else {
+            descriptor.__isset.storage_options = false;
+        }
+        status = reader.TEST_validate_rust_split(range);
+        EXPECT_FALSE(status.ok()) << name;
+        EXPECT_NE(status.to_string().find("missing " + name), std::string::npos) << status;
+    }
+    descriptor = make_table_descriptor();
 
     // A mismatched reader_type is a protocol error.
     range = make_rust_range();
@@ -184,8 +190,8 @@ TEST_F(PaimonRustTableReaderTest, AdaptiveBatchSizeBoundsWideStringReads) {
     options.current_split_format = FileFormat::JNI;
     options.all_runtime_filters_applied = true;
     auto& params = options.current_range.table_format_params.paimon_params;
-    params.__set_paimon_table(std::filesystem::canonical(fixture).string());
-    params.__set_paimon_table_schema_json(read_file(fixture / "schema/schema-0"));
+    _scan_params.paimon_table_desc.__set_table_path(std::filesystem::canonical(fixture).string());
+    _scan_params.paimon_table_desc.__set_schema_json(read_file(fixture / "schema/schema-0"));
     params.__set_paimon_split(encoded);
 
     const auto value_column = make_column("v", std::make_shared<DataTypeString>());
@@ -193,7 +199,7 @@ TEST_F(PaimonRustTableReaderTest, AdaptiveBatchSizeBoundsWideStringReads) {
     ASSERT_TRUE(reader.init({.projected_columns = {_projected_column, value_column},
                              .conjuncts = {},
                              .format = FileFormat::JNI,
-                             .scan_params = nullptr,
+                             .scan_params = &_scan_params,
                              .io_ctx = nullptr,
                              .runtime_state = _runtime_state.get(),
                              .scanner_profile = nullptr})
@@ -311,7 +317,7 @@ TEST_F(PaimonRustTableReaderTest, FailedSplitOpenIsIncludedInRustTotalTime) {
     ASSERT_TRUE(reader.init({.projected_columns = {_projected_column},
                              .conjuncts = {},
                              .format = FileFormat::JNI,
-                             .scan_params = nullptr,
+                             .scan_params = &_scan_params,
                              .io_ctx = nullptr,
                              .runtime_state = _runtime_state.get(),
                              .scanner_profile = &profile})
@@ -514,207 +520,6 @@ TEST_F(PaimonRustTableReaderTest, OptionLogRendersKeysOnly) {
                 << rendered;
     }
     EXPECT_EQ(rendered.find("admin"), std::string::npos) << rendered;
-}
-
-TEST_F(PaimonRustTableReaderTest, MapsAnonymousAndAssumeRoleProviderModes) {
-    // The FE storage-properties channel marks anonymous access with
-    // AWS_CREDENTIALS_PROVIDER_TYPE=ANONYMOUS and assume-role with
-    // AWS_ROLE_ARN / AWS_EXTERNAL_ID; the pinned rust S3 parser reads
-    // s3.anonymous (skip_signature) and the s3.assumed.role.* family, so the
-    // bridge must map both — without the mapping, anonymous catalogs would
-    // consult the ambient credential chain and role-only catalogs would
-    // never assume the requested role. The ambient JVM provider modes (ENV,
-    // SYSTEM_PROPERTIES, WEB_IDENTITY, CONTAINER, INSTANCE_PROFILE) have no
-    // rust equivalent and are gated away from the rust reader on the FE.
-    TFileScanRangeParams params;
-    params.properties["AWS_CREDENTIALS_PROVIDER_TYPE"] = "ANONYMOUS";
-    params.properties["AWS_ROLE_ARN"] = "arn:aws:iam::123:role/reader";
-    params.properties["AWS_EXTERNAL_ID"] = "external-123";
-    params.properties["AWS_ACCESS_KEY"] = "admin";
-    params.properties["AWS_SECRET_KEY"] = "password";
-    params.properties["AWS_ENDPOINT"] = "http://127.0.0.1:19001";
-    params.properties["AWS_REGION"] = "us-east-1";
-    params.properties["use_path_style"] = "true";
-    params.__isset.properties = true;
-
-    PaimonRustTableReader reader;
-    const auto options = reader.TEST_build_options(
-            &params, make_rust_range_with_table_path("s3://bucket/wh/db.db/t"));
-    EXPECT_EQ(options.at("s3.anonymous"), "true");
-    EXPECT_EQ(options.at("s3.assumed.role.arn"), "arn:aws:iam::123:role/reader");
-    EXPECT_EQ(options.at("s3.assumed.role.externalId"), "external-123");
-    // Static credentials and connection settings keep mapping (regression
-    // for the base remap).
-    EXPECT_EQ(options.at("s3.access-key"), "admin");
-    EXPECT_EQ(options.at("s3.secret-key"), "password");
-    EXPECT_EQ(options.at("s3.endpoint"), "http://127.0.0.1:19001");
-    EXPECT_EQ(options.at("s3.region"), "us-east-1");
-    EXPECT_EQ(options.at("s3.path-style-access"), "true");
-}
-
-TEST_F(PaimonRustTableReaderTest, StaticCredentialsMapWithoutProviderMode) {
-    // Default shape: no provider-mode marker, plain static credentials.
-    TFileScanRangeParams params;
-    params.properties["AWS_ACCESS_KEY"] = "admin";
-    params.properties["AWS_SECRET_KEY"] = "password";
-    params.__isset.properties = true;
-
-    PaimonRustTableReader reader;
-    const auto options = reader.TEST_build_options(
-            &params, make_rust_range_with_table_path("s3://bucket/wh/db.db/t"));
-    EXPECT_EQ(options.at("s3.access-key"), "admin");
-    EXPECT_EQ(options.at("s3.secret-key"), "password");
-    EXPECT_EQ(options.count("s3.anonymous"), 0);
-}
-
-TEST_F(PaimonRustTableReaderTest, OssSchemeMapsToOssFileIOKeys) {
-    // The pinned storage dispatcher selects the parser from the table path's
-    // URI scheme: oss:// tables read the OSS parser, which requires
-    // fs.oss.endpoint / fs.oss.accessKeyId / fs.oss.accessKeySecret (plus
-    // optional fs.oss.securityToken for STS). A production-shaped FE map
-    // (OSSProperties emits the AWS_* aliases plus the connection settings)
-    // must therefore map to the fs.oss.* family — mapping everything to
-    // s3.* leaves OSS catalogs failing to open ("Missing required OSS
-    // config: fs.oss.endpoint").
-    TFileRangeDesc range;
-    TTableFormatFileDesc table_format_params;
-    TPaimonFileDesc paimon_params;
-    paimon_params.__set_paimon_table("oss://bucket/wh/db.db/t");
-    table_format_params.__set_paimon_params(paimon_params);
-    range.__set_table_format_params(table_format_params);
-
-    TFileScanRangeParams params;
-    params.properties["AWS_ENDPOINT"] = "http://oss.internal:8080";
-    params.properties["AWS_ACCESS_KEY"] = "oss-admin";
-    params.properties["AWS_SECRET_KEY"] = "oss-password";
-    params.properties["AWS_TOKEN"] = "oss-sts-token";
-    params.properties["AWS_REGION"] = "cn-beijing";
-    params.properties["use_path_style"] = "true";
-    params.__isset.properties = true;
-
-    PaimonRustTableReader reader;
-    const auto options = reader.TEST_build_options(&params, range);
-    EXPECT_EQ(options.at("fs.oss.endpoint"), "http://oss.internal:8080");
-    EXPECT_EQ(options.at("fs.oss.accessKeyId"), "oss-admin");
-    EXPECT_EQ(options.at("fs.oss.accessKeySecret"), "oss-password");
-    EXPECT_EQ(options.at("fs.oss.securityToken"), "oss-sts-token");
-    // The OSS parser reads no s3.* keys; nothing but the fs.oss.* family may
-    // be synthesized for this scheme.
-    EXPECT_EQ(options.count("s3.access-key"), 0);
-    EXPECT_EQ(options.count("s3.endpoint"), 0);
-    EXPECT_EQ(options.count("s3.path-style-access"), 0);
-}
-
-TEST_F(PaimonRustTableReaderTest, OssSchemeKeepsNativeFsOssKeysUnmapped) {
-    // Native fs.oss.* options (delivered by configs that already speak the
-    // paimon-java OSS dialect) must pass through untouched instead of being
-    // remapped into the s3.* family.
-    TFileRangeDesc range;
-    TTableFormatFileDesc table_format_params;
-    TPaimonFileDesc paimon_params;
-    paimon_params.__set_paimon_table("oss://bucket/wh/db.db/t");
-    table_format_params.__set_paimon_params(paimon_params);
-    range.__set_table_format_params(table_format_params);
-
-    TFileScanRangeParams params;
-    params.properties["fs.oss.endpoint"] = "http://oss.internal:8080";
-    params.properties["fs.oss.accessKeyId"] = "oss-admin";
-    params.properties["fs.oss.accessKeySecret"] = "oss-password";
-    params.__isset.properties = true;
-
-    PaimonRustTableReader reader;
-    const auto options = reader.TEST_build_options(&params, range);
-    EXPECT_EQ(options.at("fs.oss.endpoint"), "http://oss.internal:8080");
-    EXPECT_EQ(options.at("fs.oss.accessKeyId"), "oss-admin");
-    EXPECT_EQ(options.at("fs.oss.accessKeySecret"), "oss-password");
-    EXPECT_EQ(options.count("s3.access-key"), 0);
-}
-
-TEST_F(PaimonRustTableReaderTest, S3aSchemeMapsToS3FileIOKeys) {
-    // The crate dispatches both s3:// and s3a:// to the S3 parser, so the
-    // legacy Hadoop-style spelling must translate to the s3.* family too.
-    TFileScanRangeParams params;
-    params.properties["AWS_ACCESS_KEY"] = "admin";
-    params.properties["AWS_SECRET_KEY"] = "password";
-    params.properties["AWS_ENDPOINT"] = "http://127.0.0.1:19001";
-    params.__isset.properties = true;
-
-    PaimonRustTableReader reader;
-    const auto options = reader.TEST_build_options(
-            &params, make_rust_range_with_table_path("s3a://bucket/wh/db.db/t"));
-    EXPECT_EQ(options.at("s3.access-key"), "admin");
-    EXPECT_EQ(options.at("s3.secret-key"), "password");
-    EXPECT_EQ(options.at("s3.endpoint"), "http://127.0.0.1:19001");
-}
-
-TEST_F(PaimonRustTableReaderTest, UnverifiedSchemesPassThroughWithoutS3Aliases) {
-    // libpaimon_c.a compiles in separate COS, OBS, GCS and Azdls parsers,
-    // each reading its own key family (fs.cosn.userinfo.* / fs.obs.* /
-    // gcs.* / azure.*), while Doris's FE normalizes those object stores'
-    // credentials into the AWS_* aliases (the *Properties storage classes).
-    // The bridge only implements the s3.* / fs.oss.* translations, and the
-    // FE gates every other scheme to JNI before the split is encoded — so
-    // here nothing may be synthesized for them: a production-shaped AWS_*
-    // map must pass through untouched instead of being silently translated
-    // into s3.* keys its scheme's parser ignores (which would fail the open
-    // with a misleading auth error, e.g. "Missing required COS config").
-    const std::vector<std::string> gated_schemes {
-            "cosn://bucket/wh/db.db/t",  "cos://bucket/wh/db.db/t", "obs://bucket/wh/db.db/t",
-            "gs://bucket/wh/db.db/t",    "gcs://bucket/wh/db.db/t", "abfs://bucket/wh/db.db/t",
-            "abfss://bucket/wh/db.db/t", "az://bucket/wh/db.db/t",  "azure://bucket/wh/db.db/t"};
-    for (const auto& table_path : gated_schemes) {
-        TFileScanRangeParams params;
-        params.properties["AWS_CREDENTIALS_PROVIDER_TYPE"] = "DEFAULT";
-        params.properties["AWS_ACCESS_KEY"] = "admin";
-        params.properties["AWS_SECRET_KEY"] = "password";
-        params.properties["AWS_ENDPOINT"] = "http://127.0.0.1:19001";
-        params.properties["AWS_REGION"] = "us-east-1";
-        params.properties["AWS_TOKEN"] = "sts-token";
-        params.properties["use_path_style"] = "true";
-        params.__isset.properties = true;
-
-        PaimonRustTableReader reader;
-        const auto options =
-                reader.TEST_build_options(&params, make_rust_range_with_table_path(table_path));
-        // No key of the s3.* / fs.oss.* families is synthesized for a scheme
-        // whose parser reads neither.
-        for (const char* key :
-             {"s3.access-key", "s3.secret-key", "s3.session.token", "s3.endpoint", "s3.region",
-              "s3.path-style-access", "s3.anonymous", "s3.assumed.role.arn",
-              "s3.assumed.role.externalId", "fs.oss.endpoint", "fs.oss.accessKeyId",
-              "fs.oss.accessKeySecret"}) {
-            EXPECT_EQ(options.count(key), 0) << "scheme " << table_path << " synthesized " << key;
-        }
-        // The FE-supplied property map passes through untouched.
-        EXPECT_EQ(options.at("AWS_ACCESS_KEY"), "admin");
-        EXPECT_EQ(options.at("AWS_SECRET_KEY"), "password");
-        EXPECT_EQ(options.at("AWS_ENDPOINT"), "http://127.0.0.1:19001");
-    }
-}
-
-TEST_F(PaimonRustTableReaderTest, HdfsAndLocalSchemesPassThroughHadoopConf) {
-    // hdfs:// tables read their hadoop conf as delivered (the native HDFS
-    // parser has its own config keys) and credential-free local paths need
-    // nothing at all: no AWS_* -> s3.* aliasing may be synthesized for
-    // either, even if an S3-shaped property map is present.
-    const std::vector<std::string> passthrough_schemes {"hdfs://nn/wh/db.db/t",
-                                                        "/paimon/warehouse/db.db/t"};
-    for (const auto& table_path : passthrough_schemes) {
-        TFileScanRangeParams params;
-        params.properties["AWS_ACCESS_KEY"] = "admin";
-        params.properties["AWS_SECRET_KEY"] = "password";
-        params.properties["AWS_ENDPOINT"] = "http://127.0.0.1:19001";
-        params.__isset.properties = true;
-
-        PaimonRustTableReader reader;
-        const auto options =
-                reader.TEST_build_options(&params, make_rust_range_with_table_path(table_path));
-        EXPECT_EQ(options.count("s3.access-key"), 0) << table_path;
-        EXPECT_EQ(options.count("s3.secret-key"), 0) << table_path;
-        EXPECT_EQ(options.count("s3.endpoint"), 0) << table_path;
-        EXPECT_EQ(options.count("fs.oss.accessKeyId"), 0) << table_path;
-        EXPECT_EQ(options.at("AWS_ACCESS_KEY"), "admin");
-    }
 }
 
 } // namespace doris::format::paimon
