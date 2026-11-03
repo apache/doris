@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.lance;
 
+import org.apache.doris.datasource.lance.index.LanceIndexInspectionExecutor.MetadataReadTimeoutException;
+
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 
@@ -43,6 +45,11 @@ final class LanceErrorMessages {
     static RuntimeException failure(String prefix, Throwable error, String uri,
             Map<String, String> options, List<String> catalogSecrets) {
         String message = sanitize(error, uri, options, catalogSecrets);
+        if (error instanceof MetadataReadTimeoutException) {
+            // Preserve classification across every sanitized wrapper, without retaining
+            // the provider exception or its potentially credential-bearing cause chain.
+            return new MetadataReadTimeoutException(prefix + ": " + message);
+        }
         RuntimeException cause = error instanceof IllegalArgumentException
                 ? new IllegalArgumentException(message) : new RuntimeException(message);
         return new RuntimeException(prefix + ": " + message, cause);

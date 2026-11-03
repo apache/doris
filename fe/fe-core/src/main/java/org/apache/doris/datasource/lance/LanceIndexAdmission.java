@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.lance;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -144,7 +143,7 @@ public final class LanceIndexAdmission {
         rejectIfAmbiguousLookupColumn(snapshot, def.getCols().get(0));
         // 6. Schema contract v1 from the stored column name (never the raw user spelling). The
         // build itself is the admission-depth type validation against the pinned snapshot.
-        String storedColumn = storedColumnName(table, def.getCols().get(0));
+        String storedColumn = storedColumnName(snapshot, def.getCols().get(0));
         LanceIndexSchemaContract schemaContract = LanceSchemaContractBuilder.build(
                 snapshot.getTopLevelFields(), storedColumn);
         // 7. The capture-fenced handoff: produce the execution plan by local work only. The
@@ -225,12 +224,17 @@ public final class LanceIndexAdmission {
                 })));
     }
 
+    /** Bounds resolution and cold schema loading before authoritative admission. */
+    public static <T> T readMetadata(long deadlineMs, Callable<T> read) throws Exception {
+        return withAdmissionBudget(deadlineMs, () -> LanceIndexInspectionExecutor.execute(read));
+    }
+
     private static <T> T withAdmissionBudget(long deadlineMs, Callable<T> action) throws Exception {
         try {
             return LanceIndexInspectionExecutor.withDeadline(deadlineMs, action);
         } catch (LanceIndexInspectionExecutor.MetadataReadTimeoutException e) {
             throw LanceIndexMutationOutcome.confirmedFailure(0,
-                    "the statement budget was exhausted during admission; nothing was sent").toUserException();
+                    "metadata reading timed out during validation or admission; nothing was sent").toUserException();
         }
     }
 
@@ -481,15 +485,18 @@ public final class LanceIndexAdmission {
         }
     }
 
-    private static String storedColumnName(LanceExternalTable table, String requestColumn)
+    private static String storedColumnName(LanceIndexAdmissionSnapshot snapshot, String requestColumn)
             throws AnalysisException {
-        Column column = table.getColumn(requestColumn);
-        if (column == null) {
-            // Unreachable after static validation; kept fail-closed because the contract build
-            // keys on the stored name.
-            rejectInvalid("Index column '" + requestColumn + "' does not exist");
+        // The ambiguity check already applied this exact lookup relation to the pinned
+        // snapshot. A second cached-schema lookup could reload storage without a bounded
+        // wait, or select a name from a different dataset version.
+        for (LanceField field : snapshot.getTopLevelFields()) {
+            if (requestColumn.equalsIgnoreCase(field.getName())) {
+                return field.getName();
+            }
         }
-        return column.getName();
+        rejectInvalid("Index column '" + requestColumn + "' does not exist");
+        return null;
     }
 
     private static List<String> logicalIndexNames(LanceIndexAdmissionSnapshot snapshot) {

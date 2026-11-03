@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TLanceIndexMutationType;
 
+import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.types.FloatingPointPrecision;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
@@ -43,6 +44,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
+import org.lance.Session;
+import org.lance.namespace.LanceNamespace;
 import org.lance.schema.LanceField;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -52,6 +55,8 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -624,6 +629,72 @@ public class LanceIndexAdmissionTest {
                         annProperties(), "", false), false);
         assertPlan(plan, TLanceIndexMutationType.CREATE, "idx");
         Assertions.assertEquals("Embedding", plan.getColumnName());
+    }
+
+    @Test
+    public void admissionUsesSnapshotColumnWithoutReloadingCachedSchema() throws Exception {
+        Mockito.when(table.getColumn(Mockito.anyString()))
+                .thenThrow(new AssertionError("admission must not reload the cached schema"));
+        LanceIndexMutationPlan plan = admitCreate(emptySnapshot(),
+                annDef("idx", "EMBEDDING", false, false), false);
+        Assertions.assertEquals("Embedding", plan.getColumnName());
+        Mockito.verify(table, Mockito.never()).getColumn(Mockito.anyString());
+    }
+
+    @Test
+    public void admissionRejectsColumnMissingFromSnapshotEvenIfCachedSchemaHasIt() {
+        AnalysisException failure = Assertions.assertThrows(AnalysisException.class,
+                () -> admitCreate(snapshotWithFields(vectorField("different", 1)),
+                        annDef("idx", false, false), false));
+        Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_INVALID, failure.getMysqlErrorCode());
+        Assertions.assertTrue(failure.getMessage().contains("does not exist"));
+    }
+
+    @Test
+    public void readerTimeoutBeforeStatementDeadlineSurvivesProductionWrappers() throws Exception {
+        LanceNamespace namespace = Mockito.mock(LanceNamespace.class,
+                Mockito.withSettings().extraInterfaces(AutoCloseable.class));
+        BufferAllocator allocator = Mockito.mock(BufferAllocator.class);
+        Session session = Mockito.mock(Session.class);
+        LanceCatalogClient client = new LanceCatalogClient(namespace, allocator, session,
+                "filesystem", "default", Collections.emptyList(), Collections.emptyList(),
+                Collections.emptyMap(), Collections.emptyList());
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "lance");
+        properties.put(LanceExternalCatalog.WAREHOUSE, "/unused/lance-warehouse");
+        LanceExternalCatalog realCatalog = Mockito.spy(new LanceExternalCatalog(
+                CATALOG_ID, "timeout_catalog", null, properties, ""));
+        Mockito.doAnswer(call -> client.acquire()).when(realCatalog).acquireClient();
+        Mockito.when(catalog.loadTableIndexAdmissionSnapshot(REMOTE_DB, REMOTE_TBL))
+                .thenAnswer(call -> realCatalog.loadTableIndexAdmissionSnapshot(REMOTE_DB, REMOTE_TBL));
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        Mockito.when(namespace.describeTable(Mockito.any())).thenAnswer(call -> {
+            started.countDown();
+            release.await(30, TimeUnit.SECONDS);
+            throw new RuntimeException("provider read failed");
+        });
+        // Shorten the reader's own limit without exhausting the outer statement deadline.
+        connectContext.setUserQueryTimeout(1);
+        long deadlineMs = System.currentTimeMillis() + 10_000L;
+        try {
+            AnalysisException failure = Assertions.assertThrows(AnalysisException.class,
+                    () -> LanceIndexAdmission.admitDrop(catalog, database, table, "absent", true, deadlineMs));
+            Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_MUTATION_REJECTED, failure.getMysqlErrorCode());
+            Assertions.assertEquals(0L, started.getCount());
+            Assertions.assertTrue(System.currentTimeMillis() < deadlineMs);
+            client.close();
+            Mockito.verify((AutoCloseable) namespace, Mockito.never()).close();
+            Mockito.verify(session, Mockito.never()).close();
+            Mockito.verify(allocator, Mockito.never()).close();
+            assertNothingPersisted();
+        } finally {
+            release.countDown();
+            client.close();
+            Mockito.verify((AutoCloseable) namespace, Mockito.timeout(5_000L)).close();
+            Mockito.verify(session, Mockito.timeout(5_000L)).close();
+            Mockito.verify(allocator, Mockito.timeout(5_000L)).close();
+        }
     }
 
     @Test
