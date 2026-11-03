@@ -20,8 +20,8 @@
 
 #include <optional>
 
-#include "common/sync_point.h"
 #include "core/data_type/data_type_number.h"
+#include "cpp/sync_point.h"
 #include "exec/sink/writer/iceberg/viceberg_partition_writer.h"
 #include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
 #include "format/table/iceberg/schema_parser.h"
