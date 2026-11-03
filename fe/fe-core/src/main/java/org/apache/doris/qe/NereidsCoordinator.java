@@ -578,9 +578,9 @@ public class NereidsCoordinator extends Coordinator {
         // enable_file_cache_for_insert_source opts OUT of that protection: recurring
         // INSERT ... SELECT / CTAS whose source working set is shared with interactive
         // queries (and re-read every cycle) benefits from normal-queue retention.
-        boolean keepInsertSourceInCache = this.coordinatorContext.connectContext != null
-                && this.coordinatorContext.connectContext.getSessionVariable().enableFileCacheForInsertSource;
-        if (!keepInsertSourceInCache) {
+        // connectContext is never null here: both callers are the ConnectContext constructors, after
+        // CoordinatorContext.buildForSql has already dereferenced it.
+        if (!this.coordinatorContext.connectContext.getSessionVariable().enableFileCacheForInsertSource) {
             this.coordinatorContext.queryOptions.setDisableFileCache(true);
         }
         this.coordinatorContext.queryOptions.setNewVersionUnixTimestamp(true);
