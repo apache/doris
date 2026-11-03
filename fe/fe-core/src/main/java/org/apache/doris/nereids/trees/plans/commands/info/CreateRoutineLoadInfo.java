@@ -631,7 +631,7 @@ public class CreateRoutineLoadInfo {
         String inputWorkloadGroupStr = jobProperties.get(WORKLOAD_GROUP);
         if (!StringUtils.isEmpty(inputWorkloadGroupStr)) {
             ConnectContext tmpCtx = new ConnectContext();
-            tmpCtx.inheritIdentityFrom(ConnectContext.get());
+            tmpCtx.setCurrentUserIdentity(ConnectContext.get().getCurrentUserIdentity());
             tmpCtx.getSessionVariable().setWorkloadGroup(inputWorkloadGroupStr);
             if (Config.isCloudMode()) {
                 tmpCtx.setCloudCluster(ConnectContext.get().getCloudCluster());
