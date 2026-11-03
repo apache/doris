@@ -35,6 +35,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.cost.CostCalculator;
+import org.apache.doris.nereids.cost.CostWeight;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -99,6 +100,7 @@ public class PluginDrivenFileScanStatsTest {
         Mockito.when(catalog.getName()).thenReturn("test_connector");
         Mockito.when(table.getRowCount()).thenReturn(3L);
         Mockito.when(table.supportInternalPartitionPruned()).thenReturn(true);
+        Mockito.when(table.supportInternalPartitionPruned(Mockito.any())).thenReturn(true);
         Mockito.when(table.getPartitionColumns(Mockito.any())).thenReturn(ImmutableList.of(partitionColumn));
         partitions = ImmutableMap.of("p1", newPartition(1), "p2", newPartition(2), "p3", newPartition(3));
         Mockito.when(table.initSelectedPartitions(Mockito.any()))
@@ -156,7 +158,7 @@ public class PluginDrivenFileScanStatsTest {
     @Test
     public void testNativeAndDeferredSelectionsKeepExistingEstimate() {
         assertRowCount(newScan(table, SelectedPartitions.NATIVE), 3);
-        assertRowCount(newScan(table, SelectedPartitions.DEFERRED), 3);
+        assertRowCount(newScan(table, SelectedPartitions.DEFERRED_PARTITION_PRUNING), 3);
     }
 
     @Test
@@ -308,7 +310,8 @@ public class PluginDrivenFileScanStatsTest {
         GroupExpression expression = new GroupExpression(physical);
         new Group(null, expression, physical.getLogicalProperties());
         StatsCalculator.estimate(expression, null);
-        return CostCalculator.calculateCost(connectContext, expression, ImmutableList.of()).getCpuCost();
+        return CostCalculator.calculateCost(connectContext, expression, ImmutableList.of(),
+                CostWeight.get(connectContext.getSessionVariable())).getCpuCost();
     }
 
     private PartitionItem newPartition(int value) throws Exception {
