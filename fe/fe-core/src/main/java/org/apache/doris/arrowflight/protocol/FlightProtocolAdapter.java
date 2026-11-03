@@ -118,10 +118,10 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     // the commands of the session add and take under the command lock, the timeout checker and
     // teardown take without it.
     private final List<StmtExecutor> deferredExecutors = new ArrayList<>();
-    // Whether the session has been torn down (tearDown): set under the monitor of
-    // deferredExecutors, so that a publication sees either the list or the tombstone; read at the
-    // entry of every command as well.
-    private volatile boolean closed = false;
+    // Guarded by deferredExecutors: publication must atomically see the list or its tombstone.
+    // This is not command admission (owned by ConnectContext). AFTER_RESPONSE leaves this handoff
+    // open while the admitted operation finishes, even though the context is already CLOSING.
+    private boolean deferredExecutorsSealed;
     // Serializes the commands of this session, see runCommand.
     private final ReentrantLock commandLock = new ReentrantLock();
 
@@ -361,8 +361,9 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
 
     @Override
     public void closeConnection(ConnectContext ctx) {
-        // Seal the deferred-result handoff immediately. The channel allocator is released by
-        // releaseSession only after ConnectContext has drained the running command.
+        // There is no session-owned gRPC connection to close: independent RPCs may share one.
+        // Seal the deferred-result handoff. The channel allocator is released by releaseSession
+        // only after ConnectContext has drained the running command.
         tearDown();
     }
 
@@ -426,7 +427,7 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
      */
     public void addDeferredExecutor(StmtExecutor executor) {
         synchronized (deferredExecutors) {
-            if (!closed) {
+            if (!deferredExecutorsSealed) {
                 deferredExecutors.add(executor);
                 return;
             }
@@ -484,7 +485,7 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     public void tearDown() {
         List<StmtExecutor> taken;
         synchronized (deferredExecutors) {
-            closed = true;
+            deferredExecutorsSealed = true;
             taken = new ArrayList<>(deferredExecutors);
             deferredExecutors.clear();
         }
@@ -629,7 +630,11 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
         });
     }
 
-    /** {@link #runCommand} for a command that returns a value. */
+    /**
+     * {@link #runCommand} for a command that returns a value. The return value must no longer
+     * borrow session resources: endOperation may release them before gRPC serializes the response.
+     * Streaming commands must finish using their Arrow buffers within the command body instead.
+     */
     public <T, E extends Exception> T callCommand(ConnectContext ctx, SessionCommand<T, E> command) throws E {
         acquireCommandLock(ctx);
         ConnectContext previous = ConnectContext.get();

@@ -896,9 +896,10 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     }
 
     /**
-     * Closes the session the way a MySQL client's COM_QUIT ends a connection: its ConnectContext
-     * leaves the pool (releasing the cached results, the deferred executors, the transaction and
-     * the temporary tables), a statement still running is cancelled, and every later call made
+     * Closes the session immediately through an independent RPC, without waiting for the command
+     * lock. Unlike an in-band COM_QUIT or self KILL CONNECTION, it cancels a concurrent statement.
+     * Its ConnectContext leaves the pool immediately; session resources are released after running
+     * operations exit. The gRPC connection stays open for this action's response. Every later call made
      * with the session's bearer token is refused as UNAUTHENTICATED, since the token is nothing but
      * the name the session had in the pool. The ADBC Flight SQL driver calls this from
      * Connection.Close() and the Flight SQL JDBC driver from Connection.close().

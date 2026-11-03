@@ -177,6 +177,11 @@ import javax.annotation.Nullable;
  * may complete their responses without query cancellation or transport closure. The final
  * {@link #endOperation()} closes transport after the response boundary. With no in-flight
  * operation, there is no response to wait for and transport closes immediately.
+ * The response boundary is protocol-specific: MySQL flushes its packets before ending the
+ * operation; a synchronous Flight RPC returns a self-contained response that gRPC can serialize
+ * after session cleanup. Flight session closure does not close the shared gRPC connection.
+ * Neither boundary guarantees that the client has received the response. A closing Flight
+ * response must not require a later DoGet under the token that was already revoked.
  *
  * <p>{@link #cleanup()} requests {@link CloseMode#IMMEDIATE}, as do external KILL CONNECTION,
  * disconnects, protocol failures and idle expiry. This also cancels execution and closes
@@ -186,6 +191,11 @@ import javax.annotation.Nullable;
  * cancellation. KILL QUERY and query timeout only cancel the query and keep the lifecycle ACTIVE.
  * Registration revocation, transport closure and resource release are each claimed once, even
  * when a channel callback re-enters cleanup or a forced close races with the final response.
+ * A single cleanup phase records their sequential progress under the lifecycle lock. Advancing
+ * to CLOSING_TRANSPORT or RELEASING_RESOURCES claims that step before executing it outside the
+ * lock; concurrent and reentrant callers cannot repeat it. CloseMode is independent of cleanup
+ * progress because an immediate request may arrive during any phase. The operation count is
+ * independent of both: immediate closure still has to drain operations before releasing resources.
  *
  * <p>Cleanup does not wait for a running operation's command lock. Once close initiation has
  * finished and every successful begin has a matching endOperation, exactly one caller releases
@@ -264,6 +274,13 @@ public class ConnectContext {
         IMMEDIATE, AFTER_RESPONSE
     }
 
+    // Monotonic teardown progress, separate from admission and close policy. NOT_STARTED also
+    // covers unregistration in progress: startClosing's winner owns it. The completion future
+    // records the outcome after RELEASING_RESOURCES, including a failure that leaves us CLOSING.
+    private enum CleanupPhase {
+        NOT_STARTED, UNREGISTERED, CLOSING_TRANSPORT, TRANSPORT_CLOSED, RELEASING_RESOURCES
+    }
+
     // Lock order: lifecycleLock -> ConnectPoolMgr.admissionLock. The pool never calls back into
     // the lifecycle. Cancellation, channel callbacks and resource release run outside both locks.
     private final Object lifecycleLock = new Object();
@@ -272,10 +289,7 @@ public class ConnectContext {
     private int inFlightOperations;
     private CloseMode closeMode;
     // Teardown progress is guarded by lifecycleLock. Admission depends only on lifecycleState.
-    private boolean closeInitiated;
-    private boolean transportCloseStarted;
-    private boolean transportClosed;
-    private boolean releasingResources;
+    private CleanupPhase cleanupPhase = CleanupPhase.NOT_STARTED;
     private Throwable cleanupFailure;
     private final CompletableFuture<Void> cleanupCompletion = new CompletableFuture<>();
     // set this id before analyze
@@ -1377,7 +1391,7 @@ public class ConnectContext {
                 cleanupStep("unregister connection", () -> pool.unregisterConnection(this));
             }
             synchronized (lifecycleLock) {
-                closeInitiated = true;
+                cleanupPhase = CleanupPhase.UNREGISTERED;
             }
             finishCleanup();
         } finally {
@@ -1389,23 +1403,23 @@ public class ConnectContext {
         boolean closeTransport = false;
         boolean cancelExecution = false;
         synchronized (lifecycleLock) {
-            if (!closeInitiated) {
-                return;
-            }
-            if (!transportCloseStarted && (closeMode == CloseMode.IMMEDIATE || inFlightOperations == 0)) {
-                transportCloseStarted = true;
+            if (cleanupPhase == CleanupPhase.UNREGISTERED
+                    && (closeMode == CloseMode.IMMEDIATE || inFlightOperations == 0)) {
+                cleanupPhase = CleanupPhase.CLOSING_TRANSPORT;
                 closeTransport = true;
                 cancelExecution = closeMode == CloseMode.IMMEDIATE;
+            } else if (cleanupPhase != CleanupPhase.TRANSPORT_CLOSED) {
+                return;
             }
         }
         if (closeTransport) {
             closeTransport(cancelExecution);
         }
         synchronized (lifecycleLock) {
-            if (!transportClosed || inFlightOperations != 0 || releasingResources) {
+            if (cleanupPhase != CleanupPhase.TRANSPORT_CLOSED || inFlightOperations != 0) {
                 return;
             }
-            releasingResources = true;
+            cleanupPhase = CleanupPhase.RELEASING_RESOURCES;
         }
         // Transaction rollback/forwarding uses ConnectContext.get(). Bind the closing context,
         // even when the caller is the timeout checker or another connection's KILL command.
@@ -1449,7 +1463,7 @@ public class ConnectContext {
             }
             cleanupStep("close transport", this::closeChannel);
             synchronized (lifecycleLock) {
-                transportClosed = true;
+                cleanupPhase = CleanupPhase.TRANSPORT_CLOSED;
             }
         } finally {
             restoreAfterCleanup(previous);
