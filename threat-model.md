@@ -5,6 +5,8 @@
 > (Doris committer morningman). All technical `(inferred)` tags from
 > v0.1 have been resolved or consciously deferred. Amended 2026-07-29
 > with wave 5 (M19, FE `enable_all_http_auth` / HTTP auth posture).
+> Wave 6 (M20, FE `query_audit_always_on`) proposed 2026-11-03, pending
+> maintainer agreement.
 
 This document is the **security contract** for Apache Doris: what the
 project assumes, what it guarantees given those assumptions, what it
@@ -283,6 +285,7 @@ Operational assumptions:
 | `passwordLockSeconds` (per-user, `... PASSWORD_LOCK_TIME T`) | **0 / DISABLED** *(maintainer, M11)* | Same | Same |
 | `enable_all_http_auth` (FE, HTTP 8030) | **on**, **not runtime-mutable** *(maintainer, M19)* | On **IS** the supported production posture. Turning it off requires editing `fe.conf` and restarting — deliberately not an `ADMIN SET` command, so disabling authentication is a recorded on-disk decision. A migration aid for clusters upgrading from a release where it defaulted off, not a supported steady state | On: §4.8 (11) (**authentication**) applies unconditionally and a bypass is `VALID`; authorization is the separate, narrower §4.8 (12) with recorded gaps. Off: knob flipped toward the less-secure side → `OUT-OF-MODEL: non-default-build`. Note the effective value may come from `fe_custom.conf`, not `fe.conf` |
 | `enable_all_http_auth` (BE, webserver 8040) | **off**, **not runtime-mutable** *(maintainer, M19)* | Unchanged in this release — only the FE default was flipped. BE 8040 is a Zone-2 port (§4.4) that operators are already required to keep off end-user networks, so the compatibility cost of flipping it was judged to outweigh the gain. Changing it requires editing `be.conf` and restarting (`DEFINE_Bool`, not `DEFINE_mBool`) | Off: BE 8040 handlers declared with the `NONE` privilege type answer without credentials → `BY-DESIGN: property-disclaimed` (§4.9), not `VALID` |
+| `query_audit_always_on` (FE) | **off**, **not runtime-mutable** *(maintainer, M20)* | Opt-in posture for deployments that must audit every query. Changing it requires editing `fe.conf` and restarting the FE — deliberately not an `ADMIN SET` command, so turning query audit back into an ADMIN choice is a recorded on-disk decision | On: §4.8 (13) applies, and a supported entry that still turns query audit off or hollows it out is `VALID`. Off: an ADMIN turning query audit off stays `OUT-OF-MODEL: adversary-not-in-scope` (M3). As with `enable_all_http_auth`, the effective value may come from `fe_custom.conf`, not `fe.conf`; read it back with `ADMIN SHOW FRONTEND CONFIG` |
 | `auth_type` | native | LDAP / Kerberos / OIDC are non-default backends | Out of this row's scope (handled in family row 4) |
 | Cluster shape: `on-prem` vs `cloud/` | on-prem | Both shapes supported *(maintainer, Q2)* | Cloud adds Meta Service component (family row 3); cloud has additional tenant-boundary claim per §4.8 |
 
@@ -424,7 +427,7 @@ Out-of-scope adversaries:
 |---|---|---|
 | Cluster-internal network attacker | (Q1) Network isolation is operator's job | `OUT-OF-MODEL: adversary-not-in-scope` |
 | Side-channel observer (timing, cache, branch-predictor) | (Q5) Not in model | `OUT-OF-MODEL: adversary-not-in-scope` |
-| `SUPER` / `ADMIN_PRIV` user behaving maliciously | (M3) admin trusted by definition | `OUT-OF-MODEL: adversary-not-in-scope` |
+| `SUPER` / `ADMIN_PRIV` user behaving maliciously | (M3) admin trusted by definition. One exception (M20): with `query_audit_always_on` on, turning query audit off or hollowing it out through a supported entry falls under §4.8 (13) | `OUT-OF-MODEL: adversary-not-in-scope`; the M20 exception is triaged under §4.8 (13) |
 | Co-tenant escape at K8s / OS level `[cloud]` | Meta Service tenant boundary IS in model (§4.8); host/K8s isolation is the cloud operator's job | `OUT-OF-MODEL: adversary-not-in-scope` for OS-level; `VALID` for Meta-Service-level |
 | Eavesdropper on the wire when TLS off | (Q7) Default disclaims wire confidentiality | `BY-DESIGN: property-disclaimed` (§4.9) |
 | Brute-force attacker against an account without `FAILED_LOGIN_ATTEMPTS` set | (M11) Default disclaims; operator's job | `BY-DESIGN: property-disclaimed` (§4.9) |
@@ -605,6 +608,30 @@ provenance.
     `BY-DESIGN: property-disclaimed` **with this section cited**, and
     should be filed against the §4.14 follow-up rather than closed as
     noise.
+
+13. **Query audit that database accounts cannot turn off, when
+    `query_audit_always_on` is on** *(maintainer, M20)*. *Condition*:
+    the FE runs with `query_audit_always_on = true` (§4.5a; default
+    off). Then every statement that FE receives produces a query audit
+    event — failed statements and server-side `COM_STMT_EXECUTE`
+    included — handed to both `fe.audit.log` and
+    `__internal_schema.audit_log`, and no database account, `root`
+    included, can disable either path, empty the recorded statement,
+    or truncate it below the factory default through SQL (`SET
+    [GLOBAL]`, `SET_VAR`, `UNSET`), the FE HTTP config interface
+    (`/api/_set_config`), or session settings. Such an attempt fails,
+    and is audited itself. Only someone who can edit the FE's
+    configuration files and restart it can turn the switch off.
+    *Violation symptom*: with the switch on, a supported entry still
+    stops query audit records from being produced or written, empties
+    their statement text, or truncates it below the default.
+    *Not covered*: code execution inside the FE (M3 — for example
+    through `INSTALL PLUGIN` or a JDBC `driver_url`), which can change
+    any in-memory setting; tampering with records already written,
+    such as `TRUNCATE` on the audit table (M12); and reliable delivery
+    — a full queue, a failed load or an FE crash can still lose
+    events. *Severity*: to be set by the maintainers under the tiers
+    above when M20 is accepted.
 
 **Resource properties** — *threshold*: **NONE**. Doris explicitly
 makes **no** quantitative or categorical resource guarantee on a
@@ -1038,6 +1065,13 @@ the body. Summary table:
 | ID | Topic | Outcome |
 |---|---|---|
 | M19 | `enable_all_http_auth` (FE) | **FE default flipped to `true` on 2026-07-29, and the flag is not runtime-mutable** — it can only be changed on disk (`fe.conf`, or `fe_custom.conf` which overwrites it) with a restart, so the running posture is auditable from disk and cannot be silently dropped at runtime — but auditing it means reading **both** files, since a pre-flip release could have persisted `false` into `fe_custom.conf` (§4.5a). FE HTTP **authentication** is now a default-config property (§4.8 (11)); unauthenticated access to the FE 8030 `/api/**` and `/rest/v2/**` surface is `VALID`, not disclaimed. **Authorization is a separate, narrower property** (§4.8 (12)): the flip did not add a centralized privilege check, and `AddStoragePolicyAction`, `ESCatalogAction` and `ImportAction` remain password-only — a recorded open gap tracked in §4.14, not a claim this release makes. **Carve-outs**: FE `/metrics` and FE `/api/health` stay public by design and are not gated by the flag (§4.9, §4.8 (11) (b), code-verified); the cluster-token endpoints (including `/api/streaming/*`) authenticate by token, not password (§4.8 (11) (d)); and the **BE default is unchanged (off)** — BE 8040 stays governed by Zone-2 network isolation and its `NONE`-privilege handlers stay disclaimed (§4.9, §4.11a). Extending the flip to BE is tracked as a §4.12 trigger. Turning the FE flag off is a migration aid for upgrades (§4.10 (12)), lands findings in `OUT-OF-MODEL: non-default-build` (§4.5a), and is a misuse pattern as a resting state (§4.11) |
+
+**Wave 6 — PROPOSED 2026-11-03, pending maintainer agreement.** Query
+audit:
+
+| ID | Topic | Outcome |
+|---|---|---|
+| M20 | `query_audit_always_on` (FE) | New FE config, **off by default and not runtime-mutable**: it changes only on disk (`fe.conf`, or `fe_custom.conf` which overwrites it) with a restart, like `enable_all_http_auth` (M19). On, it makes §4.8 (13) a property: no database account, `root` included, can turn query audit off or hollow it out through SQL, the FE HTTP config interface or session settings, and the FE ignores conflicting values in its config files at startup (`skip_audit_user_list`, an `audit_log_modules` without `query`, out-of-bound audit queue and timeout configs) with a WARN instead of refusing to start. Not covered: code execution inside the FE (M3), tampering with written audit records (M12), reliable delivery. Off: an ADMIN turning query audit off stays `OUT-OF-MODEL: adversary-not-in-scope` (M3) |
 
 **Open follow-up items (not blocking v1.0 acceptance):**
 
