@@ -87,7 +87,7 @@ public class PushDownFilterThroughSetOperation extends OneRewriteRuleFactory {
                     pushableConjuncts = new LinkedHashSet<>();
                     Set<Expression> kept = new LinkedHashSet<>();
                     for (Expression c : origFilter.getConjuncts()) {
-                        if (c.containsVolatileExpression()) {
+                        if (c.containsVolatileOrNoneMovableExpression()) {
                             kept.add(c);
                         } else {
                             pushableConjuncts.add(c);

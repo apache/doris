@@ -127,7 +127,7 @@ public class PushDownFilterThroughProject implements RewriteRuleFactory {
             // `project(b + random(1, 10) as a) -> filter(b + random(1, 10) > 1)`, it contains two distinct RANDOM.
             if (childOutputs.containsAll(conjunctSlots)
                     && conjunctSlots.stream().map(childAlias::get).filter(Objects::nonNull)
-                            .noneMatch(expression -> expression.containsVolatileExpression()
+                            .noneMatch(expression -> expression.containsVolatileOrNoneMovableExpression()
                                     || (protectDateArithmetic
                                             && ExpressionUtils.requiresDateArithmeticProtection(expression, input)))) {
                 pushDownPredicates.add(conjunct);
