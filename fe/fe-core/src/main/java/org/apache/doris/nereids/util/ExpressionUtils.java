@@ -1149,10 +1149,10 @@ public class ExpressionUtils {
     }
 
     /** deapAnyMatch */
-    public static boolean deapAnyMatch(
+    public static boolean deepAnyMatch(
             Collection<? extends Expression> expressions, Predicate<TreeNode<Expression>> predicate) {
         for (Expression expression : expressions) {
-            if (expression.anyMatch(expr -> expr.anyMatch(predicate))) {
+            if (expression.anyMatch(predicate)) {
                 return true;
             }
         }
@@ -1160,10 +1160,10 @@ public class ExpressionUtils {
     }
 
     /** deapNoneMatch */
-    public static boolean deapNoneMatch(
+    public static boolean deepNoneMatch(
             Collection<? extends Expression> expressions, Predicate<TreeNode<Expression>> predicate) {
         for (Expression expression : expressions) {
-            if (expression.anyMatch(expr -> expr.anyMatch(predicate))) {
+            if (expression.anyMatch(predicate)) {
                 return false;
             }
         }
