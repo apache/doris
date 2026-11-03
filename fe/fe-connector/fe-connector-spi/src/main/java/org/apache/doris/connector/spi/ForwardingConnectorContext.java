@@ -67,6 +67,16 @@ public abstract class ForwardingConnectorContext implements ConnectorContext {
     }
 
     @Override
+    public void recordWriteEvent(String event) {
+        delegate.recordWriteEvent(event);
+    }
+
+    @Override
+    public boolean isDebugPointEnabled(String name) {
+        return delegate.isDebugPointEnabled(name);
+    }
+
+    @Override
     public String getCatalogName() {
         return delegate.getCatalogName();
     }

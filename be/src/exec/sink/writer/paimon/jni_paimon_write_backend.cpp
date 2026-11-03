@@ -43,6 +43,7 @@
 #include "util/jni-util.h"
 #include "util/jni_plugin_registry.h"
 #include "util/pretty_printer.h"
+#include "util/thrift_util.h"
 
 namespace doris {
 
@@ -183,7 +184,7 @@ void retain_resources_after_failed_close(std::unique_ptr<PaimonJniMemoryManager>
 // ────────────────────────────────────────────────────────────
 
 const char* const PAIMON_JNI_WRITER_OPEN_SIGNATURE =
-        "(Ljava/lang/String;Ljava/util/Map;[Ljava/lang/String;JLjava/lang/String;ZZLjava/lang/"
+        "([BLjava/util/Map;[Ljava/lang/String;JLjava/lang/String;ZZLjava/lang/"
         "String;JJJ)V";
 
 PaimonJniWriterOpenMode PaimonJniWriterOpenMode::from_write_mode(
@@ -326,8 +327,9 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     _arrow_schema.reset();
     DORIS_CHECK(sink.__isset.column_names);
     DORIS_CHECK(sink.__isset.write_mode);
-    DORIS_CHECK(sink.__isset.serialized_table);
-    DORIS_CHECK(!sink.serialized_table.empty());
+    if (!sink.__isset.table_desc) {
+        return Status::NotSupported("Paimon writes require a table descriptor; upgrade the FE");
+    }
     DORIS_CHECK(sink.__isset.transaction_id);
     DORIS_CHECK(sink.transaction_id > 0);
     DORIS_CHECK(sink.__isset.commit_user);
@@ -382,9 +384,14 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
 
     // Step 4: Build Java arguments and call PaimonJniWriter.open().
     const std::map<std::string, std::string> empty_config;
-    Jni::LocalString j_serialized_table;
-    RETURN_IF_ERROR(
-            Jni::LocalString::new_string_utf8(env, sink.serialized_table, &j_serialized_table));
+    ThriftSerializer serializer(false, 1024);
+    uint32_t descriptor_size = 0;
+    uint8_t* descriptor_data = nullptr;
+    RETURN_IF_ERROR(serializer.serialize(&sink.table_desc, &descriptor_size, &descriptor_data));
+    jbyteArray j_table_desc = env->NewByteArray(static_cast<jsize>(descriptor_size));
+    RETURN_IF_ERROR(_check_jni_exception(env, "allocate Paimon table descriptor"));
+    env->SetByteArrayRegion(j_table_desc, 0, static_cast<jsize>(descriptor_size),
+                            reinterpret_cast<const jbyte*>(descriptor_data));
     Jni::LocalObject j_hadoop_config;
     RETURN_IF_ERROR(Jni::Util::convert_to_java_map(
             env, sink.__isset.hadoop_config ? sink.hadoop_config : empty_config, &j_hadoop_config));
@@ -398,7 +405,7 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
 
     PaimonJniWriterOpenMode open_mode = PaimonJniWriterOpenMode::from_write_mode(sink.write_mode);
     env->CallVoidMethod(
-            _jni_writer_obj.get(), open_id, j_serialized_table.get(), j_hadoop_config.get(), j_cols,
+            _jni_writer_obj.get(), open_id, j_table_desc, j_hadoop_config.get(), j_cols,
             static_cast<jlong>(sink.transaction_id), j_commit_user.get(), open_mode.overwrite,
             open_mode.changelog, j_time_zone.get(),
             static_cast<jlong>(_memory_manager->memory_limit()),

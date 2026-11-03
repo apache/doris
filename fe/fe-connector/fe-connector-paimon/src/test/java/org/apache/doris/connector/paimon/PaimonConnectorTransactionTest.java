@@ -155,6 +155,21 @@ public class PaimonConnectorTransactionTest {
     }
 
     @Test
+    public void reportAfterRollbackAbortsFilesWithoutReopeningTransaction() throws Exception {
+        ScriptedTable target = new ScriptedTable(table);
+        PaimonConnectorTransaction transaction = boundTransaction(target);
+        transaction.rollback();
+
+        transaction.addCommitData(commitFragment(commitPayload(0)));
+
+        Assertions.assertEquals(1, target.aborts);
+        Assertions.assertEquals(1, target.abortedMessages.size());
+        Assertions.assertEquals("ABORTED", transaction.getProfileInfo().get("PaimonTransactionState"));
+        Assertions.assertThrows(IllegalStateException.class, transaction::commit);
+        Assertions.assertEquals(0, target.commitAttempts);
+    }
+
+    @Test
     public void closeFailureAfterCommitDoesNotChangeOutcome() throws Exception {
         ScriptedTable target = new ScriptedTable(table);
         target.closeFailure = new IllegalStateException("committer close failed");

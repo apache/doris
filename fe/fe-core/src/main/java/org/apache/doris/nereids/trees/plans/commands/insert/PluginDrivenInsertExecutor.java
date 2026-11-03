@@ -157,6 +157,31 @@ public class PluginDrivenInsertExecutor extends BaseExternalTableInsertExecutor 
     }
 
     @Override
+    protected void onComplete() throws UserException {
+        try {
+            super.onComplete();
+        } finally {
+            updateTransactionProfile();
+        }
+    }
+
+    @Override
+    public void onFail(Throwable failure) {
+        try {
+            super.onFail(failure);
+        } finally {
+            updateTransactionProfile();
+        }
+    }
+
+    private void updateTransactionProfile() {
+        if (connectorTx != null) {
+            connectorTx.getProfileInfo().forEach((name, value) ->
+                    coordinator.getExecutionProfile().getRoot().addInfoString(name, value));
+        }
+    }
+
+    @Override
     protected void beforeExec() throws UserException {
         // Single transaction model: the connector write session is created by planWrite
         // (in finalizeSink). There is no per-statement handle to open here.
