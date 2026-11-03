@@ -59,15 +59,13 @@ public class ReadListener implements ChannelListener<ConduitStreamSourceChannel>
                 ctx.setThreadLocalInfo();
                 try {
                     connectProcessor.processOnce();
-                    if (!ctx.isKilled()) {
+                    if (!ctx.isClosingOrClosed()) {
                         protocol.resumeAcceptQuery();
                     } else {
                         protocol.stopAcceptQuery();
-                        ctx.cleanup();
                     }
                 } catch (Throwable e) {
                     LOG.warn("Exception happened in one session(" + ctx + ").", e);
-                    ctx.setKilled();
                     ctx.cleanup();
                 } finally {
                     try {
@@ -83,7 +81,6 @@ public class ReadListener implements ChannelListener<ConduitStreamSourceChannel>
             // so that cleanup()/close listener can access ConnectContext.get() if needed.
             ctx.setThreadLocalInfo();
             try {
-                ctx.setKilled();
                 ctx.cleanup();
             } finally {
                 ConnectContext.remove();

@@ -125,7 +125,17 @@ public class KillUtilsTest {
         KillUtils.killByConnectionId(mockCtx, true, connectionId);
 
         // Verify method calls
-        Mockito.verify(mockCtx).setKilled();
+        Mockito.verify(mockCtx).requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+        Mockito.verify(mockState).setOk();
+    }
+
+    @Test
+    public void testKillQueryOnOwnConnectionDoesNotRequestClosure() throws DdlException {
+        int connectionId = 123;
+        Mockito.when(mockScheduler.getContext(connectionId)).thenReturn(mockCtx);
+        KillUtils.killByConnectionId(mockCtx, false, connectionId);
+        Mockito.verify(mockCtx).kill(false);
+        Mockito.verify(mockCtx, Mockito.never()).requestClose(Mockito.any());
         Mockito.verify(mockState).setOk();
     }
 

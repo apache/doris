@@ -120,7 +120,6 @@ public class ConnectionExceedTest {
             InOrder contextInOrder = Mockito.inOrder(protocol, context);
             contextInOrder.verify(protocol).suspendAcceptQuery();
             contextInOrder.verify(context).setThreadLocalInfo();
-            contextInOrder.verify(context).setKilled();
             contextInOrder.verify(context).cleanup();
             Mockito.verifyNoInteractions(queryState);
             Mockito.verifyNoInteractions(processor);
