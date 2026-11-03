@@ -166,27 +166,27 @@ TEST(ReadSchemaTest, ExplicitChangelogMappingsIgnoreNamesAndOrder) {
     ReadSchema schema({create_int_column(10, "key", true),
                        create_int_column(14, "arbitrary_before"),
                        create_int_column(11, "arbitrary_current"), create_int_column(12, "other")});
-    ASSERT_TRUE(schema.init_changelog_column_mappings({{2, 1}}, -1, -1, -1).ok());
+    ASSERT_TRUE(schema._init_changelog_column_mappings({{2, 1}}, -1, -1, -1).ok());
     EXPECT_EQ(1, schema.before_column_ordinal(2));
     EXPECT_EQ(3, schema.before_column_ordinal(3));
     schema.append_dropped_columns({*create_int_column(20, "private")});
     EXPECT_EQ(4, schema.num_block_columns());
     EXPECT_EQ(5, schema.num_read_columns());
     EXPECT_EQ(1, schema.before_column_ordinal(2));
-    EXPECT_FALSE(schema.init_changelog_column_mappings({{2, 4}}, -1, -1, -1).ok());
+    EXPECT_FALSE(schema._init_changelog_column_mappings({{2, 4}}, -1, -1, -1).ok());
 }
 
 TEST(ReadSchemaTest, ChangelogMappingRejectsInvalidPairs) {
     ReadSchema schema({create_int_column(10, "key", true), create_int_column(11, "value"),
                        create_int_column(12, "before"), create_struct_column(13)});
-    EXPECT_FALSE(schema.init_changelog_column_mappings({{1, 1}}, -1, -1, -1).ok());
-    EXPECT_FALSE(schema.init_changelog_column_mappings({{0, 2}}, -1, -1, -1).ok());
-    EXPECT_FALSE(schema.init_changelog_column_mappings({{1, 2}, {2, 3}}, -1, -1, -1).ok());
-    EXPECT_FALSE(schema.init_changelog_column_mappings({{1, 3}}, -1, -1, -1).ok());
-    EXPECT_FALSE(schema.init_changelog_column_mappings({}, 4, -1, -1).ok());
-    EXPECT_FALSE(schema.init_changelog_column_mappings({}, -2, -1, -1).ok());
-    EXPECT_FALSE(schema.init_changelog_column_mappings({}, 1, 1, -1).ok());
-    ASSERT_TRUE(schema.init_changelog_column_mappings({}, -1, -1, -1).ok());
+    EXPECT_FALSE(schema._init_changelog_column_mappings({{1, 1}}, -1, -1, -1).ok());
+    EXPECT_FALSE(schema._init_changelog_column_mappings({{0, 2}}, -1, -1, -1).ok());
+    EXPECT_FALSE(schema._init_changelog_column_mappings({{1, 2}, {2, 3}}, -1, -1, -1).ok());
+    EXPECT_FALSE(schema._init_changelog_column_mappings({{1, 3}}, -1, -1, -1).ok());
+    EXPECT_FALSE(schema._init_changelog_column_mappings({}, 4, -1, -1).ok());
+    EXPECT_FALSE(schema._init_changelog_column_mappings({}, -2, -1, -1).ok());
+    EXPECT_FALSE(schema._init_changelog_column_mappings({}, 1, 1, -1).ok());
+    ASSERT_TRUE(schema._init_changelog_column_mappings({}, -1, -1, -1).ok());
     EXPECT_TRUE(schema.changelog_value_column_pairs().empty());
     EXPECT_EQ(1, schema.before_column_ordinal(1));
 }

@@ -100,9 +100,6 @@ public:
 
     // All positions address the fixed caller-visible Block prefix. -1 means a system column
     // is absent. Pairs are explicit relationships, independent of column names and ordering.
-    Status init_changelog_column_mappings(const ChangelogValueColumnPairs& pairs,
-                                          int32_t tso_ordinal, int32_t lsn_ordinal,
-                                          int32_t op_ordinal);
     Status init_changelog_column_mappings(const TabletSchema& tablet_schema,
                                           const ChangelogValueColumnPairs& pairs);
 
@@ -176,6 +173,9 @@ public:
 private:
     void _init_read_types();
     Status _init_sequence_map(const TabletSchema& tablet_schema);
+    Status _init_changelog_column_mappings(const ChangelogValueColumnPairs& pairs,
+                                           int32_t tso_ordinal, int32_t lsn_ordinal,
+                                           int32_t op_ordinal);
 
     void _init_descriptors() {
         DORIS_CHECK_LE(_num_block_columns, _read_columns.size());
