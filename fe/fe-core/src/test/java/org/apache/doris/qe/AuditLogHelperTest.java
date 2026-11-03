@@ -18,13 +18,21 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.plugin.AuditEvent;
+import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 public class AuditLogHelperTest {
 
@@ -109,5 +117,43 @@ public class AuditLogHelperTest {
         ctx.setEffectiveCloudCluster("hint_cluster");
 
         Assertions.assertEquals("hint_cluster", AuditLogHelper.getCloudClusterForAudit(ctx));
+    }
+
+    // A negative audit_plugin_max_sql_length made truncateByBytes throw, and logAuditLog swallowed the exception
+    // together with the event: no statement other than INSERT ... VALUES was audited. It now counts as 0.
+    @Test
+    public void testNegativeMaxSqlLengthStillAudits() {
+        int originalMaxSqlLength = GlobalVariable.auditPluginMaxSqlLength;
+        try {
+            GlobalVariable.auditPluginMaxSqlLength = -1;
+            Assertions.assertEquals(" ... /* truncated. audit_plugin_max_sql_length=0 */",
+                    auditAndCapture("select 1").stmt);
+        } finally {
+            GlobalVariable.auditPluginMaxSqlLength = originalMaxSqlLength;
+        }
+    }
+
+    // Runs logAuditLog for a statement and returns the event it submitted.
+    private AuditEvent auditAndCapture(String stmt) {
+        ConnectContext ctx = createMockContext(false, false);
+        ctx.getState().setOk();
+
+        Env env = Mockito.mock(Env.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        WorkloadRuntimeStatusMgr statusMgr = Mockito.mock(WorkloadRuntimeStatusMgr.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(catalogMgr.getCatalog(Mockito.anyString())).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("internal");
+        Mockito.when(env.getWorkloadRuntimeStatusMgr()).thenReturn(statusMgr);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+            AuditLogHelper.logAuditLog(ctx, stmt, null, null, true);
+
+            ArgumentCaptor<AuditEvent> captor = ArgumentCaptor.forClass(AuditEvent.class);
+            Mockito.verify(statusMgr).submitFinishQueryToAudit(captor.capture());
+            return captor.getValue();
+        }
     }
 }

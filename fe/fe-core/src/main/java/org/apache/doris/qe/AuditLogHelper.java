@@ -104,10 +104,17 @@ public class AuditLogHelper {
         }
 
         // 2. handle other statement
-        int maxLen = GlobalVariable.auditPluginMaxSqlLength;
-        origStmt = truncateByBytes(origStmt, maxLen, " ... /* truncated. audit_plugin_max_sql_length=" + maxLen
-            + " */");
-        return origStmt;
+        return truncateStmt(origStmt);
+    }
+
+    /**
+     * Truncate a statement other than INSERT ... VALUES to audit_plugin_max_sql_length bytes. A negative limit
+     * counts as 0, as it does for INSERT ... VALUES: truncateByBytes cannot take one, and the exception it threw
+     * dropped the whole audit event.
+     */
+    public static String truncateStmt(String stmt) {
+        int maxLen = Math.max(0, GlobalVariable.auditPluginMaxSqlLength);
+        return truncateByBytes(stmt, maxLen, " ... /* truncated. audit_plugin_max_sql_length=" + maxLen + " */");
     }
 
     /**
@@ -129,10 +136,7 @@ public class AuditLogHelper {
         }
 
         // 2. handle other statement
-        int maxLen = GlobalVariable.auditPluginMaxSqlLength;
-        origStmt = truncateByBytes(origStmt, maxLen, " ... /* truncated. audit_plugin_max_sql_length=" + maxLen
-                + " */");
-        return origStmt;
+        return truncateStmt(origStmt);
     }
 
     private static Optional<String> handleInsertCommand(String origStmt, Command command) {

@@ -55,7 +55,6 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
@@ -414,10 +413,7 @@ public class TableQueryPlanAction extends RestBaseController {
             encryptSql = ((NeedAuditEncryption) logicalPlan).geneEncryptionSQL(origStmt);
         }
 
-        int maxLen = GlobalVariable.auditPluginMaxSqlLength;
-        encryptSql = AuditLogHelper.truncateByBytes(encryptSql, maxLen,
-                " ... /* truncated. audit_plugin_max_sql_length=" + maxLen + " */");
-        auditEventBuilder.setStmt(encryptSql);
+        auditEventBuilder.setStmt(AuditLogHelper.truncateStmt(encryptSql));
 
         if (!Env.getCurrentEnv().isMaster()) {
             StmtExecutor executor = ctx.getExecutor();

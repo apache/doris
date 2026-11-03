@@ -376,7 +376,29 @@ public class VariableMgr {
                     findSimilarSessionVarNames(setVar.getVariable()));
         }
         checkUpdate(setVar, varCtx.getFlag());
+        checkAuditVariableValue(varCtx, getValueToSet(setVar, varCtx));
         setVarInternal(sessionVariable, setVar, varCtx);
+    }
+
+    // Rejects a value that would break query auditing. The check sits on the entries users set variables through,
+    // not in setValue: replaying the edit log and loading the image also go through setValue, which would skip a
+    // rejected value on one FE only.
+    private static void checkAuditVariableValue(VarContext ctx, String value) throws DdlException {
+        String name = ctx.getField().getAnnotation(VarAttrDef.VarAttr.class).name();
+        if (!GlobalVariable.AUDIT_PLUGIN_MAX_SQL_LENGTH.equals(name)) {
+            return;
+        }
+        int maxSqlLength;
+        try {
+            maxSqlLength = Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            // Not a number: setValue reports it.
+            return;
+        }
+        if (maxSqlLength < 0) {
+            throw new DdlException("Variable '" + name + "' can't be set to '" + value
+                    + "', the value must not be negative");
+        }
     }
 
     /**
@@ -423,6 +445,9 @@ public class VariableMgr {
             }
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, setVar.getVariable());
         }
+        // The master has checked the value already, but StmtExecutor.forwardToMaster runs this whether or not the
+        // master accepted the statement, so a value the master rejected must not reach this FE's copy either.
+        checkAuditVariableValue(varCtx, getValueToSet(setVar, varCtx));
         setVarInternal(sessionVariable, setVar, varCtx);
     }
 
@@ -470,20 +495,24 @@ public class VariableMgr {
                 && (VarAttrDef.INVISIBLE & varAttr.flag()) == 0;
     }
 
-    private static void setVarInternal(SessionVariable sessionVariable, SetVar setVar, VarContext ctx)
-            throws DdlException {
-        // To modify to default value.
-        VarAttrDef.VarAttr attr = ctx.getField().getAnnotation(VarAttrDef.VarAttr.class);
-        String value;
+    // The value a SetVar assigns: its literal, or the variable's default for `set variable = DEFAULT`.
+    private static String getValueToSet(SetVar setVar, VarContext ctx) throws DdlException {
         // If value is null, this is `set variable = DEFAULT`
         if (setVar.getResult() != null) {
-            value = setVar.getResult().getStringValue();
-        } else {
-            value = ctx.getDefaultValue();
-            if (value == null) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_NO_DEFAULT, attr.name());
-            }
+            return setVar.getResult().getStringValue();
         }
+        String value = ctx.getDefaultValue();
+        if (value == null) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_NO_DEFAULT,
+                    ctx.getField().getAnnotation(VarAttrDef.VarAttr.class).name());
+        }
+        return value;
+    }
+
+    private static void setVarInternal(SessionVariable sessionVariable, SetVar setVar, VarContext ctx)
+            throws DdlException {
+        VarAttrDef.VarAttr attr = ctx.getField().getAnnotation(VarAttrDef.VarAttr.class);
+        String value = getValueToSet(setVar, ctx);
 
         if (setVar.getType() == SetType.GLOBAL) {
             setGlobalVarAndWriteEditLog(ctx, attr.name(), value);

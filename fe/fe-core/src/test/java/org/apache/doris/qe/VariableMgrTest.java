@@ -80,6 +80,33 @@ public class VariableMgrTest extends TestWithFeService {
         Assertions.assertEquals(7890, VariableMgr.newSessionVariable().getMaxExecMemByte());
     }
 
+    // A negative audit_plugin_max_sql_length dropped audit events (AuditLogHelperTest), so SET rejects it.
+    @Test
+    public void testNegativeAuditMaxSqlLengthIsRejected() throws Exception {
+        int original = GlobalVariable.auditPluginMaxSqlLength;
+        try {
+            SetOptionsCommand negative = (SetOptionsCommand) UtFrameUtils.parseStmt(
+                    "set global audit_plugin_max_sql_length = -1", connectContext);
+            DdlException e = Assertions.assertThrows(DdlException.class,
+                    () -> negative.run(connectContext, null));
+            Assertions.assertEquals("Variable 'audit_plugin_max_sql_length' can't be set to '-1', "
+                    + "the value must not be negative", e.getDetailMessage());
+            Assertions.assertEquals(original, GlobalVariable.auditPluginMaxSqlLength);
+            // A follower applies a forwarded SET GLOBAL to its own copy whether or not the master accepted it.
+            Assertions.assertThrows(DdlException.class, () -> VariableMgr.setVarForNonMasterFE(
+                    connectContext.getSessionVariable(), new SetVar(SetType.SESSION,
+                            GlobalVariable.AUDIT_PLUGIN_MAX_SQL_LENGTH, new StringLiteral("-1"))));
+            Assertions.assertEquals(original, GlobalVariable.auditPluginMaxSqlLength);
+
+            SetOptionsCommand zero = (SetOptionsCommand) UtFrameUtils.parseStmt(
+                    "set global audit_plugin_max_sql_length = 0", connectContext);
+            zero.run(connectContext, null);
+            Assertions.assertEquals(0, GlobalVariable.auditPluginMaxSqlLength);
+        } finally {
+            GlobalVariable.auditPluginMaxSqlLength = original;
+        }
+    }
+
     @Test
     public void testReadOnly() {
         // Set global variable
