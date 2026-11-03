@@ -200,6 +200,15 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
         if (indexName.isPresent()) {
             sb.append("INDEX ").append(indexName.get()).append(" ");
         }
+        if (partNames.size() > 0) {
+            // value-free partition-selection marker, but NAMESPACE-AWARE: PARTITION(p)
+            // and TEMPORARY PARTITION(p) carry the same name list while binding and
+            // frozen SQL keep the two namespaces distinct (a formal / temporary lifecycle
+            // transition may reuse a name). A digest that ignored the namespace could
+            // keep matching a baseline whose frozen SQL selects the OTHER namespace.
+            // The partition NAMES stay out of the digest like TABLET(?) below.
+            sb.append(isTempPart ? "TEMPORARY PARTITION(?)" : "PARTITION(?)").append(" ");
+        }
         if (tabletIds.size() > 0) {
             sb.append("TABLET(?)").append(" ");
         }

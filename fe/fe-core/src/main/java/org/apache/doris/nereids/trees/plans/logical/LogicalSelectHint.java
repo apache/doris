@@ -132,8 +132,63 @@ public class LogicalSelectHint<CHILD_TYPE extends Plan> extends LogicalUnary<CHI
         return "LogicalSelectHint (" + hintStr + ")";
     }
 
+    /**
+     * SPM identity of a hint-carrying statement: unlike toDigest() (Doris's generic
+     * query fingerprint, intentionally left delegating to the child), the SPM digest MUST
+     * include the hints. Two statements differing only in their LEADING / SET_VAR hint
+     * text share the same child tree, so a hint-free digest made them collide - a
+     * forwarded CREATE could then be confirmed by the OTHER hint variant's row (see
+     * BaselineManager.ForwardedDdlExpectation), and the frozen replay pinned a join
+     * order the caller never asked for. The hints render in list (= SQL text) order
+     * through each hint's own toString.
+     *
+     * The mode-gated branch also keeps NESTED hint blocks in the identity: the walk
+     * enters through {@link Plan#toSpmDigest} and every parent recursion reaches this
+     * method again while {@link Plan#spmDigestMode()} is on.
+     */
     @Override
     public String toDigest() {
+        if (Plan.spmDigestMode()) {
+            StringBuilder digest = new StringBuilder("SelectHint[");
+            for (SelectHint hint : hints) {
+                appendCanonicalHintDigest(digest, hint);
+            }
+            return digest.append(child().toDigest()).append(']').toString();
+        }
         return child().toDigest();
+    }
+
+    /**
+     * One hint's canonical digest text. SET_VAR is ORDER-INSENSITIVE by construction: the
+     * parser stores the assignments in TEXT order and SelectHintSetVar.toString()
+     * preserves it, so the same two settings in reverse order produced DIFFERENT digests -
+     * the candidate lookup then never reached the order-insensitive sameSelectHints
+     * comparison (SPMPlanTreeSupport) and the equivalent reordered caller missed the
+     * baseline. Its parameters render SORTED by case-normalized name; every other hint
+     * keeps its rendered (order-sensitive) form.
+     */
+    private static void appendCanonicalHintDigest(StringBuilder digest, SelectHint hint) {
+        if (!(hint instanceof org.apache.doris.nereids.properties.SelectHintSetVar)) {
+            digest.append(hint).append(';');
+            return;
+        }
+        java.util.Map<String, Optional<String>> params =
+                ((org.apache.doris.nereids.properties.SelectHintSetVar) hint).getParameters();
+        java.util.List<String> keys = new java.util.ArrayList<>(params.keySet());
+        keys.sort(String.CASE_INSENSITIVE_ORDER);
+        digest.append("set_var(");
+        boolean first = true;
+        for (String key : keys) {
+            if (!first) {
+                digest.append(',');
+            }
+            first = false;
+            digest.append(key.toLowerCase(java.util.Locale.ROOT));
+            Optional<String> value = params.get(key);
+            if (value != null && value.isPresent()) {
+                digest.append('=').append(value.get());
+            }
+        }
+        digest.append(");");
     }
 }

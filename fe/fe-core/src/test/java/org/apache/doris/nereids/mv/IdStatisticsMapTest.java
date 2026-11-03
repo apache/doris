@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.mv;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContextTestAccess;
 import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter.PreRewriteStrategy;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -70,7 +71,7 @@ public class IdStatisticsMapTest extends SqlTestBase {
                 .preMvRewrite()
                 .optimize()
                 .printlnBestPlanTree();
-        Map<RelationId, Statistics> idStatisticsMap = c1.getStatementContext().getRelationIdToStatisticsMap();
+        Map<RelationId, Statistics> idStatisticsMap = StatementContextTestAccess.relationIdToStatisticsMap(c1.getStatementContext());
         Assertions.assertFalse(idStatisticsMap.isEmpty());
         Statistics statistics = idStatisticsMap.values().iterator().next();
         Assertions.assertEquals(materializationScanOutput, statistics.columnStatistics().keySet());
@@ -114,7 +115,7 @@ public class IdStatisticsMapTest extends SqlTestBase {
         tmpPlanChecker
                 .optimize()
                 .printlnBestPlanTree();
-        Map<RelationId, Statistics> idStatisticsMap = c1.getStatementContext().getRelationIdToStatisticsMap();
+        Map<RelationId, Statistics> idStatisticsMap = StatementContextTestAccess.relationIdToStatisticsMap(c1.getStatementContext());
         Assertions.assertFalse(idStatisticsMap.isEmpty());
         Statistics statistics = idStatisticsMap.values().iterator().next();
         Assertions.assertNotEquals(materializationScanOutput, statistics.columnStatistics().keySet());

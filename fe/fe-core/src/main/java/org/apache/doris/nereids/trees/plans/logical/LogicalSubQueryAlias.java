@@ -203,6 +203,15 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
         StringBuilder sb = new StringBuilder();
         sb.append("(").append(child().toDigest()).append(") AS ");
         sb.append(qualifier.get(0));
+        if (Plan.spmDigestMode()) {
+            // The generic digest computes the joined alias list but never appends it, so
+            // s(x, y) and s(y, x) would collide at Level 1/2; the SPM identity APPENDS the
+            // positional aliases (Level 3 compares them explicitly too). The child renders
+            // through its own toDigest() while the mode is on, so a nested SPM identity
+            // (e.g. a hint inside the aliased query) stays in the key.
+            return sb + columnAliases.map(strings -> "(" + String.join(",", strings) + ")")
+                    .orElse("");
+        }
         if (columnAliases.isPresent()) {
             columnAliases.get().stream()
                     .collect(Collectors.joining(", ", "(", ")"));

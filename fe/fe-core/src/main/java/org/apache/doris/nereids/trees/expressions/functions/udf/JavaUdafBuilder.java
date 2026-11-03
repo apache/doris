@@ -22,6 +22,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.ReflectionUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Suppliers;
@@ -54,6 +55,11 @@ public class JavaUdafBuilder extends UdfBuilder {
     @Override
     public List<FunctionSignature> getSignatures() {
         return udaf.getSignatures();
+    }
+
+    @Override
+    public Udf getUdf() {
+        return udaf;
     }
 
     @Override

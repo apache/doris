@@ -961,6 +961,26 @@ public interface CommandVisitor<R, C> {
         return visitCommand(cmd, context);
     }
 
+    default R visitCreateBaselinePlanCommand(
+            org.apache.doris.nereids.trees.plans.commands.spm.CreateBaselinePlanCommand cmd, C context) {
+        return visitCommand(cmd, context);
+    }
+
+    default R visitAlterBaselinePlanCommand(
+            org.apache.doris.nereids.trees.plans.commands.spm.AlterBaselinePlanCommand cmd, C context) {
+        return visitCommand(cmd, context);
+    }
+
+    default R visitDropBaselinePlanCommand(
+            org.apache.doris.nereids.trees.plans.commands.spm.DropBaselinePlanCommand cmd, C context) {
+        return visitCommand(cmd, context);
+    }
+
+    default R visitShowBaselinePlansCommand(
+            org.apache.doris.nereids.trees.plans.commands.spm.ShowBaselinePlansCommand cmd, C context) {
+        return visitCommand(cmd, context);
+    }
+
     default R visitDropRepositoryCommand(DropRepositoryCommand cmd, C context) {
         return visitCommand(cmd, context);
     }

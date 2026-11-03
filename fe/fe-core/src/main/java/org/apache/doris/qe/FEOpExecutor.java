@@ -210,7 +210,41 @@ public class FEOpExecutor {
         }
 
         // session variables
-        params.setSessionVariables(ctx.getSessionVariable().getForwardVariables());
+        // SESSION-scope SPM baselines belong to THIS connection and live only in this
+        // FE's store: attach the enabled rows the forwarded statement could MATCH
+        // (rebuilt from the store HERE, so a client SET cannot inject rows, and filtered
+        // by the statement's own (hash, digest) match key) - the master otherwise plans
+        // the forwarded statement in a fresh context with an empty store and silently
+        // ignores the very baseline this connection created. Statements that are not
+        // plan-rewritable queries (DDL, batches) carry the full store: the management
+        // commands address rows by id on the master. With rewrite disabled the master can
+        // never consult a baseline, so nothing is shipped: serializing every enabled row
+        // would add unbounded (re)parse work to each forwarded statement of such a
+        // connection.
+        if (ctx.getSessionVariable().isEnableSpmRewrite()) {
+            ctx.getSessionVariable().setSpmForwardedSessionBaselines(
+                    org.apache.doris.nereids.spm.SPMForwardedSession.serializeForStatement(
+                            ctx.getSessionBaselineStore(), ctx, originStmt.originStmt));
+        } else {
+            ctx.getSessionVariable().setSpmForwardedSessionBaselines("");
+        }
+        Map<String, String> forwardVariables = ctx.getSessionVariable().getForwardVariables();
+        // The forwarded statement's TEXT is re-parsed on the master, so it must travel with
+        // the sql_mode its text was written for. A SET_VAR(sql_mode=...) hint of the
+        // statement itself has ALREADY overwritten this session's mode while the statement
+        // was parsed (SelectHintSetVar#setVarOnceInSql, reverted only when the statement
+        // finishes), and forwarding that polluted value made the master read e.g. `||` as
+        // CONCAT although the observer had planned it as OR - and the SPM replay, whose
+        // frozen texts are parsed there too, would compute the same statement under a mode
+        // the origin never used. The value that was in force before the hint is the one the
+        // statement's text needs (see StatementContext#getSpmOriginSqlMode); without such a
+        // hint the session mode IS that value and nothing changes.
+        long originSqlMode = ctx.getStatementContext() == null
+                ? -1 : ctx.getStatementContext().getSpmOriginSqlMode();
+        if (originSqlMode >= 0) {
+            forwardVariables.put(SessionVariable.SQL_MODE, Long.toString(originSqlMode));
+        }
+        params.setSessionVariables(forwardVariables);
         params.setUserVariables(getForwardUserVariables(ctx.getUserVars()));
         if (null != ctx.queryId()) {
             params.setQueryId(ctx.queryId());
