@@ -47,11 +47,12 @@
 #include "storage/index/inverted/analysis/token_filter/lower_case_filter.h"
 #include "storage/index/inverted/analysis/token_filter/lower_case_filter_factory.h"
 #include "storage/index/inverted/analysis/tokenizer/basic/basic_tokenizer_factory.h"
+#include "storage/index/inverted/analysis/tokenizer/byte_classifier.h"
+#include "storage/index/inverted/analysis/tokenizer/english/english_tokenizer.h"
 #include "storage/index/inverted/analysis/tokenizer/icu/icu_tokenizer_factory.h"
 #include "storage/index/inverted/analysis/tokenizer/ik/ik_tokenizer_factory.h"
 #include "storage/index/inverted/analysis/tokenizer/kuromoji/kuromoji_tokenizer_factory.h"
 #include "storage/index/inverted/clucene/lucene_backed_text_analyzer.h"
-#include "util/string_util.h"
 
 namespace doris::segment_v2::inverted_index {
 namespace {
@@ -142,7 +143,10 @@ std::string normalize_builtin_term(InvertedIndexParserType parser_type, bool low
         }
         return text;
     default:
-        return lower_case ? to_lower(text) : text;
+        if (lower_case) {
+            ascii_lower(text);
+        }
+        return text;
     }
 }
 
@@ -238,8 +242,11 @@ TextAnalyzerPtr build_builtin_analyzer(InvertedIndexParserType parser_type,
                                builtin_lowercase(lower_case, true));
     }
     if (parser_type == InvertedIndexParserType::PARSER_BASIC) {
-        return tokenizer_chain(std::make_shared<BasicTokenizerFactory>(),
-                               builtin_lowercase(lower_case, true));
+        // The tokenizer lowercases its own tokens, which are all a lowercase filter would change.
+        return std::make_shared<ChainAnalyzer>(
+                std::vector<CharFilterFactoryPtr> {},
+                std::make_shared<BasicTokenizerFactory>(builtin_lowercase(lower_case, true)),
+                std::vector<TokenFilterFactoryPtr> {});
     }
     if (parser_type == InvertedIndexParserType::PARSER_IK) {
         // lower_case only applies to the words: IK always matches its dictionary in lowercase.
@@ -277,9 +284,11 @@ TextAnalyzerPtr build_builtin_analyzer(InvertedIndexParserType parser_type,
                                                        builtin_lowercase(lower_case, true), dict),
                                                std::vector<TokenFilterFactoryPtr> {});
     }
-    // english, and the default for an unknown parser
-    return lucene_builtin_analyzer(std::make_shared<lucene::analysis::SimpleAnalyzer<char>>(),
-                                   lower_case, stop_words);
+    // english, and the default for an unknown parser; neither has stop words.
+    return std::make_shared<ChainAnalyzer>(
+            std::vector<CharFilterFactoryPtr> {},
+            std::make_shared<EnglishTokenizerFactory>(builtin_lowercase(lower_case, true)),
+            std::vector<TokenFilterFactoryPtr> {});
 }
 
 } // namespace

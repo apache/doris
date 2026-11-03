@@ -48,6 +48,7 @@
 #include "storage/index/inverted/analysis/token_filter/token_filter_factory.h"
 #include "storage/index/inverted/analysis/token_filter/word_delimiter_filter.h"
 #include "storage/index/inverted/analysis/tokenizer/basic/basic_tokenizer.h"
+#include "storage/index/inverted/analysis/tokenizer/english/english_tokenizer.h"
 #include "storage/index/inverted/analysis/tokenizer/icu/icu_tokenizer.h"
 #include "storage/index/inverted/analysis/tokenizer/ngram/gram_tokenizer.h"
 #include "storage/index/inverted/analysis/tokenizer/ngram/ngram_tokenizer.h"
@@ -63,7 +64,7 @@ constexpr size_t kLongRowBytes = 2 * 1024 * 1024;
 constexpr size_t kReservedAfterShortRowLimit = 1024 * 1024;
 
 Settings settings_of(std::unordered_map<std::string, std::string> args) {
-    return Settings(std::move(args));
+    return {std::move(args)};
 }
 
 std::string repeat_to(std::string_view unit, size_t bytes) {
@@ -221,16 +222,42 @@ TEST(ComponentStreamTest, CharGroupTokenizerKeepsNothing) {
                                 [] { return size_t {0}; });
 }
 
-TEST(ComponentStreamTest, BasicTokenizerReleasesItsTokenList) {
+size_t basic_member_bytes(const BasicTokenizer& basic) {
+    return (basic._lowercase ? basic._lowered.capacity() : 0) +
+           basic._tokens_text.capacity() * sizeof(std::string_view);
+}
+
+TEST(ComponentStreamTest, BasicTokenizerReleasesItsBuffers) {
     Components components;
+    // The block loop keeps nothing in proportion to the value; the scalar loop of extra chars
+    // keeps its token list.
     for (const Settings& settings : {Settings {}, settings_of({{"extra_chars", "-_"}})}) {
         expect_text_stream_contract([&] { return components.tokenizer("basic", settings); },
                                     contract_texts());
         auto tokenizer = components.tokenizer("basic", settings);
         auto& basic = as<BasicTokenizer>(*tokenizer);
-        expect_released_at_next_row(
-                *tokenizer, repeat_to("ab ", kLongRowBytes), "short", true,
-                [&] { return basic._tokens_text.capacity() * sizeof(std::string_view); });
+        expect_released_at_next_row(*tokenizer, repeat_to("ab ", kLongRowBytes), "short",
+                                    basic._has_extra_chars,
+                                    [&] { return basic_member_bytes(basic); });
+    }
+    // The builtin basic parser lowercases into a copy of the value.
+    expect_text_stream_contract([] { return std::make_unique<BasicTokenizer>(true); },
+                                contract_texts());
+    BasicTokenizer lowering(true);
+    lowering.initialize();
+    expect_released_at_next_row(lowering, repeat_to("Ab ", kLongRowBytes), "short", true,
+                                [&] { return basic_member_bytes(lowering); });
+}
+
+TEST(ComponentStreamTest, EnglishTokenizerReleasesItsLoweredCopy) {
+    for (bool lowercase : {true, false}) {
+        SCOPED_TRACE(lowercase);
+        expect_text_stream_contract(
+                [lowercase] { return std::make_unique<EnglishTokenizer>(lowercase); },
+                contract_texts());
+        EnglishTokenizer english(lowercase);
+        expect_released_at_next_row(english, repeat_to("Ab ", kLongRowBytes), "short", lowercase,
+                                    [&] { return lowercase ? english._lowered.capacity() : 0; });
     }
 }
 
@@ -441,7 +468,7 @@ TEST(ComponentStreamTest, AValueAChainFoldsToNothingMakesNoToken) {
     EXPECT_TRUE(collect_checked(*stream, "").empty());
 }
 
-TEST(ComponentStreamTest, StrictUtf8ThrowsInIcuAndNGramOnly) {
+TEST(ComponentStreamTest, StrictUtf8ThrowsInIcuAndNGram) {
     DictPathScope dict_path;
     Components components;
     const std::string invalid =
@@ -462,6 +489,13 @@ TEST(ComponentStreamTest, StrictUtf8ThrowsInIcuAndNGramOnly) {
         strict->set_strict_utf8(false);
         EXPECT_EQ(collect_terms(*strict, invalid), lenient_terms);
     }
+}
+
+TEST(ComponentStreamTest, StrictUtf8LeavesTheOtherTokenizersAlone) {
+    Components components;
+    const std::string invalid =
+            "ab\xFF"
+            "cd";
     for (const char* name : {"standard", "keyword", "basic", "char_group"}) {
         SCOPED_TRACE(name);
         auto lenient = components.tokenizer(name);

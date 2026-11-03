@@ -22,6 +22,7 @@
 
 #include "common/config.h"
 #include "runtime/descriptors.h"
+#include "storage/iterators.h"
 #include "storage/schema.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/segment.h"

@@ -80,6 +80,16 @@ inline uint32_t bytes32_mask_to_bits32_mask(const uint8_t* data) {
                       _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + 16)), zero16)))
               << 16) &
              0xffff0000);
+#elif defined(__ARM_NEON) && defined(__aarch64__)
+    // Each set byte keeps its bit weight, and every eight weights add up to one byte of the mask.
+    const uint8x16_t weights = {1, 2, 4, 8, 16, 32, 64, 128, 1, 2, 4, 8, 16, 32, 64, 128};
+    const auto bits16 = [&weights](const uint8_t* half) {
+        const uint8x16_t set =
+                vandq_u8(vcgtq_s8(vreinterpretq_s8_u8(vld1q_u8(half)), vdupq_n_s8(0)), weights);
+        return static_cast<uint32_t>(vaddv_u8(vget_low_u8(set))) |
+               (static_cast<uint32_t>(vaddv_u8(vget_high_u8(set))) << 8);
+    };
+    uint32_t mask = bits16(data) | (bits16(data + 16) << 16);
 #else
     uint32_t mask = 0;
     for (std::size_t i = 0; i < 32; ++i) {
