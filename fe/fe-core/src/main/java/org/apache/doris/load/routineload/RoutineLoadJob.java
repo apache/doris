@@ -334,6 +334,8 @@ public abstract class RoutineLoadJob
         } else {
             sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
         }
+        // a snapshot of the creating session, which gsonPostProcess has no other way to restore
+        sessionVariables.put(SessionVariable.ENABLE_MEMTABLE_ON_SINK_NODE, String.valueOf(memtableOnSinkNode));
     }
 
     /**
@@ -361,6 +363,8 @@ public abstract class RoutineLoadJob
         } else {
             sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
         }
+        // a snapshot of the creating session, which gsonPostProcess has no other way to restore
+        sessionVariables.put(SessionVariable.ENABLE_MEMTABLE_ON_SINK_NODE, String.valueOf(memtableOnSinkNode));
     }
 
     protected void setOptional(CreateRoutineLoadInfo info) throws UserException {
@@ -2030,7 +2034,10 @@ public abstract class RoutineLoadJob
                 uniqueKeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
             }
         }
-        // Process remaining properties
+        // Process remaining properties. max_filter_ratio, send_batch_parallelism, load_to_single_tablet, enclose and
+        // escape are fields that are not persisted: CREATE records the value each one was given and ALTER the new
+        // ones, so without this a follower, a restarted FE or a new master would run the job with defaults. A job
+        // created before one of them existed has no key and keeps the default.
         jobProperties.forEach((k, v) -> {
             if (k.equals(CreateRoutineLoadInfo.PARTIAL_COLUMNS)) {
                 // Backward compatibility: only use partial_columns if unique_key_update_mode is not set
@@ -2047,8 +2054,24 @@ public abstract class RoutineLoadJob
                 } else {
                     partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
                 }
+            } else if (k.equals(CreateRoutineLoadInfo.MAX_FILTER_RATIO_PROPERTY)) {
+                maxFilterRatio = Double.parseDouble(v);
+            } else if (k.equals(CreateRoutineLoadInfo.SEND_BATCH_PARALLELISM)) {
+                sendBatchParallelism = Integer.parseInt(v);
+            } else if (k.equals(CreateRoutineLoadInfo.LOAD_TO_SINGLE_TABLET)) {
+                loadToSingleTablet = Boolean.parseBoolean(v);
+            } else if (k.equals(CsvFileFormatProperties.PROP_ENCLOSE)) {
+                enclose = csvControlByte(k, v, enclose);
+            } else if (k.equals(CsvFileFormatProperties.PROP_ESCAPE)) {
+                escape = csvControlByte(k, v, escape);
             }
         });
+        // Snapshotted from the creating session. A job created before the snapshot was persisted keeps false, which
+        // is what it has run with after every restart.
+        String memtableOnSinkNodeValue = sessionVariables.get(SessionVariable.ENABLE_MEMTABLE_ON_SINK_NODE);
+        if (memtableOnSinkNodeValue != null) {
+            memtableOnSinkNode = Boolean.parseBoolean(memtableOnSinkNodeValue);
+        }
         try {
             ConnectContext ctx = new ConnectContext();
             ctx.setDatabase(Env.getCurrentEnv().getInternalCatalog().getDb(dbId)
@@ -2065,7 +2088,8 @@ public abstract class RoutineLoadJob
                 CreateRoutineLoadCommand command = (CreateRoutineLoadCommand) nereidsParser.parseSingle(
                         origStmt.originStmt);
                 CreateRoutineLoadInfo createRoutineLoadInfo = command.getCreateRoutineLoadInfo();
-                // This re-parse only rebuilds the RoutineLoadDesc; it must not re-check resources
+                // This re-parse only rebuilds the RoutineLoadDesc and exec_mem_limit, which no ALTER
+                // changes and jobProperties does not hold; it must not re-check resources
                 // that can legitimately have disappeared since the job was created, because the
                 // catch below turns any failure into the final CANCELLED state.
                 createRoutineLoadInfo.setReplay(true);
@@ -2084,6 +2108,7 @@ public abstract class RoutineLoadJob
                 }
                 createRoutineLoadInfo.validate(ctx);
                 setRoutineLoadDesc(createRoutineLoadInfo.getRoutineLoadDesc());
+                execMemLimit = createRoutineLoadInfo.getExecMemLimit();
             } finally {
                 ctx.cleanup();
             }
@@ -2170,6 +2195,31 @@ public abstract class RoutineLoadJob
             }
             this.jobProperties.put(CreateRoutineLoadInfo.PARTIAL_COLUMNS, String.valueOf(isPartialUpdate));
             this.jobProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, uniqueKeyUpdateMode.name());
+        }
+
+        // Tasks take enclose and escape from these fields, not from jobProperties, where the caller puts the
+        // new values
+        if (jobProperties.containsKey(CsvFileFormatProperties.PROP_ENCLOSE)) {
+            this.enclose = csvControlByte(CsvFileFormatProperties.PROP_ENCLOSE,
+                    jobProperties.get(CsvFileFormatProperties.PROP_ENCLOSE), this.enclose);
+        }
+        if (jobProperties.containsKey(CsvFileFormatProperties.PROP_ESCAPE)) {
+            this.escape = csvControlByte(CsvFileFormatProperties.PROP_ESCAPE,
+                    jobProperties.get(CsvFileFormatProperties.PROP_ESCAPE), this.escape);
+        }
+    }
+
+    // The byte an enclose or escape value stands for, as CREATE takes it. ALTER of an older version did not check
+    // the value, so the metadata can hold one that CREATE rejects. Such a value never reached the job, and it does
+    // not now: the job keeps the byte it has, where an exception would fail the replay of the metadata.
+    private byte csvControlByte(String key, String value, byte current) {
+        try {
+            return key.equals(CsvFileFormatProperties.PROP_ENCLOSE)
+                    ? CsvFileFormatProperties.parseEnclose(value) : CsvFileFormatProperties.parseEscape(value);
+        } catch (org.apache.doris.nereids.exceptions.AnalysisException e) {
+            LOG.warn("routine load job {} keeps its {} instead of the invalid value '{}': {}",
+                    id, key, value, e.getMessage());
+            return current;
         }
     }
 

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadManager;
@@ -114,5 +115,31 @@ public class AlterRoutineLoadCommandTest {
         Assertions.assertTrue(command.getAnalyzedJobProperties().containsKey(CreateRoutineLoadInfo.MAX_BATCH_SIZE_PROPERTY));
         Assertions.assertTrue(command.getAnalyzedJobProperties().containsKey(CreateRoutineLoadInfo.STRICT_MODE));
         Assertions.assertTrue(command.getAnalyzedJobProperties().containsKey(CreateRoutineLoadInfo.TIMEZONE));
+    }
+
+    // The job takes the byte from enclose and escape the way CREATE does, so ALTER rejects what CREATE rejects.
+    @Test
+    public void testValidateChecksEncloseAndEscape() {
+        runBefore();
+        LabelNameInfo labelNameInfo = new LabelNameInfo("testDb", "label1");
+        Map<String, String> enclose = Maps.newHashMap();
+        enclose.put(CsvFileFormatProperties.PROP_ENCLOSE, "ab");
+        AlterRoutineLoadCommand badEnclose = new AlterRoutineLoadCommand(labelNameInfo, enclose, Maps.newHashMap());
+        Exception e = Assertions.assertThrows(Exception.class, () -> badEnclose.validate(connectContext));
+        Assertions.assertTrue(e.getMessage().contains("enclose should not be longer than one byte"), e.getMessage());
+
+        Map<String, String> escape = Maps.newHashMap();
+        escape.put(CsvFileFormatProperties.PROP_ESCAPE, "ab");
+        AlterRoutineLoadCommand badEscape = new AlterRoutineLoadCommand(labelNameInfo, escape, Maps.newHashMap());
+        e = Assertions.assertThrows(Exception.class, () -> badEscape.validate(connectContext));
+        Assertions.assertTrue(e.getMessage().contains("escape must be single-char"), e.getMessage());
+
+        Map<String, String> valid = Maps.newHashMap();
+        valid.put(CsvFileFormatProperties.PROP_ENCLOSE, "'");
+        valid.put(CsvFileFormatProperties.PROP_ESCAPE, "|");
+        AlterRoutineLoadCommand command = new AlterRoutineLoadCommand(labelNameInfo, valid, Maps.newHashMap());
+        Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+        Assertions.assertEquals("'", command.getAnalyzedJobProperties().get(CsvFileFormatProperties.PROP_ENCLOSE));
+        Assertions.assertEquals("|", command.getAnalyzedJobProperties().get(CsvFileFormatProperties.PROP_ESCAPE));
     }
 }
