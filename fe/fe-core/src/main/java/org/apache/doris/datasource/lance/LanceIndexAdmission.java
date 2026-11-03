@@ -118,6 +118,10 @@ public final class LanceIndexAdmission {
         // re-runs before the dispatch.
         if (decideCreateAgainstSnapshot(snapshot, def, ifNotExists, displayName, normalizedName)
                 == PreflightResult.NO_OP) {
+            // The empty action is deliberate: the no-op decision needed no local work inside
+            // the fence, but entering the critical section still revalidates the captured
+            // target - a DROP CATALOG or identity ALTER that landed between the snapshot
+            // read and here must fail this no-op instead of OK-ing against a stale target.
             catalogMgr.withLanceIndexAdmission(catalog, target, () -> null);
             return null;
         }
@@ -174,6 +178,8 @@ public final class LanceIndexAdmission {
         LanceIndexAdmissionSnapshot snapshot = loader.load(catalog, db.getRemoteName(), table.getRemoteName());
         if (decideDropAgainstSnapshot(snapshot, indexName, normalizedName, ifExists)
                 == PreflightResult.NO_OP) {
+            // Same deliberate empty action as the CREATE no-op above: no local work to run
+            // inside the fence, but the target revalidation still applies.
             catalogMgr.withLanceIndexAdmission(catalog, target, () -> null);
             return null;
         }

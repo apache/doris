@@ -19,12 +19,14 @@ package org.apache.doris.datasource.lance.index;
 
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.GenericPool;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TLanceIndexMutationRequest;
 import org.apache.doris.thrift.TLanceIndexMutationResult;
 import org.apache.doris.thrift.TNetworkAddress;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.thrift.transport.TSocket;
 import org.apache.thrift.transport.TTransport;
 
@@ -39,38 +41,79 @@ import org.apache.thrift.transport.TTransport;
  * timeout is restored to the pool default before the connection is returned: a connection
  * borrowed with a short budget must not leak that timeout onto the next borrower of the shared
  * pooled object. A call that did not complete cleanly invalidates the connection instead of
- * returning it.
+ * returning it, and a pool failure while returning a completed connection only downgrades that
+ * connection to invalidated - it never discards the trusted answer already in hand.
  */
 public final class ThriftLanceIndexMutationDispatcher implements LanceIndexMutationDispatcher {
 
     public static final ThriftLanceIndexMutationDispatcher INSTANCE = new ThriftLanceIndexMutationDispatcher();
 
+    private final GenericPool<BackendService.Client> backendPool;
+
     private ThriftLanceIndexMutationDispatcher() {
+        this(ClientPool.backendPool);
+    }
+
+    @VisibleForTesting
+    ThriftLanceIndexMutationDispatcher(GenericPool<BackendService.Client> backendPool) {
+        this.backendPool = backendPool;
     }
 
     @Override
     public TLanceIndexMutationResult dispatch(TLanceIndexMutationRequest request, Backend backend,
             long timeoutMillis) throws Exception {
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBePort());
-        BackendService.Client client = null;
+        // The borrow is the judgment seam between provable pre-send failures and
+        // possible-send failures: everything borrowObject can throw belongs to connection
+        // establishment (the pool factory's transport.open(): connect refused, connect
+        // timeout, TLS handshake) or pool admission, and the mutation invocation is written
+        // only by lanceIndexMutate below - so a failure here proves zero payload bytes were
+        // sent and propagates as the typed pre-dispatch marker for the classifier's
+        // confirmed-failure mapping, no exception-type guessing involved. The connect itself
+        // still uses the pool's own connect timeout (backend_rpc_timeout_ms, 60s by default
+        // at class load) rather than the remaining budget - GenericPool offers no overload
+        // that applies the caller's timeout to the connect phase; the statement-side budget
+        // wait still bounds what the client observes.
+        BackendService.Client client;
+        try {
+            client = backendPool.borrowObject(address,
+                    (int) Math.max(1, Math.min(timeoutMillis, Integer.MAX_VALUE)));
+        } catch (Exception e) {
+            throw new LanceIndexMutationDispatcher.PreDispatchTransportException(e);
+        }
+        // The single send. Everything this call does - including the blocking wait for the
+        // answer - is bounded by the socket timeout set at borrow time. Any failure from
+        // here on may have already written the request, so it propagates raw and stays
+        // indeterminate at the classifier.
         boolean callCompleted = false;
         try {
-            client = ClientPool.backendPool.borrowObject(address,
-                    (int) Math.max(1, Math.min(timeoutMillis, Integer.MAX_VALUE)));
-            // The single send. Everything this call does - including the blocking wait for the
-            // answer - is bounded by the socket timeout set at borrow time.
             TLanceIndexMutationResult result = client.lanceIndexMutate(request);
             callCompleted = true;
             return result;
         } finally {
-            if (client != null) {
-                if (callCompleted) {
-                    restorePoolDefaultTimeout(client);
-                    ClientPool.backendPool.returnObject(address, client);
-                } else {
-                    ClientPool.backendPool.invalidateObject(address, client);
-                }
-            }
+            release(address, client, callCompleted);
+        }
+    }
+
+    /**
+     * Returns or invalidates the connection without ever letting a pool failure replace the
+     * outcome this dispatch already produced: a completed call holds a trusted result in
+     * hand, so a failure while returning it (pool closed, passivation) only downgrades the
+     * connection to invalidated - the result itself still reaches the classifier.
+     * {@code invalidateObject} already swallows its own failures, so the degrade path cannot
+     * throw either.
+     */
+    private void release(TNetworkAddress address, BackendService.Client client,
+            boolean callCompleted) {
+        if (!callCompleted) {
+            backendPool.invalidateObject(address, client);
+            return;
+        }
+        try {
+            restorePoolDefaultTimeout(client);
+            backendPool.returnObject(address, client);
+        } catch (RuntimeException e) {
+            backendPool.invalidateObject(address, client);
         }
     }
 

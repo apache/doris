@@ -279,10 +279,11 @@ public final class LanceIndexMutationExecutor {
             }
 
             /**
-             * The entry-internal final preflight, run once inside the held entry before any
-             * budget is spent: it re-decides the authoritative no-op verdict against current
-             * metadata. Returning {@link PreflightResult#NO_OP} completes the statement without
-             * a dispatch; throwing propagates the thrower's own typed rejection unchanged.
+             * The entry-internal final preflight, run once inside the held entry (after the
+             * budget fast-convergence check, before any budget is spent on the send): it
+             * re-decides the authoritative no-op verdict against current metadata. Returning
+             * {@link PreflightResult#NO_OP} completes the statement without a dispatch;
+             * throwing propagates the thrower's own typed rejection unchanged.
              */
             public Builder setFinalPreflight(FinalPreflight finalPreflight) {
                 this.finalPreflight = finalPreflight;
@@ -404,31 +405,48 @@ public final class LanceIndexMutationExecutor {
     }
 
     /**
-     * The entry phases, in order: final preflight, budget check, backend selection, request
-     * build, single dispatch, classification. Every pre-dispatch failure is a confirmed
-     * failure whose message states that nothing was sent; everything after the send started
-     * that is not a complete trusted answer is indeterminate.
+     * The entry phases, in order: budget fast convergence, final preflight, budget re-check,
+     * backend selection, request build, single dispatch, classification. Every pre-dispatch
+     * failure is a confirmed failure whose message states that nothing was sent; everything
+     * after the send started that is not a complete trusted answer is indeterminate.
      */
     private static LanceIndexMutationOutcome runEntryPhases(MutationRequest request,
             LanceIndexMutationDispatcher dispatcher) throws AnalysisException {
         if (request.cancelSignal.getAsBoolean()) {
             return cancelledBeforeDispatch("before the entry task began");
         }
-        // 1. Entry-internal final preflight: the authoritative no-op verdict. A no-op never
+        // 1. Budget fast convergence: a task whose budget elapsed while it was queued
+        // converges immediately. The authoritative preflight read below is the most expensive
+        // pre-dispatch step (a JNI snapshot read) and cannot change this outcome - the
+        // statement side has already surfaced its own indeterminate result, so skipping the
+        // read only stops the abandoned task sooner. A task that starts with budget left
+        // still reaches the budget-free no-op verdict below.
+        if (request.deadlineMs - System.currentTimeMillis() <= 0) {
+            return LanceIndexMutationOutcome.confirmedFailure(0,
+                    "the statement budget was exhausted before the dispatch; nothing was sent");
+        }
+        // 2. Entry-internal final preflight: the authoritative no-op verdict. A no-op never
         // spends budget and never dispatches - there is nothing to send. A typed rejection
-        // keeps its own error code; anything else the preflight throws is a wiring bug.
+        // keeps its own error code; any other failure of the preflight read is a reachable
+        // production failure (storage hiccup, JNI failure - the snapshot read chain surfaces
+        // them as plain RuntimeExceptions, not wiring bugs), and it too strictly predates the
+        // send: a confirmed failure with a bounded description, never an untyped internal
+        // error.
         PreflightResult preflight;
         try {
             preflight = request.finalPreflight.run();
         } catch (AnalysisException e) {
             throw e;
         } catch (Exception e) {
-            throw new IllegalStateException("the entry-internal final preflight failed unexpectedly", e);
+            return LanceIndexMutationOutcome.confirmedFailure(0,
+                    "the final authoritative preflight read failed before the dispatch;"
+                            + " nothing was sent: " + boundedDescription(e));
         }
         if (preflight == PreflightResult.NO_OP) {
             return completeNoOp(request);
         }
-        // 2. Budget check before anything is spent on the send.
+        // 3. Budget check before anything is spent on the send (re-read: the preflight spent
+        // time; this fresh value also bounds the dispatch as its socket timeout).
         long remainingMs = request.deadlineMs - System.currentTimeMillis();
         if (remainingMs <= 0) {
             return LanceIndexMutationOutcome.confirmedFailure(0,
@@ -437,13 +455,13 @@ public final class LanceIndexMutationExecutor {
         if (request.cancelSignal.getAsBoolean()) {
             return cancelledBeforeDispatch("after the budget check, before the dispatch");
         }
-        // 3. One alive backend; none is a pre-dispatch rejection, not an ambiguity.
+        // 4. One alive backend; none is a pre-dispatch rejection, not an ambiguity.
         Backend backend = selectBackend();
         if (backend == null) {
             return LanceIndexMutationOutcome.confirmedFailure(0,
                     "no alive backend is available to execute the mutation; nothing was sent");
         }
-        // 4. Build the wire request (single dispatch identity, storage options resolved from
+        // 5. Build the wire request (single dispatch identity, storage options resolved from
         // the catalog now, at send time). A build failure predates the send: confirmed failure.
         TLanceIndexMutationRequest wireRequest;
         try {
@@ -453,7 +471,7 @@ public final class LanceIndexMutationExecutor {
                     "building the dispatch request failed before anything was sent: "
                             + boundedDescription(e));
         }
-        // 5. The single dispatch. The call itself is the wait, bounded by the remaining budget.
+        // 6. The single dispatch. The call itself is the wait, bounded by the remaining budget.
         TLanceIndexMutationResult result;
         try {
             result = dispatcher.dispatch(wireRequest, backend, remainingMs);
@@ -466,10 +484,17 @@ public final class LanceIndexMutationExecutor {
                                 + " nothing was executed");
             }
             return indeterminateAfterDispatch(e);
+        } catch (LanceIndexMutationDispatcher.PreDispatchTransportException e) {
+            // The dispatcher proves this failure belongs to connection establishment or pool
+            // admission: the invocation was never written to any socket, so it is a clean
+            // pre-dispatch rejection, not an ambiguity.
+            return LanceIndexMutationOutcome.confirmedFailure(0,
+                    "the backend connection could not be established before the send ("
+                            + boundedDescription(e.getCause()) + "); nothing was sent");
         } catch (Exception e) {
             return indeterminateAfterDispatch(e);
         }
-        // 6. Classification (the refresh obligations hang off the trusted classes).
+        // 7. Classification (the refresh obligations hang off the trusted classes).
         return classify(request, result);
     }
 
@@ -632,6 +657,10 @@ public final class LanceIndexMutationExecutor {
     }
 
     private static void assertMaster() {
+        // Deliberately asserted once here, at execute entry, and never re-checked: master-only
+        // is the statement layer's forwarding guarantee, and an FE that demotes while its
+        // entry tasks are in flight corrupts nothing by letting them finish - all busy state
+        // is memory-only, so a restart or master switch self-heals.
         if (!masterCheck.getAsBoolean()) {
             throw new IllegalStateException("the synchronous lance index mutation executor runs"
                     + " only on the master FE; the statement layer must forward first");
@@ -685,6 +714,9 @@ public final class LanceIndexMutationExecutor {
     }
 
     private static String boundedDescription(Throwable t) {
+        if (t == null) {
+            return "unknown cause";
+        }
         String message = t.getMessage();
         return message == null ? t.getClass().getSimpleName() : t.getClass().getSimpleName()
                 + ": " + message;

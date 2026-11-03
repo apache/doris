@@ -242,6 +242,25 @@ public class LanceIndexMutationExecutorTest {
         Assertions.assertEquals(1, dispatcher.sends.get());
     }
 
+    @Test
+    public void testProvablePreSendFailureIsConfirmedFailure() throws Exception {
+        // The dispatcher's typed pre-send marker (connection establishment failed before the
+        // invocation was written) is a clean pre-dispatch rejection, not an ambiguity: the
+        // contrast pair of the call-phase transport test above.
+        FakeDispatcher dispatcher = new FakeDispatcher(request -> {
+            throw new LanceIndexMutationDispatcher.PreDispatchTransportException(
+                    new TTransportException(TTransportException.NOT_OPEN, "connect refused"));
+        });
+        LanceIndexMutationOutcome outcome = executeWithDirectExecutor(dispatcher, createRequest());
+        Assertions.assertEquals(LanceIndexMutationOutcome.Kind.CONFIRMED_FAILURE, outcome.getKind());
+        Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_MUTATION_REJECTED,
+                outcome.toUserException().getMysqlErrorCode());
+        Assertions.assertTrue(outcome.getMessage().contains("could not be established"),
+                outcome.getMessage());
+        Assertions.assertTrue(outcome.getMessage().contains("nothing was sent"),
+                outcome.getMessage());
+    }
+
     // ---------------------------------------------------------------- pre-dispatch rejections
 
     @Test
@@ -288,16 +307,53 @@ public class LanceIndexMutationExecutorTest {
     }
 
     @Test
-    public void testNoOpPreflightCompletesWithoutDispatchEvenWithNoBudgetLeft() throws Exception {
+    public void testExpiredBudgetConvergesBeforeThePreflightReadWithoutSend() throws Exception {
         FakeDispatcher dispatcher = new FakeDispatcher(request -> okResult(0));
-        // The budget is already gone; a no-op never dispatches, so it must still complete.
+        // The budget is already gone when the queued task starts: it must converge as the
+        // typed confirmed failure without spending the preflight read - the most expensive
+        // pre-dispatch step (a JNI snapshot read) whose verdict cannot change this outcome.
+        // (A no-op reached by a task that starts with budget left still completes budget-free;
+        // the refresh suite pins that success.)
+        AtomicInteger preflightRuns = new AtomicInteger();
         LanceIndexMutationExecutor.MutationRequest request = LanceIndexMutationExecutor
                 .MutationRequest.newBuilder(catalog, TLanceIndexMutationType.CREATE, DATASET_URI,
                         DATASET_VERSION, "idx", System.currentTimeMillis() - 1_000L)
-                .setFinalPreflight(() -> LanceIndexMutationExecutor.PreflightResult.NO_OP)
+                .setFinalPreflight(() -> {
+                    preflightRuns.incrementAndGet();
+                    return LanceIndexMutationExecutor.PreflightResult.NO_OP;
+                })
                 .build();
         LanceIndexMutationOutcome outcome = executeWithDirectExecutor(dispatcher, request);
-        Assertions.assertEquals(LanceIndexMutationOutcome.Kind.SUCCESS, outcome.getKind());
+        Assertions.assertEquals(LanceIndexMutationOutcome.Kind.CONFIRMED_FAILURE, outcome.getKind());
+        Assertions.assertTrue(outcome.getMessage().contains("before the dispatch"),
+                outcome.getMessage());
+        Assertions.assertEquals(0, preflightRuns.get());
+        Assertions.assertEquals(0, dispatcher.sends.get());
+        Assertions.assertEquals(0, LanceIndexMutationExecutor.inFlightCount());
+    }
+
+    @Test
+    public void testPreflightReadFailureIsConfirmedFailureWithoutSend() throws Exception {
+        FakeDispatcher dispatcher = new FakeDispatcher(request -> okResult(0));
+        // The snapshot read can fail for reachable reasons (storage hiccup, JNI failure)
+        // surfaced as plain RuntimeExceptions - not wiring bugs. The failure predates the
+        // send, so it is the typed confirmed failure with a bounded description, never an
+        // untyped internal error.
+        LanceIndexMutationExecutor.MutationRequest request = LanceIndexMutationExecutor
+                .MutationRequest.newBuilder(catalog, TLanceIndexMutationType.CREATE, DATASET_URI,
+                        DATASET_VERSION, "idx", DEFAULT_DEADLINE_MS)
+                .setFinalPreflight(() -> {
+                    throw new RuntimeException("snapshot read failed: storage unavailable");
+                })
+                .build();
+        LanceIndexMutationOutcome outcome = executeWithDirectExecutor(dispatcher, request);
+        Assertions.assertEquals(LanceIndexMutationOutcome.Kind.CONFIRMED_FAILURE, outcome.getKind());
+        Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_MUTATION_REJECTED,
+                outcome.toUserException().getMysqlErrorCode());
+        Assertions.assertTrue(outcome.getMessage().contains("preflight read failed"),
+                outcome.getMessage());
+        Assertions.assertTrue(outcome.getMessage().contains("nothing was sent"),
+                outcome.getMessage());
         Assertions.assertEquals(0, dispatcher.sends.get());
         Assertions.assertEquals(0, LanceIndexMutationExecutor.inFlightCount());
     }
