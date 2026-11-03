@@ -29,6 +29,7 @@ suite("test_lance_index_ddl", "p0,external") {
     String restCatalog = "test_lance_index_ddl_rest"
     String user = "test_lance_index_ddl_user"
     String password = "C123_567p"
+    String internalTableName = "test_lance_index_ddl_internal"
 
     sql """DROP CATALOG IF EXISTS `${filesystemCatalog}`"""
     sql """DROP CATALOG IF EXISTS `${restCatalog}`"""
@@ -51,8 +52,8 @@ suite("test_lance_index_ddl", "p0,external") {
         // doris.vs_ivf_pq_f32 schema (all NOT NULL): embedding array<float>, row_id bigint,
         // category text, label text. Statically valid index DDL passes the section 2.4 matrix
         // and is then rejected because enable_lance_index_mutation defaults to false; the
-        // gate-on path validates authoritatively and ends in the not-supported rejection
-        // (covered by test_lance_index_admission).
+        // gate-on path validates authoritatively, dispatches synchronously, and ends in the
+        // stub worker's confirmed-failure rejection (covered by test_lance_index_admission).
         test {
             sql """CREATE INDEX idx ON `${filesystemCatalog}`.`doris`.`vs_ivf_pq_f32` (embedding) USING ANN
                    PROPERTIES("index_type"="IVF_PQ", "metric"="l2", "num_partitions"="256", "num_sub_vectors"="16")"""
@@ -126,6 +127,41 @@ suite("test_lance_index_ddl", "p0,external") {
             exception "do not support SCHEMA_CHANGE clause now"
         }
 
+        test {
+            sql """ALTER TABLE `${filesystemCatalog}`.`doris`.`vs_ivf_pq_f32` DROP INDEX idx"""
+            exception "do not support SCHEMA_CHANGE clause now"
+        }
+
+        // BUILD INDEX resolves its table through the internal catalog only, so a Lance
+        // catalog table can never reach a build: the lookup itself rejects the statement.
+        test {
+            sql """BUILD INDEX idx ON `${filesystemCatalog}`.`doris`.`vs_ivf_pq_f32`"""
+            exception "is not exist"
+        }
+
+        // Lance-only index syntax never reaches internal-table index code: the
+        // IndexDefinition guards reject the Lance index types and CREATE OR REPLACE for
+        // any non-Lance table before internal validation runs.
+        sql """DROP TABLE IF EXISTS `${internalTableName}`"""
+        sql """
+            CREATE TABLE `${internalTableName}` (
+                `k1` INT NOT NULL,
+                `label` VARCHAR(64) NOT NULL
+            ) DUPLICATE KEY(`k1`) DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+            PROPERTIES("replication_num" = "1")
+        """
+
+        test {
+            sql """CREATE INDEX idx ON `${internalTableName}` (label) USING ANN
+                   PROPERTIES("index_type"="IVF_PQ", "metric"="l2", "num_partitions"="256", "num_sub_vectors"="16")"""
+            exception "USING ANN is only supported for Lance catalog tables"
+        }
+
+        test {
+            sql """CREATE OR REPLACE INDEX idx ON `${internalTableName}` (label) USING INVERTED"""
+            exception "CREATE OR REPLACE INDEX is only supported for Lance catalog tables"
+        }
+
         sql """
             CREATE CATALOG `${restCatalog}` PROPERTIES (
                 "type" = "lance",
@@ -173,6 +209,7 @@ suite("test_lance_index_ddl", "p0,external") {
         }
     } finally {
         try_sql "DROP USER '${user}'@'%'"
+        try_sql """DROP TABLE IF EXISTS `${internalTableName}`"""
         // Keep both catalogs for debugging when the suite fails.
     }
 }
