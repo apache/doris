@@ -21,9 +21,9 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TScanRangeLocations;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
-import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
@@ -52,12 +52,19 @@ public class SplitSource {
     private final long maxWaitTime;
 
     public SplitSource(Backend backend, SplitAssignment splitAssignment, long maxWaitTime) {
+        Preconditions.checkArgument(maxWaitTime > 0, "fetch_splits_max_wait_time_ms must be positive");
         this.uniqueId = UNIQUE_ID_GENERATOR.getAndIncrement();
         this.backend = backend;
         this.splitAssignment = splitAssignment;
         this.maxWaitTime = maxWaitTime;
         this.isLastBatch = new AtomicBoolean(false);
         splitAssignment.registerSource(uniqueId);
+    }
+
+    /** Close this backend's shared consumer without stopping other backends of the scan. */
+    public void close() {
+        isLastBatch.set(true);
+        splitAssignment.stopBackend(backend.getId());
     }
 
     public long getUniqueId() {
@@ -67,39 +74,46 @@ public class SplitSource {
     /**
      * Get the next batch of file splits. If there's no more split, return empty list.
      */
-    public List<TScanRangeLocations> getNextBatch(int maxBatchSize) throws UserException {
+    public boolean isLastBatch() {
+        return isLastBatch.get();
+    }
+
+    public synchronized List<TScanRangeLocations> getNextBatch(int maxBatchSize) throws UserException {
+        Preconditions.checkArgument(maxBatchSize > 0);
         if (isLastBatch.get()) {
             return Collections.emptyList();
         }
         List<TScanRangeLocations> scanRanges = Lists.newArrayListWithExpectedSize(maxBatchSize);
-        long startTime = System.currentTimeMillis();
-        while (scanRanges.size() < maxBatchSize && System.currentTimeMillis() - startTime < maxWaitTime) {
-            BlockingQueue<Collection<TScanRangeLocations>> splits = splitAssignment.getAssignedSplits(backend);
+        long started = System.nanoTime();
+        long waitNanos = TimeUnit.MILLISECONDS.toNanos(maxWaitTime);
+        while (scanRanges.size() < maxBatchSize) {
+            BlockingQueue<TScanRangeLocations> splits = splitAssignment.getAssignedSplits(backend);
             if (splits == null) {
                 isLastBatch.set(true);
                 break;
             }
-            while (scanRanges.size() < maxBatchSize) {
-                try {
-                    Collection<TScanRangeLocations> splitCollection = splits.poll(WAIT_TIME_OUT, TimeUnit.MILLISECONDS);
-                    if (splitCollection != null) {
-                        scanRanges.addAll(splitCollection);
-                    }
-                    if (!scanRanges.isEmpty() && System.currentTimeMillis() - startTime > maxWaitTime) {
-                        return scanRanges;
-                    }
-                    if (splitCollection == null) {
-                        break;
-                    }
-                } catch (InterruptedException e) {
-                    throw new UserException(e.getMessage(), e);
-                }
+            TScanRangeLocations split = splits.poll();
+            if (split != null) {
+                scanRanges.add(split);
+                continue;
             }
-        }
-
-        if (scanRanges.isEmpty() && !isLastBatch.get()) {
-            // This is timeout
-            throw new UserException("Timeout. Max wait time(ms): " + maxWaitTime);
+            if (!scanRanges.isEmpty()) {
+                break;
+            }
+            long wait = waitNanos - (System.nanoTime() - started);
+            if (wait <= 0) {
+                break;
+            }
+            try {
+                split = splits.poll(Math.min(wait, TimeUnit.MILLISECONDS.toNanos(WAIT_TIME_OUT)),
+                        TimeUnit.NANOSECONDS);
+                if (split != null) {
+                    scanRanges.add(split);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new UserException("Interrupted while waiting for scan splits", e);
+            }
         }
         return scanRanges;
     }

@@ -779,6 +779,8 @@ struct TFileRangeDesc {
 struct TSplitSource {
     1: optional i64 split_source_id
     2: optional i32 num_splits
+    // This FE accepts TFetchSplitBatchRequest.close_source. Absent on older FEs.
+    3: optional bool supports_close
 }
 
 // TFileScanRange represents a set of descriptions of a file and the rules for reading and converting it.

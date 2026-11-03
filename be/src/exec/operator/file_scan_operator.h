@@ -50,6 +50,7 @@ public:
     ~FileScanLocalState() override;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status close(RuntimeState* state) override;
 
     Status _process_conjuncts(RuntimeState* state) override;
     Status _init_scanners(std::list<ScannerSPtr>* scanners) override;

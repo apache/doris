@@ -119,6 +119,22 @@ public class FileQueryScanNodeTest {
         }
     }
 
+    @Test
+    public void testHudiHonorsCommonBatchEligibility() {
+        FileQueryScanNode node = Mockito.mock(org.apache.doris.datasource.hudi.source.HudiScanNode.class,
+                Mockito.CALLS_REAL_METHODS);
+        Mockito.doReturn(false).when(node).isBatchModeEnabled();
+        Assert.assertFalse(node.isBatchMode());
+    }
+
+    @Test
+    public void testMaxComputeHonorsCommonBatchEligibility() {
+        FileQueryScanNode node = Mockito.mock(org.apache.doris.datasource.maxcompute.source.MaxComputeScanNode.class,
+                Mockito.CALLS_REAL_METHODS);
+        Mockito.doReturn(false).when(node).isBatchModeEnabled();
+        Assert.assertFalse(node.isBatchMode());
+    }
+
     @Before
     public void setUp() {
         table = Mockito.mock(TableIf.class);

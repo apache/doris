@@ -33,7 +33,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -241,7 +240,7 @@ public class SplitAssignmentTest {
         Assertions.assertEquals(mockSplit, splitAssignment.getSampleSplit());
 
         // Verify assignment queue is created and contains data
-        BlockingQueue<Collection<TScanRangeLocations>> queue = splitAssignment.getAssignedSplits(mockBackend);
+        BlockingQueue<TScanRangeLocations> queue = splitAssignment.getAssignedSplits(mockBackend);
         Assertions.assertNotNull(queue);
     }
 
@@ -305,7 +304,7 @@ public class SplitAssignmentTest {
         }
 
         // Verify the queue has data
-        BlockingQueue<Collection<TScanRangeLocations>> queue = splitAssignment.getAssignedSplits(mockBackend);
+        BlockingQueue<TScanRangeLocations> queue = splitAssignment.getAssignedSplits(mockBackend);
         Assertions.assertNotNull(queue);
     }
 
@@ -399,7 +398,7 @@ public class SplitAssignmentTest {
         Assertions.assertNotNull(splitAssignment.getSampleSplit());
         Assertions.assertEquals(mockSplit, splitAssignment.getSampleSplit());
 
-        BlockingQueue<Collection<TScanRangeLocations>> queue = splitAssignment.getAssignedSplits(mockBackend);
+        BlockingQueue<TScanRangeLocations> queue = splitAssignment.getAssignedSplits(mockBackend);
         Assertions.assertNotNull(queue);
 
         splitsProvider.join(1000);

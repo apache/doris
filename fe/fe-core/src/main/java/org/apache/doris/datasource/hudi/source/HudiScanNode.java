@@ -1112,6 +1112,9 @@ public class HudiScanNode extends HiveScanNode {
 
     @Override
     public boolean isBatchMode() {
+        if (!isBatchModeEnabled()) {
+            return false;
+        }
         if (incrementalRead && !incrementalRelation.fallbackFullTableScan()) {
             return false;
         }

@@ -1103,6 +1103,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TFetchSplitBatchResult result = new TFetchSplitBatchResult();
         SplitSource splitSource =
                 Env.getCurrentEnv().getSplitSourceManager().getSplitSource(request.getSplitSourceId());
+        if (request.isSetCloseSource() && request.isCloseSource()) {
+            if (splitSource != null) {
+                splitSource.close();
+                Env.getCurrentEnv().getSplitSourceManager().removeSplitSource(request.getSplitSourceId());
+            }
+            result.setSplits(Collections.emptyList());
+            result.status = new TStatus(TStatusCode.OK);
+            return result;
+        }
         if (splitSource == null) {
             // Return a structured error status instead of throwing a bare TException, so the BE
             // receives a well-formed error (with a non-empty message) through the normal result
@@ -1117,7 +1126,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             List<TScanRangeLocations> locations = splitSource.getNextBatch(request.getMaxNumSplits());
             result.setSplits(locations);
-            result.status = new TStatus(TStatusCode.OK);
+            result.status = new TStatus(locations.isEmpty() && !splitSource.isLastBatch()
+                    ? TStatusCode.INCOMPLETE : TStatusCode.OK);
             return result;
         } catch (Exception e) {
             LOG.warn("failed to fetch split batch with source id {}", request.getSplitSourceId(), e);

@@ -3038,7 +3038,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         if (prepareTableLevelSnapshotCount()) {
             return false;
         }
-        if (!sessionVariable.getEnableExternalTableBatchMode()) {
+        if (!isBatchModeEnabled()) {
             isBatchMode = false;
             return false;
         }
