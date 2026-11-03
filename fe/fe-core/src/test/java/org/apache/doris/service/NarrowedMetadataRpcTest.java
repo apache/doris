@@ -27,6 +27,7 @@ import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
 import org.apache.doris.thrift.TFetchSchemaTableDataResult;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetTablesParams;
+import org.apache.doris.thrift.TListPrivilegesResult;
 import org.apache.doris.thrift.TSchemaTableName;
 import org.apache.doris.thrift.TSchemaTableRequestParams;
 import org.apache.doris.thrift.TShowProcessListRequest;
@@ -65,9 +66,11 @@ public class NarrowedMetadataRpcTest extends TestWithFeService {
         addUser("carol", true);
         createRole("tenant_c");
         grantPriv("GRANT SELECT_PRIV ON internal.test.* TO ROLE 'tenant_c';");
+        grantPriv("GRANT SELECT_PRIV ON internal.test.t1 TO ROLE 'tenant_c';");
         grantRole("GRANT 'tenant_c' TO 'carol'@'%'");
-        // a personal (default-role) grant the narrowing must drop
+        // personal (default-role) grants the narrowing must drop, one per privilege level
         grantPriv("GRANT SELECT_PRIV ON internal.perso.* TO 'carol'@'%';");
+        grantPriv("GRANT SELECT_PRIV ON internal.perso.t1 TO 'carol'@'%';");
         // dave: a plain tenant role and an ADMIN-bearing one the switch leaves out; a bystander session
         addUser("dave", true);
         addUser("bystander_rpc", true);
@@ -115,6 +118,32 @@ public class NarrowedMetadataRpcTest extends TestWithFeService {
             params.setCurrentRoles(currentRoles);
         }
         return params;
+    }
+
+    /** A privilege-status request (TGetTablesParams without a db) from the named caller. */
+    private static TGetTablesParams privileges(String user, Set<String> currentRoles, boolean byIdentity) {
+        TGetTablesParams params = new TGetTablesParams();
+        if (byIdentity) {
+            params.setCurrentUserIdent(UserIdentity.createAnalyzedUserIdentWithIp(user, "%").toThrift());
+        } else {
+            params.setUser(user);
+            params.setUserIp("%");
+        }
+        if (currentRoles != null) {
+            params.setCurrentRoles(currentRoles);
+        }
+        return params;
+    }
+
+    /** The rows of a privilege-status listing on the named schema. */
+    private static long rowsOn(TListPrivilegesResult result, String schema) {
+        return result.getPrivileges().stream().filter(row -> schema.equals(row.getSchema())).count();
+    }
+
+    /** How many tables information_schema.metadata_name_ids lists in db for the caller. */
+    private static int metadataNameIds(FrontendServiceImpl impl, String db, Set<String> currentRoles,
+            boolean byIdentity) throws Exception {
+        return impl.listTableMetadataNameIds(tables(db, currentRoles, byIdentity)).getTables().size();
     }
 
     private static TDescribeTablesParams describe(String db, Set<String> currentRoles) {
@@ -174,9 +203,12 @@ public class NarrowedMetadataRpcTest extends TestWithFeService {
     }
 
     /**
-     * Every wrapped name-visibility handler narrows alike, whether the request names the caller by
-     * identity or by the deprecated user/user_ip pair: the personal grant on perso vanishes under the
-     * tenant role, the role grant on test stays, and nothing sticks to the handler thread.
+     * Every one of the eight wrapped name-visibility handlers narrows alike, whether the request
+     * names the caller by identity or by the deprecated user/user_ip pair: the personal grants on
+     * perso vanish under the tenant role, the role grants on test stay, and nothing sticks to the
+     * handler thread. listTableMetadataNameIds decides on an executor thread of its own, and the
+     * global privilege listing is gated on the caller's own global SHOW, which dave holds only
+     * through the ADMIN-bearing role the switch leaves out.
      */
     @Test
     public void testEveryNameVisibilityHandlerNarrows() throws Exception {
@@ -194,8 +226,29 @@ public class NarrowedMetadataRpcTest extends TestWithFeService {
             Assertions.assertEquals(0, impl.listTableStatus(tables("perso", NARROWED, byIdentity)).getTables().size());
             Assertions.assertEquals(1, impl.listTableStatus(tables("test", NARROWED, byIdentity)).getTables().size());
 
+            // the check runs on the handler's executor thread: the narrowing must follow it there
+            Assertions.assertEquals(1, metadataNameIds(impl, "perso", null, byIdentity));
+            Assertions.assertEquals(0, metadataNameIds(impl, "perso", NARROWED, byIdentity));
+            Assertions.assertEquals(1, metadataNameIds(impl, "test", NARROWED, byIdentity));
+
+            TGetTablesParams own = privileges("carol", null, byIdentity);
+            TGetTablesParams narrowed = privileges("carol", NARROWED, byIdentity);
+            Assertions.assertEquals(1, rowsOn(impl.listTablePrivilegeStatus(own), "perso"));
+            Assertions.assertEquals(0, rowsOn(impl.listTablePrivilegeStatus(narrowed), "perso"));
+            Assertions.assertEquals(1, rowsOn(impl.listTablePrivilegeStatus(narrowed), "test"));
+            Assertions.assertEquals(1, rowsOn(impl.listSchemaPrivilegeStatus(own), "perso"));
+            Assertions.assertEquals(0, rowsOn(impl.listSchemaPrivilegeStatus(narrowed), "perso"));
+            Assertions.assertEquals(1, rowsOn(impl.listSchemaPrivilegeStatus(narrowed), "test"));
+
+            TGetTablesParams daveNarrowed = privileges("dave", Sets.newHashSet("tenant_d"), byIdentity);
+            Assertions.assertFalse(impl.listUserPrivilegeStatus(privileges("dave", null, byIdentity))
+                    .getPrivileges().isEmpty());
+            Assertions.assertTrue(impl.listUserPrivilegeStatus(daveNarrowed).getPrivileges().isEmpty());
+
             // the narrowing did not stick to the handler thread
             Assertions.assertEquals(1, impl.listTableStatus(tables("perso", null, byIdentity)).getTables().size());
+            Assertions.assertEquals(1, metadataNameIds(impl, "perso", null, byIdentity));
+            Assertions.assertEquals(1, rowsOn(impl.listTablePrivilegeStatus(own), "perso"));
         }
         Assertions.assertEquals(1, impl.describeTables(describe("perso", null)).getColumns().size());
         Assertions.assertEquals(0, impl.describeTables(describe("perso", NARROWED)).getColumns().size());

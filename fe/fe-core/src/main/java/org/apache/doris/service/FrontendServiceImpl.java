@@ -899,36 +899,43 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
         }
         PatternMatcher finalMatcher = matcher;
+        // the RPC narrowing withSessionRoleOverride installed is a ThreadLocal of the handler thread:
+        // carry it onto the executor thread, or the privilege check below runs un-narrowed
+        Map<UserIdentity, Set<String>> narrowing = Auth.captureRpcSessionNarrowing();
 
         ExecutorService executor = Executors.newSingleThreadExecutor();
         Future<?> future = executor.submit(() -> {
-
-            CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
-            if (catalog != null) {
-                String dbName = getDbNameFromMysqlTableSchema(catalogName, params.db);
-                DatabaseIf db = catalog.getDbNullable(dbName);
-                if (db != null) {
-                    List<TableIf> tables = db.getTables();
-                    for (TableIf table : tables) {
-                        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUser, catalogName, dbName,
-                                table.getName(), PrivPredicate.SHOW)) {
-                            continue;
-                        }
-                        table.readLock();
-                        try {
-                            if (finalMatcher != null && !finalMatcher.match(table.getName())) {
+            Auth.installRpcSessionNarrowing(narrowing);
+            try {
+                CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
+                if (catalog != null) {
+                    String dbName = getDbNameFromMysqlTableSchema(catalogName, params.db);
+                    DatabaseIf db = catalog.getDbNullable(dbName);
+                    if (db != null) {
+                        List<TableIf> tables = db.getTables();
+                        for (TableIf table : tables) {
+                            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUser, catalogName,
+                                    dbName, table.getName(), PrivPredicate.SHOW)) {
                                 continue;
                             }
-                            TTableMetadataNameIds status = new TTableMetadataNameIds();
-                            status.setName(table.getName());
-                            status.setId(table.getId());
+                            table.readLock();
+                            try {
+                                if (finalMatcher != null && !finalMatcher.match(table.getName())) {
+                                    continue;
+                                }
+                                TTableMetadataNameIds status = new TTableMetadataNameIds();
+                                status.setName(table.getName());
+                                status.setId(table.getId());
 
-                            tablesResult.add(status);
-                        } finally {
-                            table.readUnlock();
+                                tablesResult.add(status);
+                            } finally {
+                                table.readUnlock();
+                            }
                         }
                     }
                 }
+            } finally {
+                Auth.clearRpcSessionNarrowing();
             }
         });
         try {

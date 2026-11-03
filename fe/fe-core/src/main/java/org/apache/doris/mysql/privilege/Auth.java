@@ -316,6 +316,25 @@ public class Auth implements Writable {
         RPC_SESSION_NARROWING.remove();
     }
 
+    /**
+     * The RPC narrowing installed on this thread, or null when there is none. A handler that hands
+     * part of its work to another thread captures it here and installs it there with
+     * {@link #installRpcSessionNarrowing}: a ThreadLocal does not follow the work, and a privilege
+     * check on the other thread would otherwise resolve the target's full role union.
+     */
+    public static Map<UserIdentity, Set<String>> captureRpcSessionNarrowing() {
+        return RPC_SESSION_NARROWING.get();
+    }
+
+    /** Installs a captured narrowing on this thread (none when it is null); clear it in a finally. */
+    public static void installRpcSessionNarrowing(Map<UserIdentity, Set<String>> narrowing) {
+        if (narrowing == null) {
+            RPC_SESSION_NARROWING.remove();
+        } else {
+            RPC_SESSION_NARROWING.set(narrowing);
+        }
+    }
+
     // The SU-narrowed role set of a target identity: the override roles the target STILL holds + the
     // implicit information_schema/mysql read baseline (SU_NARROWING_BASELINE). The ceiling is
     // re-evaluated on every resolution, exactly as a normal session re-reads its grants on every
