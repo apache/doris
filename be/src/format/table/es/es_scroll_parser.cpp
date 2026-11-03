@@ -29,6 +29,7 @@
 #include <chrono> // IWYU pragma: keep
 #include <cmath>
 #include <cstdlib>
+#include <limits>
 #include <ostream>
 #include <string>
 #include <string_view>
@@ -370,6 +371,62 @@ Status get_int_value(const rapidjson::Value& col, PrimitiveType type, void* slot
     return Status::OK();
 }
 
+// ES epoch_millis accepts signed decimal milliseconds with up to six fractional digits.
+// Parse the integer part exactly: a double round trip can move a long timestamp across a second.
+static bool parse_es_epoch_millis(std::string_view text, int64_t* seconds) {
+    bool negative = !text.empty() && text.front() == '-';
+    size_t pos = negative ? 1 : 0;
+    size_t start = pos;
+    while (pos < text.size() && text[pos] >= '0' && text[pos] <= '9') {
+        ++pos;
+    }
+    size_t integer_end = pos;
+    // ES rejects empty numbers and integer parts wider than its signed-long grammar.
+    if (pos == start || pos - start > 19) {
+        return false;
+    }
+    bool nonzero_fraction = false;
+    if (pos < text.size() && text[pos] == '.') {
+        start = ++pos;
+        while (pos < text.size() && text[pos] >= '0' && text[pos] <= '9') {
+            nonzero_fraction |= text[pos++] != '0';
+        }
+        // epoch_millis fractions express nanoseconds, so a seventh digit is invalid.
+        if (pos - start > 6) {
+            return false;
+        }
+    }
+    // Reject exponents, suffixes and trailing junk instead of accepting a numeric prefix.
+    if (pos != text.size()) {
+        return false;
+    }
+    StringParser::ParseResult result;
+    auto millis = StringParser::string_to_int<int64_t>(text.data(), integer_end, &result);
+    // Out-of-range milliseconds must not wrap into an otherwise valid calendar date.
+    if (result != StringParser::PARSE_SUCCESS) {
+        return false;
+    }
+    *seconds = millis / 1000;
+    // At second precision, -1000.5 ms belongs to 23:59:58, not 23:59:59.
+    if (negative && (millis % 1000 != 0 || nonzero_fraction)) {
+        --*seconds;
+    }
+    return true;
+}
+
+template <typename DateValue>
+static bool set_es_epoch_seconds(DateValue& value, int64_t seconds,
+                                 const cctz::time_zone& time_zone) {
+    const auto civil =
+            cctz::convert(cctz::time_point<cctz::seconds>(cctz::seconds(seconds)), time_zone);
+    // from_unixtime narrows the civil year without checking it; e.g. year 10000 must fail first.
+    if (civil.year() < 0 || civil.year() > MAX_YEAR) {
+        return false;
+    }
+    value.from_unixtime(seconds, time_zone);
+    return true;
+}
+
 template <PrimitiveType T>
 Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool is_date_str,
                           typename PrimitiveTypeTraits<T>::CppType* slot,
@@ -377,10 +434,20 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
     constexpr bool is_datetime_v1 = T == TYPE_DATE || T == TYPE_DATETIME;
     typename PrimitiveTypeTraits<T>::CppType dt_val;
     if (is_date_str) {
-        const std::string str_date = col.GetString();
-        int str_length = col.GetStringLength();
+        std::string str_date(col.GetString(), col.GetStringLength());
+        size_t str_length = col.GetStringLength();
+        // The default strict_date_optional_time parser wins over epoch_millis for a four-digit year.
+        // Thus "2024" means 2024-01-01, whereas "12345" means 12.345 seconds after the epoch.
+        if (str_length == 4 && str_date.find_first_not_of("0123456789") == std::string::npos) {
+            str_date += "-01-01";
+            str_length = str_date.size();
+        }
         bool success = false;
-        if (str_length > 19) {
+        int64_t epoch_seconds;
+        // Source fallback also reaches short, zero and fractional epoch strings, e.g. "0"/"1.5".
+        if (parse_es_epoch_millis(str_date, &epoch_seconds)) {
+            success = set_es_epoch_seconds(dt_val, epoch_seconds, time_zone);
+        } else if (str_length > 19) {
             std::chrono::system_clock::time_point tp;
             // time_zone suffix pattern
             // Z/+08:00/-04:30
@@ -409,7 +476,10 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
                 // The local time zone can change by session variable `time_zone`
                 // We should use the user specified time zone, not the actual system local time zone.
                 success = true;
-                dt_val.from_unixtime(std::chrono::system_clock::to_time_t(tp), time_zone);
+                // A pre-epoch fractional instant must floor to its containing second, like numeric dates.
+                dt_val.from_unixtime(
+                        std::chrono::floor<std::chrono::seconds>(tp).time_since_epoch().count(),
+                        time_zone);
             }
         } else if (str_length == 19) {
             // YYYY-MM-DDTHH:MM:SS
@@ -426,37 +496,30 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
                 CastParameters params;
                 if constexpr (is_datetime_v1) {
                     success = CastToDateOrDatetime::from_string_non_strict_mode<
-                            DatelikeTargetType::DATE_TIME>({str_date.c_str(), (size_t)str_length},
-                                                           dt_val, nullptr, params);
+                            DatelikeTargetType::DATE_TIME>({str_date.c_str(), str_length}, dt_val,
+                                                           nullptr, params);
                 } else if constexpr (T == TYPE_DATEV2) {
                     success = CastToDateV2::from_string_non_strict_mode(
-                            {str_date.c_str(), (size_t)str_length}, dt_val, nullptr, params);
+                            {str_date.c_str(), str_length}, dt_val, nullptr, params);
                 } else {
                     success = CastToDatetimeV2::from_string_non_strict_mode(
-                            {str_date.c_str(), (size_t)str_length}, dt_val, nullptr, -1, params);
+                            {str_date.c_str(), str_length}, dt_val, nullptr, -1, params);
                 }
             }
 
-        } else if (str_length == 13) {
-            // string long like "1677895728000"
-            int64_t time_long = std::atol(str_date.c_str());
-            if (time_long > 0) {
-                success = true;
-                dt_val.from_unixtime(time_long / 1000, time_zone);
-            }
         } else {
             // YYYY-MM-DD or others
             CastParameters params;
             if constexpr (is_datetime_v1) {
                 success = CastToDateOrDatetime::from_string_non_strict_mode<
-                        DatelikeTargetType::DATE_TIME>({str_date.c_str(), (size_t)str_length},
-                                                       dt_val, nullptr, params);
+                        DatelikeTargetType::DATE_TIME>({str_date.c_str(), str_length}, dt_val,
+                                                       nullptr, params);
             } else if constexpr (T == TYPE_DATEV2) {
-                success = CastToDateV2::from_string_non_strict_mode(
-                        {str_date.c_str(), (size_t)str_length}, dt_val, nullptr, params);
+                success = CastToDateV2::from_string_non_strict_mode({str_date.c_str(), str_length},
+                                                                    dt_val, nullptr, params);
             } else {
                 success = CastToDatetimeV2::from_string_non_strict_mode(
-                        {str_date.c_str(), (size_t)str_length}, dt_val, nullptr, -1, params);
+                        {str_date.c_str(), str_length}, dt_val, nullptr, -1, params);
             }
         }
 
@@ -465,7 +528,26 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
         }
 
     } else {
-        dt_val.from_unixtime(col.GetInt64() / 1000, time_zone);
+        int64_t epoch_seconds;
+        // Integral JSON values retain their exact bits; unsigned overflow cannot be a Doris date.
+        if (col.IsInt64()) {
+            int64_t millis = col.GetInt64();
+            epoch_seconds = millis / 1000 - (millis % 1000 < 0);
+        } else if (col.IsDouble()) {
+            double seconds = std::floor(col.GetDouble() / 1000);
+            constexpr double minimum = std::numeric_limits<int64_t>::min();
+            // Fractional numeric dates use GetDouble; check before casting NaN/overflow to int64.
+            if (!(seconds >= minimum && seconds < -minimum)) {
+                RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
+            }
+            epoch_seconds = static_cast<int64_t>(seconds);
+        } else {
+            RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
+        }
+        // Reject civil-year overflow before from_unixtime narrows it into the date representation.
+        if (!set_es_epoch_seconds(dt_val, epoch_seconds, time_zone)) {
+            RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
+        }
     }
     if constexpr (is_datetime_v1) {
         if (type == TYPE_DATE) {

@@ -59,7 +59,8 @@ public:
     }
 
     static Status read_scalar(TPrimitiveType::type type, const std::string& json,
-                              MutableColumnPtr* column, bool array = false) {
+                              MutableColumnPtr* column, bool array = false,
+                              const cctz::time_zone& time_zone = cctz::utc_time_zone()) {
         auto descriptor = value_slot(type, array);
         descriptor.nullIndicatorBit = 0;
         SlotDescriptor slot(descriptor);
@@ -70,7 +71,7 @@ public:
         std::vector<MutableColumnPtr> columns;
         columns.push_back(slot.type()->create_column());
         bool eof = false;
-        RETURN_IF_ERROR(parser.fill_columns(slots, columns, &eof, {}, cctz::utc_time_zone()));
+        RETURN_IF_ERROR(parser.fill_columns(slots, columns, &eof, {}, time_zone));
         *column = std::move(columns[0]);
         return Status::OK();
     }
@@ -79,6 +80,85 @@ public:
         return value_slot(TPrimitiveType::BOOLEAN, array);
     }
 };
+
+TEST_F(EsScrollParserTest, DateSourceEpochMillisStrings) {
+    for (auto type : {TPrimitiveType::DATE, TPrimitiveType::DATETIME, TPrimitiveType::DATEV2,
+                      TPrimitiveType::DATETIMEV2}) {
+        SlotDescriptor slot(value_slot(type));
+        for (const auto& [input, expected] : std::vector<std::pair<std::string, std::string>> {
+                     {"0", "1970-01-01 00:00:00"},
+                     {"0000000000000", "1970-01-01 00:00:00"},
+                     {"1.5", "1970-01-01 00:00:00"},
+                     {"1000.", "1970-01-01 00:00:01"},
+                     {"12345", "1970-01-01 00:00:12"},
+                     {"-0.000001", "1969-12-31 23:59:59"},
+                     {"-1000.5", "1969-12-31 23:59:58"},
+                     {"1677895728000", "2023-03-04 02:08:48"},
+                     {"2024", "2024-01-01 00:00:00"},
+                     {"2024-01-01", "2024-01-01 00:00:00"}}) {
+            SCOPED_TRACE(input);
+            MutableColumnPtr column;
+            auto status = read_scalar(type, "\"" + input + "\"", &column);
+            ASSERT_TRUE(status.ok()) << type << ": " << status.to_string();
+            ASSERT_FALSE(column->is_null_at(0));
+            bool date_only = type == TPrimitiveType::DATE || type == TPrimitiveType::DATEV2;
+            EXPECT_EQ(slot.type()->to_string(
+                              assert_cast<const ColumnNullable&>(*column).get_nested_column(), 0),
+                      date_only ? expected.substr(0, 10) : expected);
+        }
+    }
+}
+
+TEST_F(EsScrollParserTest, DateSourceEpochMillisNumbers) {
+    SlotDescriptor slot(value_slot(TPrimitiveType::DATETIMEV2));
+    for (const auto& [input, expected] : std::vector<std::pair<std::string, std::string>> {
+                 {"0", "1970-01-01 00:00:00"},
+                 {"1.5", "1970-01-01 00:00:00"},
+                 {"1000.9", "1970-01-01 00:00:01"},
+                 {"-1", "1969-12-31 23:59:59"},
+                 {"-1000.5", "1969-12-31 23:59:58"},
+                 {"1677895728000.5", "2023-03-04 02:08:48"}}) {
+        SCOPED_TRACE(input);
+        MutableColumnPtr column;
+        auto status = read_scalar(TPrimitiveType::DATETIMEV2, input, &column);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        EXPECT_EQ(slot.type()->to_string(
+                          assert_cast<const ColumnNullable&>(*column).get_nested_column(), 0),
+                  expected);
+    }
+}
+
+TEST_F(EsScrollParserTest, DateSourceEpochMillisArraysAndTimezone) {
+    cctz::time_zone time_zone;
+    ASSERT_TRUE(cctz::load_time_zone("Asia/Shanghai", &time_zone));
+    SlotDescriptor slot(value_slot(TPrimitiveType::DATETIMEV2));
+    for (const std::string input : {R"(["0"])", "[1.5]"}) {
+        MutableColumnPtr column;
+        auto status = read_scalar(TPrimitiveType::DATETIMEV2, input, &column, false, time_zone);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        EXPECT_EQ(slot.type()->to_string(
+                          assert_cast<const ColumnNullable&>(*column).get_nested_column(), 0),
+                  "1970-01-01 08:00:00");
+    }
+    MutableColumnPtr column;
+    auto status = read_scalar(TPrimitiveType::DATETIMEV2, R"([null,"0",-1000.5])", &column, true);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto& array = assert_cast<const ColumnArray&>(
+            assert_cast<const ColumnNullable&>(*column).get_nested_column());
+    ASSERT_EQ(array.get_offsets()[0], 3);
+    EXPECT_TRUE(array.get_data().is_null_at(0));
+    const auto& dates = assert_cast<const ColumnNullable&>(array.get_data()).get_nested_column();
+    EXPECT_EQ(slot.type()->to_string(dates, 1), "1970-01-01 00:00:00");
+    EXPECT_EQ(slot.type()->to_string(dates, 2), "1969-12-31 23:59:58");
+}
+
+TEST_F(EsScrollParserTest, DateSourceRejectsInvalidEpochMillis) {
+    for (const std::string input : {R"("1.2.3")", R"("9223372036854775808")", "1e100",
+                                    "18446744073709551615", "253402300800000", "-62167219200001"}) {
+        MutableColumnPtr column;
+        EXPECT_FALSE(read_scalar(TPrimitiveType::DATETIMEV2, input, &column).ok()) << input;
+    }
+}
 
 TEST_F(EsScrollParserTest, JsonbSourcePreservesArrayContainers) {
     for (const std::string value : {R"([{"x":1}])", "[]", "[null]", R"({"x":1})"}) {
