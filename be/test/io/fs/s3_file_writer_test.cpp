@@ -51,6 +51,8 @@
 #include "common/status.h"
 #include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
+#include "io/cache/block_file_cache_factory.h"
+#include "io/cache/file_cache_common.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
@@ -280,6 +282,19 @@ static auto test_mock_callbacks = std::array {
 class S3FileWriterTest : public testing::Test {
 public:
     static void SetUpTestSuite() {
+        auto* env = ExecEnv::GetInstance();
+        _previous_cache_factory = env->file_cache_factory();
+        // Standalone runs have no cache factory, and earlier fixtures can leave an empty one.
+        if (_previous_cache_factory == nullptr ||
+            _previous_cache_factory->get_cache_instance_size() == 0) {
+            _test_cache_factory = std::make_unique<io::FileCacheFactory>();
+            auto settings = io::get_file_cache_settings(16 * 1024 * 1024, 0);
+            settings.storage = "memory";
+            auto st = _test_cache_factory->create_file_cache("memory", settings);
+            ASSERT_TRUE(st.ok()) << st;
+            env->set_file_cache_factory(_test_cache_factory.get());
+        }
+
         auto sp = SyncPoint::get_instance();
         sp->enable_processing();
         config::file_cache_enter_disk_resource_limit_mode_percent = 99;
@@ -301,7 +316,7 @@ public:
                               .set_min_threads(5)
                               .set_max_threads(10)
                               .build(&_pool);
-        ExecEnv::GetInstance()->_s3_file_upload_thread_pool = std::move(_pool);
+        env->_s3_file_upload_thread_pool = std::move(_pool);
     }
 
     static void TearDownTestSuite() {
@@ -311,8 +326,17 @@ public:
                           sp->clear_call_back(mockcallback.point_name);
                       });
         sp->disable_processing();
-        ExecEnv::GetInstance()->_s3_file_upload_thread_pool.reset();
+        auto* env = ExecEnv::GetInstance();
+        env->_s3_file_upload_thread_pool.reset();
+        // Release the fixture's S3 client while the AWS SDK is still running.
+        s3_fs.reset();
+        env->set_file_cache_factory(_previous_cache_factory);
+        _test_cache_factory.reset();
     }
+
+private:
+    inline static io::FileCacheFactory* _previous_cache_factory = nullptr;
+    inline static std::unique_ptr<io::FileCacheFactory> _test_cache_factory;
 };
 
 TEST_F(S3FileWriterTest, DisableFileCacheWriteFromS3FileWriter) {
