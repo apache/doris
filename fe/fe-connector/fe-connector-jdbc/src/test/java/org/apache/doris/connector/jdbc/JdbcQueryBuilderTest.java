@@ -255,10 +255,98 @@ class JdbcQueryBuilderTest {
     }
 
     @Test
+    void testPostgresqlBigintComparisonUsesFloatingPointSemantics() {
+        JdbcQueryBuilder builder = new JdbcQueryBuilder(JdbcDbType.POSTGRESQL);
+        ConnectorColumnRef id = new ConnectorColumnRef("id", ConnectorType.of("BIGINT"));
+        // A stripped CAST(id AS DOUBLE) must not turn this into a BIGINT/NUMERIC comparison.
+        // The exponent text as NUMERIC is 9223372036854774800, not the original 9223372036854774784.
+        ConnectorLiteral literal = ConnectorLiteral.ofDouble(0x1.fffffffffffffp62);
+        String typed = "CAST('9.2233720368547748E18' AS DOUBLE PRECISION)";
+        for (ConnectorComparison.Operator op : Arrays.asList(ConnectorComparison.Operator.EQ,
+                ConnectorComparison.Operator.LT, ConnectorComparison.Operator.GT)) {
+            Assertions.assertEquals("SELECT * FROM \"testdb\".\"testtbl\" WHERE (\"id\" "
+                            + op.getSymbol() + " " + typed + ")",
+                    builder.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(
+                            new ConnectorComparison(op, id, literal)), -1));
+            Assertions.assertEquals("SELECT * FROM \"testdb\".\"testtbl\" WHERE (" + typed
+                            + " " + op.getSymbol() + " \"id\")",
+                    builder.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(
+                            new ConnectorComparison(op, literal, id)), -1));
+        }
+        for (boolean negated : Arrays.asList(false, true)) {
+            Assertions.assertEquals("SELECT * FROM \"testdb\".\"testtbl\" WHERE (\"id\""
+                            + (negated ? " NOT IN (" : " IN (") + typed + "))",
+                    builder.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(
+                            new ConnectorIn(id, Collections.singletonList(literal), negated)), -1));
+        }
+        Assertions.assertEquals("SELECT * FROM \"testdb\".\"testtbl\" WHERE (\"id\" BETWEEN "
+                        + typed + " AND " + typed + ")",
+                builder.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(
+                        new ConnectorBetween(id, literal, literal)), -1));
+    }
+
+    @Test
+    void testPostgresqlFloatingPointRangeAndSignedZero() {
+        JdbcQueryBuilder builder = new JdbcQueryBuilder(JdbcDbType.POSTGRESQL);
+        ConnectorColumnRef column = new ConnectorColumnRef("d", ConnectorType.of("DOUBLE"));
+        double[] values = {1e20, -1e20, 0x1.0p63, -0x1.0p63, Double.MAX_VALUE,
+                -Double.MAX_VALUE, Double.MIN_VALUE, -0.0, 0.0, 1.5};
+        String[] expected = {"1.0E20", "-1.0E20", "9.223372036854776E18", "-9.223372036854776E18",
+                "1.7976931348623157E308", "-1.7976931348623157E308", "4.9E-324", "-0.0", "0.0", "1.5"};
+        for (int i = 0; i < values.length; i++) {
+            Assertions.assertEquals("SELECT * FROM \"testdb\".\"testtbl\" WHERE (\"d\" = CAST('"
+                            + expected[i] + "' AS DOUBLE PRECISION))",
+                    builder.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(new ConnectorComparison(
+                            ConnectorComparison.Operator.EQ, column, ConnectorLiteral.ofDouble(values[i]))), -1));
+        }
+    }
+
+    @Test
+    void testOracleFloatingPointRangeUsesBinaryDoubleLiterals() {
+        double[] values = {1e200, -1e200, Double.MAX_VALUE, -Double.MAX_VALUE, Double.MIN_VALUE, -0.0, 0.0, 1.5};
+        String[] expected = {"1.0E200D", "-1.0E200D", "1.7976931348623157E308D",
+                "-1.7976931348623157E308D", "4.9E-324D", "-0.0D", "0.0D", "1.5D"};
+        ConnectorColumnRef column = new ConnectorColumnRef("d", ConnectorType.of("DOUBLE"));
+        for (JdbcDbType db : Arrays.asList(JdbcDbType.ORACLE, JdbcDbType.OCEANBASE_ORACLE)) {
+            JdbcQueryBuilder builder = new JdbcQueryBuilder(db);
+            for (int i = 0; i < values.length; i++) {
+                ConnectorLiteral literal = ConnectorLiteral.ofDouble(values[i]);
+                for (ConnectorComparison.Operator op : Arrays.asList(ConnectorComparison.Operator.EQ,
+                        ConnectorComparison.Operator.LT, ConnectorComparison.Operator.GT)) {
+                    Assertions.assertEquals("SELECT * FROM \"testdb\".\"testtbl\" WHERE (\"d\" "
+                                    + op.getSymbol() + " " + expected[i] + ")",
+                            builder.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(
+                                    new ConnectorComparison(op, column, literal)), -1));
+                }
+                Assertions.assertEquals("SELECT * FROM \"testdb\".\"testtbl\" WHERE (\"d\" IN ("
+                                + expected[i] + "))",
+                        builder.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(
+                                new ConnectorIn(column, Collections.singletonList(literal), false)), -1));
+            }
+            Assertions.assertEquals("SELECT * FROM \"testdb\".\"testtbl\""
+                            + " WHERE (\"d\" BETWEEN -1.0E200D AND 1.0E200D)",
+                    builder.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(new ConnectorBetween(
+                            column, ConnectorLiteral.ofDouble(-1e200), ConnectorLiteral.ofDouble(1e200))), -1));
+        }
+    }
+
+    @Test
+    void testOracleNvlUsesTypedFloatingPointArgument() {
+        JdbcFunctionPushdownConfig config = JdbcFunctionPushdownConfig.create(JdbcDbType.ORACLE, null, true);
+        JdbcQueryBuilder builder = new JdbcQueryBuilder(JdbcDbType.ORACLE, config, Collections.emptyMap());
+        ConnectorColumnRef score = new ConnectorColumnRef("SCORE", ConnectorType.of("DOUBLE"));
+        ConnectorExpression nvl = new ConnectorFunctionCall("ifnull", score.getType(),
+                Arrays.asList(score, ConnectorLiteral.ofDouble(0.0)));
+        Assertions.assertEquals("SELECT * FROM \"testdb\".\"testtbl\" WHERE ((nvl(\"SCORE\", 0.0D)) < \"SCORE\")",
+                builder.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(
+                        new ConnectorComparison(ConnectorComparison.Operator.LT, nvl, score)), -1));
+    }
+
+    @Test
     void testNonFiniteLiteralsRemainLocalWithoutLimit() {
         ConnectorColumnRef column = new ConnectorColumnRef("d", ConnectorType.of("DOUBLE"));
         for (JdbcDbType db : Arrays.asList(JdbcDbType.MYSQL, JdbcDbType.POSTGRESQL,
-                JdbcDbType.ORACLE, JdbcDbType.SQLSERVER)) {
+                JdbcDbType.ORACLE, JdbcDbType.OCEANBASE_ORACLE, JdbcDbType.SQLSERVER)) {
             JdbcQueryBuilder builder = new JdbcQueryBuilder(db);
             for (double value : new double[] {Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY}) {
                 ConnectorLiteral literal = ConnectorLiteral.ofDouble(value);

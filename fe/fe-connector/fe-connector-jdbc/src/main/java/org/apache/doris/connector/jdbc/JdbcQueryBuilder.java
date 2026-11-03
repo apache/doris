@@ -853,9 +853,22 @@ public final class JdbcQueryBuilder {
             return formatBooleanLiteral((Boolean) val);
         } else if (val instanceof Double) {
             double d = (Double) val;
-            // Narrowing integral-looking doubles to long corrupts values outside the long range.
             // Non-finite literals have no portable SQL spelling; evaluate their predicates locally.
-            return Double.isFinite(d) ? Double.toString(d) : null;
+            if (!Double.isFinite(d)) {
+                return null;
+            }
+            String value = Double.toString(d);
+            switch (dbType) {
+                case POSTGRESQL:
+                    // Bare exponent literals are NUMERIC, which can compare differently with BIGINT.
+                    return "CAST('" + value + "' AS DOUBLE PRECISION)";
+                case ORACLE:
+                case OCEANBASE_ORACLE:
+                    // Unsuffixed literals are NUMBER and cannot represent the full DOUBLE range.
+                    return value + "D";
+                default:
+                    return value;
+            }
         } else if (val instanceof BigDecimal || val instanceof Integer
                 || val instanceof Long) {
             return val.toString();
