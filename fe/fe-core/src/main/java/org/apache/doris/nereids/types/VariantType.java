@@ -211,7 +211,7 @@ public class VariantType extends PrimitiveType {
                                     .append(String.valueOf(Math.max(1, variantSparseHashShardCount)))
                                     .append("\"");
         }
-        if (enableNestedGroup) {
+        if (enableNestedGroup || escapeDotsInKeys) {
             sb.append(",");
             sb.append("\"variant_enable_nested_group\" = \"")
                     .append(String.valueOf(enableNestedGroup)).append("\"");

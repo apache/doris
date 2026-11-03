@@ -24,9 +24,12 @@ import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.MatchPredicate;
+import org.apache.doris.analysis.SearchDslParser;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.indexpolicy.IndexPolicy;
 import org.apache.doris.indexpolicy.IndexPolicyMgr;
@@ -35,6 +38,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.BitNot;
 import org.apache.doris.nereids.trees.expressions.MatchAny;
 import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -43,6 +47,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.thrift.TExprNode;
 
 import com.google.common.collect.ImmutableList;
@@ -51,6 +56,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.List;
 import java.util.Map;
 
 public class ExpressionTranslatorTest {
@@ -126,5 +132,29 @@ public class ExpressionTranslatorTest {
         Assertions.assertTrue(translated.isShortCircuitEvaluation());
         Assertions.assertTrue(thriftNode.isSetShortCircuitEvaluation());
         Assertions.assertTrue(thriftNode.isShortCircuitEvaluation());
+    }
+
+    @Test
+    public void testEscapedVariantIndexLookupUsesStoragePathsForMatchAndSearch() {
+        for (boolean escaped : new boolean[] {false, true}) {
+            VariantType type = new VariantType(ImmutableList.of(), 0, false, 10000, 1,
+                    false, 0, 64, false, escaped);
+            Column column = new Column("v", type.toCatalogDataType());
+            OlapTable table = Mockito.mock(OlapTable.class);
+            List<String> logical = ImmutableList.of("a.b", "50%");
+            List<String> storage = escaped ? ImmutableList.of("a%2Eb", "50%25") : logical;
+            SlotReference seed = new SlotReference("v", StringType.INSTANCE, true);
+            SlotReference slot = new SlotReference(seed.getExprId(), "v", StringType.INSTANCE, true,
+                    ImmutableList.of(), table, column, table, column, logical);
+            PlanTranslatorContext context = new PlanTranslatorContext();
+            context.addExprIdSlotRefPair(slot.getExprId(), new SlotRef(Type.STRING, true));
+            Assertions.assertNotNull(ExpressionTranslator.INSTANCE.visitMatch(
+                    new MatchAny(slot, new VarcharLiteral("abc")), context));
+            Mockito.verify(table).getInvertedIndex(column, storage, null);
+            SearchExpression search = new SearchExpression("v.a%2Eb:abc",
+                    SearchDslParser.parseDsl("v.a%2Eb:abc"), ImmutableList.of(slot));
+            Assertions.assertNotNull(ExpressionTranslator.INSTANCE.visitSearchExpression(search, context));
+            Mockito.verify(table).getInvertedIndex(column, storage);
+        }
     }
 }

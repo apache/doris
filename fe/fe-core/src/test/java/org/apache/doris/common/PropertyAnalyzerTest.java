@@ -1011,4 +1011,28 @@ public class PropertyAnalyzerTest {
             TimeZone.setDefault(originalTimezone);
         }
     }
+
+    @Test
+    public void testEscapedVariantPropertyAndStoragePathCodec() throws Exception {
+        Map<String, String> properties = new HashMap<>();
+        Assertions.assertFalse(PropertyAnalyzer.analyzeVariantEscapeDotsInKeys(properties));
+        for (String value : new String[] {"true", "TRUE", "false", "FALSE"}) {
+            properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS, value);
+            Assertions.assertEquals(Boolean.parseBoolean(value),
+                    PropertyAnalyzer.analyzeVariantEscapeDotsInKeys(properties));
+            Assertions.assertTrue(properties.isEmpty());
+        }
+        properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS, "invalid");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.analyzeVariantEscapeDotsInKeys(properties));
+        for (String key : new String[] {"", "a.b", "50%", "a%2Eb", "%25", "ordinary"}) {
+            String encoded = PropertyAnalyzer.encodeVariantPathComponent(key);
+            Assertions.assertEquals(key, PropertyAnalyzer.decodeVariantPathComponent(encoded));
+            PropertyAnalyzer.validateVariantStoragePath("parent." + encoded);
+        }
+        for (String invalid : new String[] {"%", "%2", "%2e", "%20", "a%25%"}) {
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> PropertyAnalyzer.validateVariantStoragePath("parent." + invalid));
+        }
+    }
 }

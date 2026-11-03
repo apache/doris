@@ -66,6 +66,31 @@ suite("dotted_key_escape_semantics", "p0") {
     order_qt_search_nested "select id from dotted_key_escape_values where search('v.s.t:nested')"
     order_qt_search_percent "select id from dotted_key_escape_values where search('v.pct%25:percent')"
 
+    // Re-parsing escaped type SQL must not inherit NestedGroup from the session.
+    def oldNestedGroup = sql("show variables like 'default_variant_enable_nested_group'")[0][1]
+    try {
+        sql "set default_variant_enable_nested_group=true"
+        sql "drop table if exists dotted_key_escape_like"
+        sql "drop table if exists dotted_key_escape_show_create"
+        sql "create table dotted_key_escape_like like dotted_key_escape_values"
+        def sourceDdl = sql("show create table dotted_key_escape_values")[0][1]
+        sql sourceDdl.replace('CREATE TABLE `dotted_key_escape_values`',
+                'CREATE TABLE `dotted_key_escape_show_create`')
+        ["dotted_key_escape_like", "dotted_key_escape_show_create"].each { name ->
+            def copiedDdl = sql("show create table ${name}")[0][1]
+            assertTrue(copiedDdl.contains('"variant_escape_dots_in_keys" = "true"'))
+            assertTrue(copiedDdl.contains('"variant_enable_nested_group" = "false"'))
+            sql """insert into ${name} values
+                (1,parse_to_variant('{"a.b":1,"a":{"b":2},"a%2Eb":3}'))"""
+        }
+        order_qt_like_roundtrip """select id,v,v['a.b'],v['a']['b'],v['a%2Eb']
+            from dotted_key_escape_like"""
+        order_qt_show_create_roundtrip """select id,v,v['a.b'],v['a']['b'],v['a%2Eb']
+            from dotted_key_escape_show_create"""
+    } finally {
+        sql "set default_variant_enable_nested_group=${oldNestedGroup}"
+    }
+
     // Phase 1 forbids both directions; the remaining properties stay identical.
     test {
         sql """alter table dotted_key_escape_values modify column v variant<properties("variant_escape_dots_in_keys"="false",

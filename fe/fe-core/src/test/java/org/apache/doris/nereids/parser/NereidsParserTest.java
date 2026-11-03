@@ -2065,4 +2065,18 @@ public class NereidsParserTest extends ParserTestBase {
                 () -> PropertyAnalyzer.validateVariantStoragePath("a%2e"));
     }
 
+    @Test
+    public void testEscapedVariantTemplatePathsAreValidated() {
+        NereidsParser parser = new NereidsParser();
+        String suffix = ", PROPERTIES('variant_escape_dots_in_keys'='true',"
+                + "'variant_enable_nested_group'='false')>";
+        VariantType parsed = (VariantType) parser.parseDataType("variant<MATCH_NAME 'a%2Eb.50%25':int" + suffix);
+        Assertions.assertTrue(parsed.getEscapeDotsInKeys());
+        Assertions.assertFalse(parsed.getEnableNestedGroup());
+        Assertions.assertThrows(NotSupportedException.class,
+                () -> parser.parseDataType("variant<MATCH_NAME 'bad%20':int" + suffix));
+        Assertions.assertNotNull(parser.parseSingle("create table legacy_template (id int,"
+                + "v variant<MATCH_NAME 'bad%20':int, PROPERTIES('variant_enable_nested_group'='false')>)"
+                + " distributed by hash(id) buckets 1"));
+    }
 }
