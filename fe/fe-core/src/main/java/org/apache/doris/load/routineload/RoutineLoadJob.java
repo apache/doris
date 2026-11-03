@@ -416,10 +416,10 @@ public abstract class RoutineLoadJob
         if (fileFormatProperties instanceof CsvFileFormatProperties) {
             CsvFileFormatProperties csvFileFormatProperties = (CsvFileFormatProperties) fileFormatProperties;
             jobProperties.put(FileFormatProperties.PROP_FORMAT, "csv");
-            jobProperties.put(CsvFileFormatProperties.PROP_ENCLOSE,
-                    new String(new byte[]{csvFileFormatProperties.getEnclose()}));
-            jobProperties.put(CsvFileFormatProperties.PROP_ESCAPE,
-                    new String(new byte[]{csvFileFormatProperties.getEscape()}));
+            jobProperties.put(CsvFileFormatProperties.PROP_ENCLOSE, csvControlValue(info,
+                    CsvFileFormatProperties.PROP_ENCLOSE, csvFileFormatProperties.getEnclose()));
+            jobProperties.put(CsvFileFormatProperties.PROP_ESCAPE, csvControlValue(info,
+                    CsvFileFormatProperties.PROP_ESCAPE, csvFileFormatProperties.getEscape()));
             jobProperties.put(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL,
                     String.valueOf(csvFileFormatProperties.getEmptyFieldAsNull()));
             this.enclose = csvFileFormatProperties.getEnclose();
@@ -2061,9 +2061,9 @@ public abstract class RoutineLoadJob
             } else if (k.equals(CreateRoutineLoadInfo.LOAD_TO_SINGLE_TABLET)) {
                 loadToSingleTablet = Boolean.parseBoolean(v);
             } else if (k.equals(CsvFileFormatProperties.PROP_ENCLOSE)) {
-                enclose = csvControlByte(k, v, enclose);
+                enclose = recordedCsvControlByte(k, v, enclose);
             } else if (k.equals(CsvFileFormatProperties.PROP_ESCAPE)) {
-                escape = csvControlByte(k, v, escape);
+                escape = recordedCsvControlByte(k, v, escape);
             }
         });
         // Snapshotted from the creating session. A job created before the snapshot was persisted keeps false, which
@@ -2221,6 +2221,26 @@ public abstract class RoutineLoadJob
                     id, key, value, e.getMessage());
             return current;
         }
+    }
+
+    // What CREATE records for enclose or escape: the value the statement gave, which the replay parses as CREATE did.
+    // The byte itself does not survive a String: new String(new byte[]{b}) decodes every byte from 0x80 up to U+FFFD.
+    // Without a value the byte is 0, recorded as it always was.
+    private static String csvControlValue(CreateRoutineLoadInfo info, String key, byte value) {
+        String given = info.getJobProperties().get(key);
+        return Strings.isNullOrEmpty(given) ? new String(new byte[]{value}) : given;
+    }
+
+    // csvControlByte for a value CREATE or ALTER recorded. CREATE of an older version recorded the byte, so a byte
+    // from 0x80 up came back as U+FFFD, which would now parse to 0xFD for enclose and 0xEF for escape. That byte is
+    // lost: the job keeps the default, which is what it has run with after every restart.
+    private byte recordedCsvControlByte(String key, String value, byte current) {
+        if (value.equals("\uFFFD")) {
+            LOG.warn("routine load job {} keeps its {}: an older version recorded the value as U+FFFD;"
+                    + " ALTER ROUTINE LOAD can set it again", id, key);
+            return current;
+        }
+        return csvControlByte(key, value, current);
     }
 
     /**
