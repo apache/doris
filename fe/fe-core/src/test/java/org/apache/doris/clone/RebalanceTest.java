@@ -450,8 +450,7 @@ public class RebalanceTest {
         rebalancer.selectAlternativeTablets();
 
         // Verify: moves were generated (test is meaningful)
-        Map<Long, Pair<PartitionRebalancer.TabletMove, Long>> moves =
-                rebalancer.getMovesInProgress(Tag.DEFAULT_BACKEND_TAG);
+        Map<Long, Pair<PartitionRebalancer.TabletMove, Long>> moves = rebalancer.getMovesInProgress();
         Assertions.assertFalse(moves.isEmpty(), "Should generate moves for skewed SSD partition");
 
         // Verify: no move targets BE 20003 (HDD-only) or any of the HDD BEs from setUp (10001-10004)
@@ -469,6 +468,60 @@ public class RebalanceTest {
             Assertions.assertEquals(Long.valueOf(20002L), move.toBe, "Dest should be the least loaded SSD BE");
         }
         LOG.info("testPartitionRebalancerSkipBEWithoutMedium success");
+    }
+
+    @Test
+    public void testPendingMoveRequiresDestinationStorageMedium() {
+        long sourceBeId = 21001L;
+        long destinationBeId = 21002L;
+        int tabletId = 81001;
+        systemInfoService.addBackend(
+                RebalancerTestUtil.createBackend(sourceBeId, 2048, 0, TStorageMedium.SSD));
+        systemInfoService.addBackend(
+                RebalancerTestUtil.createBackend(destinationBeId, 2048, 0, TStorageMedium.SSD));
+        RebalancerTestUtil.createTablet(invertedIndex, db, olapTable, "p0", TStorageMedium.SSD,
+                tabletId, Lists.newArrayList(sourceBeId));
+
+        String originalRebalancerType = Config.tablet_rebalancer_type;
+        try {
+            Config.tablet_rebalancer_type = "partition";
+            LoadStatisticForTag initialStatistic = new LoadStatisticForTag(
+                    Tag.DEFAULT_BACKEND_TAG, systemInfoService, invertedIndex, null);
+            initialStatistic.init();
+            PartitionRebalancer rebalancer = new PartitionRebalancer(systemInfoService, invertedIndex, null);
+            rebalancer.updateLoadStatistic(Maps.newHashMap(
+                    Collections.singletonMap(Tag.DEFAULT_BACKEND_TAG, initialStatistic)));
+
+            MovesCacheMap movesCacheMap = Deencapsulation.getField(rebalancer, "movesCacheMap");
+            PartitionRebalancer.TabletMove move =
+                    new PartitionRebalancer.TabletMove((long) tabletId, sourceBeId, destinationBeId);
+            movesCacheMap.getCache(Tag.DEFAULT_BACKEND_TAG, TStorageMedium.SSD).get().put((long) tabletId,
+                    Pair.of(move, -1L));
+            systemInfoService.getBackend(destinationBeId).getDisks().values()
+                    .forEach(disk -> disk.setStorageMedium(TStorageMedium.HDD));
+
+            LoadStatisticForTag statistic = new LoadStatisticForTag(
+                    Tag.DEFAULT_BACKEND_TAG, systemInfoService, invertedIndex, rebalancer);
+            statistic.init();
+            Assertions.assertFalse(statistic.isMoveIncluded(move));
+            TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
+            TabletInvertedIndex.PartitionBalanceInfo partitionInfo = statistic.getSkewMap(TStorageMedium.SSD)
+                    .values().stream()
+                    .filter(info -> info.partitionId.equals(tabletMeta.getPartitionId())
+                            && info.indexId.equals(tabletMeta.getIndexId()))
+                    .findFirst().orElseThrow();
+
+            Assertions.assertTrue(partitionInfo.beByReplicaCount.values().contains(sourceBeId));
+            Assertions.assertFalse(partitionInfo.beByReplicaCount.values().contains(destinationBeId));
+            Assertions.assertFalse(statistic.getBeByTotalReplicaMap(TStorageMedium.SSD)
+                    .values().contains(destinationBeId));
+            Assertions.assertTrue(
+                    rebalancer.selectAlternativeTabletsForCluster(statistic, TStorageMedium.SSD).isEmpty());
+            Assertions.assertNull(movesCacheMap.getCache(Tag.DEFAULT_BACKEND_TAG, TStorageMedium.SSD)
+                    .get().getIfPresent((long) tabletId));
+        } finally {
+            Config.tablet_rebalancer_type = originalRebalancerType;
+        }
     }
 
     @Test

@@ -202,7 +202,8 @@ public abstract class TabletInvertedIndex {
             List<Long> availableBeIds,
             Map<TStorageMedium, List<Long>> availableBeIdsByMedium,
             Map<Long, Pair<TabletMove, Long>> movesInProgress,
-            Map<TStorageMedium, TreeMultimap<Long, Long>> beByTotalReplicaCountMaps) {
+            Map<TStorageMedium, TreeMultimap<Long, Long>> beByTotalReplicaCountMaps,
+            Map<Long, TabletMove> includedMoves) {
         throw new UnsupportedOperationException("buildPartitionInfoBySkew is not supported in TabletInvertedIndex");
     }
 

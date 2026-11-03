@@ -376,12 +376,11 @@ public class PartitionRebalancer extends Rebalancer {
         }
     }
 
-    public Map<Long, Pair<TabletMove, Long>> getMovesInProgress(Tag tag) {
+    public Map<Long, Pair<TabletMove, Long>> getMovesInProgress() {
         Map<Long, Pair<TabletMove, Long>> moves = Maps.newHashMap();
-        Map<TStorageMedium, MovesCacheMap.MovesCache> mediumMap = movesCacheMap.getCacheMap().get(tag);
-        if (mediumMap != null) {
-            mediumMap.values().forEach(cache -> moves.putAll(cache.get().asMap()));
-        }
+        movesCacheMap.getCacheMap().values().forEach(
+                m -> m.values().forEach(cache -> moves.putAll(cache.get().asMap())));
+
         return moves;
     }
 

@@ -931,7 +931,8 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
             List<Long> availableBeIds,
             Map<TStorageMedium, List<Long>> availableBeIdsByMedium,
             Map<Long, Pair<TabletMove, Long>> movesInProgress,
-            Map<TStorageMedium, TreeMultimap<Long, Long>> beByTotalReplicaCountMaps) {
+            Map<TStorageMedium, TreeMultimap<Long, Long>> beByTotalReplicaCountMaps,
+            Map<Long, TabletMove> includedMoves) {
         Set<Long> dbIds = Sets.newHashSet();
         Set<Long> tableIds = Sets.newHashSet();
         Set<Long> partitionIds = Sets.newHashSet();
@@ -960,23 +961,27 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
                 Long beId = cell.getColumnKey();
                 Pair<TabletMove, Long> movePair = movesInProgress.get(tabletId);
                 TabletMove move = movePair != null ? movePair.first : null;
-                if (move != null && beId.equals(move.fromBe)
-                        && availableBeIds.contains(move.toBe)) {
-                    // A registered destination (including CLONE) is counted by its own cell.
-                    // Check the same snapshot as the counts, not the cached source replica ID:
-                    // that ID can be set before the destination replica is actually added.
-                    if (replicaMetaTable.contains(tabletId, move.toBe)) {
-                        continue;
-                    }
-                    // The destination is not registered yet. Count the source at its future location.
-                    beId = move.toBe;
-                }
-
                 try {
-                    Preconditions.checkState(availableBeIds.contains(beId), "dead be " + beId);
                     TabletMeta tabletMeta = tabletMetaMap.get(tabletId);
                     Preconditions.checkNotNull(tabletMeta, "invalid tablet " + tabletId);
                     TStorageMedium medium = tabletMeta.getStorageMedium();
+                    List<Long> availableBeIdsForMedium = availableBeIdsByMedium.getOrDefault(
+                            medium, Lists.newArrayList());
+                    // Only project a pending move when both endpoints still support the tablet medium.
+                    boolean includeMove = move != null && availableBeIdsForMedium.contains(move.fromBe)
+                            && availableBeIdsForMedium.contains(move.toBe);
+                    if (includeMove && beId.equals(move.fromBe)) {
+                        // A registered destination (including CLONE) is counted by its own cell.
+                        // Check the same snapshot as the counts, not the cached source replica ID:
+                        // that ID can be set before the destination replica is actually added.
+                        if (replicaMetaTable.contains(tabletId, move.toBe)) {
+                            continue;
+                        }
+                        // The destination is not registered yet. Count the source at its future location.
+                        beId = move.toBe;
+                    }
+
+                    Preconditions.checkState(availableBeIds.contains(beId), "dead be " + beId);
                     totalReplicaCounts.get(medium).merge(beId, 1L, Long::sum);
                     if (dbIds.contains(tabletMeta.getDbId()) || tableIds.contains(tabletMeta.getTableId())
                             || partitionIds.contains(tabletMeta.getPartitionId())) {
@@ -992,8 +997,6 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
                     if (countMap == null) {
                         // If one be doesn't have any replica of one partition,
                         // it should be counted too.
-                        List<Long> availableBeIdsForMedium = availableBeIdsByMedium.getOrDefault(
-                                medium, Lists.newArrayList());
                         countMap = availableBeIdsForMedium.stream().collect(Collectors.toMap(i -> i, i -> 0L));
                     }
 
@@ -1001,6 +1004,9 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
                     countMap.put(beId, count + 1L);
                     partitionReplicasInfo.put(tabletMeta.getPartitionId(), tabletMeta.getIndexId(), countMap);
                     partitionReplicasInfoMaps.put(medium, partitionReplicasInfo);
+                    if (includeMove && beId.equals(move.toBe)) {
+                        includedMoves.put(tabletId, move);
+                    }
                 } catch (IllegalStateException | NullPointerException e) {
                     // If the tablet or be has some problem, don't count in
                     if (LOG.isDebugEnabled()) {
