@@ -128,9 +128,9 @@ public abstract class ConnectProcessor {
         }
     }
 
-    // set killed flag
+    // Finish this command response before closing the session.
     protected void handleQuit() {
-        ctx.setKilled();
+        ctx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
         ctx.getState().setOk();
     }
 

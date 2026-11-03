@@ -254,6 +254,18 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                 }
 
                 StmtExecutor executor = connectContext.getExecutor();
+                if (connectContext.isClosingAfterResponse()) {
+                    // Self KILL CONNECTION has no result rows. Finish this GetFlightInfo response
+                    // without issuing a DoGet ticket for a session whose token is already revoked.
+                    // gRPC serializes this self-contained value after callCommand ends the operation
+                    // and releases the session. Keep the OK header that Prepare advertises so the
+                    // prepared-statement schema check accepts the same response.
+                    Schema schema = new Schema(Collections.singletonList(
+                            Field.nullable("StatusResult", new ArrowType.Utf8())));
+                    return new ExecutedQuery(new FlightInfo(schema, descriptor,
+                            Collections.emptyList(), 0, 0), executor, true);
+                }
+
                 if (connectContext.isReturnResultFromLocal()) {
                     // set/use etc. stmt returns an OK result by default.
                     if (connectContext.getFlightSqlChannel().resultNum() == 0) {

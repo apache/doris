@@ -26,6 +26,8 @@ import org.apache.doris.qe.ConnectContext.LifecycleState;
 import org.apache.doris.qe.ConnectPoolTestSupport;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.ConnectScheduler;
+import org.apache.doris.qe.MysqlConnectProcessor;
+import org.apache.doris.qe.protocol.RecordingMysqlChannel;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -105,6 +107,15 @@ public class AcceptListenerTest {
 
     @Test
     public void testReadFailureClosesTheSessionAfterTheCommandExits() throws Exception {
+        verifyReadFailure(false);
+    }
+
+    @Test
+    public void testResponseFailureUpgradesTheDeferredClose() throws Exception {
+        verifyReadFailure(true);
+    }
+
+    private void verifyReadFailure(boolean closeAfterResponse) throws Exception {
         MysqlProtocolAdapter adapter = Mockito.mock(MysqlProtocolAdapter.class);
         Mockito.when(adapter.type()).thenReturn(ConnectContext.ConnectType.MYSQL);
         ConnectContext ctx = new ConnectContext(adapter);
@@ -112,7 +123,11 @@ public class AcceptListenerTest {
         ConnectProcessor processor = Mockito.mock(ConnectProcessor.class);
         Mockito.doAnswer(call -> {
             Assertions.assertSame(ctx, ConnectContext.get());
-            throw new IOException("read failed");
+            if (closeAfterResponse) {
+                ctx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+                Mockito.verify(adapter, Mockito.never()).closeConnection(ctx);
+            }
+            throw new IOException("read or response write failed");
         }).when(processor).processOnce();
         ConduitStreamSourceChannel channel = Mockito.mock(ConduitStreamSourceChannel.class);
         XnioWorker worker = Mockito.mock(XnioWorker.class);
@@ -125,9 +140,48 @@ public class AcceptListenerTest {
             new ReadListener(ctx, processor).handleEvent(channel);
         }
         Assertions.assertEquals(LifecycleState.CLOSED, ctx.getLifecycleState());
+        Mockito.verify(adapter).closeConnection(ctx);
         Mockito.verify(adapter).releaseSession(ctx);
+        Assertions.assertFalse(ctx.isClosingAfterResponse());
         Mockito.verify(adapter, Mockito.never()).resumeAcceptQuery();
         Assertions.assertNull(ConnectContext.get());
+    }
+
+    @Test
+    public void testQuitResponseIsFlushedBeforeTheChannelCloses() throws Exception {
+        RecordingMysqlChannel mysqlChannel = Mockito.spy(new RecordingMysqlChannel());
+        mysqlChannel.queueRequest(new byte[] {1}); // COM_QUIT
+        MysqlProtocolAdapter adapter = Mockito.spy(new MysqlProtocolAdapter(mysqlChannel));
+        Mockito.doNothing().when(adapter).suspendAcceptQuery();
+        Mockito.doNothing().when(adapter).stopAcceptQuery();
+        ConnectContext ctx = new ConnectContext(adapter);
+        ctx.setEnv(ConnectPoolTestSupport.envAllowing(10));
+        ctx.setCurrentUserIdentity(UserIdentity.ROOT);
+        ConnectScheduler scheduler = new ConnectScheduler(10);
+        scheduler.submit(ctx);
+        ctx.setConnectScheduler(scheduler);
+        Assertions.assertEquals(-1, ctx.activateClientSession(scheduler.getConnectPoolMgr()));
+        Mockito.doAnswer(call -> {
+            Assertions.assertEquals(1, mysqlChannel.getOutbound().size());
+            Assertions.assertTrue(mysqlChannel.getOutbound().get(0).isFlushed());
+            Assertions.assertEquals(LifecycleState.CLOSING, ctx.getLifecycleState());
+            Assertions.assertEquals(0, scheduler.getConnectionNum());
+            return null;
+        }).when(mysqlChannel).close();
+        ConduitStreamSourceChannel channel = Mockito.mock(ConduitStreamSourceChannel.class);
+        XnioWorker worker = Mockito.mock(XnioWorker.class);
+        Mockito.when(channel.getWorker()).thenReturn(worker);
+        Mockito.doAnswer(call -> {
+            call.<Runnable>getArgument(0).run();
+            return null;
+        }).when(worker).execute(Mockito.any(Runnable.class));
+        try (MockedStatic<XnioIoThread> ioThread = Mockito.mockStatic(XnioIoThread.class)) {
+            new ReadListener(ctx, new MysqlConnectProcessor(ctx)).handleEvent(channel);
+        }
+        ctx.getCleanupCompletion().toCompletableFuture().join();
+        Assertions.assertEquals(LifecycleState.CLOSED, ctx.getLifecycleState());
+        Mockito.verify(mysqlChannel).close();
+        Mockito.verify(adapter, Mockito.never()).resumeAcceptQuery();
     }
 
     @Test

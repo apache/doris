@@ -30,7 +30,7 @@ public class WorkloadActionCancelQuery implements WorkloadAction {
 
     @Override
     public void exec(WorkloadQueryInfo queryInfo) {
-        if (queryInfo.context != null && !queryInfo.context.isKilled()
+        if (queryInfo.context != null && !queryInfo.context.isClosingOrClosed()
                 && queryInfo.tUniqueId != null
                 && QeProcessorImpl.INSTANCE.getCoordinator(queryInfo.tUniqueId) != null) {
             LOG.info("cancel query {} triggered by query schedule policy.", queryInfo.queryId);

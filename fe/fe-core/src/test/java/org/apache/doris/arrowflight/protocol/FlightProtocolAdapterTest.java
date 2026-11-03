@@ -163,7 +163,7 @@ public class FlightProtocolAdapterTest {
 
         ctx.kill(true);
 
-        Assertions.assertTrue(ctx.isKilled());
+        Assertions.assertTrue(ctx.isClosingOrClosed());
         Assertions.assertNull(scheduler.getContext(ctx.getConnectionId()));
         Assertions.assertNull(scheduler.getContextWithPeerIdentity(ctx.getPeerIdentity()));
     }

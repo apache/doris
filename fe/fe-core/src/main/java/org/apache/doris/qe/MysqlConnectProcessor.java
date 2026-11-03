@@ -603,12 +603,12 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             }
             if (!packetBuf.hasRemaining()) {
                 LOG.info("No more data to be read. Close connection. remote={}", channel.getRemoteHostPortString());
-                ctx.setKilled();
+                ctx.cleanup();
                 return;
             }
         } catch (AsynchronousCloseException e) {
             // when this happened, timeout checker close this channel
-            // killed flag in ctx has been already set, just return
+            // The context has already entered CLOSING; let the operation's finally report exit.
             return;
         }
 
@@ -628,15 +628,18 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         MysqlProtocolAdapter.of(ctx).finishCommand(ctx, executor);
     }
 
+    /** Blocking driver for an activated context; each response owns one operation boundary. */
     public void loop() {
-        while (!ctx.isKilled()) {
+        while (ctx.tryBeginCommand()) {
             try {
                 processOnce();
             } catch (Exception e) {
                 // TODO(zhaochun): something wrong
                 LOG.warn("Exception happened in one session(" + ctx + ").", e);
-                ctx.setKilled();
+                ctx.cleanup();
                 break;
+            } finally {
+                ctx.endOperation();
             }
         }
     }

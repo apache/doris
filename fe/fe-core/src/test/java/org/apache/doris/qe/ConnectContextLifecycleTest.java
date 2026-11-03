@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Status;
 import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.qe.ConnectContext.CloseMode;
 import org.apache.doris.qe.ConnectContext.LifecycleState;
 import org.apache.doris.qe.protocol.ProtocolAdapter;
 import org.apache.doris.thrift.TStatusCode;
@@ -152,6 +153,161 @@ public class ConnectContextLifecycleTest {
         Mockito.verify(adapter).releaseSession(ctx);
         Mockito.verify(ctx).closeTxn();
         Assertions.assertNull(ctx.getExecutor());
+    }
+
+    @Test
+    public void testDeferredCloseRevokesAdmissionButPreservesTheResponse() {
+        Assertions.assertEquals(-1, ctx.activateClientSession(pool));
+        Assertions.assertTrue(ctx.tryBeginCommand());
+        ctx.setThreadLocalInfo();
+        StmtExecutor running = Mockito.mock(StmtExecutor.class);
+        ctx.setExecutor(running);
+        ctx.requestClose(CloseMode.AFTER_RESPONSE);
+        ctx.requestClose(CloseMode.AFTER_RESPONSE);
+
+        Assertions.assertEquals(LifecycleState.CLOSING, ctx.getLifecycleState());
+        Assertions.assertSame(ctx, ConnectContext.get());
+        Assertions.assertEquals(0, pool.getConnectionNum());
+        Assertions.assertFalse(ctx.tryBeginCommand());
+        Assertions.assertTrue(ctx.isClosingAfterResponse());
+        Assertions.assertFalse(ctx.getCleanupCompletion().toCompletableFuture().isDone());
+        Mockito.verifyNoInteractions(running);
+        Mockito.verify(adapter, Mockito.never()).closeConnection(ctx);
+        Mockito.verify(adapter, Mockito.never()).releaseSession(ctx);
+        // The admitted multi-statement command can still publish work needed for its response.
+        StmtExecutor late = Mockito.mock(StmtExecutor.class);
+        ctx.setExecutor(late);
+        Mockito.verifyNoInteractions(late);
+
+        ctx.endOperation();
+        Assertions.assertEquals(LifecycleState.CLOSED, ctx.getLifecycleState());
+        Mockito.verify(adapter).closeConnection(ctx);
+        Mockito.verify(adapter).releaseSession(ctx);
+        Mockito.verifyNoInteractions(running, late);
+        ctx.getCleanupCompletion().toCompletableFuture().join();
+        Assertions.assertNull(ConnectContext.get());
+    }
+
+    @Test
+    public void testDeferredCloseWaitsForBothInitializationAndTheCommand() {
+        Assertions.assertTrue(ctx.beginInitialization());
+        Assertions.assertEquals(-1, ctx.activateClientSession(pool));
+        Assertions.assertTrue(ctx.tryBeginCommand());
+        ctx.requestClose(CloseMode.AFTER_RESPONSE);
+        ctx.endOperation();
+        Assertions.assertEquals(LifecycleState.CLOSING, ctx.getLifecycleState());
+        Mockito.verify(adapter, Mockito.never()).closeConnection(ctx);
+        ctx.endOperation();
+        Assertions.assertEquals(LifecycleState.CLOSED, ctx.getLifecycleState());
+        Mockito.verify(adapter).closeConnection(ctx);
+        Mockito.verify(adapter).releaseSession(ctx);
+    }
+
+    @Test
+    public void testImmediateCloseUpgradesADeferredCloseWithoutDowngrading() {
+        Assertions.assertEquals(-1, ctx.activateClientSession(pool));
+        Assertions.assertTrue(ctx.tryBeginCommand());
+        StmtExecutor running = Mockito.mock(StmtExecutor.class);
+        ctx.setExecutor(running);
+        ctx.requestClose(CloseMode.AFTER_RESPONSE);
+        ctx.kill(true);
+        ctx.requestClose(CloseMode.AFTER_RESPONSE);
+        ctx.cleanup();
+        Assertions.assertFalse(ctx.isClosingAfterResponse());
+        Mockito.verify(running).cancel(Mockito.any(Status.class), Mockito.eq(false));
+        Mockito.verify(adapter).closeConnection(ctx);
+        Mockito.verify(adapter, Mockito.never()).releaseSession(ctx);
+        Assertions.assertEquals(LifecycleState.CLOSING, ctx.getLifecycleState());
+        ctx.endOperation();
+        Assertions.assertEquals(LifecycleState.CLOSED, ctx.getLifecycleState());
+        Mockito.verify(adapter).closeConnection(ctx);
+        Mockito.verify(adapter).releaseSession(ctx);
+    }
+
+    @Test
+    public void testDeferredCloseWithNoResponseClosesImmediately() {
+        Assertions.assertEquals(-1, ctx.activateClientSession(pool));
+        ctx.requestClose(CloseMode.AFTER_RESPONSE);
+        Assertions.assertEquals(LifecycleState.CLOSED, ctx.getLifecycleState());
+        Assertions.assertEquals(0, pool.getConnectionNum());
+        Mockito.verify(adapter).closeConnection(ctx);
+        Mockito.verify(adapter).releaseSession(ctx);
+    }
+
+    @Test
+    public void testImmediateUpgradeWhileRegistrationIsBeingRevoked() throws Exception {
+        pool = Mockito.spy(pool);
+        Assertions.assertEquals(-1, ctx.activateClientSession(pool));
+        Assertions.assertTrue(ctx.tryBeginCommand());
+        CountDownLatch unregistering = new CountDownLatch(1);
+        CountDownLatch allowUnregister = new CountDownLatch(1);
+        Mockito.doAnswer(call -> {
+            unregistering.countDown();
+            Assertions.assertTrue(allowUnregister.await(10, TimeUnit.SECONDS));
+            return call.callRealMethod();
+        }).when(pool).unregisterConnection(ctx);
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> deferredClose = worker.submit(() -> ctx.requestClose(CloseMode.AFTER_RESPONSE));
+            Assertions.assertTrue(unregistering.await(10, TimeUnit.SECONDS));
+            ctx.cleanup();
+            ctx.endOperation();
+            Mockito.verify(adapter, Mockito.never()).releaseSession(ctx);
+            allowUnregister.countDown();
+            deferredClose.get(10, TimeUnit.SECONDS);
+            Assertions.assertEquals(LifecycleState.CLOSED, ctx.getLifecycleState());
+            Assertions.assertEquals(0, pool.getConnectionNum());
+            Mockito.verify(pool).unregisterConnection(ctx);
+            Mockito.verify(adapter).closeConnection(ctx);
+            Mockito.verify(adapter).releaseSession(ctx);
+        } finally {
+            allowUnregister.countDown();
+            worker.shutdownNow();
+            Assertions.assertTrue(worker.awaitTermination(10, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    public void testForcedCloseRacingWithResponseCompletionReleasesOnce() throws Exception {
+        Assertions.assertEquals(-1, ctx.activateClientSession(pool));
+        Assertions.assertTrue(ctx.tryBeginCommand());
+        ctx.requestClose(CloseMode.AFTER_RESPONSE);
+        CountDownLatch closingTransport = new CountDownLatch(1);
+        CountDownLatch allowClose = new CountDownLatch(1);
+        Mockito.doAnswer(call -> {
+            closingTransport.countDown();
+            Assertions.assertTrue(allowClose.await(10, TimeUnit.SECONDS));
+            return null;
+        }).when(adapter).closeConnection(ctx);
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> response = worker.submit(ctx::endOperation);
+            Assertions.assertTrue(closingTransport.await(10, TimeUnit.SECONDS));
+            ctx.cleanup();
+            Assertions.assertEquals(LifecycleState.CLOSING, ctx.getLifecycleState());
+            Mockito.verify(adapter, Mockito.never()).releaseSession(ctx);
+            allowClose.countDown();
+            response.get(10, TimeUnit.SECONDS);
+            Assertions.assertEquals(LifecycleState.CLOSED, ctx.getLifecycleState());
+            Mockito.verify(adapter).closeConnection(ctx);
+            Mockito.verify(adapter).releaseSession(ctx);
+        } finally {
+            allowClose.countDown();
+            worker.shutdownNow();
+            Assertions.assertTrue(worker.awaitTermination(10, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    public void testKillQueryKeepsTheSessionActive() {
+        Assertions.assertEquals(-1, ctx.activateClientSession(pool));
+        StmtExecutor running = Mockito.mock(StmtExecutor.class);
+        ctx.setExecutor(running);
+        ctx.kill(false);
+        Mockito.verify(running).cancel(Mockito.any(Status.class));
+        Assertions.assertEquals(LifecycleState.ACTIVE, ctx.getLifecycleState());
+        Assertions.assertSame(ctx, pool.getContext(ctx.getConnectionId()));
+        Mockito.verify(adapter, Mockito.never()).closeConnection(ctx);
     }
 
     @Test

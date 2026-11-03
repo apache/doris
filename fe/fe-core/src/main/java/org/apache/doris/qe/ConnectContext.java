@@ -125,8 +125,8 @@ import javax.annotation.Nullable;
  * <h2>Lifecycle states and transitions</h2>
  * <pre>
  * INITIALIZING -- activate / successful activateClientSession --&gt; ACTIVE
- * INITIALIZING -- cleanup -------------------------------------&gt; CLOSING
- * ACTIVE ------ cleanup / KILL CONNECTION / idle expiry --------&gt; CLOSING
+ * INITIALIZING -- requestClose / cleanup ----------------------&gt; CLOSING
+ * ACTIVE ------ requestClose / cleanup / idle expiry -----------&gt; CLOSING
  * CLOSING ----- operations drained and cleanup succeeded -------&gt; CLOSED
  * </pre>
  * The lifecycle is distinct from {@link QueryState}, the current MySQL command, thread-local
@@ -161,7 +161,7 @@ import javax.annotation.Nullable;
  * false, reject the request without using session resources; a prior pool or token lookup is
  * not permission to execute. On success, the method records an in-flight operation and refreshes
  * activity time. Always call {@link #endOperation()} in finally, including on exceptions or when
- * another thread has started cleanup. The operation count protects resource lifetime; it does
+ * another thread has started cleanup. The inFlightOperations count protects resource lifetime; it does
  * not serialize commands. MySQL's read scheduling and Flight's command lock still provide that
  * serialization. Do not acquire another operation for an entry already guarded by those paths.
  *
@@ -172,21 +172,28 @@ import javax.annotation.Nullable;
  * A borrower must restore its binding rather than call cleanup on a context it does not own.</li>
  *
  * <li><b>CLOSING: reject new work, revoke registration, then drain existing operations.</b>
- * The owner or a termination event calls {@link #cleanup()}; {@link #kill(boolean)} with true
- * and the idle branch of {@link #checkTimeout(long)} use the same closing flow. Exactly one caller
- * wins the transition. It unregisters only the registration this context successfully acquired,
- * requests cancellation without waiting for execution to finish, and invokes the adapter's
- * transport-close hook. Reentrant or concurrent cleanup calls do not repeat these actions.
- * An executor published through {@link #setExecutor(StmtExecutor)} after closure starts also
- * receives cancellation, so publication cannot escape the close request.
+ * Call {@link #requestClose(CloseMode)} to enter CLOSING and revoke registration immediately.
+ * Use {@link CloseMode#AFTER_RESPONSE} for COM_QUIT or self KILL CONNECTION: admitted operations
+ * may complete their responses without query cancellation or transport closure. The final
+ * {@link #endOperation()} closes transport after the response boundary. With no in-flight
+ * operation, there is no response to wait for and transport closes immediately.
+ *
+ * <p>{@link #cleanup()} requests {@link CloseMode#IMMEDIATE}, as do external KILL CONNECTION,
+ * disconnects, protocol failures and idle expiry. This also cancels execution and closes
+ * transport without waiting for operation exit. An immediate request upgrades a pending
+ * AFTER_RESPONSE close; a later deferred request never downgrades an immediate close. An executor
+ * published through {@link #setExecutor(StmtExecutor)} during an immediate close also receives
+ * cancellation. KILL QUERY and query timeout only cancel the query and keep the lifecycle ACTIVE.
+ * Registration revocation, transport closure and resource release are each claimed once, even
+ * when a channel callback re-enters cleanup or a forced close races with the final response.
  *
  * <p>Cleanup does not wait for a running operation's command lock. Once close initiation has
  * finished and every successful begin has a matching endOperation, exactly one caller releases
  * protocol session resources, rolls back the session transaction, runs the existing temporary
  * table/session cleanup hooks and clears local references. With no in-flight operations this
  * happens in cleanup itself; otherwise the last exiting operation performs it. Flight seals its
- * deferred-executor handoff at close initiation, but releases the channel allocator only after
- * draining operations. Callers must not invoke pool unregistration, releaseProtocolSession or
+ * deferred-executor handoff when transport closure runs, and releases the channel allocator only
+ * after draining operations. Callers must not invoke pool unregistration, releaseProtocolSession or
  * closeTxn independently as a substitute for this coordinated session-close flow.
  *
  * <p>Use {@link #getCleanupCompletion()} to observe completion instead of assuming that a return
@@ -253,13 +260,21 @@ public class ConnectContext {
         INITIALIZING, ACTIVE, CLOSING, CLOSED
     }
 
+    public enum CloseMode {
+        IMMEDIATE, AFTER_RESPONSE
+    }
+
     // Lock order: lifecycleLock -> ConnectPoolMgr.admissionLock. The pool never calls back into
     // the lifecycle. Cancellation, channel callbacks and resource release run outside both locks.
     private final Object lifecycleLock = new Object();
     private volatile LifecycleState lifecycleState = LifecycleState.INITIALIZING;
     private ConnectPoolMgr registeredPool;
-    private int activeOperations;
+    private int inFlightOperations;
+    private CloseMode closeMode;
+    // Teardown progress is guarded by lifecycleLock. Admission depends only on lifecycleState.
     private boolean closeInitiated;
+    private boolean transportCloseStarted;
+    private boolean transportClosed;
     private boolean releasingResources;
     private Throwable cleanupFailure;
     private final CompletableFuture<Void> cleanupCompletion = new CompletableFuture<>();
@@ -287,8 +302,6 @@ public class ConnectContext {
     // state
     protected volatile QueryState state;
     protected volatile long returnRows;
-    // Indicate if this client is killed.
-    protected volatile boolean isKilled;
     // Db
     protected volatile String currentDb = "";
     protected volatile long currentDbId = -1;
@@ -539,7 +552,6 @@ public class ConnectContext {
         try {
             state = new QueryState();
             returnRows = 0;
-            isKilled = false;
             resetSessionVariable();
             userVars = new HashMap<>();
             command = MysqlCommand.COM_SLEEP;
@@ -1150,15 +1162,16 @@ public class ConnectContext {
     }
 
     public void setExecutor(StmtExecutor executor) {
-        boolean closing;
+        boolean cancelOnPublication;
         synchronized (lifecycleLock) {
             Preconditions.checkState(lifecycleState != LifecycleState.CLOSED, "Context is closed");
             this.executor = executor;
-            closing = lifecycleState == LifecycleState.CLOSING || lifecycleState == LifecycleState.CLOSED;
+            cancelOnPublication = lifecycleState == LifecycleState.CLOSING && closeMode == CloseMode.IMMEDIATE;
         }
-        // Closing may win before the command publishes its executor. StmtExecutor remembers
-        // cancellation even before it has a coordinator, so that late publication cannot escape it.
-        if (closing && executor != null) {
+        // An immediate close may win before the command publishes its executor. StmtExecutor
+        // remembers cancellation before coordinator publication. A deferred close lets the
+        // admitted command finish its response without cancelling its remaining work.
+        if (cancelOnPublication && executor != null) {
             executor.cancel(new Status(TStatusCode.CANCELLED, "session closed"), false);
         }
     }
@@ -1244,7 +1257,7 @@ public class ConnectContext {
             if (lifecycleState != LifecycleState.INITIALIZING) {
                 return false;
             }
-            activeOperations++;
+            inFlightOperations++;
             return true;
         }
     }
@@ -1255,7 +1268,7 @@ public class ConnectContext {
             if (lifecycleState != LifecycleState.ACTIVE) {
                 return false;
             }
-            activeOperations++;
+            inFlightOperations++;
             refreshStartTime();
             return true;
         }
@@ -1264,8 +1277,8 @@ public class ConnectContext {
     /** Paired with a successful beginInitialization/tryBeginCommand, including exceptional exits. */
     public void endOperation() {
         synchronized (lifecycleLock) {
-            Preconditions.checkState(activeOperations > 0, "No context operation to finish");
-            activeOperations--;
+            Preconditions.checkState(inFlightOperations > 0, "No context operation to finish");
+            inFlightOperations--;
         }
         finishCleanup();
     }
@@ -1313,23 +1326,42 @@ public class ConnectContext {
         cleanup();
     }
 
-    /** Requests idempotent closure from any thread; completion may be deferred until operations exit. */
+    /** Requests immediate closure; resource release still waits for in-flight operations to exit. */
     public void cleanup() {
-        synchronized (lifecycleLock) {
-            if (!startClosing()) {
-                return;
-            }
-        }
-        initiateCleanup();
+        requestClose(CloseMode.IMMEDIATE);
     }
 
-    // Called with lifecycleLock held. Only the winning caller initiates teardown.
-    private boolean startClosing() {
+    /**
+     * Revoke admission now. AFTER_RESPONSE lets admitted operations finish their responses before
+     * closing transport; IMMEDIATE also cancels execution and closes transport without waiting.
+     * A later immediate request upgrades a deferred close, never the other way around.
+     */
+    public void requestClose(CloseMode mode) {
+        Preconditions.checkNotNull(mode, "close mode");
+        boolean initiate;
+        synchronized (lifecycleLock) {
+            if (lifecycleState == LifecycleState.CLOSED) {
+                return;
+            }
+            initiate = startClosing(mode);
+            if (!initiate && mode == CloseMode.IMMEDIATE) {
+                closeMode = CloseMode.IMMEDIATE;
+            }
+        }
+        if (initiate) {
+            initiateCleanup();
+        } else {
+            finishCleanup();
+        }
+    }
+
+    // Called with lifecycleLock held. Only the winning caller revokes registration.
+    private boolean startClosing(CloseMode mode) {
         if (lifecycleState == LifecycleState.CLOSING || lifecycleState == LifecycleState.CLOSED) {
             return false;
         }
         lifecycleState = LifecycleState.CLOSING;
-        isKilled = true;
+        closeMode = mode;
         return true;
     }
 
@@ -1344,13 +1376,6 @@ public class ConnectContext {
             if (pool != null) {
                 cleanupStep("unregister connection", () -> pool.unregisterConnection(this));
             }
-            cleanupStep("cancel query", () -> {
-                StmtExecutor running = executor;
-                if (running != null) {
-                    running.cancel(new Status(TStatusCode.CANCELLED, "session closed"), false);
-                }
-            });
-            cleanupStep("close transport", this::closeChannel);
             synchronized (lifecycleLock) {
                 closeInitiated = true;
             }
@@ -1361,8 +1386,23 @@ public class ConnectContext {
     }
 
     private void finishCleanup() {
+        boolean closeTransport = false;
+        boolean cancelExecution = false;
         synchronized (lifecycleLock) {
-            if (!closeInitiated || activeOperations != 0 || releasingResources) {
+            if (!closeInitiated) {
+                return;
+            }
+            if (!transportCloseStarted && (closeMode == CloseMode.IMMEDIATE || inFlightOperations == 0)) {
+                transportCloseStarted = true;
+                closeTransport = true;
+                cancelExecution = closeMode == CloseMode.IMMEDIATE;
+            }
+        }
+        if (closeTransport) {
+            closeTransport(cancelExecution);
+        }
+        synchronized (lifecycleLock) {
+            if (!transportClosed || inFlightOperations != 0 || releasingResources) {
                 return;
             }
             releasingResources = true;
@@ -1389,6 +1429,27 @@ public class ConnectContext {
                 // Do not publish successful closure when a cleanup action failed. The completion
                 // reports the failure; the other cleanup actions have nevertheless all been attempted.
                 cleanupCompletion.completeExceptionally(cleanupFailure);
+            }
+        } finally {
+            restoreAfterCleanup(previous);
+        }
+    }
+
+    private void closeTransport(boolean cancelExecution) {
+        ConnectContext previous = ConnectContext.get();
+        setThreadLocalInfo();
+        try {
+            if (cancelExecution) {
+                cleanupStep("cancel query", () -> {
+                    StmtExecutor running = executor;
+                    if (running != null) {
+                        running.cancel(new Status(TStatusCode.CANCELLED, "session closed"), false);
+                    }
+                });
+            }
+            cleanupStep("close transport", this::closeChannel);
+            synchronized (lifecycleLock) {
+                transportClosed = true;
             }
         } finally {
             restoreAfterCleanup(previous);
@@ -1483,13 +1544,16 @@ public class ConnectContext {
         }
     }
 
-    public boolean isKilled() {
-        return isKilled;
+    /** True only while the current response is allowed to finish before transport closure. */
+    public boolean isClosingAfterResponse() {
+        synchronized (lifecycleLock) {
+            return lifecycleState == LifecycleState.CLOSING && closeMode == CloseMode.AFTER_RESPONSE;
+        }
     }
 
-    // Set kill flag to true;
-    public void setKilled() {
-        isKilled = true;
+    public boolean isClosingOrClosed() {
+        LifecycleState state = lifecycleState;
+        return state == LifecycleState.CLOSING || state == LifecycleState.CLOSED;
     }
 
     public void setQueryId(TUniqueId queryId) {
@@ -1621,9 +1685,9 @@ public class ConnectContext {
                 // Flight metadata/option commands can show COM_SLEEP while using session resources.
                 // MySQL, however, can block reading an incomplete packet before dispatch sets its
                 // command. Keep wait_timeout able to close that transport and unblock the reader.
-                boolean idle = activeOperations == 0 || getConnectType() == ConnectType.MYSQL;
+                boolean idle = inFlightOperations == 0 || getConnectType() == ConnectType.MYSQL;
                 if (idle && delta > sessionVariable.getWaitTimeoutS() * 1000L) {
-                    closeIdle = startClosing();
+                    closeIdle = startClosing(CloseMode.IMMEDIATE);
                 }
             } else if (delta > getExecTimeoutS() * 1000L) {
                 // Cancel the executor observed here, never one installed by a later statement.

@@ -26,6 +26,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.nereids.trees.plans.commands.utils.KillUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectPoolTestSupport;
 import org.apache.doris.qe.ConnectScheduler;
@@ -43,6 +44,7 @@ import org.apache.arrow.flight.CloseSessionResult;
 import org.apache.arrow.flight.ErrorFlightMetadata;
 import org.apache.arrow.flight.FlightConstants;
 import org.apache.arrow.flight.FlightDescriptor;
+import org.apache.arrow.flight.FlightInfo;
 import org.apache.arrow.flight.FlightProducer.CallContext;
 import org.apache.arrow.flight.FlightProducer.StreamListener;
 import org.apache.arrow.flight.FlightRuntimeException;
@@ -277,6 +279,63 @@ public class DorisFlightSqlProducerTest {
         }
     }
 
+    @Test
+    public void testSelfKillConnectionReturnsNoUnusableDoGetTicket() throws Exception {
+        verifySelfKillResponse(true);
+    }
+
+    @Test
+    public void testSelfKillQueryPreservesTheSessionAndResultTicket() throws Exception {
+        verifySelfKillResponse(false);
+    }
+
+    private void verifySelfKillResponse(boolean killConnection) throws Exception {
+        ConnectContext ctx = ConnectPoolTestSupport.flightSession(ConnectPoolTestSupport.envAllowing(100),
+                UserIdentity.ROOT, "self-kill-token");
+        ConnectScheduler scheduler = new ConnectScheduler(10, 10);
+        ctx.setConnectScheduler(scheduler);
+        scheduler.submit(ctx);
+        Assertions.assertEquals(-1, ctx.activateClientSession(scheduler.getConnectPoolMgr()));
+        StmtExecutor running = Mockito.mock(StmtExecutor.class);
+        DorisFlightSqlProducer producer = new DorisFlightSqlProducer(
+                Location.forGrpcInsecure("127.0.0.1", 9090), sessionsOf(ctx));
+        try (MockedConstruction<FlightSqlConnectProcessor> mocked = Mockito.mockConstruction(
+                FlightSqlConnectProcessor.class, (mock, construction) -> {
+                    Mockito.doAnswer(call -> {
+                        ctx.setExecutor(running);
+                        KillUtils.killByConnectionId(ctx, killConnection, ctx.getConnectionId());
+                        Assertions.assertEquals(killConnection, ctx.isClosingOrClosed());
+                        Assertions.assertFalse(ctx.getCleanupCompletion().toCompletableFuture().isDone());
+                        return null;
+                    }).when(mock).handleQuery(Mockito.anyString());
+                })) {
+            CommandStatementQuery request = CommandStatementQuery.newBuilder().setQuery(
+                    "KILL " + (killConnection ? "CONNECTION " : "QUERY ") + ctx.getConnectionId()).build();
+            FlightInfo info = producer.getFlightInfoStatement(request, callOf("self-kill-token"),
+                    FlightDescriptor.command(new byte[0]));
+            if (killConnection) {
+                Assertions.assertTrue(info.getEndpoints().isEmpty());
+                Assertions.assertEquals(0, info.getRecords());
+                Assertions.assertEquals(ConnectContext.LifecycleState.CLOSED, ctx.getLifecycleState());
+                Assertions.assertNull(scheduler.getContextWithPeerIdentity("self-kill-token"));
+                Assertions.assertEquals(0, ctx.getFlightSqlChannel().getAllocatedMemory());
+                Mockito.verifyNoInteractions(running);
+                FlightRuntimeException error = Assertions.assertThrows(FlightRuntimeException.class,
+                        () -> producer.getFlightInfoStatement(request, callOf("self-kill-token"),
+                                FlightDescriptor.command(new byte[0])));
+                Assertions.assertEquals(FlightStatusCode.UNAUTHENTICATED, error.status().code());
+            } else {
+                Assertions.assertEquals(1, info.getEndpoints().size());
+                Assertions.assertEquals(ConnectContext.LifecycleState.ACTIVE, ctx.getLifecycleState());
+                Assertions.assertSame(ctx, scheduler.getContextWithPeerIdentity("self-kill-token"));
+                Mockito.verify(running).cancel(Mockito.any(org.apache.doris.common.Status.class));
+            }
+        } finally {
+            ctx.cleanup();
+            producer.close();
+        }
+    }
+
     // Arrow Flight SQL keeps a query's coordinator alive across GetFlightInfo -> DoGet (see #62259):
     // executeAndSendResult() registers it as a deferred executor on the ConnectContext right after
     // submitting it to the BE. GetFlightInfo then still has to fetch the Arrow schema from the BE.
@@ -506,13 +565,13 @@ public class DorisFlightSqlProducerTest {
                 // Idle since the action, not since before it: alive at the boundary counted from
                 // the action ...
                 ctx.checkTimeout(before + waitTimeoutMs + 1);
-                Assertions.assertFalse(ctx.isKilled());
+                Assertions.assertFalse(ctx.isClosingOrClosed());
                 ctx.checkTimeout(after + waitTimeoutMs);
-                Assertions.assertFalse(ctx.isKilled());
+                Assertions.assertFalse(ctx.isClosingOrClosed());
             }
             // ... and gone past it, as any idle session.
             ctx.checkTimeout(ctx.getStartTime() + waitTimeoutMs + 1);
-            Assertions.assertTrue(ctx.isKilled());
+            Assertions.assertTrue(ctx.isClosingOrClosed());
         } finally {
             producer.close();
         }

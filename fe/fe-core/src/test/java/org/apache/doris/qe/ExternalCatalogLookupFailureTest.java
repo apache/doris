@@ -133,12 +133,12 @@ public class ExternalCatalogLookupFailureTest extends TestWithFeService {
         Assertions.assertEquals(MysqlStateType.ERR, context.getState().getStateType());
         Assertions.assertEquals(0xFF, Byte.toUnsignedInt(channel.response.get(0)));
         Assertions.assertTrue(StandardCharsets.UTF_8.decode(channel.response.duplicate()).toString().contains(FAILURE));
-        Assertions.assertFalse(context.isKilled());
+        Assertions.assertFalse(context.isClosingOrClosed());
 
         channel.request = ByteBuffer.wrap(new byte[] {14});
         processor.processOnce();
         Assertions.assertEquals(0, channel.response.get(0));
-        Assertions.assertFalse(context.isKilled());
+        Assertions.assertFalse(context.isClosingOrClosed());
     }
 
     @Test
