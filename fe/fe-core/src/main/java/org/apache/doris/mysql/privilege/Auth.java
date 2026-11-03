@@ -533,7 +533,8 @@ public class Auth implements Writable {
         if (virtualComputeGroup != null) {
             role.getCloudClusterPrivTable().getPrivs(virtualComputeGroup, privs);
         }
-        return privs.containsPrivs(Privilege.USAGE_PRIV);
+        // GRANT USAGE_PRIV ON CLUSTER is stored as CLUSTER_USAGE_PRIV (PrivBitSet.convertResourcePrivToCloudPriv)
+        return privs.containsPrivs(Privilege.USAGE_PRIV, Privilege.CLUSTER_USAGE_PRIV);
     }
 
     /**
