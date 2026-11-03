@@ -26,13 +26,9 @@ import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorTableStatistics;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
-import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.SessionContext;
-import org.apache.doris.datasource.mvcc.PluginDrivenMvccSnapshot;
-import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 
 import org.junit.jupiter.api.Assertions;
@@ -45,8 +41,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Function;
 
 /**
  * Tests {@link PluginDrivenExternalTable#fetchRowCount}'s two-layer statistics consumption (§4.2 read-side
@@ -120,55 +114,6 @@ public class PluginDrivenExternalTableRowCountTest {
         PluginDrivenExternalTable table = tableReturning(
                 null, Collections.singletonList(intCol("v")));   // null -> getTableHandle returns empty
         Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, table.fetchRowCount());
-    }
-
-    @Test
-    public void ordinarySnapshotUsesSizeFallbackThenCompletedVersionStatistics() {
-        AtomicReference<ConnectorTableStatistics> result =
-                new AtomicReference<>(new ConnectorTableStatistics(-1, 400));
-        PluginDrivenExternalTable table = tableReturning(Optional.of(new ConnectorTableStatistics(9999, 9999)),
-                Collections.singletonList(intCol("v")), snapshot -> Optional.of(result.get()));
-        ConnectorMvccSnapshot pin = ConnectorMvccSnapshot.builder().snapshotId(7).build();
-        ConnectContext previous = ConnectContext.get();
-        ConnectContext context = new ConnectContext();
-        StatementContext statement = Mockito.mock(StatementContext.class);
-        Mockito.when(statement.getSnapshot(table)).thenReturn(Optional.of(new PluginDrivenMvccSnapshot(
-                pin, Collections.emptyMap(), Collections.emptyMap())));
-        context.setStatementContext(statement);
-        context.setThreadLocalInfo();
-        try {
-            Assertions.assertEquals(100, table.getRowCount());
-            result.set(new ConnectorTableStatistics(37, 400));
-            Assertions.assertEquals(37, table.getRowCount(), "completed count must replace the temporary size estimate");
-            Mockito.verify(statement, Mockito.never()).getVersionedSnapshot(table);
-        } finally {
-            if (previous == null) {
-                ConnectContext.remove();
-            } else {
-                previous.setThreadLocalInfo();
-            }
-        }
-    }
-
-    @Test
-    public void pinnedStatisticsKeepVersionsAndEmptyTablesDistinct() {
-        PluginDrivenExternalTable table = tableReturning(Optional.of(new ConnectorTableStatistics(9999, 9999)),
-                Collections.singletonList(intCol("v")), snapshot -> Optional.of(
-                        new ConnectorTableStatistics(snapshot.getSnapshotId() == 7 ? 37 : 0, 400)));
-        Assertions.assertEquals(37, table.fetchRowCountAtSnapshot(
-                ConnectorMvccSnapshot.builder().snapshotId(7).build()));
-        Assertions.assertEquals(0, table.fetchRowCountAtSnapshot(
-                ConnectorMvccSnapshot.builder().snapshotId(8).build()));
-    }
-
-    @Test
-    public void tinyOrAbsentSnapshotSizeIsUnknownRatherThanEmpty() {
-        PluginDrivenExternalTable table = tableReturning(Optional.empty(), Collections.singletonList(bigintCol("v")),
-                snapshot -> Optional.of(new ConnectorTableStatistics(-1, snapshot.getSnapshotId())));
-        Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, table.fetchRowCountAtSnapshot(
-                ConnectorMvccSnapshot.builder().snapshotId(1).build()));
-        Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, table.fetchRowCountAtSnapshot(
-                ConnectorMvccSnapshot.builder().snapshotId(0).build()));
     }
 
     // ==================== layer 3: file-list data-size estimate ====================
@@ -319,11 +264,6 @@ public class PluginDrivenExternalTableRowCountTest {
      */
     private static PluginDrivenExternalTable tableReturning(
             Optional<ConnectorTableStatistics> stats, List<Column> schema) {
-        return tableReturning(stats, schema, snapshot -> Optional.empty());
-    }
-
-    private static PluginDrivenExternalTable tableReturning(Optional<ConnectorTableStatistics> stats,
-            List<Column> schema, Function<ConnectorMvccSnapshot, Optional<ConnectorTableStatistics>> atSnapshot) {
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
         Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
@@ -335,9 +275,6 @@ public class PluginDrivenExternalTableRowCountTest {
             Mockito.when(metadata.getTableHandle(session, "REMOTE_DB", "REMOTE_TBL"))
                     .thenReturn(Optional.of(handle));
             Mockito.when(metadata.getTableStatistics(session, handle)).thenReturn(stats);
-            Mockito.when(metadata.getTableStatistics(Mockito.eq(session), Mockito.eq(handle),
-                    Mockito.any(ConnectorMvccSnapshot.class)))
-                    .thenAnswer(invocation -> atSnapshot.apply(invocation.getArgument(2)));
         }
         TestablePluginCatalog catalog = new TestablePluginCatalog(metadata, session);
 

@@ -67,14 +67,22 @@ suite("test_deltalake_benchmark", "p2,external") {
             // The immutable fixture manifest is the oracle; never derive it from the tested connector.
             Map tables = statisticsManifest[workload]
             assertTrue(tables != null && !tables.isEmpty(), "Missing ${workload} statistics manifest")
+            def config = sql "admin show frontend config like 'external_cache_refresh_time_minutes'"
+            int refreshSeconds = (config[0][1] as int) * 60
+            Map deltaRows = [:]
+            // Touch every table on each pass so their FE cache entries can refresh in the same interval.
+            awaitUntil(refreshSeconds + 120, 10) {
+                tables.each { table, fixture ->
+                    deltaRows[table] = cardinality("test_deltalake_benchmark_delta.delta_${workload}.${table}")
+                }
+                tables.every { table, fixture -> deltaRows[table] == (fixture.rows as long) }
+            }
             tables.sort().each { table, fixture ->
-                String delta = "test_deltalake_benchmark_delta.delta_${workload}.${table}"
                 long expectedRows = fixture.rows as long
-                awaitUntil(60, 0.1) { cardinality(delta) == expectedRows }
                 long hiveRows = cardinality("test_deltalake_benchmark_hive.delta_${workload}.${table}")
                 logger.info("DELTA_BENCHMARK_STATISTICS " + JsonOutput.toJson([
                         workload: workload, table: table, expected_rows: expectedRows,
-                        delta_cardinality: cardinality(delta), hive_cardinality: hiveRows]))
+                        delta_cardinality: deltaRows[table], hive_cardinality: hiveRows]))
             }
         }
         for (File file : queries) {

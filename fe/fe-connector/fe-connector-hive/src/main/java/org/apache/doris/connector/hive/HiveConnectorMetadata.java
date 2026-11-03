@@ -915,15 +915,6 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
 
     // ========== ConnectorStatisticsOps ==========
 
-    @Override
-    public Optional<ConnectorTableStatistics> getTableStatistics(ConnectorSession session, ConnectorTableHandle handle,
-            ConnectorMvccSnapshot snapshot) {
-        if (!(handle instanceof HiveTableHandle)) {
-            return siblingMetadata(session, handle).getTableStatistics(session, handle, snapshot);
-        }
-        return getTableStatistics(session, handle);
-    }
-
     /**
      * Table-level statistics for a hive table, a port of legacy {@code StatisticsUtil.getHiveRowCount} +
      * {@code getTotalSizeFromHMS} restricted to the two RAW metastore facts (no Doris-type math — the

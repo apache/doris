@@ -153,8 +153,10 @@ Delta M1 supplies basic versioned row/size statistics, collected asynchronously;
 column NDV/histograms remain unavailable. For a steady-state comparison after
 statistics are ready, optionally set `deltalakeBenchmarkStatisticsManifest` to the
 absolute path of the retained converter's `manifest.json`. Before timing each
-selected workload, the suite waits until every manifest table's Delta EXPLAIN
-cardinality equals its expected row count. It logs those values and Hive's current
+selected workload, the suite polls its tables together until every Delta EXPLAIN
+cardinality matches the manifest. The wait allows one FE external row-count
+cache refresh interval (`external_cache_refresh_time_minutes`, normally 10 minutes)
+plus two minutes for asynchronous work. It logs those values and Hive's current
 cardinality as `DELTA_BENCHMARK_STATISTICS`, without executing data queries. A
 missing workload or statistics that fail to become ready fails the suite. When
 unset, the original first-execution behavior is preserved. Record this warmup
@@ -171,7 +173,8 @@ For repeat runs, invoke the regression directly; no data regeneration is needed.
 ### Local TPC-DS comparison after basic statistics
 
 On 2026-11-02, all 103 TPC-DS query files passed in one official suite using the
-retained SF1 data and production revision `cc12b56819`. The 24 Delta cardinalities
+retained SF1 data and production revision `cc12b56819`, which used the earlier
+FE snapshot-statistics path. The 24 Delta cardinalities
 were checked against the independent manifest before timing. The host, ASAN build,
 shared settings, Q85 join-order control and Q30 adaptation match the earlier run.
 Totals are sums of per-query medians from three alternating measured pairs:

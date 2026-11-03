@@ -1879,9 +1879,26 @@ public class PluginDrivenExternalTable extends ExternalTable {
         Optional<ConnectorTableStatistics> statsOpt =
                 read.execute(() -> metadata.getTableStatistics(session, handleOpt.get()));
         if (statsOpt.isPresent()) {
-            long rows = rowCountFromStatistics(statsOpt.get());
-            if (rows != UNKNOWN_ROW_COUNT) {
-                return rows;
+            ConnectorTableStatistics stats = statsOpt.get();
+            if (stats.getRowCount() >= 0) {
+                return stats.getRowCount();
+            }
+            // The connector surfaced an on-disk data size but no exact row count (e.g. a hive table with
+            // totalSize set but no numRows). Estimate the cardinality as dataSize / <average Doris row
+            // width> — the Doris-type-dependent division the connector cannot perform (it must not import
+            // fe-type). Connector-agnostic: every other connector reports dataSize -1, so this branch is
+            // inert for them. Mirrors legacy StatisticsUtil.getHiveRowCount's totalSize/estimatedRowSize
+            // path (row width summed over the FULL schema, partition columns included, exactly as legacy).
+            // A quotient that truncates to 0 is NOT a valid "empty table" answer — legacy collapsed 0 ->
+            // UNKNOWN and fell through to the file-list estimate below, so only a positive quotient returns.
+            if (stats.getDataSize() > 0) {
+                long rowWidth = estimatedRowWidth(false);
+                if (rowWidth > 0) {
+                    long rows = stats.getDataSize() / rowWidth;
+                    if (rows > 0) {
+                        return rows;
+                    }
+                }
             }
         }
 
@@ -1915,12 +1932,16 @@ public class PluginDrivenExternalTable extends ExternalTable {
 
     @Override
     public long getRowCount() {
-        // Prefer the statement's snapshot for ordinary reads as well as time travel. The shared
-        // table-only cache can retain an older version or an initial size estimate after a connector's
-        // asynchronous version-scoped statistics have completed. Connectors own this fast path's cache.
+        // Time-travel row count: the shared cross-statement row-count cache is keyed by table only and
+        // computes at the LATEST snapshot, so a FOR VERSION/TIME AS OF (or @branch/@tag) read would get the
+        // latest cardinality while its scan reads the pinned snapshot -> skewed CBO estimate (estimate-only;
+        // results stay correct). When THIS statement pins a genuine versioned snapshot for this table, compute
+        // the row count directly AT that snapshot, bypassing the latest-keyed shared cache (a historical count
+        // is not worth caching cross-statement). A plain/latest read has no versioned pin and keeps the cached
+        // path unchanged; a call with no statement context (e.g. background stats) also keeps it.
         ConnectContext ctx = ConnectContext.get();
         if (ctx != null && ctx.getStatementContext() != null) {
-            Optional<MvccSnapshot> versioned = ctx.getStatementContext().getSnapshot(this);
+            Optional<MvccSnapshot> versioned = ctx.getStatementContext().getVersionedSnapshot(this);
             if (versioned.isPresent() && versioned.get() instanceof PluginDrivenMvccSnapshot) {
                 long rows = fetchRowCountAtSnapshot(
                         ((PluginDrivenMvccSnapshot) versioned.get()).getConnectorSnapshot());
@@ -1934,10 +1955,13 @@ public class PluginDrivenExternalTable extends ExternalTable {
     }
 
     /**
-     * Retrieves statistics at the statement's pinned snapshot, including an on-disk size estimate when
-     * a row count is not yet available. This query-thread path must remain cheap: connectors cache or
-     * asynchronously load expensive statistics. Unknown ordinary-table statistics retain the existing
-     * latest-estimate fallback; system relations preserve UNKNOWN to avoid snapshot skew.
+     * Computes the row count AT a pinned snapshot for a time-travel read: mirrors the exact-count branch of
+     * {@link #fetchRowCount()} but threads the snapshot into the 3-arg {@code getTableStatistics}. Runs in the
+     * query thread (not the background cache loader, which has no statement context), so it is deliberately
+     * NOT cached &mdash; the handful of versioned reads per statement is cheap. Returns
+     * {@link #UNKNOWN_ROW_COUNT} when the connector cannot serve an exact count at the snapshot. Ordinary
+     * tables may fall back to the latest estimate; system relations must preserve UNKNOWN to avoid snapshot
+     * skew, so the decision belongs to the caller.
      */
     protected long fetchRowCountAtSnapshot(ConnectorMvccSnapshot snapshot) {
         makeSureInitialized();
@@ -1953,28 +1977,13 @@ public class PluginDrivenExternalTable extends ExternalTable {
             }
             Optional<ConnectorTableStatistics> statsOpt =
                     read.execute(() -> metadata.getTableStatistics(session, handleOpt.get(), snapshot));
-            return statsOpt.map(this::rowCountFromStatistics).orElse(UNKNOWN_ROW_COUNT);
+            if (statsOpt.isPresent() && statsOpt.get().getRowCount() >= 0) {
+                return statsOpt.get().getRowCount();
+            }
+            return UNKNOWN_ROW_COUNT;
         } finally {
             session.getStatementScope().closeAll();
         }
-    }
-
-    private long rowCountFromStatistics(ConnectorTableStatistics stats) {
-        if (stats.getRowCount() >= 0) {
-            return stats.getRowCount();
-        }
-        // Preserve the Hive size/slot-width estimate and use it for snapshot-aware connectors too.
-        // Compressed bytes only provide a heuristic: a quotient of zero does not prove an empty table.
-        if (stats.getDataSize() > 0) {
-            long rowWidth = estimatedRowWidth(false);
-            if (rowWidth > 0) {
-                long rows = stats.getDataSize() / rowWidth;
-                if (rows > 0) {
-                    return rows;
-                }
-            }
-        }
-        return UNKNOWN_ROW_COUNT;
     }
 
     /**

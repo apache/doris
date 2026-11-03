@@ -19,11 +19,14 @@ current version checksum's `tableSizeBytes`, if available. A checksum has no tot
 row count; only `numFiles == 0` proves zero rows. Older checksums are not used for
 this fallback. The FE can estimate rows from size and Doris row width. Compression,
 variable-width values and deletion vectors can make that estimate inaccurate.
-Later queries prefer completed snapshot statistics over the FE's table-only cache.
-The Hive gateway forwards the snapshot-aware statistics call to its sibling.
+Ordinary queries use the FE's standard external-table row-count cache, including
+Delta reads through a Hive catalog. The FE caches estimates by table and may
+reuse one after a new Delta commit or after background collection finishes.
+After `external_cache_refresh_time_minutes` (10 minutes by default), an access
+triggers an asynchronous refresh that can pick up the completed count.
 
-Statistics are isolated by user, database/table/path, table UUID and snapshot
-version. Cached tasks use the shared `CatalogMetaCache` ownership and invalidation
+The connector caches statistics by user, database/table/path, table UUID and
+snapshot version. Cached tasks use the shared `CatalogMetaCache` ownership and invalidation
 rules. At most one load starts per retained entry. The plugin shares two background
 workers and a queue of 64 tasks; saturation returns the fallback and is retryable,
 never running collection on the query thread. Queued tasks retain coordinates, not
@@ -68,5 +71,6 @@ checks asynchronous statistics in a bounded test JVM.
 
 Run `run-regression-test.sh --run -d external_table_p0/deltalake
 -s test_deltalake_statistics` against the optional Delta fixtures. The suite checks
-CBO cardinalities and exact COUNT through filesystem, HMS and Hive gateway catalogs,
-including refresh, empty tables and disabled statistics collection.
+size-based and unknown CBO estimates with collection disabled, and exact COUNT
+through filesystem, HMS and Hive gateway catalogs, including after a table refresh.
+The optional benchmark checks refreshed estimates against the fixture manifest.

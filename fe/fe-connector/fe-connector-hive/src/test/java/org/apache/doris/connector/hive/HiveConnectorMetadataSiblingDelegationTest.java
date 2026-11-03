@@ -244,9 +244,6 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         md.getTableSchema(session, foreignHandle);
         md.getColumnHandles(session, foreignHandle);
         md.getTableStatistics(session, foreignHandle);
-        ConnectorMvccSnapshot statisticsPin = ConnectorMvccSnapshot.builder().snapshotId(123).build();
-        Assertions.assertEquals(123, md.getTableStatistics(session, foreignHandle, statisticsPin)
-                .orElseThrow().getRowCount());
         md.getColumnStatistics(session, foreignHandle, "c");
         long size = md.estimateDataSizeByListingFiles(session, foreignHandle);
         Optional<FilterApplicationResult<ConnectorTableHandle>> filter = md.applyFilter(session, foreignHandle, null);
@@ -808,8 +805,7 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         // The exact set + order of forwarded methods the foreign-handle test drives (a Rule-9 completeness lock:
         // dropping a guard, or adding one that should not forward, changes this list and fails the test).
         static final List<String> EXPECTED_METHODS = Collections.unmodifiableList(Arrays.asList(
-                "getTableSchema", "getColumnHandles", "getTableStatistics", "getTableStatisticsAtSnapshot",
-                "getColumnStatistics",
+                "getTableSchema", "getColumnHandles", "getTableStatistics", "getColumnStatistics",
                 "estimateDataSizeByListingFiles",
                 "applyFilter", "listPartitionNames", "listPartitions",
                 "beginQuerySnapshot", "getTableFreshness", "getPartitionFreshnessMillis",
@@ -867,13 +863,6 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 ConnectorTableHandle handle) {
             calls.add("getTableStatistics");
             return Optional.of(new ConnectorTableStatistics(1L, 2L));
-        }
-
-        @Override
-        public Optional<ConnectorTableStatistics> getTableStatistics(ConnectorSession session,
-                ConnectorTableHandle handle, ConnectorMvccSnapshot snapshot) {
-            calls.add("getTableStatisticsAtSnapshot");
-            return Optional.of(new ConnectorTableStatistics(snapshot.getSnapshotId(), 2));
         }
 
         @Override
