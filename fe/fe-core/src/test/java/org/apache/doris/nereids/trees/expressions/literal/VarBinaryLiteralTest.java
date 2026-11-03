@@ -18,8 +18,10 @@
 package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarBinaryType;
 
 import org.junit.jupiter.api.Assertions;
@@ -31,6 +33,18 @@ public class VarBinaryLiteralTest {
 
     private static byte[] bytes(String s) {
         return s.getBytes();
+    }
+
+    @Test
+    public void testReboundBinaryCastEqualityAndHashes() {
+        VarBinaryLiteral first = new VarBinaryLiteral(new byte[] {0, (byte) 0xff});
+        VarBinaryLiteral rebound = new VarBinaryLiteral(new byte[] {0, (byte) 0xff});
+        Assertions.assertEquals(first, rebound);
+        Assertions.assertEquals(first.hashCode(), rebound.hashCode());
+        Expression firstCast = new Cast(first, StringType.INSTANCE);
+        Expression reboundCast = new Cast(rebound, StringType.INSTANCE);
+        Assertions.assertEquals(firstCast, reboundCast);
+        Assertions.assertEquals(firstCast.hashCode(), reboundCast.hashCode());
     }
 
     @Test
