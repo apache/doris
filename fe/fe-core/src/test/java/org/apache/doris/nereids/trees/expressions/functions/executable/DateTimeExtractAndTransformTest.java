@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.executable;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
@@ -25,12 +26,15 @@ import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
@@ -328,5 +332,26 @@ class DateTimeExtractAndTransformTest {
                 DateTimeExtractAndTransform.fromMilliSecond(new BigIntLiteral(1735689600000L)));
         Assertions.assertInstanceOf(DateTimeV2Literal.class,
                 DateTimeExtractAndTransform.fromMicroSecond(new BigIntLiteral(1735689600000000L)));
+    }
+
+    @Test
+    void testTimeFormatKeepsNullForDateSpecifiers() {
+        // BE returns NULL when the pattern needs date fields; FE folding used to build "-null"
+        Expression negative = DateTimeExtractAndTransform.timeFormat(
+                new TimeV2Literal("-10:00:00"), new VarcharLiteral("%a"));
+        Assertions.assertInstanceOf(NullLiteral.class, negative);
+        // the folded NULL has to keep time_format's declared return type, otherwise the result
+        // field is advertised as STRING/BLOB instead of VARCHAR
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT, ((NullLiteral) negative).getDataType());
+
+        Expression positive = DateTimeExtractAndTransform.timeFormat(
+                new TimeV2Literal("10:00:00"), new VarcharLiteral("%a"));
+        Assertions.assertInstanceOf(NullLiteral.class, positive);
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT, ((NullLiteral) positive).getDataType());
+
+        // time specifiers still format, and the sign of a negative time is kept
+        Expression formatted = DateTimeExtractAndTransform.timeFormat(
+                new TimeV2Literal("-10:00:00"), new VarcharLiteral("%H:%i:%s"));
+        Assertions.assertEquals("-10:00:00", ((VarcharLiteral) formatted).getValue());
     }
 }
