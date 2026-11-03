@@ -48,7 +48,6 @@ suite("test_deltalake_hive", "p0,external") {
     order_qt_dv_filter "select * from dv where part=1 and id<20"
     order_qt_v2_json "select * from delta_golden.v2_checkpoint_json"
     order_qt_v2_parquet "select * from delta_golden.v2_checkpoint_parquet"
-    sql "set enable_file_scanner_v2=false"
     sql "set enable_external_table_batch_mode=true"
     sql "set num_files_in_batch_mode=1"
     sql "set file_split_size=128"

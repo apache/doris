@@ -24,7 +24,6 @@ suite("test_deltalake_features", "p0,external") {
     String hmsPort = context.config.otherConfigs.get("deltalakeHmsPort")
     String warehouse = context.config.otherConfigs.get("deltalakeWarehouse")
     sql "set time_zone='UTC'"
-    sql "set enable_file_scanner_v2=true"
     for (String source : ["filesystem", "hms"]) {
         String catalog = "test_deltalake_features_${source}"
         sql "drop catalog if exists ${catalog}"

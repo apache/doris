@@ -41,7 +41,6 @@ suite("test_deltalake_benchmark", "p2,external") {
     }
     sql "set enable_sql_cache=false"
     sql "set enable_file_cache=false"
-    sql "set enable_file_scanner_v2=true"
     sql "set parallel_pipeline_task_num=4"
     sql "set exec_mem_limit=8589934592"
     sql "set query_timeout=120"
