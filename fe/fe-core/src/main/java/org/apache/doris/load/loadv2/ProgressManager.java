@@ -56,8 +56,10 @@ public class ProgressManager {
         Progress progress = idToProgress.get(id);
         if (progress != null) {
             progress.updateFinishedScanNums(queryId, fragmentId, finishedScannerNum);
-        } else {
-            LOG.warn("progress id {} missing meta information, queryId {}, fragmentId {}",
+        } else if (LOG.isDebugEnabled()) {
+            // INSERT jobs do not register scan progress, and reports can also arrive after a
+            // bulk load has removed its progress. Neither case indicates a load failure.
+            LOG.debug("progress id {} missing meta information, queryId {}, fragmentId {}",
                     id, DebugUtil.printId(queryId), DebugUtil.printId(fragmentId));
         }
     }
