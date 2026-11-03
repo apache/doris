@@ -4651,11 +4651,10 @@ TEST(IcebergV2ReaderTest, MissingNestedEqualityKeyOpensStructTraversal) {
     for (const auto& ctx : {context, cloned_context}) {
         ColumnWithTypeAndName result;
         ASSERT_TRUE(ctx->execute(&block, result).ok());
-        ASSERT_EQ(result.column->size(), 3);
         EXPECT_TRUE(result.type->equals(*key_type));
-        EXPECT_TRUE(result.column->is_null_at(0));
-        EXPECT_TRUE(result.column->is_null_at(1));
-        EXPECT_EQ(result.column->get_int(2), 7);
+        expect_nullable_int64_column_optional_values(
+                *result.column,
+                std::vector<std::optional<int64_t>> {std::nullopt, std::nullopt, 7});
     }
 }
 
