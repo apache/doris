@@ -45,6 +45,16 @@ class UniqueTest extends TestWithFeService {
                 + "UNIQUE KEY(id)\n"
                 + "distributed by hash(id) buckets 10\n"
                 + "properties('replication_num' = '1');");
+        createTable("create table test.bigint_uni (\n"
+                + "id bigint not null)\n"
+                + "UNIQUE KEY(id)\n"
+                + "distributed by hash(id) buckets 10\n"
+                + "properties('replication_num' = '1');");
+        createTable("create table test.datetime_uni (\n"
+                + "id datetimev2(0) not null)\n"
+                + "UNIQUE KEY(id)\n"
+                + "distributed by hash(id) buckets 10\n"
+                + "properties('replication_num' = '1');");
         connectContext.setDatabase("test");
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
     }
@@ -76,6 +86,28 @@ class UniqueTest extends TestWithFeService {
         Assertions.assertTrue(plan.getLogicalProperties().getTrait()
                 .isUnique(plan.getOutput().get(3)));
 
+    }
+
+    @Test
+    void testAggregateOutputInjectivity() {
+        assertAggregateOutputUnique("select sum(abs(id)) from agg group by id", false);
+        assertAggregateOutputUnique("select avg(cast(id as bigint)) from agg group by id", true);
+        assertAggregateOutputUnique("select avg(id) from bigint_uni group by id", false);
+        assertAggregateOutputUnique("select sum(cast(id as bigint)) from agg group by id", true);
+        assertAggregateOutputUnique("select sum(cast(id as tinyint)) from agg group by id", false);
+        assertAggregateOutputUnique("select max(cast(id as char(1))) from agg group by id", false);
+        assertAggregateOutputUnique("select max(cast(id as varchar(1))) from agg group by id", false);
+        assertAggregateOutputUnique(
+                "select max(cast(id as datetimev2(6))) from datetime_uni group by id", true);
+    }
+
+    private void assertAggregateOutputUnique(String sql, boolean expected) {
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .getPlan();
+        Assertions.assertEquals(expected,
+                plan.getLogicalProperties().getTrait().isUnique(plan.getOutput().get(0)),
+                sql + "\n" + plan.treeString());
     }
 
     @Test
