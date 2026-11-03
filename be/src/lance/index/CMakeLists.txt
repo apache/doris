@@ -27,9 +27,14 @@
 #     library with zero BE global-state dependency (no config, logging,
 #     metrics, or ExecEnv), callable from the worker subprocess and from unit
 #     tests alike.
-#   * (later commits) lance_index_worker / lance_index_supervisor /
-#     lance_index_worker_service: the worker execution library, the in-BE
-#     supervisor, and the thrift-facing service.
+#   * lance_index_worker: the isolated worker execution library — one dispatch
+#     frame in, handshake + at most one result frame out, pinned-version
+#     reopen, contract/IF/DROP physical-snapshot semantics, single native
+#     call. Registered as the --lance-worker subcommand of doris_main (before
+#     any BE global state); the supervisor (a later commit) execs it via
+#     /proc/self/exe.
+#   * (later commits) lance_index_supervisor / lance_index_worker_service:
+#     the in-BE supervisor and the thrift-facing service.
 
 file(GLOB LANCE_SOURCES CONFIGURE_DEPENDS *.cpp)
 
