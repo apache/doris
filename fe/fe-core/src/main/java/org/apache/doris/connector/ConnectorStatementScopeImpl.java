@@ -24,10 +24,13 @@ import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
@@ -58,11 +61,43 @@ public class ConnectorStatementScopeImpl implements ConnectorStatementScope {
     private final Set<String> planningKeys = ConcurrentHashMap.newKeySet();
     // Read without the lock by the off-thread pumps, which can still be loading when the statement ends.
     private volatile boolean closed;
+    private boolean closeRequested;
+    private int users;
+    private final List<CompletableFuture<Void>> splitTasks = new ArrayList<>();
+
+    /** Retain metadata while asynchronous split work (including read-transaction release) uses it. */
+    public synchronized Runnable retain() {
+        Preconditions.checkState(!closeRequested, "Cannot retain a closing connector statement scope");
+        users++;
+        return this::release;
+    }
+
+    public synchronized void registerSplitTask(CompletableFuture<Void> termination) {
+        Preconditions.checkState(!closeRequested, "Cannot register work in a closing connector statement scope");
+        splitTasks.add(termination);
+    }
+
+    /** Read transactions may be shared by all scans of the statement, so join every producer first. */
+    public synchronized CompletableFuture<Void> getSplitTerminationFuture() {
+        return CompletableFuture.allOf(splitTasks.toArray(new CompletableFuture<?>[0]));
+    }
+
+    private void release() {
+        boolean finish;
+        synchronized (this) {
+            Preconditions.checkState(users > 0, "Unbalanced connector statement scope release");
+            users--;
+            finish = closeRequested && users == 0;
+        }
+        if (finish) {
+            closeAll();
+        }
+    }
 
     /**
      * {@inheritDoc}
      *
-     * <p>After {@link #closeAll} the statement is over, so the loader does not run and a
+     * <p>Once {@link #closeAll} disposes the scope, the loader does not run and a
      * {@link CancellationException} is thrown: a pump that outlives its statement (stopping a split producer only
      * flags it, and closing the query's task groups does not interrupt metadata IO) would otherwise load a value,
      * such as a borrowed table, that nothing closes any more. A value whose load raced the close is released here,
@@ -92,7 +127,7 @@ public class ConnectorStatementScopeImpl implements ConnectorStatementScope {
         return closed ? null : (T) cache.get(key);
     }
 
-    /** Whether {@link #closeAll} has run: the statement has ended and the scope loads nothing any more. */
+    /** Whether the scope refuses lookups; retained producers delay this transition until their cleanup exits. */
     public boolean isClosed() {
         return closed;
     }
@@ -123,16 +158,21 @@ public class ConnectorStatementScopeImpl implements ConnectorStatementScope {
      * Idempotent: guarded by {@code closed} so a second trigger (the query-finish callback vs. a reused prepared
      * statement's per-execution reset) is a harmless no-op and no value is double-closed. Best-effort per value —
      * a failure on one does not abort the rest — mirroring the isolation of the engine's query-finish callback
-     * registry. Off-thread pumps may still be running: each entry is removed before its value is released, and a
+     * registry. Retained split work defers disposal until it exits. Other loaders may still be running: each
+     * entry is removed before its value is released, and a
      * pump that loads concurrently releases what it loaded itself (see {@link #computeIfAbsent}), so every value
      * is released exactly once and none is left behind.
      */
     @Override
-    public synchronized void closeAll() {
-        if (closed) {
-            return;
+    public void closeAll() {
+        synchronized (this) {
+            closeRequested = true;
+            if (closed || users != 0) {
+                return;
+            }
+            closed = true;
+            splitTasks.clear();
         }
-        closed = true;
         // Pass 1: finalize the statement's write transaction(s) first, so a transaction aborted mid-flight is
         // rolled back / released before pass 2 closes the shared metadata instance it was minted from. On every
         // normal path the executor already finished the transaction, so this is a no-op.

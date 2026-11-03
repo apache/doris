@@ -413,6 +413,13 @@ void PrefetchBuffer::reset_offset(size_t offset) {
             _prefetched.notify_all();
             return;
         }
+        _merge_file_cache_stats();
+        // Snapshot on the consumer thread, not concurrently with scanner counter updates.
+        // Cached readers get per-buffer counters; uncached readers keep a null stats pointer.
+        _prefetch_io_ctx = *_io_ctx;
+        if (_io_ctx->file_cache_stats != nullptr) {
+            _prefetch_io_ctx.file_cache_stats = &_file_cache_stats;
+        }
         _buffer_status = BufferStatus::RESET;
         _offset = offset;
         _prefetched.notify_all();
@@ -470,7 +477,7 @@ void PrefetchBuffer::prefetch_buffer() {
 
     {
         SCOPED_RAW_TIMER(&_statis.read_time);
-        s = _reader->read_at(_offset, Slice {_buf.data(), buf_size}, &_len, _io_ctx);
+        s = _reader->read_at(_offset, Slice {_buf.data(), buf_size}, &_len, &_prefetch_io_ctx);
     }
     if (UNLIKELY(s.ok() && buf_size != _len)) {
         // This indicates that the data size returned by S3 object storage is smaller than what we requested,
@@ -497,6 +504,7 @@ void PrefetchBuffer::prefetch_buffer() {
                     _offset, s.to_string());
         _prefetch_status = std::move(s);
     }
+    _has_unmerged_cache_stats = _prefetch_io_ctx.file_cache_stats != nullptr;
     _buffer_status = BufferStatus::PREFETCHED;
     _prefetched.notify_all();
     // eof would come up with len == 0, it would be handled by read_buffer
@@ -582,6 +590,7 @@ Status PrefetchBuffer::read_buffer(size_t off, const char* out, size_t buf_len,
         if (UNLIKELY(BufferStatus::CLOSED == _buffer_status)) {
             return Status::OK();
         }
+        _merge_file_cache_stats();
     }
     RETURN_IF_ERROR(_prefetch_status);
     // there is only parquet would do not sequence read
@@ -612,15 +621,23 @@ Status PrefetchBuffer::read_buffer(size_t off, const char* out, size_t buf_len,
     return Status::OK();
 }
 
+void PrefetchBuffer::_merge_file_cache_stats() {
+    // Called only by the consumer with _lock held and no pending read. A buffer may be
+    // consumed in several slices; publish each completed request exactly once.
+    if (_has_unmerged_cache_stats) {
+        _io_ctx->file_cache_stats->merge_from(_file_cache_stats);
+        _file_cache_stats = {};
+        _has_unmerged_cache_stats = false;
+    }
+}
+
 void PrefetchBuffer::close() {
     std::unique_lock lck {_lock};
-    // in case _reader still tries to write to the buf after we close the buffer
-    if (!_prefetched.wait_for(lck,
-                              std::chrono::milliseconds(config::buffered_reader_read_timeout_ms),
-                              [this]() { return _buffer_status != BufferStatus::PENDING; })) {
-        _prefetch_status = Status::TimedOut("time out when close prefetch buffer");
-        return;
-    }
+    // A foreground read timeout does not cancel the underlying I/O. Wait for it to finish
+    // before releasing scanner-owned IOContext pointees, including cache statistics and
+    // the cache-write limiter. Queued tasks observe CLOSED and do not start another read.
+    _prefetched.wait(lck, [this]() { return _buffer_status != BufferStatus::PENDING; });
+    _merge_file_cache_stats();
     _buffer_status = BufferStatus::CLOSED;
     _prefetched.notify_all();
     // Explicitly release the backing buffer here, in the calling (query) thread which has a
@@ -647,14 +664,14 @@ PrefetchBufferedReader::PrefetchBufferedReader(RuntimeProfile* profile, io::File
     }
     _io_ctx = _io_ctx_holder.get();
     if (buffer_size == -1L) {
-        buffer_size = config::remote_storage_read_buffer_mb * 1024 * 1024;
+        buffer_size = int64_t {config::remote_storage_read_buffer_mb} * 1024 * 1024;
     }
     _size = _reader->size();
-    _whole_pre_buffer_size = buffer_size;
+    // Use the allocated capacity as the ring modulus. For example, 6 MiB allocates
+    // one 4 MiB buffer, so offset 4 MiB must wrap to slot 0, not index a missing slot 1.
+    const int64_t buffer_num = std::max<int64_t>(1, buffer_size / s_max_pre_buffer_size);
+    _whole_pre_buffer_size = buffer_num * s_max_pre_buffer_size;
     _file_range.end_offset = std::min(_file_range.end_offset, _size);
-    int buffer_num = buffer_size > s_max_pre_buffer_size
-                             ? cast_set<int>(buffer_size) / cast_set<int>(s_max_pre_buffer_size)
-                             : 1;
     std::function<void(PrefetchBuffer&)> sync_buffer = nullptr;
     if (profile != nullptr) {
         const char* prefetch_buffered_reader = "PrefetchBufferedReader";

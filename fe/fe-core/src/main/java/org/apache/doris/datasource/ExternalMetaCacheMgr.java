@@ -54,6 +54,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import javax.annotation.Nullable;
@@ -125,10 +126,14 @@ public class ExternalMetaCacheMgr {
                 Config.max_external_cache_loader_thread_pool_size * 1000,
                 "FileListingExecutor", 10, true);
 
-        scheduleExecutor = newThreadPool(isCheckpointCatalog,
+        ThreadPoolExecutor splitExecutor = newThreadPool(isCheckpointCatalog,
                 Config.max_external_cache_loader_thread_pool_size,
                 Config.max_external_cache_loader_thread_pool_size * 1000,
                 "scheduleExecutor", 10, true);
+        // Split tasks resubmit themselves under backpressure. Blocking admission would pin both
+        // the planning thread (before its timeout wait) and workers needed to drain a full pool.
+        splitExecutor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+        scheduleExecutor = splitExecutor;
 
         fsCache = new FileSystemCache();
         rowCountCache = new ExternalRowCountCache(rowCountRefreshExecutor);
@@ -146,7 +151,7 @@ public class ExternalMetaCacheMgr {
         return parsed == 0L ? OptionalLong.empty() : OptionalLong.of(parsed);
     }
 
-    private ExecutorService newThreadPool(boolean isCheckpointCatalog, int numThread, int queueSize,
+    private ThreadPoolExecutor newThreadPool(boolean isCheckpointCatalog, int numThread, int queueSize,
             String poolName, int timeoutSeconds,
             boolean needRegisterMetric) {
         String executorNamePrefix = isCheckpointCatalog ? "Checkpoint" : "NotCheckpoint";

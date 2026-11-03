@@ -2164,15 +2164,9 @@ public class FlussSplitPlanTest {
         Assertions.assertEquals(expected, params.getFlussProperties());
     }
 
-    /**
-     * BE picks between its two scanner implementations from the SCAN-level format, before it fetches a
-     * single range, and every reader this connector needs exists in FileScannerV2 alone. Without this
-     * stamp a session that turned {@code enable_file_scanner_v2} off — a supported setting, and one the
-     * regression harness sets at random because the variable is fuzzy — would land in the legacy scanner,
-     * whose JNI dispatch has no fluss branch, and fail the query at read time.
-     */
+    /** Scan-level parameters preserve the connector identity before ranges are fetched. */
     @Test
-    public void scanLevelParamsStampTheFormatThatForcesScannerV2() {
+    public void scanLevelParamsStampTheConnectorFormat() {
         registerLogTable(LOG_TABLE, 1);
         Map<String, String> catalog = catalog();
 
@@ -2186,7 +2180,7 @@ public class FlussSplitPlanTest {
 
     /**
      * A union read hands the same params to the lake half, and the fluss marker has to survive that: it
-     * decides the scanner for the WHOLE node, and the node also carries fluss ranges the sibling knows
+     * identifies the connector for the whole node, which also carries Fluss ranges the sibling knows
      * nothing about.
      */
     @Test

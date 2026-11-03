@@ -122,15 +122,15 @@ suite("test_paimon_rust_reader_v2", "p0,external") {
             assertEquals(jniResults[i].toString(), rustResults[i].toString())
         }
 
-        // The v1 path must keep working when v2 is explicitly disabled: FE only
-        // encodes PAIMON_RUST requests when enable_file_scanner_v2 is on (the V1
-        // FileScanner rejects them), so with v2 disabled it selects JNI.
+        // The deprecated scanner option must not disable a selected Rust reader.
         sql """set enable_file_scanner_v2=false"""
-        sql """set force_jni_scanner=true"""
-        def v1RustResults = testQueries.collect { query -> sql(query) }
+        sql """set force_jni_scanner=false"""
+        def compatibilityResults = testQueries.collect { query -> sql(query) }
         for (int i = 0; i < testQueries.size(); i++) {
-            assertEquals(jniResults[i].toString(), v1RustResults[i].toString())
+            assertEquals(rustResults[i].toString(), compatibilityResults[i].toString())
         }
+        assertTrue(profileTextOf(testQueries[0]).contains("PaimonRustReader"),
+                "the deprecated scanner option must not disable Rust reads")
     } finally {
         sql "set enable_profile=${originalEnableProfile}"
         sql """set enable_paimon_rust_reader=false"""
