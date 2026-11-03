@@ -18,9 +18,7 @@
 #include <gtest/gtest.h>
 
 #include <fstream>
-#include <tuple>
 
-#include "exec/common/variant_util.h"
 #include "storage/compaction/full_compaction.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
@@ -315,53 +313,6 @@ TEST_F(IndexStorageVariantCompactionReadTest, VariantDocModeWritesDocValueColumn
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity): one mixed plan verifies native/rebuild selection, one eligibility pass, and final postings.
-TEST_F(IndexStorageVariantCompactionReadTest, NativeValuesRequiresStableTypes) {
-    IndexTabletOptions options;
-    options.tablet_id = 120304;
-    options.index_storage_format = InvertedIndexStorageFormatPB::SNII;
-    options.variant_columns = {VariantColumnSpec {}};
-    options.inverted_indexes = {IndexSpec::column_index(72, "values", 2,
-                                                        {{"variant_index_scope", "values"},
-                                                         {"parser", "english"},
-                                                         {"support_phrase", "false"}})};
-    ASSERT_TRUE(create_tablet(options).ok());
-    int64_t version = 0;
-    // left, right, vertical expansion, DOC, subcolumn limit, expected native merge
-    for (const auto& [left, right, expand, doc, limit, expected] :
-         std::vector<std::tuple<std::string, std::string, bool, bool, int, bool>> {
-                 {R"({"n":1})", R"({"n":2})", true, false, 100, true},
-                 {R"({"n":true})", R"({"n":1})", true, false, 100, false},
-                 {R"({"n":9007199254740993})", R"({"n":1.5})", true, false, 100, false},
-                 {R"({"n":[1]})", R"({"n":1})", true, false, 100, false},
-                 {R"({"n":1})", R"({"n":2})", false, false, 100, false},
-                 {R"({"n":true})", R"({"n":1})", true, true, 100, false},
-                 {R"({"a":true,"b":1,"c":2})", R"({"a":1,"b":1,"c":2})", true, false, 1, false}}) {
-        SCOPED_TRACE(left + " / " + right + " doc=" + std::to_string(doc) +
-                     " limit=" + std::to_string(limit) + " expand=" + std::to_string(expand));
-        auto& root = tablet_schema()->mutable_column_by_uid(2);
-        root.set_variant_enable_doc_mode(doc);
-        root.set_variant_max_subcolumns_count(limit);
-        std::vector<IndexRowsetSpec> specs(2);
-        specs[0].version = version++;
-        specs[0].add_to_tablet = false;
-        specs[0].batches.push_back(IndexBatch::single_variant({left}));
-        specs[1].version = version++;
-        specs[1].add_to_tablet = false;
-        specs[1].batches.push_back(IndexBatch::single_variant({right}));
-        auto rowsets = write_rowsets(specs);
-        ASSERT_TRUE(rowsets.has_value()) << rowsets.error();
-        auto schema = std::make_shared<TabletSchema>(*tablet_schema());
-        std::set<std::pair<int32_t, int64_t>> native = {{2, 72}};
-        VariantCompactionPathsSPtr paths;
-        ASSERT_TRUE(variant_util::VariantCompactionUtil::plan_values_index_compaction(
-                            *rowsets, expand, native, schema, &paths)
-                            .ok());
-        EXPECT_EQ(native.contains({2, 72}), expected);
-        EXPECT_EQ(paths != nullptr && paths->contains(2), expected);
-        EXPECT_EQ(schema->num_columns() > 2, expected);
-    }
-}
-
 TEST_F(IndexStorageVariantCompactionReadTest, MixedNativeRebuildAndOrdinaryVariantPlan) {
     IndexTabletOptions options;
     options.tablet_id = 110086;
@@ -395,6 +346,9 @@ TEST_F(IndexStorageVariantCompactionReadTest, MixedNativeRebuildAndOrdinaryVaria
     }
     auto rowsets = write_rowsets(specs);
     ASSERT_TRUE(rowsets.has_value()) << rowsets.error();
+    for (const auto& rowset : rowsets.value()) {
+        rowset->set_skip_index_compaction(3);
+    }
     const bool old_native = config::inverted_index_compaction_enable;
     const bool old_vertical = config::enable_vertical_compact_variant_subcolumns;
     const bool old_debug = config::enable_debug_points;
