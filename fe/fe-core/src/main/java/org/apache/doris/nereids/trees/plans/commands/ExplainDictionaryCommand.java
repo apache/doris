@@ -18,10 +18,16 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.dictionary.DictionaryManager;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.DictionaryColumnDefinition;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -62,11 +68,17 @@ public class ExplainDictionaryCommand extends ShowCommand {
     }
 
     @Override
-    public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws DdlException {
+    public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws DdlException, AnalysisException {
         List<List<String>> rows = Lists.newArrayList();
 
         DictionaryManager dictionaryManager = ctx.getEnv().getDictionaryManager();
         String db = dbName == null ? ctx.getDatabase() : dbName;
+        // Describing a dictionary exposes its schema, so require SHOW on it like DESCRIBE on a table.
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, InternalCatalog.INTERNAL_CATALOG_NAME,
+                db, dictionaryName, PrivPredicate.SHOW)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW",
+                    ctx.getQualifiedUser(), ctx.getRemoteIP(), db + ": " + dictionaryName);
+        }
         Dictionary dictionary = dictionaryManager.getDictionary(db, dictionaryName);
 
         for (DictionaryColumnDefinition column : dictionary.getDicColumns()) {
