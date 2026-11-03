@@ -27,6 +27,10 @@ Test Description:
 2. When disable_file_cache = false and enable_file_cache = true, it is expected that the S3 TVF load (import phase) will enter the Normal queue, and the query 
    phase will still enter the Disposable queue.
    Specifically: Normal queue size should be 236988 bytes, Disposable queue size should still be 91163 bytes.
+3. When disable_file_cache = false, enable_file_cache = true and enable_file_cache_for_insert_source = true, the
+   query phase of the S3 TVF load is kept in the Normal queue as well: the Disposable queue does not grow, and the
+   Normal queue grows by the import phase plus the 91163 bytes the query phase put on the Disposable queue in
+   scenario 2.
 
 Explanation: The query phase caches the compressed file, so the Disposable queue size is checked for an exact value; for the import phase cache, since future 
 changes to statistics are possible, only a reasonable range is required.
@@ -348,6 +352,103 @@ suite('test_load_cache', 'docker') {
         def normalMaxThreshold = 280 * 1024
         assertTrue(normalQueueIncrease2 >= normalMinThreshold && normalQueueIncrease2 <= normalMaxThreshold,
             "Scenario 2: Normal queue should be in range [${normalMinThreshold}, ${normalMaxThreshold}] bytes, but got ${normalQueueIncrease2} bytes")
+
+        // Clean up
+        sql """DROP TABLE IF EXISTS load_test_table"""
+
+        // Wait between tests
+        sleep(3000)
+
+        // ============================================================================
+        // SCENARIO 3: enable_file_cache_for_insert_source = true
+        // ============================================================================
+        // The source scan of the INSERT is no longer forced onto the Disposable queue: the 91163
+        // bytes the query phase put there in scenario 2 land in the Normal queue instead.
+
+        // Clear file cache before test
+        clearFileCacheOnAllBackends()
+
+        // Set session variables for Scenario 3
+        sql "set disable_file_cache = false;"
+        sql "set enable_file_cache = true;"
+        sql "set enable_file_cache_for_insert_source = true;"
+
+        // Create test table
+        sql """DROP TABLE IF EXISTS load_test_table"""
+        sql """
+            CREATE TABLE load_test_table (
+                C_CUSTKEY     INTEGER NOT NULL,
+                C_NAME        VARCHAR(25) NOT NULL,
+                C_ADDRESS     VARCHAR(40) NOT NULL,
+                C_NATIONKEY   INTEGER NOT NULL,
+                C_PHONE       CHAR(15) NOT NULL,
+                C_ACCTBAL     DECIMAL(15,2) NOT NULL,
+                C_MKTSEGMENT  CHAR(10) NOT NULL,
+                C_COMMENT     VARCHAR(117) NOT NULL
+            ) DUPLICATE KEY(C_CUSTKEY, C_NAME)
+            DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 3
+            PROPERTIES (
+                "replication_num" = "1"
+            )
+        """
+
+        // Record initial cache sizes
+        long normalQueueSizeBefore3 = getTotalNormalQueueSize()
+        long disposableQueueSizeBefore3 = getTotalDisposableQueueSize()
+        long disposableQueueElementCountBefore3 = getTotalDisposableQueueElementCount()
+
+        // Execute S3 TVF Load
+        sql """
+            INSERT INTO load_test_table
+            SELECT
+                CAST(c1 AS INT) AS C_CUSTKEY,
+                CAST(c2 AS VARCHAR(25)) AS C_NAME,
+                CAST(c3 AS VARCHAR(40)) AS C_ADDRESS,
+                CAST(c4 AS INT) AS C_NATIONKEY,
+                CAST(c5 AS CHAR(15)) AS C_PHONE,
+                CAST(c6 AS DECIMAL(15,2)) AS C_ACCTBAL,
+                CAST(c7 AS CHAR(10)) AS C_MKTSEGMENT,
+                CAST(c8 AS VARCHAR(117)) AS C_COMMENT
+            FROM S3(
+                "uri" = "${s3_tvf_uri}",
+                "s3.access_key" = "${ak}",
+                "s3.secret_key" = "${sk}",
+                "s3.endpoint" = "${s3_endpoint}",
+                "s3.region" = "${s3_region}",
+                "format" = "csv",
+                "column_separator" = "|"
+            )
+        """
+
+        def rowCount3 = sql """SELECT COUNT(*) FROM load_test_table"""
+        logger.info("Loaded ${rowCount3[0][0]} rows")
+
+        // Wait for cache metrics to update
+        sleep(5000)
+
+        // Record cache sizes after load
+        long normalQueueSizeAfter3 = getTotalNormalQueueSize()
+        long disposableQueueSizeAfter3 = getTotalDisposableQueueSize()
+        long disposableQueueElementCountAfter3 = getTotalDisposableQueueElementCount()
+
+        long normalQueueIncrease3 = normalQueueSizeAfter3 - normalQueueSizeBefore3
+        long disposableQueueIncrease3 = disposableQueueSizeAfter3 - disposableQueueSizeBefore3
+        long disposableElementIncrease3 = disposableQueueElementCountAfter3 - disposableQueueElementCountBefore3
+
+        logger.info("Expected: Normal=~237KB + 91163 bytes (range), Disposable=0 bytes")
+        logger.info("Actual:   Normal=${normalQueueIncrease3} bytes (${String.format("%.2f", normalQueueIncrease3 / 1024.0)} KB), Disposable=${disposableQueueIncrease3} bytes")
+
+        // Verify Scenario 3: nothing on the Disposable queue, the query phase's bytes on the Normal queue
+        assertTrue(disposableQueueIncrease3 == 0,
+            "Scenario 3: Disposable queue should not grow, but got ${disposableQueueIncrease3} bytes")
+        assertTrue(disposableElementIncrease3 == 0,
+            "Scenario 3: Disposable queue elements should not increase, but got ${disposableElementIncrease3}")
+        assertTrue(normalQueueIncrease3 >= normalMinThreshold + expectedDisposableSize
+                && normalQueueIncrease3 <= normalMaxThreshold + expectedDisposableSize,
+            "Scenario 3: Normal queue should be in range [${normalMinThreshold + expectedDisposableSize}, ${normalMaxThreshold + expectedDisposableSize}] bytes, but got ${normalQueueIncrease3} bytes")
+
+        // Restore the session default
+        sql "set enable_file_cache_for_insert_source = false;"
 
         // Clean up
         sql """DROP TABLE IF EXISTS load_test_table"""
