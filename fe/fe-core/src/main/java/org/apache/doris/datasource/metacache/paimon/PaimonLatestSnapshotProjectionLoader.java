@@ -26,12 +26,15 @@ import org.apache.doris.datasource.paimon.PaimonScanParams;
 import org.apache.doris.datasource.paimon.PaimonSchemaCacheValue;
 import org.apache.doris.datasource.paimon.PaimonSnapshot;
 import org.apache.doris.datasource.paimon.PaimonSnapshotCacheValue;
+import org.apache.doris.datasource.paimon.PaimonTableDecorators;
 
 import org.apache.paimon.Snapshot;
+import org.apache.paimon.options.Options;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.table.source.snapshot.TimeTravelUtil;
 
 import java.util.Collections;
 import java.util.List;
@@ -39,7 +42,7 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Resolves the latest snapshot runtime projection from the base table entry.
+ * Resolves snapshot runtime projections from retained base or relation-scoped table handles.
  */
 public final class PaimonLatestSnapshotProjectionLoader {
     @FunctionalInterface
@@ -130,14 +133,25 @@ public final class PaimonLatestSnapshotProjectionLoader {
     }
 
     private PaimonSnapshot resolveLatestSnapshot(Table paimonTable, boolean normalizeForPartitionLoad) {
-        FileStoreTable latestSchemaTable = ((FileStoreTable) paimonTable).copyWithLatestSchema();
+        FileStoreTable selectedTable = (FileStoreTable) paimonTable;
+        // The SDK guards tagManager() as a writer API; read selectors must not require INSERT.
+        FileStoreTable metadataTable = PaimonTableDecorators.unwrapToFallbackOrBase(selectedTable);
+        Optional<Snapshot> selectedSnapshot = PaimonScanParams.hasStartupOptions(selectedTable.options())
+                ? TimeTravelUtil.tryTravelToSnapshot(Options.fromMap(selectedTable.options()),
+                        selectedTable.snapshotManager(), metadataTable.tagManager())
+                : Optional.empty();
+        // Relation options already bind schema-dependent field names and their physical options.
+        // Replacing that schema with the latest one invalidates historical sequence/aggregation fields.
+        FileStoreTable latestSchemaTable = selectedSnapshot.isPresent()
+                ? selectedTable : selectedTable.copyWithLatestSchema();
         Table snapshotTable = latestSchemaTable;
         long latestSnapshotId = PaimonSnapshot.INVALID_SNAPSHOT_ID;
-        Optional<Snapshot> optionalSnapshot = latestSchemaTable.latestSnapshot();
+        Optional<Snapshot> optionalSnapshot = selectedSnapshot.isPresent()
+                ? selectedSnapshot : latestSchemaTable.latestSnapshot();
         Map<String, String> projectionOptions = Collections.emptyMap();
         if (optionalSnapshot.isPresent()) {
             latestSnapshotId = optionalSnapshot.get().id();
-            // Pin the data snapshot for MVCC while retaining the latest table schema. A normal
+            // Pin the data snapshot for MVCC while retaining the bound table schema. A normal
             // copy applies time travel and falls back to the snapshot's schema, which can be stale
             // immediately after a schema change that has not produced a new data snapshot.
             projectionOptions = PaimonScanParams.isolateSnapshotRead(latestSnapshotId);
@@ -151,7 +165,9 @@ public final class PaimonLatestSnapshotProjectionLoader {
             snapshotTable = PaimonReaderOptions.runtimeSafeTable(snapshotTable);
         }
         DataTable dataTable = (DataTable) latestSchemaTable;
-        long latestSchemaId = dataTable.schemaManager().latest().map(TableSchema::id).orElse(0L);
+        long latestSchemaId = selectedSnapshot.isPresent()
+                ? latestSchemaTable.schema().id()
+                : dataTable.schemaManager().latest().map(TableSchema::id).orElse(0L);
         return new PaimonSnapshot(latestSnapshotId, latestSchemaId, snapshotTable);
     }
 }

@@ -96,6 +96,42 @@ bool topn_string_matches(int comparison, RawComparisonOp op) {
 
 } // namespace
 
+bool VTopNPred::can_evaluate_zonemap_filter() const {
+    // Capability must remain available before the first bound; readers cache it during open.
+    return _predicate != nullptr && _children.size() == 1 && _children[0]->is_slot_ref();
+}
+
+ZoneMapFilterResult VTopNPred::evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const {
+    if (!can_evaluate_zonemap_filter()) {
+        return unsupported_zonemap_filter(ctx);
+    }
+    const Field bound = _predicate->get_value();
+    if (bound.is_null()) {
+        return ZoneMapFilterResult::kMayMatch;
+    }
+    const auto* slot = assert_cast<const VSlotRef*>(_children[0].get());
+    const auto zone = ctx.zone_map(slot->column_id());
+    const auto type = ctx.data_type(slot->column_id());
+    if (zone == nullptr || !expr_zonemap::data_types_compatible(type, slot->data_type())) {
+        return unsupported_zonemap_filter(ctx);
+    }
+    if (_predicate->nulls_first() && zone->has_null) {
+        return ZoneMapFilterResult::kMayMatch;
+    }
+    if (!zone->has_not_null) {
+        return ZoneMapFilterResult::kNoMatch;
+    }
+    if (ctx.floating_nan_count_unknown(slot->column_id()) || bound.is_nan() ||
+        !expr_zonemap::range_stats_usable_for_zonemap(*zone, type) ||
+        !expr_zonemap::field_types_compatible(bound.get_type(),
+                                              remove_nullable(type)->get_primitive_type())) {
+        return unsupported_zonemap_filter(ctx);
+    }
+    // Keep equality: with ORDER BY a, b a row tied on a can still improve b.
+    const bool excluded = _predicate->is_asc() ? bound < zone->min_value : zone->max_value < bound;
+    return excluded ? ZoneMapFilterResult::kNoMatch : ZoneMapFilterResult::kMayMatch;
+}
+
 bool VTopNPred::can_execute_on_raw_fixed_values(const DataTypePtr& data_type, int column_id) const {
     if (_predicate == nullptr || data_type == nullptr || _children.size() != 1) {
         return false;

@@ -21,8 +21,6 @@
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
-QueryContext* AggregateFunctionAIAggData::_ctx = nullptr;
-
 void register_aggregate_function_ai_agg(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both("ai_agg",
                                    [](const std::string& name, const DataTypes& argument_types,

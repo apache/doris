@@ -101,5 +101,8 @@ Status decode_leaf_block(Slice block, uint32_t bytes_per_dim, uint32_t expected_
 // Decodes doc IDs from a fully covered leaf using the tail offset. Validates the offset and returns the same IDs as decode_leaf_block.
 Status decode_leaf_doc_ids(Slice block, uint32_t bytes_per_dim, uint32_t expected_point_count,
                            std::vector<uint32_t>* doc_ids);
+// The same, with a caller-owned vector for the leaf's value runs when going through many leaves.
+Status decode_leaf_doc_ids(Slice block, uint32_t bytes_per_dim, uint32_t expected_point_count,
+                           std::vector<uint32_t>* doc_ids, std::vector<LeafValueRun>* runs);
 
 } // namespace doris::snii::bkd

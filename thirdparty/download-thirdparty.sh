@@ -458,6 +458,12 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW " ]]; then
             patch -p1 <"${TP_PATCH_DIR}/apache-arrow-24.0.0-lzo.patch"
             touch "${PATCHED_MARK}"
         fi
+        # Arrow also verifies the overridden Brotli archive against its own SHA256.
+        # A separate marker updates sources that already have the other Arrow patches.
+        if [[ ! -f "${PATCHED_MARK}_brotli_1_0_10" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-24.0.0-brotli-1.0.10.patch"
+            touch "${PATCHED_MARK}_brotli_1_0_10"
+        fi
         cd -
     fi
     echo "Finished patching ${ARROW_SOURCE}"
@@ -719,7 +725,7 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " AZURE " ]]; then
 fi
 
 # Foyer remains a local patch until its cache interface is accepted upstream.
-# All search fixes are supplied by the immutable lance-c dependency revision.
+# Runtime selection and its memory guards come from the pinned upstream revision.
 if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_C " ]]; then
     foyer_patch_checksum="$(cksum < "${TP_PATCH_DIR}/lance-c-foyer.patch")"
     foyer_patch_marker="${TP_SOURCE_DIR}/${LANCE_C_SOURCE}/${PATCHED_MARK}_foyer"

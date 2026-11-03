@@ -19,6 +19,7 @@
 
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
+#include "util/thrift_rpc_helper.h"
 
 namespace doris {
 
@@ -130,7 +131,8 @@ void SplitSourceConnector::stop() {
     _split_ready.notify_all();
 }
 
-Status LocalSplitSourceConnector::get_next(bool* has_next, TFileRangeDesc* range) {
+Status LocalSplitSourceConnector::get_next(bool* has_next, TFileRangeDesc* range,
+                                           const std::atomic_bool* /*scanner_stop*/) {
     std::lock_guard<std::mutex> l(_range_lock);
     *has_next = false;
     if (_scan_index < _scan_ranges.size()) {
@@ -147,31 +149,42 @@ Status LocalSplitSourceConnector::get_next(bool* has_next, TFileRangeDesc* range
     return Status::OK();
 }
 
-Status RemoteSplitSourceConnector::get_next(bool* has_next, TFileRangeDesc* range) {
+Status RemoteSplitSourceConnector::get_next(bool* has_next, TFileRangeDesc* range,
+                                            const std::atomic_bool* scanner_stop) {
     std::lock_guard<std::mutex> l(_range_lock);
     *has_next = false;
+    if (is_stopped() || (scanner_stop && scanner_stop->load(std::memory_order_acquire))) {
+        return Status::OK();
+    }
     if (_scan_index == _scan_ranges.size() && !_last_batch) {
         SCOPED_TIMER(_get_split_timer);
-        Status coord_status;
-        // No need to set timeout because on FE side, there is a max fetch time
-        FrontendServiceConnection coord(_state->exec_env()->frontend_client_cache(),
-                                        _state->get_query_ctx()->coord_addr, &coord_status);
-        RETURN_IF_ERROR(coord_status);
         TFetchSplitBatchRequest request;
         request.__set_split_source_id(_split_source_id);
         request.__set_max_num_splits(config::remote_split_source_batch_size);
         TFetchSplitBatchResult result;
-        try {
-            coord->fetchSplitBatch(result, request);
+        do {
+            RETURN_IF_CANCELLED(_state);
+            // A local LIMIT stops this scanner without cancelling the query. Do not keep a scan
+            // worker in the retry loop while another branch of the same query remains active.
+            if (is_stopped() || (scanner_stop && scanner_stop->load(std::memory_order_acquire))) {
+                return Status::OK();
+            }
+            const auto fetch_status = _fetch_batch(&result, request);
+            if (is_stopped() || (scanner_stop && scanner_stop->load(std::memory_order_acquire))) {
+                return Status::OK();
+            }
+            RETURN_IF_ERROR(fetch_status);
+            if (result.__isset.status && result.status.status_code == TStatusCode::INCOMPLETE) {
+                continue;
+            }
             if (result.__isset.status && result.status.status_code != TStatusCode::OK) {
                 return Status::IOError<false>("Failed to get batch of split source: {}",
                                               result.status.error_msgs.empty()
                                                       ? "unknown error"
                                                       : result.status.error_msgs[0]);
             }
-        } catch (std::exception& e) {
-            return Status::IOError<false>("Failed to get batch of split source: {}", e.what());
-        }
+            break;
+        } while (true);
         _last_batch = result.splits.empty();
         _merge_ranges<TScanRangeLocations>(_scan_ranges, result.splits);
         _scan_index = 0;
@@ -189,6 +202,64 @@ Status RemoteSplitSourceConnector::get_next(bool* has_next, TFileRangeDesc* rang
         }
     }
     return Status::OK();
+}
+
+Status RemoteSplitSourceConnector::_fetch_batch(TFetchSplitBatchResult* result,
+                                                const TFetchSplitBatchRequest& request) {
+    if (request.__isset.close_source && request.close_source) {
+        // FE closure is idempotent, including when the first reply is lost. Reuse the standard
+        // reconnect/retry path only here: an ordinary split fetch consumes queue entries.
+        const auto& address = _state->get_query_ctx()->coord_addr;
+        return ThriftRpcHelper::rpc<FrontendServiceClient>(
+                address.hostname, address.port,
+                [&request, result](FrontendServiceConnection& coord) {
+                    coord->fetchSplitBatch(*result, request);
+                });
+    }
+    Status status;
+    FrontendServiceConnection coord(_state->exec_env()->frontend_client_cache(),
+                                    _state->get_query_ctx()->coord_addr, &status);
+    RETURN_IF_ERROR(status);
+    try {
+        coord->fetchSplitBatch(*result, request);
+    } catch (const std::exception& e) {
+        return Status::IOError<false>("Failed to get batch of split source: {}", e.what());
+    }
+    return Status::OK();
+}
+
+Status RemoteSplitSourceConnector::close() {
+    stop();
+    // Older FEs do not advertise support for the source-close request.
+    if (!_supports_close) {
+        return Status::OK();
+    }
+    std::scoped_lock lock(_close_lock);
+    if (_close_completed) {
+        return Status::OK();
+    }
+    TFetchSplitBatchRequest request;
+    request.__set_split_source_id(_split_source_id);
+    request.__set_max_num_splits(config::remote_split_source_batch_size);
+    request.__set_close_source(true);
+    Status status;
+    // The owner normally closes once. Retry a failed close here, without latching an unacknowledged
+    // request. An exhausted error must cancel the query rather than strand other BEs behind a queue.
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        TFetchSplitBatchResult result;
+        status = _fetch_batch(&result, request);
+        if (status.ok() && result.__isset.status && result.status.status_code != TStatusCode::OK) {
+            status = Status::IOError<false>("Failed to close split source {}: {}", _split_source_id,
+                                            result.status.error_msgs.empty()
+                                                    ? "unknown error"
+                                                    : result.status.error_msgs[0]);
+        }
+        if (status.ok()) {
+            _close_completed = true;
+            return Status::OK();
+        }
+    }
+    return status;
 }
 
 } // namespace doris

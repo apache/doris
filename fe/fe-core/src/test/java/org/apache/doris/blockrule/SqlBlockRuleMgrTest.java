@@ -17,13 +17,18 @@
 
 package org.apache.doris.blockrule;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.Map;
@@ -33,6 +38,40 @@ public class SqlBlockRuleMgrTest {
     @BeforeClass
     public static void setUp() {
         MetricRepo.init();
+    }
+
+    @Test
+    public void testExactScanCountsOnlyForApplicableEnabledCountRules() {
+        SqlBlockRuleMgr rules = new SqlBlockRuleMgr();
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        Env env = Mockito.mock(Env.class);
+        Auth auth = Mockito.mock(Auth.class);
+        Mockito.when(env.getAuth()).thenReturn(auth);
+        Mockito.when(auth.getSqlBlockRules("user")).thenReturn(new String[] {"missing"});
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            rules.getNameToSqlBlockRuleMap().put("user_limit", new SqlBlockRule(
+                    "user_limit", "NULL", "NULL", 1L, 0L, 0L, false, false, true));
+            Assert.assertFalse(rules.hasScanCountLimitations("user"));
+            Mockito.when(auth.getSqlBlockRules("user")).thenReturn(new String[] {"missing", "user_limit"});
+            Assert.assertTrue(rules.hasScanCountLimitations("user"));
+            context.getState().setInternal(true);
+            Assert.assertFalse(rules.hasScanCountLimitations("user"));
+            context.getState().setInternal(false);
+
+            Mockito.when(auth.getSqlBlockRules("user")).thenReturn(new String[0]);
+            rules.getNameToSqlBlockRuleMap().put("disabled", new SqlBlockRule(
+                    "disabled", "NULL", "NULL", 1L, 1L, 0L, false, true, false));
+            rules.getNameToSqlBlockRuleMap().put("metadata_only", new SqlBlockRule(
+                    "metadata_only", "SELECT .*", "NULL", 0L, 0L, 1L, true, true, true));
+            Assert.assertFalse(rules.hasScanCountLimitations("user"));
+            rules.getNameToSqlBlockRuleMap().put("global_limit", new SqlBlockRule(
+                    "global_limit", "NULL", "NULL", 0L, 1L, 0L, false, true, true));
+            Assert.assertTrue(rules.hasScanCountLimitations("user"));
+        } finally {
+            ConnectContext.remove();
+        }
     }
 
     @Test

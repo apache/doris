@@ -498,6 +498,12 @@ enum TVectorMetric {
     HAMMING
 }
 
+enum TVectorApproxMode {
+    FAST = 0,
+    NORMAL = 1,
+    ACCURATE = 2
+}
+
 struct TSearchVector {
     1: optional TVectorElementType element_type
     2: optional i32 dimension
@@ -585,6 +591,8 @@ struct TVectorSearchOptions {
     4: optional bool use_index
     // Lance: -1 uses available CPU parallelism, 0 selects automatically, positive values cap it.
     5: optional i32 query_parallelism
+    // Unset preserves the vector engine's default speed/recall tradeoff.
+    6: optional TVectorApproxMode approx_mode
 }
 
 // Paimon-only vector search tuning. Mirrors TVectorSearchOptions: the logical query stays
@@ -678,6 +686,8 @@ struct TTableFormatFileDesc {
     // JDBC connection parameters (used when table_format_type == "jdbc")
     11: optional map<string, string> jdbc_params
     12: optional TLanceFileDesc lance_params
+    // Keep ES field ids aligned with master for mixed-version requests.
+    13: optional map<string, string> es_params
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type
@@ -754,6 +764,9 @@ struct TFileScanRangeParams {
     // Paimon options from FE, used for jni/native scanner
     // Set at ScanNode level to avoid redundant serialization in each split
     30: optional map<string, string> paimon_options
+    31: optional map<string, string> es_properties
+    32: optional map<string, string> es_docvalue_context
+    33: optional map<string, string> es_fields_context
     // Versioned Iceberg scan semantics negotiated by FE. Absence/zero preserves legacy BE
     // behavior during a BE-first rolling upgrade; version 1 enables file-wide ID projection and
     // logical initial-default materialization.
@@ -763,7 +776,6 @@ struct TFileScanRangeParams {
     // HMS catalog property hive.parquet.time-zone. Interpretation is versioned by
     // parquet_timestamp_semantics_version.
     36: optional string hive_parquet_time_zone
-    // 31-33 are used in master; do not allocate them in branch-4.1.
     37: optional TLanceScanParams lance_scan_params
     // Non-regular columns in the pinned full schema, including columns pruned from phase one.
     // When present, omitted names are REGULAR. Used to rebuild row-id fetch projections.
@@ -820,6 +832,8 @@ struct TFileRangeDesc {
 struct TSplitSource {
     1: optional i64 split_source_id
     2: optional i32 num_splits
+    // This FE accepts TFetchSplitBatchRequest.close_source. Absent on older FEs.
+    3: optional bool supports_close
 }
 
 // TFileScanRange represents a set of descriptions of a file and the rules for reading and converting it.

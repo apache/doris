@@ -25,6 +25,8 @@ import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.VariantField;
+import org.apache.doris.catalog.VariantType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.indexpolicy.IndexPolicy;
 import org.apache.doris.indexpolicy.IndexPolicyMgr;
@@ -35,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
+import org.apache.doris.thrift.TPatternType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -681,6 +684,28 @@ public class InvertedIndexPropertiesTest {
         Assertions.assertFalse(InvertedIndexUtil.isAnalyzerMatched(ImmutableMap.of("parser", "ik"), "ik"));
         Assertions.assertFalse(InvertedIndexUtil.isAnalyzerMatched(
                 ImmutableMap.of("analyzer", "ik", "lower_case", "false"), "ik"));
+    }
+
+    @Test
+    public void testOverlappingFieldPatternsPickTheFirstPredefinedFieldLikeTheBe() {
+        // The BE writer routes a subcolumn to the first predefined field whose pattern matches its path,
+        // so the query side has to pick the index of that same field when the patterns overlap.
+        Index globIndex = new Index(30, "idx_glob", ImmutableList.of("v"), IndexType.INVERTED,
+                ImmutableMap.of("field_pattern", "a.*"), "");
+        Index exactIndex = new Index(31, "idx_exact", ImmutableList.of("v"), IndexType.INVERTED,
+                ImmutableMap.of("field_pattern", "a.b"), "");
+        VariantField glob = new VariantField("a.*", Type.STRING, "", TPatternType.MATCH_NAME_GLOB);
+        VariantField exact = new VariantField("a.b", Type.STRING, "", TPatternType.MATCH_NAME);
+        OlapTable table = new OlapTable();
+        table.setIndexes(ImmutableList.of(globIndex, exactIndex));
+
+        Column globFirst = new Column("v", new VariantType(new ArrayList<>(ImmutableList.of(glob, exact))));
+        Assertions.assertSame(globIndex, table.getInvertedIndex(globFirst, ImmutableList.of("a", "b")));
+
+        Column exactFirst = new Column("v", new VariantType(new ArrayList<>(ImmutableList.of(exact, glob))));
+        Assertions.assertSame(exactIndex, table.getInvertedIndex(exactFirst, ImmutableList.of("a", "b")));
+        // A path only the glob covers still resolves to the glob's index.
+        Assertions.assertSame(globIndex, table.getInvertedIndex(exactFirst, ImmutableList.of("a", "c")));
     }
 
     @Test

@@ -51,6 +51,13 @@ protected:
                      std::shared_ptr<roaring::Roaring>* out) override;
 };
 
+// The null bitmap of a CLucene index, through the inverted index query cache. Reads it from
+// `dir` when that is the index's open directory, otherwise opens the index.
+Status read_clucene_null_bitmap(IndexFileReader& file_reader, const TabletIndex& index_meta,
+                                const io::IOContext* io_ctx,
+                                InvertedIndexQueryCacheHandle* cache_handle,
+                                lucene::store::Directory* dir = nullptr);
+
 // run_leaf on the CLucene field `field` of `searcher`, its errors reported as CLucene ones.
 Status run_clucene_leaf(const IndexQueryContextPtr& context, std::wstring field,
                         const index_query::logical::Node& leaf, const roaring::Roaring* candidates,

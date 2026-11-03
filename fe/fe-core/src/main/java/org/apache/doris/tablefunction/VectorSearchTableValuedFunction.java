@@ -26,6 +26,7 @@ import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.thrift.TExternalSearchQuery;
 import org.apache.doris.thrift.TExternalSearchRequest;
 import org.apache.doris.thrift.TSearchVector;
+import org.apache.doris.thrift.TVectorApproxMode;
 import org.apache.doris.thrift.TVectorElementType;
 import org.apache.doris.thrift.TVectorMetric;
 import org.apache.doris.thrift.TVectorSearchOptions;
@@ -64,6 +65,7 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
     private static final String QUERY_VECTOR = "query_vector";
     private static final String METRIC = "metric";
     private static final String QUERY_PARALLELISM = "query_parallelism";
+    private static final String APPROX_MODE = "approx_mode";
     private static final String NPROBES = "nprobes";
     private static final String REFINE_FACTOR = "refine_factor";
     private static final String EF = "ef";
@@ -72,7 +74,7 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
     private static final String USE_INDEX = "use_index";
     private static final Set<String> PROPERTIES = ImmutableSet.of(
             TABLE, COLUMN, QUERY_VECTOR, TOP_K, OFFSET, METRIC, FILTER, PREFILTER,
-            NPROBES, REFINE_FACTOR, EF, USE_INDEX, QUERY_PARALLELISM,
+            NPROBES, REFINE_FACTOR, EF, USE_INDEX, QUERY_PARALLELISM, APPROX_MODE,
             VERSION, TIMESTAMP, TAG, BRANCH, DISTANCE_LOWER_BOUND, DISTANCE_UPPER_BOUND);
 
     public static ExternalSearchTableValuedFunction create(Map<String, String> properties,
@@ -102,6 +104,7 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
         boolean hasDistanceRange = vectorParams.isSetDistanceLowerBound() || vectorParams.isSetDistanceUpperBound();
         boolean useIndex = !params.containsKey(USE_INDEX)
                 || parseBoolean(params.get(USE_INDEX), USE_INDEX);
+        TVectorSearchOptions vectorSearchOptions = buildVectorSearchOptions(params, useIndex);
         CommonSearch common = prepareCommon(params, NAME,
                 "VectorSearchTableValuedFunction", "vector search", useIndex);
 
@@ -139,7 +142,6 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
         TExternalSearchRequest searchRequest = new TExternalSearchRequest()
                 .setSchemaVersion(1)
                 .setSearchQuery(TExternalSearchQuery.vector_search(vectorParams));
-        TVectorSearchOptions vectorSearchOptions = buildVectorSearchOptions(params, useIndex);
         if (vectorSearchOptions != null) {
             searchRequest.setVectorSearchOptions(vectorSearchOptions);
         }
@@ -182,6 +184,10 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
             Map<String, String> params, boolean useIndex) throws AnalysisException {
         TVectorSearchOptions options = new TVectorSearchOptions();
         boolean configured = false;
+        if (params.containsKey(APPROX_MODE)) {
+            options.setApproxMode(parseApproxMode(params.get(APPROX_MODE)));
+            configured = true;
+        }
         if (params.containsKey(QUERY_PARALLELISM)) {
             options.setQueryParallelism((int) parseLong(
                     params.get(QUERY_PARALLELISM), QUERY_PARALLELISM, -1, Integer.MAX_VALUE));
@@ -205,6 +211,22 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
             configured = true;
         }
         return configured ? options : null;
+    }
+
+    private static TVectorApproxMode parseApproxMode(String value) throws AnalysisException {
+        if (value != null) {
+            switch (value.trim().toLowerCase(Locale.ROOT)) {
+                case "fast":
+                    return TVectorApproxMode.FAST;
+                case "normal":
+                    return TVectorApproxMode.NORMAL;
+                case "accurate":
+                    return TVectorApproxMode.ACCURATE;
+                default:
+                    break;
+            }
+        }
+        throw new AnalysisException("Unsupported 'approx_mode': expected fast, normal, or accurate");
     }
 
     @VisibleForTesting

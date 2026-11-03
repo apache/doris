@@ -38,7 +38,11 @@ nestedQuery : NESTED_LPAREN NESTED_PATH NESTED_COMMA clause RPAREN ;
 fieldGroupQuery : fieldPath COLON LPAREN clause RPAREN ;
 
 // Support for variant subcolumn paths (e.g., field.subcolumn, field.sub1.sub2)
-fieldQuery : fieldPath COLON searchValue ;
+fieldQuery : fieldPath COLON fieldValue ;
+// Boolean keywords are also valid terms in value position, e.g. field:and. Keeping this
+// separate from searchValue leaves the bare query rule free of operator tokens, so lowercase
+// `or` between two clauses is still parsed as the OR operator.
+fieldValue : searchValue | AND | OR | NOT ;
 
 // Bare query without field prefix - uses default_field
 bareQuery  : searchValue ;
@@ -65,5 +69,5 @@ rangeValue
 rangeEndpoint : RANGE_NUMBER | RANGE_STAR ;
 
 listValue   : IN_LPAREN LIST_TERM* LIST_RPAREN ;
-anyAllValue : (ANY_LPAREN | ALL_LPAREN) STRING_CONTENT? STRING_RPAREN ;
-exactValue  : EXACT_LPAREN STRING_CONTENT? STRING_RPAREN ;
+anyAllValue : (ANY_LPAREN | ALL_LPAREN) (STRING_CONTENT | STRING_QUOTED)* STRING_RPAREN ;
+exactValue  : EXACT_LPAREN (STRING_CONTENT | STRING_QUOTED)* STRING_RPAREN ;

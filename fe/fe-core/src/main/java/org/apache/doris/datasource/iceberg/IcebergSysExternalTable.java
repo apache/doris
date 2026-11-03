@@ -222,18 +222,20 @@ public class IcebergSysExternalTable extends ExternalTable {
     }
 
     private SchemaCacheValue loadSchemaCacheValue() {
-        // Metadata-table schemas may change after source schema or partition-spec evolution.
-        // Resolve the metadata table and mapping policy from one retained source generation instead
-        // of permanently pairing this long-lived system-table object with its first observed state.
-        Optional<MvccSnapshot> relationSnapshot = bindsToStatementGeneration()
-                ? MvccUtil.getSnapshotFromContext(sourceTable) : Optional.empty();
-        return IcebergUtils.withSnapshotCacheValue(relationSnapshot, sourceTable, snapshotValue -> {
-            Table baseTable = snapshotValue.getIcebergTable().orElseThrow(
-                    () -> new IllegalStateException("Iceberg system table schema requires a retained base table"));
-            Table metadataTable = createMetadataTable(baseTable);
-            return new SchemaCacheValue(IcebergUtils.parseSchema(metadataTable.schema(),
-                    snapshotValue.isEnableMappingVarbinary(),
-                    snapshotValue.isEnableMappingTimestampTz()));
+        return sourceTable.withMissingTableRepair(() -> {
+            // Metadata-table schemas may change after source schema or partition-spec evolution.
+            // Resolve the metadata table and mapping policy from one retained source generation instead
+            // of permanently pairing this long-lived system-table object with its first observed state.
+            Optional<MvccSnapshot> relationSnapshot = bindsToStatementGeneration()
+                    ? MvccUtil.getSnapshotFromContext(sourceTable) : Optional.empty();
+            return IcebergUtils.withSnapshotCacheValue(relationSnapshot, sourceTable, snapshotValue -> {
+                Table baseTable = snapshotValue.getIcebergTable().orElseThrow(
+                        () -> new IllegalStateException("Iceberg system table schema requires a retained base table"));
+                Table metadataTable = createMetadataTable(baseTable);
+                return new SchemaCacheValue(IcebergUtils.parseSchema(metadataTable.schema(),
+                        snapshotValue.isEnableMappingVarbinary(),
+                        snapshotValue.isEnableMappingTimestampTz()));
+            });
         });
     }
 }

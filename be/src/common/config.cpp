@@ -508,10 +508,10 @@ DEFINE_mDouble(compaction_promotion_ratio, "0.05");
 DEFINE_mInt64(compaction_promotion_min_size_mbytes, "128");
 
 // When output rowset of cumulative compaction total version count (end_version - start_version)
-// exceed this config count, the rowset will be moved to base compaction
-// NOTE: this config will work for unique key merge-on-write table only, to reduce version count
-// related cost on delete bitmap more effectively.
-DEFINE_mInt64(compaction_promotion_version_count, "1000");
+// exceed this config count, the rowset will be moved to base compaction.
+// NOTE: this config only works for unique key merge-on-write tables. The default maximum value
+// disables version-count-based promotion while retaining the option to enable it when needed.
+DEFINE_mInt64(compaction_promotion_version_count, "9223372036854775807");
 
 // The lower bound size to do cumulative compaction. When total disk size of candidate rowsets is less than
 // this size, size_based policy may not do to cumulative compaction. The unit is m byte.
@@ -1228,10 +1228,13 @@ DEFINE_Validator(variant_storage_parse_mode,
 // can be shared by all Lance dataset readers.
 DEFINE_Int64(lance_index_cache_size_bytes, "10737418240");   // 10 GiB
 DEFINE_Int64(lance_metadata_cache_size_bytes, "1073741824"); // 1GB
+DEFINE_Bool(enable_lance_scalar_index_auto_selection, "true");
 DEFINE_Bool(enable_lance_data_cache, "true");
 DEFINE_String(lance_data_cache_path, "${DORIS_HOME}/lance_data_cache");
 DEFINE_Int64(lance_data_cache_disk_capacity_bytes, "107374182400"); // 100GB
 DEFINE_Int64(lance_data_cache_read_block_size_bytes, "1048576");    // 1MB
+// Zero preserves the existing one-block Foyer memory tier, including custom block sizes.
+DEFINE_Int64(lance_data_cache_memory_capacity_bytes, "0");
 
 // I/O buffering budget per Lance scanner, not a cap on its total memory usage.
 // Runtime changes apply to newly created scanners.
@@ -1438,8 +1441,21 @@ DEFINE_mInt32(inverted_index_max_buffered_docs, "-1");
 // Zstd levels for SNII DICT blocks and .prx windows. These affect writes; each segment records its compression mode.
 DEFINE_mInt32(snii_dict_block_zstd_level, "3");
 DEFINE_mInt32(snii_prx_zstd_level, "3");
+// A .prx window is stored zstd-compressed only if that frame is smaller than the PFOR one by at
+// least this percentage; 0 picks the smaller frame. Every read of a zstd window pays a
+// decompression that PFOR does not, but how much zstd saves depends on the data, so no one
+// percentage fits all data. The default (negative) lets each index choose: it stores in their
+// faster frame the windows zstd shrinks least, spending at most 8% of the smallest size of the
+// windows that get a zstd frame (see format::PrxZstdBudget). Readers handle every codec, so
+// changing this never affects existing segments.
+DEFINE_mInt32(snii_prx_zstd_min_saving_percent, "-1");
 // Zstd level for direct-load .prx regions. Compaction rewrites them using snii_prx_zstd_level.
 DEFINE_mInt32(snii_prx_zstd_level_direct_load, "3");
+// Handing small page-cache reads to the shared prefetch pool costs more than the reads: a query
+// that issues thousands of them queues on the pool lock. Remote, larger and slow (cold) batches
+// still fan out, so overlapping disk reads keep their parallelism. 16 covers the batches of a
+// phrase prefix, which reads the postings of every term the prefix expands to.
+DEFINE_mInt32(snii_inline_read_max_segments, "16");
 // G16-d: target SNII dict block size in bytes; 0 uses the format default
 // (64 KiB). Larger blocks compress better under the per-block zstd (the dict
 // is the dominant physical section on high-cardinality corpora) at the cost

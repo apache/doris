@@ -93,6 +93,18 @@ void BM25Similarity::for_terms(const IndexQueryContextPtr& context, const std::w
     compute_tf_cache();
 }
 
+void BM25Similarity::for_terms_and_prefix(const IndexQueryContextPtr& context,
+                                          const std::wstring& field_name,
+                                          const std::vector<std::wstring>& terms,
+                                          const std::wstring& prefix) {
+    std::vector<std::wstring> all_terms = terms;
+    for (auto& expansion :
+         context->collection_statistics->get_prefix_expansions(field_name, prefix)) {
+        all_terms.push_back(std::move(expansion));
+    }
+    for_terms(context, field_name, all_terms);
+}
+
 float BM25Similarity::score(float freq, int64_t encoded_norm) {
     float norm_inverse = _cache[((uint8_t)encoded_norm) & 0xFF];
     return _weight - _weight / (1.0F + freq * norm_inverse);

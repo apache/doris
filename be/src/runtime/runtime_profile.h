@@ -584,6 +584,13 @@ public:
     // the key does not exist.
     const std::string* get_info_string(const std::string& key);
 
+    using SnapshotCallback = std::function<void()>;
+    // Refresh observations before serializing counters and info strings, without profile locks.
+    // Keep the returned token alive to stay registered. In-flight callbacks can outlive the
+    // token, so callbacks must own their state and synchronize with its producer's shutdown.
+    // Callbacks must not throw or recursively serialize this profile.
+    std::shared_ptr<SnapshotCallback> add_snapshot_callback(SnapshotCallback callback);
+
     // Returns the counter for the total elapsed time.
     Counter* total_time_counter() { return &_counter_total_time; }
 
@@ -697,6 +704,10 @@ private:
 
     // protects _counter_map, _counter_child_map and _bucketing_counters
     mutable std::mutex _counter_map_lock;
+
+    // Protected by _counter_map_lock. Expired registrations are pruned during snapshots.
+    std::vector<std::weak_ptr<SnapshotCallback>> _snapshot_callbacks;
+    void _run_snapshot_callbacks();
 
     // Child profiles.  Does not own memory.
     // We record children in both a map (to facilitate updates) and a vector

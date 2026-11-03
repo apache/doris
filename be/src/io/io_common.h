@@ -259,6 +259,9 @@ struct IOContext {
     // index reads and data reads on the normal write-back path.
     bool inverted_index_snii_read_no_write_file_cache = false;
     RemoteScanCacheWriteLimiter* remote_scan_cache_write_limiter = nullptr; // Ref
+    // Scanner-local ingestion counters shared by physical decoding and load materialization.
+    int64_t load_filtered_rows = 0;
+    int64_t load_unselected_rows = 0;
 };
 
 } // namespace io

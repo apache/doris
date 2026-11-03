@@ -460,6 +460,8 @@ struct TIcebergCommitData {
     13: optional i64 content_size_in_bytes
     // Rows newly affected by the current statement for this commit item.
     14: optional i64 affected_rows
+    // Parquet data-file row-group starts, independent of column metrics policy.
+    15: optional list<i64> split_offsets
 }
 
 struct TSortField {

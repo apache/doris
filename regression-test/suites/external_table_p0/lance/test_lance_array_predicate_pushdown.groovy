@@ -86,26 +86,34 @@ suite("test_lance_array_predicate_pushdown", "p0,external") {
                     }
                 }
                 assertEquals(c[1], sql(query).collect { (it[0] as Number).intValue() })
-                // A pushed predicate is not necessarily indexed: also verify runtime searches
-                // and candidate counts, so a non-indexed fallback cannot satisfy this test.
                 if (table != "unindexed") {
                     String profile = profiles.getProfileBySql(token,
-                            ["LanceScalarIndexSegmentsSearched", "LanceScalarIndexCandidateRows",
-                             "LanceScalarIndexSegmentFallbacks"])
+                            ["LanceScalarIndexSegmentsRequested", "LanceScalarIndexSegmentsSearched",
+                             "LanceScalarIndexCandidateRows", "LanceScalarIndexSegmentFallbacks",
+                             "LanceScalarIndexAutoFullScans"])
                     def counter = { String name ->
                         def matches = profile =~ /${name}: (?:sum )?(\d+)\b/
                         assertTrue(matches.find(), "Missing counter ${name}: ${profile}")
                         return matches.group(1).toLong()
                     }
-                    // Broad complements stay as parallel scans without repeated segment searches.
-                    long expectedSearches = c[2] == -1 ? 0L : 1L
-                    assertEquals(expectedSearches, counter("LanceScalarIndexSegmentsSearched"))
-                    long expectedCandidates = c[2] == null ? -1L :
+                    // The cost selector may scan a small indexed domain instead of searching.
+                    // Account for that decision without accepting unrelated index fallbacks.
+                    long expectedRequests = c[2] == -1 ? 0L : 1L
+                    long runtimeFullScans = counter("LanceScalarIndexAutoFullScans")
+                    // Only category has a cost-ranked BTree; label-only predicates
+                    // must continue to exercise their LabelList index.
+                    if (!c[0].contains("category")) {
+                        assertEquals(0L, runtimeFullScans)
+                    }
+                    assertEquals(expectedRequests, counter("LanceScalarIndexSegmentsRequested"))
+                    assertEquals(expectedRequests,
+                            counter("LanceScalarIndexSegmentsSearched") + runtimeFullScans)
+                    long expectedCandidates = runtimeFullScans > 0 ? 0L : c[2] == null ? -1L :
                             (c[table == "partial" ? 3 : 2] as Number).longValue()
                     if (expectedCandidates >= 0) {
                         assertEquals(expectedCandidates, counter("LanceScalarIndexCandidateRows"))
                     }
-                    assertEquals(0L, counter("LanceScalarIndexSegmentFallbacks"))
+                    assertEquals(runtimeFullScans, counter("LanceScalarIndexSegmentFallbacks"))
                 }
             }
             // NULL needle matching and ordered subsequence matching have Doris-specific semantics.

@@ -1547,7 +1547,7 @@ Status IcebergTableReader::_create_delete_file_reader(const TIcebergDeleteFileDe
         *reader = std::make_unique<format::parquet::ParquetReader>(
                 system_properties, file_description, io_ctx, _scanner_profile, std::nullopt,
                 enable_mapping_timestamp_tz, enable_mapping_varbinary, nullptr, -1, -1, "",
-                preserve_binary_uuid());
+                preserve_binary_uuid(), _parquet_profile_cache);
     } else {
         *reader = std::make_unique<format::orc::OrcReader>(
                 system_properties, file_description, io_ctx, _scanner_profile, std::nullopt,

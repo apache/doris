@@ -119,7 +119,12 @@ suite("test_uuid_aggregate_matrix", "p0") {
         // Group per UUID: TOPN ties cannot make the expected array order arbitrary.
         qt_topn """SELECT u,TOPN_ARRAY(u,1),TOPN_ARRAY(u,2,4),COLLECT_LIST(u,2),COLLECT_SET(u,2)
                    FROM uuid_matrix_aggregate GROUP BY u ORDER BY u NULLS FIRST"""
-        qt_collect_column_limit """SELECT id,COLLECT_LIST(u,num),COLLECT_SET(u,num)
+        test {
+            sql """SELECT id,COLLECT_LIST(u,num)
+                   FROM uuid_matrix_aggregate GROUP BY id,num ORDER BY id"""
+            exception "collect_list requires second parameter must be a constant"
+        }
+        qt_collect_column_limit """SELECT id,COLLECT_SET(u,num)
                                   FROM uuid_matrix_aggregate GROUP BY id,num ORDER BY id"""
         for (String query : ['HISTOGRAM(u,num)', 'TOPN_ARRAY(u,num)']) {
             test {

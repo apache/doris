@@ -199,9 +199,11 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
         //    then later at rewrite phase, the join conditions may push down, and the push down condition with proper
         //    nullable attribute.
         // 2) when at the end of rewrite phase, update other conjuncts with join output nullables.
-        //    Just change it to be consistent with BE.
+        //    Just change it to be consistent with BE. ASOF match conditions are evaluated on child input blocks before
+        //    outer-join null padding, so they keep the child nullable attributes in both phases.
         Optional<List<Expression>> otherConjuncts = Optional.empty();
-        if (isAnalyzedPhase) {
+        boolean useJoinOutputNullableForOtherConjuncts = !isAnalyzedPhase && !join.getJoinType().isAsofJoin();
+        if (!useJoinOutputNullableForOtherConjuncts) {
             otherConjuncts = doUpdateExpressions(join.getOtherJoinConjuncts(), replaceMap, false);
         }
         for (Slot slot : join.getOutput()) {
@@ -210,7 +212,7 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
         if (!hadUpdatedMarkConjuncts) {
             markConjuncts = doUpdateExpressions(join.getMarkJoinConjuncts(), replaceMap, false);
         }
-        if (!isAnalyzedPhase) {
+        if (useJoinOutputNullableForOtherConjuncts) {
             otherConjuncts = doUpdateExpressions(join.getOtherJoinConjuncts(), replaceMap, false);
         }
         if (!hashConjuncts.isPresent() && !markConjuncts.isPresent() && !otherConjuncts.isPresent()) {

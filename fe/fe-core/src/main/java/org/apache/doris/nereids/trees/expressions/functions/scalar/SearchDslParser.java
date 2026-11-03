@@ -930,10 +930,16 @@ MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
             currentFieldName = fieldPath;
 
             try {
-                if (ctx.searchValue() == null) {
+                if (ctx.fieldValue() == null) {
                     throw new RuntimeException("Invalid field query: missing search value");
                 }
-                QsNode result = visit(ctx.searchValue());
+                QsNode result;
+                if (ctx.fieldValue().searchValue() != null) {
+                    result = visit(ctx.fieldValue().searchValue());
+                } else {
+                    // AND/OR/NOT in value position are ordinary terms: `field:and`.
+                    result = createTermNode(fieldPath, ctx.fieldValue().getText());
+                }
                 if (result == null) {
                     throw new RuntimeException("Invalid search value");
                 }
@@ -1084,7 +1090,9 @@ MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
         private QsNode createAnyAllNode(String fieldName, String anyAllText) {
             // Extract content between parentheses
             String innerContent = extractParenthesesContent(anyAllText);
-            String sanitizedContent = stripOuterQuotes(innerContent);
+            // Strip DSL-level quotes first, then resolve escapes such as \" or \), so that a
+            // search for a value containing quote characters stays expressible.
+            String sanitizedContent = unescapeTermValue(stripOuterQuotes(innerContent));
 
             if (anyAllText.toUpperCase().startsWith("ANY(") || anyAllText.toLowerCase().startsWith("any(")) {
                 return new QsNode(QsClauseType.ANY, fieldName, sanitizedContent);
@@ -1101,9 +1109,10 @@ MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
         }
 
         private QsNode createExactNode(String fieldName, String exactText) {
-            // Extract content between parentheses
+            // Extract content between parentheses and resolve escapes (for example ABC\) is the
+            // value "ABC)"), otherwise the backslash is looked up as part of the indexed term.
             String innerContent = extractParenthesesContent(exactText);
-            return new QsNode(QsClauseType.EXACT, fieldName, innerContent);
+            return new QsNode(QsClauseType.EXACT, fieldName, unescapeTermValue(innerContent));
         }
 
         private String extractParenthesesContent(String text) {
@@ -2537,7 +2546,14 @@ MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
             currentFieldName = fieldPath;
 
             try {
-                QsNode result = visit(ctx.searchValue());
+                QsNode result;
+                if (ctx.fieldValue().searchValue() != null) {
+                    result = visit(ctx.fieldValue().searchValue());
+                } else {
+                    // AND/OR/NOT in value position are ordinary terms: `field:and`.
+                    result = new QsNode(QsClauseType.TERM, fieldPath,
+                            unescapeTermValue(ctx.fieldValue().getText()));
+                }
                 // Mark as explicit field - user wrote "field:term" syntax
                 result.setExplicitField(true);
                 return result;
@@ -2646,7 +2662,7 @@ MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
             if (ctx.anyAllValue() != null) {
                 String text = ctx.anyAllValue().getText();
                 String innerContent = extractParenthesesContent(text);
-                String sanitizedContent = stripOuterQuotes(innerContent);
+                String sanitizedContent = unescapeTermValue(stripOuterQuotes(innerContent));
                 if (text.toUpperCase().startsWith("ANY(")) {
                     return new QsNode(QsClauseType.ANY, fieldName, sanitizedContent);
                 }
@@ -2654,7 +2670,7 @@ MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
             }
             if (ctx.exactValue() != null) {
                 String innerContent = extractParenthesesContent(ctx.exactValue().getText());
-                return new QsNode(QsClauseType.EXACT, fieldName, innerContent);
+                return new QsNode(QsClauseType.EXACT, fieldName, unescapeTermValue(innerContent));
             }
 
             return new QsNode(QsClauseType.TERM, fieldName, unescapeTermValue(ctx.getText()));

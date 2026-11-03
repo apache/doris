@@ -309,8 +309,9 @@ Status VInPredicate::execute_on_raw_binary_values(const StringRef* values, size_
     return Status::OK();
 }
 
-Status VInPredicate::execute_column(VExprContext* context, const Block* block, Selector* selector,
-                                    size_t count, ColumnPtr& result_column) const {
+Status VInPredicate::execute_column_impl(VExprContext* context, const Block* block,
+                                         const Selector* selector, size_t count,
+                                         ColumnPtr& result_column) const {
     if (is_const_and_have_executed()) { // const have execute in open function
         result_column = get_result_from_const(count);
         return Status::OK();

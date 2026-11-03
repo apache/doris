@@ -74,6 +74,8 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.cache.SqlCacheVersion;
+import org.apache.doris.qe.cache.SqlCacheVersionProvider;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
@@ -324,6 +326,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             icebergTable = source.getIcebergTable();
             icebergTable = useFrozenTableGeneration(icebergTable);
             partitionMapInfos = new HashMap<>();
+            getQuerySchema();
             initializePartitionMetadata();
             isPartitionedTable = icebergTable.spec().isPartitioned();
             hasPartitionedSpec = IcebergUtils.hasPartitionedSpec(icebergTable);
@@ -517,6 +520,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             orderedPartitionMetadataKeys = Collections.emptyList();
             return;
         }
+        Schema scanSchema = getPartitionMetadataScanSchema();
         enableMappingVarbinaryForPartitionMetadata = getEnableMappingVarbinary();
         enableMappingTimestampTzForPartitionMetadata = getEnableMappingTimestampTz();
         if (sessionVariable.enableFileScannerV2) {
@@ -527,18 +531,29 @@ public class IcebergScanNode extends FileQueryScanNode {
             // for the column (a spec without it) are unaffected: the v2 column mapper falls back to the
             // physical field when the split has no partition value for a partition key.
             orderedPathPartitionKeys = Collections.unmodifiableList(
-                    IcebergUtils.getIdentityPartitionColumns(icebergTable,
+                    IcebergUtils.getIdentityPartitionColumns(icebergTable, scanSchema,
                             enableMappingVarbinaryForPartitionMetadata,
                             enableMappingTimestampTzForPartitionMetadata));
         } else {
             // v1 has no such per-file fallback: a partition key it cannot fill from the split is not read
             // from the file either. Keep the columns common to all specs so those files stay readable.
             orderedPathPartitionKeys = Collections.unmodifiableList(
-                    IcebergUtils.getCommonIdentityPartitionColumns(icebergTable,
+                    IcebergUtils.getCommonIdentityPartitionColumns(icebergTable, scanSchema,
                             enableMappingVarbinaryForPartitionMetadata,
                             enableMappingTimestampTzForPartitionMetadata));
         }
         orderedPartitionMetadataKeys = orderedPathPartitionKeys;
+    }
+
+    private Schema getPartitionMetadataScanSchema() {
+        if (plannedScanSchema != null) {
+            return plannedScanSchema;
+        }
+        if (querySchema != null) {
+            return querySchema;
+        }
+        return Preconditions.checkNotNull(
+                icebergTable.schema(), "Schema for Iceberg scan is null");
     }
 
     @VisibleForTesting
@@ -2598,6 +2613,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     private Split createIcebergSplit(FileScanTask fileScanTask) throws UserException {
         DataFile dataFile = fileScanTask.file();
+        Schema scanSchema = getPartitionMetadataScanSchema();
         String originalPath = dataFile.path().toString();
         LocationPath locationPath = createLocationPathWithCache(originalPath);
         IcebergSplit split = new IcebergSplit(
@@ -2659,7 +2675,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                     .anyMatch(field -> field.transform().isIdentity())) {
                 Map<String, String> partitionInfoMap = partitionMapInfos.computeIfAbsent(
                         Pair.of(specId, partitionData), k -> IcebergUtils.getIdentityPartitionInfoMap(
-                                partitionData, partitionSpec, icebergTable, sessionVariable.getTimeZone(),
+                                partitionData, partitionSpec, scanSchema, sessionVariable.getTimeZone(),
                                 enableMappingVarbinaryForPartitionMetadata,
                                 enableMappingTimestampTzForPartitionMetadata));
                 // A spec may mix identity and transformed fields. Keep its identity values so a
@@ -3024,7 +3040,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         if (prepareTableLevelSnapshotCount()) {
             return false;
         }
-        if (!sessionVariable.getEnableExternalTableBatchMode()) {
+        if (!isBatchModeEnabled()) {
             isBatchMode = false;
             return false;
         }
@@ -3195,6 +3211,13 @@ public class IcebergScanNode extends FileQueryScanNode {
         summaryProfile.getExecutionSummary().addInfoString("Manifest Cache",
                 String.format("hits=%d, misses=%d, failures=%d",
                         manifestCacheHits, manifestCacheMisses, manifestCacheFailures));
+    }
+
+    public Optional<SqlCacheVersion> getSqlCacheVersion() {
+        TableIf table = getTargetTable();
+        return table instanceof SqlCacheVersionProvider
+                ? ((SqlCacheVersionProvider) table)
+                        .getSqlCacheVersion(getPinnedRelationSnapshot()) : Optional.empty();
     }
 
     @Override

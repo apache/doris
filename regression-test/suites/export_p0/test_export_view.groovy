@@ -184,29 +184,8 @@ suite("test_export_view", "p0") {
         waiting_export.call(label)
         
 
-        // check data correctness
-        create_load_table(table_load_name)
+        // LOCAL TVF readback is disabled; export completion is checked above.
 
-        // use local() tvf to reload the data
-        def ipList = [:]
-        def portList = [:]
-        getBackendIpHeartbeatPort(ipList, portList)
-        ipList.each { beid, ip ->
-            logger.info("Begin to insert into ${table_load_name} from local()")
-            sql """
-                insert into ${table_load_name}
-                select * from local(
-                    "file_path" = "${local_tvf_prefix}/${table_export_view_name}_${uuid}/*",
-                    "backend_id" = "${beid}",
-                    "format" = "csv",
-                    "column_separator" = ","
-                );         
-            """ 
-            insert_res = sql "show last insert;"
-            logger.info("insert from local(), BE id = ${beid}, result: " + insert_res.toString())
-        }
-
-        order_qt_select_load1 """ SELECT * FROM ${table_load_name} t; """
     
     } finally {
         try_sql("DROP TABLE IF EXISTS ${table_load_name}")
@@ -235,29 +214,8 @@ suite("test_export_view", "p0") {
         waiting_export.call(label)
         
 
-        // check data correctness
-        create_load_table(table_load_name)
+        // LOCAL TVF readback is disabled; export completion is checked above.
 
-        // use local() tvf to reload the data
-        def ipList = [:]
-        def portList = [:]
-        getBackendIpHeartbeatPort(ipList, portList)
-        ipList.each { beid, ip ->
-            logger.info("Begin to insert into ${table_load_name} from local()")
-            sql """
-                insert into ${table_load_name}
-                select * from local(
-                    "file_path" = "${local_tvf_prefix}/${table_export_view_name}_${uuid}/*",
-                    "backend_id" = "${beid}",
-                    "column_separator" = ",",
-                    "format" = "csv_with_names"
-                );         
-            """ 
-            insert_res = sql "show last insert;"
-            logger.info("insert from local(), BE id = ${beid}, result: " + insert_res.toString())
-        }
-
-        order_qt_select_load2 """ SELECT * FROM ${table_load_name} t; """
     
     } finally {
         try_sql("DROP TABLE IF EXISTS ${table_load_name}")
@@ -288,29 +246,8 @@ suite("test_export_view", "p0") {
         waiting_export.call(label)
         
 
-        // check data correctness
-        create_load_table(table_load_name)
+        // LOCAL TVF readback is disabled; export completion is checked above.
 
-        // use local() tvf to reload the data
-        def ipList = [:]
-        def portList = [:]
-        getBackendIpHeartbeatPort(ipList, portList)
-        ipList.each { beid, ip ->
-            logger.info("Begin to insert into ${table_load_name} from local()")
-            sql """
-                insert into ${table_load_name}
-                select * from local(
-                    "file_path" = "${local_tvf_prefix}/${table_export_view_name}_${uuid}/*",
-                    "backend_id" = "${beid}",
-                    "column_separator" = ",",
-                    "format" = "csv_with_names"
-                );         
-            """ 
-            insert_res = sql "show last insert;"
-            logger.info("insert from local(), BE id = ${beid}, result: " + insert_res.toString())
-        }
-
-        order_qt_select_load3 """ SELECT * FROM ${table_load_name}; """
     
     } finally {
         try_sql("DROP TABLE IF EXISTS ${table_load_name}")
@@ -342,29 +279,8 @@ suite("test_export_view", "p0") {
 
         waiting_export.call(label)
         
-        // check data correctness
-        create_load_table(table_load_name)
+        // LOCAL TVF readback is disabled; export completion is checked above.
 
-        // use local() tvf to reload the data
-        def ipList = [:]
-        def portList = [:]
-        getBackendIpHeartbeatPort(ipList, portList)
-        ipList.each { beid, ip ->
-            logger.info("Begin to insert into ${table_load_name} from local()")
-            sql """
-                insert into ${table_load_name}
-                select s1,k1, null as k2,k3 from local(
-                    "file_path" = "${local_tvf_prefix}/${table_export_view_name}_${uuid}/*",
-                    "backend_id" = "${beid}",
-                    "column_separator" = ",",
-                    "format" = "csv_with_names"
-                );         
-            """ 
-            insert_res = sql "show last insert;"
-            logger.info("insert from local(), BE id = ${beid}, result: " + insert_res.toString())
-        }
-
-        order_qt_select_load4 """ SELECT * FROM ${table_load_name} t; """
     
     } finally {
         try_sql("DROP TABLE IF EXISTS ${table_load_name}")
@@ -393,29 +309,8 @@ suite("test_export_view", "p0") {
         """
         waiting_export.call(label)
         
-        // check data correctness
-        create_load_table(table_load_name)
+        // LOCAL TVF readback is disabled; export completion is checked above.
 
-        // use local() tvf to reload the data
-        def ipList = [:]
-        def portList = [:]
-        getBackendIpHeartbeatPort(ipList, portList)
-        ipList.each { beid, ip ->
-            logger.info("Begin to insert into ${table_load_name} from local()")
-            sql """
-                insert into ${table_load_name}
-                select * from local(
-                    "file_path" = "${local_tvf_prefix}/${table_export_view_name}_${uuid}/*",
-                    "backend_id" = "${beid}",
-                    "column_separator" = ",",
-                    "format" = "csv_with_names_and_types"
-                );         
-            """ 
-            insert_res = sql "show last insert;"
-            logger.info("insert from local(), BE id = ${beid}, result: " + insert_res.toString())
-        }
-
-        order_qt_select_load5 """ SELECT * FROM ${table_load_name} t; """
     
     } finally {
         try_sql("DROP TABLE IF EXISTS ${table_load_name}")
@@ -442,28 +337,8 @@ suite("test_export_view", "p0") {
         """
         waiting_export.call(label)
         
-        // check data correctness
-        create_load_table(table_load_name)
+        // LOCAL TVF readback is disabled; export completion is checked above.
 
-        // use local() tvf to reload the data
-        def ipList = [:]
-        def portList = [:]
-        getBackendIpHeartbeatPort(ipList, portList)
-        ipList.each { beid, ip ->
-            logger.info("Begin to insert into ${table_load_name} from local()")
-            sql """
-                insert into ${table_load_name}
-                select * from local(
-                    "file_path" = "${local_tvf_prefix}/${table_export_view_name}_${uuid}/*",
-                    "backend_id" = "${beid}",
-                    "format" = "orc"
-                );         
-            """ 
-            insert_res = sql "show last insert;"
-            logger.info("insert from local(), BE id = ${beid}, result: " + insert_res.toString())
-        }
-
-        order_qt_select_load6 """ SELECT * FROM ${table_load_name} t; """
     
     } finally {
         try_sql("DROP TABLE IF EXISTS ${table_load_name}")
@@ -493,28 +368,8 @@ suite("test_export_view", "p0") {
         """
 
         waiting_export.call(label)
-        // check data correctness
-        create_load_table(table_load_name)
+        // LOCAL TVF readback is disabled; export completion is checked above.
 
-        // use local() tvf to reload the data
-        def ipList = [:]
-        def portList = [:]
-        getBackendIpHeartbeatPort(ipList, portList)
-        ipList.each { beid, ip ->
-            logger.info("Begin to insert into ${table_load_name} from local()")
-            sql """
-                insert into ${table_load_name}
-                select s1,k1, null as k2,k3 from local(
-                    "file_path" = "${local_tvf_prefix}/${table_export_view_name}_${uuid}/*",
-                    "backend_id" = "${beid}",
-                    "format" = "orc"
-                );         
-            """ 
-            insert_res = sql "show last insert;"
-            logger.info("insert from local(), BE id = ${beid}, result: " + insert_res.toString())
-        }
-
-        order_qt_select_load8 """ SELECT * FROM ${table_load_name} t; """
     
     } finally {
         try_sql("DROP TABLE IF EXISTS ${table_load_name}")

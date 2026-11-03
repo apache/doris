@@ -24,6 +24,8 @@
 
 #include <memory>
 
+#include "core/column/column_nothing.h"
+#include "core/data_type/data_type_nothing.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/virtual_slot_ref.h"
 
@@ -40,9 +42,14 @@ public:
         return kName;
     }
 
+    DataTypePtr execute_type(const Block* block) const override {
+        return std::make_shared<DataTypeNothing>();
+    }
+
     Status execute(VExprContext*, Block*, int*) const override { return Status::OK(); }
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override {
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        result_column = ColumnNothing::create(count);
         return Status::OK();
     }
 };

@@ -48,6 +48,32 @@ std::unique_ptr<ArrowBlockConvertor> VIcebergParquetWriter::_create_arrow_block_
             _iceberg_schema, &_iceberg_schema_json, timezone_name, timezone);
 }
 
+Status VIcebergParquetWriter::collect_split_offsets_after_close(std::vector<int64_t>* offsets) {
+    auto metadata = _file_metadata();
+    // Arrow publishes file metadata only after Close(), so offsets cannot be collected earlier.
+    if (metadata == nullptr) {
+        return Status::InternalError("File metadata is not available");
+    }
+    offsets->clear();
+    offsets->reserve(metadata->num_row_groups());
+    for (int i = 0; i < metadata->num_row_groups(); ++i) {
+        auto row_group = metadata->RowGroup(i);
+        // Empty files/groups have no page boundary to advertise as a scan split.
+        if (row_group->num_rows() == 0 || row_group->num_columns() == 0) {
+            continue;
+        }
+        auto first_column = row_group->ColumnChunk(0);
+        int64_t offset = first_column->data_page_offset();
+        // A split must include the dictionary page, not just the first data page that references it.
+        if (first_column->has_dictionary_page()) {
+            offset = std::min(offset, first_column->dictionary_page_offset());
+        }
+        offsets->push_back(offset);
+    }
+    std::sort(offsets->begin(), offsets->end());
+    return Status::OK();
+}
+
 Status VIcebergParquetWriter::collect_file_statistics_after_close(TIcebergColumnStats* stats) {
     std::shared_ptr<::parquet::FileMetaData> file_metadata = _file_metadata();
     if (file_metadata == nullptr) {

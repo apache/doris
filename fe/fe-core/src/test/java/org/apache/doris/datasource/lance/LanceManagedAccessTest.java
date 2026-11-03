@@ -58,7 +58,7 @@ public class LanceManagedAccessTest {
         // A fragment is not a query: Lance would join a branch directory after it.
         RuntimeException fragment = Assertions.assertThrows(RuntimeException.class,
                 () -> client(describing(LOCATION, LOCATION + "#f")).resolveTableAccess("default", "items"));
-        Assertions.assertTrue(fragment.getMessage().contains("differs from location"), fragment.getMessage());
+        Assertions.assertTrue(fragment.getMessage().contains("must not contain a fragment"), fragment.getMessage());
     }
 
     /**

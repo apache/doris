@@ -47,8 +47,8 @@ public:
     VCastExpr(const TExprNode& node)
             : VExpr(node), _is_strict_cast(node.__isset.is_strict_cast && node.is_strict_cast) {}
     ~VCastExpr() override = default;
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override;
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
@@ -100,8 +100,8 @@ public:
 
     TryCastExpr(const TExprNode& node)
             : VCastExpr(node), _original_cast_return_is_nullable(node.is_cast_nullable) {}
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override;
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override;
     ~TryCastExpr() override = default;
     std::string cast_name() const override { return "TRY CAST"; }
     bool is_safe_to_execute_on_selected_rows() const override {

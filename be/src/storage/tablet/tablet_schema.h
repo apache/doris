@@ -781,6 +781,10 @@ public:
 
     bool has_pruned_columns() const { return !_pruned_columns_data_type.empty(); }
 
+    const std::map<int32_t, DataTypePtr>& pruned_columns_data_type() const {
+        return _pruned_columns_data_type;
+    }
+
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
     friend bool operator!=(const TabletSchema& a, const TabletSchema& b);

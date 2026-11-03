@@ -51,7 +51,7 @@ public:
                   std::shared_ptr<const FileContext> file_context = nullptr,
                   int64_t format_split_id = -1, int64_t format_split_id_end = -1,
                   std::optional<std::string> hive_parquet_time_zone = std::nullopt,
-                  bool preserve_binary_uuid = false);
+                  bool preserve_binary_uuid = false, ParquetProfileCache* profile_cache = nullptr);
     ~ParquetReader() override;
 
     Status init(RuntimeState* state) override;
@@ -100,6 +100,7 @@ private:
     std::unique_ptr<ParquetReaderScanState>
             _state;                  // complete scan state (file_context + schema + scheduler)
     ParquetProfile _parquet_profile; // RuntimeProfile counter set
+    ParquetProfileCache* _profile_cache;
     ParquetPageCacheStats _reported_page_cache_stats;
     std::optional<format::GlobalRowIdContext> _global_rowid_context; // global RowId context
     size_t _batch_size = ParquetScanScheduler::DEFAULT_READ_BATCH_SIZE;

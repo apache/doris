@@ -72,14 +72,15 @@ private:
             return nullptr;
         }
 
-        SimilarityPtr bm25_similarity;
+        std::shared_ptr<BM25Similarity> bm25_similarity;
         if (enable_scoring) {
             bm25_similarity = std::make_shared<BM25Similarity>();
             std::vector<std::wstring> all_terms;
             for (const auto& phrase_term : _phrase_terms) {
                 all_terms.push_back(StringHelper::to_wstring(phrase_term.second));
             }
-            bm25_similarity->for_terms(_context, _field, all_terms);
+            bm25_similarity->for_terms_and_prefix(_context, _field, all_terms,
+                                                  StringHelper::to_wstring(_prefix.value().second));
         }
 
         return std::make_shared<PhrasePrefixWeight>(

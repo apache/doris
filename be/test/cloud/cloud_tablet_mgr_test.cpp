@@ -22,7 +22,9 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -90,6 +92,52 @@ TEST_F(CloudTabletMgrTest, VacuumReclaimsWarmupStatesWithoutStaleOrUnusedRowsets
     CountDownLatch stop_latch(1);
     mgr.vacuum_stale_rowsets(stop_latch);
     EXPECT_EQ(tablet->get_rowset_warmup_state(rowset.rowset_id()).progress, WarmUpProgress::NONE);
+}
+
+TEST_F(CloudTabletMgrTest, DeleteBitmapCheckDoesNotHoldTabletMapLock) {
+    const bool old_check = config::enable_check_agg_and_remove_pre_rowsets_delete_bitmap;
+    auto sp = SyncPoint::get_instance();
+    sp->clear_all_call_backs();
+    Defer cleanup([&] {
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+        config::enable_check_agg_and_remove_pre_rowsets_delete_bitmap = old_check;
+    });
+    config::enable_check_agg_and_remove_pre_rowsets_delete_bitmap = true;
+
+    CloudTabletMgr mgr(_engine);
+    auto tablet = std::make_shared<CloudTablet>(_engine, _tablet_meta);
+    mgr.put_tablet_for_UT(tablet);
+    TabletMetaSharedPtr other_meta(new TabletMeta(
+            1, 2, _tablet_meta->tablet_id() + 1, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}},
+            UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F));
+    auto other_tablet = std::make_shared<CloudTablet>(_engine, other_meta);
+
+    CountDownLatch check_entered(1);
+    CountDownLatch resume_check(1);
+    sp->set_call_back(
+            "BaseTablet::check_agg_delete_bitmap_for_stale_rowsets:before_traverse_delete_bitmap",
+            [&](auto&&) {
+                check_entered.count_down();
+                resume_check.wait();
+            });
+    sp->enable_processing();
+
+    CountDownLatch stop_latch(1);
+    auto vacuum = std::async(std::launch::async, [&] { mgr.vacuum_stale_rowsets(stop_latch); });
+    Defer unblock_check([&] { resume_check.count_down(); });
+    ASSERT_TRUE(check_entered.wait_for(std::chrono::seconds(10)));
+
+    auto map_access = std::async(std::launch::async, [&] {
+        mgr.put_tablet_for_UT(other_tablet);
+        return mgr.get_weak_tablets().size();
+    });
+    const auto map_status = map_access.wait_for(std::chrono::seconds(10));
+    // Release the check before joining, so the old locking behavior fails without hanging UT.
+    resume_check.count_down();
+    vacuum.get();
+    EXPECT_EQ(map_status, std::future_status::ready);
+    EXPECT_EQ(map_access.get(), 2);
 }
 
 // Test concurrent get_tablet calls for the same tablet_id.

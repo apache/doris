@@ -44,11 +44,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 import javax.annotation.Nullable;
 
 public class IcebergSnapshotCacheValue {
 
     private final IcebergPartitionInfo partitionInfo;
+    private Supplier<IcebergPartitionInfo> partitionInfoLoader;
+    private long newestPartitionUpdateTime;
+    private boolean newestPartitionUpdateTimeLoaded;
     private final IcebergSnapshot snapshot;
     private final Optional<Map<Integer, List<String>>> nameMapping;
     private Optional<Table> icebergTable;
@@ -137,7 +141,27 @@ public class IcebergSnapshotCacheValue {
     }
 
     public IcebergPartitionInfo getPartitionInfo() {
+        return partitionInfoLoader == null ? partitionInfo : partitionInfoLoader.get();
+    }
+
+    synchronized long getNewestPartitionUpdateTime() {
+        if (!newestPartitionUpdateTimeLoaded) {
+            // A dictionary check needs only this scalar. Do not retain an unadmitted full view
+            // in the shared projection, and keep zero as a valid result for an empty view.
+            newestPartitionUpdateTime = getPartitionInfo().getNameToIcebergPartition().values().stream()
+                    .mapToLong(IcebergPartition::getLastUpdateTime).max().orElse(0);
+            newestPartitionUpdateTimeLoaded = true;
+        }
+        return newestPartitionUpdateTime;
+    }
+
+    IcebergPartitionInfo getRetainedPartitionInfo() {
         return partitionInfo;
+    }
+
+    IcebergSnapshotCacheValue withPartitionInfoLoader(Supplier<IcebergPartitionInfo> loader) {
+        this.partitionInfoLoader = loader;
+        return this;
     }
 
     public IcebergSnapshot getSnapshot() {
@@ -222,7 +246,7 @@ public class IcebergSnapshotCacheValue {
     }
 
     IcebergSnapshotCacheValue withoutRetainedTable() {
-        return new IcebergSnapshotCacheValue(partitionInfo, snapshot, nameMapping);
+        return new IcebergSnapshotCacheValue(getPartitionInfo(), snapshot, nameMapping);
     }
 
     public Optional<Table> getIcebergTable() {

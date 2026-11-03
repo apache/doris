@@ -2327,6 +2327,56 @@ TEST_F(NewParquetReaderTest, UuidPlainDictionaryNullableAndMappingMatrix) {
     }
 }
 
+TEST_F(NewParquetReaderTest, InitializesProfileOnlyOncePerFile) {
+    class CountingParquetReader final : public format::parquet::ParquetReader {
+    public:
+        using ParquetReader::ParquetReader;
+        int profile_initializations = 0;
+
+    protected:
+        void _init_profile() override {
+            ++profile_initializations;
+            ParquetReader::_init_profile();
+        }
+    };
+    auto properties = std::make_shared<io::FileSystemProperties>();
+    properties->system_type = TFileType::FILE_LOCAL;
+    auto file = std::make_unique<io::FileDescription>();
+    file->path = _file_path;
+    file->file_size = static_cast<int64_t>(std::filesystem::file_size(_file_path));
+    RuntimeProfile profile("scan");
+    CountingParquetReader reader(properties, file, nullptr, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader.init(&state).ok());
+    EXPECT_EQ(reader.profile_initializations, 1);
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader.get_schema(&schema).ok());
+    EXPECT_EQ(schema.size(), 2);
+    EXPECT_TRUE(reader.close().ok());
+}
+
+TEST_F(NewParquetReaderTest, ReusesProfileHandlesAcrossFiles) {
+    RuntimeProfile profile("scan");
+    format::parquet::ParquetProfileCache cache(&profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    for (int file_index = 0; file_index < 3; ++file_index) {
+        auto properties = std::make_shared<io::FileSystemProperties>();
+        properties->system_type = TFileType::FILE_LOCAL;
+        auto file = std::make_unique<io::FileDescription>();
+        file->path = _file_path;
+        file->file_size = static_cast<int64_t>(std::filesystem::file_size(_file_path));
+        format::parquet::ParquetReader reader(properties, file, nullptr, &profile, std::nullopt,
+                                              false, false, nullptr, -1, -1, std::nullopt, false,
+                                              &cache);
+        ASSERT_TRUE(reader.init(&state).ok());
+        std::vector<format::ColumnDefinition> schema;
+        ASSERT_TRUE(reader.get_schema(&schema).ok());
+        EXPECT_EQ(schema.size(), 2);
+        ASSERT_TRUE(reader.close().ok());
+        EXPECT_EQ(cache.get().open_file_num->value(), file_index + 1);
+    }
+}
+
 TEST_F(NewParquetReaderTest, GetSchemaReturnsFileLocalColumns) {
     auto reader = create_reader();
     RuntimeState state {TQueryOptions(), TQueryGlobals()};

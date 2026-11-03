@@ -71,54 +71,7 @@ suite("test_path_partition_keys", "p0,external,tvf,external_docker,hive") {
 
     }
     
-    List<List<Object>> backends =  sql """ show backends """
-    assertTrue(backends.size() > 0)
-    def be_id = backends[0][0]
-    def dataFilePath = context.config.dataPath + "/external_table_p0/tvf/test_path_partition_keys/"
-
-    def outFilePath="/test_path_partition_keys"
-
-    for (List<Object> backend : backends) {
-         def be_host = backend[1]
-         scpFiles ("root", be_host, dataFilePath, outFilePath, false);
-    }
-
-    order_qt_local_1 """
-    select * from local(
-        "file_path" = "${outFilePath}/dt1=cyw/a.csv",
-        "backend_id" = "${be_id}",
-        "format" = "csv",
-        "column_separator" = ",",
-        "path_partition_keys"="dt1") order by c1,c2;
-    """
-    
-    order_qt_local_2 """
-    select * from local(
-        "file_path" = "${outFilePath}/dt1=cyw/*",
-        "backend_id" = "${be_id}",
-        "format" = "csv",
-        "column_separator" = ",",
-        "path_partition_keys"="dt1") order by c1,c2  limit 2;
-    """
-    
-    order_qt_local_3 """
-    select c1,dt1 from local(
-        "file_path" = "${outFilePath}/dt1=hello/c.csv",
-        "backend_id" = "${be_id}",
-        "format" = "csv",
-        "column_separator" = ",",
-        "path_partition_keys"="dt1") order by c1,c2  limit 7;
-    """
-
-    order_qt_local_4 """
-    select dt2,dt1,c1,c2 from local(
-        "file_path" = "${outFilePath}/dt2=two/dt1=hello/c.csv",
-        "backend_id" = "${be_id}",
-        "format" = "csv",
-        "column_separator" = ",",
-        "path_partition_keys"="dt2,dt1") order by c1,c2  limit 9;
-    """
-    
+    // LOCAL TVF is disabled; retain the HDFS and S3 partition-key cases.
 
     String ak = getS3AK()
     String sk = getS3SK()

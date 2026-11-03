@@ -2553,10 +2553,10 @@ TEST(VariantColumnReaderTest, ShreddedStateOutlivesScannerProfile) {
     parquet_profile.init(runtime_profile.get());
     ParquetProfile reused_profile;
     reused_profile.init(runtime_profile.get());
-    EXPECT_EQ(parquet_profile.variant_reconstructed_rows,
-              reused_profile.variant_reconstructed_rows);
-    EXPECT_EQ(parquet_profile.variant_unshredded_direct_import_rows,
-              reused_profile.variant_unshredded_direct_import_rows);
+    EXPECT_EQ(parquet_profile.variant_profile().variant_reconstructed_rows,
+              reused_profile.variant_profile().variant_reconstructed_rows);
+    EXPECT_EQ(parquet_profile.variant_profile().variant_unshredded_direct_import_rows,
+              reused_profile.variant_profile().variant_unshredded_direct_import_rows);
 
     auto visible_output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
     ASSERT_TRUE(materialize_variant_rows(shredded_int64_schema(), shredded_int64_physical({7}),

@@ -255,18 +255,22 @@ public class LoadActionTest {
         LoadAction loadAction = new LoadAction();
         HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
         Mockito.when(request.getHeaderNames()).thenReturn(Collections.enumeration(Arrays.asList(
-                "Authorization", "Cookie", "Set-Cookie", "token", "label")));
+                "aUtHoRiZaTiOn", "PROXY-AUTHORIZATION", "Cookie", "Set-Cookie", "token", "Auth-Token", "auth_code",
+                "label")));
+        Mockito.when(request.getHeader(Mockito.anyString())).thenReturn("synthetic-secret");
         Mockito.when(request.getHeader("label")).thenReturn("load_label");
 
         Method method = LoadAction.class.getDeclaredMethod("getAllHeaders", HttpServletRequest.class);
         method.setAccessible(true);
         String headers = (String) method.invoke(loadAction, request);
 
-        Assertions.assertTrue(headers.contains("Authorization:***MASKED***"));
-        Assertions.assertTrue(headers.contains("Cookie:***MASKED***"));
-        Assertions.assertTrue(headers.contains("Set-Cookie:***MASKED***"));
-        Assertions.assertTrue(headers.contains("token:***MASKED***"));
+        for (String name : new String[] {"aUtHoRiZaTiOn", "PROXY-AUTHORIZATION", "Cookie", "Set-Cookie",
+                "token", "Auth-Token", "auth_code"}) {
+            Assertions.assertTrue(headers.contains(name + ":***MASKED***"));
+        }
         Assertions.assertTrue(headers.contains("label:load_label"));
+        Assertions.assertFalse(headers.contains("synthetic-secret"));
+        Assertions.assertEquals("synthetic-secret", request.getHeader("aUtHoRiZaTiOn"));
     }
 
     @Test

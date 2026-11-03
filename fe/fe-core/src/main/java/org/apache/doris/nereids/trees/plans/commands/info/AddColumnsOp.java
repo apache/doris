@@ -98,7 +98,7 @@ public class AddColumnsOp extends AlterTableOp {
 
         columns = Lists.newArrayList();
         for (ColumnDefinition columnDef : columnDefs) {
-            Column col = columnDef.translateToCatalogStyle();
+            Column col = columnDef.translateToCatalogStyleForSchemaChange();
             columns.add(col);
         }
     }

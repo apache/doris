@@ -323,6 +323,9 @@ public class CloudInternalCatalog extends InternalCatalog {
             case LZ4F:
                 schemaBuilder.setCompressionType(SegmentV2.CompressionTypePB.LZ4F);
                 break;
+            case LZ4HC:
+                schemaBuilder.setCompressionType(SegmentV2.CompressionTypePB.LZ4HC);
+                break;
             case ZLIB:
                 schemaBuilder.setCompressionType(SegmentV2.CompressionTypePB.ZLIB);
                 break;

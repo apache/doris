@@ -65,6 +65,10 @@ import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.mtmv.MTMVRefreshContext;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
+import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
+import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.expressions.literal.Result;
 import org.apache.doris.nereids.types.VarBinaryType;
@@ -158,6 +162,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -1048,7 +1053,22 @@ public class IcebergUtils {
         return getIdentityPartitionColumns(table, false, false);
     }
 
+    public static List<String> getIdentityPartitionColumns(Table table, Schema scanSchema) {
+        return getIdentityPartitionColumns(table, scanSchema, false, false);
+    }
+
     public static List<String> getIdentityPartitionColumns(Table table,
+            boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
+        return getIdentityPartitionColumns(
+                table, table.schema(), enableMappingVarbinary, enableMappingTimestampTz);
+    }
+
+    /**
+     * Resolve identity partition names against the schema that owns this scan, rather than the
+     * table's latest schema. A pinned snapshot can expose a renamed field whose case-sensitive
+     * name must match the scan slots in {@code scanSchema}.
+     */
+    public static List<String> getIdentityPartitionColumns(Table table, Schema scanSchema,
             boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
         LinkedHashSet<String> partitionColumns = new LinkedHashSet<>();
         for (PartitionSpec spec : table.specs().values()) {
@@ -1056,18 +1076,108 @@ public class IcebergUtils {
                 if (!partitionField.transform().isIdentity()) {
                     continue;
                 }
-                NestedField sourceField = table.schema().findField(partitionField.sourceId());
+                NestedField sourceField = scanSchema.findField(partitionField.sourceId());
                 if (sourceField == null || !isSupportedPartitionValueType(
                         sourceField.type(), enableMappingVarbinary, enableMappingTimestampTz)) {
                     continue;
                 }
-                String columnName = table.schema().findColumnName(partitionField.sourceId());
+                String columnName = topLevelSourceColumnName(scanSchema, partitionField.sourceId());
                 if (columnName != null) {
                     partitionColumns.add(columnName);
                 }
             }
         }
         return new ArrayList<>(partitionColumns);
+    }
+
+    /**
+     * Rewrites a static-partition spec keyed by identity source columns to partition field names.
+     *
+     * <p>The FE binder materializes a static literal through the identity partition's source column, while both
+     * the BE sink and the overwrite row filter address the partition field. A renamed identity field makes those
+     * names different, so the conversion must happen before either consumer sees the spec.</p>
+     */
+    public static Map<String, String> toPartitionFieldKeys(Map<String, String> staticPartitions,
+            Schema schema, PartitionSpec spec) {
+        if (staticPartitions == null || staticPartitions.isEmpty() || schema == null || spec == null) {
+            return staticPartitions;
+        }
+        Map<String, String> fieldKeyed = new HashMap<>(staticPartitions.size());
+        for (Map.Entry<String, String> entry : staticPartitions.entrySet()) {
+            PartitionField identity = identityPartitionBySourceColumn(schema, spec, entry.getKey());
+            if (identity != null) {
+                fieldKeyed.put(identity.name(), entry.getValue());
+                continue;
+            }
+            PartitionField named = partitionFieldByName(spec, entry.getKey());
+            fieldKeyed.put(named == null ? entry.getKey() : named.name(), entry.getValue());
+        }
+        return fieldKeyed;
+    }
+
+    /**
+     * Returns the top-level column a partition source resolves to, or {@code null} for a nested source.
+     * A nested field's leaf name must not be mistaken for a top-level static partition column.
+     */
+    public static String topLevelSourceColumnName(Schema schema, int sourceId) {
+        for (NestedField column : schema.columns()) {
+            if (column.fieldId() == sourceId) {
+                return column.name();
+            }
+        }
+        return null;
+    }
+
+    /** Returns the identity partition over the top-level source column, or {@code null}. */
+    public static PartitionField identityPartitionBySourceColumn(
+            Schema schema, PartitionSpec spec, String columnName) {
+        for (PartitionField field : spec.fields()) {
+            if (!field.transform().isIdentity()) {
+                continue;
+            }
+            String source = topLevelSourceColumnName(schema, field.sourceId());
+            if (source != null && source.equalsIgnoreCase(columnName)) {
+                return field;
+            }
+        }
+        return null;
+    }
+
+    /** Returns any partition field over the top-level source column, or {@code null}. */
+    public static PartitionField partitionFieldBySourceColumn(
+            Schema schema, PartitionSpec spec, String columnName) {
+        for (PartitionField field : spec.fields()) {
+            String source = topLevelSourceColumnName(schema, field.sourceId());
+            if (source != null && source.equalsIgnoreCase(columnName)) {
+                return field;
+            }
+        }
+        return null;
+    }
+
+    /** Returns the top-level source columns of identity partitions in partition-field order. */
+    public static List<String> identityPartitionSourceColumns(Schema schema, PartitionSpec spec) {
+        List<String> columns = new ArrayList<>();
+        for (PartitionField field : spec.fields()) {
+            if (!field.transform().isIdentity()) {
+                continue;
+            }
+            String source = topLevelSourceColumnName(schema, field.sourceId());
+            if (source != null) {
+                columns.add(source);
+            }
+        }
+        return columns;
+    }
+
+    /** Returns the first partition field whose name matches case-insensitively, or {@code null}. */
+    private static PartitionField partitionFieldByName(PartitionSpec spec, String name) {
+        for (PartitionField field : spec.fields()) {
+            if (field.name().equalsIgnoreCase(name)) {
+                return field;
+            }
+        }
+        return null;
     }
 
     /**
@@ -1079,11 +1189,21 @@ public class IcebergUtils {
         return getCommonIdentityPartitionColumns(table, false, false);
     }
 
+    public static List<String> getCommonIdentityPartitionColumns(Table table, Schema scanSchema) {
+        return getCommonIdentityPartitionColumns(table, scanSchema, false, false);
+    }
+
     public static List<String> getCommonIdentityPartitionColumns(Table table,
+            boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
+        return getCommonIdentityPartitionColumns(
+                table, table.schema(), enableMappingVarbinary, enableMappingTimestampTz);
+    }
+
+    public static List<String> getCommonIdentityPartitionColumns(Table table, Schema scanSchema,
             boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
         LinkedHashSet<Integer> commonSourceIds = new LinkedHashSet<>();
         for (PartitionField field : table.spec().fields()) {
-            NestedField sourceField = table.schema().findField(field.sourceId());
+            NestedField sourceField = scanSchema.findField(field.sourceId());
             if (field.transform().isIdentity() && sourceField != null
                     && isSupportedPartitionValueType(
                             sourceField.type(), enableMappingVarbinary, enableMappingTimestampTz)) {
@@ -1098,18 +1218,34 @@ public class IcebergUtils {
             commonSourceIds.retainAll(specIdentitySourceIds);
         }
         return commonSourceIds.stream()
-                .map(table.schema()::findColumnName)
+                .map(sourceId -> topLevelSourceColumnName(scanSchema, sourceId))
                 .filter(columnName -> columnName != null)
                 .collect(Collectors.toList());
     }
 
     public static Map<String, String> getIdentityPartitionInfoMap(PartitionData partitionData,
             PartitionSpec partitionSpec, Table table, String timeZone) {
-        return getIdentityPartitionInfoMap(partitionData, partitionSpec, table, timeZone, false, false);
+        return getIdentityPartitionInfoMap(
+                partitionData, partitionSpec, table, timeZone, false, false);
+    }
+
+    public static Map<String, String> getIdentityPartitionInfoMap(
+            PartitionData partitionData, PartitionSpec partitionSpec, Schema scanSchema,
+            String timeZone) {
+        return getIdentityPartitionInfoMap(
+                partitionData, partitionSpec, scanSchema, timeZone, false, false);
     }
 
     public static Map<String, String> getIdentityPartitionInfoMap(PartitionData partitionData,
             PartitionSpec partitionSpec, Table table, String timeZone,
+            boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
+        return getIdentityPartitionInfoMap(
+                partitionData, partitionSpec, table.schema(), timeZone,
+                enableMappingVarbinary, enableMappingTimestampTz);
+    }
+
+    public static Map<String, String> getIdentityPartitionInfoMap(PartitionData partitionData,
+            PartitionSpec partitionSpec, Schema scanSchema, String timeZone,
             boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
         Map<String, String> partitionInfoMap = Maps.newLinkedHashMap();
         List<NestedField> fields = partitionData.getPartitionType().asNestedType().fields();
@@ -1128,7 +1264,7 @@ public class IcebergUtils {
                 continue;
             }
 
-            String columnName = table.schema().findColumnName(partitionField.sourceId());
+            String columnName = topLevelSourceColumnName(scanSchema, partitionField.sourceId());
             if (columnName == null) {
                 continue;
             }
@@ -1615,11 +1751,7 @@ public class IcebergUtils {
                     }
                 } else {
                     Table table = icebergTable != null ? icebergTable : getIcebergTable(dorisTable);
-                    if (schemaId == NEWEST_SCHEMA_ID || table.currentSnapshot() == null) {
-                        schema = table.schema();
-                    } else {
-                        schema = table.schemas().get((int) schemaId);
-                    }
+                    schema = schemaForTable(table, schemaId);
                 }
                 String type = isView ? "view" : "table";
                 Preconditions.checkNotNull(schema,
@@ -1631,6 +1763,11 @@ public class IcebergUtils {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
         }
 
+    }
+
+    private static Schema schemaForTable(Table table, long schemaId) {
+        return schemaId == NEWEST_SCHEMA_ID || table.currentSnapshot() == null
+                ? table.schema() : table.schemas().get((int) schemaId);
     }
 
     /**
@@ -2189,15 +2326,35 @@ public class IcebergUtils {
     static IcebergPartitionInfo loadPartitionInfo(ExternalTable dorisTable, Table table, long snapshotId,
             long schemaId, ExecutionAuthenticator authenticator,
             boolean enableMappingVarbinary, boolean enableMappingTimestampTz) throws AnalysisException {
+        String displayName = dorisTable.getCatalog().getName() + "." + dorisTable.getDbName()
+                + "." + dorisTable.getName();
+        return loadPartitionInfo(displayName, table, snapshotId, schemaId, authenticator,
+                enableMappingVarbinary, enableMappingTimestampTz);
+    }
+
+    static IcebergPartitionInfo loadPartitionInfo(String displayName, Table table,
+            long snapshotId, long schemaId, ExecutionAuthenticator authenticator,
+            boolean enableMappingVarbinary, boolean enableMappingTimestampTz) throws AnalysisException {
         if (snapshotId == IcebergUtils.UNKNOWN_SNAPSHOT_ID) {
             return IcebergPartitionInfo.empty();
         }
         List<IcebergPartition> icebergPartitions;
+        List<Column> partitionColumns;
         try {
             icebergPartitions = authenticator.execute(() -> loadIcebergPartition(table, snapshotId));
+            // A retained projection may outlive its catalog cache group. Its columns and ranges
+            // must use the same frozen table/schema, without looking up a new catalog generation.
+            partitionColumns = authenticator.execute(() -> {
+                List<Column> schema = parseSchema(Preconditions.checkNotNull(schemaForTable(table, schemaId),
+                        "Schema for Iceberg table %s is null", displayName),
+                        enableMappingVarbinary, enableMappingTimestampTz);
+                // This retained-table path bypasses the schema-cache loader's validation boundary.
+                new SchemaCacheValue(schema).validateSchema();
+                return buildTableSchemaCacheValue(table, schema).getPartitionColumns();
+            });
         } catch (Exception e) {
-            String errorMsg = String.format("Failed to get iceberg partition info, table: %s.%s.%s, snapshotId: %s",
-                    dorisTable.getCatalog().getName(), dorisTable.getDbName(), dorisTable.getName(), snapshotId);
+            String errorMsg = String.format("Failed to get iceberg partition info, table: %s, snapshotId: %s",
+                    displayName, snapshotId);
             LOG.warn(errorMsg, e);
             throw new AnalysisException(errorMsg, e);
         }
@@ -2205,9 +2362,6 @@ public class IcebergUtils {
         Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
         long retainedPayloadBytes = 0L;
 
-        List<Column> partitionColumns = icebergExternalMetaCache(dorisTable).getIcebergSchemaCacheValue(
-                dorisTable.getOrBuildNameMapping(), schemaId, table, authenticator,
-                enableMappingVarbinary, enableMappingTimestampTz).getPartitionColumns();
         for (IcebergPartition partition : icebergPartitions) {
             nameToPartition.put(partition.getPartitionName(), partition);
             retainedPayloadBytes = MetaCacheWeightUtils.saturatedAdd(
@@ -2493,6 +2647,45 @@ public class IcebergUtils {
             return action.apply(pinnedSnapshot.get());
         }
         return withLatestSnapshotCacheValue(dorisTable, action);
+    }
+
+    /** Derive all MV partition versions from one view without retaining an unbudgeted map. */
+    public static Map<String, MTMVSnapshotIf> getPartitionSnapshots(ExternalTable dorisTable,
+            Set<String> partitionNames, MTMVRefreshContext context, Optional<MvccSnapshot> snapshot)
+            throws AnalysisException {
+        Map<String, MTMVSnapshotIf> versions = new LinkedHashMap<>();
+        if (partitionNames.isEmpty()) {
+            return versions;
+        }
+        IcebergSnapshotCacheValue value = getSnapshotCacheValue(snapshot, dorisTable);
+        IcebergPartitionInfo info = value.getPartitionInfo();
+        for (String name : partitionNames) {
+            try {
+                versions.put(name, partitionSnapshotOf(name, info, value.getSnapshot().getSnapshotId()));
+            } catch (AnalysisException e) {
+                context.recordPartitionSnapshotFailure((MTMVRelatedTableIf) dorisTable, name, e);
+            }
+        }
+        return versions;
+    }
+
+    public static MTMVSnapshotIf getPartitionSnapshot(String partitionName, IcebergSnapshotCacheValue value)
+            throws AnalysisException {
+        return partitionSnapshotOf(partitionName, value.getPartitionInfo(), value.getSnapshot().getSnapshotId());
+    }
+
+    private static MTMVSnapshotIf partitionSnapshotOf(String partitionName,
+            IcebergPartitionInfo info, long tableSnapshotId) throws AnalysisException {
+        long latestSnapshotId = info.getLatestSnapshotId(partitionName);
+        // last_updated_snapshot_id can be absent; retain the table-snapshot fallback for MV refresh.
+        if (latestSnapshotId <= 0) {
+            if (tableSnapshotId <= 0) {
+                throw new AnalysisException("can not find partition: " + partitionName
+                        + ", and table snapshot ID is also invalid");
+            }
+            return new MTMVSnapshotIdSnapshot(tableSnapshotId);
+        }
+        return new MTMVSnapshotIdSnapshot(latestSnapshotId);
     }
 
     public static IcebergSnapshotCacheValue getSnapshotCacheValue(Optional<MvccSnapshot> snapshot,

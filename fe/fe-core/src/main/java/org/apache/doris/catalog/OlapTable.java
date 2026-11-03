@@ -3897,7 +3897,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 : filteredInvertedIndexes.stream().filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
         }
 
-        // subPath is not empty, means it is a variant column, find the field pattern from children
+        // subPath is not empty, means it is a variant column, find the field pattern from children.
+        // The first match wins, the same as the BE writer that picks the physical index of a subcolumn
+        // (variant_util.cpp), so a write and a query on one path land on the same index even when
+        // the predefined patterns overlap.
         String subPathString = String.join(".", subPath);
         String fieldPattern = "";
         if (column.getChildren() != null) {
@@ -3909,6 +3912,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                                 .getPathMatcher("glob:" + childName);
                         if (matcher.matches(java.nio.file.Paths.get(subPathString))) {
                             fieldPattern = childName;
+                            break;
                         }
                     } catch (Exception e) {
                         continue;
@@ -3916,6 +3920,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 } else if (child.getFieldPatternType() == TPatternType.MATCH_NAME) {
                     if (childName.equals(subPathString)) {
                         fieldPattern = childName;
+                        break;
                     }
                 }
             }

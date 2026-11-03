@@ -267,13 +267,16 @@ suite("test_parquet_meta_tvf", "p0,external,external_docker,tvf") {
         );
     """
 
-    // file metadata (local glob)
-    order_qt_parquet_file_metadata_local_glob """
-        select count(*) from parquet_meta(
-            "file_path" = "${outFilePath}/*meta.parquet",
-            "mode" = "parquet_file_metadata"
-        );
-    """
+    // Local wildcard expansion delegates to LOCAL TVF, which is disabled.
+    test {
+        sql """
+            select count(*) from parquet_meta(
+                "file_path" = "${outFilePath}/*meta.parquet",
+                "mode" = "parquet_file_metadata"
+            );
+        """
+        exception "LOCAL TVF is disabled"
+    }
 
     order_qt_parquet_kv_metadata_local """
         select * from parquet_meta(
@@ -520,6 +523,6 @@ suite("test_parquet_meta_tvf", "p0,external,external_docker,tvf") {
                 "mode" = "parquet_metadata"
             );
         """
-        exception "failed to glob"
+        exception "LOCAL TVF is disabled"
     }
 }
