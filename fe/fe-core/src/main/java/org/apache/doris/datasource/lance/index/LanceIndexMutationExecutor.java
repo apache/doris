@@ -23,6 +23,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.datasource.lance.LanceExternalCatalog;
+import org.apache.doris.datasource.lance.LanceExternalTable;
 import org.apache.doris.datasource.lance.LanceIndexMutationOutcome;
 import org.apache.doris.datasource.lance.LanceIndexSchemaContract;
 import org.apache.doris.datasource.lance.storage.LanceStorageOptions;
@@ -88,6 +89,13 @@ import java.util.function.Supplier;
  *     the send; once the send started, the blocking read cannot be interrupted, the socket
  *     timeout (the remaining budget) closes the call, and a cancellation never rolls back a
  *     possible commit.
+ * <li><b>Refresh obligations</b> (design v6 section 6.4): a trusted commit owes the local
+ *     table caches an invalidation, whose failure downgrades the outcome to
+ *     committed-refresh-incomplete - never a build failure; a no-op owes the same
+ *     invalidation, whose failure is the typed refresh error of the confirmed family; a
+ *     commit-conflict confirmed failure owes a best-effort invalidation of the externally
+ *     advanced metadata, whose failure only attaches a diagnostic and never changes the
+ *     classification. See {@link LanceIndexMutationRefresher} for what is actually stale.
  * </ul>
  *
  * <p>Master-only is the caller's guarantee (the statement forwards to the master before
@@ -179,6 +187,7 @@ public final class LanceIndexMutationExecutor {
         private final long deadlineMs;
         private final FinalPreflight finalPreflight;
         private final BooleanSupplier cancelSignal;
+        private final LanceIndexMutationRefresher refresher;
 
         private MutationRequest(Builder builder) {
             this.catalog = builder.catalog;
@@ -195,6 +204,12 @@ public final class LanceIndexMutationExecutor {
             this.deadlineMs = builder.deadlineMs;
             this.finalPreflight = builder.finalPreflight;
             this.cancelSignal = builder.cancelSignal;
+            // Production wiring sets the table and gets the production refresher without
+            // saying so; an explicit refresher wins; a request with neither (tests, or a
+            // caller with no obligation) gets the no-op.
+            this.refresher = builder.refresher != null ? builder.refresher
+                    : builder.table != null ? LanceIndexMutationRefresher.forTable(builder.table)
+                    : LanceIndexMutationRefresher.NOOP;
         }
 
         /** Builder entry; the preflight supplier and cancel signal have safe defaults. */
@@ -220,6 +235,8 @@ public final class LanceIndexMutationExecutor {
             private LanceIndexSchemaContract schemaContract = null;
             private FinalPreflight finalPreflight = () -> PreflightResult.PROCEED;
             private BooleanSupplier cancelSignal = () -> false;
+            private LanceExternalTable table = null;
+            private LanceIndexMutationRefresher refresher = null;
 
             private Builder(LanceExternalCatalog catalog, TLanceIndexMutationType mutationType,
                     String datasetUri, long admittedDatasetVersion, String normalizedIndexName, long deadlineMs) {
@@ -278,9 +295,31 @@ public final class LanceIndexMutationExecutor {
                 return this;
             }
 
+            /**
+             * The mutated table. Setting it derives the production refresh obligation
+             * ({@link LanceIndexMutationRefresher#forTable}) unless an explicit refresher is
+             * also set, so the statement wiring cannot forget the obligation.
+             */
+            public Builder setTable(LanceExternalTable table) {
+                this.table = table;
+                return this;
+            }
+
+            /** Overrides the derived refresher; tests inject fakes and the no-op here. */
+            public Builder setRefresher(LanceIndexMutationRefresher refresher) {
+                this.refresher = refresher;
+                return this;
+            }
+
             public MutationRequest build() {
                 return new MutationRequest(this);
             }
+        }
+
+        /** The effective refresher (explicit override, or derived from the table, or no-op). */
+        @VisibleForTesting
+        LanceIndexMutationRefresher getRefresher() {
+            return refresher;
         }
     }
 
@@ -387,7 +426,7 @@ public final class LanceIndexMutationExecutor {
             throw new IllegalStateException("the entry-internal final preflight failed unexpectedly", e);
         }
         if (preflight == PreflightResult.NO_OP) {
-            return LanceIndexMutationOutcome.success();
+            return completeNoOp(request);
         }
         // 2. Budget check before anything is spent on the send.
         long remainingMs = request.deadlineMs - System.currentTimeMillis();
@@ -430,8 +469,40 @@ public final class LanceIndexMutationExecutor {
         } catch (Exception e) {
             return indeterminateAfterDispatch(e);
         }
-        // 6. Classification.
-        return classify(result);
+        // 6. Classification (the refresh obligations hang off the trusted classes).
+        return classify(request, result);
+    }
+
+    /**
+     * Completes a no-op (design v6 section 6.4): nothing changed remotely, but the statement
+     * still owes the local table caches an invalidation - a defensive fence against table-
+     * scoped caches populated against an older dataset version during this statement's
+     * lifetime. A residual failure is the typed refresh error of the confirmed family: the
+     * statement made no change, so the failure is neither a build failure nor an ambiguity.
+     */
+    private static LanceIndexMutationOutcome completeNoOp(MutationRequest request)
+            throws AnalysisException {
+        String refreshFailure = request.refresher.invalidateTableMetadata();
+        if (refreshFailure != null) {
+            throw refreshFailed("the no-op completed, but " + refreshFailure);
+        }
+        return LanceIndexMutationOutcome.success();
+    }
+
+    /**
+     * Completes a trusted native success (design v6 section 6.4): the commit is a fact, then
+     * the local table caches are invalidated. A refresh failure downgrades the outcome to
+     * committed-refresh-incomplete - the commit is never rewritten as a build failure, never
+     * denied, and never retried by this statement.
+     */
+    private static LanceIndexMutationOutcome completeWithCommitRefresh(MutationRequest request) {
+        String refreshFailure = request.refresher.invalidateTableMetadata();
+        if (refreshFailure == null) {
+            return LanceIndexMutationOutcome.success();
+        }
+        return LanceIndexMutationOutcome.committedRefreshIncomplete(
+                LanceIndexMutationOutcome.LANCE_RESULT_OK,
+                "the commit stands and is not affected; " + refreshFailure);
     }
 
     /**
@@ -440,7 +511,8 @@ public final class LanceIndexMutationExecutor {
      * answers NOT_IMPLEMENTED_ERROR, so a dispatched statement against it classifies here as
      * a confirmed failure.
      */
-    private static LanceIndexMutationOutcome classify(TLanceIndexMutationResult result) {
+    private static LanceIndexMutationOutcome classify(MutationRequest request,
+            TLanceIndexMutationResult result) {
         if (result == null || !result.isSetStatus() || result.getStatus().getStatusCode() == null) {
             return LanceIndexMutationOutcome.indeterminate(0,
                     "the dispatch returned no complete status");
@@ -457,14 +529,21 @@ public final class LanceIndexMutationExecutor {
         }
         int lanceResultCode = result.getLanceErrorCode();
         if (lanceResultCode == LanceIndexMutationOutcome.LANCE_RESULT_OK) {
-            return LanceIndexMutationOutcome.success();
+            return completeWithCommitRefresh(request);
         }
         if (lanceResultCode == LANCE_ERR_COMMIT_CONFLICT) {
             // The exact typed commit conflict proves this invocation committed nothing:
-            // confirmed failure (the caller owes the externally advanced metadata a refresh).
-            return LanceIndexMutationOutcome.confirmedFailure(lanceResultCode,
-                    "typed lance commit conflict: another writer advanced the dataset"
-                            + " metadata first");
+            // confirmed failure. Another writer advanced the dataset metadata, so the local
+            // caches get a best-effort refresh whose failure only attaches a diagnostic -
+            // the classification never changes because a refresh failed.
+            String refreshFailure = request.refresher.invalidateTableMetadata();
+            String message = "typed lance commit conflict: another writer advanced the dataset"
+                    + " metadata first";
+            if (refreshFailure != null) {
+                message += "; the best-effort refresh of the externally advanced metadata"
+                        + " also failed: " + refreshFailure;
+            }
+            return LanceIndexMutationOutcome.confirmedFailure(lanceResultCode, message);
         }
         return LanceIndexMutationOutcome.indeterminate(lanceResultCode,
                 "typed lance result code " + lanceResultCode + " arrived after the mutating"
@@ -588,6 +667,13 @@ public final class LanceIndexMutationExecutor {
     private static AnalysisException busy(String detail) {
         return new AnalysisException(ErrorCode.ERR_LANCE_INDEX_MUTATION_BUSY.formatErrorMsg(detail),
                 ErrorCode.ERR_LANCE_INDEX_MUTATION_BUSY);
+    }
+
+    /** The no-op family's typed refresh error (confirmed family: nothing was mutated). */
+    private static AnalysisException refreshFailed(String detail) {
+        return new AnalysisException(
+                ErrorCode.ERR_LANCE_INDEX_MUTATION_REFRESH_FAILED.formatErrorMsg(detail),
+                ErrorCode.ERR_LANCE_INDEX_MUTATION_REFRESH_FAILED);
     }
 
     private static String backendMessages(TStatus status) {
