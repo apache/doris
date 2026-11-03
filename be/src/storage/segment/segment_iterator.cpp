@@ -378,6 +378,80 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, ReadSchemaSPt
           _inited(false),
           _opts(opts) {}
 
+namespace {
+// Reads a subcolumn whose segment stores another type (see
+// Segment::is_subcolumn_stored_as_other_type) as the read type, so predicates see cast values.
+// Storage pruning hooks keep the ColumnIterator defaults, which prune nothing.
+class CastOnReadColumnIterator final : public ColumnIterator {
+public:
+    CastOnReadColumnIterator(ColumnIteratorUPtr inner, DataTypePtr stored_type,
+                             DataTypePtr read_type)
+            : _inner(std::move(inner)),
+              _stored_type(std::move(stored_type)),
+              _read_type(std::move(read_type)) {}
+
+    Status init(const ColumnIteratorOptions& opts) override {
+        ColumnIteratorOptions inner_opts = opts;
+        // A dictionary column would replace the stored column type the cast expects.
+        inner_opts.is_predicate_column = false;
+        return _inner->init(inner_opts);
+    }
+    Status seek_to_ordinal(ordinal_t ord) override { return _inner->seek_to_ordinal(ord); }
+    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override {
+        MutableColumnPtr stored = _stored_type->create_column();
+        RETURN_IF_ERROR(_inner->next_batch(n, stored, has_null));
+        return _append_cast(std::move(stored), dst);
+    }
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          MutableColumnPtr& dst) override {
+        MutableColumnPtr stored = _stored_type->create_column();
+        RETURN_IF_ERROR(_inner->read_by_rowids(rowids, count, stored));
+        return _append_cast(std::move(stored), dst);
+    }
+    ordinal_t get_current_ordinal() const override { return _inner->get_current_ordinal(); }
+    Status set_access_paths(const TColumnAccessPaths& all_access_paths,
+                            const TColumnAccessPaths& predicate_access_paths) override {
+        RETURN_IF_ERROR(ColumnIterator::set_access_paths(all_access_paths, predicate_access_paths));
+        return _inner->set_access_paths(all_access_paths, predicate_access_paths);
+    }
+    void set_read_requirement(ReadRequirement requirement) override {
+        ColumnIterator::set_read_requirement(requirement);
+        _inner->set_read_requirement(requirement);
+    }
+    void set_lazy_output_requirement() override {
+        ColumnIterator::set_lazy_output_requirement();
+        _inner->set_lazy_output_requirement();
+    }
+    void remove_pruned_sub_iterators() override { _inner->remove_pruned_sub_iterators(); }
+    Status init_prefetcher(const SegmentPrefetchParams& params) override {
+        return _inner->init_prefetcher(params);
+    }
+    void collect_prefetchers(
+            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+            PrefetcherInitMethod init_method) override {
+        _inner->collect_prefetchers(prefetchers, init_method);
+    }
+    void set_read_phase(ReadPhase mode) override {
+        ColumnIterator::set_read_phase(mode);
+        _inner->set_read_phase(mode);
+    }
+    bool need_to_read() const override { return _inner->need_to_read(); }
+
+private:
+    Status _append_cast(MutableColumnPtr stored, MutableColumnPtr& dst) {
+        ColumnPtr cast;
+        RETURN_IF_ERROR(variant_util::cast_column({std::move(stored), _stored_type, ""}, _read_type,
+                                                  &cast));
+        dst->insert_range_from(*cast, 0, cast->size());
+        return Status::OK();
+    }
+
+    ColumnIteratorUPtr _inner;
+    DataTypePtr _stored_type;
+    DataTypePtr _read_type;
+};
+} // namespace
+
 Status SegmentIterator::init(const StorageReadOptions& opts) {
     auto status = _init_impl(opts);
     if (!status.ok()) {
@@ -455,8 +529,19 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     _col_predicates.clear();
 
     for (const auto& predicate : opts.column_predicates) {
-        if (!_segment->can_apply_predicate_safely(predicate->column_id(), *_schema,
+        const ColumnId cid = predicate->column_id();
+        if (!_segment->can_apply_predicate_safely(cid, *_schema,
                                                   _opts.target_cast_type_for_variants, _opts)) {
+            // The FE removed this conjunct after pushing it down, so it must still filter rows:
+            // read the column cast to the read type and skip every storage-level pruning.
+            if (Segment::is_subcolumn_stored_as_other_type(
+                        *_schema->column(cid),
+                        _segment->get_data_type_of(*_schema->column(cid), _schema->data_type(cid),
+                                                   _opts),
+                        _schema->data_type(cid))) {
+                _cast_on_read_columns.insert(cid);
+                _col_predicates.emplace_back(predicate);
+            }
             continue;
         }
         _col_predicates.emplace_back(predicate);
@@ -507,6 +592,10 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
             } else {
                 field_name = std::to_string(col->unique_id());
             }
+        }
+        if (_cast_on_read_columns.contains(cast_set<ColumnId>(i))) {
+            _cast_on_read_stored_types[cast_set<ColumnId>(i)] = storage_type;
+            storage_type = _schema->data_type(i);
         }
         _storage_name_and_type[i] = std::make_pair(field_name, storage_type);
         if (int32_t uid = col->is_extracted_column() ? col->parent_unique_id() : col->unique_id();
@@ -635,7 +724,12 @@ Status SegmentIterator::_lazy_init(Block* block) {
     _current_columns.resize(_schema->num_read_columns());
 
     for (size_t i = 0; i < _schema->num_read_columns(); i++) {
-        if (_column_states[i].has_predicate()) {
+        if (_column_states[i].has_predicate() &&
+            _cast_on_read_stored_types.contains(cast_set<ColumnId>(i))) {
+            // Cast values arrive as plain columns, never as a low-cardinality dictionary.
+            _current_columns[i] = _storage_name_and_type[i].second->create_column();
+            _current_columns[i]->set_rowset_segment_id({_segment->rowset_id(), _segment->id()});
+        } else if (_column_states[i].has_predicate()) {
             RETURN_IF_CATCH_EXCEPTION(
                     _current_columns[i] = ReadSchema::get_predicate_column_ptr(
                             _storage_name_and_type[i].second, _opts.io_ctx.reader_type));
@@ -1726,7 +1820,8 @@ bool SegmentIterator::_column_emits_defaults_for_count(ColumnId cid) {
     }
     const auto& file_column_type = _storage_name_and_type[cid].second;
     const auto& expected_type = _schema->data_type(cid);
-    if (file_column_type == nullptr || expected_type == nullptr ||
+    if (_cast_on_read_stored_types.contains(cid) || file_column_type == nullptr ||
+        expected_type == nullptr ||
         !file_column_type->equals(*expected_type)) {
         return false;
     }
@@ -2049,6 +2144,11 @@ Status SegmentIterator::_init_column_iterators() {
             RETURN_IF_ERROR(_segment->new_column_iterator(*_schema->column(cid),
                                                           &_column_iterators[cid], &_opts,
                                                           &_variant_sparse_column_cache));
+            if (auto it = _cast_on_read_stored_types.find(cid);
+                it != _cast_on_read_stored_types.end()) {
+                _column_iterators[cid] = std::make_unique<CastOnReadColumnIterator>(
+                        std::move(_column_iterators[cid]), it->second, _schema->data_type(cid));
+            }
             ColumnIteratorOptions iter_opts {
                     .use_page_cache = _opts.use_page_cache,
                     // If the col is predicate column, then should read the last page to check
@@ -2105,6 +2205,10 @@ Status SegmentIterator::_init_index_iterators() {
     // Inverted index iterators
     for (ColumnId cid = 0; cid < _schema->num_read_columns(); ++cid) {
         // Use segment’s own index_meta, for compatibility with future indexing needs to default to lowercase.
+        if (_index_iterators[cid] == nullptr && _cast_on_read_stored_types.contains(cid)) {
+            // An index of the stored type cannot answer a predicate of the read type.
+            continue;
+        }
         if (_index_iterators[cid] == nullptr) {
             // Scan-time Variant path placeholders in the read schema retain the Variant storage
             // type. Use their parent unique id and path to locate the extracted column's

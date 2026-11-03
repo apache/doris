@@ -436,6 +436,9 @@ private:
     uint32_t _initial_block_row_max = 0;
     // make a copy of `_opts.column_predicates` in order to make local changes
     std::vector<std::shared_ptr<ColumnPredicate>> _col_predicates;
+    // Predicate columns read cast to the read type; see Segment::is_subcolumn_stored_as_other_type.
+    std::set<ColumnId> _cast_on_read_columns;
+    std::map<ColumnId, DataTypePtr> _cast_on_read_stored_types;
     VExprContextSPtrs _common_expr_ctxs_push_down;
     // row schema of the key to seek
     // only used in `_get_row_ranges_by_keys`

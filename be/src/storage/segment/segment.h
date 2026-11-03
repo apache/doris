@@ -36,6 +36,7 @@
 #include "core/column/column.h"
 #include "core/data_type/data_type.h"
 #include "core/field.h"
+#include "exec/common/variant_template_type.h"
 #include "io/cache/file_cache_common.h" // io::UInt128Wrapper returned by value
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
@@ -235,6 +236,19 @@ public:
                                                       const DataTypePtr& read_type,
                                                       const StorageReadOptions& read_options);
 
+    // FE binds a template-typed VARIANT subcolumn to the template type, but a segment may store the
+    // path as another type: an old dynamic BIGINT leaf under an INT template, or the JSONB carrier
+    // compaction writes once a template is added over a dynamic path. That leaf's zone maps, bloom
+    // filters and dictionaries describe the stored type, so a typed predicate may only run on rows
+    // cast to the read type.
+    static bool is_subcolumn_stored_as_other_type(const TabletColumn& col,
+                                                  const DataTypePtr& storage_type,
+                                                  const DataTypePtr& read_type) {
+        return col.is_extracted_column() && col.type() != FieldType::OLAP_FIELD_TYPE_VARIANT &&
+               storage_type != nullptr && read_type != nullptr &&
+               !variant_util::stored_type_equals_template(storage_type, read_type);
+    }
+
     // If column in segment is the same type in schema, then it is safe to apply predicate.
     // `ordinal` is a read-schema ordinal (the coordinate ColumnPredicate::column_id() carries).
     bool can_apply_predicate_safely(
@@ -245,6 +259,10 @@ public:
         DCHECK(col != nullptr) << "Column not found in schema for ordinal=" << ordinal;
         DataTypePtr storage_column_type =
                 get_data_type_of(*col, schema.data_type(ordinal), read_options);
+        if (is_subcolumn_stored_as_other_type(*col, storage_column_type,
+                                              schema.data_type(ordinal))) {
+            return false;
+        }
         if (storage_column_type == nullptr || col->type() != FieldType::OLAP_FIELD_TYPE_VARIANT ||
             !target_cast_type_for_variants.contains(col->name())) {
             // Default column iterator or not variant column

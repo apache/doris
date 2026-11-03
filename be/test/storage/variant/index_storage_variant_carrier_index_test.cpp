@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -24,11 +25,16 @@
 
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/primitive_type.h"
+#include "exprs/vectorized_fn_call.h"
+#include "exprs/vexpr_context.h"
+#include "exprs/vliteral.h"
 #include "storage/predicate/predicate_creator.h"
 #include "storage/segment/segment_loader.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/variant/index_storage_variant_test_base.h"
 #include "exec/common/variant_util.h"
+#include "testutil/mock/mock_slot_ref.h"
 
 namespace doris::index_storage_test {
 namespace {
@@ -56,6 +62,79 @@ std::shared_ptr<ColumnPredicate> int_equals(int32_t column_id, std::string name,
     return create_comparison_predicate<PredicateType::EQ>(
             column_id, std::move(name), std::make_shared<DataTypeInt32>(),
             Field::create_field<TYPE_INT>(value), false);
+}
+
+VExprSPtr make_literal(PrimitiveType type, const std::string& value) {
+    TExprNode node;
+    node.__set_type(create_type_desc(type));
+    node.__set_num_children(0);
+    node.__set_is_nullable(false);
+    if (type == PrimitiveType::TYPE_STRING) {
+        node.__set_node_type(TExprNodeType::STRING_LITERAL);
+        TStringLiteral literal;
+        literal.__set_value(value);
+        node.__set_string_literal(literal);
+    } else {
+        node.__set_node_type(TExprNodeType::INT_LITERAL);
+        TIntLiteral literal;
+        literal.__set_value(std::stoll(value));
+        node.__set_int_literal(literal);
+    }
+    return VLiteral::create_shared(node);
+}
+
+VExprSPtr make_fn(const std::string& name, TExprNodeType::type node_type,
+                  std::vector<PrimitiveType> arg_types, PrimitiveType ret_type,
+                  std::vector<VExprSPtr> children) {
+    TFunctionName fn_name;
+    fn_name.__set_db_name("");
+    fn_name.__set_function_name(name);
+    TFunction fn;
+    fn.__set_name(fn_name);
+    fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+    std::vector<TTypeDesc> args;
+    for (auto t : arg_types) {
+        args.push_back(create_type_desc(t));
+    }
+    fn.__set_arg_types(args);
+    fn.__set_ret_type(create_type_desc(ret_type));
+    fn.__set_has_var_args(false);
+    TExprNode node;
+    node.__set_type(create_type_desc(ret_type));
+    node.__set_node_type(node_type);
+    node.__set_fn(fn);
+    node.__set_num_children(static_cast<int>(children.size()));
+    node.__set_is_nullable(true);
+    auto root = VectorizedFnCall::create_shared(node);
+    for (auto& child : children) {
+        root->add_child(child);
+    }
+    return root;
+}
+
+// Block position 1 holds v.b1 (return_columns = {0, cid}).
+// (b1 + 1) > value, evaluated as a pushed-down common expression on the INT-bound slot.
+VExprContextSPtr int_plus_one_greater(int64_t value) {
+    auto slot = std::make_shared<MockSlotRef>(1, make_nullable(std::make_shared<DataTypeInt32>()));
+    auto add = make_fn("add", TExprNodeType::ARITHMETIC_EXPR,
+                       {PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT},
+                       PrimitiveType::TYPE_INT,
+                       {slot, make_literal(PrimitiveType::TYPE_INT, "1")});
+    auto gt = make_fn("gt", TExprNodeType::BINARY_PRED,
+                      {PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT},
+                      PrimitiveType::TYPE_BOOLEAN,
+                      {add, make_literal(PrimitiveType::TYPE_INT, std::to_string(value))});
+    return VExprContext::create_shared(gt);
+}
+
+// like(b1, pattern) on the STRING-bound slot.
+VExprContextSPtr string_like(const std::string& pattern) {
+    auto slot = std::make_shared<MockSlotRef>(1, nullable_string_target_type());
+    return VExprContext::create_shared(
+            make_fn("like", TExprNodeType::FUNCTION_CALL,
+                    {PrimitiveType::TYPE_STRING, PrimitiveType::TYPE_STRING},
+                    PrimitiveType::TYPE_BOOLEAN,
+                    {slot, make_literal(PrimitiveType::TYPE_STRING, pattern)}));
 }
 
 } // namespace
@@ -92,9 +171,12 @@ protected:
         tablet()->update_max_version_schema(target);
     }
 
-    // FE sends the template-bound subcolumn; the segments keep their own rowset schemas.
+    // FE sends the template-bound subcolumn; the segments keep their own rowset schemas. An empty
+    // predicate value reads the subcolumn values without a filter.
     Result<IndexReadResult> query_b1(const std::vector<RowsetSharedPtr>& rowsets,
-                                     FieldType template_type, bool use_index) {
+                                     FieldType template_type, bool use_index,
+                                     std::optional<std::string> value = std::string("x1"),
+                                     VExprContextSPtr expr = nullptr) {
         auto write_schema = _tablet_schema;
         auto read_schema = variant_util::VariantCompactionUtil::calculate_variant_extended_schema(
                 rowsets, write_schema);
@@ -107,69 +189,122 @@ protected:
             _tablet_schema = write_schema;
             return ResultError(Status::InternalError("v.b1 is not in the read schema"));
         }
+        // FE binds v['b1'] to the template type no matter what the segment stored.
+        read_schema->mutable_column(cid).set_type(template_type);
         const auto& column = _tablet_schema->column(cid);
         IndexReadOptions read;
         read.return_columns = {0, static_cast<uint32_t>(cid)};
         read.enable_inverted_index_query = use_index;
         read.inverted_index_skip_threshold = 100;
+        read.collect_string_values = !value.has_value();
         if (template_type == FieldType::OLAP_FIELD_TYPE_INT) {
             read.target_cast_type_for_variants[column.name()] =
                     make_nullable(std::make_shared<DataTypeInt32>());
-            read.predicates.push_back(int_equals(cid, column.name(), 7));
+            if (value.has_value()) {
+                read.predicates.push_back(int_equals(cid, column.name(), std::stoi(*value)));
+            }
         } else {
             read.target_cast_type_for_variants[column.name()] = nullable_string_target_type();
-            read.predicates.push_back(string_equals(cid, column.name(), "x1"));
+            if (value.has_value()) {
+                read.predicates.push_back(string_equals(cid, column.name(), *value));
+            }
+        }
+        if (expr != nullptr) {
+            read.common_expr_ctxs_push_down.push_back(std::move(expr));
         }
         auto result = read_rowsets(rowsets, read);
         _tablet_schema = write_schema;
         return result;
     }
+
+    // Old dynamic rowset, ADD template, recent typed rowset, then compaction into a JSONB carrier.
+    void build_carrier(int64_t tablet_id, FieldType type, const std::vector<std::string>& old_rows,
+                       const std::vector<std::string>& recent_rows,
+                       std::vector<RowsetSharedPtr>* uncompacted, RowsetSharedPtr* compacted) {
+        ASSERT_TRUE(create_tablet(options(variant_with_b_template(std::nullopt), tablet_id)).ok());
+        auto old = write(0, old_rows);
+        ASSERT_TRUE(old.has_value()) << old.error();
+        install_write_schema(variant_with_b_template(type));
+        auto recent = write(1, recent_rows);
+        ASSERT_TRUE(recent.has_value()) << recent.error();
+        *uncompacted = {old.value(), recent.value()};
+        auto output = compact_rowsets_and_reload(IndexCompactionKind::CUMULATIVE, *uncompacted);
+        ASSERT_TRUE(output.has_value()) << output.error();
+        *compacted = output.value();
+    }
+
+    static std::vector<std::string> sorted_strings(const IndexReadResult& result) {
+        std::vector<std::string> values;
+        for (const auto& [uid, column_values] : result.string_values_by_uid) {
+            for (const auto& v : column_values) {
+                values.push_back(v.value_or("<null>"));
+            }
+        }
+        std::sort(values.begin(), values.end());
+        return values;
+    }
 };
 
-TEST_F(IndexStorageVariantCarrierIndexTest, AddedTemplateCarrierScansWithoutPhysicalIndex) {
-    int64_t tablet_id = 310100;
-    // STRING template over old dynamic STRING b1: the same-type path still becomes a JSONB carrier.
-    for (auto type : {FieldType::OLAP_FIELD_TYPE_STRING}) {
-        SCOPED_TRACE(::testing::Message() << "template_type=" << static_cast<int>(type));
-        ASSERT_TRUE(create_tablet(options(variant_with_b_template(std::nullopt), tablet_id++)).ok());
-        auto old = write(0, {R"({"b1":"x1","z":0})", R"({"b1":"x2","z":1})"});
-        ASSERT_TRUE(old.has_value()) << old.error();
-        const bool is_int = type == FieldType::OLAP_FIELD_TYPE_INT;
-        // Before ALTER the old dynamic string path has the inherited root index.
-        if (!is_int) {
-            auto before = query_b1({old.value()}, type, true);
-            ASSERT_TRUE(before.has_value()) << before.error();
-            EXPECT_EQ(before->rows_read, 1);
-            EXPECT_TRUE(before->inverted_index_used());
-        }
-        install_write_schema(variant_with_b_template(type));
-        auto recent = write(1, {is_int ? R"({"b1":7,"z":2})" : R"({"b1":"x1","z":2})"});
-        ASSERT_TRUE(recent.has_value()) << recent.error();
-        const int64_t expected = is_int ? 1 : 2;
-
-        auto uncompacted = query_b1({old.value(), recent.value()}, type, true);
-        ASSERT_TRUE(uncompacted.has_value()) << "uncompacted: " << uncompacted.error();
-        EXPECT_EQ(uncompacted->rows_read, expected);
-
-        auto output = compact_rowsets_and_reload(IndexCompactionKind::CUMULATIVE,
-                                                 {old.value(), recent.value()});
-        ASSERT_TRUE(output.has_value()) << output.error();
-        std::vector<int64_t> rows;
-        for (bool use_index : {false, true}) {
-            SCOPED_TRACE(::testing::Message() << "use_index=" << use_index);
-            // Before the fix both reads failed with INVERTED_INDEX_NOT_SUPPORTED on the JSONB leaf.
-            auto compacted = query_b1({output.value()}, type, use_index);
-            ASSERT_TRUE(compacted.has_value()) << "compacted carrier: " << compacted.error();
-            // The JSONB carrier has no physical index file entry to accelerate the predicate.
-            EXPECT_FALSE(compacted->inverted_index_used());
-            rows.push_back(compacted->rows_read);
-        }
-        // Index-enabled and scan-only reads agree on the carrier segment. The row count is only
-        // recorded: this harness pushes a typed predicate straight onto the JSONB leaf.
-        EXPECT_EQ(rows[0], rows[1]);
-        RecordProperty("carrier_rows_read", std::to_string(rows[0]));
-        RecordProperty("uncompacted_rows_expected", std::to_string(expected));
+// A STRING template added over old dynamic STRING b1: compaction writes b1 as a JSONB carrier.
+// Typed predicates must return the same rows as the uncompacted read, with or without the index.
+TEST_F(IndexStorageVariantCarrierIndexTest, AddedStringTemplateCarrierFiltersExactRows) {
+    std::vector<RowsetSharedPtr> uncompacted;
+    RowsetSharedPtr compacted;
+    build_carrier(310100, FieldType::OLAP_FIELD_TYPE_STRING,
+                  {R"({"b1":"x1","z":0})", R"({"b1":"x2","z":1})"}, {R"({"b1":"x1","z":2})"},
+                  &uncompacted, &compacted);
+    if (HasFatalFailure()) {
+        return;
     }
+    for (const auto& [value, expected] :
+         std::vector<std::pair<std::string, int64_t>> {{"x1", 2}, {"x2", 1}, {"x9", 0}}) {
+        auto baseline = query_b1(uncompacted, FieldType::OLAP_FIELD_TYPE_STRING, false, value);
+        ASSERT_TRUE(baseline.has_value()) << baseline.error();
+        ASSERT_EQ(baseline->rows_read, expected) << "uncompacted baseline, value=" << value;
+        for (bool use_index : {false, true}) {
+            auto result = query_b1({compacted}, FieldType::OLAP_FIELD_TYPE_STRING, use_index, value);
+            ASSERT_TRUE(result.has_value()) << result.error();
+            EXPECT_EQ(result->rows_read, expected)
+                    << "compacted carrier, value=" << value << " use_index=" << use_index;
+            // The JSONB carrier has no physical index file entry to accelerate the predicate.
+            EXPECT_FALSE(result->inverted_index_used());
+        }
+    }
+    auto baseline_values =
+            query_b1(uncompacted, FieldType::OLAP_FIELD_TYPE_STRING, false, std::nullopt);
+    ASSERT_TRUE(baseline_values.has_value()) << baseline_values.error();
+    auto values = query_b1({compacted}, FieldType::OLAP_FIELD_TYPE_STRING, false, std::nullopt);
+    ASSERT_TRUE(values.has_value()) << values.error();
+    EXPECT_EQ(sorted_strings(*baseline_values), (std::vector<std::string> {"x1", "x1", "x2"}));
+    EXPECT_EQ(sorted_strings(*values), sorted_strings(*baseline_values));
+}
+
+// An INT template added over old dynamic integer b1. Zone maps of the JSONB carrier must not be
+// compared with an INT predicate (that crashed with a Field::get type mismatch).
+TEST_F(IndexStorageVariantCarrierIndexTest, AddedIntTemplateCarrierFiltersExactRows) {
+    std::vector<RowsetSharedPtr> uncompacted;
+    RowsetSharedPtr compacted;
+    build_carrier(310300, FieldType::OLAP_FIELD_TYPE_INT,
+                  {R"({"b1":7,"z":0})", R"({"b1":8,"z":1})"}, {R"({"b1":7,"z":2})"},
+                  &uncompacted, &compacted);
+    if (HasFatalFailure()) {
+        return;
+    }
+    for (const auto& [value, expected] :
+         std::vector<std::pair<std::string, int64_t>> {{"7", 2}, {"8", 1}, {"9", 0}}) {
+        auto baseline = query_b1(uncompacted, FieldType::OLAP_FIELD_TYPE_INT, false, value);
+        ASSERT_TRUE(baseline.has_value()) << baseline.error();
+        ASSERT_EQ(baseline->rows_read, expected) << "uncompacted baseline, value=" << value;
+        for (bool use_index : {false, true}) {
+            auto result = query_b1({compacted}, FieldType::OLAP_FIELD_TYPE_INT, use_index, value);
+            ASSERT_TRUE(result.has_value()) << result.error();
+            EXPECT_EQ(result->rows_read, expected)
+                    << "compacted carrier, value=" << value << " use_index=" << use_index;
+        }
+    }
+    auto all = query_b1({compacted}, FieldType::OLAP_FIELD_TYPE_INT, false, std::nullopt);
+    ASSERT_TRUE(all.has_value()) << all.error();
+    EXPECT_EQ(all->rows_read, 3);
 }
 
 // Control: a never-altered templated column still uses the template-derived root index.
@@ -190,6 +325,60 @@ TEST_F(IndexStorageVariantCarrierIndexTest, NeverAlteredTemplateKeepsInheritedIn
         ASSERT_TRUE(result.has_value()) << result.error();
         EXPECT_EQ(result->rows_read, 1);
         EXPECT_TRUE(result->inverted_index_used());
+    }
+}
+
+// Pushed-down common expressions (the TopN / runtime-filter / remaining-conjunct path) must see
+// the template-typed value, not the JSONB carrier, and return the uncompacted result.
+TEST_F(IndexStorageVariantCarrierIndexTest, AddedIntTemplateCarrierCommonExprExactRows) {
+    std::vector<RowsetSharedPtr> uncompacted;
+    RowsetSharedPtr compacted;
+    build_carrier(310400, FieldType::OLAP_FIELD_TYPE_INT,
+                  {R"({"b1":7,"z":0})", R"({"b1":8,"z":1})"}, {R"({"b1":7,"z":2})"},
+                  &uncompacted, &compacted);
+    if (HasFatalFailure()) {
+        return;
+    }
+    for (const auto& [bound, expected] :
+         std::vector<std::pair<int64_t, int64_t>> {{8, 1}, {7, 3}, {9, 0}}) {
+        auto baseline = query_b1(uncompacted, FieldType::OLAP_FIELD_TYPE_INT, false, std::nullopt,
+                                 int_plus_one_greater(bound));
+        ASSERT_TRUE(baseline.has_value()) << baseline.error();
+        ASSERT_EQ(baseline->rows_read, expected) << "uncompacted baseline, b1+1>" << bound;
+        for (bool use_index : {false, true}) {
+            auto result = query_b1({compacted}, FieldType::OLAP_FIELD_TYPE_INT, use_index,
+                                   std::nullopt, int_plus_one_greater(bound));
+            ASSERT_TRUE(result.has_value()) << result.error();
+            EXPECT_EQ(result->rows_read, expected)
+                    << "compacted carrier, b1+1>" << bound << " use_index=" << use_index;
+        }
+    }
+}
+
+TEST_F(IndexStorageVariantCarrierIndexTest, AddedStringTemplateCarrierLikeExactRows) {
+    std::vector<RowsetSharedPtr> uncompacted;
+    RowsetSharedPtr compacted;
+    build_carrier(310500, FieldType::OLAP_FIELD_TYPE_STRING,
+                  {R"({"b1":"x1","z":0})", R"({"b1":"y2","z":1})"}, {R"({"b1":"x3","z":2})"},
+                  &uncompacted, &compacted);
+    if (HasFatalFailure()) {
+        return;
+    }
+    for (const auto& [pattern, expected] : std::vector<std::pair<std::string, int64_t>> {
+                 {"x%", 2}, {"y2", 1}, {"%1", 1}, {"z%", 0}}) {
+        auto baseline = query_b1(uncompacted, FieldType::OLAP_FIELD_TYPE_STRING, false,
+                                 std::nullopt, string_like(pattern));
+        ASSERT_TRUE(baseline.has_value()) << baseline.error();
+        ASSERT_EQ(baseline->rows_read, expected) << "uncompacted baseline, like " << pattern;
+        auto baseline_values = sorted_strings(*baseline);
+        for (bool use_index : {false, true}) {
+            auto result = query_b1({compacted}, FieldType::OLAP_FIELD_TYPE_STRING, use_index,
+                                   std::nullopt, string_like(pattern));
+            ASSERT_TRUE(result.has_value()) << result.error();
+            EXPECT_EQ(result->rows_read, expected)
+                    << "compacted carrier, like " << pattern << " use_index=" << use_index;
+            EXPECT_EQ(sorted_strings(*result), baseline_values) << "like " << pattern;
+        }
     }
 }
 
