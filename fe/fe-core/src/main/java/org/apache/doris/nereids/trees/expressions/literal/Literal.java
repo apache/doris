@@ -59,7 +59,6 @@ import java.math.BigInteger;
 import java.math.MathContext;
 import java.math.RoundingMode;
 import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
@@ -143,6 +142,13 @@ public abstract class Literal extends Expression implements LeafExpression {
         return String.valueOf(getValue());
     }
 
+    protected String castValueToString() {
+        if (dataType.isComplexType()) {
+            return toLegacyLiteral().getStringValueForQuery(FormatOptions.getDefault());
+        }
+        return getStringValue();
+    }
+
     @Override
     public DataType getDataType() throws UnboundException {
         return dataType;
@@ -219,8 +225,7 @@ public abstract class Literal extends Expression implements LeafExpression {
             return new NullLiteral(targetType);
         }
         // TODO support string to complex
-        String desc = dataType.isComplexType() && targetType.isStringLikeType()
-                ? toLegacyLiteral().getStringValueForQuery(FormatOptions.getDefault()) : getStringValue();
+        String desc = targetType.isStringLikeType() ? castValueToString() : getStringValue();
         // convert boolean to byte string value to support cast boolean to numeric in FE.
         if (this.equals(BooleanLiteral.TRUE)) {
             desc = "1";
@@ -737,10 +742,8 @@ public abstract class Literal extends Expression implements LeafExpression {
                 break;
             case MYSQL_TYPE_STRING:
             case MYSQL_TYPE_VARSTRING:
-                literal = handleStringLiteral(data);
-                break;
             case MYSQL_TYPE_VARCHAR:
-                literal = handleVarcharLiteral(data);
+                literal = handleStringLiteral(mysqlType, data);
                 break;
             case MYSQL_TYPE_TINY_BLOB:
             case MYSQL_TYPE_MEDIUM_BLOB:
@@ -851,24 +854,22 @@ public abstract class Literal extends Expression implements LeafExpression {
         }
     }
 
-    private static Literal handleStringLiteral(ByteBuffer data) {
+    private static Literal handleStringLiteral(MysqlColType mysqlType, ByteBuffer data) {
         int strLen = getParmLen(data);
         strLen = Math.min(strLen, data.remaining());
         byte[] bytes = new byte[strLen];
         data.get(bytes);
-        // ATTN: use fixed StandardCharsets.UTF_8 to avoid unexpected charset in
-        // different environment
-        return new StringLiteral(new String(bytes, StandardCharsets.UTF_8));
-    }
-
-    private static Literal handleVarcharLiteral(ByteBuffer data) {
-        int strLen = getParmLen(data);
-        strLen = Math.min(strLen, data.remaining());
-        byte[] bytes = new byte[strLen];
-        data.get(bytes);
-        // ATTN: use fixed StandardCharsets.UTF_8 to avoid unexpected charset in
-        // different environment
-        return new VarcharLiteral(new String(bytes, StandardCharsets.UTF_8));
+        // Connector/J setBytes and Connector/ODBC binary bindings also use the string wire types.
+        // Preserve bytes that cannot be represented as UTF-8 instead of replacing them with U+FFFD.
+        // Valid UTF-8 retains the existing text type because the wire type cannot distinguish it
+        // from a text binding.
+        VarBinaryLiteral binary = new VarBinaryLiteral(bytes);
+        Optional<String> text = binary.toUtf8String();
+        if (!text.isPresent()) {
+            return binary;
+        }
+        return mysqlType == MysqlColType.MYSQL_TYPE_VARCHAR
+                ? new VarcharLiteral(text.get()) : new StringLiteral(text.get());
     }
 
     /**convertToTypedLiteral*/

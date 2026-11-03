@@ -93,6 +93,10 @@ public class Placeholder extends Expression implements LeafExpression {
         return MysqlColType.isUnsigned(mysqlTypeCode);
     }
 
+    public boolean hasMysqlColType() {
+        return mysqlColType.isPresent();
+    }
+
     public MysqlColType getMysqlColType() {
         return mysqlColType.get();
     }
