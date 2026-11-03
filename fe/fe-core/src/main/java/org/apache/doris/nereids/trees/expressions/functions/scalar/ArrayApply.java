@@ -22,6 +22,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -30,6 +31,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -56,22 +58,25 @@ public class ArrayApply extends ScalarFunction
      */
     public ArrayApply(Expression arg0, Expression arg1, Expression arg2) {
         super("array_apply", arg0, arg1, arg2);
-        checkArguments(arg0, arg1, arg2);
     }
 
     /** constructor for withChildren and reuse signature */
     private ArrayApply(ScalarFunctionParams functionParams) {
         super(functionParams);
-        checkArguments(
-                functionParams.arguments.get(0), functionParams.arguments.get(1), functionParams.arguments.get(2)
-        );
     }
 
-    private void checkArguments(Expression arg0, Expression arg1, Expression arg2) {
-        if (!(arg1 instanceof StringLikeLiteral)) {
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        // validate the op FE can evaluate here, because constant folding may remove this function before any
+        // later check
+        Expression arg1 = ExpressionUtils.foldConstantArgument(getArgument(1));
+        Expression arg2 = getArgument(2);
+        if (!arg1.isConstant() || (arg1 instanceof Literal && !(arg1 instanceof StringLikeLiteral))) {
             throw new AnalysisException(
                     "array_apply(arr, op, val): op support const value only.");
-        } else {
+        }
+        // an op FE cannot fold is validated by BE when it is evaluated
+        if (arg1 instanceof StringLikeLiteral) {
             String op = ((StringLikeLiteral) arg1).getStringValue();
             if (! "=".equals(op) && !">".equals(op) && !"<".equals(op)
                     && !">=".equals(op) && !"<=".equals(op) && !"!=".equals(op)) {
@@ -83,10 +88,6 @@ public class ArrayApply extends ScalarFunction
             throw new AnalysisException(
                     "array_apply(arr, op, val): val support const value only.");
         }
-    }
-
-    @Override
-    public void checkLegalityBeforeTypeCoercion() {
         Expression argument = getArgument(0);
         if (!argument.getDataType().isArrayType()) {
             throw new AnalysisException("array_apply does not support type "
