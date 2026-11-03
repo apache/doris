@@ -943,6 +943,7 @@ public class HiveScanBatchModeTest {
         Assertions.assertEquals("Hive File Listing", listing.getGroupName());
         Assertions.assertEquals("3", listing.getMetrics().get("FilesListed"));
         Assertions.assertEquals("3", listing.getMetrics().get("ListingsPublished"));
+        Assertions.assertEquals("3", listing.getMetrics().get("SizeSummariesPublished"));
         Assertions.assertTrue(provider.collectScanProfiles(session).isEmpty());
     }
 

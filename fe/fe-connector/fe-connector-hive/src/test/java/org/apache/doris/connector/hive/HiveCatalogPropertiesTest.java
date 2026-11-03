@@ -84,6 +84,16 @@ class HiveCatalogPropertiesTest {
         }
     }
 
+    @Test
+    void completedFileSummaryUsesValidatedMetadataCacheControls() {
+        HiveCatalogProperties.of(HiveTestProperties.mapWith(
+                "meta.cache.hive.file_summary.max-weight", "64KB",
+                "meta.cache.hive.file_summary.capacity", "100")).checkCreateTimeOnlyRules();
+        Assertions.assertThrows(IllegalArgumentException.class, () -> HiveCatalogProperties.of(
+                HiveTestProperties.mapWith("meta.cache.hive.file_summary.max-weight", "invalid"))
+                .checkCreateTimeOnlyRules());
+    }
+
     // ===== the metastore URI, its short form, and what reaches the HMS client =====
 
     @Test

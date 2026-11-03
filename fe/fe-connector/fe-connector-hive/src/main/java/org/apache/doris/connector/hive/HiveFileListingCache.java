@@ -45,6 +45,7 @@ import java.util.concurrent.atomic.AtomicLong;
 public class HiveFileListingCache {
     static final String ENGINE = "hive";
     static final String ENTRY_FILE = "file";
+    static final String ENTRY_FILE_SUMMARY = "file_summary";
     static final String LEGACY_FILE_META_CACHE_TTL_SECOND = "file.meta.cache.ttl-second";
     static final long DEFAULT_TTL_SECOND = 86400L;
     static final long DEFAULT_FILE_CAPACITY = 10000L;
@@ -64,6 +65,7 @@ public class HiveFileListingCache {
 
     private final CatalogMetaCache owner;
     private final MetaCache<FileListingKey, FileListingValue> cache;
+    private final MetaCache<FileListingKey, Long> sizeCache;
     private final DirectoryLister lister;
     private final long entryMaxBytes;
     private final long pendingMaxBytes;
@@ -99,11 +101,18 @@ public class HiveFileListingCache {
         CacheSpec spec = CacheSpec.fromProperties(props, ENGINE, ENTRY_FILE,
                 CacheSpec.of(true, DEFAULT_TTL_SECOND, DEFAULT_FILE_CAPACITY));
         this.cache = owner.create(MetaCacheDefinition
-                .<FileListingKey, FileListingValue>builder("hive-file", spec,
-                        key -> key.partitionValues.isEmpty()
-                                ? ScopePath.table(key.dbName, key.tableName)
-                                : ScopePath.partition(key.dbName, key.tableName, key.partitionValues))
+                .<FileListingKey, FileListingValue>builder("hive-file", spec, FileListingKey::scope)
                 .sizeEstimator(HiveFileListingSizeEstimator::estimateEntry)
+                .build());
+        Map<String, String> summaryProps = CacheSpec.applyCompatibilityMap(properties.getRaw(),
+                Collections.singletonMap(LEGACY_FILE_META_CACHE_TTL_SECOND,
+                        CacheSpec.metaCacheTtlKey(ENGINE, ENTRY_FILE_SUMMARY)));
+        CacheSpec summarySpec = CacheSpec.fromProperties(summaryProps, ENGINE, ENTRY_FILE_SUMMARY,
+                CacheSpec.of(true, DEFAULT_TTL_SECOND, DEFAULT_FILE_CAPACITY));
+        this.sizeCache = owner.create(MetaCacheDefinition
+                .<FileListingKey, Long>builder("hive-file-summary", summarySpec, FileListingKey::scope)
+                .sizeEstimator((key, value) -> MetaCacheSizeEstimate.complete(JvmSizeUtils.saturatedAdd(
+                        HiveFileListingSizeEstimator.estimateKey(key), JvmSizeUtils.instanceSize(Long.class))))
                 .build());
         this.lister = Objects.requireNonNull(lister, "lister can not be null");
         this.entryMaxBytes = properties.getFileListingCacheEntryMaxBytes();
@@ -155,8 +164,13 @@ public class HiveFileListingCache {
     }
 
     long cachedDataSize(String dbName, String tableName, String location, List<String> partitionValues) {
-        FileListingValue value = cache.getIfPresent(new FileListingKey(dbName, tableName, location, partitionValues));
-        return value == null ? -1 : value.totalFileBytes;
+        FileListingKey key = new FileListingKey(dbName, tableName, location, partitionValues);
+        FileListingValue value = cache.getIfPresent(key);
+        if (value != null) {
+            return value.totalFileBytes;
+        }
+        Long summary = sizeCache.getIfPresent(key);
+        return summary == null ? -1 : summary;
     }
 
     // Explicit materialization for callers that request a List (primarily cache contract tests).
@@ -243,6 +257,7 @@ public class HiveFileListingCache {
         private final long keyBytes;
         private HiveFileIterator delegate;
         private MetaCache.BulkLoad<FileListingKey, FileListingValue> load;
+        private MetaCache.BulkLoad<FileListingKey, Long> summaryLoad;
         private ArrayList<HiveFileStatus> candidate;
         private long candidateBytes;
         private long totalFileBytes;
@@ -254,22 +269,31 @@ public class HiveFileListingCache {
             this.fs = fs;
             this.context = context;
             this.stats = stats;
-            if (!cache.cacheSpec().isCacheEnabled() || entryMaxBytes == 0 || pendingMaxBytes == 0) {
-                this.keyBytes = 0;
-                return;
+            boolean collect = cache.cacheSpec().isCacheEnabled() && entryMaxBytes > 0 && pendingMaxBytes > 0;
+            this.keyBytes = collect ? HiveFileListingSizeEstimator.estimateKey(key) : 0;
+            try {
+                // Both fences precede the first request, even when a list candidate is disabled or abandoned.
+                ScopePath table = ScopePath.table(key.dbName, key.tableName);
+                if (sizeCache.cacheSpec().isCacheEnabled()) {
+                    summaryLoad = sizeCache.beginBulkLoad(table);
+                }
+                if (!collect) {
+                    return;
+                }
+                load = cache.beginBulkLoad(table);
+                long baseBytes = keyBytes + HiveFileListingSizeEstimator.emptyValueBytes();
+                if (baseBytes > entryMaxBytes || !reserve(baseBytes)) {
+                    stats.abandoned.incrementAndGet();
+                    discardCandidate();
+                    return;
+                }
+                candidateBytes = baseBytes;
+                candidate = new ArrayList<>(0);
+                stats.peakBytes.accumulateAndGet(candidateBytes, Math::max);
+            } catch (RuntimeException | Error e) {
+                closeAfterFailure(e);
+                throw e;
             }
-            this.keyBytes = HiveFileListingSizeEstimator.estimateKey(key);
-            // Capture the refresh generation before the first request, not at EOF.
-            load = cache.beginBulkLoad(ScopePath.table(key.dbName, key.tableName));
-            long baseBytes = keyBytes + HiveFileListingSizeEstimator.emptyValueBytes();
-            if (baseBytes > entryMaxBytes || !reserve(baseBytes)) {
-                stats.abandoned.incrementAndGet();
-                discardCandidate();
-                return;
-            }
-            candidateBytes = baseBytes;
-            candidate = new ArrayList<>(0);
-            stats.peakBytes.accumulateAndGet(candidateBytes, Math::max);
         }
 
         @Override
@@ -293,6 +317,9 @@ public class HiveFileListingCache {
                     if (load.publish(key, value)) {
                         stats.published.incrementAndGet();
                     }
+                }
+                if (summaryLoad != null && summaryLoad.publish(key, totalFileBytes)) {
+                    stats.summariesPublished.incrementAndGet();
                 }
                 close();
                 return false;
@@ -375,7 +402,14 @@ public class HiveFileListingCache {
                 }
             } finally {
                 delegate = null;
-                discardCandidate();
+                try {
+                    discardCandidate();
+                } finally {
+                    if (summaryLoad != null) {
+                        summaryLoad.close();
+                        summaryLoad = null;
+                    }
+                }
             }
         }
 
@@ -393,6 +427,7 @@ public class HiveFileListingCache {
         private final AtomicLong misses = new AtomicLong();
         private final AtomicLong files = new AtomicLong();
         private final AtomicLong published = new AtomicLong();
+        private final AtomicLong summariesPublished = new AtomicLong();
         private final AtomicLong abandoned = new AtomicLong();
         private final AtomicLong peakBytes = new AtomicLong();
 
@@ -404,6 +439,7 @@ public class HiveFileListingCache {
             metrics.put("CacheMisses", Long.toString(misses.get()));
             metrics.put("FilesListed", Long.toString(files.get()));
             metrics.put("ListingsPublished", Long.toString(published.get()));
+            metrics.put("SizeSummariesPublished", Long.toString(summariesPublished.get()));
             metrics.put("CandidatesAbandonedForBudget", Long.toString(abandoned.get()));
             metrics.put("PeakCandidateBytes", Long.toString(peakBytes.get()));
             if (metrics.equals(lastReported) || hits.get() == 0 && misses.get() == 0) {
@@ -428,6 +464,13 @@ public class HiveFileListingCache {
             this.partitionValues = partitionValues == null
                     ? Collections.emptyList()
                     : Collections.unmodifiableList(new ArrayList<>(partitionValues));
+        }
+
+        ScopePath scope() {
+            if (partitionValues.isEmpty()) {
+                return ScopePath.table(dbName, tableName);
+            }
+            return ScopePath.partition(dbName, tableName, partitionValues);
         }
 
         @Override

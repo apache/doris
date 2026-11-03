@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.hive;
 
+import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.MetaCache;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.scan.ConnectorScanContext;
@@ -58,6 +60,7 @@ class HiveStreamingFileListingTest {
         Assertions.assertEquals(1, files.closed.get());
         Assertions.assertEquals(0, cache.size());
         Assertions.assertEquals(0, cache.pendingBytes());
+        Assertions.assertEquals(-1, cache.cachedDataSize("db", "t", LOCATION, List.of()));
     }
 
     @Test
@@ -91,6 +94,31 @@ class HiveStreamingFileListingTest {
         }
         Assertions.assertEquals(0, cache.size());
         Assertions.assertEquals(0, cache.pendingBytes());
+        Assertions.assertEquals(-1, cache.cachedDataSize("db", "t", LOCATION, List.of()));
+    }
+
+    @Test
+    void retiredCacheOwnerDoesNotFailSuccessfulStreamingEof() throws Exception {
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            HiveFileListingCache cache = new HiveFileListingCache(owner, HiveTestProperties.minimal());
+            List<MetaCache<?, ?>> entries = new ArrayList<>(owner.entries().values());
+            RecordingFiles raw = new RecordingFiles(1);
+            FakeFileSystem fs = new FakeFileSystem().withIteratorFactory(location -> raw);
+            try (ConnectorSplitSource source = provider(cache, fs).streamSplits(new Session(), request())) {
+                Assertions.assertEquals(10, source.next().getLength());
+                Assertions.assertEquals(1, raw.read.get());
+                Assertions.assertTrue(cache.pendingBytes() > 0, "EOF has not been observed yet");
+                owner.close();
+                Assertions.assertFalse(source.hasNext(), "optional retention must not fail completed listing");
+            }
+            Assertions.assertEquals(1, raw.closed.get());
+            Assertions.assertEquals(0, cache.pendingBytes());
+            Assertions.assertEquals(0, owner.metrics().getActiveLoadCount());
+            for (MetaCache<?, ?> entry : entries) {
+                Assertions.assertEquals(0, entry.size());
+                Assertions.assertEquals(0, entry.metrics().getActiveBulkHandleCount());
+            }
+        }
     }
 
     @Test
@@ -129,6 +157,7 @@ class HiveStreamingFileListingTest {
         Assertions.assertEquals(1000, all.stream().mapToLong(HiveFileStatus::getLength).sum());
         Assertions.assertEquals(0, cache.size());
         Assertions.assertEquals(0, cache.pendingBytes());
+        Assertions.assertEquals(1000, cache.cachedDataSize("db", "t", LOCATION, List.of()));
     }
 
     @Test
@@ -149,6 +178,7 @@ class HiveStreamingFileListingTest {
                 Assertions.assertEquals(held, cache.pendingBytes());
             }
             Assertions.assertEquals(0, cache.size(), "the second complete listing exceeded the staging budget");
+            Assertions.assertEquals(20, cache.cachedDataSize("db", "t2", LOCATION, List.of()));
         }
         Assertions.assertEquals(0, cache.pendingBytes());
     }
@@ -178,6 +208,7 @@ class HiveStreamingFileListingTest {
                 Assertions.assertEquals(2, count(files));
             }
             Assertions.assertEquals(0, cache.size(), "scope " + scope + " must fence publication");
+            Assertions.assertEquals(-1, cache.cachedDataSize("db", "t", LOCATION, List.of("1")));
             Assertions.assertEquals(0, cache.pendingBytes());
             try (HiveFileIterator files = cache.openDataFiles("db", "t", LOCATION, List.of("1"), fs,
                     new ConnectorScanContext())) {
@@ -185,6 +216,79 @@ class HiveStreamingFileListingTest {
             }
             Assertions.assertEquals(1, cache.size());
         }
+    }
+
+    @Test
+    void summariesAreFencedBeforeListingEvenWhenListCollectionIsDisabled() {
+        for (int scope = 0; scope < 4; scope++) {
+            HiveFileListingCache cache = new HiveFileListingCache(properties(0, 0));
+            FakeFileSystem fs = new FakeFileSystem().withIteratorFactory(location -> new RecordingFiles(3));
+            try (HiveFileIterator files = cache.openDataFiles("db", "t", LOCATION, List.of("1"), fs,
+                    new ConnectorScanContext())) {
+                files.next();
+                switch (scope) {
+                    case 0:
+                        cache.invalidateAll();
+                        break;
+                    case 1:
+                        cache.invalidateDb("db");
+                        break;
+                    case 2:
+                        cache.invalidateTable("db", "t");
+                        break;
+                    default:
+                        cache.invalidatePartitions("db", "t", Collections.singleton(List.of("1")));
+                        break;
+                }
+                Assertions.assertEquals(2, count(files));
+            }
+            Assertions.assertEquals(-1, cache.cachedDataSize("db", "t", LOCATION, List.of("1")));
+            try (HiveFileIterator files = cache.openDataFiles("db", "t", LOCATION, List.of("1"), fs,
+                    new ConnectorScanContext())) {
+                Assertions.assertEquals(3, count(files));
+            }
+            Assertions.assertEquals(30, cache.cachedDataSize("db", "t", LOCATION, List.of("1")));
+            Assertions.assertEquals(0, cache.size());
+        }
+    }
+
+    @Test
+    void sizeSummariesNeverServeAPartialOrRetainedFileList() {
+        for (String ending : List.of("close", "cancel", "listing-failure", "close-failure")) {
+            HiveFileListingCache cache = new HiveFileListingCache(properties(0, 0));
+            RecordingFiles raw = new RecordingFiles(2);
+            ConnectorScanContext context = new ConnectorScanContext();
+            FakeFileSystem fs = new FakeFileSystem().withIteratorFactory(location -> raw);
+            try (HiveFileIterator files = cache.openDataFiles("db", "t", LOCATION, List.of(), fs, context)) {
+                files.next();
+                if (ending.equals("cancel")) {
+                    context.cancel();
+                    Assertions.assertThrows(CancellationException.class, files::hasNext);
+                }
+                if (ending.equals("listing-failure")) {
+                    raw.failAfter = 1;
+                    Assertions.assertThrows(HiveDirectoryListingException.class, files::hasNext);
+                }
+                if (ending.equals("close-failure")) {
+                    files.next();
+                    raw.failClose = true;
+                    Assertions.assertThrows(HiveDirectoryListingException.class, files::hasNext);
+                }
+            }
+            Assertions.assertEquals(-1, cache.cachedDataSize("db", "t", LOCATION, List.of()), ending);
+            Assertions.assertEquals(0, cache.pendingBytes());
+        }
+
+        AtomicInteger listings = new AtomicInteger();
+        HiveFileListingCache cache = new HiveFileListingCache(properties(0, 0));
+        FakeFileSystem fs = new FakeFileSystem().withIteratorFactory(location -> {
+            listings.incrementAndGet();
+            return new RecordingFiles(2);
+        });
+        Assertions.assertEquals(2, consume(cache, fs).size());
+        Assertions.assertEquals(20, cache.cachedDataSize("db", "t", LOCATION, List.of()));
+        Assertions.assertEquals(2, consume(cache, fs).size());
+        Assertions.assertEquals(2, listings.get(), "a scalar hint cannot satisfy a later file enumeration");
     }
 
     @Test
@@ -202,6 +306,7 @@ class HiveStreamingFileListingTest {
         Assertions.assertEquals(1, raw.closed.get());
         Assertions.assertEquals(0, cache.size());
         Assertions.assertEquals(0, cache.pendingBytes());
+        Assertions.assertEquals(-1, cache.cachedDataSize("db", "t", LOCATION, List.of()));
     }
 
     @Test
@@ -309,6 +414,34 @@ class HiveStreamingFileListingTest {
             }
         }
         Assertions.assertEquals(0, cache.size());
+        Assertions.assertEquals(200, cache.cachedDataSize("db", "t", LOCATION, List.of()));
+    }
+
+    @Test
+    void summaryCacheHasIndependentAdmissionAndDisableControls() {
+        for (Map<String, String> controls : List.of(
+                Map.of("meta.cache.hive.file_summary.enable", "false"),
+                Map.of("meta.cache.hive.file_summary.ttl-second", "0"),
+                Map.of("meta.cache.hive.file_summary.capacity", "0"),
+                Map.of("meta.cache.hive.file_summary.max-weight", "1B"))) {
+            Map<String, String> raw = HiveTestProperties.mapWith(
+                    HiveCatalogProperties.FILE_LISTING_CACHE_ENTRY_MAX_BYTES, "0");
+            raw.putAll(controls);
+            try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+                HiveFileListingCache cache = new HiveFileListingCache(owner, HiveCatalogProperties.of(raw));
+                FakeFileSystem fs = new FakeFileSystem().withIteratorFactory(location -> new RecordingFiles(2));
+                Assertions.assertEquals(2, consume(cache, fs).size());
+                Assertions.assertEquals(-1, cache.cachedDataSize("db", "t", LOCATION, List.of()), controls.toString());
+                Assertions.assertEquals(0, owner.entries().get("hive-file-summary")
+                        .metrics().getActiveBulkHandleCount());
+            }
+        }
+        HiveFileListingCache cache = new HiveFileListingCache(HiveCatalogProperties.of(
+                HiveTestProperties.mapWith("meta.cache.hive.file.enable", "false")));
+        FakeFileSystem fs = new FakeFileSystem().withIteratorFactory(location -> new RecordingFiles(2));
+        Assertions.assertEquals(2, consume(cache, fs).size());
+        Assertions.assertEquals(0, cache.size());
+        Assertions.assertEquals(20, cache.cachedDataSize("db", "t", LOCATION, List.of()));
     }
 
     private static HiveCatalogProperties properties(long entry, long pending) {

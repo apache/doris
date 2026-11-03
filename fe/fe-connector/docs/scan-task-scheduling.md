@@ -140,22 +140,34 @@ cursors use the updated limits without restarting FE.
 
 Only successful EOF and successful iterator closure can publish a complete listing, including an empty
 listing. The cache takes ownership of the list without copying its array. Early close, LIMIT, cancellation,
-listing failure and oversized candidates publish nothing. A cache publication lease captured before listing
+and listing failure publish neither a list nor a size summary. Oversized candidates never publish a list.
+A cache publication lease captured before listing
 prevents REFRESH TABLE, PARTITION, DATABASE or CATALOG from being undone by a late completion. Concurrent scans
 share completed entries and keep their in-progress iterators and cancellation signals separate.
+If ALTER CATALOG retires the cache owner while an existing cursor is enumerating, successful EOF simply
+declines cache retention. Actual listing, closure and cancellation failures still propagate.
 
 A streaming partition that has already returned a Split fails the query if subsequent file enumeration fails:
 its earlier ranges may already be executing and cannot be retracted. Before returning any range, the existing
 absent-partition and local-directory failure policy applies. Synchronous planning can remove a failed
 partition's accumulated ranges before returning its plan.
 
-Ordinary Hive file-based row-count estimates consume only complete cached listings. A missing sampled
-listing produces an unknown estimate, rather than triggering a full cold listing or treating the partition
-as empty. HMS statistics remain preferred. Explicit sampled ANALYZE still enumerates files using the same
-cursor and accumulates the scalar file sizes its sampling interface requires.
+Ordinary Hive file-based row-count estimates consume completed cached byte totals. Successful EOF records
+a small size summary independently of the optional file list, so exceeding a staging limit or setting that
+limit to zero does not discard an already-computed complete total. The summary never retains file objects
+and cannot serve a later scan's directory listing. It uses the same semantic invalidation scopes and a lease
+captured before listing. Its separate metadata-cache entry, `file_summary`, defaults to a one-day TTL and
+10,000 locations, and participates in catalog/global weight governance. Standard
+`meta.cache.hive.file_summary.*` properties control it independently of `meta.cache.hive.file.*`;
+`file.meta.cache.ttl-second` supplies both TTL defaults unless their namespaced TTLs are explicit.
+Disabling or evicting both complete hints leaves the estimate unknown. A missing sampled total does not
+trigger a full cold listing or treat the partition as empty. HMS statistics remain preferred. Explicit
+sampled ANALYZE still enumerates files using the same cursor and accumulates the scalar file sizes its
+sampling interface requires.
 
 The `Hive File Listing` scan profile reports cache hits/misses, files listed, completed publications,
-candidates abandoned for their collection budget, and the peak estimated candidate size. The engine skips
+candidates abandoned for their collection budget, the peak estimated candidate size and
+`SizeSummariesPublished`. The engine skips
 connector profile collection after stopping a batch scan, so LIMIT and cancellation can omit this group;
 the existing Split Generation profile still records generated splits.
 

@@ -210,7 +210,7 @@ public final class HiveCatalogProperties {
 
     public HiveCatalogProperties checkCreateTimeOnlyRules(Map<String, String> submittedProperties) {
         CacheSpec.checkWeightProperties(raw, submittedProperties, "hive",
-                "table", "partition_names", "partition", "column_stats", "file", "partition_view");
+                "table", "partition_names", "partition", "column_stats", "file", "file_summary", "partition_view");
         CacheSpec.checkWeightProperties(raw, submittedProperties, "iceberg",
                 "table", "partition", "manifest", "partition_view");
         // Restores the legacy HMSExternalCatalog.checkProperties fail-fast for the two meta-cache TTL

@@ -586,16 +586,21 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         Objects.requireNonNull(key, "key can not be null");
         Objects.requireNonNull(actualScope, "actualScope can not be null");
         Objects.requireNonNull(value, "value can not be null");
-        checkOpen();
         handle.checkOwner(this);
         if (!handle.parentScope.contains(actualScope)) {
             throw new IllegalArgumentException(
                     "Actual scope " + actualScope + " is outside bulk-load parent " + handle.parentScope);
         }
-        if (!effectiveEnabled) {
+        if (!effectiveEnabled || closed.get()) {
             return false;
         }
-        try (PublicationLease<K, V> lease = acquirePublicationLease(key, actualScope, false)) {
+        // Retirement can race scope acquisition as well as the final commit. Both decline retention;
+        // the caller already owns its successfully loaded value and need not fail with the cache.
+        try (PublicationLease<K, V> lease = acquirePublicationLease(
+                key, () -> registry.tryAcquire(actualScope), false)) {
+            if (lease == null) {
+                return false;
+            }
             VersionedValue<K, V> staged = prepareVersionedValue(lease, key, value);
             if (staged == null) {
                 return false;
@@ -734,8 +739,16 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
 
     private PublicationLease<K, V> acquirePublicationLease(
             K key, ScopePath path, boolean fenceAgainstDirectPublication) {
+        return acquirePublicationLease(key, () -> registry.acquire(path), fenceAgainstDirectPublication);
+    }
+
+    private PublicationLease<K, V> acquirePublicationLease(
+            K key, Supplier<ScopeLease> acquireScope, boolean fenceAgainstDirectPublication) {
         while (true) {
-            ScopeLease scopeLease = registry.acquire(path);
+            ScopeLease scopeLease = acquireScope.get();
+            if (scopeLease == null) {
+                return null;
+            }
             KeyNode<K, V> keyNode = keyNodes.computeIfAbsent(key, ignored -> new KeyNode<>());
             keyNode.activeLoads.incrementAndGet();
             KeyState keyState = keyNode.current.get();

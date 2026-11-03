@@ -1005,7 +1005,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         try {
             Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
             // Query planning must not enumerate a cold directory before its streaming scan can start.
-            // Only complete cached listings participate; an absent sample makes the estimate unknown.
+            // Complete byte totals survive list-candidate abandonment; an absent sample is still unknown.
             return estimateDataSize(hiveHandle, STATS_PARTITION_SAMPLE_SIZE,
                     (location, values) -> fileListingCache.cachedDataSize(hiveHandle.getDbName(),
                             hiveHandle.getTableName(), location, values));
