@@ -396,4 +396,21 @@ TEST(FunctionVariantParseTest, DecimalTemplatePathsOnTheResultTypeParseNumbersFr
     EXPECT_EQ(std::string::npos, variant_json_at(plain.output, 0).find("123456789012.345678"));
 }
 
+TEST(FunctionVariantParseTest, DecimalTemplatePathsDoNotRescueALeadingZero) {
+    const DataTypePtr string_type = std::make_shared<DataTypeString>();
+    auto paths = std::make_shared<const VariantDecimalPathSet>(std::vector<VariantTemplatePath> {
+            {.pattern = "money.amount", .is_glob = false, .is_decimal = true}});
+    // "01" is not a JSON number; a declared path does not change the document's verdict.
+    const std::string document = R"({"money":{"amount":01}})";
+    ExecutionResult failure =
+            execute_parse("parse_to_variant", make_strings({document}), string_type, 1,
+                          std::make_shared<DataTypeVariantV2>(0, false, paths));
+    EXPECT_FALSE(failure.status.ok());
+    ExecutionResult recoverable =
+            execute_parse("try_parse_to_variant", make_strings({document}), string_type, 1,
+                          make_nullable(std::make_shared<DataTypeVariantV2>(0, false, paths)));
+    ASSERT_TRUE(recoverable.status.ok()) << recoverable.status.to_string();
+    EXPECT_TRUE(is_sql_null_at(recoverable.output, 0));
+}
+
 } // namespace doris

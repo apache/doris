@@ -363,6 +363,40 @@ TEST(DataTypeVariantV2SerdeInputTest, DecimalTemplatePathsParseNumbersFromText) 
     EXPECT_NE(std::string::npos, fallback.find("amount")) << fallback;
 }
 
+TEST(DataTypeVariantV2SerdeInputTest, DecimalTemplatePathsAtTheEdgesOfTheTextReader) {
+    DataTypeVariantV2SerDe serde(
+            1, template_of({{.pattern = "money.amount", .is_glob = false, .is_decimal = true}}));
+    auto column = ColumnVariantV2::create();
+    // An exponent a double cannot hold is valid JSON the DOM parser rejected as a whole; on a
+    // declared path the text is now kept as it is, for the template's cast to decide.
+    ASSERT_TRUE(deserialize_json(serde, *column, R"({"money":{"amount":1e400}})").ok());
+    EXPECT_NE(std::string::npos, json_at(serde, *column, 0).find(R"("amount":"1e400")"));
+    // Beyond 38 digits once the exponent is folded in, either way: text as well.
+    ASSERT_TRUE(deserialize_json(serde, *column, R"({"money":{"amount":1e40}})").ok());
+    EXPECT_NE(std::string::npos, json_at(serde, *column, 1).find(R"("amount":"1e40")"));
+    ASSERT_TRUE(deserialize_json(serde, *column, R"({"money":{"amount":1e-40}})").ok());
+    EXPECT_NE(std::string::npos, json_at(serde, *column, 2).find(R"("amount":"1e-40")"));
+    // A decimal has no negative zero; the scale the text carries stays.
+    ASSERT_TRUE(deserialize_json(serde, *column, R"({"money":{"amount":-0.0}})").ok());
+    EXPECT_NE(std::string::npos, json_at(serde, *column, 3).find(R"("amount":0.0)"));
+    // A leading zero is not a JSON number: the declared path does not rescue it, and the lenient
+    // serde keeps the whole text as a string row, as it does with the number off the path.
+    ASSERT_TRUE(deserialize_json(serde, *column, R"({"money":{"amount":01}})").ok());
+    EXPECT_EQ('"', json_at(serde, *column, 4).front());
+    // A document that fails after the declared path was already written rolls the partial row
+    // back and takes the DOM parser's verdict on the whole text: a string row.
+    ASSERT_TRUE(deserialize_json(serde, *column, R"({"money":{"amount":1.5},"n":01})").ok());
+    const std::string after_leading_zero = json_at(serde, *column, 5);
+    EXPECT_EQ('"', after_leading_zero.front()) << after_leading_zero;
+    EXPECT_NE(std::string::npos, after_leading_zero.find("amount")) << after_leading_zero;
+    ASSERT_TRUE(deserialize_json(serde, *column,
+                                 R"({"money":{"amount":1.5},"n":123456789012345678901})")
+                        .ok());
+    const std::string after_big_integer = json_at(serde, *column, 6);
+    EXPECT_EQ('"', after_big_integer.front()) << after_big_integer;
+    EXPECT_NE(std::string::npos, after_big_integer.find("amount")) << after_big_integer;
+}
+
 TEST(DataTypeVariantV2SerdeInputTest, DataTypeHandsItsDecimalPathsToTheSerde) {
     auto paths = std::make_shared<const VariantDecimalPathSet>(std::vector<VariantTemplatePath> {
             {.pattern = "amount", .is_glob = false, .is_decimal = true}});

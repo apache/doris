@@ -48,7 +48,7 @@ std::string digits_of(__int128 value) {
 
 void expect_decimal(std::string_view token, const char* unscaled, int scale) {
     VariantDecimalText out;
-    ASSERT_EQ(JsonNumberToDecimal::OK, parse_json_number_as_decimal(token, &out)) << token;
+    ASSERT_EQ(JsonNumberToDecimal::OK, parse_json_number_as_decimal(token, out)) << token;
     EXPECT_EQ(unscaled, digits_of(out.unscaled)) << token;
     EXPECT_EQ(scale, out.scale) << token;
 }
@@ -100,6 +100,9 @@ TEST(VariantDecimalPathsTest, ReadsFractionsExactly) {
     expect_decimal("1.50", "150", 2);
     expect_decimal("0.0", "0", 1);
     expect_decimal("-0", "0", 0);
+    // a decimal has no negative zero; the scale the text carries stays, clamped to 38
+    expect_decimal("-0.0", "0", 1);
+    expect_decimal("0e-50", "0", 38);
     expect_decimal("188118222.011121933", "188118222011121933", 9);
 }
 
@@ -124,20 +127,30 @@ TEST(VariantDecimalPathsTest, ReadsIntegersUpToThirtyEightDigits) {
 TEST(VariantDecimalPathsTest, DeclinesWhatDoesNotFit) {
     VariantDecimalText out;
     EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE,
-              parse_json_number_as_decimal("100000000000000000000000000000000000000", &out));
+              parse_json_number_as_decimal("100000000000000000000000000000000000000", out));
     EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE,
-              parse_json_number_as_decimal("0.1234567890123456789012345678901234567890123", &out));
-    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE, parse_json_number_as_decimal("1e-40", &out));
-    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE, parse_json_number_as_decimal("1e40", &out));
-    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE, parse_json_number_as_decimal("1e99999", &out));
+              parse_json_number_as_decimal("0.1234567890123456789012345678901234567890123", out));
+    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE, parse_json_number_as_decimal("1e-40", out));
+    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE, parse_json_number_as_decimal("1e40", out));
+    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE, parse_json_number_as_decimal("1e99999", out));
 }
 
 TEST(VariantDecimalPathsTest, DeclinesMalformedTokens) {
     VariantDecimalText out;
-    for (const char* token : {"", "-", "1.", ".5", "1e", "1e+", "abc", "1.5x", "--1", "1..5", " 1"}) {
-        EXPECT_EQ(JsonNumberToDecimal::MALFORMED, parse_json_number_as_decimal(token, &out)) << token;
+    for (const char* token : {"", "-", "1.", ".5", "1e", "1e+", "abc", "1.5x", "--1", "1..5", " 1",
+                              "-Infinity", "NaN", "+1"}) {
+        EXPECT_EQ(JsonNumberToDecimal::MALFORMED, parse_json_number_as_decimal(token, out))
+                << token;
     }
-    EXPECT_EQ(JsonNumberToDecimal::MALFORMED, parse_json_number_as_decimal("1.5", nullptr));
+    // JSON: int = "0" / digit1-9 *DIGIT. simdjson rejects these and so must the text reader.
+    for (const char* token : {"01", "-01", "00", "00.5", "0001e2", "-00"}) {
+        EXPECT_EQ(JsonNumberToDecimal::MALFORMED, parse_json_number_as_decimal(token, out))
+                << token;
+    }
+    // a lone zero before the fraction or the exponent is the grammar's one allowed leading zero
+    expect_decimal("0.5", "5", 1);
+    expect_decimal("-0.5", "-5", 1);
+    expect_decimal("0e2", "0", 0);
 }
 
 } // namespace doris

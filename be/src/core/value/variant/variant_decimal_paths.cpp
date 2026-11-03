@@ -53,14 +53,21 @@ bool is_digit(char c) {
 } // namespace
 
 JsonNumberToDecimal parse_json_number_as_decimal(std::string_view token,
-                                                 VariantDecimalText* out) noexcept {
-    if (out == nullptr || token.empty()) {
+                                                 VariantDecimalText& out) noexcept {
+    if (token.empty()) {
         return JsonNumberToDecimal::MALFORMED;
     }
     size_t pos = 0;
     const bool negative = token[pos] == '-';
     if (negative) {
         ++pos;
+    }
+    // JSON: int = "0" / digit1-9 *DIGIT, so a leading zero may only be the whole integer part.
+    // simdjson reports "01", "-01" or "00.5" as NUMBER_ERROR and the collector hands such tokens
+    // here when the path is declared DECIMAL, so this is the only check they meet: without it
+    // {"amount":01} would store 1 on a declared path while the same document fails everywhere else.
+    if (pos + 1 < token.size() && token[pos] == '0' && is_digit(token[pos + 1])) {
+        return JsonNumberToDecimal::MALFORMED;
     }
     unsigned __int128 unscaled = 0;
     int significant = 0;
@@ -121,8 +128,8 @@ JsonNumberToDecimal parse_json_number_as_decimal(std::string_view token,
     }
     long scale = static_cast<long>(fraction_digits) - exponent;
     if (unscaled == 0) {
-        out->unscaled = 0;
-        out->scale = static_cast<uint8_t>(scale < 0 ? 0 : (scale > kMaxDigits ? kMaxDigits : scale));
+        out.unscaled = 0;
+        out.scale = static_cast<uint8_t>(scale < 0 ? 0 : (scale > kMaxDigits ? kMaxDigits : scale));
         return JsonNumberToDecimal::OK;
     }
     while (scale < 0) {
@@ -135,8 +142,8 @@ JsonNumberToDecimal parse_json_number_as_decimal(std::string_view token,
     if (scale > kMaxDigits) {
         return JsonNumberToDecimal::OUT_OF_RANGE;
     }
-    out->unscaled = negative ? -static_cast<__int128>(unscaled) : static_cast<__int128>(unscaled);
-    out->scale = static_cast<uint8_t>(scale);
+    out.unscaled = negative ? -static_cast<__int128>(unscaled) : static_cast<__int128>(unscaled);
+    out.scale = static_cast<uint8_t>(scale);
     return JsonNumberToDecimal::OK;
 }
 

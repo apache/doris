@@ -277,10 +277,15 @@ private:
             // an integer beyond 64 bits off a DECIMAL path: the DOM parser's verdict, as today
             return false;
         }
-        // A number on a DECIMAL path is read from its text. Beyond 38 significant digits the text is
-        // kept as it is and the template's cast decides (a correctly rounded value or NULL).
+        // A NUMBER_ERROR / BIGINT_ERROR token on a DECIMAL path is read from its text because
+        // simdjson reports two valid JSON numbers that way: an integer beyond 64 bits
+        // (18446744073709551616) and an exponent a double cannot hold (1e400). The same errors
+        // also cover tokens that are not JSON numbers at all, "01" or "-Infinity" among them, so
+        // the text reader enforces the grammar itself and whatever it declines takes the DOM
+        // parser's verdict below. Beyond 38 significant digits the text is kept as it is and the
+        // template's cast decides (a correctly rounded value or NULL).
         VariantDecimalText decimal;
-        switch (parse_json_number_as_decimal(token, &decimal)) {
+        switch (parse_json_number_as_decimal(token, decimal)) {
         case JsonNumberToDecimal::OK:
             _builder.add_decimal(decimal.unscaled, decimal.scale);
             return true;
