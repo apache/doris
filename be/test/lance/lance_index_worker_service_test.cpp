@@ -907,6 +907,14 @@ TEST_F(LanceIndexWorkerServiceTest, MetricsRegisteredAndOutcomeBucketsCount) {
     service.stop();
     EXPECT_EQ(entity->get_metric("lance_index_mutation_queue_depth"), nullptr)
             << "the gauges deregister at stop";
+    // The outcome counters deliberately stay registered past stop(): stop()
+    // joins no thrift handler threads, and an RPC racing the shutdown still
+    // bumps a bucket through _bump - the member pointers must never dangle
+    // (the entity owns the counters for its process lifetime).
+    EXPECT_NE(entity->get_metric("lance_index_mutation_outcome_never_launched"), nullptr)
+            << "the outcome counters stay registered past stop";
+    EXPECT_NE(entity->get_metric("lance_index_mutation_outcome_indeterminate"), nullptr)
+            << "the outcome counters stay registered past stop";
 }
 
 // ---------------------------------------------------------------------------

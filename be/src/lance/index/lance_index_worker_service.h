@@ -119,9 +119,12 @@ public:
     // never-launched rejection, no new worker may launch after this point,
     // in-flight execute() calls converge on their own (executor) threads
     // bounded by their kill ladders, the executors are joined, and the
-    // supervisor is stopped. Idempotent; correctness never depends on it (the
-    // worker-side PDEATHSIG arm is the real BE-loss backstop and the default
-    // doris_main exit path skips all stop calls).
+    // supervisor is stopped. The pull hooks and their gauges deregister here;
+    // the outcome counters deliberately stay registered for the entity's
+    // (process) lifetime because the un-joined handler threads may still bump
+    // them. Idempotent; correctness never depends on it (the worker-side
+    // PDEATHSIG arm is the real BE-loss backstop and the default doris_main
+    // exit path skips all stop calls).
     void stop();
 
     // The thrift handler body: fills `result` synchronously. Returns after a

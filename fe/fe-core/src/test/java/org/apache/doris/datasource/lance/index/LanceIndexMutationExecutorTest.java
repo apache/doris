@@ -37,6 +37,9 @@ import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.util.concurrent.MoreExecutors;
 import org.apache.thrift.TApplicationException;
+import org.apache.thrift.TDeserializer;
+import org.apache.thrift.TSerializer;
+import org.apache.thrift.protocol.TCompactProtocol;
 import org.apache.thrift.transport.TTransportException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -429,6 +432,26 @@ public class LanceIndexMutationExecutorTest {
         FakeDispatcher success = new FakeDispatcher(request -> workerResult(null, 0));
         Assertions.assertEquals(LanceIndexMutationOutcome.Kind.SUCCESS,
                 executeWithDirectExecutor(success, requestBuilder("legacy-success").build()).getKind());
+    }
+
+    @Test
+    public void testUnknownWorkerPhaseValueFallsBackToLegacyCodeSemantics() throws Exception {
+        // A newer backend may send a worker_phase value this FE's enum does not know.
+        // This thrift generation derives the field's presence from the decoded enum
+        // object, so the unknown value reads back as an unset field with a null value -
+        // which must classify exactly like the phase-less answer of an older backend
+        // (the legacy four-channel code semantics), never as a guess about the
+        // unknown phase.
+        FakeDispatcher conflict = new FakeDispatcher(
+                request -> unknownPhaseResult(LanceIndexMutationExecutor.LANCE_ERR_COMMIT_CONFLICT));
+        Assertions.assertEquals(LanceIndexMutationOutcome.Kind.CONFIRMED_FAILURE,
+                executeWithDirectExecutor(conflict, requestBuilder("unknown-conflict").build()).getKind());
+        FakeDispatcher other = new FakeDispatcher(request -> unknownPhaseResult(2));
+        Assertions.assertEquals(LanceIndexMutationOutcome.Kind.INDETERMINATE,
+                executeWithDirectExecutor(other, requestBuilder("unknown-other").build()).getKind());
+        FakeDispatcher success = new FakeDispatcher(request -> unknownPhaseResult(0));
+        Assertions.assertEquals(LanceIndexMutationOutcome.Kind.SUCCESS,
+                executeWithDirectExecutor(success, requestBuilder("unknown-success").build()).getKind());
     }
 
     @Test
@@ -1081,5 +1104,41 @@ public class LanceIndexMutationExecutorTest {
         }
         result.setMessage("worker diagnostic");
         return result;
+    }
+
+    /**
+     * The forward-compatibility shape no setter can build: worker_phase present on the
+     * wire with a value this FE's enum does not know (63). This thrift generation derives
+     * the field's presence from the decoded enum object (isSetWorkerPhase() ==
+     * worker_phase != null), so the decoded state is the unset-field state with a null
+     * value - exactly the state an older backend's phase-less answer has. Built by
+     * serializing two envelopes that differ only in the known phase value - the compact
+     * protocol encodes the enum as one zigzag varint byte, so exactly one byte differs -
+     * and patching that byte to the unknown value's encoding before deserializing.
+     */
+    private static TLanceIndexMutationResult unknownPhaseResult(Integer lanceResultCode)
+            throws Exception {
+        TSerializer serializer = new TSerializer(new TCompactProtocol.Factory());
+        byte[] first = serializer.serialize(
+                workerResult(TLanceIndexWorkerPhase.PRE_INVOCATION_REJECTED, lanceResultCode));
+        byte[] second = serializer.serialize(
+                workerResult(TLanceIndexWorkerPhase.NATIVE_RETURN, lanceResultCode));
+        Assertions.assertEquals(first.length, second.length);
+        int enumByte = -1;
+        for (int i = 0; i < first.length; i++) {
+            if (first[i] != second[i]) {
+                Assertions.assertEquals(-1, enumByte, "the two envelopes must differ in exactly"
+                        + " one byte (the worker_phase enum value)");
+                enumByte = i;
+            }
+        }
+        Assertions.assertNotEquals(-1, enumByte);
+        first[enumByte] = (byte) 126; // zigzag(63): a phase value no FE enum carries
+        TLanceIndexMutationResult restored = new TLanceIndexMutationResult();
+        new TDeserializer(new TCompactProtocol.Factory()).deserialize(restored, first);
+        Assertions.assertFalse(restored.isSetWorkerPhase(), "an unknown enum value decodes to"
+                + " the unset-field state");
+        Assertions.assertNull(restored.getWorkerPhase(), "an unknown enum value decodes to null");
+        return restored;
     }
 }

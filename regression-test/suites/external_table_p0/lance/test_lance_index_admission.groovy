@@ -71,6 +71,10 @@ suite("test_lance_index_admission", "p0,external,nonConcurrent") {
     Throwable suiteFailure = null
     // Derived by the profile probe below: true means this runner launches the real
     // isolated worker, false means every launch is refused before the worker exists.
+    // The FE picks any alive backend for a dispatch, so the probe (and the forked
+    // assertions below) implicitly assumes every backend of the cluster shares one
+    // runner profile - true for the single-backend clusters this suite runs on; a
+    // mixed-profile cluster would need the probe pinned to one backend first.
     boolean delegated = false
     // The armed probe leg's rejection text, kept for the retrospective check after the
     // profile is derived (see below).
@@ -170,9 +174,13 @@ suite("test_lance_index_admission", "p0,external,nonConcurrent") {
         try {
             def committedRows = sql """CREATE INDEX `${createIndexName}` ON `${filesystemCatalog}`.`doris`.`${tableName}` (embedding) USING ANN
                     PROPERTIES("index_type"="IVF_PQ", "metric"="l2", "num_partitions"="4", "num_sub_vectors"="4", "num_bits"="8")"""
+            // The statement returned without throwing, so this name is spent on the
+            // dataset: flip the profile flag BEFORE the row-shape assertions below,
+            // so an unexpected shape (which fails this suite loudly) still leaves the
+            // finally cleanup armed to drop the possibly-committed orphan index.
+            delegated = true
             assertEquals(1, committedRows.size())
             assertEquals(0, committedRows[0][0])
-            delegated = true
             logger.info("lance index runner profile: delegated - the real isolated worker"
                     + " executed and committed the probe CREATE")
         } catch (Throwable failure) {
