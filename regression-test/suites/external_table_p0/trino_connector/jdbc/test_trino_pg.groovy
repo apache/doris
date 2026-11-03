@@ -47,6 +47,7 @@ suite("test_trino_pg", "p0,external,pg,external_docker,external_docker_pg") {
 
         sql """use trino_pg_test.catalog_pg_test"""
 
+        // PostgreSQL bytea can contain invalid UTF-8; its VARBINARY result must preserve the original bytes.
         qt_desc_all_types_null """desc catalog_pg_test.extreme_test;"""
 
         qt_select_all_types_null """SELECT 

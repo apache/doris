@@ -17,7 +17,7 @@
 
 suite("test_trino_hive_orc", "all_types,external,hive,external_docker,external_docker_hive") {
 
-    // Ensure that all types are parsed correctly
+    // Trino preserves Hive binary_col as VARBINARY; its hexadecimal result must retain the source bytes.
     def select_top50 = {
         qt_select_top50 """select * from orc_all_types order by int_col desc limit 50;"""
     }
