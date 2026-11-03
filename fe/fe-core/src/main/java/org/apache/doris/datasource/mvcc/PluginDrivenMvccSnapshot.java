@@ -19,6 +19,7 @@ package org.apache.doris.datasource.mvcc;
 
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.datasource.SchemaCacheValue;
 
@@ -26,6 +27,8 @@ import com.google.common.base.Suppliers;
 
 import java.util.Collections;
 import java.util.Map;
+import java.util.OptionalLong;
+import java.util.Set;
 import java.util.function.Supplier;
 
 /**
@@ -63,6 +66,8 @@ public class PluginDrivenMvccSnapshot implements MvccSnapshot {
 
     private final ConnectorMvccSnapshot connectorSnapshot;
     private final PluginDrivenPartitionView partitionView;
+    // Read-only statistics access must not invoke the deferred metadata loader.
+    private volatile PluginDrivenMvccSnapshot materializedPartitions;
     private final SchemaCacheValue pinnedSchema;
     // Memoized per pin, never a new latest read. Released after loading along with its captured loader.
     private final Supplier<PluginDrivenMvccSnapshot> deferredPartitions;
@@ -214,7 +219,11 @@ public class PluginDrivenMvccSnapshot implements MvccSnapshot {
         this.snapshotIdFreshness = false;
         this.newestUpdateMonotonicMarker = 0L;
         this.newestUpdateWallClockMillis = 0L;
-        this.deferredPartitions = Suppliers.memoize(partitionLoader::get);
+        this.deferredPartitions = Suppliers.memoize(() -> {
+            PluginDrivenMvccSnapshot loaded = partitionLoader.get();
+            materializedPartitions = loaded;
+            return loaded;
+        });
         this.partitionViewState = PartitionViewState.DEFERRED;
     }
 
@@ -267,6 +276,24 @@ public class PluginDrivenMvccSnapshot implements MvccSnapshot {
 
     public boolean isPartitionViewUnavailable() {
         return partitionViewState == PartitionViewState.UNAVAILABLE;
+    }
+
+    /** Sum already-loaded partition estimates without materializing a deferred view or resolving latest. */
+    public OptionalLong getSelectedPartitionRowCount(Set<String> partitionNames) {
+        PluginDrivenMvccSnapshot pin = hasDeferredPartitions() ? materializedPartitions : this;
+        if (pin == null || pin.partitionViewState != PartitionViewState.MATERIALIZED
+                || pin.partitionType != PartitionType.RANGE) {
+            return OptionalLong.empty();
+        }
+        long rowCount = 0;
+        for (String name : partitionNames) {
+            long rows = pin.partitionView.getRowCounts().getOrDefault(name, ConnectorPartitionInfo.UNKNOWN);
+            if (rows == ConnectorPartitionInfo.UNKNOWN) {
+                return OptionalLong.empty();
+            }
+            rowCount = Math.addExact(rowCount, rows);
+        }
+        return OptionalLong.of(rowCount);
     }
 
     /**

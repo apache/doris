@@ -53,6 +53,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -793,8 +794,16 @@ final class IcebergPartitionUtils {
         // would make the name self-enclose and be dropped (0 partitions where master keeps 1).
         Map<String, RangeBuild> allByName = new LinkedHashMap<>();
         for (IcebergRawPartition raw : loadRawPartitions(id, table, snapshotId, cache)) {
+            long rows = raw.rowCount;
+            RangeBuild previous = allByName.get(raw.name);
+            if (previous != null) {
+                // Different specs can render the same name. Keep legacy last-wins bounds/freshness,
+                // but count the data rows from every physical partition represented by that name.
+                rows = rows == ConnectorPartitionInfo.UNKNOWN || previous.rowCount == ConnectorPartitionInfo.UNKNOWN
+                        ? ConnectorPartitionInfo.UNKNOWN : Math.addExact(rows, previous.rowCount);
+            }
             RangeBuild rb = buildRange(raw.name, raw.values.get(0), raw.transforms.get(0), sourceType,
-                    raw.lastUpdateTime, raw.lastSnapshotId);
+                    raw.lastUpdateTime, raw.lastSnapshotId, rows);
             allByName.put(rb.name, rb);
         }
 
@@ -812,7 +821,8 @@ final class IcebergPartitionUtils {
             // id (always > 0 here — the empty-table case returned above), so no "table snapshot also invalid"
             // throw is reachable for a non-empty table.
             long freshness = latest > 0 ? latest : tableSnapshotId;
-            partitions.add(new ConnectorMvccPartition(rb.name, rb.lowerBound, rb.upperBound, freshness));
+            long rowCount = mergedRowCount(rb.name, mergeMap, allByName);
+            partitions.add(new ConnectorMvccPartition(rb.name, rb.lowerBound, rb.upperBound, freshness, rowCount));
         }
         // Deterministic order (the generic model re-keys by name; sorting only stabilizes tests/diagnostics).
         partitions.sort(Comparator.comparing(ConnectorMvccPartition::getName));
@@ -828,6 +838,19 @@ final class IcebergPartitionUtils {
         return new ConnectorMvccPartitionView(ConnectorMvccPartitionView.Style.RANGE,
                 ConnectorMvccPartitionView.Freshness.SNAPSHOT_ID, partitions,
                 newestUpdateMonotonicMarker, newestUpdateWallClockMillis);
+    }
+
+    private static long mergedRowCount(String name, Map<String, Set<String>> mergeMap,
+            Map<String, RangeBuild> allByName) {
+        long rowCount = 0;
+        for (String physical : mergeMap.getOrDefault(name, Collections.singleton(name))) {
+            long rows = allByName.get(physical).rowCount;
+            if (rows == ConnectorPartitionInfo.UNKNOWN) {
+                return ConnectorPartitionInfo.UNKNOWN;
+            }
+            rowCount = Math.addExact(rowCount, rows);
+        }
+        return rowCount;
     }
 
     /**
@@ -1007,9 +1030,15 @@ final class IcebergPartitionUtils {
             partitionFieldOrdinals.put(unifiedPartitionType.fields().get(i).fieldId(), i);
         }
         Table partitionsTable = MetadataTableUtils.createMetadataTableInstance(table, MetadataTableType.PARTITIONS);
+        return readRawPartitions(table, partitionsTable.newScan().useSnapshot(snapshotId).planFiles(),
+                partitionFieldOrdinals);
+    }
+
+    static List<IcebergRawPartition> readRawPartitions(Table table, CloseableIterable<FileScanTask> tasks,
+            Map<Integer, Integer> partitionFieldOrdinals) {
         List<IcebergRawPartition> partitions = new ArrayList<>();
-        try (CloseableIterable<FileScanTask> tasks = partitionsTable.newScan().useSnapshot(snapshotId).planFiles()) {
-            for (FileScanTask task : tasks) {
+        try (CloseableIterable<FileScanTask> scanTasks = tasks) {
+            for (FileScanTask task : scanTasks) {
                 CloseableIterable<StructLike> rows = task.asDataTask().rows();
                 for (StructLike row : rows) {
                     PartitionSpec liveSpec = table.specs().get(row.get(1, Integer.class));
@@ -1026,7 +1055,7 @@ final class IcebergPartitionUtils {
                 }
             }
         } catch (IOException e) {
-            LOG.warn("Failed to get Iceberg table {} partition info.", table.name(), e);
+            throw new UncheckedIOException("Failed to get Iceberg table " + table.name() + " partition info", e);
         }
         return partitions;
     }
@@ -1035,7 +1064,7 @@ final class IcebergPartitionUtils {
             Table table, StructLike row, Map<Integer, Integer> partitionFieldOrdinals) {
         // PARTITIONS row layout: 0 partitionData, 1 spec_id, 2 record_count, 3 file_count,
         // 4 total_data_file_size_in_bytes, 5..8 position/equality delete stats, 9 last_updated_at,
-        // 10 last_updated_snapshot_id. Only 0/1/9/10 are needed by the MTMV partition view.
+        // 10 last_updated_snapshot_id. Counts are retained for snapshot-consistent scan estimates.
         Preconditions.checkState(!table.spec().fields().isEmpty(), table.name() + " is not a partition table.");
         int specId = row.get(1, Integer.class);
         PartitionSpec partitionSpec = table.specs().get(specId);
@@ -1090,8 +1119,10 @@ final class IcebergPartitionUtils {
         } catch (NullPointerException e) {
             lastSnapshotId = UNKNOWN_SNAPSHOT_ID;
         }
+        long rowCount = row.get(6, Integer.class) > 0 || row.get(8, Integer.class) > 0
+                ? ConnectorPartitionInfo.UNKNOWN : row.get(2, Long.class);
         return new IcebergRawPartition(sb.toString(), partitionColumnNames, partitionValues, transforms,
-                valueTypes, lastUpdateTime, lastSnapshotId);
+                valueTypes, lastUpdateTime, lastSnapshotId, rowCount);
     }
 
     /**
@@ -1104,11 +1135,17 @@ final class IcebergPartitionUtils {
      */
     static RangeBuild buildRange(String name, String value, String transform, Type sourceType,
             long lastUpdateTime, long lastSnapshotId) {
+        return buildRange(name, value, transform, sourceType, lastUpdateTime, lastSnapshotId,
+                ConnectorPartitionInfo.UNKNOWN);
+    }
+
+    private static RangeBuild buildRange(String name, String value, String transform, Type sourceType,
+            long lastUpdateTime, long lastSnapshotId, long rowCount) {
         if (value == null) {
             LocalDateTime nullLower = LocalDateTime.of(0, 1, 1, 0, 0, 0);
             return new RangeBuild(name, nullLower, nullLower.plusDays(1),
                     Collections.singletonList("0000-01-01"), Collections.emptyList(),
-                    lastUpdateTime, lastSnapshotId);
+                    lastUpdateTime, lastSnapshotId, rowCount);
         }
         LocalDateTime epoch = Instant.EPOCH.atZone(ZoneId.of("UTC")).toLocalDateTime();
         long longValue = Long.parseLong(value);
@@ -1147,7 +1184,7 @@ final class IcebergPartitionUtils {
         return new RangeBuild(name, lower, upper,
                 Collections.singletonList(lower.format(formatter) + rangeOffset(sourceType)),
                 Collections.singletonList(upper.format(formatter) + rangeOffset(sourceType)),
-                lastUpdateTime, lastSnapshotId);
+                lastUpdateTime, lastSnapshotId, rowCount);
     }
 
     private static String rangeOffset(Type type) {
@@ -1238,6 +1275,7 @@ final class IcebergPartitionUtils {
         private final List<ConnectorType> types;
         private final long lastUpdateTime;
         private final long lastSnapshotId;
+        private final long rowCount;
 
         IcebergRawPartition(String name, List<String> columnNames, List<String> values, List<String> transforms,
                 long lastUpdateTime, long lastSnapshotId) {
@@ -1246,6 +1284,12 @@ final class IcebergPartitionUtils {
 
         IcebergRawPartition(String name, List<String> columnNames, List<String> values, List<String> transforms,
                 List<ConnectorType> types, long lastUpdateTime, long lastSnapshotId) {
+            this(name, columnNames, values, transforms, types, lastUpdateTime, lastSnapshotId,
+                    ConnectorPartitionInfo.UNKNOWN);
+        }
+
+        IcebergRawPartition(String name, List<String> columnNames, List<String> values, List<String> transforms,
+                List<ConnectorType> types, long lastUpdateTime, long lastSnapshotId, long rowCount) {
             this.types = types;
             this.name = name;
             this.columnNames = columnNames;
@@ -1253,6 +1297,7 @@ final class IcebergPartitionUtils {
             this.transforms = transforms;
             this.lastUpdateTime = lastUpdateTime;
             this.lastSnapshotId = lastSnapshotId;
+            this.rowCount = rowCount;
         }
 
         String nameForWeight() {
@@ -1281,9 +1326,10 @@ final class IcebergPartitionUtils {
         private final List<String> upperBound;   // empty => NULL-min partition; fe-core derives lower.successor()
         private final long lastUpdateTime;
         private final long lastSnapshotId;
+        private final long rowCount;
 
         RangeBuild(String name, LocalDateTime lower, LocalDateTime upper, List<String> lowerBound,
-                List<String> upperBound, long lastUpdateTime, long lastSnapshotId) {
+                List<String> upperBound, long lastUpdateTime, long lastSnapshotId, long rowCount) {
             this.name = name;
             this.lower = lower;
             this.upper = upper;
@@ -1291,6 +1337,7 @@ final class IcebergPartitionUtils {
             this.upperBound = upperBound;
             this.lastUpdateTime = lastUpdateTime;
             this.lastSnapshotId = lastSnapshotId;
+            this.rowCount = rowCount;
         }
 
         List<String> getLowerBound() {
