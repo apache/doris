@@ -68,7 +68,7 @@ public class StreamingJobUtilsTest {
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             Mockito.when(env.getAccessManager()).thenReturn(accessManager);
-            List<String> remoteDrivers = List.of("http://example.invalid/driver.jar",
+            List<String> remoteDrivers = Arrays.asList("http://example.invalid/driver.jar",
                     "https://example.invalid/driver.jar");
             for (String driver : remoteDrivers) {
                 AnalysisException error = Assert.assertThrows(AnalysisException.class,
