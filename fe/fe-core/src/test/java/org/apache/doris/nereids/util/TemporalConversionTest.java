@@ -18,11 +18,19 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.CastException;
+import org.apache.doris.nereids.rules.expression.check.CheckCast;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.types.ArrayType;
@@ -36,9 +44,13 @@ import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
+import org.apache.doris.nereids.types.VariantType;
+import org.apache.doris.qe.SessionVariable;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.time.DateTimeException;
 import java.time.LocalDateTime;
@@ -94,6 +106,114 @@ class TemporalConversionTest {
         Assertions.assertTrue(TemporalTypeCoercion.implicitCastArgument(inexact, target).isEmpty());
         Assertions.assertTrue(TemporalTypeCoercion.implicitCastArgument(
                 new SlotReference("ns", TimeStampNsType.INSTANCE), target).isEmpty());
+    }
+
+    @Test
+    void literalExactnessChecksTheValueWithoutRounding() {
+        TimeStampNsLiteral value = new TimeStampNsLiteral("2024-01-02 03:04:05.123000000");
+        Assertions.assertTrue(TemporalConversionProperties.isTimeStampNsLiteralExactlyRepresentable(
+                value, DateTimeV2Type.of(3)));
+        Assertions.assertTrue(TemporalConversionProperties.isTimeStampNsLiteralExactlyRepresentable(
+                value, TimeStampTzType.of(3)));
+        Assertions.assertFalse(TemporalConversionProperties.isTimeStampNsLiteralExactlyRepresentable(
+                value, DateTimeV2Type.of(2)));
+        Assertions.assertFalse(TemporalConversionProperties.isTimeStampNsLiteralExactlyRepresentable(
+                value, DateV2Type.INSTANCE));
+        Assertions.assertEquals("2024-01-02 03:04:05.123000000", value.getStringValue());
+        assertTemporalCoercion(new Nullable(value), DateTimeV2Type.of(3), true);
+    }
+
+    @Test
+    void castAdmissionChecksTheCastResultRatherThanItsChild() {
+        DataType target = DateTimeV2Type.of(3);
+        Expression exact = new Cast(new StringLiteral("2024-01-02 03:04:05.123000000"),
+                TimeStampNsType.INSTANCE);
+        Expression inexact = new Cast(new StringLiteral("2024-01-02 03:04:05.123000001"),
+                TimeStampNsType.INSTANCE);
+        Assertions.assertEquals(new TimeStampNsLiteral("2024-01-02 03:04:05.123000000"),
+                FoldConstantRuleOnFE.evaluateWithoutContext(exact));
+        Assertions.assertEquals(new TimeStampNsLiteral("2024-01-02 03:04:05.123000001"),
+                FoldConstantRuleOnFE.evaluateWithoutContext(inexact));
+        assertTemporalCoercion(exact, target, true);
+        assertTemporalCoercion(inexact, target, false);
+
+        // The explicitly requested intermediate rounding crosses midnight. Only its result,
+        // not the original nanosecond literal, can be represented exactly as DATEV2.
+        TimeStampNsLiteral original = new TimeStampNsLiteral("2024-01-02 23:59:59.999999999");
+        Cast rounded = new Cast(original, DateTimeV2Type.of(0));
+        Cast expression = new Cast(rounded, TimeStampNsType.INSTANCE);
+        Assertions.assertEquals(new TimeStampNsLiteral("2024-01-03 00:00:00"),
+                FoldConstantRuleOnFE.evaluateWithoutContext(expression));
+        assertTemporalCoercion(original, DateV2Type.INSTANCE, false);
+        assertTemporalCoercion(expression, DateV2Type.INSTANCE, true);
+        Assertions.assertSame(rounded, expression.child());
+        Assertions.assertSame(original, rounded.child());
+    }
+
+    @Test
+    void castAdmissionPreservesStrictCastFailures() {
+        DateV2Literal outsideRange = new DateV2Literal("1600-01-01");
+        try (MockedStatic<SessionVariable> session = Mockito.mockStatic(SessionVariable.class)) {
+            session.when(SessionVariable::enableStrictCast).thenReturn(false);
+            assertTemporalCastFailure(new Cast(outsideRange, TimeStampNsType.INSTANCE, false, true));
+            session.when(SessionVariable::enableStrictCast).thenReturn(true);
+            assertTemporalCastFailure(new Cast(outsideRange, TimeStampNsType.INSTANCE));
+        }
+    }
+
+    @Test
+    void nullCastResultsDoNotProveLiteralExactness() {
+        DateV2Literal outsideRange = new DateV2Literal("1600-01-01");
+        DataType target = DateTimeV2Type.MAX;
+        try (MockedStatic<SessionVariable> session = Mockito.mockStatic(SessionVariable.class)) {
+            session.when(SessionVariable::enableStrictCast).thenReturn(false);
+            Cast cast = new Cast(outsideRange, TimeStampNsType.INSTANCE);
+            Assertions.assertEquals(new NullLiteral(TimeStampNsType.INSTANCE),
+                    FoldConstantRuleOnFE.evaluateWithoutContext(cast));
+            assertTemporalCoercion(cast, target, false);
+
+            session.when(SessionVariable::enableStrictCast).thenReturn(true);
+            TryCast tryCast = new TryCast(outsideRange, TimeStampNsType.INSTANCE);
+            Assertions.assertEquals(new NullLiteral(TimeStampNsType.INSTANCE),
+                    FoldConstantRuleOnFE.evaluateWithoutContext(tryCast));
+            assertTemporalCoercion(tryCast, target, false);
+            assertTemporalCoercion(new Cast(new NullLiteral(StringType.INSTANCE), TimeStampNsType.INSTANCE),
+                    target, false);
+        }
+    }
+
+    @Test
+    void castsWithoutEvaluatedNsValuesDoNotProveLiteralExactness() {
+        Cast unsupported = new Cast(BooleanLiteral.TRUE, TimeStampNsType.INSTANCE);
+        Assertions.assertFalse(CheckCast.check(BooleanLiteral.TRUE.getDataType(), TimeStampNsType.INSTANCE, false));
+        Assertions.assertFalse(CheckCast.check(BooleanLiteral.TRUE.getDataType(), TimeStampNsType.INSTANCE, true));
+        Cast nonConstant = new Cast(new SlotReference("date", DateV2Type.INSTANCE), TimeStampNsType.INSTANCE);
+        Cast backendOnly = new Cast(new Cast(new TimeStampNsLiteral("2024-01-02 00:00:00"),
+                VariantType.INSTANCE), TimeStampNsType.INSTANCE);
+        for (Cast expression : List.of(unsupported, nonConstant, backendOnly)) {
+            Assertions.assertSame(expression, FoldConstantRuleOnFE.evaluateWithoutContext(expression));
+            assertTemporalCoercion(expression, DateTimeV2Type.MAX, false);
+        }
+    }
+
+    private void assertTemporalCoercion(Expression input, DataType target, boolean accepted) {
+        TemporalTypeCoercion.SignaturePolicy policy = new TemporalTypeCoercion.SignaturePolicy(
+                List.of(FunctionSignature.ret(target).args(target)), List.of(input));
+        Assertions.assertEquals(accepted, policy.accepts(input, target));
+        Assertions.assertEquals(accepted ? Optional.of(target) : Optional.empty(),
+                TemporalTypeCoercion.implicitCastArgument(input, target));
+    }
+
+    private void assertTemporalCastFailure(Cast input) {
+        DataType target = DateTimeV2Type.MAX;
+        CastException expected = Assertions.assertThrows(CastException.class,
+                () -> FoldConstantRuleOnFE.evaluateWithoutContext(input));
+        TemporalTypeCoercion.SignaturePolicy policy = new TemporalTypeCoercion.SignaturePolicy(
+                List.of(FunctionSignature.ret(target).args(target)), List.of(input));
+        Assertions.assertEquals(expected.getMessage(), Assertions.assertThrows(CastException.class,
+                () -> policy.accepts(input, target)).getMessage());
+        Assertions.assertEquals(expected.getMessage(), Assertions.assertThrows(CastException.class,
+                () -> TemporalTypeCoercion.implicitCastArgument(input, target)).getMessage());
     }
 
     @Test

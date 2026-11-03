@@ -17,10 +17,6 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.Cast;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
@@ -32,7 +28,6 @@ import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 
 import java.util.List;
-import java.util.Optional;
 
 /**
  * Properties of a temporal conversion with a given source and target: calendar range,
@@ -80,19 +75,12 @@ public final class TemporalConversionProperties {
     }
 
     /**
-     * Whether an NS literal, including one obtained from an explicit literal CAST, is exactly
-     * representable by another temporal type. A non-literal has no such proof. Coercion uses
-     * this fact to admit otherwise rejected arguments; it does not determine explicit CAST legality.
+     * Whether an already evaluated NS value is exactly representable by another temporal type.
+     * Callers must evaluate any enclosing CAST before checking the result: a loss of precision
+     * explicitly requested by that CAST is distinct from the subsequent implicit conversion.
+     * This property neither evaluates expressions nor determines explicit CAST legality.
      */
-    public static boolean isTimeStampNsLiteralExactlyRepresentable(Expression expression, DataType targetType) {
-        Optional<TimeStampNsLiteral> literal = getTimeStampNsLiteral(expression);
-        if (!literal.isPresent()) {
-            return false;
-        }
-        return isTimeStampNsLiteralExactlyRepresentable(literal.get(), targetType);
-    }
-
-    private static boolean isTimeStampNsLiteralExactlyRepresentable(
+    public static boolean isTimeStampNsLiteralExactlyRepresentable(
             TimeStampNsLiteral literal, DataType targetType) {
         if (targetType.isDateType() || targetType.isDateV2Type()) {
             return literal.isMidnight();
@@ -115,25 +103,6 @@ public final class TemporalConversionProperties {
             return isFractionExactlyRepresentable(literal.getNanoSecond(), scale);
         }
         return false;
-    }
-
-    private static Optional<TimeStampNsLiteral> getTimeStampNsLiteral(Expression expression) {
-        Optional<Literal> literal = getLiteralAfterExplicitCast(expression);
-        return literal.filter(TimeStampNsLiteral.class::isInstance)
-                .map(TimeStampNsLiteral.class::cast);
-    }
-
-    private static Optional<Literal> getLiteralAfterExplicitCast(Expression expression) {
-        Optional<Literal> literal = ExpressionUtils.getLiteralAfterUnwrapNullable(expression);
-        if (!literal.isPresent() && expression instanceof Cast && expression.child(0) instanceof Literal) {
-            try {
-                Expression value = ((Literal) expression.child(0)).checkedCastTo(expression.getDataType());
-                return value instanceof Literal ? Optional.of((Literal) value) : Optional.empty();
-            } catch (AnalysisException e) {
-                return Optional.empty();
-            }
-        }
-        return literal;
     }
 
     /** Exact fractional representability; unlike CAST, this must not round the value. */

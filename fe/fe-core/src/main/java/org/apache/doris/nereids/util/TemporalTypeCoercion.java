@@ -19,7 +19,9 @@ package org.apache.doris.nereids.util;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DoubleType;
@@ -41,7 +43,7 @@ import java.util.Optional;
  * <p>Selection may consult {@link TemporalConversionProperties} for literal exactness, but
  * conversion properties do not depend on these selection policies. Cast construction and mode
  * selection remain in {@link TypeCoercionUtils}; explicit CAST legality remains in CheckCast.
- * This class does not perform temporal value conversion.
+ * Literal-based selection reuses the normal constant evaluator; conversion mechanics stay there.
  */
 public final class TemporalTypeCoercion {
     private TemporalTypeCoercion() {
@@ -123,10 +125,23 @@ public final class TemporalTypeCoercion {
     public static Optional<DataType> implicitCastArgument(Expression input, DataType expectedType) {
         Optional<DataType> castType = TypeCoercionUtils.implicitCast(input.getDataType(), expectedType);
         if (!castType.isPresent() && input.getDataType().isTimeStampNsType() && expectedType.isDateLikeType()
-                && TemporalConversionProperties.isTimeStampNsLiteralExactlyRepresentable(input, expectedType)) {
+                && canExactlyCoerceTimeStampNsLiteral(input, expectedType)) {
             return Optional.of(expectedType);
         }
         return castType;
+    }
+
+    private static boolean canExactlyCoerceTimeStampNsLiteral(Expression input, DataType targetType) {
+        // Evaluate CAST through the normal FE folding path, preserving legality, effective
+        // strictness and TRY_CAST semantics. Do not infer exactness from the pre-cast child.
+        // Other expressions retain literal-only admission, including nullable wrappers.
+        Expression evaluated = input instanceof Cast ? ExpressionUtils.foldConstantArgument(input) : input;
+        return ExpressionUtils.getLiteralAfterUnwrapNullable(evaluated)
+                .filter(TimeStampNsLiteral.class::isInstance)
+                .map(TimeStampNsLiteral.class::cast)
+                .map(literal -> TemporalConversionProperties
+                        .isTimeStampNsLiteralExactlyRepresentable(literal, targetType))
+                .orElse(false);
     }
 
     /** Preserve the diagnostic of mixed temporal indexed-ANY arguments. */
@@ -178,8 +193,7 @@ public final class TemporalTypeCoercion {
             }
             if (realType.isTimeStampNsType() && sigArgType.isDateLikeType()
                     && !sigArgType.isTimeStampNsType()
-                    && !TemporalConversionProperties.isTimeStampNsLiteralExactlyRepresentable(
-                            argument, sigArgType)) {
+                    && !canExactlyCoerceTimeStampNsLiteral(argument, sigArgType)) {
                 return false;
             }
             return true;
