@@ -381,6 +381,20 @@ enum TPaimonReaderType {
     PAIMON_RUST = 3,
 }
 
+// Reserved for Paimon primary-key vector search. Keep wire values aligned with branch-4.2.
+enum TPaimonVectorPayloadType {
+    // Serialized BucketVectorSearchSplit for candidate generation.
+    BUCKET_SPLIT_BYTES = 0,
+    // Opaque payload for delayed materialization.
+    MATERIALIZE_OPAQUE_BYTES = 1,
+}
+
+// Reserved for #69493. The payload contains raw bytes, not a base64-encoded split.
+struct TPaimonVectorPayload {
+    1: optional TPaimonVectorPayloadType payload_type;
+    2: optional binary bytes;
+}
+
 struct TPaimonFileDesc {
     1: optional string paimon_split
     2: optional string paimon_column_names
@@ -407,6 +421,12 @@ struct TPaimonFileDesc {
     // to materialize the public file-location metadata column. This master-only field is appended after
     // the branch-4.1 fields instead of reusing field 18.
     20: optional string original_file_path;
+    // Reserved for branch-4.1 fields:
+    // 21: optional list<TPaimonBlobFileDesc> blob_files
+    // 22: optional i64 anchor_first_row_id
+    // 23: optional i64 anchor_row_count
+    // Reserved for the per-split Paimon primary-key vector search payload in #69493.
+    24: optional TPaimonVectorPayload vector_payload;
 }
 
 struct TTrinoConnectorFileDesc {
@@ -529,10 +549,28 @@ enum TTextSerdeType {
     HIVE_TEXT_SERDE = 1,
 }
 
+// Reserved for Paimon vector search in #69493. These options are not emitted on master yet.
+struct TPaimonVectorSearchOptions {
+    1: optional map<string, string> options
+    // TVF _distance uses squared L2 or negative inner product. Unset preserves ordinary SQL.
+    2: optional bool tvf_distance = false
+    // Only the TVF's explicit prefilter affects candidate generation; outer WHERE stays residual.
+    3: optional list<Exprs.TExpr> prefilter
+}
+
 // A provider-independent logical search request. Physical target information remains in the
-// provider FileDesc (for example, dataset_uri/version/fragment_ids in TLanceFileDesc).
+// provider FileDesc (for example, dataset_uri/version/fragment_ids in TLanceFileDesc, or
+// vector_payload in TPaimonFileDesc).
 struct TExternalSearchRequest {
     1: optional i32 schema_version = 1
+    // Reserved for branch-4.1 / branch-4.2 fields. Keep these ids until the shared search
+    // query types are introduced on master:
+    // 2: optional TExternalSearchQuery search_query
+    // 3: optional TSearchFilter search_filter
+    // 4: optional TVectorSearchOptions vector_search_options
+    // 5: optional bool prefilter
+    // Reserved for Paimon-specific vector search tuning in #69493.
+    6: optional TPaimonVectorSearchOptions paimon_options
 }
 
 struct TLanceScanParams {
@@ -636,6 +674,9 @@ struct TFileScanRangeParams {
     // Fluss scan-level properties (bootstrap servers, table identity, client/table options,
     // projected columns). Set at ScanNode level to avoid redundant serialization in each split.
     41: optional map<string, string> fluss_properties
+    // Reserved for the scan-level Paimon vector search request in #69493.
+    // The per-split physical payload stays in TPaimonFileDesc.vector_payload.
+    42: optional TExternalSearchRequest external_search_request
 }
 
 struct TFileRangeDesc {
