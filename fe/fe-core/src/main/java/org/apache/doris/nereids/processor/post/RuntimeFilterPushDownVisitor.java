@@ -216,7 +216,8 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         }
 
         TRuntimeFilterType type = ctx.type;
-        RuntimeFilter filter = ctx.rfContext.getRuntimeFilterBySrcAndType(ctx.srcExpr, type, ctx.builderNode);
+        RuntimeFilter filter = ctx.rfContext.getRuntimeFilterBySrcAndType(
+                ctx.srcExpr, type, ctx.builderNode, ctx.singleSideMinMax, ctx.exprOrder);
         if (filter != null) {
             if (!filter.hasTargetScan(scan)) {
                 // A join B on A.a1=B.b and A.a1 = A.a2
