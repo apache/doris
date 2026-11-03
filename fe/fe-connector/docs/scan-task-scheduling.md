@@ -116,6 +116,56 @@ Each backend has a split queue bounded by the number of queued splits and its ow
 
 Actual Manifest readers retain a lease on the exact read-table generation until the callable exits. Query cleanup releases the statement owner, while an already running shared reader keeps its FileIO alive. Future cancellation is not evidence that the callable has finished.
 
+## Hive directory listing and cache admission
+
+Cold Hive scans advance a closeable filesystem iterator as Split batches are requested. They do not collect
+an entire partition's file list before producing its first Split. Recursive traversal retains only the active
+directory iterators and one file of lookahead. The existing Split queues apply backpressure to this traversal.
+A slow individual filesystem request can still delay the first Split.
+
+Each cold cursor also collects a candidate for the shared complete-listing cache. Two catalog properties,
+expressed as nonnegative integer byte counts, bound this optional collection:
+
+| Property | Default | Meaning |
+|---|---:|---|
+| `hive.file_listing_cache_entry_max_bytes` | 8388608 | Maximum estimated memory for one unpublished listing |
+| `hive.file_listing_cache_pending_max_bytes` | 67108864 | Maximum estimated memory for unpublished listings in this catalog cache instance |
+
+Zero disables candidate collection. Exceeding either limit releases the candidate and permanently stops its
+collection for that cursor; file enumeration and Split generation continue. Estimates include file objects,
+paths and list storage, with room for both arrays during expansion. These limits cover temporary collection;
+the existing metadata-cache count and weight limits still control admission of completed entries. They do not
+bound filesystem SDK buffers, Split queues or all FE heap usage. ALTER CATALOG rebuilds the connector so new
+cursors use the updated limits without restarting FE.
+
+Only successful EOF and successful iterator closure can publish a complete listing, including an empty
+listing. The cache takes ownership of the list without copying its array. Early close, LIMIT, cancellation,
+listing failure and oversized candidates publish nothing. A cache publication lease captured before listing
+prevents REFRESH TABLE, PARTITION, DATABASE or CATALOG from being undone by a late completion. Concurrent scans
+share completed entries and keep their in-progress iterators and cancellation signals separate.
+
+A streaming partition that has already returned a Split fails the query if subsequent file enumeration fails:
+its earlier ranges may already be executing and cannot be retracted. Before returning any range, the existing
+absent-partition and local-directory failure policy applies. Synchronous planning can remove a failed
+partition's accumulated ranges before returning its plan.
+
+Ordinary Hive file-based row-count estimates consume only complete cached listings. A missing sampled
+listing produces an unknown estimate, rather than triggering a full cold listing or treating the partition
+as empty. HMS statistics remain preferred. Explicit sampled ANALYZE still enumerates files using the same
+cursor and accumulates the scalar file sizes its sampling interface requires.
+
+The `Hive File Listing` scan profile reports cache hits/misses, files listed, completed publications,
+candidates abandoned for their collection budget, and the peak estimated candidate size. The engine skips
+connector profile collection after stopping a batch scan, so LIMIT and cancellation can omit this group;
+the existing Split Generation profile still records generated splits.
+
+The `test_hive_streaming_splits` regression suite can use an existing `hiveSplitCatalog` and
+`hiveSplitDatabase`. With `hiveSplitPreloaded=true`, it reads three preloaded tables instead of populating
+them through INSERT and CTAS. `streaming_unpartitioned` and `streaming_ctas` contain `id BIGINT` values
+0 through 119 and `file_id INT = floor(id / 10)`; `streaming_partitioned` adds partition column
+`p INT = file_id % 3 + 1`. The fixture uses twelve Parquet files per table, with ten rows per file.
+This mode verifies scans; the default mode also exercises INSERT and CTAS.
+
 ## Batch mode switch
 
 `enable_external_table_batch_mode` governs both partition-batch and file-streaming

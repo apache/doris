@@ -21,6 +21,7 @@ import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
+import org.apache.doris.connector.spi.scan.ConnectorScanContext;
 import org.apache.doris.filesystem.FileSystem;
 
 import org.junit.jupiter.api.Assertions;
@@ -123,6 +124,13 @@ public class HiveConnectorMetadataFileListStatsTest {
     }
 
     @Test
+    public void missingCachedPartitionMakesTheWholeEstimateUnknown() {
+        PartitionFakeHmsClient client = new PartitionFakeHmsClient(Arrays.asList("p0", "p1"));
+        Assertions.assertEquals(-1L, metadata(client).estimateDataSize(partitioned(), 30,
+                (loc, vals) -> loc.endsWith("p0") ? 100 : -1));
+    }
+
+    @Test
     public void scaleSampledSizeMultipliesBeforeDividing() {
         // Non-divisible case pins multiply-first (250*4/3 = 333), distinguishing it from a divide-first
         // reordering (250/3*4 = 83*4 = 332) that a mutation might introduce. MUTATION: divide-first -> 332 -> red.
@@ -200,8 +208,8 @@ public class HiveConnectorMetadataFileListStatsTest {
         }
 
         @Override
-        public List<HiveFileStatus> listDataFiles(String dbName, String tableName, String location,
-                List<String> partitionValues, FileSystem fs) {
+        HiveFileIterator openDataFiles(String dbName, String tableName, String location,
+                List<String> partitionValues, FileSystem fs, ConnectorScanContext context) {
             throw new RuntimeException("simulated listing failure");
         }
     }

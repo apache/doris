@@ -31,6 +31,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 /**
  * A recording {@link FileSystem} test double for the hive connector's file-listing tests (the module has no
@@ -50,11 +51,18 @@ final class FakeFileSystem implements FileSystem {
     // (empty if absent); empty (the default) => list() falls back to the flat `entries`, so the existing flat-fake
     // tests are untouched. Needed to model recursive descent, where each sub-directory must list its OWN entries.
     private Map<String, List<FileEntry>> tree = Collections.emptyMap();
+    private Function<Location, FileIterator> iteratorFactory;
     private IOException forLocationError;
+
     private IOException listError;
     // Per-location list() failures (uri -> error): models "top-level dir lists fine, one sub-directory fails",
     // which the single global listError cannot (it fails every list()).
     private final Map<String, IOException> listErrorByLocation = new HashMap<>();
+
+    FakeFileSystem withIteratorFactory(Function<Location, FileIterator> factory) {
+        this.iteratorFactory = factory;
+        return this;
+    }
 
     FakeFileSystem withEntries(FileEntry... e) {
         this.entries = Arrays.asList(e);
@@ -110,6 +118,9 @@ final class FakeFileSystem implements FileSystem {
         }
         if (listError != null) {
             throw listError;
+        }
+        if (iteratorFactory != null) {
+            return iteratorFactory.apply(location);
         }
         if (!tree.isEmpty()) {
             return new ListFileIterator(tree.getOrDefault(location.uri(), Collections.emptyList()).iterator());

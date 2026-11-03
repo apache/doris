@@ -60,7 +60,7 @@ public class HiveConnectorWeightGovernanceTest {
                     FakeFileSystem.file(PARTITION_DIR + "/data1", 100L, 1L),
                     FakeFileSystem.file(PARTITION_DIR + "/data2", 200L, 1L));
             List<HiveFileStatus> files = connector.fileListingCacheForTest().listDataFiles("db", "t", PARTITION_DIR, fs);
-            Assertions.assertSame(files,
+            Assertions.assertEquals(files,
                     connector.fileListingCacheForTest().listDataFiles("db", "t", PARTITION_DIR, fs));
             List<ConnectorPartitionInfo> partitions = partitions(100);
             Assertions.assertSame(partitions, connector.partitionViewCacheForTest().get(PARTITION_VIEW_KEY,
