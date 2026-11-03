@@ -29,15 +29,22 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.properties.SelectHintSetVar;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.commands.SetOptionsCommand;
+import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.utframe.TestWithFeService;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
+
+import java.util.Optional;
 
 public class VariableMgrTest extends TestWithFeService {
 
@@ -104,6 +111,173 @@ public class VariableMgrTest extends TestWithFeService {
             Assertions.assertEquals(0, GlobalVariable.auditPluginMaxSqlLength);
         } finally {
             GlobalVariable.auditPluginMaxSqlLength = original;
+        }
+    }
+
+    // query_audit_always_on: SET rejects every value that weakens query auditing, globally or for the session,
+    // and leaves the variable as it was.
+    @Test
+    public void testAlwaysOnRejectsWeakerAuditVariables() throws Throwable {
+        withAuditVariablesRestored(true, () -> {
+            for (String sql : new String[] {
+                    "set global enable_audit_plugin = false",
+                    "set enable_prepared_stmt_audit_log = false",
+                    "set global enable_prepared_stmt_audit_log = false",
+                    // Its default is false.
+                    "set enable_prepared_stmt_audit_log = default",
+                    "set global audit_plugin_max_sql_length = 100",
+                    "set global audit_plugin_max_sql_length = -1",
+                    "set global audit_plugin_max_insert_stmt_length = 100",
+                    "set global audit_plugin_load_timeout = 10",
+                    "set global audit_plugin_max_batch_bytes = 1",
+                    "set global audit_plugin_max_batch_interval_sec = 3600"}) {
+                DdlException e = Assertions.assertThrows(DdlException.class, () -> runSet(sql), sql);
+                Assertions.assertTrue(e.getDetailMessage().contains("because query_audit_always_on is enabled"),
+                        sql + ": " + e.getMessage());
+            }
+            Assertions.assertTrue(GlobalVariable.enableAuditLoader);
+            Assertions.assertFalse(VariableMgr.getDefaultSessionVariable().isEnablePreparedStmtAuditLog());
+            Assertions.assertEquals(2097152, GlobalVariable.auditPluginMaxSqlLength);
+            Assertions.assertEquals(Integer.MAX_VALUE, GlobalVariable.auditPluginMaxInsertStmtLength);
+            Assertions.assertEquals(600, GlobalVariable.auditPluginLoadTimeoutS);
+            Assertions.assertEquals(52428800L, GlobalVariable.auditPluginMaxBatchBytes);
+            Assertions.assertEquals(60L, GlobalVariable.auditPluginMaxBatchInternalSec);
+        });
+    }
+
+    // UNSET and the SET_VAR hint go through VariableMgr.setVar too.
+    @Test
+    public void testAlwaysOnRejectsUnsetAndSetVarHint() throws Throwable {
+        withAuditVariablesRestored(true, () -> {
+            UnsetVariableCommand unset = (UnsetVariableCommand) UtFrameUtils.parseStmt(
+                    "unset variable enable_prepared_stmt_audit_log", connectContext);
+            connectContext.getState().reset();
+            unset.run(connectContext, null);
+            Assertions.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
+            Assertions.assertTrue(connectContext.getState().getErrorMessage().contains("query_audit_always_on"),
+                    connectContext.getState().getErrorMessage());
+            connectContext.getState().reset();
+
+            // A connection of its own: the hint marks the session for a per-statement revert.
+            ConnectContext hintContext = new ConnectContext();
+            SelectHintSetVar hint = new SelectHintSetVar("set_var",
+                    ImmutableMap.of(SessionVariable.ENABLE_PREPARED_STMT_AUDIT_LOG, Optional.of("false")));
+            org.apache.doris.nereids.exceptions.AnalysisException e = Assertions.assertThrows(
+                    org.apache.doris.nereids.exceptions.AnalysisException.class,
+                    () -> hint.setVarOnceInSql(new StatementContext(hintContext, new OriginStatement("select 1", 0))));
+            Assertions.assertTrue(e.getCause().getMessage().contains("query_audit_always_on"), e.getMessage());
+        });
+    }
+
+    // A follower syncs a forwarded SET GLOBAL into its own copy through setVarForNonMasterFE, also after the master
+    // rejected it, so the follower must reject the value as well.
+    @Test
+    public void testAlwaysOnFollowerKeepsValuesTheMasterRejects() throws Throwable {
+        withAuditVariablesRestored(true, () -> {
+            for (String[] change : new String[][] {
+                    {GlobalVariable.ENABLE_AUDIT_PLUGIN, "false"},
+                    {GlobalVariable.AUDIT_PLUGIN_MAX_SQL_LENGTH, "100"},
+                    {GlobalVariable.AUDIT_PLUGIN_MAX_BATCH_BYTES, "1"},
+                    {SessionVariable.ENABLE_PREPARED_STMT_AUDIT_LOG, "false"}}) {
+                DdlException e = Assertions.assertThrows(DdlException.class, () -> VariableMgr.setVarForNonMasterFE(
+                        connectContext.getSessionVariable(),
+                        new SetVar(SetType.SESSION, change[0], new StringLiteral(change[1]))), change[0]);
+                Assertions.assertTrue(e.getDetailMessage().contains("query_audit_always_on"), e.getMessage());
+            }
+            Assertions.assertTrue(GlobalVariable.enableAuditLoader);
+            Assertions.assertEquals(2097152, GlobalVariable.auditPluginMaxSqlLength);
+            Assertions.assertEquals(52428800L, GlobalVariable.auditPluginMaxBatchBytes);
+        });
+    }
+
+    @Test
+    public void testAlwaysOnAllowsStrongerAuditVariables() throws Throwable {
+        withAuditVariablesRestored(true, () -> {
+            runSet("set global enable_audit_plugin = true");
+            runSet("set enable_prepared_stmt_audit_log = true");
+            Assertions.assertTrue(connectContext.getSessionVariable().isEnablePreparedStmtAuditLog());
+            runSet("set global enable_prepared_stmt_audit_log = true");
+            Assertions.assertTrue(VariableMgr.getDefaultSessionVariable().isEnablePreparedStmtAuditLog());
+            runSet("set global audit_plugin_max_sql_length = 4194304");
+            Assertions.assertEquals(4194304, GlobalVariable.auditPluginMaxSqlLength);
+            runSet("set global audit_plugin_load_timeout = 1200");
+            Assertions.assertEquals(1200, GlobalVariable.auditPluginLoadTimeoutS);
+            runSet("set global audit_plugin_max_batch_bytes = 52428800");
+            runSet("set global audit_plugin_max_batch_interval_sec = default");
+            runSet("set global audit_plugin_max_insert_stmt_length = 2147483647");
+        });
+    }
+
+    // UNSET ALL resets the other variables and keeps the ones whose default query_audit_always_on rejects.
+    @Test
+    public void testAlwaysOnUnsetAllKeepsRejectedDefaults() throws Throwable {
+        withAuditVariablesRestored(true, () -> {
+            SessionVariable sessionVariable = VariableMgr.newSessionVariable();
+            sessionVariable.enablePreparedStmtAuditLog = true;
+            int defaultQueryTimeout = sessionVariable.getQueryTimeoutS();
+            sessionVariable.setQueryTimeoutS(defaultQueryTimeout + 1);
+            VariableMgr.setAllVarsToDefaultValue(sessionVariable, SetType.SESSION);
+            Assertions.assertTrue(sessionVariable.isEnablePreparedStmtAuditLog());
+            Assertions.assertEquals(defaultQueryTimeout, sessionVariable.getQueryTimeoutS());
+        });
+    }
+
+    @Test
+    public void testAuditVariablesFollowSetWhenAlwaysOnIsOff() throws Throwable {
+        withAuditVariablesRestored(false, () -> {
+            runSet("set global enable_audit_plugin = false");
+            Assertions.assertFalse(GlobalVariable.enableAuditLoader);
+            runSet("set enable_prepared_stmt_audit_log = default");
+            Assertions.assertFalse(connectContext.getSessionVariable().isEnablePreparedStmtAuditLog());
+            runSet("set global audit_plugin_max_sql_length = 100");
+            Assertions.assertEquals(100, GlobalVariable.auditPluginMaxSqlLength);
+            runSet("set global audit_plugin_max_batch_bytes = 1");
+            Assertions.assertEquals(1L, GlobalVariable.auditPluginMaxBatchBytes);
+            SessionVariable sessionVariable = VariableMgr.newSessionVariable();
+            sessionVariable.enablePreparedStmtAuditLog = true;
+            VariableMgr.setAllVarsToDefaultValue(sessionVariable, SetType.SESSION);
+            Assertions.assertFalse(sessionVariable.isEnablePreparedStmtAuditLog());
+        });
+    }
+
+    // A renamed variable would silently lose its protection: every name the policy protects must resolve.
+    @Test
+    public void testQueryAuditPolicyNamesAreVariables() {
+        for (String name : QueryAuditPolicy.protectedVariableNames()) {
+            VariableMgr.VarContext ctx = VariableMgr.getVarContext(name);
+            Assertions.assertNotNull(ctx, name);
+            Assertions.assertEquals(name, ctx.getField().getAnnotation(VarAttrDef.VarAttr.class).name());
+        }
+    }
+
+    private void runSet(String sql) throws Exception {
+        ((SetOptionsCommand) UtFrameUtils.parseStmt(sql, connectContext)).run(connectContext, null);
+    }
+
+    // Runs body with query_audit_always_on set as given, then restores it and every audit variable body may change.
+    private void withAuditVariablesRestored(boolean alwaysOn, Executable body) throws Throwable {
+        boolean originalAlwaysOn = Config.query_audit_always_on;
+        boolean enableAuditLoader = GlobalVariable.enableAuditLoader;
+        int maxSqlLength = GlobalVariable.auditPluginMaxSqlLength;
+        int maxInsertStmtLength = GlobalVariable.auditPluginMaxInsertStmtLength;
+        int loadTimeoutS = GlobalVariable.auditPluginLoadTimeoutS;
+        long maxBatchBytes = GlobalVariable.auditPluginMaxBatchBytes;
+        long maxBatchIntervalSec = GlobalVariable.auditPluginMaxBatchInternalSec;
+        boolean globalPreparedAudit = VariableMgr.getDefaultSessionVariable().enablePreparedStmtAuditLog;
+        boolean sessionPreparedAudit = connectContext.getSessionVariable().enablePreparedStmtAuditLog;
+        try {
+            Config.query_audit_always_on = alwaysOn;
+            body.execute();
+        } finally {
+            Config.query_audit_always_on = originalAlwaysOn;
+            GlobalVariable.enableAuditLoader = enableAuditLoader;
+            GlobalVariable.auditPluginMaxSqlLength = maxSqlLength;
+            GlobalVariable.auditPluginMaxInsertStmtLength = maxInsertStmtLength;
+            GlobalVariable.auditPluginLoadTimeoutS = loadTimeoutS;
+            GlobalVariable.auditPluginMaxBatchBytes = maxBatchBytes;
+            GlobalVariable.auditPluginMaxBatchInternalSec = maxBatchIntervalSec;
+            VariableMgr.getDefaultSessionVariable().enablePreparedStmtAuditLog = globalPreparedAudit;
+            connectContext.getSessionVariable().enablePreparedStmtAuditLog = sessionPreparedAudit;
         }
     }
 

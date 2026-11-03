@@ -61,6 +61,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.StringJoiner;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -380,25 +381,18 @@ public class VariableMgr {
         setVarInternal(sessionVariable, setVar, varCtx);
     }
 
-    // Rejects a value that would break query auditing. The check sits on the entries users set variables through,
-    // not in setValue: replaying the edit log and loading the image also go through setValue, which would skip a
-    // rejected value on one FE only.
+    // Rejects a value that would break query auditing (QueryAuditPolicy). The check sits on the entries users set
+    // variables through, not in setValue: replaying the edit log and loading the image also go through setValue,
+    // which would skip a rejected value on one FE only.
     private static void checkAuditVariableValue(VarContext ctx, String value) throws DdlException {
-        String name = ctx.getField().getAnnotation(VarAttrDef.VarAttr.class).name();
-        if (!GlobalVariable.AUDIT_PLUGIN_MAX_SQL_LENGTH.equals(name)) {
-            return;
+        Optional<String> error = QueryAuditPolicy.checkVariableValue(getName(ctx), value);
+        if (error.isPresent()) {
+            throw new DdlException(error.get());
         }
-        int maxSqlLength;
-        try {
-            maxSqlLength = Integer.parseInt(value);
-        } catch (NumberFormatException e) {
-            // Not a number: setValue reports it.
-            return;
-        }
-        if (maxSqlLength < 0) {
-            throw new DdlException("Variable '" + name + "' can't be set to '" + value
-                    + "', the value must not be negative");
-        }
+    }
+
+    private static String getName(VarContext ctx) {
+        return ctx.getField().getAnnotation(VarAttrDef.VarAttr.class).name();
     }
 
     /**
@@ -880,6 +874,13 @@ public class VariableMgr {
                 checkUpdate(setVar, varCtx.getFlag());
             } catch (DdlException e) {
                 LOG.debug("no need to set var for non master fe: {}", setVar.getVariable(), e);
+                continue;
+            }
+            // A default that query_audit_always_on does not allow, such as enable_prepared_stmt_audit_log=false,
+            // leaves its variable as it is instead of failing the whole UNSET ALL.
+            Optional<String> auditError = QueryAuditPolicy.checkVariableValue(getName(varCtx), defaultValue);
+            if (auditError.isPresent()) {
+                LOG.debug("skip resetting variable {}: {}", setVar.getVariable(), auditError.get());
                 continue;
             }
             setVarInternal(sessionVariable, setVar, varCtx);

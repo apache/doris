@@ -108,12 +108,12 @@ public class AuditLogHelper {
     }
 
     /**
-     * Truncate a statement other than INSERT ... VALUES to audit_plugin_max_sql_length bytes. A negative limit
-     * counts as 0, as it does for INSERT ... VALUES: truncateByBytes cannot take one, and the exception it threw
-     * dropped the whole audit event.
+     * Truncate a statement other than INSERT ... VALUES to the effective audit_plugin_max_sql_length, see
+     * QueryAuditPolicy.maxSqlLength(): never negative, which truncateByBytes cannot take, and never below the default
+     * while query_audit_always_on is on.
      */
     public static String truncateStmt(String stmt) {
-        int maxLen = Math.max(0, GlobalVariable.auditPluginMaxSqlLength);
+        int maxLen = QueryAuditPolicy.maxSqlLength();
         return truncateByBytes(stmt, maxLen, " ... /* truncated. audit_plugin_max_sql_length=" + maxLen + " */");
     }
 
@@ -151,7 +151,7 @@ public class AuditLogHelper {
         if (rowCnt > 0) {
             // This is an insert statement.
             int maxLen = Math.max(0,
-                    Math.min(GlobalVariable.auditPluginMaxInsertStmtLength, GlobalVariable.auditPluginMaxSqlLength));
+                    Math.min(QueryAuditPolicy.maxInsertStmtLength(), QueryAuditPolicy.maxSqlLength()));
             origStmt = truncateByBytes(origStmt, maxLen, " ... /* total " + rowCnt
                 + " rows, truncated. audit_plugin_max_insert_stmt_length=" + maxLen + " */");
             return Optional.of(origStmt);
@@ -175,7 +175,7 @@ public class AuditLogHelper {
         if (rowCnt > 0) {
             // This is an insert statement.
             int maxLen = Math.max(0,
-                    Math.min(GlobalVariable.auditPluginMaxInsertStmtLength, GlobalVariable.auditPluginMaxSqlLength));
+                    Math.min(QueryAuditPolicy.maxInsertStmtLength(), QueryAuditPolicy.maxSqlLength()));
             origStmt = truncateByBytes(origStmt, maxLen, " ... /* total " + rowCnt
                     + " rows, truncated. audit_plugin_max_insert_stmt_length=" + maxLen + " */");
             return Optional.of(origStmt);
