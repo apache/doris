@@ -115,14 +115,116 @@ import java.util.concurrent.atomic.AtomicInteger;
 import javax.annotation.Nullable;
 
 
-// When one client connect in, we create a connect context for it.
-// We store session information here. Meanwhile ConnectScheduler all
-// connect with its connection id.
-// Use `volatile` to make the reference change atomic.
-//
-// What only the wire protocol knows about (the MySQL channel and capabilities, the Arrow Flight
-// result cache and endpoints) lives in the ProtocolAdapter the context is created with. The
-// protocol-specific getters below delegate to it and keep their signatures for their callers.
+/**
+ * Owns session state and coordinates initialization, admission and cleanup of its resources.
+ * A {@link ProtocolAdapter} owns protocol-specific resources, such as the MySQL channel and
+ * capabilities or the Flight result cache and deferred executors. The connection pool owns
+ * registration, indexes and quotas; it does not own protocol release or transaction rollback.
+ * Neither garbage collection nor removal of a thread-local binding performs lifecycle cleanup.
+ *
+ * <h2>Lifecycle states and transitions</h2>
+ * <pre>
+ * INITIALIZING -- activate / successful activateClientSession --&gt; ACTIVE
+ * INITIALIZING -- cleanup -------------------------------------&gt; CLOSING
+ * ACTIVE ------ cleanup / KILL CONNECTION / idle expiry --------&gt; CLOSING
+ * CLOSING ----- operations drained and cleanup succeeded -------&gt; CLOSED
+ * </pre>
+ * The lifecycle is distinct from {@link QueryState}, the current MySQL command, thread-local
+ * binding and pool membership. ACTIVE means that work may be admitted, not that a query is
+ * currently running. A context leaves the pool when closure starts, before it reaches CLOSED.
+ * CLOSED is terminal: the same object must not be initialized, activated or registered again.
+ *
+ * <ol>
+ * <li><b>INITIALIZING: the creator owns the context and every failure path.</b>
+ * Constructors initialize session fields but do not activate or register the context. Configure
+ * the environment, identity and session properties before activation. For a client session,
+ * call {@link ConnectScheduler#submit(ConnectContext)} to assign its connection id, set its
+ * scheduler with {@link #setConnectScheduler(ConnectScheduler)}, and call
+ * {@link #activateClientSession(ConnectPoolMgr)}. A return value of -1 means registration and
+ * activation succeeded; a nonnegative value is a quota refusal and leaves the context in
+ * INITIALIZING. The creator must call {@link #cleanup()} when abandoning a refused or failed
+ * initialization, even if no pool entry was ever created. An owned internal context instead
+ * calls {@link #activate()} after configuration and never enters the client connection pool.
+ * Both activation methods reject a context that has already left INITIALIZING.
+ *
+ * <p>If initialization can overlap a close callback, call {@link #beginInitialization()} before
+ * exposing the context to that callback. Proceed only if it returns true, and pair that success
+ * with exactly one {@link #endOperation()} in a finally block. This keeps resources alive through
+ * handshake and response handling, including the interval after activation. Install the transport
+ * close callback before admission and handle a transport that closed before listener installation.
+ * Sending a successful login response or starting the protocol reader can still fail after
+ * registration: the creator must request cleanup on those paths as well. Reaching ACTIVE does
+ * not discharge the creator's responsibility for an unfinished initialization.</li>
+ *
+ * <li><b>ACTIVE: each protocol operation needs its own admission and exit boundary.</b>
+ * After applying protocol-specific serialization, call {@link #tryBeginCommand()}. If it returns
+ * false, reject the request without using session resources; a prior pool or token lookup is
+ * not permission to execute. On success, the method records an in-flight operation and refreshes
+ * activity time. Always call {@link #endOperation()} in finally, including on exceptions or when
+ * another thread has started cleanup. The operation count protects resource lifetime; it does
+ * not serialize commands. MySQL's read scheduling and Flight's command lock still provide that
+ * serialization. Do not acquire another operation for an entry already guarded by those paths.
+ *
+ * <p>Bind the context with {@link #setThreadLocalInfo()} only for the executing thread's scope,
+ * and restore its previous binding on exit. {@link #clear()} releases statement references and
+ * {@link #remove()} detaches the current thread; neither ends the session. Likewise,
+ * {@link #resetConnection()} resets session contents without changing lifecycle or registration.
+ * A borrower must restore its binding rather than call cleanup on a context it does not own.</li>
+ *
+ * <li><b>CLOSING: reject new work, revoke registration, then drain existing operations.</b>
+ * The owner or a termination event calls {@link #cleanup()}; {@link #kill(boolean)} with true
+ * and the idle branch of {@link #checkTimeout(long)} use the same closing flow. Exactly one caller
+ * wins the transition. It unregisters only the registration this context successfully acquired,
+ * requests cancellation without waiting for execution to finish, and invokes the adapter's
+ * transport-close hook. Reentrant or concurrent cleanup calls do not repeat these actions.
+ * An executor published through {@link #setExecutor(StmtExecutor)} after closure starts also
+ * receives cancellation, so publication cannot escape the close request.
+ *
+ * <p>Cleanup does not wait for a running operation's command lock. Once close initiation has
+ * finished and every successful begin has a matching endOperation, exactly one caller releases
+ * protocol session resources, rolls back the session transaction, runs the existing temporary
+ * table/session cleanup hooks and clears local references. With no in-flight operations this
+ * happens in cleanup itself; otherwise the last exiting operation performs it. Flight seals its
+ * deferred-executor handoff at close initiation, but releases the channel allocator only after
+ * draining operations. Callers must not invoke pool unregistration, releaseProtocolSession or
+ * closeTxn independently as a substitute for this coordinated session-close flow.
+ *
+ * <p>Use {@link #getCleanupCompletion()} to observe completion instead of assuming that a return
+ * from cleanup means resources have been released. Never wait for completion while holding an
+ * operation that must end before cleanup can finish. Cleanup temporarily binds the closing
+ * context for helpers such as follower transaction rollback, restores a different caller's
+ * binding, and preserves the binding of a closing operation that has not yet exited.</li>
+ *
+ * <li><b>CLOSED: local cleanup completed successfully.</b>
+ * The completion stage succeeds and repeated cleanup calls are no-ops. Construct a new context
+ * for a new session. If a cleanup step throws, the coordinator still attempts the remaining
+ * steps, completes the stage exceptionally and leaves the state at CLOSING; repeated cleanup
+ * does not retry failed steps. Errors already caught by existing cleanup hooks are not recovered
+ * by this stage, and local completion is not a guarantee of remote resource reclamation after
+ * an FE crash. There is no automatic cleanup retry queue in this lifecycle implementation.</li>
+ * </ol>
+ *
+ * <h2>Concurrency and timeout responsibilities</h2>
+ * Activation, operation admission and the decision to close share the lifecycle lock. If close
+ * wins, activation cannot publish ACTIVE; if activation wins, close owns its pool registration.
+ * The lock order is lifecycle lock followed by pool admission lock, and the pool never calls
+ * back into lifecycle methods. Cancellation, transport callbacks and resource release run
+ * outside both locks. The admitted operation retains responsibility for its finally block even
+ * after pool removal; it must not rely on the timeout scanner or GC to finish its cleanup.
+ *
+ * <p>The existing scheduler/pool timeout scan calls checkTimeout. Idle expiry closes the session;
+ * query timeout cancels the observed executor without closing the session; expiry of deferred
+ * Flight results releases those results without invalidating the token. Admission and idle
+ * expiry are coordinated so that a stale lookup cannot admit work after closure. An executing
+ * Flight metadata command is not idle even when its MySQL command field is COM_SLEEP. A MySQL
+ * reader blocked on an incomplete packet still needs wait_timeout to close its transport.
+ *
+ * <p>MySQL and Flight client entry points use these boundaries. Legacy internal task, HTTP and
+ * borrowed-context scopes are migrated separately: construction or thread-local binding alone
+ * does not opt such a caller into operation tracking. When migrating an owned scope, explicitly
+ * activate it, pair successful operation admission with endOperation, and request cleanup on
+ * every owner exit; do not turn a borrowed binding scope into a session owner.
+ */
 public class ConnectContext {
     private static final Logger LOG = LogManager.getLogger(ConnectContext.class);
 
@@ -1211,9 +1313,7 @@ public class ConnectContext {
         cleanup();
     }
 
-    /**
-     * kill connection by self
-     */
+    /** Requests idempotent closure from any thread; completion may be deferred until operations exit. */
     public void cleanup() {
         synchronized (lifecycleLock) {
             if (!startClosing()) {
