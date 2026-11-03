@@ -1,0 +1,17 @@
+{
+  "dataset_dir": "m3.lance",
+  "version": 2,
+  "column": "l",
+  "verdict": "compare",
+  "expected_contract": {
+    "scv": 1,
+    "flds": [
+      {
+        "fid": 1,
+        "nn": "l",
+        "nt": "list()",
+        "nul": true
+      }
+    ]
+  }
+}

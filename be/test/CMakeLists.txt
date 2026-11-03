@@ -33,6 +33,7 @@ file(GLOB_RECURSE UT_FILES CONFIGURE_DEPENDS
     format_v2/*.cpp
     gutil/*.cpp
     io/*.cpp
+    lance/*.cpp
     load/*.cpp
     olap/*.cpp
     runtime/*.cpp

@@ -1,0 +1,17 @@
+{
+  "dataset_dir": "edge_binary.lance",
+  "version": 1,
+  "column": "c_fsb",
+  "verdict": "compare",
+  "expected_contract": {
+    "scv": 1,
+    "flds": [
+      {
+        "fid": 2,
+        "nn": "c_fsb",
+        "nt": "fixedsizebinary(byteWidth\u003d7)",
+        "nul": true
+      }
+    ]
+  }
+}

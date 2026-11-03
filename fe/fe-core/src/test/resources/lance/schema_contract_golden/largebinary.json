@@ -1,0 +1,17 @@
+{
+  "dataset_dir": "edge_binary.lance",
+  "version": 1,
+  "column": "c_lbin",
+  "verdict": "compare",
+  "expected_contract": {
+    "scv": 1,
+    "flds": [
+      {
+        "fid": 1,
+        "nn": "c_lbin",
+        "nt": "largebinary()",
+        "nul": true
+      }
+    ]
+  }
+}
