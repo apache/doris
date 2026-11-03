@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.hive.source;
 
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
@@ -61,6 +62,82 @@ import java.util.concurrent.ThreadPoolExecutor;
 
 public class HiveScanNodeTest {
     private static final long MB = 1024L * 1024L;
+
+    @Test
+    public void testNativeBatchAndSynchronousFailuresKeepRootCause() throws Exception {
+        HiveScanNode node = createHiveScanNode();
+        Field tableField = HiveScanNode.class.getDeclaredField("hmsTable");
+        tableField.setAccessible(true);
+        HMSExternalTable table = (HMSExternalTable) tableField.get(node);
+        Mockito.when(table.getName()).thenReturn("hive_test");
+        Field initialized = HiveScanNode.class.getDeclaredField("partitionInit");
+        initialized.setAccessible(true);
+        initialized.set(node, true);
+        Field partitions = HiveScanNode.class.getDeclaredField("prunedPartitions");
+        partitions.setAccessible(true);
+        partitions.set(node, Collections.singletonList(Mockito.mock(HivePartition.class)));
+        org.apache.doris.datasource.SplitAssignment assignment =
+                Mockito.mock(org.apache.doris.datasource.SplitAssignment.class);
+        Field splitAssignment = org.apache.doris.planner.ScanNode.class.getDeclaredField("splitAssignment");
+        splitAssignment.setAccessible(true);
+        splitAssignment.set(node, assignment);
+        org.apache.doris.catalog.Env env = Mockito.mock(org.apache.doris.catalog.Env.class);
+        org.apache.doris.datasource.ExternalMetaCacheMgr manager =
+                Mockito.mock(org.apache.doris.datasource.ExternalMetaCacheMgr.class);
+        HiveExternalMetaCache cache = Mockito.mock(HiveExternalMetaCache.class);
+        java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(manager);
+        Mockito.when(manager.hive(Mockito.anyLong())).thenReturn(cache);
+        Mockito.when(manager.getScheduleExecutor()).thenReturn(executor);
+        RuntimeException wrapper = new RuntimeException("file cache wrapper",
+                new org.apache.doris.common.UserException("Partition location does not exist: /missing"));
+        Mockito.when(cache.getFilesByPartitions(Mockito.anyList(), Mockito.anyBoolean(), Mockito.anyBoolean(),
+                Mockito.isNull(), Mockito.same(table))).thenThrow(wrapper);
+        java.util.concurrent.CompletableFuture<org.apache.doris.common.UserException> failure =
+                new java.util.concurrent.CompletableFuture<>();
+        Mockito.doAnswer(call -> {
+            failure.complete(call.getArgument(0));
+            return null;
+        }).when(assignment).setException(Mockito.any());
+        try (org.mockito.MockedStatic<org.apache.doris.catalog.Env> mockedEnv =
+                Mockito.mockStatic(org.apache.doris.catalog.Env.class)) {
+            mockedEnv.when(org.apache.doris.catalog.Env::getCurrentEnv).thenReturn(env);
+            node.startSplit(1);
+            org.apache.doris.common.UserException async = failure.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            Assert.assertTrue(async.getMessage().contains("Partition location does not exist: /missing"));
+            Assert.assertTrue(async.getMessage().contains("hive_test"));
+            org.apache.doris.common.UserException sync = Assert.assertThrows(
+                    org.apache.doris.common.UserException.class, () -> node.getSplits(1));
+            Assert.assertEquals(sync.getMessage(), async.getMessage());
+            Assert.assertSame(wrapper, async.getCause());
+        } finally {
+            executor.shutdownNow();
+            Assert.assertTrue(executor.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    public void testVerboseExplainUsesExactFilePlanning() throws Exception {
+        HiveScanNode node = createHiveScanNode();
+        Field initialized = HiveScanNode.class.getDeclaredField("partitionInit");
+        initialized.setAccessible(true);
+        initialized.set(node, true);
+        Field partitions = HiveScanNode.class.getDeclaredField("prunedPartitions");
+        partitions.setAccessible(true);
+        partitions.set(node, Collections.singletonList(Mockito.mock(HivePartition.class)));
+        ConnectContext context = new ConnectContext();
+        StatementContext statementContext = new StatementContext();
+        StatementBase statement = Mockito.mock(StatementBase.class);
+        Mockito.when(statement.isVerbose()).thenReturn(true);
+        statementContext.setParsedStatement(statement);
+        context.setStatementContext(statementContext);
+        context.setThreadLocalInfo();
+        try {
+            Assert.assertFalse(node.isBatchMode());
+        } finally {
+            ConnectContext.remove();
+        }
+    }
 
     @Test
     public void testStatementCacheReusesListingOnlyForSamePartitionIdentity() throws Exception {

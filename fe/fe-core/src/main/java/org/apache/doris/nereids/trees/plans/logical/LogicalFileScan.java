@@ -33,6 +33,7 @@ import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -49,6 +50,7 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TFileFormatType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableMap;
@@ -58,6 +60,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * Logical file scan for external catalog.
@@ -469,6 +472,8 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
 
         public final State state;
 
+        private final Supplier<Optional<SortedPartitionRanges<String>>> sortedPartitionRanges;
+
         /**
          * Constructor for SelectedPartitions.
          */
@@ -493,6 +498,13 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             this.isPruned = isPruned;
             this.hasPartitionPredicate = hasPartitionPredicate;
             this.state = state;
+            this.sortedPartitionRanges = Suppliers.memoize(
+                    () -> Optional.ofNullable(SortedPartitionRanges.build(this.selectedPartitions)));
+        }
+
+        /** Lazily index this immutable view; relations sharing the view reuse the same index. */
+        public Optional<SortedPartitionRanges<String>> getSortedPartitionRanges() {
+            return sortedPartitionRanges.get();
         }
 
         public boolean isNotPruned() {

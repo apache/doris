@@ -20,6 +20,8 @@ package org.apache.doris.datasource.iceberg;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.datasource.metacache.MetaCacheWeightUtils;
 
+import com.google.common.collect.ImmutableMap;
+
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
@@ -40,7 +42,6 @@ public class IcebergPartitionInfo {
     private final Map<String, IcebergPartition> nameToIcebergPartition;
     private final Map<String, Set<String>> nameToIcebergPartitionNames;
     private final long retainedPayloadBytes;
-
     private static final IcebergPartitionInfo EMPTY = new IcebergPartitionInfo();
 
     private IcebergPartitionInfo() {
@@ -63,9 +64,13 @@ public class IcebergPartitionInfo {
                                 Map<String, IcebergPartition> nameToIcebergPartition,
                                 Map<String, Set<String>> nameToIcebergPartitionNames,
                                 long retainedPayloadBytes) {
-        this.nameToPartitionItem = nameToPartitionItem;
-        this.nameToIcebergPartition = nameToIcebergPartition;
-        this.nameToIcebergPartitionNames = nameToIcebergPartitionNames;
+        this.nameToPartitionItem = ImmutableMap.copyOf(nameToPartitionItem);
+        this.nameToIcebergPartition = ImmutableMap.copyOf(nameToIcebergPartition);
+        ImmutableMap.Builder<String, Set<String>> aliases =
+                ImmutableMap.builder();
+        nameToIcebergPartitionNames.forEach((name, names) -> aliases.put(name,
+                com.google.common.collect.ImmutableSet.copyOf(names)));
+        this.nameToIcebergPartitionNames = aliases.build();
         this.retainedPayloadBytes = retainedPayloadBytes;
     }
 

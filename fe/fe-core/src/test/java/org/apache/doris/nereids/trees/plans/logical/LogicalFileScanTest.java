@@ -17,10 +17,13 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogIf;
@@ -38,6 +41,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
 import org.apache.doris.nereids.rules.rewrite.QueryPartitionCollector;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -56,12 +60,88 @@ import org.mockito.Mockito;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class LogicalFileScanTest {
+
+    @Test
+    public void testSortedRangesStayWithImmutableSelectionGeneration() throws Exception {
+        PartitionItem firstItem = integerPartition("1");
+        PartitionItem secondItem = integerPartition("2");
+        Map<String, PartitionItem> source = new HashMap<>();
+        source.put("p=1", firstItem);
+        SelectedPartitions first = new SelectedPartitions(1, source, false);
+        SelectedPartitions equivalent = new SelectedPartitions(1, source, false);
+        int originalHashCode = first.hashCode();
+        Assertions.assertEquals(first, equivalent);
+        Assertions.assertNotSame(first.selectedPartitions, equivalent.selectedPartitions);
+        source.put("p=1", secondItem);
+        SelectedPartitions nextGeneration = new SelectedPartitions(1, source, false);
+
+        try (MockedStatic<SortedPartitionRanges> ranges =
+                Mockito.mockStatic(SortedPartitionRanges.class, Mockito.CALLS_REAL_METHODS)) {
+            ranges.verifyNoInteractions();
+            SortedPartitionRanges<String> firstIndex = first.getSortedPartitionRanges().get();
+            SortedPartitionRanges<String> equivalentIndex = equivalent.getSortedPartitionRanges().get();
+            SortedPartitionRanges<String> nextIndex = nextGeneration.getSortedPartitionRanges().get();
+
+            Assertions.assertSame(firstIndex, first.getSortedPartitionRanges().get());
+            Assertions.assertNotSame(firstIndex, equivalentIndex);
+            Assertions.assertNotSame(firstIndex, nextIndex);
+            Assertions.assertSame(firstItem, firstIndex.sortedPartitions.get(0).partitionItem);
+            Assertions.assertSame(secondItem, nextIndex.sortedPartitions.get(0).partitionItem);
+            Assertions.assertEquals(first, equivalent);
+            Assertions.assertEquals(originalHashCode, first.hashCode());
+            Assertions.assertEquals(first.hashCode(), equivalent.hashCode());
+            Assertions.assertEquals(SelectedPartitions.State.MATERIALIZED, first.state);
+            ranges.verify(() -> SortedPartitionRanges.build(Mockito.same(first.selectedPartitions)), Mockito.times(1));
+            ranges.verify(() -> SortedPartitionRanges.build(Mockito.same(equivalent.selectedPartitions)),
+                    Mockito.times(1));
+            ranges.verify(() -> SortedPartitionRanges.build(Mockito.same(nextGeneration.selectedPartitions)),
+                    Mockito.times(1));
+            ranges.verifyNoMoreInteractions();
+        }
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> first.selectedPartitions.put("p=2", secondItem));
+    }
+
+    @Test
+    public void testSelectionCopiesShareLazySortedRanges() throws Exception {
+        SelectedPartitions view = new SelectedPartitions(1, ImmutableMap.of("p=1", integerPartition("1")), false);
+        HMSExternalTable table = newDeferredHiveTable();
+        Mockito.when(table.initSelectedPartitions(Mockito.any())).thenReturn(view);
+        StatementContext statement = newStatementContext();
+        try (MockedStatic<ConnectContext> current = Mockito.mockStatic(ConnectContext.class);
+                MockedStatic<SortedPartitionRanges> ranges =
+                        Mockito.mockStatic(SortedPartitionRanges.class, Mockito.CALLS_REAL_METHODS)) {
+            current.when(ConnectContext::get).thenReturn(statement.getConnectContext());
+            LogicalFileScan scan = newHiveScan(table);
+            List<LogicalFileScan> copies = Arrays.asList(
+                    scan.withRelationId(new RelationId(13)),
+                    scan.withTableAlias("alias"),
+                    scan.withOperativeSlots(Collections.emptyList()),
+                    scan.withCachedOutput(scan.getOutput()),
+                    scan.withGroupExpression(Optional.empty()));
+            ranges.verifyNoInteractions();
+            SortedPartitionRanges<String> index = view.getSortedPartitionRanges().get();
+            for (LogicalFileScan copy : copies) {
+                Assertions.assertSame(view, copy.getSelectedPartitions());
+                Assertions.assertSame(index, copy.getSelectedPartitions().getSortedPartitionRanges().get());
+                Assertions.assertFalse(copy.getSelectedPartitions().isPruned);
+            }
+            ranges.verify(() -> SortedPartitionRanges.build(Mockito.same(view.selectedPartitions)), Mockito.times(1));
+            ranges.verifyNoMoreInteractions();
+        }
+    }
+
+    private ListPartitionItem integerPartition(String value) throws Exception {
+        return new ListPartitionItem(Collections.singletonList(PartitionKey.createListPartitionKeyWithTypes(
+                Collections.singletonList(new PartitionValue(value)), Collections.singletonList(Type.INT), true)));
+    }
 
     @Test
     public void testPreloadedEmptyHiveViewDoesNotBecomeDeferredAgain() {

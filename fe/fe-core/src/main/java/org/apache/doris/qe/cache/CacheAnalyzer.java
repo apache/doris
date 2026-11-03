@@ -38,6 +38,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
+import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.SqlCacheContext;
@@ -313,9 +314,12 @@ public class CacheAnalyzer {
             MetricRepo.COUNTER_QUERY_TABLE.increase(1L);
             long olapScanNodeSize = 0;
             long hiveScanNodeSize = 0;
+            long versionedScanNodeSize = 0;
             for (ScanNode scanNode : scanNodes) {
                 if (scanNode instanceof OlapScanNode) {
                     olapScanNodeSize++;
+                } else if (scanNode instanceof IcebergScanNode) {
+                    versionedScanNodeSize++;
                 } else if (scanNode instanceof HiveScanNode) {
                     hiveScanNodeSize++;
                 }
@@ -327,7 +331,8 @@ public class CacheAnalyzer {
                 MetricRepo.COUNTER_QUERY_HIVE_TABLE.increase(1L);
             }
 
-            if (!(olapScanNodeSize == scanNodes.size() || hiveScanNodeSize == scanNodes.size())) {
+            if (!(olapScanNodeSize == scanNodes.size()
+                    || hiveScanNodeSize + versionedScanNodeSize == scanNodes.size())) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("only support olap/hive table with non-federated query, "
                             + "other types are not supported now, queryId {}", DebugUtil.printId(queryId));
@@ -340,7 +345,9 @@ public class CacheAnalyzer {
                 ScanNode node = scanNodes.get(i);
                 CacheTable cTable = node instanceof OlapScanNode
                         ? buildCacheTableForOlapScanNode((OlapScanNode) node)
-                        : buildCacheTableForHiveScanNode((HiveScanNode) node);
+                        : node instanceof IcebergScanNode
+                                ? buildCacheTableForIcebergScanNode((IcebergScanNode) node)
+                                : buildCacheTableForHiveScanNode((HiveScanNode) node);
                 tblTimeList.add(cTable);
             }
             Collections.sort(tblTimeList);
@@ -490,6 +497,19 @@ public class CacheAnalyzer {
                 cacheTable.latestPartitionVersion = partition.getCachedVisibleVersion();
             }
         }
+        return cacheTable;
+    }
+
+    private CacheTable buildCacheTableForIcebergScanNode(IcebergScanNode node) {
+        SqlCacheVersion version = node.getSqlCacheVersion()
+                .orElseThrow(() -> new IllegalStateException("No Iceberg SQL cache version"));
+        CacheTable cacheTable = new CacheTable();
+        cacheTable.table = node.getTargetTable();
+        cacheTable.partitionNum = 1;
+        cacheTable.latestPartitionTime = version.getUpdateTimeMillis();
+        DatabaseIf database = cacheTable.table.getDatabase();
+        scanTables.add(Pair.of(new ScanTable(new FullTableName(database.getCatalog().getName(),
+                database.getFullName(), cacheTable.table.getName())), cacheTable.table));
         return cacheTable;
     }
 

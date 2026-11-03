@@ -267,6 +267,30 @@ public class SqlBlockRuleMgr implements Writable {
         }
     }
 
+    /** Whether this query needs exact partition/split counts before execution can be admitted. */
+    public boolean hasScanCountLimitations(String user) {
+        if (ConnectContext.get().getState().isInternal()) {
+            return false;
+        }
+        for (SqlBlockRule rule : nameToSqlBlockRuleMap.values()) {
+            if (rule.getGlobal() && requiresExactScanCounts(rule)) {
+                return true;
+            }
+        }
+        for (String ruleName : Env.getCurrentEnv().getAuth().getSqlBlockRules(user)) {
+            SqlBlockRule rule = nameToSqlBlockRuleMap.get(ruleName);
+            if (rule != null && requiresExactScanCounts(rule)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean requiresExactScanCounts(SqlBlockRule rule) {
+        // Cardinality and partition-filter checks do not depend on enumerating file splits.
+        return rule.getEnable() && (rule.getPartitionNum() != 0 || rule.getTabletNum() != 0);
+    }
+
     /**
      * Check number whether legal by user.
      **/

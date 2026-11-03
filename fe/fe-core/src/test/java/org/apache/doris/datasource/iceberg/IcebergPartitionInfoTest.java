@@ -65,7 +65,8 @@ public class IcebergPartitionInfoTest {
         names.add("p2");
         nameToIcebergPartitionNames.put("p1", names);
 
-        IcebergPartitionInfo info = new IcebergPartitionInfo(null, nameToIcebergPartition, nameToIcebergPartitionNames);
+        IcebergPartitionInfo info = new IcebergPartitionInfo(
+                Collections.emptyMap(), nameToIcebergPartition, nameToIcebergPartitionNames);
         long snapshot1 = info.getLatestSnapshotId("p1");
         long snapshot2 = info.getLatestSnapshotId("p2");
         long snapshot3 = info.getLatestSnapshotId("p3");

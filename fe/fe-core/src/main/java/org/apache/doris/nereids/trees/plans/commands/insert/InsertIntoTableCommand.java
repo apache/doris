@@ -92,6 +92,7 @@ import org.apache.doris.system.Backend;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections4.CollectionUtils;
@@ -380,9 +381,12 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
     private BuildInsertExecutorResult initPlanOnce(ConnectContext ctx,
             StmtExecutor stmtExecutor, TableIf targetTableIf) throws Throwable {
         List<Column> normalizedTargetSchema;
+        Map<Long, Integer> normalizedTargetSchemaVersions;
         targetTableIf.readLock();
         try {
-            normalizedTargetSchema = ImmutableList.copyOf(targetTableIf.getFullSchema());
+            normalizedTargetSchema = targetTableIf.getFullSchema().stream()
+                    .map(Column::new).collect(ImmutableList.toImmutableList());
+            normalizedTargetSchemaVersions = getTargetSchemaVersions(targetTableIf);
             LogicalPlan planForAnalysis = InsertUtils.pinIcebergWriteSchema(
                     originLogicalQuery, targetTableIf, branchName, ctx.getStatementContext());
             Optional<CascadesContext> analyzeContext = Optional.of(
@@ -407,7 +411,17 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             targetTableIf.readUnlock();
         }
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery.get(), ctx.getStatementContext());
-        return planInsertExecutor(ctx, stmtExecutor, logicalPlanAdapter, targetTableIf, normalizedTargetSchema);
+        return planInsertExecutor(ctx, stmtExecutor, logicalPlanAdapter, targetTableIf,
+                normalizedTargetSchema, normalizedTargetSchemaVersions);
+    }
+
+    private static Map<Long, Integer> getTargetSchemaVersions(TableIf targetTableIf) {
+        if (targetTableIf instanceof OlapTable) {
+            return ((OlapTable) targetTableIf).getIndexIdToMeta().entrySet().stream()
+                    .collect(ImmutableMap.toImmutableMap(Map.Entry::getKey,
+                            entry -> entry.getValue().getSchemaVersion()));
+        }
+        return ImmutableMap.of();
     }
 
     private static class InsertTargetSchemaChangedException extends AnalysisException {
@@ -627,7 +641,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
     private BuildInsertExecutorResult planInsertExecutor(
             ConnectContext ctx, StmtExecutor stmtExecutor,
             LogicalPlanAdapter logicalPlanAdapter, TableIf targetTableIf,
-            List<Column> normalizedTargetSchema) throws Throwable {
+            List<Column> normalizedTargetSchema, Map<Long, Integer> normalizedTargetSchemaVersions) throws Throwable {
         LogicalPlan logicalPlan = logicalPlanAdapter.getLogicalPlan();
         List<String> targetQualifier = InsertUtils.getTargetTableQualified(originLogicalQuery, ctx);
 
@@ -651,6 +665,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                     TableIf lockedTarget = ctx.getStatementContext().getInsertTargetTables().get(targetQualifier);
                     TableIf currentTarget = getTargetTableIf(ctx, targetQualifier);
                     if (lockedTarget != targetTableIf || currentTarget.getId() != targetTableIf.getId()
+                            || !normalizedTargetSchemaVersions.equals(getTargetSchemaVersions(targetTableIf))
                             || !normalizedTargetSchema.equals(targetTableIf.getFullSchema())) {
                         throw new InsertTargetSchemaChangedException(targetQualifier.get(targetQualifier.size() - 1));
                     }

@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <atomic>
 #include <vector>
 
 #include "common/status.h"
@@ -275,7 +276,7 @@ protected:
     int64_t _per_scanner_timer = 0;
     int64_t _projection_timer = 0;
 
-    bool _should_stop = false;
+    std::atomic_bool _should_stop = false;
 };
 
 using ScannerSPtr = std::shared_ptr<Scanner>;

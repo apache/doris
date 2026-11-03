@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
@@ -32,10 +33,20 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.StatementContext.TableFrom;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultFileSink;
@@ -66,6 +77,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
@@ -79,6 +91,116 @@ public class StmtExecutorTest extends TestWithFeService {
     @Test
     public void testInsertReplansWhenNormalizationSchemaChanges() throws Exception {
         assertInsertSourceCollectionFence(true);
+    }
+
+    @Test
+    public void testInsertDefaultAfterRealColumnRenameFastPath() throws Exception {
+        assertInsertDefaultAfterRealColumnRename(true, true);
+    }
+
+    @Test
+    public void testInsertDefaultAfterRealColumnRenameOrdinaryPath() throws Exception {
+        assertInsertDefaultAfterRealColumnRename(false, true);
+    }
+
+    @Test
+    public void testInsertReplansAfterColumnRenameRestoresSchemaNames() throws Exception {
+        assertInsertDefaultAfterRealColumnRename(true, false);
+        assertInsertDefaultAfterRealColumnRename(false, false);
+    }
+
+    private void assertInsertDefaultAfterRealColumnRename(boolean fastPath, boolean reuseName) throws Exception {
+        boolean originalFastPath = connectContext.getSessionVariable().isEnableFastAnalyzeInsertIntoValues();
+        connectContext.getSessionVariable().setEnableFastAnalyzeInsertIntoValues(fastPath);
+        try {
+            for (boolean beginTransaction : Arrays.asList(false, true)) {
+                String targetName = "hms_backport_rename_" + (fastPath ? "fast" : "ordinary")
+                        + (reuseName ? "_reuse" : "_restore") + (beginTransaction ? "_exec" : "_plan");
+                createTable("create table if not exists testDb." + targetName
+                        + " (a int not null default '1', b int not null default '2', c int not null default '9') "
+                        + "duplicate key(a) distributed by hash(a) buckets 1 "
+                        + "properties('replication_num'='1', 'light_schema_change'='true')");
+                Database database = Env.getCurrentInternalCatalog().getDbOrMetaException("testDb");
+                OlapTable target = (OlapTable) database.getTableOrMetaException(targetName);
+                List<Column> originalSchema = target.getFullSchema();
+                int originalVersion = target.getIndexMetaByIndexId(target.getBaseIndexId()).getSchemaVersion();
+                String sql = "insert into testDb." + targetName + "(b) values(default)";
+                connectContext.setQueryId(new TUniqueId(68363L, target.getId()));
+                AtomicBoolean renamed = new AtomicBoolean();
+                AtomicInteger retries = new AtomicInteger();
+                StatementContext statement = new StatementContext(connectContext, new OriginStatement(sql, 0)) {
+                    @Override
+                    public TableIf getAndCacheTable(List<String> tableQualifier, TableFrom tableFrom,
+                            Optional<UnboundRelation> unboundRelation) {
+                        TableIf table = super.getAndCacheTable(tableQualifier, tableFrom, unboundRelation);
+                        if (tableFrom == TableFrom.INSERT_TARGET && renamed.compareAndSet(false, true)) {
+                            Assertions.assertSame(target, table);
+                            Assertions.assertTrue(target.tryWriteLock(1, TimeUnit.SECONDS));
+                            target.writeUnlock();
+                            try {
+                                Env.getCurrentEnv().renameColumn(database, target,
+                                        new ColumnRenameClause("b", "old_b"));
+                                Env.getCurrentEnv().renameColumn(database, target,
+                                        new ColumnRenameClause(reuseName ? "c" : "old_b", "b"));
+                            } catch (Exception exception) {
+                                throw new IllegalStateException(exception);
+                            }
+                            Assertions.assertEquals(originalSchema, target.getFullSchema());
+                            Assertions.assertEquals(originalVersion + 2,
+                                    target.getIndexMetaByIndexId(target.getBaseIndexId()).getSchemaVersion());
+                            Assertions.assertSame(originalSchema.get(reuseName ? 2 : 1), target.getColumn("b"));
+                        }
+                        return table;
+                    }
+
+                    @Override
+                    public void resetMvccSnapshotsForRetry() {
+                        retries.incrementAndGet();
+                        super.resetMvccSnapshotsForRetry();
+                    }
+                };
+                StmtExecutor executor = new StmtExecutor(connectContext, sql);
+                executor.setStatementContext(statement);
+                AbstractInsertExecutor insert = null;
+                try {
+                    InsertIntoTableCommand command = (InsertIntoTableCommand) new NereidsParser().parseSingle(sql);
+                    insert = command.initPlan(connectContext, executor, beginTransaction);
+                    Assertions.assertSame(target, insert.getTable());
+                    Assertions.assertTrue(renamed.get());
+                    Assertions.assertEquals(1, retries.get());
+                    NereidsPlanner planner = (NereidsPlanner) executor.planner();
+                    boolean plannedFastPath = Deencapsulation.getField(planner, "fastInsertIntoValues");
+                    Assertions.assertEquals(fastPath, plannedFastPath);
+                    PhysicalOlapTableSink<?> sink = planner.getPhysicalPlan()
+                            .<PhysicalOlapTableSink<?>>collect(PhysicalOlapTableSink.class::isInstance)
+                            .iterator().next();
+                    Assertions.assertEquals(Collections.singletonList("b"),
+                            sink.getCols().stream().map(Column::getName).collect(Collectors.toList()));
+                    Assertions.assertSame(target.getColumn("b"), sink.getCols().get(0));
+                    List<Slot> targetSlots = sink.getTargetTableSlots();
+                    Assertions.assertEquals(Arrays.asList("a", reuseName ? "old_b" : "b", reuseName ? "b" : "c"),
+                            targetSlots.stream().map(Slot::getName).collect(Collectors.toList()));
+                    Assertions.assertEquals(targetSlots.size(), sink.getOutput().size());
+                    List<String> boundValues = new ArrayList<>();
+                    for (int columnIndex = 0; columnIndex < targetSlots.size(); columnIndex++) {
+                        Expression value = ExpressionUtils.shuttleExpressionWithLineage(
+                                sink.getOutput().get(columnIndex), sink.child());
+                        value = FoldConstantRuleOnFE.evaluate(value,
+                                new ExpressionRewriteContext(planner.getCascadesContext()));
+                        Assertions.assertInstanceOf(Literal.class, value);
+                        boundValues.add(((Literal) value).getStringValue());
+                    }
+                    Assertions.assertEquals(Arrays.asList("1", "2", "9"), boundValues);
+                } finally {
+                    if (insert != null && insert.getTxnId() != -1) {
+                        Deencapsulation.invoke(insert, "onFail", new RuntimeException("test cleanup"));
+                    }
+                    statement.close();
+                }
+            }
+        } finally {
+            connectContext.getSessionVariable().setEnableFastAnalyzeInsertIntoValues(originalFastPath);
+        }
     }
 
     private void assertInsertSourceCollectionFence(boolean changeSchema) throws Exception {
