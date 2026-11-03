@@ -40,12 +40,6 @@ public:
             : ColumnPredicate(column_id, col_name, PrimitiveType::INVALID_TYPE),
               _mtx(std::make_shared<std::shared_mutex>()) {}
     SharedPredicate(const ColumnPredicate& other) = delete;
-    SharedPredicate(const SharedPredicate& other, uint32_t column_id)
-            : ColumnPredicate(other, column_id), _mtx(std::make_shared<std::shared_mutex>()) {
-        const auto state = other.snapshot();
-        _nested = state.predicate ? state.predicate->clone(column_id) : nullptr;
-        _version.store(state.version, std::memory_order_relaxed);
-    }
     ~SharedPredicate() override = default;
     std::string debug_string() const override {
         std::shared_lock<std::shared_mutex> lock(*_mtx);
