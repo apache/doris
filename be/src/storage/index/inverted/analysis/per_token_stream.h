@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <string_view>
 
 #include "storage/index/inverted/analysis/text_token_stream.h"
@@ -26,13 +27,23 @@ namespace doris::segment_v2::inverted_index {
 
 // The base of a tokenizer that makes one token at a time. It keeps its state machine and may build
 // every term in one reused scratch buffer: the base copies each term into the batch, because views
-// of a reused scratch would overwrite each other within one batch.
+// of a reused scratch would overwrite each other within one batch. A tokenizer whose terms stay
+// valid until the next reset(), such as views of the text, says so and the batch takes them as
+// they are.
 class PerTokenTokenizer : public TextTokenizer {
 public:
     void reset(std::string_view text) final;
     bool next_batch(TokenBatch& batch) final;
 
 protected:
+    enum class TermLifetime : uint8_t {
+        kUntilNextToken, // the term is overwritten by the next next_token()
+        kUntilReset,     // the term stays valid until the next reset()
+    };
+
+    explicit PerTokenTokenizer(TermLifetime term_lifetime = TermLifetime::kUntilNextToken)
+            : _stable_terms(term_lifetime == TermLifetime::kUntilReset) {}
+
     // Binds `text`, dropping the state of the previous value.
     virtual void on_reset(std::string_view text) = 0;
     // The next token; its term stays valid until the next call. Once it returned false it is not
@@ -40,6 +51,7 @@ protected:
     virtual bool next_token(TokenRef& token) = 0;
 
 private:
+    const bool _stable_terms;
     // No value is bound, or next_token() returned false.
     bool _exhausted = true;
 };

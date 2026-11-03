@@ -17,50 +17,35 @@
 
 #include "storage/index/inverted/analysis/char_filter/char_replace_char_filter.h"
 
-#include <boost/algorithm/string/replace.hpp>
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
 
 namespace doris::segment_v2::inverted_index {
 
-CharReplaceCharFilter::CharReplaceCharFilter(ReaderPtr reader, const std::string& pattern,
-                                             std::string replacement)
-        : DorisCharFilter(std::move(reader)), _replacement(std::move(replacement)) {
-    std::ranges::for_each(pattern, [this](uint8_t c) { _patterns.set(c); });
+CharReplaceCharFilter::CharReplaceCharFilter(const std::string& pattern,
+                                             const std::string& replacement)
+        // An empty replacement replaces with NUL, as the reader-based filter did.
+        : _replacement(replacement[0]) {
+    std::ranges::for_each(pattern, [this](char c) { _patterns.set(static_cast<uint8_t>(c)); });
 }
 
-void CharReplaceCharFilter::initialize() {
-    if (_transformed_input.size() != 0) {
-        return;
+std::string_view CharReplaceCharFilter::apply(std::string_view text, std::string& scratch) {
+    const auto matches = [this](char c) { return _patterns.test(static_cast<uint8_t>(c)); };
+    size_t first = 0;
+    while (first < text.size() && !matches(text[first])) {
+        ++first;
     }
-    fill();
-}
-
-void CharReplaceCharFilter::init(const void* _value, int32_t _length, bool copyData) {
-    _reader->init(_value, _length, copyData);
-    fill();
-}
-
-int32_t CharReplaceCharFilter::read(const void** start, int32_t min, int32_t max) {
-    return _transformed_input.read(start, min, max);
-}
-
-int32_t CharReplaceCharFilter::readCopy(void* start, int32_t off, int32_t len) {
-    return _transformed_input.readCopy(start, off, len);
-}
-
-void CharReplaceCharFilter::fill() {
-    _buf.resize(_reader->size());
-    _reader->readCopy(_buf.data(), 0, static_cast<int32_t>(_buf.size()));
-    process_pattern(_buf);
-    _transformed_input.init(_buf.data(), static_cast<int32_t>(_buf.size()), false);
-}
-
-void CharReplaceCharFilter::process_pattern(std::string& buf) {
-    for (auto& c : buf) {
-        auto uc = static_cast<uint8_t>(c);
-        if (_patterns.test(uc)) {
-            c = _replacement[0];
+    if (first == text.size()) {
+        return text;
+    }
+    scratch.assign(text);
+    for (size_t i = first; i < scratch.size(); ++i) {
+        if (matches(scratch[i])) {
+            scratch[i] = _replacement;
         }
     }
+    return scratch;
 }
 
 } // namespace doris::segment_v2::inverted_index

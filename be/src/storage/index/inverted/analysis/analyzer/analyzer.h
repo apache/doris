@@ -26,38 +26,26 @@
 #include "common/status.h"
 #include "storage/index/inverted/analysis/analyzer/analyzer_provider.h"
 #include "storage/index/inverted/analysis/inverted_index_parser.h"
-#include "storage/index/inverted/analysis/reader.h"
 #include "storage/index/inverted/analysis/text_analyzer.h"
 #include "storage/index/inverted/common/inverted_index_query_type.h"
 #include "storage/index/inverted/common/query_info.h"
 #include "storage/olap_common.h"
 
-namespace lucene {
-namespace analysis {
-class Analyzer;
-}
-} // namespace lucene
-
 namespace doris::segment_v2::inverted_index {
-
-// A CLucene analyzer: what the analysis layer builds its TextAnalyzers from until every analyzer
-// is native. Consumers get a TextAnalyzer.
-using AnalyzerPtr = std::shared_ptr<lucene::analysis::Analyzer>;
 
 class InvertedIndexAnalyzer {
 public:
-    static ReaderPtr create_reader(const CharFilterMap& char_filter_map);
     // `value` as the index's character filter leaves it.
     static std::string filter_characters(const CharFilterMap& char_filter_map,
                                          std::string_view value);
 
     static bool is_builtin_analyzer(const std::string& analyzer_name);
-    // The CLucene analyzer of a builtin parser. A CLuceneError, such as the one a missing
-    // dictionary raises, comes out as an INVERTED_INDEX_ANALYZER_ERROR doris::Exception.
-    static AnalyzerPtr create_builtin_analyzer(InvertedIndexParserType parser_type,
-                                               const std::string& parser_mode,
-                                               const std::string& lower_case,
-                                               const std::string& stop_words);
+    // The analyzer of a builtin parser. A missing dictionary comes out as an
+    // INVERTED_INDEX_ANALYZER_ERROR doris::Exception.
+    static TextAnalyzerPtr create_builtin_analyzer(InvertedIndexParserType parser_type,
+                                                   const std::string& parser_mode,
+                                                   const std::string& lower_case,
+                                                   const std::string& stop_words);
     // The analyzer of `config`, behind the index's char filter when it has one: the writers and
     // the query side read every value through it, whatever the analyzer.
     static TextAnalyzerPtr create_analyzer(const InvertedIndexAnalyzerConfig* config);
@@ -88,11 +76,6 @@ public:
                                  const std::map<std::string, std::string>& properties);
 
     static bool should_analyzer(const std::map<std::string, std::string>& properties);
-
-private:
-    // normalize() without the conversion of a CLuceneError.
-    static std::string normalize_term(const std::string& value,
-                                      const std::map<std::string, std::string>& properties);
 };
 
 } // namespace doris::segment_v2::inverted_index

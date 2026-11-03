@@ -25,6 +25,7 @@
 #include <string_view>
 #include <vector>
 
+#include "storage/index/inverted/analysis/text_analyzer.h"
 #include "storage/index/inverted/analysis/text_token_stream.h"
 
 namespace doris::segment_v2::inverted_index {
@@ -43,6 +44,16 @@ std::ostream& operator<<(std::ostream& out, const CollectedToken& token);
 // batch, and false again on the call after. The batch holds a stale token before every call, so a
 // stream that does not clear it fails.
 std::vector<CollectedToken> collect_checked(TextTokenStream& stream, std::string_view text);
+
+// collect_checked() on a new stream of `analyzer`.
+std::vector<CollectedToken> collect_checked(const TextAnalyzer& analyzer, std::string_view text);
+
+// The terms of `tokens`, in order.
+std::vector<std::string> terms_of(const std::vector<CollectedToken>& tokens);
+
+// The terms collect_checked() reads from `text`.
+std::vector<std::string> collect_terms(TextTokenStream& stream, std::string_view text);
+std::vector<std::string> collect_terms(const TextAnalyzer& analyzer, std::string_view text);
 
 using TextStreamFactory = std::function<std::unique_ptr<TextTokenStream>()>;
 

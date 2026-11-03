@@ -17,8 +17,10 @@
 
 #pragma once
 
+#include <memory>
+
 #include "storage/index/inverted/analysis/abstract_analysis_factory.h"
-#include "storage/index/inverted/analysis/tokenizer/tokenizer.h"
+#include "storage/index/inverted/analysis/text_token_stream.h"
 
 namespace doris::segment_v2::inverted_index {
 
@@ -27,8 +29,8 @@ public:
     TokenizerFactory() = default;
     ~TokenizerFactory() override = default;
 
-    virtual TokenizerPtr create() = 0;
-    virtual PositionCapability position_capability() const { return PositionCapability::kUnknown; }
+    // A tokenizer of its own for one stream; callable from several threads once initialized.
+    virtual std::unique_ptr<TextTokenizer> create() const = 0;
 };
 using TokenizerFactoryPtr = std::shared_ptr<TokenizerFactory>;
 

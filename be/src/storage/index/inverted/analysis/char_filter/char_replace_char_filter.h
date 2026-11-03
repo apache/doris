@@ -18,33 +18,23 @@
 #pragma once
 
 #include <bitset>
+#include <string>
+#include <string_view>
 
 #include "storage/index/inverted/analysis/char_filter/char_filter.h"
 
 namespace doris::segment_v2::inverted_index {
 
-class CharReplaceCharFilter : public DorisCharFilter {
+// Replaces every byte of `pattern` in the text with the first byte of `replacement`.
+class CharReplaceCharFilter final : public TextCharFilter {
 public:
-    CharReplaceCharFilter(ReaderPtr in, const std::string& pattern, std::string replacement);
-    ~CharReplaceCharFilter() override = default;
+    CharReplaceCharFilter(const std::string& pattern, const std::string& replacement);
 
-    void initialize() override;
-
-    void init(const void* _value, int32_t _length, bool copyData) override;
-    int32_t read(const void** start, int32_t min, int32_t max) override;
-    int32_t readCopy(void* start, int32_t off, int32_t len) override;
-
-    size_t size() override { return _buf.size(); }
+    std::string_view apply(std::string_view text, std::string& scratch) override;
 
 private:
-    void fill();
-    void process_pattern(std::string& buf);
-
     std::bitset<256> _patterns;
-    std::string _replacement;
-
-    std::string _buf;
-    lucene::util::SStringReader<char> _transformed_input;
+    char _replacement;
 };
 
 } // namespace doris::segment_v2::inverted_index

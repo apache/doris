@@ -17,16 +17,10 @@
 
 #include <gtest/gtest.h>
 
-#include <memory>
 #include <string>
-#include <string_view>
-#include <vector>
 
-#include "CLucene.h"
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "storage/index/inverted/analysis/inverted_index_parser.h"
-
-using namespace lucene::analysis;
 
 namespace doris {
 
@@ -39,15 +33,12 @@ TEST_F(CharReplaceCHarFilterTest, BasicTest) {
     char_filter_map["char_filter_type"] = "char_replace";
     char_filter_map["char_filter_pattern"] = ",";
     char_filter_map["char_filter_replacement"] = " ";
-    auto reader = segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(char_filter_map);
-    reader->init(s.data(), s.size(), true);
+    const std::string filtered =
+            segment_v2::inverted_index::InvertedIndexAnalyzer::filter_characters(char_filter_map,
+                                                                                 s);
+    ASSERT_FALSE(filtered.empty());
 
-    const char* new_data = nullptr;
-    int32_t read_len = reader->read((const void**)&new_data, 0, reader->size());
-    ASSERT_TRUE(read_len > 0);
-
-    std::string_view s1(new_data, read_len);
-    ASSERT_EQ(s1, "hello world");
+    ASSERT_EQ(filtered, "hello world");
 }
 
 TEST_F(CharReplaceCHarFilterTest, ChineseTest) {
@@ -57,15 +48,12 @@ TEST_F(CharReplaceCHarFilterTest, ChineseTest) {
     char_filter_map["char_filter_type"] = "char_replace";
     char_filter_map["char_filter_pattern"] = "，";
     char_filter_map["char_filter_replacement"] = " ";
-    auto reader = segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(char_filter_map);
-    reader->init(s.data(), s.size(), true);
+    const std::string filtered =
+            segment_v2::inverted_index::InvertedIndexAnalyzer::filter_characters(char_filter_map,
+                                                                                 s);
+    ASSERT_FALSE(filtered.empty());
 
-    const char* new_data = nullptr;
-    int32_t read_len = reader->read((const void**)&new_data, 0, reader->size());
-    ASSERT_TRUE(read_len > 0);
-
-    std::string_view s1(new_data, read_len);
-    ASSERT_EQ(s1, "\xE5 \x82\xE5\xB8\xB8");
+    ASSERT_EQ(filtered, "\xE5 \x82\xE5\xB8\xB8");
 }
 
 } // namespace doris

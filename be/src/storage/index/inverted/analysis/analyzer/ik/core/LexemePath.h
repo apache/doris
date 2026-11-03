@@ -24,7 +24,6 @@
 #include <optional>
 #include <sstream>
 
-#include "CLucene/_ApiHeader.h"
 #include "storage/index/inverted/analysis/analyzer/ik/core/QuickSortSet.h"
 
 namespace doris::segment_v2 {

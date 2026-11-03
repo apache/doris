@@ -29,22 +29,17 @@
 #include <string>
 #include <vector>
 
-#include "CLucene.h"
+#include "storage/index/inverted/analysis/text_stream_contract.h"
 #include "storage/index/inverted/analysis/tokenizer/empty/empty_tokenizer_factory.h"
 #include "storage/index/inverted/analysis/tokenizer/keyword/keyword_tokenizer_factory.h"
 #include "storage/index/inverted/analysis/tokenizer/standard/standard_tokenizer_factory.h"
-
-using namespace lucene::analysis;
 
 namespace doris::segment_v2::inverted_index {
 
 namespace {
 
-TokenizerPtr create_tokenizer(const std::string& tokenizer_type, const std::string& text) {
-    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
-    reader->init(text.data(), static_cast<int32_t>(text.size()), false);
-
-    TokenizerPtr tokenizer;
+std::unique_ptr<TextTokenizer> create_tokenizer(const std::string& tokenizer_type) {
+    std::unique_ptr<TextTokenizer> tokenizer;
     Settings settings;
 
     if (tokenizer_type == "standard") {
@@ -62,19 +57,7 @@ TokenizerPtr create_tokenizer(const std::string& tokenizer_type, const std::stri
     } else {
         throw std::invalid_argument("Unknown tokenizer type: " + tokenizer_type);
     }
-
-    tokenizer->set_reader(reader);
-    tokenizer->reset();
     return tokenizer;
-}
-
-std::vector<std::string> collect_tokens(TokenFilterPtr filter) {
-    std::vector<std::string> tokens;
-    Token t;
-    while (filter->next(&t) != nullptr) {
-        tokens.emplace_back(t.termBuffer<char>(), t.termLength<char>());
-    }
-    return tokens;
 }
 
 std::string normalize_with_nfkc_cf(const std::string& text) {
@@ -128,10 +111,9 @@ TEST_F(ICUNormalizerFilterFactoryTest, DefaultNormalizationKeywordTokenizer) {
     ICUNormalizerFilterFactory factory;
     factory.initialize(settings);
 
-    auto tokenizer = create_tokenizer("keyword", input);
-    auto filter = factory.create(tokenizer);
+    auto filter = factory.create(create_tokenizer("keyword"));
 
-    auto tokens = collect_tokens(filter);
+    auto tokens = collect_terms(*filter, input);
     ASSERT_EQ(tokens.size(), 1);
 
     std::string expected = normalize_with_nfkc_cf(input);
@@ -145,10 +127,9 @@ TEST_F(ICUNormalizerFilterFactoryTest, DefaultNormalizationStandardTokenizer) {
     ICUNormalizerFilterFactory factory;
     factory.initialize(settings);
 
-    auto tokenizer = create_tokenizer("standard", input);
-    auto filter = factory.create(tokenizer);
+    auto filter = factory.create(create_tokenizer("standard"));
 
-    auto tokens = collect_tokens(filter);
+    auto tokens = collect_terms(*filter, input);
     ASSERT_EQ(tokens.size(), 2);
 
     std::string normalized = normalize_with_nfkc_cf(input);
@@ -166,10 +147,9 @@ TEST_F(ICUNormalizerFilterFactoryTest, QuickCheckReturnsOriginal) {
     ICUNormalizerFilterFactory factory;
     factory.initialize(settings);
 
-    auto tokenizer = create_tokenizer("keyword", input);
-    auto filter = factory.create(tokenizer);
+    auto filter = factory.create(create_tokenizer("keyword"));
 
-    auto tokens = collect_tokens(filter);
+    auto tokens = collect_terms(*filter, input);
     ASSERT_EQ(tokens.size(), 1);
     EXPECT_EQ(tokens[0], input);
 }
@@ -181,10 +161,9 @@ TEST_F(ICUNormalizerFilterFactoryTest, EmptyInputProducesNoTokens) {
     ICUNormalizerFilterFactory factory;
     factory.initialize(settings);
 
-    auto tokenizer = create_tokenizer("keyword", input);
-    auto filter = factory.create(tokenizer);
+    auto filter = factory.create(create_tokenizer("keyword"));
 
-    auto tokens = collect_tokens(filter);
+    auto tokens = collect_terms(*filter, input);
     EXPECT_TRUE(tokens.empty());
 }
 
@@ -205,10 +184,9 @@ TEST_F(ICUNormalizerFilterFactoryTest, EmptyUnicodeSetFilterUsesBaseNormalizer) 
     ICUNormalizerFilterFactory factory;
     factory.initialize(settings);
 
-    auto tokenizer = create_tokenizer("keyword", input);
-    auto filter = factory.create(tokenizer);
+    auto filter = factory.create(create_tokenizer("keyword"));
 
-    auto tokens = collect_tokens(filter);
+    auto tokens = collect_terms(*filter, input);
     ASSERT_EQ(tokens.size(), 1);
 
     std::string expected = normalize_with_nfkc_cf(input);
@@ -232,10 +210,9 @@ TEST_F(ICUNormalizerFilterFactoryTest, EmptyUnicodeSetFallsBackToBase) {
     ICUNormalizerFilterFactory factory;
     factory.initialize(settings);
 
-    auto tokenizer = create_tokenizer("keyword", input);
-    auto filter = factory.create(tokenizer);
+    auto filter = factory.create(create_tokenizer("keyword"));
 
-    auto tokens = collect_tokens(filter);
+    auto tokens = collect_terms(*filter, input);
     ASSERT_EQ(tokens.size(), 1);
 
     std::string expected = normalize_with_nfkc_cf(input);
@@ -251,25 +228,22 @@ TEST_F(ICUNormalizerFilterFactoryTest, NonEmptyUnicodeSetCreatesFilteredNormaliz
     ICUNormalizerFilterFactory factory;
     factory.initialize(settings);
 
-    auto tokenizer = create_tokenizer("standard", input);
-    auto filter = factory.create(tokenizer);
+    auto filter = factory.create(create_tokenizer("standard"));
 
-    auto tokens = collect_tokens(filter);
+    auto tokens = collect_terms(*filter, input);
     EXPECT_GE(tokens.size(), 1U);
 }
 
 TEST_F(ICUNormalizerFilterFactoryTest, CreateWithoutInitializeThrows) {
     ICUNormalizerFilterFactory factory;
 
-    auto tokenizer = create_tokenizer("keyword", "test");
-    EXPECT_THROW(factory.create(tokenizer), Exception);
+    EXPECT_THROW(factory.create(create_tokenizer("keyword")), Exception);
 }
 
 TEST_F(ICUNormalizerFilterFactoryTest, NullNormalizerInFilterThrows) {
-    auto tokenizer = create_tokenizer("keyword", "test");
     std::shared_ptr<const icu::Normalizer2> normalizer = nullptr;
 
-    EXPECT_THROW(ICUNormalizerFilter(tokenizer, normalizer), Exception);
+    EXPECT_THROW(ICUNormalizerFilter(create_tokenizer("keyword"), normalizer), Exception);
 }
 
 TEST_F(ICUNormalizerFilterFactoryTest, ResetResetsUnderlyingStream) {
@@ -279,29 +253,16 @@ TEST_F(ICUNormalizerFilterFactoryTest, ResetResetsUnderlyingStream) {
     ICUNormalizerFilterFactory factory;
     factory.initialize(settings);
 
-    auto tokenizer = create_tokenizer("standard", input);
-    auto filter = factory.create(tokenizer);
+    auto filter = factory.create(create_tokenizer("standard"));
 
-    Token t;
-    std::vector<std::string> first_pass;
-    while (filter->next(&t) != nullptr) {
-        first_pass.emplace_back(t.termBuffer<char>(), t.termLength<char>());
-    }
+    std::vector<std::string> first_pass = collect_terms(*filter, input);
 
-    auto reader2 = std::make_shared<lucene::util::SStringReader<char>>();
-    reader2->init(input.data(), static_cast<int32_t>(input.size()), false);
-    tokenizer->set_reader(reader2);
-    filter->reset();
-
-    std::vector<std::string> second_pass;
-    while (filter->next(&t) != nullptr) {
-        second_pass.emplace_back(t.termBuffer<char>(), t.termLength<char>());
-    }
+    std::vector<std::string> second_pass = collect_terms(*filter, input);
 
     EXPECT_EQ(first_pass, second_pass);
 }
 
-TEST_F(ICUNormalizerFilterFactoryTest, LargeInputSkipsUnusedOffsetMaps) {
+TEST_F(ICUNormalizerFilterFactoryTest, LargeInputStaysCompact) {
     constexpr size_t input_size = 4 * 1024 * 1024;
     std::string input(input_size, 'a');
     input.back() = 'A';
@@ -310,24 +271,22 @@ TEST_F(ICUNormalizerFilterFactoryTest, LargeInputSkipsUnusedOffsetMaps) {
     ICUNormalizerFilterFactory factory;
     factory.initialize(settings);
 
-    auto tokenizer = create_tokenizer("empty", input);
-    auto filter = factory.create(tokenizer);
+    auto filter = factory.create(create_tokenizer("empty"));
+    filter->reset(input);
 
-    Token token;
+    TokenBatch batch;
 #ifdef ADDRESS_SANITIZER
     const size_t allocated_before = __sanitizer_get_current_allocated_bytes();
 #endif
-    ASSERT_NE(filter->next(&token), nullptr);
+    ASSERT_TRUE(filter->next_batch(batch));
 #ifdef ADDRESS_SANITIZER
     const size_t allocated_after = __sanitizer_get_current_allocated_bytes();
     ASSERT_GE(allocated_after, allocated_before);
     EXPECT_LT(allocated_after - allocated_before, input_size * 4);
 #endif
-    EXPECT_TRUE(filter->get_source_byte_offsets().empty());
-    EXPECT_TRUE(filter->get_source_byte_end_offsets().empty());
 }
 
-TEST_F(ICUNormalizerFilterFactoryTest, LargeInputUsesCompactEnabledSourceSpan) {
+TEST_F(ICUNormalizerFilterFactoryTest, LargeInputStaysCompactInStrictMode) {
     constexpr size_t input_size = 4 * 1024 * 1024;
     std::string input(input_size, 'a');
     input.back() = 'A';
@@ -336,27 +295,20 @@ TEST_F(ICUNormalizerFilterFactoryTest, LargeInputUsesCompactEnabledSourceSpan) {
     ICUNormalizerFilterFactory factory;
     factory.initialize(settings);
 
-    auto tokenizer = create_tokenizer("empty", input);
-    auto filter = factory.create(tokenizer);
-    filter->set_source_byte_offsets_enabled(true);
+    auto filter = factory.create(create_tokenizer("empty"));
+    filter->set_strict_utf8(true);
+    filter->reset(input);
 
-    Token token;
+    TokenBatch batch;
 #ifdef ADDRESS_SANITIZER
     const size_t allocated_before = __sanitizer_get_current_allocated_bytes();
 #endif
-    ASSERT_NE(filter->next(&token), nullptr);
+    ASSERT_TRUE(filter->next_batch(batch));
 #ifdef ADDRESS_SANITIZER
     const size_t allocated_after = __sanitizer_get_current_allocated_bytes();
     ASSERT_GE(allocated_after, allocated_before);
     EXPECT_LT(allocated_after - allocated_before, input_size * 12);
 #endif
-    EXPECT_TRUE(filter->get_source_byte_offsets().empty());
-    EXPECT_TRUE(filter->get_source_byte_end_offsets().empty());
-    int32_t source_start = -1;
-    int32_t source_end = -1;
-    EXPECT_TRUE(filter->get_conservative_source_byte_span(source_start, source_end));
-    EXPECT_EQ(source_start, 0);
-    EXPECT_EQ(source_end, static_cast<int32_t>(input.size()));
 }
 
 } // namespace doris::segment_v2::inverted_index

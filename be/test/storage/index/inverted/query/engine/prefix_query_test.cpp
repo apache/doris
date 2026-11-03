@@ -27,6 +27,7 @@
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analysis/analyzer/custom_analyzer.h"
 #include "storage/index/inverted/clucene/clucene_index_reader.h"
+#include "storage/index/inverted/clucene/lucene_analyzer_bridge.h"
 #include "storage/index/inverted/clucene/spi/clucene_index_source.h"
 #include "storage/index/inverted/common/string_helper.h"
 #include "storage/index/inverted/inverted_index_reader.h"
@@ -80,7 +81,8 @@ private:
         CustomAnalyzerConfig::Builder builder;
         builder.with_tokenizer_config("standard", {});
         auto config = builder.build();
-        auto analyzer = CustomAnalyzer::build_custom_analyzer(config);
+        auto analyzer = std::make_shared<LuceneAnalyzerBridge>(
+                CustomAnalyzer::build_custom_analyzer(config));
 
         auto* writer = _CLNEW IndexWriter(dir.c_str(), analyzer.get(), true);
         writer->setMaxBufferedDocs(100);

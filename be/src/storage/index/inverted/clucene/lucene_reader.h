@@ -19,11 +19,12 @@
 
 #include <memory>
 
-#include "CLucene.h"
+#include "CLucene.h" // IWYU pragma: keep
 #include "CLucene/util/CLStreams.h"
 
 namespace doris::segment_v2::inverted_index {
 
+// The reader a CLucene analyzer reads a value from, as the V1/V2 writer hands it over.
 using ReaderPtr = std::shared_ptr<lucene::util::Reader>;
 
 } // namespace doris::segment_v2::inverted_index

@@ -81,15 +81,13 @@ public:
         _normalizer = std::make_shared<icu::FilteredNormalizer2>(*base, *_unicode_set);
     }
 
-    ReaderPtr create(const ReaderPtr& in) override {
+    std::unique_ptr<TextCharFilter> create() const override {
         if (!_normalizer) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
                             "ICUNormalizerCharFilterFactory not initialized. Call initialize() "
                             "first.");
         }
-        auto filter = std::make_shared<ICUNormalizerCharFilter>(in, _normalizer);
-        filter->initialize();
-        return filter;
+        return std::make_unique<ICUNormalizerCharFilter>(_normalizer);
     }
 
 private:

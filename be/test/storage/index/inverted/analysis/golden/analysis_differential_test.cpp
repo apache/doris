@@ -208,9 +208,7 @@ private:
     GoldenLine scan(StandardTokenizerImpl* scanner, std::string_view line) const {
         GoldenLine out;
         try {
-            auto reader = InvertedIndexAnalyzer::create_reader({});
-            reader->init(line.data(), cast_set<int32_t>(line.size()), false);
-            scanner->yyreset(reader);
+            scanner->yyreset(line);
             int32_t skipped = 0;
             for (auto type = scanner->get_next_token();
                  type != StandardTokenizerImpl::TokenType::EOF_TOKEN;

@@ -1412,7 +1412,7 @@ TEST_F(InvertedIndexWriterTest, AnalyzerExceptionReturnsStatus) {
     InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_VARCHAR> writer(
             column.name(), &index_file_writer, &index_meta);
     ASSERT_TRUE(writer.init().ok());
-    writer.set_analysis_for_test(inverted_index::InvertedIndexAnalyzer::create_reader({}),
+    writer.set_analysis_for_test(std::make_shared<lucene::util::SStringReader<char>>(),
                                  std::make_shared<ImmediateFailureAnalyzer>());
 
     const Slice value("value");
@@ -1448,7 +1448,7 @@ TEST_F(InvertedIndexWriterTest, ArrayAnalyzerExceptionReturnsStatus) {
     InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_VARCHAR> writer(
             column.name(), &index_file_writer, &index_meta);
     ASSERT_TRUE(writer.init().ok());
-    writer.set_analysis_for_test(inverted_index::InvertedIndexAnalyzer::create_reader({}),
+    writer.set_analysis_for_test(std::make_shared<lucene::util::SStringReader<char>>(),
                                  std::make_shared<ImmediateFailureAnalyzer>());
 
     const Slice value("value");

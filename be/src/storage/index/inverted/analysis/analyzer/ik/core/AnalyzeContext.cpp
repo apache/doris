@@ -17,6 +17,12 @@
 
 #include "storage/index/inverted/analysis/analyzer/ik/core/AnalyzeContext.h"
 
+#include <algorithm>
+#include <cstring>
+#include <string>
+
+#include "common/exception.h"
+
 namespace doris::segment_v2 {
 
 AnalyzeContext::AnalyzeContext(Arena& arena, std::shared_ptr<Configuration> config)
@@ -63,11 +69,12 @@ void AnalyzeContext::reset() {
     results_ = std::queue<Lexeme>();
 }
 
-size_t AnalyzeContext::fillBuffer(lucene::util::Reader* reader) {
+size_t AnalyzeContext::fillBuffer(inverted_index::TextCursor& cursor) {
     try {
         int32_t readCount = 0;
         if (buffer_offset_ == 0) {
-            readCount = max(0, reader->readCopy(segment_buff_.data(), 0, BUFF_SIZE));
+            readCount = std::max(
+                    0, cursor.read_copy(segment_buff_.data(), static_cast<int32_t>(BUFF_SIZE)));
             CharacterUtil::decodeStringToRunes(segment_buff_.data(), readCount, typed_runes_,
                                                config_->isEnableLowercase());
         } else {
@@ -76,11 +83,12 @@ size_t AnalyzeContext::fillBuffer(lucene::util::Reader* reader) {
                 std::memmove(segment_buff_.data(),
                              segment_buff_.data() + typed_runes_[cursor_].getNextBytePosition(),
                              offset);
-                readCount = std::max(0, reader->readCopy(segment_buff_.data() + offset, 0,
+                readCount = std::max(0, cursor.read_copy(segment_buff_.data() + offset,
                                                          static_cast<int32_t>(BUFF_SIZE - offset)));
                 readCount += offset;
             } else {
-                readCount = std::max(0, reader->readCopy(segment_buff_.data(), 0, BUFF_SIZE));
+                readCount = std::max(
+                        0, cursor.read_copy(segment_buff_.data(), static_cast<int32_t>(BUFF_SIZE)));
             }
             CharacterUtil::decodeStringToRunes(segment_buff_.data(), readCount, typed_runes_,
                                                config_->isEnableLowercase());
@@ -91,7 +99,7 @@ size_t AnalyzeContext::fillBuffer(lucene::util::Reader* reader) {
             std::string error_msg = "IK Analyzer: typed_runes_ is empty, but readCount is not 0: ";
             error_msg += std::to_string(readCount) + " " + std::to_string(typed_runes_.size());
             LOG(ERROR) << error_msg;
-            _CLTHROWT(CL_ERR_Runtime, error_msg.c_str());
+            throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR, error_msg);
         }
 
         available_ = readCount;
@@ -102,20 +110,12 @@ size_t AnalyzeContext::fillBuffer(lucene::util::Reader* reader) {
         std::string error_msg = "IK Analyzer exception during buffer filling: ";
         error_msg += e.what();
         LOG(ERROR) << error_msg;
-
-        // Select appropriate error code based on exception type
-        int errCode = CL_ERR_Runtime; // Default error code
-
-        if (dynamic_cast<const std::bad_alloc*>(&e)) {
-            errCode = CL_ERR_OutOfMemory;
-        }
-
-        _CLTHROWT(errCode, error_msg.c_str());
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR, error_msg);
     } catch (...) {
         // Handle unknown exceptions
         std::string error_msg = "IK Analyzer: Unknown error occurred during buffer filling";
         LOG(ERROR) << error_msg;
-        _CLTHROWT(CL_ERR_Runtime, error_msg.c_str());
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR, error_msg);
     }
 }
 

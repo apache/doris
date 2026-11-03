@@ -27,7 +27,6 @@
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "storage/index/inverted/analysis/analyzer/custom_analyzer.h"
 #include "storage/index/inverted/analysis/normalizer/custom_normalizer.h"
-#include "storage/index/inverted/clucene/lucene_backed_text_analyzer.h"
 
 namespace doris {
 namespace {
@@ -41,11 +40,6 @@ public:
 private:
     const TextAnalyzerPtr _analyzer;
 };
-
-TextAnalyzerPtr lucene_backed(std::shared_ptr<lucene::analysis::Analyzer> analyzer) {
-    return std::make_shared<segment_v2::inverted_index::LuceneBackedTextAnalyzer>(
-            std::move(analyzer));
-}
 
 } // namespace
 
@@ -385,8 +379,8 @@ TextAnalyzerPtr IndexPolicyMgr::build_normalizer_from_policy(
         custom_normalizer_config->get_token_filter_configs().empty()) {
         return nullptr;
     }
-    return lucene_backed(segment_v2::inverted_index::CustomNormalizer::build_custom_normalizer(
-            custom_normalizer_config));
+    return segment_v2::inverted_index::CustomNormalizer::build_custom_normalizer(
+            custom_normalizer_config);
 }
 
 void IndexPolicyMgr::process_filter_configs(
@@ -450,7 +444,7 @@ TextAnalyzerPtr IndexPolicyMgr::build_builtin_normalizer(const std::string& name
         CustomNormalizerConfig::Builder builder;
         builder.add_token_filter_config("lowercase", Settings {});
         auto config = builder.build();
-        return lucene_backed(CustomNormalizer::build_custom_normalizer(config));
+        return CustomNormalizer::build_custom_normalizer(config);
     }
 
     throw Exception(ErrorCode::INVALID_ARGUMENT, "Unknown builtin normalizer: " + name);

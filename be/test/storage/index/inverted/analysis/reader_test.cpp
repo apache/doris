@@ -15,16 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/index/inverted/analysis/reader.h"
-
 #include <gtest/gtest.h>
 
 #include <memory>
 #include <string>
 
+#include "common/cast_set.h"
 #include "storage/index/index_common.h"
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "storage/index/inverted/clucene/lucene_analyzer_bridge.h"
+#include "storage/index/inverted/clucene/lucene_reader.h"
 #include "util/slice.h"
 
 using namespace lucene::analysis;

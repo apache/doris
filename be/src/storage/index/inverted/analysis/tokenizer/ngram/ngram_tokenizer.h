@@ -17,36 +17,44 @@
 
 #pragma once
 
-#include <unicode/unistr.h>
-#include <unicode/utext.h>
+#include <unicode/umachine.h>
 
-#include "storage/index/inverted/analysis/tokenizer/tokenizer.h"
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
-using namespace lucene::analysis;
+#include "storage/index/inverted/analysis/per_token_stream.h"
 
 namespace doris::segment_v2::inverted_index {
 
-class NGramTokenizer : public DorisTokenizer {
+// The n-grams of the value, min_gram to max_gram code points long, that hold token chars only;
+// with edges_only, only those that start a run of token chars.
+class NGramTokenizer : public PerTokenTokenizer {
 public:
     NGramTokenizer(int32_t min_gram, int32_t max_gram, bool edges_only);
     NGramTokenizer(int32_t min_gram, int32_t max_gram);
     NGramTokenizer();
     ~NGramTokenizer() override = default;
 
-    Token* next(Token* token) override;
-    void reset() override;
+    // Strict: invalid UTF-8 throws instead of being skipped.
+    void set_strict_utf8(bool strict) override { _strict_utf8 = strict; }
+
+    // The code point window, fixed by max_gram, and the scratch of one gram.
+    size_t reserved_bytes() const override {
+        return _buffer.capacity() * sizeof(UChar32) + _utf8_buffer.capacity();
+    }
 
     static constexpr int32_t DEFAULT_MIN_NGRAM_SIZE = 1;
     static constexpr int32_t DEFAULT_MAX_NGRAM_SIZE = 2;
 
+protected:
+    void on_reset(std::string_view text) override;
+    bool next_token(TokenRef& token) override;
+
 private:
     void init(int32_t min_gram, int32_t max_gram, bool edges_only);
     void update_last_non_token_char();
-
-    void consume() {
-        auto c = _buffer[_buffer_start++];
-        _offset += U8_LENGTH(c);
-    }
 
     virtual bool is_token_char(UChar32 chr) { return true; }
 
@@ -58,14 +66,14 @@ private:
 
     int32_t _buffer_start = 0;
     int32_t _buffer_end = 0;
-    int32_t _offset = 0;
     int32_t _gram_size = 0;
     int32_t _min_gram = 0;
     int32_t _max_gram = 0;
-    bool _exhausted = false;
+    bool _input_exhausted = false;
     int32_t _last_checked_char = 0;
     int32_t _last_non_token_char = 0;
     bool _edges_only = false;
+    bool _strict_utf8 = false;
 
     const char* _char_buffer = nullptr;
     int32_t _char_offset = 0;

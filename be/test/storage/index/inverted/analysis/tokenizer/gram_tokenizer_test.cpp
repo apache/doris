@@ -20,9 +20,11 @@
 #include <gtest/gtest.h>
 
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
+#include "storage/index/inverted/analysis/gram/gram_extractor.h"
 #include "storage/index/inverted/analysis/scratch.h"
 #include "storage/index/inverted/analysis/setting.h"
 #include "storage/index/inverted/analysis/text_stream_contract.h"
@@ -41,16 +43,7 @@ namespace gram_tokenizer_test_detail {
 
 std::vector<std::string> gram_tokenize(NGramTokenizerFactory& factory, const std::string& data) {
     auto tokenizer = factory.create();
-    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
-    reader->init(data.data(), data.size(), false);
-    tokenizer->set_reader(reader);
-    tokenizer->reset();
-    std::vector<std::string> out;
-    Token t;
-    while (tokenizer->next(&t)) {
-        out.emplace_back(t.termBuffer<char>(), t.termLength<char>());
-    }
-    return out;
+    return collect_terms(*tokenizer, data);
 }
 
 } // namespace gram_tokenizer_test_detail
@@ -139,9 +132,11 @@ TEST(GramTokenizerTest, GramModeSkipsLegacyMinMaxGapCheck) {
     EXPECT_THROW(NGramTokenizerFactory().initialize(Settings(bad)), Exception);
 }
 
-// The gram-family analyzer streams with the native GramTokenizer: it gives the grams the tokenizer
-// of a CLucene chain gives, each one position after the last, and keeps the stream contract.
-TEST(GramTokenizerTest, NativeStreamMatchesTheCLuceneTokenizer) {
+// The gram-family analyzer streams with the native GramTokenizer: it gives each row the grams
+// GramExtractor extracts from it, which the query side relies on, each one position after the
+// last; the tokenizer the factory makes for a chain gives the same grams; and the stream keeps the
+// stream contract.
+TEST(GramTokenizerTest, NativeStreamMatchesTheExtractor) {
     std::string log_line;
     while (log_line.size() < 40000) {
         log_line += "2026-09-06 INFO rpc request completed service=Frontend latency_ms=17 ";
@@ -159,6 +154,7 @@ TEST(GramTokenizerTest, NativeStreamMatchesTheCLuceneTokenizer) {
         factory.initialize(Settings(args));
         ASSERT_TRUE(factory.gram_scheme().has_value());
         const GramTextAnalyzer analyzer(*factory.gram_scheme());
+        gram::GramExtractor extractor(*factory.gram_scheme());
         for (const std::string& row : rows) {
             const auto stream = analyzer.create_stream();
             std::vector<std::string> native;
@@ -166,7 +162,11 @@ TEST(GramTokenizerTest, NativeStreamMatchesTheCLuceneTokenizer) {
                 EXPECT_EQ(token.position_increment, 1);
                 native.push_back(token.term);
             }
-            EXPECT_EQ(native, gram_tokenize(factory, row)) << row.substr(0, 40);
+            std::vector<std::string_view> extracted;
+            extractor.extract(row, &extracted);
+            EXPECT_EQ(native, std::vector<std::string>(extracted.begin(), extracted.end()))
+                    << row.substr(0, 40);
+            EXPECT_EQ(gram_tokenize(factory, row), native) << row.substr(0, 40);
         }
         expect_text_stream_contract([&analyzer] { return analyzer.create_stream(); }, rows);
     }

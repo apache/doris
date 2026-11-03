@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "common/config.h"
 #include "storage/index/inverted/analysis/tokenizer/icu/icu_tokenizer.h"
 #include "storage/index/inverted/analysis/tokenizer/tokenizer_factory.h"
 
@@ -29,8 +30,8 @@ public:
 
     void initialize(const Settings& settings) override {}
 
-    TokenizerPtr create() override {
-        auto tokenizer = std::make_shared<ICUTokenizer>();
+    std::unique_ptr<TextTokenizer> create() const override {
+        auto tokenizer = std::make_unique<ICUTokenizer>();
         tokenizer->initialize(config::inverted_index_dict_path + "/icu");
         return tokenizer;
     }

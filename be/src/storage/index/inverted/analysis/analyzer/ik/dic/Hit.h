@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <CLucene.h>
-
 #include <memory>
 
 namespace doris::segment_v2 {
