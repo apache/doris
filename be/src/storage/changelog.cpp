@@ -154,7 +154,6 @@ Status resolve_layout(const TabletSchemaSPtr& source, const TabletSchemaSPtr& ta
             return Status::InvalidArgument("duplicate changelog schema UID");
         }
     }
-    std::unordered_set<uint32_t> mapped_source;
     std::unordered_set<uint32_t> mapped_target = {layout->tso_cid, layout->lsn_cid, layout->op_cid};
     for (const auto& entry : mapping.entries()) {
         auto src = source_cids.find(entry.source_column_unique_id());
@@ -166,14 +165,12 @@ Status resolve_layout(const TabletSchemaSPtr& source, const TabletSchemaSPtr& ta
         }
         const auto& source_col = source->column(src->second);
         const auto& target_col = target->column(dst->second);
-        if ((!source_col.visible() && !source_col.is_key()) ||
-            source_col.is_key() != target_col.is_key() ||
+        if (source_col.is_key() != target_col.is_key() ||
             !is_compatible_type_shape(source_col, target_col, !source_col.is_key()) ||
             !mapped_target.insert(dst->second).second) {
             return Status::InvalidArgument("invalid changelog current mapping for UID {}",
                                            entry.source_column_unique_id());
         }
-        mapped_source.insert(src->second);
         layout->current_source_cids.push_back(src->second);
         layout->current_target_cids.push_back(dst->second);
         layout->current_nullable_widening.push_back(!source_col.is_nullable() &&
@@ -199,11 +196,11 @@ Status resolve_layout(const TabletSchemaSPtr& source, const TabletSchemaSPtr& ta
             layout->before_target_cids.push_back(before->second);
         }
     }
-    for (uint32_t cid = 0; cid < source->num_columns(); ++cid) {
-        const auto& col = source->column(cid);
-        if ((col.visible() || col.is_key()) && !mapped_source.contains(cid)) {
-            return Status::InvalidArgument("unmapped changelog source UID {}", col.unique_id());
-        }
+    // validate_mapping guarantees unique source UIDs, and every entry resolved above.
+    // Equal counts therefore prove coverage of all visible/key source columns.
+    if (static_cast<size_t>(mapping.entries_size()) != source_cids.size()) {
+        return Status::InvalidArgument("unmapped changelog source columns: expected {}, actual {}",
+                                       source_cids.size(), mapping.entries_size());
     }
     if (mapped_target.size() != target->num_columns()) {
         return Status::InvalidArgument("unmapped changelog target columns");

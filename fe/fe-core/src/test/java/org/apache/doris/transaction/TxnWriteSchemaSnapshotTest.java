@@ -106,22 +106,17 @@ class TxnWriteSchemaSnapshotTest {
     }
 
     @Test
-    void remoteBatchValidatesBeforeInstallingAndEmptyIsComplete() {
+    void remoteInstallationRejectsExistingLocalSchemaWithoutMutation() {
         TransactionState state = new TransactionState();
-        TxnWriteSchemaSnapshot snapshot = new TxnWriteSchemaSnapshot(1, ImmutableMap.of(2L, 3),
+        TxnWriteSchemaSnapshot local = new TxnWriteSchemaSnapshot(1, ImmutableMap.of(2L, 3),
                 Collections.emptyMap(), false);
-        Assertions.assertThrows(IllegalArgumentException.class, () -> state.installRemoteWriteSchemas(
-                java.util.Arrays.asList(snapshot, snapshot)));
-        Assertions.assertThrows(IllegalArgumentException.class, () -> state.installRemoteWriteSchemas(
-                java.util.Arrays.asList(snapshot, new TxnWriteSchemaSnapshot(2, ImmutableMap.of(2L, 4),
-                        Collections.emptyMap(), true))));
-        Assertions.assertNull(state.getWriteSchema(state.getTransactionId(), 1));
+        state.registerWriteSchema(state.getTransactionId(), local);
+        TxnWriteSchemaSnapshot remote = new TxnWriteSchemaSnapshot(2, ImmutableMap.of(3L, 4),
+                Collections.emptyMap(), true);
+        Assertions.assertThrows(IllegalStateException.class, () -> state.installRemoteWriteSchema(remote));
+        Assertions.assertEquals(local, state.getWriteSchema(state.getTransactionId(), 1));
+        Assertions.assertNull(state.getWriteSchema(state.getTransactionId(), 2));
         Assertions.assertFalse(state.isPartialUpdate());
-        Assertions.assertTrue(state.getLoadedTblIndexes().isEmpty());
-        state.installRemoteWriteSchemas(Collections.emptyList());
-        Assertions.assertThrows(IllegalStateException.class, () -> state.registerWriteSchema(100, snapshot));
-        state.setTransactionStatus(TransactionStatus.COMMITTED);
-        TransactionState replay = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(state), TransactionState.class);
-        replay.installRemoteWriteSchemas(Collections.emptyList());
+        Assertions.assertEquals(ImmutableMap.of(1L, Collections.singleton(2L)), state.getLoadedTblIndexes());
     }
 }

@@ -227,19 +227,24 @@ class ChangelogWriteMappingTest {
     }
 
     @Test
-    void remoteEmptyIsCompleteAndCannotBeInstalledAfterFreeze() {
+    void remoteSnapshotIsCompleteAndCannotBeInstalledAfterFreeze() {
         TransactionState state = new TransactionState();
-        state.installRemoteWriteSchemas(Collections.emptyList());
+        TxnWriteSchemaSnapshot snapshot = snapshot(ImmutableMap.of(5L, mapping(false, entry(1, 10))));
+        state.installRemoteWriteSchema(snapshot);
+        Assertions.assertEquals(snapshot, state.getWriteSchema(state.getTransactionId(), 20));
+        Assertions.assertEquals(Collections.singleton(5L), state.getLoadedTblIndexes().get(20L));
+        Assertions.assertThrows(IllegalStateException.class, () -> state.registerWriteSchema(100, ordinarySnapshot()));
         state.setTransactionStatus(TransactionStatus.COMMITTED);
-        state.installRemoteWriteSchemas(Collections.emptyList());
+        state.installRemoteWriteSchema(snapshot);
         TransactionState replay = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(state), TransactionState.class);
-        replay.installRemoteWriteSchemas(Collections.emptyList());
-        Assertions.assertThrows(IllegalStateException.class, () -> state.installRemoteWriteSchemas(
-                Collections.singletonList(snapshot(ImmutableMap.of(5L, mapping(false, entry(1, 10)))))));
+        replay.installRemoteWriteSchema(snapshot);
+        Assertions.assertThrows(IllegalStateException.class, () -> replay.installRemoteWriteSchema(
+                snapshot(ImmutableMap.of(5L, mapping(false, entry(1, 11))))));
+        Assertions.assertEquals(snapshot, replay.getWriteSchema(replay.getTransactionId(), 20));
         TransactionState frozen = new TransactionState();
         frozen.setTransactionStatus(TransactionStatus.PRECOMMITTED);
         Assertions.assertThrows(IllegalStateException.class,
-                () -> frozen.installRemoteWriteSchemas(Collections.emptyList()));
+                () -> frozen.installRemoteWriteSchema(snapshot));
         frozen.setTransactionStatus(TransactionStatus.UNKNOWN);
         Assertions.assertThrows(IllegalStateException.class,
                 () -> frozen.registerWriteSchema(100, ordinarySnapshot()));
