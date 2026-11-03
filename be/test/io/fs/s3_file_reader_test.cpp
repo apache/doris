@@ -32,6 +32,8 @@
 #include "io/fs/obj_storage_file_reader.h"
 #include "io/fs/read_io_trace_test_util.h"
 #include "io/io_common.h"
+#include "io/obj_storage/obj_client_holder.h"
+#include "io/obj_storage/obj_storage_config.h"
 #include "runtime/runtime_profile.h"
 #include "util/countdown_latch.h"
 #include "util/defer_op.h"

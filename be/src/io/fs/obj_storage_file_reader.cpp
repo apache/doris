@@ -33,6 +33,7 @@
 #include "io/fs/err_utils.h"
 #include "io/fs/read_io_trace.h"
 #include "io/io_common.h"
+#include "io/obj_storage/obj_client_holder.h"
 #include "runtime/file_scan_profile.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/thread_context.h"

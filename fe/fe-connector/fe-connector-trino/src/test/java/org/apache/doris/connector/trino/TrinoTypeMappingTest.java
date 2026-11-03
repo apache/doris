@@ -37,6 +37,7 @@ import io.trino.spi.type.TypeOperators;
 import io.trino.spi.type.UuidType;
 import io.trino.spi.type.VarbinaryType;
 import io.trino.spi.type.VarcharType;
+import io.trino.type.JsonType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -167,5 +168,23 @@ public class TrinoTypeMappingTest {
     public void testNativeUuidType() {
         // A native UUID must not lose its logical type at the connector boundary.
         Assertions.assertEquals("UUID", name(UuidType.UUID));
+    }
+
+    @Test
+    public void testJsonMapsToNativeJson() {
+        Assertions.assertEquals("JSONB", Assertions.assertDoesNotThrow(() -> name(JsonType.JSON)));
+    }
+
+    @Test
+    public void testNestedJsonRetainsItsLogicalType() {
+        ConnectorType array = Assertions.assertDoesNotThrow(
+                () -> TrinoTypeMapping.toConnectorType(new ArrayType(JsonType.JSON)));
+        Assertions.assertEquals("JSONB", array.getChildren().get(0).getTypeName());
+        ConnectorType map = TrinoTypeMapping.toConnectorType(
+                new MapType(VarcharType.VARCHAR, JsonType.JSON, new TypeOperators()));
+        Assertions.assertEquals("JSONB", map.getChildren().get(1).getTypeName());
+        ConnectorType row = TrinoTypeMapping.toConnectorType(RowType.rowType(RowType.field("payload", JsonType.JSON)));
+        Assertions.assertEquals(Collections.singletonList("payload"), row.getFieldNames());
+        Assertions.assertEquals("JSONB", row.getChildren().get(0).getTypeName());
     }
 }

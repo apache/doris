@@ -24,7 +24,6 @@
 #include "common/status.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
-#include "io/fs/obj_storage_file_system.h"
 #include "io/fs/path.h"
 #include "util/slice.h"
 
@@ -32,6 +31,7 @@ namespace doris {
 class RuntimeProfile;
 
 namespace io {
+class ObjClientHolder;
 struct IOContext;
 
 class ObjStorageFileReader final : public FileReader {
