@@ -565,11 +565,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             operationCompleted = true;
             profileFinalizer.run();
             return result;
-        } catch (RuntimeException | Error failure) {
+        } catch (RuntimeException failure) {
             if (!operationCompleted) {
                 try {
                     profileFinalizer.run();
-                } catch (RuntimeException | Error profileFailure) {
+                } catch (RuntimeException profileFailure) {
                     failure.addSuppressed(profileFailure);
                 }
             }
@@ -2363,7 +2363,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                             () -> scanProvider.collectScanProfiles(connectorSession));
                     writeScanProfilesInto(executionSummary, profiles);
                 }
-            } catch (Exception | Error e) {
+            } catch (Exception e) {
                 UserException profileFailure = new UserException(e.getMessage(), e);
                 UserException primaryFailure = batchException.get();
                 if (primaryFailure == null) {

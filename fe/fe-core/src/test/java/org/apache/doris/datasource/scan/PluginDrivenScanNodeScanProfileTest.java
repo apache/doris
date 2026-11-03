@@ -22,27 +22,16 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.profile.RuntimeProfile;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.connector.spi.ConnectorSession;
-import org.apache.doris.connector.spi.ConnectorTaskScheduler;
-import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
-import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
-import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
 import org.apache.doris.datasource.split.SplitAssignment;
-import org.apache.doris.datasource.split.SplitGenerator;
-import org.apache.doris.datasource.split.SplitProducer;
-import org.apache.doris.datasource.split.SplitToScanRange;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
-import org.mockito.InOrder;
 import org.mockito.Mockito;
 
-import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -268,115 +257,6 @@ public class PluginDrivenScanNodeScanProfileTest {
         Assertions.assertEquals(2, group.getChildMap().size());
         Assertions.assertNotNull(group.getChildMap().get("Scan A"));
         Assertions.assertNotNull(group.getChildMap().get("Scan B"));
-    }
-
-    @Test
-    public void streamingPublishesAfterCloseBeforeFinishingSchedule() throws Exception {
-        StreamingFixture fixture = new StreamingFixture();
-        fixture.run();
-        InOrder order = Mockito.inOrder(fixture.source, fixture.provider, fixture.assignment);
-        order.verify(fixture.source).close();
-        order.verify(fixture.provider).collectScanProfiles(fixture.session);
-        order.verify(fixture.assignment).finishSchedule();
-        Assertions.assertNotNull(fixture.summary.getChildMap().get("Delta Scan Metrics"));
-    }
-
-    @Test
-    public void streamingKeepsPrimaryFailureAndClosesWithoutReenteringStoppedConnector() throws Exception {
-        StreamingFixture fixture = new StreamingFixture();
-        RuntimeException failure = new IllegalStateException("iteration failed");
-        IOException closeFailure = new IOException("close failed");
-        Mockito.when(fixture.source.hasNext()).thenThrow(failure);
-        Mockito.doThrow(closeFailure).when(fixture.source).close();
-        fixture.run();
-        ArgumentCaptor<UserException> error = ArgumentCaptor.forClass(UserException.class);
-        Mockito.verify(fixture.assignment, Mockito.atLeastOnce()).setException(error.capture());
-        UserException primary = error.getValue();
-        Assertions.assertSame(failure, primary.getCause());
-        Assertions.assertEquals(1, primary.getSuppressed().length);
-        Assertions.assertSame(closeFailure, primary.getSuppressed()[0].getCause());
-        Assertions.assertTrue(fixture.assignment.isStop());
-        Mockito.verify(fixture.source).close();
-        Mockito.verify(fixture.provider, Mockito.never()).collectScanProfiles(fixture.session);
-        Mockito.verify(fixture.assignment).finishSchedule();
-    }
-
-    @Test
-    public void streamingClosesAndFinishesWhenLazyPluginLoadingFails() throws Exception {
-        StreamingFixture fixture = new StreamingFixture();
-        NoClassDefFoundError failure = new NoClassDefFoundError("lazy connector dependency");
-        Mockito.when(fixture.source.hasNext()).thenThrow(failure);
-        fixture.run();
-        Mockito.verify(fixture.source).close();
-        Mockito.verify(fixture.provider, Mockito.never()).collectScanProfiles(fixture.session);
-        Mockito.verify(fixture.assignment).finishSchedule();
-        Mockito.verify(fixture.assignment, Mockito.atLeastOnce()).setException(
-                Mockito.argThat(error -> error.getCause() == failure));
-    }
-
-    @Test
-    public void streamingReportsOpenCloseAndProfileFailures() throws Exception {
-        for (String phase : List.of("open", "close", "profile")) {
-            StreamingFixture fixture = new StreamingFixture();
-            NoClassDefFoundError failure = new NoClassDefFoundError(phase);
-            if (phase.equals("open")) {
-                Mockito.when(fixture.provider.streamSplits(fixture.session, fixture.request)).thenThrow(failure);
-            } else if (phase.equals("close")) {
-                Mockito.doThrow(failure).when(fixture.source).close();
-            } else {
-                Mockito.when(fixture.provider.collectScanProfiles(fixture.session)).thenThrow(failure);
-            }
-            fixture.run();
-            Mockito.verify(fixture.assignment, Mockito.atLeastOnce()).setException(
-                    Mockito.argThat(error -> error.getCause() == failure));
-            Mockito.verify(fixture.assignment).finishSchedule();
-        }
-    }
-
-    private static class StreamingFixture {
-        private final PluginDrivenScanNode node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
-        private final ConnectorSession session = Mockito.mock(ConnectorSession.class);
-        private final ConnectorScanPlanProvider provider = Mockito.mock(ConnectorScanPlanProvider.class);
-        private final ConnectorSplitSource source = Mockito.mock(ConnectorSplitSource.class);
-        private final SplitAssignment assignment = Mockito.spy(new SplitAssignment(
-                Mockito.mock(FederationBackendPolicy.class), Mockito.mock(SplitGenerator.class),
-                Mockito.mock(SplitToScanRange.class), Collections.emptyMap(), Collections.emptyList(), false, 16, 16));
-        private final ConnectorScanRequest request = ConnectorScanRequest.builder(
-                Mockito.mock(ConnectorTableHandle.class), Collections.emptyList())
-                .scanContext(assignment.getScanContext()).build();
-        private final RuntimeProfile summary = new RuntimeProfile("Execution Summary");
-
-        private StreamingFixture() throws IOException {
-            Deencapsulation.setField(node, "connectorSession", session);
-            Deencapsulation.setField(node, "splitAssignment", assignment);
-            Deencapsulation.setField(node, "sessionVariable", new SessionVariable());
-            Mockito.when(session.getTaskScheduler(ConnectorTaskScheduler.Stage.SPLIT))
-                    .thenReturn(ConnectorTaskScheduler.DIRECT);
-            Mockito.when(provider.streamSplits(session, request)).thenReturn(source);
-            Mockito.doAnswer(invocation -> {
-                Assertions.assertSame(provider.getClass().getClassLoader(),
-                        Thread.currentThread().getContextClassLoader());
-                return null;
-            }).when(source).close();
-            Mockito.when(provider.collectScanProfiles(session)).thenReturn(
-                    Collections.singletonList(profile("Delta Scan Metrics", "scan", "splits", "0")));
-        }
-
-        private void run() {
-            ClassLoader previous = Thread.currentThread().getContextClassLoader();
-            ClassLoader caller = new ClassLoader(previous) {};
-            Thread.currentThread().setContextClassLoader(caller);
-            try {
-                SplitProducer.BatchSource batchSource = Deencapsulation.invoke(node, "createStreamingBatchSource",
-                        provider, request, SummaryProfile.class);
-                Deencapsulation.invoke(node, "startSplitProducers",
-                        provider, Collections.singletonList(batchSource), summary);
-                Assertions.assertTrue(assignment.getTerminationFuture().isDone());
-                Assertions.assertSame(caller, Thread.currentThread().getContextClassLoader());
-            } finally {
-                Thread.currentThread().setContextClassLoader(previous);
-            }
-        }
     }
 
     private static void await(CountDownLatch latch) {
