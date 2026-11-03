@@ -17,6 +17,8 @@
 
 #include <aws/core/Aws.h>
 #include <aws/s3/S3Client.h>
+#include <aws/s3/model/DeletedObject.h>
+#include <aws/s3/model/Error.h>
 #include <aws/s3/model/ListObjectsV2Request.h>
 #include <aws/s3/model/ListObjectsV2Result.h>
 #include <aws/s3/model/Object.h>
@@ -34,7 +36,7 @@ using namespace Aws::S3::Model;
 namespace doris::io {
 class MockS3Client : public Aws::S3::S3Client {
 public:
-    MockS3Client() {};
+    MockS3Client() = default;
 
     MOCK_METHOD(Aws::S3::Model::ListObjectsV2Outcome, ListObjectsV2,
                 (const Aws::S3::Model::ListObjectsV2Request& request), (const, override));
@@ -168,7 +170,10 @@ TEST_F(S3ObjStorageClientMockTest,
                 const auto& objects = request.GetDelete().GetObjects();
                 EXPECT_EQ(objects.size(), 1);
                 EXPECT_EQ(objects.front().GetKey(), "missing-object");
-                return DeleteObjectsOutcome(DeleteObjectsResult {});
+                EXPECT_FALSE(request.GetDelete().GetQuiet());
+                DeleteObjectsResult result;
+                result.AddDeleted(DeletedObject().WithKey("missing-object"));
+                return DeleteObjectsOutcome(std::move(result));
             });
 
     auto response = s3_obj_storage_client->delete_object(
@@ -180,6 +185,150 @@ TEST_F(S3ObjStorageClientMockTest,
     response =
             s3_obj_storage_client->delete_objects({.bucket = "dummy-bucket"}, {"missing-object"});
     EXPECT_TRUE(response.ok());
+}
+
+TEST_F(S3ObjStorageClientMockTest, delete_objects_rejects_unconfirmed_batch) {
+    auto mock_s3_client = std::make_shared<MockS3Client>();
+    auto s3_obj_storage_client = std::make_shared<S3ObjStorageClient>(mock_s3_client);
+    EXPECT_CALL(*mock_s3_client, DeleteObjects(testing::_))
+            .WillOnce([](const DeleteObjectsRequest& request) {
+                EXPECT_EQ(request.GetDelete().GetObjects().size(), 2);
+                EXPECT_FALSE(request.GetDelete().GetQuiet());
+                DeleteObjectsResult result;
+                result.SetRequestId("unconfirmed-request");
+                return DeleteObjectsOutcome(std::move(result));
+            });
+
+    auto response = s3_obj_storage_client->delete_objects({.bucket = "dummy-bucket"},
+                                                          {"deleted-object", "retained-object"});
+    EXPECT_FALSE(response.ok());
+    EXPECT_NE(response.status.msg.find("deleted-object"), std::string::npos);
+    EXPECT_EQ(response.request_id, "unconfirmed-request");
+}
+
+TEST_F(S3ObjStorageClientMockTest, delete_objects_checks_keys_not_counts_or_order) {
+    auto mock_s3_client = std::make_shared<MockS3Client>();
+    auto client = std::make_shared<S3ObjStorageClient>(mock_s3_client);
+    EXPECT_CALL(*mock_s3_client, DeleteObjects(testing::_))
+            .WillOnce([](const DeleteObjectsRequest& request) {
+                EXPECT_FALSE(request.GetDelete().GetQuiet());
+                DeleteObjectsResult result;
+                result.AddDeleted(DeletedObject().WithKey("a"));
+                return DeleteObjectsOutcome(std::move(result));
+            })
+            .WillOnce([](const DeleteObjectsRequest&) {
+                DeleteObjectsResult result;
+                result.AddDeleted(DeletedObject().WithKey("a"));
+                result.AddDeleted(DeletedObject().WithKey("a"));
+                return DeleteObjectsOutcome(std::move(result));
+            })
+            .WillOnce([](const DeleteObjectsRequest&) {
+                DeleteObjectsResult result;
+                result.AddDeleted(DeletedObject().WithKey("b"));
+                result.AddDeleted(DeletedObject().WithKey("a"));
+                return DeleteObjectsOutcome(std::move(result));
+            })
+            .WillOnce([](const DeleteObjectsRequest&) {
+                DeleteObjectsResult result;
+                result.AddDeleted(DeletedObject().WithKey("b"));
+                result.AddDeleted(DeletedObject().WithKey("a"));
+                return DeleteObjectsOutcome(std::move(result));
+            });
+
+    auto response = client->delete_objects({.bucket = "dummy-bucket"}, {"a", "b"});
+    EXPECT_FALSE(response.ok());
+    EXPECT_NE(response.status.msg.find("object b"), std::string::npos);
+    response = client->delete_objects({.bucket = "dummy-bucket"}, {"a", "b"});
+    EXPECT_FALSE(response.ok());
+    response = client->delete_objects({.bucket = "dummy-bucket"}, {"a", "b"});
+    EXPECT_TRUE(response.ok()) << response.status.msg;
+    response = client->delete_objects({.bucket = "dummy-bucket"}, {"a", "a", "b"});
+    EXPECT_TRUE(response.ok()) << response.status.msg;
+}
+
+TEST_F(S3ObjStorageClientMockTest, delete_objects_checks_each_batch) {
+    auto mock_s3_client = std::make_shared<MockS3Client>();
+    auto client = std::make_shared<S3ObjStorageClient>(mock_s3_client);
+    std::vector<std::string> keys;
+    for (int i = 0; i < 1001; ++i) {
+        keys.push_back("key-" + std::to_string(i));
+    }
+    EXPECT_CALL(*mock_s3_client, DeleteObjects(testing::_))
+            .WillOnce([](const DeleteObjectsRequest& request) {
+                EXPECT_EQ(request.GetDelete().GetObjects().size(), 1000);
+                DeleteObjectsResult result;
+                for (const auto& object : request.GetDelete().GetObjects()) {
+                    result.AddDeleted(DeletedObject().WithKey(object.GetKey()));
+                }
+                return DeleteObjectsOutcome(std::move(result));
+            })
+            .WillOnce([](const DeleteObjectsRequest& request) {
+                EXPECT_EQ(request.GetDelete().GetObjects().size(), 1);
+                return DeleteObjectsOutcome(DeleteObjectsResult {});
+            });
+    auto response = client->delete_objects({.bucket = "dummy-bucket"}, keys);
+    EXPECT_FALSE(response.ok());
+    EXPECT_NE(response.status.msg.find("key-1000"), std::string::npos);
+}
+
+TEST_F(S3ObjStorageClientMockTest, delete_objects_empty_input_issues_no_request) {
+    auto mock_s3_client = std::make_shared<MockS3Client>();
+    auto client = std::make_shared<S3ObjStorageClient>(mock_s3_client);
+    EXPECT_CALL(*mock_s3_client, DeleteObjects(testing::_)).Times(0);
+    EXPECT_TRUE(client->delete_objects({.bucket = "dummy-bucket"}, {}).ok());
+}
+
+TEST_F(S3ObjStorageClientMockTest, delete_objects_preserves_request_and_object_errors) {
+    auto mock_s3_client = std::make_shared<MockS3Client>();
+    auto client = std::make_shared<S3ObjStorageClient>(mock_s3_client);
+    EXPECT_CALL(*mock_s3_client, DeleteObjects(testing::_))
+            .WillOnce([](const DeleteObjectsRequest&) {
+                Aws::S3::S3Error error;
+                error.SetResponseCode(Aws::Http::HttpResponseCode::FORBIDDEN);
+                error.SetMessage("request denied");
+                error.SetRequestId("request-error-id");
+                return DeleteObjectsOutcome(std::move(error));
+            })
+            .WillOnce([](const DeleteObjectsRequest&) {
+                DeleteObjectsResult result;
+                result.SetRequestId("object-error-id");
+                result.AddErrors(Error().WithKey("denied")
+                                         .WithCode("AccessDenied")
+                                         .WithMessage("object denied"));
+                return DeleteObjectsOutcome(std::move(result));
+            });
+
+    auto response = client->delete_objects({.bucket = "dummy-bucket"}, {"denied"});
+    EXPECT_FALSE(response.ok());
+    EXPECT_EQ(response.http_code, static_cast<int>(Aws::Http::HttpResponseCode::FORBIDDEN));
+    EXPECT_EQ(response.request_id, "request-error-id");
+    response = client->delete_objects({.bucket = "dummy-bucket"}, {"denied"});
+    EXPECT_FALSE(response.ok());
+    EXPECT_EQ(response.request_id, "object-error-id");
+    EXPECT_NE(response.status.msg.find("object denied"), std::string::npos);
+}
+
+TEST_F(S3ObjStorageClientMockTest, delete_objects_accepts_complete_multi_batch_confirmation) {
+    auto mock_s3_client = std::make_shared<MockS3Client>();
+    auto client = std::make_shared<S3ObjStorageClient>(mock_s3_client);
+    std::vector<std::string> keys;
+    keys.reserve(1001);
+    for (int i = 0; i < 1000; ++i) {
+        keys.push_back("key-" + std::to_string(i));
+    }
+    keys.emplace_back("space /\xC3\xA9");
+    EXPECT_CALL(*mock_s3_client, DeleteObjects(testing::_))
+            .Times(2)
+            .WillRepeatedly([](const DeleteObjectsRequest& request) {
+                EXPECT_FALSE(request.GetDelete().GetQuiet());
+                DeleteObjectsResult result;
+                for (const auto& object : request.GetDelete().GetObjects()) {
+                    result.AddDeleted(DeletedObject().WithKey(object.GetKey()));
+                }
+                return DeleteObjectsOutcome(std::move(result));
+            });
+    auto response = client->delete_objects({.bucket = "dummy-bucket"}, std::move(keys));
+    EXPECT_TRUE(response.ok()) << response.status.msg;
 }
 
 TEST_F(S3ObjStorageClientMockTest, test_ca_cert) {

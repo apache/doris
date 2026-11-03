@@ -20,6 +20,10 @@
 // cleanup (file gc and its retry), the capacity limit, upload back pressure and request
 // statistics.
 
+#include <aws/s3/S3Client.h>
+#include <aws/s3/model/DeleteObjectsRequest.h>
+#include <aws/s3/model/DeleteObjectsResult.h>
+#include <aws/s3/model/DeletedObject.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gtest/gtest.h>
 
@@ -45,6 +49,7 @@
 #include "core/block/block.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "cpp/obj-client/s3_obj_storage_client.h"
 #include "exec/operator/spill_counters.h"
 #include "exec/spill/remote_spill_data_dir.h"
 #include "exec/spill/spill_file.h"
@@ -376,6 +381,63 @@ private:
     }
 
     MockS3Store* _store;
+};
+
+// Model the OSS success response: Quiet has no per-key confirmation, while Verbose
+// names only the keys actually removed by this request.
+class PartialDeleteS3Client final : public Aws::S3::S3Client {
+public:
+    explicit PartialDeleteS3Client(MockS3Store* store) : _store(store) {}
+
+    Aws::S3::Model::DeleteObjectsOutcome DeleteObjects(
+            const Aws::S3::Model::DeleteObjectsRequest& request) const override {
+        ++_store->delete_requests;
+        const auto& objects = request.GetDelete().GetObjects();
+        max_batch_size = std::max(max_batch_size.load(), objects.size());
+        if (request.GetDelete().GetQuiet()) {
+            ++quiet_requests;
+        }
+        Aws::S3::Model::DeleteObjectsResult result;
+        result.SetRequestId("partial-delete-request");
+        std::lock_guard lock(_store->mutex);
+        for (const auto& object : objects) {
+            const auto& key = object.GetKey();
+            std::string_view key_view(key.data(), key.size());
+            if (key_view == _store->fail_delete_key) {
+                continue;
+            }
+            const auto& bucket = request.GetBucket();
+            _store->objects.erase(
+                    _store->make_key(std::string_view(bucket.data(), bucket.size()), key_view));
+            if (!request.GetDelete().GetQuiet()) {
+                result.AddDeleted(Aws::S3::Model::DeletedObject().WithKey(key));
+            }
+        }
+        return Aws::S3::Model::DeleteObjectsOutcome(std::move(result));
+    }
+
+    mutable std::atomic<size_t> max_batch_size {0};
+    mutable std::atomic<int64_t> quiet_requests {0};
+
+private:
+    MockS3Store* _store;
+};
+
+class PartialDeleteObjStorageClient final : public MockObjStorageClient {
+public:
+    explicit PartialDeleteObjStorageClient(const std::shared_ptr<PartialDeleteS3Client>& sdk,
+                                           MockS3Store* store)
+            : MockObjStorageClient(store), _s3_client(sdk) {}
+
+    io::ObjStorageCapabilities capabilities() const override { return _s3_client.capabilities(); }
+
+    io::ObjStorageResponse delete_objects(const io::ObjStoragePath& opts,
+                                          std::vector<std::string> objs) override {
+        return _s3_client.delete_objects(opts, std::move(objs));
+    }
+
+private:
+    io::S3ObjStorageClient _s3_client;
 };
 
 // Joins on destruction so that an early ASSERT return never leaves a joinable std::thread
@@ -1195,6 +1257,84 @@ TEST_F(SpillFileS3Test, PartialDeleteReconcilesOnlyRemainingObjectBytes) {
     _manager->gc(1000);
     ASSERT_EQ(_manager->remote_spill_data_bytes(), 0);
     ASSERT_TRUE(_query_objects("query_partial_delete").empty());
+}
+
+// GTest assertion macros inflate cognitive complexity for the lifecycle checkpoints.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST_F(SpillFileS3Test, OssPartialDeleteKeepsAccountingAndRetries) {
+    auto sdk = std::make_shared<PartialDeleteS3Client>(&mock_store());
+    std::shared_ptr<io::ObjStorageClient> client =
+            std::make_shared<PartialDeleteObjStorageClient>(sdk, &mock_store());
+    S3ClientFactory::instance().set_client_creator_for_test(
+            [client](const S3ClientConf&) { return client; });
+    Defer restore_client {[&]() {
+        _destroy_manager();
+        std::shared_ptr<io::ObjStorageClient> original = _mock_client;
+        S3ClientFactory::instance().set_client_creator_for_test(
+                [original](const S3ClientConf&) { return original; });
+    }};
+
+    S3Conf conf;
+    conf.bucket = kBucket;
+    conf.prefix = kVaultPrefix;
+    conf.client_conf.ak = "ak";
+    conf.client_conf.sk = "sk";
+    conf.client_conf.endpoint = "http://spill-mock-endpoint";
+    conf.client_conf.region = "region";
+    conf.client_conf.bucket = kBucket;
+    auto fs_or = io::S3FileSystem::create(conf, "spill_partial_delete_vault");
+    ASSERT_TRUE(fs_or.has_value()) << fs_or.error();
+    _create_manager(false);
+    _data_dir->init_remote_fs(fs_or.value(), kEndpoint);
+    _manager->stop();
+
+    const int64_t created = _data_dir->spill_file_created_total->value();
+    const int64_t deleted = _data_dir->spill_file_deleted_total->value();
+    std::mt19937 rng(43);
+    std::vector<Block> blocks;
+    for (int i = 0; i < 8; ++i) {
+        blocks.push_back(_random_string_block(rng, 64, 200));
+    }
+    Status close_status;
+    auto file = _write_blocks("query_oss_partial/sort-1", blocks, &close_status);
+    ASSERT_TRUE(close_status.ok()) << close_status;
+    const auto keys = mock_store().keys_with_prefix(kBucket, spill_root() + "/query_oss_partial/");
+    ASSERT_GT(keys.size(), 1);
+    const int64_t charged = _data_dir->get_spill_data_bytes();
+    ASSERT_GT(charged, 0);
+    const std::string retained_key = keys[1];
+    const int64_t retained_bytes = _object(retained_key).size();
+    {
+        std::lock_guard lock(mock_store().mutex);
+        mock_store().fail_delete_key = retained_key;
+    }
+
+    file.reset();
+    EXPECT_GT(sdk->max_batch_size.load(), 1);
+    EXPECT_EQ(sdk->quiet_requests.load(), 0);
+    EXPECT_EQ(mock_store().keys_with_prefix(kBucket, spill_root() + "/query_oss_partial/"),
+              std::vector<std::string> {retained_key});
+    EXPECT_EQ(_manager->pending_delete_dir_count(), 1);
+    EXPECT_EQ(_manager->remote_spill_data_bytes(), retained_bytes);
+    EXPECT_EQ(_data_dir->get_spill_data_bytes(), charged);
+    _expect_file_counts(created + 1, deleted);
+
+    _manager->gc(1000);
+    EXPECT_EQ(_manager->pending_delete_dir_count(), 1);
+    EXPECT_EQ(_manager->remote_spill_data_bytes(), retained_bytes);
+    _expect_file_counts(created + 1, deleted);
+    {
+        std::lock_guard lock(mock_store().mutex);
+        mock_store().fail_delete_key.clear();
+    }
+    _manager->gc(1000);
+    EXPECT_TRUE(_query_objects("query_oss_partial").empty());
+    EXPECT_EQ(_manager->pending_delete_dir_count(), 0);
+    EXPECT_EQ(_manager->remote_spill_data_bytes(), 0);
+    EXPECT_EQ(_data_dir->get_spill_data_bytes(), 0);
+    _expect_file_counts(created + 1, deleted + 1);
+    _manager->gc(1000);
+    _expect_file_counts(created + 1, deleted + 1);
 }
 
 TEST_F(SpillFileS3Test, ExternalSpillSessionUsesLocalRootWhileQuerySpillUsesS3) {
