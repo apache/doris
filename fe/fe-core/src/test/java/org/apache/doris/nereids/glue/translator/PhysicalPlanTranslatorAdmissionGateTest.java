@@ -125,7 +125,7 @@ public class PhysicalPlanTranslatorAdmissionGateTest {
 
     @Test
     public void rowLevelDmlGateRejectsConnectorDeclaringOnlyInsertWithDistinctMessage() {
-        // Declares INSERT (would pass the INSERT gate above) but neither DELETE nor MERGE: the row-level DML
+        // Declares INSERT (would pass the INSERT gate above) but not DELETE: the row-level DML
         // helper must reject it, and with a message DISTINCT from the INSERT gate's, so logs/callers can tell
         // "this connector can't do row-level DML at all" apart from "this connector can't write at all".
         PlanTranslatorContext context = new PlanTranslatorContext();
@@ -141,7 +141,7 @@ public class PhysicalPlanTranslatorAdmissionGateTest {
         PhysicalPlanTranslator translator = new PhysicalPlanTranslator(context, null);
         AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
                 () -> translator.visitPhysicalExternalRowLevelDeleteSink(sink, context));
-        Assertions.assertTrue(ex.getMessage().contains("does not support row-level DML operations"),
+        Assertions.assertTrue(ex.getMessage().contains("does not support DELETE row-level DML"),
                 "got: " + ex.getMessage());
         Assertions.assertFalse(ex.getMessage().contains("does not support INSERT operations"),
                 "the row-level DML rejection must be a message DISTINCT from the INSERT gate's, got: "
