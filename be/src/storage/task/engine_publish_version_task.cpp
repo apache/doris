@@ -39,7 +39,6 @@
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_manager.h"
 #include "storage/tablet/tablet_meta.h"
-#include "storage/tablet/tablet_meta_manager.h"
 #include "storage/txn/txn_manager.h"
 #include "storage/utils.h"
 #include "util/bvar_helper.h"
@@ -384,13 +383,9 @@ void EnginePublishVersionTask::_handle_publish_version_not_continuous(
     // When there are too many missing versions, do not directly retry the
     // publish and handle it through async publish.
     if (max_version + config::mow_publish_max_discontinuous_version_num < version.first) {
-        auto enqueue_status = _engine.add_async_publish_task(
-                partition_id, tablet_info.tablet_id, version.first,
-                _publish_version_req.transaction_id, false, commit_tso, column_mappings);
-        if (!enqueue_status.ok()) {
-            res = std::move(enqueue_status);
-            return;
-        }
+        _engine.add_async_publish_task(partition_id, tablet_info.tablet_id, version.first,
+                                       _publish_version_req.transaction_id, false, commit_tso,
+                                       column_mappings);
     } else {
         _discontinuous_version_tablets->emplace_back(
                 DiscontinuousVersionTablet {.partition_id = partition_id,
@@ -600,26 +595,11 @@ void AsyncTabletPublishTask::handle() {
                                                    &tablet_related_rs, &tablet_related_txn_infos);
     auto iter = tablet_related_rs.find(TabletInfo(_tablet->tablet_id(), _tablet->tablet_uid()));
     if (iter == tablet_related_rs.end()) {
-        // The transaction was already retired (for example by a normal publish).
-        // There is no writer context to retry; preserve the existing retirement rule.
-        static_cast<void>(TabletMetaManager::remove_pending_publish_info(
-                _tablet->data_dir(), _tablet->tablet_id(), _version));
         return;
     }
     auto txn_info_it =
             tablet_related_txn_infos.find(TabletInfo(_tablet->tablet_id(), _tablet->tablet_uid()));
     DCHECK(txn_info_it != tablet_related_txn_infos.end());
-    bool published = false;
-    // A failed bitmap rewrite must retain both the durable pending record and its
-    // mapping. Requeue this exact snapshot; successful publish removes it below.
-    Defer retry([&] {
-        if (!published) {
-            CHECK(_engine.add_async_publish_task(_partition_id, _tablet->tablet_id(), _version,
-                                                 _transaction_id, true, _commit_tso,
-                                                 _column_mappings)
-                          .ok());
-        }
-    });
     RowsetSharedPtr rowset = iter->second;
     Version version(_version, _version);
 
@@ -654,9 +634,6 @@ void AsyncTabletPublishTask::handle() {
         return;
     }
 
-    published = true;
-    static_cast<void>(TabletMetaManager::remove_pending_publish_info(
-            _tablet->data_dir(), _tablet->tablet_id(), _version));
     int64_t cost_us = MonotonicMicros() - _stats.submit_time_us;
     // print stats if publish cost > 500ms
     g_tablet_publish_latency << cost_us;

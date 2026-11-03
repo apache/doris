@@ -372,7 +372,7 @@ public:
 
     void gc_binlogs(const std::unordered_map<int64_t, int64_t>& gc_tablet_infos);
 
-    Status add_async_publish_task(
+    void add_async_publish_task(
             int64_t partition_id, int64_t tablet_id, int64_t publish_version,
             int64_t transaction_id, bool is_recover, int64_t commit_tso,
             std::shared_ptr<const PChangelogWriteColumnMappings> column_mappings = nullptr);
