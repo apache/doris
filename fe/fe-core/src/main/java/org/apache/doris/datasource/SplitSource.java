@@ -22,8 +22,8 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
@@ -50,8 +50,16 @@ public class SplitSource {
     private final SplitAssignment splitAssignment;
     private final AtomicBoolean isLastBatch;
     private final long maxWaitTime;
+    private final int initialBatchSize;
+    private boolean firstBatch = true;
 
     public SplitSource(Backend backend, SplitAssignment splitAssignment, long maxWaitTime) {
+        this(backend, splitAssignment, maxWaitTime, Integer.MAX_VALUE);
+    }
+
+    public SplitSource(Backend backend, SplitAssignment splitAssignment, long maxWaitTime, int initialBatchSize) {
+        Preconditions.checkArgument(initialBatchSize > 0, "Initial batch size must be positive");
+        this.initialBatchSize = initialBatchSize;
         Preconditions.checkArgument(maxWaitTime > 0, "fetch_splits_max_wait_time_ms must be positive");
         this.uniqueId = UNIQUE_ID_GENERATOR.getAndIncrement();
         this.backend = backend;
@@ -83,7 +91,10 @@ public class SplitSource {
         if (isLastBatch.get()) {
             return Collections.emptyList();
         }
-        List<TScanRangeLocations> scanRanges = Lists.newArrayListWithExpectedSize(maxBatchSize);
+        if (firstBatch) {
+            maxBatchSize = Math.min(maxBatchSize, initialBatchSize);
+        }
+        List<TScanRangeLocations> scanRanges = new ArrayList<>(Math.min(maxBatchSize, 128));
         long started = System.nanoTime();
         long waitNanos = TimeUnit.MILLISECONDS.toNanos(maxWaitTime);
         while (scanRanges.size() < maxBatchSize) {
@@ -94,6 +105,7 @@ public class SplitSource {
             }
             TScanRangeLocations split = splits.poll();
             if (split != null) {
+                splitAssignment.notifyQueueSpace(backend);
                 scanRanges.add(split);
                 continue;
             }
@@ -108,12 +120,16 @@ public class SplitSource {
                 split = splits.poll(Math.min(wait, TimeUnit.MILLISECONDS.toNanos(WAIT_TIME_OUT)),
                         TimeUnit.NANOSECONDS);
                 if (split != null) {
+                    splitAssignment.notifyQueueSpace(backend);
                     scanRanges.add(split);
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new UserException("Interrupted while waiting for scan splits", e);
             }
+        }
+        if (!scanRanges.isEmpty()) {
+            firstBatch = false;
         }
         return scanRanges;
     }

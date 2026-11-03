@@ -17,17 +17,39 @@
 
 package org.apache.doris.datasource.hudi.source;
 
+import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.SplitAssignment;
+import org.apache.doris.datasource.SplitSource;
+import org.apache.doris.datasource.SplitSourceManager;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HivePartition;
+import org.apache.doris.datasource.hudi.HudiExternalMetaCache;
 import org.apache.doris.datasource.hudi.HudiFsViewCacheValue;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
+import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.system.Backend;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
@@ -36,11 +58,190 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionHandler;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Stream;
 
 class HudiBatchFsViewOwnerTest {
+
+    @Test
+    void deferredBatchSourceSurvivesStatementCloseUntilCoordinatorStopsIt() throws Exception {
+        try (BatchScanFixture f = new BatchScanFixture()) {
+            f.node.startSplit(1);
+            Assertions.assertEquals(1, f.submitted.size());
+            SplitSource source = new SplitSource(new Backend(1, "localhost", 0), f.assignment, 1000);
+            f.manager.registerSplitSource(source);
+            // Deferral is selected after planning. Processor cleanup can also clear the context's executor.
+            Mockito.when(f.executor.isDeferredForArrowFlight()).thenReturn(true);
+            f.context.setExecutor(null);
+            f.statement.close();
+
+            Assertions.assertFalse(f.assignment.isStop(), "DoGet still needs the deferred batch source");
+            Assertions.assertSame(source, f.manager.getSplitSource(source.getUniqueId()));
+            Assertions.assertFalse(f.producer().isCancelled());
+            Mockito.verify(f.lease, Mockito.never()).close();
+
+            f.node.stop();
+
+            Assertions.assertTrue(f.assignment.isStop());
+            Assertions.assertNull(f.manager.getSplitSource(source.getUniqueId()));
+            Assertions.assertTrue(f.producer().isCancelled());
+            Mockito.verify(f.lease).close();
+        }
+    }
+
+    @Test
+    void cancelledBatchAdmissionDoesNotAcquireFsView() throws Exception {
+        try (BatchScanFixture f = new BatchScanFixture()) {
+            f.rejectAdmission.set(true);
+            Assertions.assertThrows(CancellationException.class, () -> f.node.startSplit(1));
+            Mockito.verify(f.generation, Mockito.never()).acquireFsView(Mockito.any());
+            Mockito.verify(f.lease, Mockito.never()).close();
+        }
+    }
+
+    @Test
+    void partitionAdmissionIsHeldUntilQueuedDeliveryTerminates() throws Exception {
+        try (BatchScanFixture f = new BatchScanFixture()) {
+            Semaphore admission = new Semaphore(1);
+            HivePartition partition = Mockito.mock(HivePartition.class);
+            Mockito.when(partition.isDummyPartition()).thenReturn(true);
+            f.variables.setForceJniScanner(false);
+            f.variables.setEnableRuntimeFilterPartitionPrune(false);
+            org.apache.hudi.common.table.view.HoodieTableFileSystemView view =
+                    Mockito.mock(org.apache.hudi.common.table.view.HoodieTableFileSystemView.class);
+            Mockito.when(view.getLatestBaseFilesBeforeOrOn(Mockito.any(), Mockito.any()))
+                    .thenAnswer(call -> Stream.empty());
+            Mockito.when(f.lease.get()).thenReturn(view);
+            BatchScanFixture.setField(f.node, HudiScanNode.class, "isCowTable", true);
+            BatchScanFixture.setField(f.node, HudiScanNode.class, "splittersOnFlight", admission);
+            BatchScanFixture.setField(f.node, HudiScanNode.class, "prunedPartitions",
+                    Collections.singletonList(partition));
+            f.node.startSplit(1);
+            f.producer().run();
+            Assertions.assertEquals(2, f.submitted.size());
+            f.submitted.get(1).run();
+            Assertions.assertEquals(3, f.submitted.size());
+            Assertions.assertEquals(0, admission.availablePermits());
+            Mockito.verify(f.lease, Mockito.never()).close();
+            f.node.stop();
+            Assertions.assertEquals(1, admission.availablePermits());
+            Mockito.verify(f.lease).close();
+        }
+    }
+
+    @Test
+    void ordinaryBatchStatementCloseStillCancelsQueuedPlanning() throws Exception {
+        try (BatchScanFixture f = new BatchScanFixture()) {
+            f.node.startSplit(1);
+            f.statement.close();
+
+            Assertions.assertTrue(f.assignment.isStop());
+            Assertions.assertTrue(f.producer().isCancelled());
+            Mockito.verify(f.lease).close();
+        }
+    }
+
+    @Test
+    void abandonedBatchWithoutExecutorStillStopsAtStatementClose() throws Exception {
+        try (BatchScanFixture f = new BatchScanFixture()) {
+            f.context.setExecutor(null);
+            f.node.startSplit(1);
+            f.statement.close();
+
+            Assertions.assertTrue(f.assignment.isStop());
+            Assertions.assertTrue(f.producer().isCancelled());
+            Mockito.verify(f.lease).close();
+        }
+    }
+
+    private static class BatchScanFixture implements AutoCloseable {
+        private final ConnectContext previous = ConnectContext.get();
+        private final ConnectContext context = new ConnectContext();
+        private final SessionVariable variables = new SessionVariable();
+        private final StatementContext statement = new StatementContext(context, null);
+        private final StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        private final SplitAssignment assignment = new SplitAssignment(
+                null, null, null, Collections.emptyMap(), Collections.emptyList(), false);
+        private final SplitSourceManager manager = new SplitSourceManager();
+        private final HudiFsViewCacheValue.Lease lease = Mockito.mock(HudiFsViewCacheValue.Lease.class);
+        private final AtomicBoolean rejectAdmission = new AtomicBoolean();
+        private final HudiExternalMetaCache.FsViewGeneration generation =
+                Mockito.mock(HudiExternalMetaCache.FsViewGeneration.class);
+        private final List<Runnable> submitted = new ArrayList<>();
+        private final MockedStatic<Env> mockedEnv;
+        private final HudiScanNode node;
+
+        BatchScanFixture() throws Exception {
+            context.setStatementContext(statement);
+            context.setExecutor(executor);
+            context.setThreadLocalInfo();
+            Env env = Mockito.mock(Env.class);
+            ExternalMetaCacheMgr cache = Mockito.mock(ExternalMetaCacheMgr.class);
+            ExecutorService worker = Mockito.mock(ExecutorService.class);
+            Mockito.doAnswer(call -> {
+                submitted.add(call.getArgument(0));
+                return null;
+            }).when(worker).execute(Mockito.any(Runnable.class));
+            Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cache);
+            Mockito.when(env.getSplitSourceManager()).thenReturn(manager);
+            Mockito.when(cache.getScheduleExecutor()).thenReturn(worker);
+            Mockito.when(cache.getFileListingExecutor()).thenReturn(worker);
+            mockedEnv = Mockito.mockStatic(Env.class);
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            HMSExternalTable table = Mockito.mock(HMSExternalTable.class);
+            HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+            HMSExternalCatalog.HudiScanRuntimeContext runtime =
+                    Mockito.mock(HMSExternalCatalog.HudiScanRuntimeContext.class);
+            Mockito.when(table.getCatalog()).thenReturn(catalog);
+            Mockito.when(catalog.getHudiScanRuntimeContext()).thenReturn(runtime);
+            Mockito.when(runtime.getAuthenticator()).thenReturn(new ExecutionAuthenticator() {});
+            Mockito.when(runtime.getFsViewGeneration()).thenReturn(generation);
+            Mockito.when(generation.acquireFsView(Mockito.any())).thenReturn(lease);
+            TupleDescriptor desc = new TupleDescriptor(new TupleId(0));
+            desc.setTable(table);
+            node = new HudiScanNode(new PlanNodeId(0), desc, false, Optional.empty(), Optional.empty(),
+                    variables, null, ScanContext.EMPTY) {
+                @Override
+                protected Executor getSplitTaskExecutor() {
+                    if (rejectAdmission.get()) {
+                        throw new CancellationException("Scan task lease is closed");
+                    }
+                    return super.getSplitTaskExecutor();
+                }
+            };
+            setField(node, HudiScanNode.class, "prunedPartitions",
+                    Collections.singletonList(Mockito.mock(HivePartition.class)));
+            setField(node, ScanNode.class, "splitAssignment", assignment);
+        }
+
+        private static void setField(Object target, Class<?> owner, String name, Object value) throws Exception {
+            Field field = owner.getDeclaredField(name);
+            field.setAccessible(true);
+            field.set(target, value);
+        }
+
+        HudiScanNode.TerminalTask producer() {
+            return (HudiScanNode.TerminalTask) submitted.get(0);
+        }
+
+        @Override
+        public void close() {
+            try {
+                node.stop();
+                statement.close();
+            } finally {
+                mockedEnv.close();
+                ConnectContext.remove();
+                if (previous != null) {
+                    previous.setThreadLocalInfo();
+                }
+            }
+        }
+    }
 
     @Test
     void statementCloseReturnsWhileRunningTaskKeepsLeasePinned() throws Exception {
@@ -390,6 +591,41 @@ class HudiBatchFsViewOwnerTest {
         owner.submissionDone();
         Mockito.verify(lease).close();
         Assertions.assertThrows(CancellationException.class, owner::awaitCompletion);
+    }
+
+    @Test
+    void stoppedAssignmentRejectsBatchSyncBeforeThreadPublication() {
+        SplitAssignment assignment = new SplitAssignment(null, null, null,
+                Collections.emptyMap(), Collections.emptyList(), true);
+        HudiFsViewCacheValue.Lease lease = Mockito.mock(HudiFsViewCacheValue.Lease.class);
+        HudiScanNode.BatchFsViewOwner owner = new HudiScanNode.BatchFsViewOwner(
+                assignment, lease, Runnable::run, Runnable::run);
+        assignment.stop();
+        // Mirrors startSplit adding its owner after statement cleanup stopped the assignment.
+        assignment.addCloseable(owner);
+        try {
+            Assertions.assertThrows(CancellationException.class, () -> owner.beginSync(Thread.currentThread()));
+            Mockito.verify(lease, Mockito.never()).close();
+        } finally {
+            owner.endSync();
+            owner.finish();
+        }
+        Mockito.verify(lease).close();
+    }
+
+    @Test
+    void closedListingOwnerRejectsSyncBeforeThreadPublication() {
+        HudiFsViewCacheValue.Lease lease = Mockito.mock(HudiFsViewCacheValue.Lease.class);
+        HudiScanNode.ListingFsViewOwner owner = new HudiScanNode.ListingFsViewOwner(lease, Runnable::run);
+        owner.close();
+        try {
+            Assertions.assertThrows(CancellationException.class, () -> owner.beginSync(Thread.currentThread()));
+            Mockito.verify(lease, Mockito.never()).close();
+        } finally {
+            owner.endSync();
+            owner.discardBeforeSubmission();
+        }
+        Mockito.verify(lease).close();
     }
 
     @Test

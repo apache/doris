@@ -49,6 +49,41 @@ import java.util.concurrent.atomic.AtomicLong;
 public class HiveMetaStoreCacheTest {
 
     @Test
+    public void testCachedFileCountUsesOnlyPresentEntriesAndHonorsInvalidation() {
+        ThreadPoolExecutor executor = ThreadPoolManager.newDaemonFixedThreadPool(1, 1, "hint-refresh", 1, false);
+        ThreadPoolExecutor listExecutor = ThreadPoolManager.newDaemonFixedThreadPool(1, 1, "hint-file", 1, false);
+        try {
+            HiveExternalMetaCache cache = new HiveExternalMetaCache(executor, listExecutor);
+            NameMapping name = NameMapping.createForTest("db", "files");
+            HivePartition partition = new HivePartition(name, false, "parquet", "hdfs://test/p=1",
+                    Collections.singletonList("1"), Collections.emptyMap());
+            List<HivePartition> partitions = Collections.singletonList(partition);
+            Assertions.assertEquals(0, cache.getCachedFileCount(Collections.emptyList()));
+            Assertions.assertEquals(-1, cache.getCachedFileCount(partitions));
+            cache.initCatalog(0, new HashMap<>());
+            MetaCacheEntry<HiveExternalMetaCache.FileCacheKey, HiveExternalMetaCache.FileCacheValue> entry =
+                    cache.entry(0, HiveExternalMetaCache.ENTRY_FILE,
+                            HiveExternalMetaCache.FileCacheKey.class, HiveExternalMetaCache.FileCacheValue.class);
+            HiveExternalMetaCache.FileCacheKey key = new HiveExternalMetaCache.FileCacheKey(0,
+                    Util.genIdByName("db", "files"), partition.getPath(), "parquet", partition.getPartitionValues());
+            HiveExternalMetaCache.FileCacheValue files = new HiveExternalMetaCache.FileCacheValue();
+            for (int i = 0; i < 2; i++) {
+                HiveExternalMetaCache.HiveFileStatus file = new HiveExternalMetaCache.HiveFileStatus();
+                file.setPath(org.apache.doris.common.util.LocationPath.of("hdfs://test/p=1/" + i));
+                file.setLength(10);
+                files.getFiles().add(file);
+            }
+            entry.put(key, files);
+            Assertions.assertEquals(2, cache.getCachedFileCount(partitions));
+            cache.invalidateTable(0, "db", "files");
+            Assertions.assertEquals(-1, cache.getCachedFileCount(partitions));
+        } finally {
+            executor.shutdownNow();
+            listExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testPartitionValueWeightScalesLinearlyToOneHundredThousandPartitions() {
         HiveExternalMetaCache.PartitionValueCacheKey key = new HiveExternalMetaCache.PartitionValueCacheKey(
                 NameMapping.createForTest("db", "tbl"), Collections.singletonList(Type.STRING));

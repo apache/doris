@@ -30,17 +30,21 @@ import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.common.util.FairTaskExecutor;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalScanTaskCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalUtil;
 import org.apache.doris.datasource.FileQueryScanNode;
+import org.apache.doris.datasource.ScanTaskGroups;
 import org.apache.doris.datasource.SplitAssignment;
+import org.apache.doris.datasource.SplitProducer;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.credentials.CredentialUtils;
 import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
@@ -56,7 +60,6 @@ import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergTimestampUtils;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.iceberg.cache.IcebergManifestCacheLoader;
-import org.apache.doris.datasource.iceberg.cache.ManifestCacheValue;
 import org.apache.doris.datasource.iceberg.profile.IcebergMetricsReporter;
 import org.apache.doris.datasource.iceberg.source.IcebergDeleteFileFilter.EqualityDelete;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -166,10 +169,10 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutorService;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.Executor;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -1739,65 +1742,65 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     public void doStartSplit() throws UserException {
         TableScan scan = createTableScan();
-        ExecutorService executor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
+        Executor executor = getSplitTaskExecutor();
         Closeable generationLease = IcebergUtils.retainTableGenerationForAsyncPlanning(
                 source.getTargetTable(), frozenGenerationSource);
-        AsyncPlanningTask planningTask = new AsyncPlanningTask(executor, splitAssignment, generationLease, () -> {
-            AtomicReference<CloseableIterable<FileScanTask>> taskRef = new AtomicReference<>();
-            try {
-                preExecutionAuthenticator.execute(
-                        () -> {
-                            long startTime = System.currentTimeMillis();
-                            try {
-                                CloseableIterable<FileScanTask> fileScanTasks = planFileScanTask(scan);
-                                taskRef.set(fileScanTasks);
-                                CloseableIterator<FileScanTask> iterator = fileScanTasks.iterator();
-                                while (splitAssignment.needMoreSplit() && iterator.hasNext()) {
-                                    try {
-                                        splitAssignment.addToQueue(
-                                                Lists.newArrayList(createIcebergSplit(iterator.next())));
-                                    } catch (UserException e) {
-                                        throw new RuntimeException(e);
-                                    }
-                                }
-                            } finally {
-                                if (getSummaryProfile() != null) {
-                                    getSummaryProfile().addExternalTableGetFileScanTasksTime(
-                                            System.currentTimeMillis() - startTime);
-                                }
-                            }
-                        }
-                );
-                splitAssignment.finishSchedule();
-                recordManifestCacheProfile();
-            } catch (Exception e) {
-                Optional<NotSupportedException> opt = checkNotSupportedException(e);
-                if (opt.isPresent()) {
-                    splitAssignment.setException(new UserException(opt.get().getMessage(), opt.get()));
-                } else {
-                    splitAssignment.setException(new UserException(e.getMessage(), e));
-                }
-            } finally {
-                if (taskRef.get() != null) {
-                    try {
-                        taskRef.get().close();
-                    } catch (IOException e) {
-                        // ignore
+        long started = System.currentTimeMillis();
+        SplitProducer.BatchSource batches = new SplitProducer.BatchSource() {
+            private CloseableIterable<FileScanTask> tasks;
+            private CloseableIterator<FileScanTask> iterator;
+
+            @Override
+            public List<Split> getNextBatch() throws Exception {
+                return preExecutionAuthenticator.execute(() -> {
+                    if (tasks == null) {
+                        tasks = planFileScanTask(scan);
+                        iterator = tasks.iterator();
                     }
+                    List<Split> batch = SplitProducer.newBatch(splitAssignment.getSplitBatchSize());
+                    while (batch.size() < splitAssignment.getSplitBatchSize()
+                            && splitAssignment.needMoreSplit() && iterator.hasNext()) {
+                        batch.add(createIcebergSplit(iterator.next()));
+                    }
+                    return batch;
+                });
+            }
+
+            @Override
+            public void close() throws IOException {
+                try {
+                    if (tasks != null) {
+                        tasks.close();
+                    }
+                } finally {
+                    generationLease.close();
                 }
             }
-        });
-        splitAssignment.addCloseable(planningTask);
-        planningTask.submit();
+        };
+        new SplitProducer(splitAssignment, executor, batches, failure -> {
+            if (failure != null) {
+                Optional<NotSupportedException> unsupported = checkNotSupportedException(failure);
+                splitAssignment.setException(new UserException(
+                        unsupported.isPresent() ? unsupported.get().getMessage() : failure.getMessage(), failure));
+            } else {
+                splitAssignment.finishSchedule();
+            }
+            if (getSummaryProfile() != null) {
+                getSummaryProfile().addExternalTableGetFileScanTasksTime(System.currentTimeMillis() - started);
+            }
+            recordManifestCacheProfile();
+        }).start();
     }
 
     /** Owns the planner generation until the worker actually exits, including cancellation races. */
     @VisibleForTesting
     static final class AsyncPlanningTask implements Runnable, Closeable {
-        private final ExecutorService executor;
+        private final Executor executor;
         private final SplitAssignment splitAssignment;
         private final Closeable generationLease;
         private final Runnable planning;
+        private final Runnable termination;
+        private final Runnable admissionAvailable = this::submit;
         private final FutureTask<Void> submission;
         private boolean submitted;
         private boolean started;
@@ -1805,8 +1808,14 @@ public class IcebergScanNode extends FileQueryScanNode {
         private boolean finished;
         private Thread runner;
 
-        AsyncPlanningTask(ExecutorService executor, SplitAssignment splitAssignment,
+        AsyncPlanningTask(Executor executor, SplitAssignment splitAssignment,
                 Closeable generationLease, Runnable planning) {
+            this(executor, splitAssignment, generationLease, planning, () -> { });
+        }
+
+        AsyncPlanningTask(Executor executor, SplitAssignment splitAssignment,
+                Closeable generationLease, Runnable planning, Runnable termination) {
+            this.termination = termination;
             this.executor = Objects.requireNonNull(executor, "executor is null");
             this.splitAssignment = Objects.requireNonNull(splitAssignment, "splitAssignment is null");
             this.generationLease = Objects.requireNonNull(generationLease, "generationLease is null");
@@ -1822,7 +1831,12 @@ public class IcebergScanNode extends FileQueryScanNode {
                     }
                     submitted = true;
                 }
-                executor.execute(submission);
+                if (executor instanceof FairTaskExecutor.Group) {
+                    ((FairTaskExecutor.Group) executor).tryExecute(
+                            submission, failure -> close(), admissionAvailable);
+                } else {
+                    executor.execute(submission);
+                }
                 synchronized (this) {
                     if (finished && executor instanceof ThreadPoolExecutor) {
                         ((ThreadPoolExecutor) executor).remove(submission);
@@ -1891,12 +1905,17 @@ public class IcebergScanNode extends FileQueryScanNode {
                 finished = true;
                 runner = null;
             }
+            if (executor instanceof FairTaskExecutor.Group) {
+                ((FairTaskExecutor.Group) executor).removeSpaceListener(admissionAvailable);
+            }
             splitAssignment.removeCloseable(this);
             try {
                 generationLease.close();
             } catch (IOException e) {
                 splitAssignment.setException(
                         new UserException("Failed to release Iceberg planning generation", e));
+            } finally {
+                termination.run();
             }
         }
     }
@@ -2086,6 +2105,11 @@ public class IcebergScanNode extends FileQueryScanNode {
         try {
             return planFileScanTaskWithManifestCache(scan);
         } catch (Exception e) {
+            if (isScanTaskLeaseClosed() || Thread.currentThread().isInterrupted()
+                    || (splitAssignment != null && splitAssignment.isStop())
+                    || e instanceof CancellationException) {
+                throw new CancellationException("Iceberg scan planning was cancelled");
+            }
             manifestCacheFailures++;
             LOG.warn("Plan with manifest cache failed, fallback to original scan: " + e.getMessage(), e);
             return splitFiles(scan);
@@ -2389,16 +2413,21 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     private CloseableIterable<FileScanTask> planFileScanTaskWithManifestCache(TableScan scan) throws IOException {
-        if (sessionVariable.getFileSplitSize() > 0 || isBatchMode() || tableLevelPushDownCount) {
-            // These paths intentionally stream Iceberg tasks to keep FE memory bounded. The
-            // manifest-cache planner materializes its result, and retaining that list in the
-            // statement cache would defeat the streaming contract.
+        if (sessionVariable.getFileSplitSize() > 0) {
+            return splitFiles(scan);
+        }
+        boolean batchMode = isBatchMode();
+        if (tableLevelPushDownCount) {
             return splitFiles(scan);
         }
         // Get the snapshot from the scan; return empty if no snapshot exists
         Snapshot snapshot = scan.snapshot();
         if (snapshot == null) {
             return CloseableIterable.withNoopClose(Collections.emptyList());
+        }
+        if (batchMode) {
+            targetSplitSize = sessionVariable.getMaxSplitSize();
+            return splitFiles(streamFileScanTasksWithManifestCache(scan, snapshot), targetSplitSize);
         }
         List<FileScanTask> tasks;
         try {
@@ -2417,12 +2446,18 @@ public class IcebergScanNode extends FileQueryScanNode {
     @VisibleForTesting
     protected List<FileScanTask> loadFileScanTasksWithManifestCache(
             TableScan scan, Snapshot snapshot) throws IOException {
+        try (CloseableIterable<FileScanTask> tasks = streamFileScanTasksWithManifestCache(scan, snapshot)) {
+            return Lists.newArrayList(tasks);
+        }
+    }
+
+    @VisibleForTesting
+    protected CloseableIterable<FileScanTask> streamFileScanTasksWithManifestCache(
+            TableScan scan, Snapshot snapshot) throws IOException {
         // Initialize manifest cache for efficient manifest file access
-        IcebergExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().iceberg(source.getCatalog().getId());
         if (!(source.getTargetTable() instanceof ExternalTable)) {
             throw new RuntimeException("Iceberg scan target table is not an external table");
         }
-        ExternalTable targetExternalTable = (ExternalTable) source.getTargetTable();
         Schema scanSchema = scan.schema();
         Set<Integer> unsafeNanosFields = IcebergTimestampUtils.unsafeNanosFields(icebergTable, scanSchema);
 
@@ -2450,6 +2485,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         // ========== Phase 1: Load delete files from delete manifests ==========
         List<DeleteFile> deleteFiles = new ArrayList<>();
         List<ManifestFile> deleteManifests = snapshot.deleteManifests(icebergTable.io());
+        List<ManifestFile> matchingDeletes = new ArrayList<>();
         for (ManifestFile manifest : deleteManifests) {
             // Skip non-delete manifests
             if (manifest.content() != ManifestContent.DELETES) {
@@ -2467,10 +2503,13 @@ public class IcebergScanNode extends FileQueryScanNode {
             if (!evaluator.eval(manifest)) {
                 continue;
             }
-            // Load delete files from cache (or from storage if not cached)
-            ManifestCacheValue value = IcebergManifestCacheLoader.loadDeleteFilesWithCache(cache,
-                    targetExternalTable, manifest, icebergTable, runtimeContext, this::recordManifestCacheAccess);
-            deleteFiles.addAll(value.getDeleteFiles());
+            matchingDeletes.add(manifest);
+        }
+        try (NativeManifestPrefetcher prefetch = prefetchManifests(matchingDeletes, true)) {
+            for (NativeManifestPrefetcher.Result result : prefetch) {
+                deleteFiles.addAll(result.value.forScan(specsById.get(result.manifest.partitionSpecId()))
+                        .getDeleteFiles());
+            }
         }
 
         // Build delete file index for efficient lookup of deletes applicable to each data file
@@ -2484,57 +2523,99 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
         DeleteFileIndex deleteIndex = deleteIndexBuilder.build();
 
-        // ========== Phase 2: Load data files and create scan tasks ==========
-        List<FileScanTask> tasks = new ArrayList<>();
-        try (CloseableIterable<ManifestFile> dataManifests =
-                     IcebergUtils.getMatchingManifest(snapshot.dataManifests(icebergTable.io()),
-                             specsById, filterExpr)) {
-            for (ManifestFile manifest : dataManifests) {
-                // Skip non-data manifests
-                if (manifest.content() != ManifestContent.DATA) {
-                    continue;
-                }
-                // Get the partition spec for this manifest
-                PartitionSpec spec = specsById.get(manifest.partitionSpecId());
-                if (spec == null) {
-                    continue;
-                }
-                // Get the residual evaluator for this partition spec
-                ResidualEvaluator residualEvaluator = residualEvaluators.get(manifest.partitionSpecId());
-                if (residualEvaluator == null) {
-                    continue;
-                }
+        // A batch scan retains only the current manifest view and the bounded prefetch window.
+        // Errors after delivery must fail the query; restarting a full SDK scan could duplicate rows.
+        CloseableIterable<ManifestFile> dataManifests = IcebergUtils.getMatchingManifest(
+                snapshot.dataManifests(icebergTable.io()), specsById, filterExpr);
+        NativeManifestPrefetcher prefetch;
+        try {
+            prefetch = prefetchManifests(dataManifests, false);
+        } catch (RuntimeException | Error e) {
+            dataManifests.close();
+            throw e;
+        }
+        String schemaJson = SchemaParser.toJson(scanSchema);
+        Map<Integer, String> specJson = new HashMap<>();
+        specsById.forEach((id, spec) -> specJson.put(id, PartitionSpecParser.toJson(spec)));
+        Iterable<FileScanTask> tasks = () -> new com.google.common.collect.AbstractIterator<FileScanTask>() {
+            private final java.util.Iterator<NativeManifestPrefetcher.Result> manifests = prefetch.iterator();
+            private java.util.Iterator<org.apache.iceberg.DataFile> files = Collections.emptyIterator();
+            private PartitionSpec spec;
+            private ResidualEvaluator residual;
 
-                // Load data files from cache (or from storage if not cached)
-                ManifestCacheValue value = IcebergManifestCacheLoader.loadDataFilesWithCache(cache,
-                        targetExternalTable, manifest, icebergTable, runtimeContext, this::recordManifestCacheAccess);
-
-                // Process each data file in the manifest
-                for (org.apache.iceberg.DataFile dataFile : value.getDataFiles()) {
-                    // Skip file if column statistics indicate no matching rows (metrics-based pruning)
-                    if (metricsEvaluator != null && !metricsEvaluator.eval(dataFile)) {
+            @Override
+            protected FileScanTask computeNext() {
+                while (true) {
+                    while (files.hasNext()) {
+                        org.apache.iceberg.DataFile file = files.next();
+                        if (!metricsEvaluator.eval(file)
+                                || residual.residualFor(file.partition()).equals(Expressions.alwaysFalse())) {
+                            continue;
+                        }
+                        DeleteFile[] deletes = deleteIndex.forDataFile(file.dataSequenceNumber(), file);
+                        return new BaseFileScanTask(file, deletes, schemaJson, specJson.get(spec.specId()), residual);
+                    }
+                    if (!manifests.hasNext()) {
+                        return endOfData();
+                    }
+                    NativeManifestPrefetcher.Result result = manifests.next();
+                    if (result.manifest.content() != ManifestContent.DATA) {
                         continue;
                     }
-                    // Skip file if partition values don't match the residual filter
-                    if (residualEvaluator.residualFor(dataFile.partition()).equals(Expressions.alwaysFalse())) {
+                    spec = specsById.get(result.manifest.partitionSpecId());
+                    if (spec == null) {
                         continue;
                     }
-                    // Find all delete files that apply to this data file based on sequence number
-                    List<DeleteFile> deletes = Arrays.asList(
-                            deleteIndex.forDataFile(dataFile.dataSequenceNumber(), dataFile));
-
-                    // Create a FileScanTask containing the data file, associated deletes, and metadata
-                    tasks.add(new BaseFileScanTask(
-                            dataFile,
-                            deletes.toArray(new DeleteFile[0]),
-                            SchemaParser.toJson(scanSchema),
-                            PartitionSpecParser.toJson(spec),
-                            residualEvaluator));
+                    residual = residualEvaluators.get(spec.specId());
+                    files = result.value.forScan(spec).getDataFiles().iterator();
                 }
             }
-        }
+        };
+        return CloseableIterable.combine(tasks, () -> {
+            try {
+                prefetch.close();
+            } finally {
+                dataManifests.close();
+            }
+        });
+    }
 
-        return tasks;
+    private NativeManifestPrefetcher prefetchManifests(Iterable<ManifestFile> manifests, boolean deletes) {
+        Executor metadata = getManifestReadExecutor();
+        SplitAssignment assignment = splitAssignment == null
+                ? new SplitAssignment(backendPolicy, this, this::splitToScanRange,
+                        Collections.emptyMap(), Collections.emptyList(), true) : splitAssignment;
+        if (splitAssignment == null && metadata instanceof FairTaskExecutor.Group) {
+            ScanTaskGroups.Lease lease = getScanTaskLease();
+            if (lease != null) {
+                lease.onClose(assignment::stop);
+            }
+        }
+        ExternalTable target = (ExternalTable) source.getTargetTable();
+        IcebergExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().iceberg(source.getCatalog().getId());
+        return new NativeManifestPrefetcher(manifests, metadata, assignment,
+                metadata instanceof FairTaskExecutor.Group && getScanTaskLease() == null,
+                Math.max(1, Config.external_scan_metadata_threads),
+                () -> IcebergUtils.retainTableGenerationForAsyncPlanning(target, frozenGenerationSource),
+                manifest -> {
+                    try {
+                        return preExecutionAuthenticator.execute(() -> deletes
+                                ? IcebergManifestCacheLoader.loadDeleteFilesWithCache(cache, target, manifest,
+                                        icebergTable, runtimeContext, this::recordManifestCacheAccess)
+                                : IcebergManifestCacheLoader.loadDataFilesWithCache(cache, target, manifest,
+                                        icebergTable, runtimeContext, this::recordManifestCacheAccess));
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                });
+    }
+
+    protected Executor getManifestReadExecutor() {
+        ScanTaskGroups.Lease lease = getScanTaskLease();
+        return lease == null
+                ? Env.getCurrentEnv().getExtMetaCacheMgr().getScanTaskExecutor(true)
+                        .newGroup(Config.external_scan_task_queue_capacity)
+                : lease.group(true);
     }
 
     /**
@@ -3189,7 +3270,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         return getOrderedPathPartitionKeys();
     }
 
-    private void recordManifestCacheAccess(boolean cacheHit) {
+    private synchronized void recordManifestCacheAccess(boolean cacheHit) {
         if (cacheHit) {
             manifestCacheHits++;
         } else {

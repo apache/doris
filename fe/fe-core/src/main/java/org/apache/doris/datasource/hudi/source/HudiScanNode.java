@@ -37,6 +37,7 @@ import org.apache.doris.datasource.ExternalUtil;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SplitAssignment;
+import org.apache.doris.datasource.SplitProducer;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HivePartition;
@@ -54,6 +55,7 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
@@ -89,6 +91,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -704,25 +707,33 @@ public class HudiScanNode extends HiveScanNode {
             releaseFsViewOnce();
             return;
         }
+        Executor splitExecutor = getSplitTaskExecutor();
         acquireFsViewLease();
         ExecutorService scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
         Executor producerExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getFileListingExecutor();
         long startTime = System.currentTimeMillis();
-        BatchFsViewOwner createdOwner = new BatchFsViewOwner(
+        BatchFsViewOwner batchOwner = new BatchFsViewOwner(
                 splitAssignment, fsViewLease, scheduleExecutor, producerExecutor);
-        BatchFsViewOwner batchOwner = createdOwner;
         ConnectContext connectContext = ConnectContext.get();
         StatementContext statementContext = connectContext == null ? null : connectContext.getStatementContext();
         if (statementContext != null) {
+            StmtExecutor executor = connectContext.getExecutor();
+            Closeable statementCleanup = () -> {
+                // GetFlightInfo ends the statement before the BE fetches deferred DoGet splits.
+                // Capture this executor: processor cleanup can clear it from the connection context.
+                if (executor == null || !executor.isDeferredForArrowFlight()) {
+                    batchOwner.close();
+                }
+            };
             try {
-                batchOwner = statementContext.getOrRegisterStatementResource(
-                        batchFsViewResourceKey, () -> createdOwner);
-                if (batchOwner != createdOwner) {
-                    createdOwner.finish();
+                Closeable registered = statementContext.getOrRegisterStatementResource(
+                        batchFsViewResourceKey, () -> statementCleanup);
+                if (registered != statementCleanup) {
+                    batchOwner.finish();
                     throw new IllegalStateException("Hudi batch split owner was registered twice");
                 }
             } catch (RuntimeException e) {
-                createdOwner.finish();
+                batchOwner.finish();
                 throw e;
             }
         }
@@ -731,8 +742,8 @@ public class HudiScanNode extends HiveScanNode {
         splitAssignment.addCloseable(finalBatchOwner);
         // Publish the owner before the blocking timeline sync: cancellation can now signal the
         // sync thread, and the owner keeps the lease until the sync actually terminates.
-        finalBatchOwner.beginSync(Thread.currentThread());
         try {
+            finalBatchOwner.beginSync(Thread.currentThread());
             syncFsView();
         } catch (RuntimeException e) {
             finalBatchOwner.finish();
@@ -769,6 +780,7 @@ public class HudiScanNode extends HiveScanNode {
                         break;
                     }
                     pendingTasks.incrementAndGet();
+                    AtomicBoolean deliverySubmitted = new AtomicBoolean();
                     TerminalTask partitionTask = terminalTask(() -> {
                         try {
                             ensureHmsRuntimeGeneration();
@@ -779,13 +791,28 @@ public class HudiScanNode extends HiveScanNode {
                             }
                             if (splitAssignment.needMoreSplit()) {
                                 ensureHmsRuntimeGeneration();
-                                splitAssignment.addToQueue(allFiles);
+                                pendingTasks.incrementAndGet();
+                                deliverySubmitted.set(true);
+                                new SplitProducer(splitAssignment, splitExecutor, createSplitBatchSource(allFiles),
+                                        failure -> {
+                                            try {
+                                                if (failure != null) {
+                                                    recordBatchException(failure);
+                                                }
+                                            } finally {
+                                                splittersOnFlight.release();
+                                                taskFinished.run();
+                                            }
+                                        }).start();
                             }
                         } catch (Throwable t) {
                             recordBatchException(t);
                         }
                     }, () -> {
-                        splittersOnFlight.release();
+                        // A parked delivery still owns this partition's buffered splits and admission slot.
+                        if (!deliverySubmitted.get()) {
+                            splittersOnFlight.release();
+                        }
                         taskFinished.run();
                     });
                     try {
@@ -808,6 +835,19 @@ public class HudiScanNode extends HiveScanNode {
             recordBatchException(e);
             finalBatchOwner.cancelProducer(producerTask);
         }
+    }
+
+    @VisibleForTesting
+    public SplitProducer.BatchSource createSplitBatchSource(List<Split> splits) {
+        Iterator<Split> iterator = splits.iterator();
+        return () -> {
+            List<Split> batch = SplitProducer.newBatch(splitAssignment.getSplitBatchSize());
+            while (batch.size() < splitAssignment.getSplitBatchSize()
+                    && splitAssignment.needMoreSplit() && iterator.hasNext()) {
+                batch.add(iterator.next());
+            }
+            return batch;
+        };
     }
 
     private TerminalTask terminalTask(Runnable task, Runnable taskFinished) {
@@ -921,7 +961,11 @@ public class HudiScanNode extends HiveScanNode {
         }
 
         void beginSync(Thread thread) {
+            // Publish before checking cancellation so close either sees this thread or is observed here.
             syncThread = thread;
+            if (stopping.get()) {
+                throw new CancellationException("Hudi filesystem-view sync was cancelled");
+            }
         }
 
         void endSync() {
@@ -1057,7 +1101,11 @@ public class HudiScanNode extends HiveScanNode {
         }
 
         void beginSync(Thread thread) {
+            // Publish before checking cancellation so close either sees this thread or is observed here.
             syncThread = thread;
+            if (stopping.get()) {
+                throw new CancellationException("Hudi filesystem-view sync was cancelled");
+            }
         }
 
         void endSync() {

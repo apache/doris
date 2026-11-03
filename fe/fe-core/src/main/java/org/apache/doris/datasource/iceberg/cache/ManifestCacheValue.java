@@ -20,10 +20,12 @@ package org.apache.doris.datasource.iceberg.cache;
 import org.apache.doris.datasource.metacache.MetaCacheWeightUtils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import org.apache.iceberg.ContentFile;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.PartitionData;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.types.Types;
 
@@ -104,6 +106,39 @@ public class ManifestCacheValue {
 
     public static Builder deleteFilesBuilder(boolean accountRetainedSize) {
         return new Builder(false, accountRetainedSize);
+    }
+
+    /** Query-local views preserve the immutable shared cache payload and its accounting. */
+    public ScanFiles forScan(PartitionSpec spec) {
+        if (dataFiles.isEmpty() && deleteFiles.isEmpty()) {
+            return new ScanFiles(dataFiles, deleteFiles);
+        }
+        PartitionData partition = (PartitionData) (dataFiles.isEmpty()
+                ? deleteFiles.get(0).partition() : dataFiles.get(0).partition());
+        Types.StructType target = spec.rawPartitionType();
+        if (partition.getPartitionType().equals(target)) {
+            return new ScanFiles(dataFiles, deleteFiles);
+        }
+        IcebergPartitionValueAdapter adapter = new IcebergPartitionValueAdapter(partition.getPartitionType(), target);
+        return new ScanFiles(Lists.transform(dataFiles, adapter::adapt), Lists.transform(deleteFiles, adapter::adapt));
+    }
+
+    public static final class ScanFiles {
+        private final List<DataFile> dataFiles;
+        private final List<DeleteFile> deleteFiles;
+
+        private ScanFiles(List<DataFile> dataFiles, List<DeleteFile> deleteFiles) {
+            this.dataFiles = dataFiles;
+            this.deleteFiles = deleteFiles;
+        }
+
+        public List<DataFile> getDataFiles() {
+            return dataFiles;
+        }
+
+        public List<DeleteFile> getDeleteFiles() {
+            return deleteFiles;
+        }
     }
 
     public List<DataFile> getDataFiles() {

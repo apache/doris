@@ -104,6 +104,21 @@ public class ConfigBase {
         }
     }
 
+    public static class PositiveIntConfHandler implements ConfHandler {
+        @Override
+        public void handle(Field field, String confVal) throws Exception {
+            setConfigField(field, checkedValue(field, confVal));
+        }
+
+        private static String checkedValue(Field field, String confVal) throws ConfigException {
+            int value = Integer.parseInt(confVal.trim());
+            if (value <= 0) {
+                throw new ConfigException("Config '" + field.getName() + "' must be greater than 0");
+            }
+            return Integer.toString(value);
+        }
+    }
+
     static class CommaSeparatedIntersectConfHandler implements ConfHandler {
         @Override
         public void handle(Field field, String newVal) throws Exception {
@@ -296,12 +311,15 @@ public class ConfigBase {
             }
 
             try {
-                // Runtime callbacks can have side effects; only options validation is safe here.
+                // Runtime callbacks can have side effects; only pure value validators run here.
                 if (anno.callback() == OptionsConfHandler.class) {
                     confVal = OptionsConfHandler.checkedOption(f, confVal);
                 }
                 if (confVal.isEmpty()) {
                     continue;
+                }
+                if (anno.callback() == PositiveIntConfHandler.class) {
+                    confVal = PositiveIntConfHandler.checkedValue(f, confVal);
                 }
                 setConfigField(f, confVal);
             } catch (Exception e) {

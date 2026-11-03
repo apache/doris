@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.util.FairTaskExecutor;
 import org.apache.doris.datasource.doris.DorisExternalMetaCache;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache;
 import org.apache.doris.datasource.hudi.HudiExternalMetaCache;
@@ -42,6 +43,7 @@ import org.apache.doris.fs.FileSystemCache;
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import com.google.common.collect.Maps;
 import com.google.common.util.concurrent.Striped;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -57,6 +59,7 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.locks.Lock;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
@@ -101,6 +104,8 @@ public class ExternalMetaCacheMgr {
     private ExecutorService fileListingExecutor;
     // This executor is used to schedule the getting split tasks
     private ExecutorService scheduleExecutor;
+    private final FairTaskExecutor splitTaskExecutor;
+    private final FairTaskExecutor metadataTaskExecutor;
     private final ExternalMetaCacheRegistry cacheRegistry;
     private final ExternalMetaCacheRouteResolver routeResolver;
     private final LegacyMetaCacheFactory legacyMetaCacheFactory;
@@ -138,6 +143,13 @@ public class ExternalMetaCacheMgr {
                 Config.max_external_cache_loader_thread_pool_size * 1000,
                 "scheduleExecutor", 10, true);
 
+        splitTaskExecutor = new FairTaskExecutor(Config.external_scan_split_threads,
+                new ThreadFactoryBuilder()
+                        .setDaemon(true).setNameFormat("ExternalSplit-%d").build());
+        metadataTaskExecutor = new FairTaskExecutor(Config.external_scan_metadata_threads,
+                new ThreadFactoryBuilder()
+                        .setDaemon(true).setNameFormat("ExternalMetadata-%d").build());
+
         fsCache = new FileSystemCache();
         rowCountCache = new ExternalRowCountCache(rowCountRefreshExecutor);
         cacheRegistry = new ExternalMetaCacheRegistry();
@@ -164,6 +176,10 @@ public class ExternalMetaCacheMgr {
 
     public ExecutorService getFileListingExecutor() {
         return fileListingExecutor;
+    }
+
+    public FairTaskExecutor getScanTaskExecutor(boolean metadata) {
+        return metadata ? metadataTaskExecutor : splitTaskExecutor;
     }
 
     public ExecutorService getScheduleExecutor() {
@@ -404,7 +420,7 @@ public class ExternalMetaCacheMgr {
      * and group retirement. The stripe lock is reentrant, so fenced actions may call back into
      * removeCatalog/rollbackCatalogProperties for the same catalog.
      */
-    public <T> T withCatalogLifecycleLock(long catalogId, java.util.function.Supplier<T> action) {
+    public <T> T withCatalogLifecycleLock(long catalogId, Supplier<T> action) {
         Lock lifecycleLock = catalogLifecycleLocks.get(catalogId);
         lifecycleLock.lock();
         try {
