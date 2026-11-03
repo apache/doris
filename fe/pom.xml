@@ -399,7 +399,7 @@ under the License.
              CVE-2025-14813, CVE-2026-0636, CVE-2026-3505, CVE-2026-5588, and CVE-2026-5598. -->
         <bcprov-jdk18on.version>1.84</bcprov-jdk18on.version>
         <woodstox.version>6.5.1</woodstox.version>
-        <kerby.version>2.0.3</kerby.version>
+        <kerby.version>2.1.2</kerby.version>
         <jettison.version>1.5.4</jettison.version>
         <!-- Spring Framework 7 uses the Servlet 6.1 / Jetty EE11 baseline. -->
         <jetty.version>12.1.14</jetty.version>
@@ -863,13 +863,10 @@ under the License.
             </dependency>
             <dependency>
                 <groupId>org.apache.kerby</groupId>
-                <artifactId>kerb-simplekdc</artifactId>
+                <artifactId>kerby-bom</artifactId>
                 <version>${kerby.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.kerby</groupId>
-                <artifactId>kerb-core</artifactId>
-                <version>${kerby.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
             </dependency>
             <!-- anyway to avoid declare zookeeper again -->
             <dependency>
