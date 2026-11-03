@@ -624,35 +624,34 @@ public class AIResourceTest {
     }
 
     @Test
-    public void testEmptyEffortIsNotForwarded() throws DdlException {
+    public void testEmptyEffortIsRejected() throws DdlException {
         Map<String, String> properties = new HashMap<>(aiProperties);
         properties.put(AIProperties.EFFORT, "");
 
         AIResource aiResource = new AIResource("empty-effort-resource");
-        aiResource.setProperties(ImmutableMap.copyOf(properties));
-
-        Assertions.assertFalse(aiResource.toThrift().isSetEffort());
+        Assertions.assertThrows(DdlException.class, () -> aiResource.setProperties(ImmutableMap.copyOf(properties)));
     }
 
     @Test
-    public void testClearEffortOnModifyAndPersistence() throws Exception {
+    public void testRejectEmptyEffortOnModifyAndPersistence() throws Exception {
         Map<String, String> properties = new HashMap<>(aiProperties);
         properties.put(AIProperties.EFFORT, "high");
 
-        AIResource aiResource = new AIResource("clear-effort-resource");
+        AIResource aiResource = new AIResource("non-empty-effort-resource");
         aiResource.setProperties(ImmutableMap.copyOf(properties));
-        aiResource.modifyProperties(ImmutableMap.of(AIProperties.EFFORT, ""));
+        Assertions.assertThrows(DdlException.class,
+                () -> aiResource.modifyProperties(ImmutableMap.of(AIProperties.EFFORT, "")));
 
-        Assertions.assertNull(aiResource.getProperty(AIProperties.EFFORT));
-        Assertions.assertFalse(aiResource.toThrift().isSetEffort());
+        Assertions.assertEquals("high", aiResource.getProperty(AIProperties.EFFORT));
+        Assertions.assertEquals("high", aiResource.toThrift().getEffort());
 
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         aiResource.write(new DataOutputStream(bytes));
         AIResource restoredResource = (AIResource) Resource.read(
                 new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
 
-        Assertions.assertNull(restoredResource.getProperty(AIProperties.EFFORT));
-        Assertions.assertFalse(restoredResource.toThrift().isSetEffort());
+        Assertions.assertEquals("high", restoredResource.getProperty(AIProperties.EFFORT));
+        Assertions.assertEquals("high", restoredResource.toThrift().getEffort());
     }
 
     @Test

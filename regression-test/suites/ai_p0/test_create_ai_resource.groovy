@@ -76,6 +76,21 @@ suite("test_create_ai_resource") {
         exception "Missing [ai.api_key] in properties for provider: DEEPSEEK"
     }
 
+    for (String key : ['ai.api_key', 'ai.max_retries', 'ai.anthropic_version', 'ai.effort']) {
+        for (String value : ['', '   ']) {
+            test {
+                sql """CREATE RESOURCE "${resourceName}" PROPERTIES(
+                    'type' = 'ai',
+                    'ai.provider_type' = 'local',
+                    'ai.endpoint' = 'http://localhost:8000/v1/chat/completions',
+                    'ai.model_name' = 'chat-model',
+                    '${key}' = '${value}'
+                );"""
+                exception "[${key}] must not be empty"
+            }
+        }
+    }
+
     sql """CREATE RESOURCE IF NOT EXISTS "${resourceName}"
             PROPERTIES(
                 'type' = 'ai',
@@ -91,6 +106,15 @@ suite("test_create_ai_resource") {
             );"""
     def res = sql """SHOW RESOURCES WHERE NAME = '${resourceName}'"""
     assertTrue(res.size() > 0)
+
+    for (String key : ['ai.model_name', 'ai.api_key', 'ai.max_retries', 'ai.anthropic_version', 'ai.effort']) {
+        for (String value : ['', '   ']) {
+            test {
+                sql """ALTER RESOURCE "${resourceName}" PROPERTIES('${key}' = '${value}');"""
+                exception "[${key}] must not be empty"
+            }
+        }
+    }
 
     try_sql("""DROP RESOURCE '${resourceName}'""")
 }
