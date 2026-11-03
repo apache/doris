@@ -75,7 +75,7 @@ class TemporalConversionTest {
         Assertions.assertEquals(target, cast.getDataType());
         Assertions.assertTrue(((Cast) TypeCoercionUtils.castForCommonTypeWithExactTarget(slot, target)).isStrict());
         Assertions.assertSame(slot, TypeCoercionUtils.castForCommonType(slot, source));
-        Assertions.assertFalse(TemporalCastSupport.requiresStrictTemporalCast(target, source));
+        Assertions.assertFalse(TemporalConversionProperties.narrowsCalendarRangeToTimeStampNs(target, source));
     }
 
     @Test

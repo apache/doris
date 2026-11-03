@@ -36,7 +36,7 @@ import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.TemporalCastSupport;
+import org.apache.doris.nereids.util.TemporalConversionProperties;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -167,7 +167,7 @@ public class PredicateRewriteForPartitionPrune
     }
 
     private static boolean canRepresentExactly(TimeStampNsLiteral literal, int scale) {
-        return TemporalCastSupport.isFractionExactlyRepresentable(literal.getNanoSecond(), scale);
+        return TemporalConversionProperties.isFractionExactlyRepresentable(literal.getNanoSecond(), scale);
     }
 
     private static Optional<Expression> timestampNsDateRange(Expression dateChild, Expression option) {

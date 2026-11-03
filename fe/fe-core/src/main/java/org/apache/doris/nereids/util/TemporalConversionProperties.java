@@ -34,25 +34,33 @@ import org.apache.doris.nereids.types.TimeStampTzType;
 import java.util.List;
 import java.util.Optional;
 
-/** Properties of temporal conversions shared by coercion and CAST rewrites. */
-public final class TemporalCastSupport {
-    private TemporalCastSupport() {
+/**
+ * Properties of a temporal conversion with a given source and target: calendar range,
+ * literal exactness and nullable output layout. Shared by implicit coercion and explicit CAST.
+ *
+ * <p>This class does not choose target types, admit function overloads or select a cast mode.
+ * {@link TemporalTypeCoercion} owns type selection; callers use these properties to decide how
+ * to materialize or rewrite a conversion. Explicit CAST legality remains in CheckCast, and
+ * timezone value conversion is implemented by {@link TemporalValueConversion}.
+ */
+public final class TemporalConversionProperties {
+    private TemporalConversionProperties() {
     }
 
     /**
-     * Common-type promotion to NS narrows the calendar range, including nested values.
-     * Fail instead of introducing NULL into a comparison or a value-producing expression.
-     * Explicit CAST and single-family function arguments keep their existing cast mode.
+     * Whether a date-like source is converted to the narrower TIMESTAMP_NS calendar range,
+     * including aligned ARRAY, MAP and STRUCT components. This describes the type ranges,
+     * not whether a particular value overflows or which cast mode the caller should use.
      */
-    public static boolean requiresStrictTemporalCast(DataType sourceType, DataType targetType) {
+    public static boolean narrowsCalendarRangeToTimeStampNs(DataType sourceType, DataType targetType) {
         if (sourceType instanceof ArrayType && targetType instanceof ArrayType) {
-            return requiresStrictTemporalCast(((ArrayType) sourceType).getItemType(),
+            return narrowsCalendarRangeToTimeStampNs(((ArrayType) sourceType).getItemType(),
                     ((ArrayType) targetType).getItemType());
         } else if (sourceType instanceof MapType && targetType instanceof MapType) {
             MapType sourceMap = (MapType) sourceType;
             MapType targetMap = (MapType) targetType;
-            return requiresStrictTemporalCast(sourceMap.getKeyType(), targetMap.getKeyType())
-                    || requiresStrictTemporalCast(sourceMap.getValueType(), targetMap.getValueType());
+            return narrowsCalendarRangeToTimeStampNs(sourceMap.getKeyType(), targetMap.getKeyType())
+                    || narrowsCalendarRangeToTimeStampNs(sourceMap.getValueType(), targetMap.getValueType());
         } else if (sourceType instanceof StructType && targetType instanceof StructType) {
             List<StructField> sourceFields = ((StructType) sourceType).getFields();
             List<StructField> targetFields = ((StructType) targetType).getFields();
@@ -61,7 +69,7 @@ public final class TemporalCastSupport {
                 return false;
             }
             for (int i = 0; i < sourceFields.size(); i++) {
-                if (requiresStrictTemporalCast(sourceFields.get(i).getDataType(),
+                if (narrowsCalendarRangeToTimeStampNs(sourceFields.get(i).getDataType(),
                         targetFields.get(i).getDataType())) {
                     return true;
                 }
@@ -72,18 +80,19 @@ public final class TemporalCastSupport {
     }
 
     /**
-     * Prove the value-aware exception for narrowing an NS literal to another temporal type.
-     * A non-literal has no such proof, even when an explicit CAST would be legal.
+     * Whether an NS literal, including one obtained from an explicit literal CAST, is exactly
+     * representable by another temporal type. A non-literal has no such proof. Coercion uses
+     * this fact to admit otherwise rejected arguments; it does not determine explicit CAST legality.
      */
-    public static boolean canExactlyCastTemporalLiteralTo(Expression expression, DataType targetType) {
+    public static boolean isTimeStampNsLiteralExactlyRepresentable(Expression expression, DataType targetType) {
         Optional<TimeStampNsLiteral> literal = getTimeStampNsLiteral(expression);
         if (!literal.isPresent()) {
             return false;
         }
-        return canExactlyCastTimeStampNsLiteralTo(literal.get(), targetType);
+        return isTimeStampNsLiteralExactlyRepresentable(literal.get(), targetType);
     }
 
-    private static boolean canExactlyCastTimeStampNsLiteralTo(
+    private static boolean isTimeStampNsLiteralExactlyRepresentable(
             TimeStampNsLiteral literal, DataType targetType) {
         if (targetType.isDateType() || targetType.isDateV2Type()) {
             return literal.isMidnight();
@@ -148,15 +157,5 @@ public final class TemporalCastSupport {
                 || (source.isTimeStampTzType() && target.isDateTimeV2Type())
                 || ((source.isDateTimeV2Type() || source.isTimeStampNsType() || source.isTimeStampTzType())
                     && target.isTimeStampTzType());
-    }
-
-    /** Removing this conversion could suppress the range error of a strict implicit CAST. */
-    public static boolean mustPreserveTemporalRangeCheck(DataType target) {
-        return target.isTimeStampNsType();
-    }
-
-    /** Temporal conversions whose value representation is only implemented by the BE evaluator. */
-    public static boolean requiresBackendEvaluation(DataType source, DataType target) {
-        return source.isTimeStampNsType() && target.isVariantType();
     }
 }

@@ -34,7 +34,15 @@ import org.apache.doris.nereids.types.coercion.NumericType;
 import java.util.List;
 import java.util.Optional;
 
-/** Temporal promotion and overload policies. Explicit CAST legality remains in CheckCast. */
+/**
+ * Select target types and function overloads for temporal arguments: common-type promotion,
+ * implicit argument compatibility and signature admission/preference.
+ *
+ * <p>Selection may consult {@link TemporalConversionProperties} for literal exactness, but
+ * conversion properties do not depend on these selection policies. Cast construction and mode
+ * selection remain in {@link TypeCoercionUtils}; explicit CAST legality remains in CheckCast.
+ * This class does not perform temporal value conversion.
+ */
 public final class TemporalTypeCoercion {
     private TemporalTypeCoercion() {
     }
@@ -115,7 +123,7 @@ public final class TemporalTypeCoercion {
     public static Optional<DataType> implicitCastArgument(Expression input, DataType expectedType) {
         Optional<DataType> castType = TypeCoercionUtils.implicitCast(input.getDataType(), expectedType);
         if (!castType.isPresent() && input.getDataType().isTimeStampNsType() && expectedType.isDateLikeType()
-                && TemporalCastSupport.canExactlyCastTemporalLiteralTo(input, expectedType)) {
+                && TemporalConversionProperties.isTimeStampNsLiteralExactlyRepresentable(input, expectedType)) {
             return Optional.of(expectedType);
         }
         return castType;
@@ -129,7 +137,10 @@ public final class TemporalTypeCoercion {
         }
     }
 
-    /** Per-search policy. Candidate ordering and matching rounds remain in SearchSignature. */
+    /**
+     * Function overload selection, separate from the common-type and argument policies above.
+     * Candidate ordering and matching rounds remain in SearchSignature.
+     */
     public static final class SignaturePolicy {
         private final boolean hasTimeStampNsArgument;
         private final boolean hasOtherDateLikeArgument;
@@ -167,7 +178,8 @@ public final class TemporalTypeCoercion {
             }
             if (realType.isTimeStampNsType() && sigArgType.isDateLikeType()
                     && !sigArgType.isTimeStampNsType()
-                    && !TemporalCastSupport.canExactlyCastTemporalLiteralTo(argument, sigArgType)) {
+                    && !TemporalConversionProperties.isTimeStampNsLiteralExactlyRepresentable(
+                            argument, sigArgType)) {
                 return false;
             }
             return true;

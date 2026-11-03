@@ -588,7 +588,7 @@ public class TypeCoercionUtils {
      * into comparisons or value-producing expressions; character lengths retain normal matching.
      */
     public static Expression castForCommonType(Expression input, DataType targetType) {
-        if (TemporalCastSupport.requiresStrictTemporalCast(input.getDataType(), targetType)) {
+        if (TemporalConversionProperties.narrowsCalendarRangeToTimeStampNs(input.getDataType(), targetType)) {
             return strictCastIfNotSameType(input, targetType);
         }
         return castIfNotSameType(input, targetType);
@@ -597,7 +597,7 @@ public class TypeCoercionUtils {
     /** Materialize a common type with exact target matching, including character lengths. */
     public static Expression castForCommonTypeWithExactTarget(
             Expression input, DataType targetType) {
-        if (TemporalCastSupport.requiresStrictTemporalCast(input.getDataType(), targetType)) {
+        if (TemporalConversionProperties.narrowsCalendarRangeToTimeStampNs(input.getDataType(), targetType)) {
             return strictCastIfNotSameType(input, targetType);
         }
         return castIfNotSameTypeStrict(input, targetType);
@@ -808,8 +808,10 @@ public class TypeCoercionUtils {
             DataType argType = child.getDataType();
             Optional<DataType> castType = castTypes.get(childIndex);
             if (castType.isPresent() && !castType.get().equals(argType)) {
+                // Only mixed temporal arguments force strict range checks here. The range property
+                // alone does not change the cast mode of explicit CAST or single-family arguments.
                 if (strictTimeStampNsCoercion
-                        && TemporalCastSupport.requiresStrictTemporalCast(argType, castType.get())) {
+                        && TemporalConversionProperties.narrowsCalendarRangeToTimeStampNs(argType, castType.get())) {
                     return strictCastIfNotSameType(child, castType.get());
                 }
                 return TypeCoercionUtils.castIfNotMatchType(child, castType.get());
