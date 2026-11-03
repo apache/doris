@@ -451,6 +451,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             upstreamFragment.setSink(streamSink);
         }
 
+        context.getRuntimeTranslator().ifPresent(translator ->
+                translator.registerExchangeNode(distribute, exchangeNode));
         context.addPlanFragment(downstreamFragment);
         return downstreamFragment;
     }
