@@ -29,6 +29,7 @@ import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.extensions.insert.streaming.DataSourceConfigValidator;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJdbcUrlNormalizer;
 import org.apache.doris.job.util.StreamingJobUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
 
@@ -83,6 +84,8 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
         StreamingJobUtils.populateDefaultSourceProperties(sourceType, copyProps, jobId);
 
         super.parseCommonProperties(copyProps);
+        StreamingJobUtils.checkCdcDriverPrivilege(ConnectContext.get(),
+                processedParams.get(DataSourceConfigKeys.DRIVER_URL));
         this.processedParams.put(ENABLE_CDC_CLIENT_KEY, "true");
         this.processedParams.put(URI_KEY, URI);
         this.processedParams.put(HTTP_ENABLE_RANGE_REQUEST_KEY, "false");
