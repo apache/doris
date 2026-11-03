@@ -492,11 +492,37 @@ public class FlightProtocolAdapterTest {
         Mockito.verify(deferred, Mockito.times(1)).finalizeArrowFlightQuery();
     }
 
-    // Session teardown (CloseSession, the bearer token's expiry, KILL, the timeout checker) does
-    // not wait for the command that may be running: the command goes on, and its query may be
-    // deferred after teardown took everything the list held. Nothing would ever take that
-    // executor -- the session runs no next request, the timeout checker no longer sees it -- so a
-    // torn-down session finalizes what is deferred to it on the spot, and runs no further command.
+    @Test
+    public void testDeferredCloseKeepsTheHandoffOpenUntilOperationExit() throws Exception {
+        ConnectContext ctx = flightSession();
+        FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
+        StmtExecutor deferred = Mockito.mock(StmtExecutor.class);
+        StmtExecutor late = Mockito.mock(StmtExecutor.class);
+        try {
+            adapter.runCommand(ctx, () -> {
+                ctx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+                Assertions.assertEquals(ConnectContext.LifecycleState.CLOSING, ctx.getLifecycleState());
+                // CLOSING rejects new commands but must not seal the admitted command's handoff.
+                adapter.addDeferredExecutor(deferred);
+                Assertions.assertEquals(Collections.singletonList(deferred), adapter.getDeferredExecutors());
+                Mockito.verifyNoInteractions(deferred);
+                adapter.getChannel().addOKResult("response", "KILL CONNECTION");
+                Assertions.assertTrue(adapter.getChannel().getAllocatedMemory() > 0);
+            });
+            Assertions.assertEquals(ConnectContext.LifecycleState.CLOSED, ctx.getLifecycleState());
+            Assertions.assertEquals(0, adapter.getChannel().getAllocatedMemory());
+            Mockito.verify(deferred).finalizeArrowFlightQuery();
+            adapter.addDeferredExecutor(late);
+            Mockito.verify(late).finalizeArrowFlightQuery();
+            Assertions.assertTrue(adapter.getDeferredExecutors().isEmpty());
+        } finally {
+            ctx.cleanup();
+        }
+    }
+
+    // Immediate teardown does not wait for the running command. An executor published after the
+    // handoff was sealed must be finalized on the spot, since no later request or timeout scan
+    // will own it. Admission and deferred-result publication have different closing boundaries.
     @Test
     public void testATornDownSessionFinalizesWhatIsDeferredToItOnTheSpot() throws Exception {
         ConnectScheduler scheduler = new ConnectScheduler(10, 10);

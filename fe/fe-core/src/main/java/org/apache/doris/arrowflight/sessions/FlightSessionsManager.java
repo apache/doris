@@ -59,9 +59,9 @@ public interface FlightSessionsManager {
     ConnectContext getConnectContext(String peerIdentity);
 
     /**
-     * Ends the session known by this bearer token, the client's own CloseSession: nothing is held
-     * for it afterwards and every later call under the token is {@code UNAUTHENTICATED}. Ending a
-     * session that has already ended is not an error.
+     * Requests immediate closure for the client's CloseSession: every later call under the token
+     * is {@code UNAUTHENTICATED}, while resource release waits for cancelled operations to exit.
+     * Ending a session that has already ended is not an error.
      */
     void closeConnectContext(String peerIdentity);
 

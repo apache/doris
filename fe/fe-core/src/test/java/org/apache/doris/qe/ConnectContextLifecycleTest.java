@@ -299,6 +299,44 @@ public class ConnectContextLifecycleTest {
     }
 
     @Test
+    public void testConcurrentAndReentrantCloseDuringResourceReleaseRunsOnce() throws Exception {
+        Assertions.assertEquals(-1, ctx.activateClientSession(pool));
+        CountDownLatch releasing = new CountDownLatch(1);
+        CountDownLatch allowRelease = new CountDownLatch(1);
+        IllegalStateException failure = new IllegalStateException("protocol release failed");
+        Mockito.doAnswer(call -> {
+            ctx.cleanup(); // A resource callback can also re-enter the coordinator.
+            releasing.countDown();
+            Assertions.assertTrue(allowRelease.await(10, TimeUnit.SECONDS));
+            throw failure;
+        }).when(adapter).releaseSession(ctx);
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> close = worker.submit(() -> ctx.requestClose(CloseMode.AFTER_RESPONSE));
+            Assertions.assertTrue(releasing.await(10, TimeUnit.SECONDS));
+            ctx.cleanup();
+            ctx.requestClose(CloseMode.AFTER_RESPONSE);
+            Assertions.assertFalse(ctx.tryBeginCommand());
+            Assertions.assertFalse(ctx.getCleanupCompletion().toCompletableFuture().isDone());
+            Mockito.verify(ctx, Mockito.never()).closeTxn();
+            allowRelease.countDown();
+            close.get(10, TimeUnit.SECONDS);
+            Assertions.assertEquals(LifecycleState.CLOSING, ctx.getLifecycleState());
+            Assertions.assertSame(failure, Assertions.assertThrows(java.util.concurrent.CompletionException.class,
+                    () -> ctx.getCleanupCompletion().toCompletableFuture().join()).getCause());
+            ctx.cleanup(); // Failure is terminal for teardown; do not retry released resources.
+            Mockito.verify(adapter).closeConnection(ctx);
+            Mockito.verify(adapter).releaseSession(ctx);
+            Mockito.verify(ctx).closeTxn();
+            Mockito.verify(ctx).deleteTempTable();
+        } finally {
+            allowRelease.countDown();
+            worker.shutdownNow();
+            Assertions.assertTrue(worker.awaitTermination(10, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
     public void testKillQueryKeepsTheSessionActive() {
         Assertions.assertEquals(-1, ctx.activateClientSession(pool));
         StmtExecutor running = Mockito.mock(StmtExecutor.class);
