@@ -22,7 +22,6 @@ import org.apache.paimon.CoreOptions;
 import org.apache.paimon.options.ConfigOption;
 import org.apache.paimon.options.MemorySize;
 import org.apache.paimon.options.Options;
-import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.table.DelegatedFileStoreTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
@@ -192,23 +191,6 @@ public final class PaimonReaderOptions {
                             main, other, isWrappedFirst(pair));
         }
 
-        if (table instanceof DelegatedFileStoreTable) {
-            if (!(table instanceof PrivilegedFileStoreTable)) {
-                throw new IllegalArgumentException("Unsupported Paimon planning table delegate: "
-                        + table.getClass().getName());
-            }
-            FileStoreTable wrapped = ((DelegatedFileStoreTable) table).wrapped();
-            FileStoreTable normalized = normalizeManifestParallelism(
-                    wrapped, safeBound, materializeAbsent);
-            if (normalized == wrapped) {
-                return table;
-            }
-            // A delegate copy broadcasts one value to every fallback branch. Check authorization
-            // before peeling the privilege-only layer so branch-local limits remain independent.
-            ((FileStoreTable) table).newScan();
-            return normalized;
-        }
-
         if (!(table instanceof FileStoreTable)) {
             // System-table wrappers hide the already-normalized source. Treating the wrapper as a
             // planning leaf would broadcast one cap through its private fallback tree on copy().
@@ -262,7 +244,7 @@ public final class PaimonReaderOptions {
             validateEffectiveTable(((FallbackReadFileStoreTable) table).other());
         }
         if (table instanceof DelegatedFileStoreTable) {
-            // Privilege and other supported delegates can hide a fallback planner behind their
+            // Delegates can hide a fallback planner behind their
             // own visible main options, so traverse the complete planning-handle chain.
             validateEffectiveTable(((DelegatedFileStoreTable) table).wrapped());
         }

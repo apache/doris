@@ -25,9 +25,9 @@ import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.reader.RecordReader;
+import org.apache.paimon.schema.FileSystemSchemaManager;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
-import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.FileStoreTableFactory;
 import org.apache.paimon.table.sink.BatchTableCommit;
@@ -56,7 +56,7 @@ public class PaimonRustReaderLegacySchemaTest {
         java.nio.file.Path directory = temporaryFolder.newFolder().toPath();
         Path location = new Path(directory.toUri());
         LocalFileIO fileIO = LocalFileIO.create();
-        new SchemaManager(fileIO, location).createTable(Schema.newBuilder()
+        new FileSystemSchemaManager(fileIO, location).createTable(Schema.newBuilder()
                 .column("id", DataTypes.INT()).option("bucket", "-1")
                 .option("file.format", "parquet").build());
         FileStoreTable table = FileStoreTableFactory.create(fileIO, location);

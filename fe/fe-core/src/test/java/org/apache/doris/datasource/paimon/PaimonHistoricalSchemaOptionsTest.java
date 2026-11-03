@@ -27,8 +27,6 @@ import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.fs.local.LocalFileIO;
-import org.apache.paimon.privilege.PrivilegeChecker;
-import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
@@ -46,7 +44,6 @@ import org.apache.paimon.utils.InstantiationUtil;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.mockito.Mockito;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -86,10 +83,6 @@ public class PaimonHistoricalSchemaOptionsTest {
                     Collections.singletonMap("scan.snapshot-id", "1"),
                     Collections.singletonMap("scan.tag-name", "before_rename"))) {
                 FileStoreTable selected = (FileStoreTable) PaimonScanParams.applyOptions(latest, selector);
-                PrivilegeChecker checker = Mockito.mock(PrivilegeChecker.class);
-                Mockito.doThrow(new SecurityException("read-only principal")).when(checker)
-                        .assertCanInsert(Mockito.any());
-                selected = PrivilegedFileStoreTable.wrap(selected, checker, id);
                 PaimonSnapshotCacheValue projection = loader.load(
                         NameMapping.createForTest("db", "projection_history"), selected);
                 Assertions.assertEquals(1L, projection.getSnapshot().getSnapshotId());

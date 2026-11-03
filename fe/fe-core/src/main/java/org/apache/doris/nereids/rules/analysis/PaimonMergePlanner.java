@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
@@ -80,13 +81,34 @@ final class PaimonMergePlanner {
     private final PaimonRowChangeSpec.Merge merge;
     private final LogicalPlan child;
     private final ExpressionAnalyzer analyzer;
+    private final Expression targetPresent;
     private final RowChangeOutputLayout outputLayout;
 
     private PaimonMergePlanner(PaimonWriteTarget target, PaimonRowChangeSpec.Merge merge,
             LogicalPlan child, CascadesContext cascadesContext) {
         this.target = target;
         this.merge = merge;
-        this.child = child;
+        if (merge.getNotMatchedClauses().isEmpty()) {
+            // MATCHED-only MERGE uses an INNER JOIN, including NULL-safe key matches.
+            this.child = child;
+            this.targetPresent = BooleanLiteral.TRUE;
+        } else {
+            if (!(child instanceof LogicalJoin)) {
+                throw new AnalysisException("Paimon MERGE input must be a logical join");
+            }
+            LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) child;
+            // A nullable primary key cannot distinguish a target row from null-extension.
+            Alias present = new Alias(new TinyIntLiteral((byte) 1), "__DORIS_CHANGELOG_TARGET_PRESENT__");
+            List<NamedExpression> targetOutput = new ArrayList<>(join.left().getOutput());
+            targetOutput.add(present);
+            this.child = join.withChildren(ImmutableList.of(
+                    new LogicalProject<>(targetOutput, join.left()), join.right()));
+            Slot marker = this.child.getOutput().stream()
+                    .filter(slot -> slot.getExprId().equals(present.getExprId())).findFirst()
+                    .orElseThrow(() -> new IllegalStateException("Paimon MERGE lost its target marker"));
+            this.targetPresent = new Not(new IsNull(marker));
+        }
+        // User expressions retain the original scope, including same-named user columns.
         this.analyzer = new ExpressionAnalyzer(
                 child, new Scope(child.getOutput()), cascadesContext, true, false);
         this.outputLayout = RowChangeOutputLayout.from(target);
@@ -116,9 +138,6 @@ final class PaimonMergePlanner {
     }
 
     private Alias bindBranchLabel() {
-        String primaryKey = target.getTable().primaryKeys().get(0);
-        Slot targetKey = findTargetSlot(primaryKey);
-        Expression targetPresent = new Not(new IsNull(targetKey));
         return new Alias(analyzer.analyze(
                 generateBranchLabel(targetPresent).child()), BRANCH_LABEL);
     }

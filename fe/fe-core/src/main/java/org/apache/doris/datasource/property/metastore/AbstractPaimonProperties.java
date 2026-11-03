@@ -121,6 +121,18 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
 
     protected void appendUserHadoopConfig(Configuration  conf) {
         normalizeS3Config().forEach(conf::set);
+        mirrorHadoopS3OptionsToCatalogOptions(conf);
+    }
+
+    /** Paimon 2.1 S3FileIO reads these values from catalog options rather than Hadoop conf. */
+    protected void mirrorHadoopS3OptionsToCatalogOptions(Configuration conf) {
+        conf.forEach(entry -> {
+            String key = entry.getKey();
+            // Explicit Paimon options, including assumed-role providers, keep precedence.
+            if (key.startsWith(FS_S3A_PREFIX) && catalogOptions.get(key) == null) {
+                catalogOptions.set(key, entry.getValue());
+            }
+        });
     }
 
     public Map<String, String> getCatalogOptionsMap() {

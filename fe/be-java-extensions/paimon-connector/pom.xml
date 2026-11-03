@@ -119,6 +119,13 @@ under the License.
         <directory>${project.basedir}/target/</directory>
         <plugins>
             <plugin>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- Match the BE JVM access required by Paimon 2.1 Variant buffers. -->
+                    <argLine>--add-opens=java.base/java.nio=ALL-UNNAMED @{argLine}</argLine>
+                </configuration>
+            </plugin>
+            <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-assembly-plugin</artifactId>
                 <configuration>
