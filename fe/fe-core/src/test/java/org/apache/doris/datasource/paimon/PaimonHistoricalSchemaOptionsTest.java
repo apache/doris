@@ -27,8 +27,6 @@ import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.fs.local.LocalFileIO;
-import org.apache.paimon.privilege.PrivilegeChecker;
-import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
@@ -85,11 +83,12 @@ public class PaimonHistoricalSchemaOptionsTest {
             for (Map<String, String> selector : Arrays.asList(
                     Collections.singletonMap("scan.snapshot-id", "1"),
                     Collections.singletonMap("scan.tag-name", "before_rename"))) {
-                FileStoreTable selected = (FileStoreTable) PaimonScanParams.applyOptions(latest, selector);
-                PrivilegeChecker checker = Mockito.mock(PrivilegeChecker.class);
-                Mockito.doThrow(new SecurityException("read-only principal")).when(checker)
-                        .assertCanInsert(Mockito.any());
-                selected = PrivilegedFileStoreTable.wrap(selected, checker, id);
+                FileStoreTable selected = Mockito.spy(
+                        (FileStoreTable) PaimonScanParams.applyOptions(latest, selector));
+                // Paimon 2.1 removed the legacy privilege wrapper. Keep the read-only check
+                // on the SDK write entry point: snapshot projection must not create a writer.
+                Mockito.doThrow(new SecurityException("read-only principal")).when(selected)
+                        .newBatchWriteBuilder();
                 PaimonSnapshotCacheValue projection = loader.load(
                         NameMapping.createForTest("db", "projection_history"), selected);
                 Assertions.assertEquals(1L, projection.getSnapshot().getSnapshotId());
