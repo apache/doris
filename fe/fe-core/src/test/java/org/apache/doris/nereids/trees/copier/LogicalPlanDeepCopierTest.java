@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.copier;
 
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -29,16 +31,23 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat.RepeatType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -201,6 +210,32 @@ public class LogicalPlanDeepCopierTest {
         Assertions.assertTrue(relationPlan.hasPartitionPredicate());
         Assertions.assertFalse(copiedPlan.isPartitionPruned());
         Assertions.assertTrue(copiedPlan.hasPartitionPredicate());
+    }
+
+    @Test
+    public void testDeepCopyFileScanInvalidatesPartitionPruning() {
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Map<String, PartitionItem> partitionItems = ImmutableMap.of(
+                "p1", Mockito.mock(PartitionItem.class));
+        SelectedPartitions selectedPartitions = new SelectedPartitions(2, partitionItems, true, true);
+        Mockito.when(table.initSelectedPartitions(Mockito.any())).thenReturn(selectedPartitions);
+        Slot output = new SlotReference("p1", IntegerType.INSTANCE, true);
+        LogicalFileScan relationPlan = new LogicalFileScan(PlanConstructor.getNextRelationId(), table,
+                ImmutableList.of("db"), Collections.emptyList(), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.of(ImmutableList.<Slot>of(output)));
+        DeepCopierContext context = new DeepCopierContext();
+        context.setInvalidatePartitionPruning(true);
+
+        LogicalFileScan copiedPlan =
+                (LogicalFileScan) relationPlan.accept(LogicalPlanDeepCopier.INSTANCE, context);
+
+        Assertions.assertTrue(relationPlan.getSelectedPartitions().isPruned);
+        Assertions.assertFalse(copiedPlan.getSelectedPartitions().isPruned);
+        Assertions.assertTrue(copiedPlan.hasPartitionPredicate());
+        Assertions.assertEquals(relationPlan.getSelectedPartitions().totalPartitionNum,
+                copiedPlan.getSelectedPartitions().totalPartitionNum);
+        Assertions.assertEquals(relationPlan.getSelectedPartitions().selectedPartitions.keySet(),
+                copiedPlan.getSelectedPartitions().selectedPartitions.keySet());
     }
 
 }

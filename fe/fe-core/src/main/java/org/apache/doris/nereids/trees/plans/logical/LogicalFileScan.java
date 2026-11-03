@@ -272,6 +272,16 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
                 cachedOutputs, relationSchema, relationSnapshot, tableAlias);
     }
 
+    /**
+     * Return a new scan with the specified partition pruning state.
+     */
+    public LogicalFileScan withPartitionPruned(boolean isPruned) {
+        if (selectedPartitions.isPruned == isPruned) {
+            return this;
+        }
+        return withSelectedPartitions(selectedPartitions.withPruned(isPruned));
+    }
+
     @Override
     public LogicalFileScan withRelationId(RelationId relationId) {
         return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
@@ -457,6 +467,17 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
                     "selectedPartitions is null"));
             this.isPruned = isPruned;
             this.hasPartitionPredicate = hasPartitionPredicate;
+        }
+
+        /**
+         * Return a copy with the specified partition pruning state.
+         */
+        public SelectedPartitions withPruned(boolean isPruned) {
+            if (this.isPruned == isPruned) {
+                return this;
+            }
+            return new SelectedPartitions(totalPartitionNum, selectedPartitions, isPruned,
+                    hasPartitionPredicate);
         }
 
         @Override
