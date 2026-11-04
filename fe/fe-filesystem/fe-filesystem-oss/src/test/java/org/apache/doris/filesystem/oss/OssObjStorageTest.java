@@ -25,6 +25,7 @@ import org.apache.doris.filesystem.spi.RequestBody;
 
 import com.aliyun.oss.ClientBuilderConfiguration;
 import com.aliyun.oss.OSS;
+import com.aliyun.oss.OSSException;
 import com.aliyun.oss.common.comm.RequestMessage;
 import com.aliyun.oss.common.utils.HttpHeaders;
 import com.aliyun.oss.internal.OSSHeaders;
@@ -420,6 +421,28 @@ class OssObjStorageTest {
         byte[] content = "x".getBytes(StandardCharsets.UTF_8);
         Assertions.assertThrows(IOException.class, () -> storage.putObject("oss://my-bucket/k.txt",
                 RequestBody.of(new ByteArrayInputStream(content), content.length)));
+    }
+
+    @Test
+    void globListingFailsForMissingBucketAfterMatchingAnotherPath() throws Exception {
+        OSS client = Mockito.mock(OSS.class);
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(10L);
+        Mockito.when(client.getObjectMetadata("my-bucket", "file.csv")).thenReturn(metadata);
+        OSSException missingBucket = Mockito.mock(OSSException.class);
+        Mockito.when(missingBucket.getErrorCode()).thenReturn("NoSuchBucket");
+        Mockito.when(client.getObjectMetadata("missing-bucket", "file.csv")).thenThrow(missingBucket);
+        Mockito.when(client.listObjects(Mockito.any(ListObjectsRequest.class))).thenThrow(missingBucket);
+
+        try (OssFileSystem fs = new OssFileSystem(new TestableOssObjStorage(buildBasicProps(), client))) {
+            Assertions.assertEquals(1, fs.globListWithLimit(Location.of("oss://my-bucket/file.csv"),
+                    null, 0, 0).getFiles().size());
+            Assertions.assertThrows(IOException.class, () -> fs.globListWithLimit(
+                    Location.of("oss://missing-bucket/file.csv"), null, 0, 0));
+        }
+        ArgumentCaptor<ListObjectsRequest> request = ArgumentCaptor.forClass(ListObjectsRequest.class);
+        Mockito.verify(client).listObjects(request.capture());
+        Assertions.assertEquals("missing-bucket", request.getValue().getBucketName());
     }
 
     @Test

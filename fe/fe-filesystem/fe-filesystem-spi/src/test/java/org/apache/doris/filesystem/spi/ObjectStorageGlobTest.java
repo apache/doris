@@ -27,6 +27,27 @@ import java.util.regex.Pattern;
 class ObjectStorageGlobTest {
 
     @Test
+    void expandGlobKeys_preservesCompleteAlternativesAndPaddedRanges() {
+        Assertions.assertEquals(List.of("dir/1.csv", "dir/10.csv"),
+                ObjectStorageGlob.expandGlobKeys("dir/{1,10}.csv", 2));
+        Assertions.assertEquals(List.of("dir/01.csv", "dir/02.csv", "dir/03.csv"),
+                ObjectStorageGlob.expandGlobKeys("dir/{01..03}.csv", 3));
+        Assertions.assertNull(ObjectStorageGlob.expandGlobKeys("dir/{01..03}.csv", 2));
+    }
+
+    @Test
+    void expandGlobKeys_usesIndependentCallerLimit() {
+        String pattern = "dir/{1..300}.csv";
+        List<String> keys = ObjectStorageGlob.expandGlobKeys(pattern, 300);
+
+        Assertions.assertEquals(300, keys.size());
+        Assertions.assertEquals("dir/1.csv", keys.get(0));
+        Assertions.assertEquals("dir/300.csv", keys.get(299));
+        Assertions.assertEquals(List.of("dir/"), ObjectStorageGlob.expandedGlobListPrefixes(pattern));
+        Assertions.assertNull(ObjectStorageGlob.expandGlobKeys(pattern, 299));
+    }
+
+    @Test
     void expandNumericRanges_preservesZeroPadding() {
         Assertions.assertEquals("date=2025-{01,02,03}-01/",
                 ObjectStorageGlob.expandNumericRanges("date=2025-{01..03}-01/"));

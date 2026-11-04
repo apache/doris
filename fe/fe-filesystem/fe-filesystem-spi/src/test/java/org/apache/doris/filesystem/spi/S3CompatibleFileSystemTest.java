@@ -29,6 +29,7 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -40,6 +41,18 @@ import java.util.regex.Pattern;
  * paging past such fully-filtered pages instead of reporting end-of-listing.
  */
 class S3CompatibleFileSystemTest {
+
+    @Test
+    void headPlanDistinguishesFinalKeysFromListFallback() {
+        Assertions.assertEquals(Optional.of(List.of("fileb.csv")), planHeadKeys("file[ab&&bc].csv"));
+        Assertions.assertEquals(Optional.of(List.of()), planHeadKeys("file[a&&b].csv"));
+        Assertions.assertEquals(Optional.empty(), planHeadKeys("{/,a}foo.csv"));
+    }
+
+    private static Optional<List<String>> planHeadKeys(String pattern) {
+        return S3CompatibleFileSystem.tryPlanHeadKeys(pattern, S3CompatibleFileSystem.compileGlobPattern(pattern),
+                new S3CompatibleFileSystem.DeterministicPathOptions(true, 100), false, null, 0, 0);
+    }
 
     @Test
     void numericRangesPreservePaddedMinimumLong() {
