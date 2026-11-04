@@ -675,10 +675,10 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
         Map<String, String> jobProperties = command.getAnalyzedJobProperties();
         KinesisDataSourceProperties dataSourceProperties =
                 (KinesisDataSourceProperties) command.getDataSourceProperties();
-        checkAlteredWorkloadGroup(jobProperties);
 
         writeLock();
         try {
+            checkAlteredWorkloadGroup(jobProperties);
             if (getState() != JobState.PAUSED) {
                 throw new DdlException("Only supports modification of PAUSED jobs");
             }

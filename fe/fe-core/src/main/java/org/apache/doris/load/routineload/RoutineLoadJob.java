@@ -2116,7 +2116,8 @@ public abstract class RoutineLoadJob
      * as. One that group does not have, or the owner may not use, would otherwise fail every task with the
      * retryable CREATE_TASKS_ERR, which auto resume repeats for good. Only an ALTER that sets a workload group or
      * declares a compute group changes what the tasks look up; a workload group it does not set is the one the
-     * job keeps. Called on the statement thread before the job lock, never when an ALTER is replayed.
+     * job keeps. Called on the statement thread under the job's write lock, so that of two ALTERs running at once
+     * the later one checks what the earlier one left; never when an ALTER is replayed.
      */
     protected void checkAlteredWorkloadGroup(Map<String, String> alteredJobProperties) throws UserException {
         String declaredComputeGroup = alteredJobProperties.get(COMPUTE_GROUP);

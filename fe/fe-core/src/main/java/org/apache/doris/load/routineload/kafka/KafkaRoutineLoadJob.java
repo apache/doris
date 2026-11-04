@@ -797,7 +797,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         Map<String, String> jobProperties = command.getAnalyzedJobProperties();
         KafkaDataSourceProperties dataSourceProperties = (KafkaDataSourceProperties) command.getDataSourceProperties();
         String declaredComputeGroup = jobProperties.get(CreateRoutineLoadInfo.COMPUTE_GROUP);
-        checkAlteredWorkloadGroup(jobProperties);
         if (null != dataSourceProperties) {
             // The offsets are converted before modifyPropertiesInternal installs the new properties,
             // so a compute group this ALTER declares has to be used already: for
@@ -810,6 +809,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
         writeLock();
         try {
+            checkAlteredWorkloadGroup(jobProperties);
             if (getState() != JobState.PAUSED) {
                 throw new DdlException("Only supports modification of PAUSED jobs");
             }
