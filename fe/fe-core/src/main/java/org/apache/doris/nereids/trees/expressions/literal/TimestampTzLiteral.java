@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.common.util.TimeZoneParser;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.UnboundException;
@@ -36,6 +37,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.Objects;
 
 /**
@@ -110,18 +113,26 @@ public class TimestampTzLiteral extends DateTimeLiteral {
      */
     public static TimestampTzLiteral fromTimeZone(TimeStampTzType dateType, DateTimeV2Literal literal,
             String timeZone) {
-        DateTimeV2Literal utcLiteral = (DateTimeV2Literal) DateTimeExtractAndTransform.convertTz(
-                literal,
-                new StringLiteral(timeZone),
-                new StringLiteral("UTC"));
+        // Round before the zone lookup, as BE does. Rounding 02:59:59.9 to seconds
+        // reaches 03:00 in New York, which is outside the gap on 2024-03-10.
+        DateTimeV2Literal rounded = new DateTimeV2Literal(DateTimeV2Type.of(dateType.getScale()),
+                literal.year, literal.month, literal.day, literal.hour, literal.minute,
+                literal.second, literal.microSecond);
+        LocalDateTime utc = toUtc(rounded.toJavaDateType(),
+                TimeZoneParser.parse(timeZone, TimeZoneParser.Usage.SESSION));
         return new TimestampTzLiteral(dateType,
-                utcLiteral.year,
-                utcLiteral.month,
-                utcLiteral.day,
-                utcLiteral.hour,
-                utcLiteral.minute,
-                utcLiteral.second,
-                utcLiteral.microSecond);
+                utc.getYear(), utc.getMonthValue(), utc.getDayOfMonth(),
+                utc.getHour(), utc.getMinute(), utc.getSecond(), utc.getNano() / 1000);
+    }
+
+    /**
+     * Convert TIMESTAMPTZ input to UTC with the offset before a time zone transition.
+     * A gap moves the input forward by its length and keeps the fraction.
+     * For example, 2024-03-10 02:30 in New York becomes 03:30, not 03:00.
+     * A repeated local time keeps the first occurrence, as in BE zone.lookup(civil).pre.
+     */
+    static LocalDateTime toUtc(LocalDateTime localDateTime, ZoneId zone) {
+        return localDateTime.atZone(zone).withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
     }
 
     private static String getSessionTimeZone() {

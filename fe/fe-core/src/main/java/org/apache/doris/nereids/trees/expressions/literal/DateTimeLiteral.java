@@ -236,10 +236,11 @@ public class DateTimeLiteral extends DateLiteral {
         second = DateUtils.getOrDefault(temporal, ChronoField.SECOND_OF_MINUTE);
 
         ZoneId zoneId = temporal.query(TemporalQueries.zone());
-        if (zoneId != null) {
-            ZoneId targetZone = this.dataType instanceof TimeStampTzType ? ZoneId.of("UTC") : DateUtils.getTimeZone();
+        // TIMESTAMPTZ must round the local input before the zone lookup below.
+        // DATETIME keeps its existing conversion order and gap policy.
+        if (zoneId != null && !(this.dataType instanceof TimeStampTzType)) {
             LocalDateTime localDateTime = convertTimeZone(year, month, day, hour, minute, second,
-                    zoneId, targetZone);
+                    zoneId, DateUtils.getTimeZone());
             this.year = localDateTime.getYear();
             this.month = localDateTime.getMonthValue();
             this.day = localDateTime.getDayOfMonth();
@@ -262,6 +263,19 @@ public class DateTimeLiteral extends DateLiteral {
             this.month = result.month;
             this.year = result.year;
             this.microSecond = result.microSecond;
+        }
+
+        // A carry can leave the gap. For example, 02:59:59.9999996 becomes 03:00
+        // in New York on 2024-03-10. Resolve the zone only after this carry.
+        if (zoneId != null && this.dataType instanceof TimeStampTzType) {
+            roundMicroSecond(((TimeStampTzType) this.dataType).getScale());
+            LocalDateTime utc = TimestampTzLiteral.toUtc(toJavaDateType(), zoneId);
+            this.year = utc.getYear();
+            this.month = utc.getMonthValue();
+            this.day = utc.getDayOfMonth();
+            this.hour = utc.getHour();
+            this.minute = utc.getMinute();
+            this.second = utc.getSecond();
         }
 
         if (checkRange(year, month, day) || checkDate(year, month, day)) {
