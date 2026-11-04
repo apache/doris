@@ -355,7 +355,7 @@ public final class IcebergSchemaBuilder {
         return IcebergWriterHelper.toFileFormat(getEffectiveFileFormatName(requestProperties, catalogProperties));
     }
 
-    // Keep the raw name for spatial validation: toFileFormat can default an unknown name to Parquet.
+    // Spatial writes require exactly Parquet; toFileFormat also accepts substring aliases.
     static String getEffectiveFileFormatName(Map<String, String> requestProperties,
             Map<String, String> catalogProperties) {
         Map<String, String> effective = new HashMap<>();

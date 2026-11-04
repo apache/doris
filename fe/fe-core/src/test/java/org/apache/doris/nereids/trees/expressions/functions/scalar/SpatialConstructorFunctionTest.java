@@ -18,17 +18,21 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.GeographyType;
 import org.apache.doris.nereids.types.GeometryType;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -40,6 +44,35 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 public class SpatialConstructorFunctionTest {
+    @Test
+    public void testMapFunctionsPreserveSpatialValues() {
+        for (DataType spatial : List.of(new GeometryType("EPSG:3857"),
+                new GeographyType("OGC:CRS84", "vincenty"))) {
+            SlotReference value = new SlotReference("shape", spatial);
+            MapType expected = MapType.of(IntegerType.INSTANCE, spatial);
+            Expression keys = new Array(new IntegerLiteral(1));
+            Expression values = new Array(value);
+            Expression entries = new Array(new CreateStruct(new IntegerLiteral(1), value));
+            for (ScalarFunction function : List.of(new MapFromArrays(keys, values),
+                    new MapFromEntries(entries), new MapFromEntriesUnique(entries))) {
+                Assertions.assertEquals(expected, TypeCoercionUtils.processBoundFunction(function).getDataType());
+            }
+            CreateMap input = new CreateMap(new IntegerLiteral(1), value);
+            ArrayItemReference entry = new ArrayItemReference("entry", new MapEntries(input));
+            Lambda lambda = new Lambda(List.of("entry"),
+                    new ElementAt(entry.toSlot(), new IntegerLiteral(2)), List.of(entry));
+            TransformValues transform = new TransformValues(lambda);
+            Assertions.assertEquals(expected, transform.getDataType());
+            Assertions.assertEquals(expected, transform.rewriteWhenAnalyze().getDataType());
+
+            Assertions.assertThrows(AnalysisException.class, () -> new MapFromArrays(
+                    new Array(value), keys).getDataType());
+            Assertions.assertThrows(AnalysisException.class, () -> new MapFromEntries(
+                    new Array(new CreateStruct(value, new IntegerLiteral(1)))).getDataType());
+            Assertions.assertEquals(ArrayType.of(spatial), values.getDataType());
+        }
+    }
+
     @Test
     public void testTypedGeomFromWkbReturnsDefaultGeometry() {
         GeometryType defaultGeometry = new GeometryType("OGC:CRS84");

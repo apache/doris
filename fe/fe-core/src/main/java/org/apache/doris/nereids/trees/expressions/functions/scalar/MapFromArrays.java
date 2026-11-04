@@ -86,7 +86,7 @@ public class MapFromArrays extends ScalarFunction
                         TypeCoercionUtils.replaceSpecifiedType(
                                 argumentType, NullType.class, TinyIntType.INSTANCE))
                 .withReturnType(returnType);
-        normalizedSignature.returnType.validateDataType();
+        normalizedSignature.returnType.validateDataTypeWithSpatialLeaves();
         return normalizedSignature;
     }
 

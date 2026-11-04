@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
+import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -28,6 +29,8 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
@@ -39,6 +42,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
@@ -50,12 +54,15 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.logical.ProjectProcessor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.GeographyType;
 import org.apache.doris.nereids.types.GeometryType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -85,6 +92,41 @@ public final class ConnectorSpatialWriteNormalizer {
             List<Integer> sourceOrdinals, CTEContext cteContext) {
         if (targets.stream().noneMatch(column -> column.getType().typeContainsSpatialType())) {
             return source;
+        }
+        if (source instanceof LogicalUnion && ((LogicalUnion) source).getQualifier() == Qualifier.ALL) {
+            return normalizeUnionAll(targets, (LogicalUnion) source, sourceOrdinals, cteContext);
+        }
+        if (source instanceof LogicalSubQueryAlias) {
+            LogicalPlan child = (LogicalPlan) source.child(0);
+            LogicalPlan normalized = normalize(targets, child, sourceOrdinals, cteContext);
+            return normalized == child ? source : (LogicalPlan) source.withChildren(ImmutableList.of(normalized));
+        }
+        if (source instanceof LogicalProject && isForwardingProject((LogicalProject<?>) source)) {
+            Plan input = source.child(0);
+            while (input instanceof LogicalSubQueryAlias) {
+                input = input.child(0);
+            }
+            Plan boundary = input;
+            while (boundary instanceof LogicalSubQueryAlias
+                    || (boundary instanceof LogicalProject && isForwardingProject((LogicalProject<?>) boundary))) {
+                boundary = boundary.child(0);
+            }
+            if (boundary instanceof LogicalUnion && ((LogicalUnion) boundary).getQualifier() == Qualifier.ALL) {
+                // Reuse the existing safe forwarding/cast projection rule, including its ExprId handling.
+                Optional<Plan> pushed = ProjectProcessor.tryProcessProject(
+                        ((LogicalProject<?>) source).getProjects(), input);
+                // Forwarding aliases can also repeat or prune outputs without moving calculations.
+                if (!pushed.isPresent() && input instanceof LogicalUnion
+                        && ((LogicalProject<?>) source).getProjects().stream()
+                        .allMatch(project -> project instanceof Slot
+                                || (project instanceof Alias && project.child(0) instanceof Slot))) {
+                    pushed = Optional.of(PushProjectThroughUnion.doPushProject(
+                            ((LogicalProject<?>) source).getProjects(), (LogicalUnion) input));
+                }
+                if (pushed.isPresent()) {
+                    return normalize(targets, (LogicalPlan) pushed.get(), sourceOrdinals, cteContext);
+                }
+            }
         }
         Resolver resolver = new Resolver(source, cteContext);
         List<NamedExpression> outputs = new ArrayList<>(source.getOutput());
@@ -118,6 +160,53 @@ public final class ConnectorSpatialWriteNormalizer {
             }
         }
         return changed ? new LogicalProject<>(outputs, source) : source;
+    }
+
+    private static boolean isForwardingProject(LogicalProject<?> project) {
+        return !project.isDistinct() && project.getProjects().stream().allMatch(output -> output instanceof Slot
+                || (output instanceof Alias && ExpressionUtils.getExpressionCoveredByCast(output.child(0))
+                        instanceof Slot));
+    }
+
+    private static LogicalPlan normalizeUnionAll(List<Column> targets, LogicalUnion source,
+            List<Integer> sourceOrdinals, CTEContext context) {
+        List<Plan> children = new ArrayList<>();
+        List<List<SlotReference>> childOutputs = new ArrayList<>();
+        boolean changed = !source.getConstantExprsList().isEmpty();
+        for (int i = 0; i < source.arity(); i++) {
+            LogicalPlan child = (LogicalPlan) source.child(i);
+            List<SlotReference> outputs = source.getRegularChildOutput(i);
+            LogicalPlan input = child.getOutput().equals(outputs)
+                    ? child : new LogicalProject<>(ImmutableList.<NamedExpression>copyOf(outputs), child);
+            LogicalPlan normalized = normalize(targets, input, sourceOrdinals, context);
+            children.add(normalized);
+            childOutputs.add(normalized.getOutput().stream().map(SlotReference.class::cast)
+                    .collect(ImmutableList.toImmutableList()));
+            changed |= normalized != child;
+        }
+        // Constant rows use the same proof and CAST validation as ordinary branches.
+        // Keep them as separate rows; never replace an entire UNION output with one constant.
+        for (List<NamedExpression> row : source.getConstantExprsList()) {
+            LogicalPlan normalized = normalize(targets,
+                    new LogicalOneRowRelation(StatementScopeIdGenerator.newRelationId(), row),
+                    sourceOrdinals, context);
+            children.add(normalized);
+            childOutputs.add(normalized.getOutput().stream().map(SlotReference.class::cast)
+                    .collect(ImmutableList.toImmutableList()));
+        }
+        if (!changed) {
+            return source;
+        }
+        List<NamedExpression> outputs = new ArrayList<>();
+        for (int i = 0; i < source.getOutput().size(); i++) {
+            SlotReference slot = (SlotReference) source.getOutput().get(i);
+            DataType type = childOutputs.get(0).get(i).getDataType();
+            // A forwarding project can repeat one slot for ordinary and spatial targets.
+            // Retagged outputs need distinct identities, just like the scalar projection path.
+            outputs.add(slot.getDataType().equals(type) ? slot : slot
+                    .withExprId(StatementScopeIdGenerator.newExprId()).withNullableAndDataType(slot.nullable(), type));
+        }
+        return source.withNewOutputsChildrenAndConstExprsList(outputs, children, childOutputs, ImmutableList.of());
     }
 
     private static boolean isLiteralConstruction(Expression value) {

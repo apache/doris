@@ -223,9 +223,6 @@ public final class ConnectorSpatialWriteValidator {
     }
 
     private static void validateSpatialType(Type sourceType, ScalarType targetType, String columnName) {
-        if (sourceType.isNull()) {
-            return;
-        }
         if (!(sourceType instanceof ScalarType) || !((ScalarType) sourceType).isSpatialType()) {
             throw new AnalysisException("Spatial connector write cannot convert input column '" + columnName
                     + "' from " + sourceType.toSql() + " to " + targetType.toSql());

@@ -1234,6 +1234,27 @@ public class CreateIcebergSpatialV3Table {
     qt_static_nested_typed_nulls """select id, size(g_array), g_array[1] is null,
         gg_map['shape'] is null, struct_element(g_struct, 'shape') is null
         from spatial_nested_copy where id = 7"""
+    sql """drop table if exists spatial_expression_copy"""
+    sql """create table spatial_expression_copy (
+        id int, g_array array<geometry>, gg_array array<geography>,
+        g_map map<string,geometry>, gg_map map<string,geography>)
+        properties ('format-version'='3')"""
+    // Each UNION branch keeps its own non-NULL container and its original number of NULL elements.
+    sql """insert into spatial_expression_copy (id, g_array, gg_array)
+        select 1, array(cast(NULL as int)), array(cast(NULL as int))
+        union all
+        select 2, array(cast(NULL as int), cast(NULL as int)),
+            array(cast(NULL as int), cast(NULL as int))"""
+    sql """insert into spatial_expression_copy (id, g_array, gg_array)
+        select id, shapes, shapes from (select id, shapes from (
+            select 3 id, array(cast(NULL as int)) shapes
+            union all select 4 id, array(cast(NULL as int), cast(NULL as int)) shapes) u) v"""
+    sql """insert into spatial_expression_copy (id, g_map, gg_map)
+        select id + 10, map_from_arrays(array('shape'), array(geom)),
+            map_from_entries(array(struct('shape', geog))) from geometry_values"""
+    sql """insert into spatial_expression_copy (id, g_map, gg_map)
+        select id + 20, transform_values((k,v) -> v, g_map),
+            transform_values((k,v) -> v, gg_map) from spatial_nested_source"""
     for (String expression : ["array(geom)",
             "if(id = 1, array(geom), cast(NULL as array<geometry('EPSG:3857')>))"]) {
         test {

@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
@@ -46,6 +47,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
@@ -54,6 +56,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.ProjectMergeable;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
@@ -73,6 +76,135 @@ import java.time.Duration;
 import java.util.List;
 
 public class ConnectorSpatialWriteNormalizerTest {
+    @Test
+    public void testProjectedAndAliasedUnionAllNulls() {
+        for (Type spatial : ImmutableList.of(ScalarType.createGeometryType("OGC:CRS84"),
+                ScalarType.createGeographyType("OGC:CRS84", "spherical"))) {
+            LogicalPlan row = row(new Array(new Cast(NullLiteral.INSTANCE, IntegerType.INSTANCE)));
+            LogicalUnion union = union(Qualifier.ALL, row, row);
+            LogicalPlan input = union;
+            for (int depth = 0; depth < 4; depth++) {
+                LogicalSubQueryAlias<LogicalPlan> alias = new LogicalSubQueryAlias<>("u" + depth, input);
+                LogicalPlan project = new LogicalProject<>(
+                        ImmutableList.of(new Alias(alias.getOutput().get(0), "renamed")), alias);
+                for (LogicalPlan source : ImmutableList.of(alias, project)) {
+                    LogicalPlan normalized = ConnectorSpatialWriteNormalizer.normalize(
+                            ImmutableList.of(new Column("shape", new ArrayType(spatial))), source, new CTEContext());
+                    Assertions.assertEquals(DataType.fromCatalogType(new ArrayType(spatial)),
+                            normalized.getOutput().get(0).getDataType());
+                    LogicalUnion result = normalized instanceof LogicalUnion ? (LogicalUnion) normalized
+                            : (LogicalUnion) normalized.child(0);
+                    Assertions.assertEquals(2, result.arity());
+                }
+                input = project;
+            }
+        }
+    }
+
+    @Test
+    public void testUnionAllConstantRowsRetainTheirShapes() {
+        Expression first = new Array(new Cast(NullLiteral.INSTANCE, IntegerType.INSTANCE));
+        Expression second = new Array(new Cast(NullLiteral.INSTANCE, IntegerType.INSTANCE),
+                new Cast(NullLiteral.INSTANCE, IntegerType.INSTANCE));
+        LogicalUnion source = new LogicalUnion(Qualifier.ALL,
+                ImmutableList.of(new SlotReference("shape", first.getDataType())), ImmutableList.of(),
+                ImmutableList.of(ImmutableList.of(new Alias(first, "shape")),
+                        ImmutableList.of(new Alias(second, "shape"))), false, ImmutableList.of());
+        Type spatial = ScalarType.createGeometryType("EPSG:3857");
+        LogicalUnion normalized = (LogicalUnion) ConnectorSpatialWriteNormalizer.normalize(
+                ImmutableList.of(new Column("shape", new ArrayType(spatial))), source, new CTEContext());
+        Assertions.assertEquals(2, normalized.arity());
+        Assertions.assertEquals(DataType.fromCatalogType(new ArrayType(spatial)),
+                normalized.getOutput().get(0).getDataType());
+        for (int i = 0; i < normalized.arity(); i++) {
+            Expression value = ((LogicalProject<?>) normalized.child(i)).getProjects().get(0).child(0);
+            Assertions.assertEquals(i + 1, value.arity());
+        }
+    }
+
+    @Test
+    public void testProjectedUnionAllSeparatesOrdinaryAndSpatialOutputs() {
+        Expression array = new Array(new Cast(NullLiteral.INSTANCE, IntegerType.INSTANCE));
+        List<NamedExpression> values = ImmutableList.of(new Alias(array, "shape"),
+                new Alias(new IntegerLiteral(1), "unused"));
+        LogicalPlan row = new LogicalOneRowRelation(new RelationId(1), values);
+        List<SlotReference> slots = ImmutableList.of((SlotReference) row.getOutput().get(0),
+                (SlotReference) row.getOutput().get(1));
+        LogicalUnion source = new LogicalUnion(Qualifier.ALL,
+                ImmutableList.of(new SlotReference("shape", array.getDataType()),
+                        new SlotReference("unused", IntegerType.INSTANCE)),
+                ImmutableList.of(slots, slots), ImmutableList.of(), false, ImmutableList.of(row, row));
+        LogicalPlan projected = new LogicalProject<>(ImmutableList.of(source.getOutput().get(1),
+                source.getOutput().get(0), source.getOutput().get(0)), source);
+        Type geometry = ScalarType.createGeometryType("OGC:CRS84");
+        Type geography = ScalarType.createGeographyType("OGC:CRS84", "spherical");
+        LogicalPlan normalized = ConnectorSpatialWriteNormalizer.normalize(ImmutableList.of(
+                new Column("ordinary", Type.INT), new Column("g", new ArrayType(geometry)),
+                new Column("gg", new ArrayType(geography))),
+                projected, new CTEContext());
+        Assertions.assertEquals(IntegerType.INSTANCE, normalized.getOutput().get(0).getDataType());
+        Assertions.assertEquals(DataType.fromCatalogType(new ArrayType(geometry)),
+                normalized.getOutput().get(1).getDataType());
+        Assertions.assertEquals(DataType.fromCatalogType(new ArrayType(geography)),
+                normalized.getOutput().get(2).getDataType());
+        Assertions.assertNotEquals(normalized.getOutput().get(1).getExprId(),
+                normalized.getOutput().get(2).getExprId());
+    }
+
+    @Test
+    public void testUnionAllRetainsNullArrayShapes() {
+        for (Type spatial : ImmutableList.of(ScalarType.createGeometryType("OGC:CRS84"),
+                ScalarType.createGeographyType("OGC:CRS84", "spherical"))) {
+            LogicalPlan left = row(new Array(new Cast(NullLiteral.INSTANCE, IntegerType.INSTANCE)));
+            LogicalPlan right = row(new Array(new Cast(NullLiteral.INSTANCE, IntegerType.INSTANCE),
+                    new Cast(NullLiteral.INSTANCE, IntegerType.INSTANCE)));
+            LogicalUnion source = union(Qualifier.ALL, left, right);
+            LogicalPlan normalized = ConnectorSpatialWriteNormalizer.normalize(
+                    ImmutableList.of(new Column("shape", new ArrayType(spatial))), source, new CTEContext());
+            LogicalUnion result = (LogicalUnion) normalized;
+            DataType expected = DataType.fromCatalogType(new ArrayType(spatial));
+            Assertions.assertEquals(expected, result.getOutput().get(0).getDataType());
+            Assertions.assertEquals(2, result.arity());
+            for (int i = 0; i < result.arity(); i++) {
+                Assertions.assertEquals(expected, result.getRegularChildOutput(i).get(0).getDataType());
+                LogicalProject<?> branch = (LogicalProject<?>) result.child(i);
+                Assertions.assertSame(source.child(i), branch.child());
+                Expression array = branch.getProjects().get(0).child(0);
+                Assertions.assertEquals(i + 1, array.arity());
+                for (Expression element : array.children()) {
+                    Assertions.assertTrue(element.isNullLiteral());
+                    Assertions.assertEquals(DataType.fromCatalogType(spatial), element.getDataType());
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testUnionAllDoesNotRetagActualNonspatialValues() {
+        LogicalPlan nulls = row(new Array(new Cast(NullLiteral.INSTANCE, IntegerType.INSTANCE)));
+        LogicalPlan values = row(new Array(new IntegerLiteral(1)));
+        Type target = new ArrayType(ScalarType.createGeometryType("OGC:CRS84"));
+        Assertions.assertThrows(AnalysisException.class, () -> ConnectorSpatialWriteNormalizer.normalize(
+                ImmutableList.of(new Column("shape", target)), union(Qualifier.ALL, nulls, values), new CTEContext()));
+        Assertions.assertThrows(AnalysisException.class, () -> ConnectorSpatialWriteNormalizer.normalize(
+                ImmutableList.of(new Column("shape", target)), union(Qualifier.DISTINCT, nulls, nulls),
+                new CTEContext()));
+        LogicalUnion all = union(Qualifier.ALL, nulls, nulls);
+        LogicalPlan distinct = new LogicalProject<>(ImmutableList.copyOf(all.getOutput()), true, all);
+        LogicalSubQueryAlias<LogicalPlan> alias = new LogicalSubQueryAlias<>("u", distinct);
+        LogicalPlan projected = new LogicalProject<>(ImmutableList.copyOf(alias.getOutput()), alias);
+        Assertions.assertThrows(AnalysisException.class, () -> ConnectorSpatialWriteNormalizer.normalize(
+                ImmutableList.of(new Column("shape", target)), projected, new CTEContext()));
+    }
+
+    private LogicalUnion union(Qualifier qualifier, LogicalPlan left, LogicalPlan right) {
+        return new LogicalUnion(qualifier,
+                ImmutableList.of(new SlotReference("shape", left.getOutput().get(0).getDataType())),
+                ImmutableList.of(ImmutableList.of((SlotReference) left.getOutput().get(0)),
+                        ImmutableList.of((SlotReference) right.getOutput().get(0))),
+                ImmutableList.of(), false, ImmutableList.of(left, right));
+    }
+
     @Test
     public void testRepeatedNullOutputsPreserveOrdinarySinkCastAfterMerge() {
         Type geometry = ScalarType.createGeometryType("OGC:CRS84");
