@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_timestamptz_dst_gap") {
-    // Each query has one input. No table is needed to test the conversion paths.
+    // Conversion queries need no table. The partition test below uses one row.
     def cases = [
         ["America/New_York", "2024-03-10 01:59:59.999999", "2024-03-10 06:59:59.999999+00:00"],
         ["America/New_York", "2024-03-10 02:00:00", "2024-03-10 07:00:00+00:00"],
@@ -31,7 +31,10 @@ suite("test_timestamptz_dst_gap") {
     def originalZone = sql("SELECT @@time_zone")[0][0]
     def originalSkipFold = sql("SELECT @@debug_skip_fold_constant")[0][0]
     def originalFoldByBe = sql("SELECT @@enable_fold_constant_by_be")[0][0]
+    def originalSqlCache = sql("SELECT @@enable_sql_cache")[0][0]
     try {
+        // Each mode must evaluate the input. Do not reuse the first mode's result.
+        sql "SET enable_sql_cache = false"
         sql "SET enable_fold_constant_by_be = false"
         for (def skipFold : [false, true]) {
             sql "SET debug_skip_fold_constant = ${skipFold}"
@@ -56,6 +59,14 @@ suite("test_timestamptz_dst_gap") {
                 SELECT CAST('2024-03-10 02:59:59.999999 America/New_York' AS TIMESTAMPTZ(0)),
                        CAST(CAST('2024-03-10 02:59:59.999999' AS DATETIMEV2(6)) AS TIMESTAMPTZ(0))
             """
+            // Direct string casts round once. An explicit DATETIMEV2 cast rounds twice.
+            order_qt_round_once """
+                SELECT CAST('2024-03-10 02:59:59.4999996' AS TIMESTAMPTZ(0)),
+                       CAST('2024-03-10 02:59:59.4999996 America/New_York' AS TIMESTAMPTZ(0)),
+                       CAST('2024-03-10 02:59:59.9994996' AS TIMESTAMPTZ(3)),
+                       CAST('2024-03-10 02:59:59.9994996 America/New_York' AS TIMESTAMPTZ(3)),
+                       CAST(CAST('2024-03-10 02:59:59.4999996' AS DATETIMEV2(6)) AS TIMESTAMPTZ(0))
+            """
             order_qt_ns """
                 SELECT CAST(CAST('2024-03-10 02:30:00.123456789' AS TIMESTAMP_NS) AS TIMESTAMPTZ(6))
             """
@@ -69,9 +80,29 @@ suite("test_timestamptz_dst_gap") {
                        CAST('2024-11-03 01:30:00 America/New_York' AS TIMESTAMPTZ(6))
             """
         }
+
+        sql "SET time_zone = 'America/New_York'"
+        sql "SET debug_skip_fold_constant = false"
+        // The bounds both map to 07:00 UTC, but the one row maps to 07:30 UTC.
+        sql "DROP TABLE IF EXISTS test_timestamptz_gap_partition"
+        sql """
+            CREATE TABLE test_timestamptz_gap_partition (d DATETIME(6) NOT NULL)
+            DUPLICATE KEY(d)
+            PARTITION BY RANGE(d) (
+                PARTITION p_gap VALUES [("2024-03-10 02:00:00"), ("2024-03-10 03:00:00"))
+            )
+            DISTRIBUTED BY HASH(d) BUCKETS 1
+            PROPERTIES ("replication_num" = "1")
+        """
+        sql "INSERT INTO test_timestamptz_gap_partition VALUES ('2024-03-10 02:30:00')"
+        order_qt_gap_partition """
+            SELECT d FROM test_timestamptz_gap_partition
+            WHERE CAST(d AS TIMESTAMPTZ(6)) = CAST('2024-03-10 07:30:00+00:00' AS TIMESTAMPTZ(6))
+        """
     } finally {
         sql "SET time_zone = '${originalZone}'"
         sql "SET debug_skip_fold_constant = ${originalSkipFold}"
         sql "SET enable_fold_constant_by_be = ${originalFoldByBe}"
+        sql "SET enable_sql_cache = ${originalSqlCache}"
     }
 }

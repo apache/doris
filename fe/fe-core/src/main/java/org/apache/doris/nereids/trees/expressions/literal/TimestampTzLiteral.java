@@ -81,11 +81,7 @@ public class TimestampTzLiteral extends DateTimeLiteral {
      * strings without one are interpreted in the current session timezone and converted to UTC.
      */
     public static TimestampTzLiteral fromSessionTimeZone(TimeStampTzType dateType, String s) {
-        if (DateTimeChecker.hasTimeZone(s)) {
-            return new TimestampTzLiteral(dateType, s);
-        }
-
-        return fromSessionTimeZone(dateType, new DateTimeV2Literal(s));
+        return fromTimeZone(dateType, s, getSessionTimeZone());
     }
 
     /**
@@ -105,7 +101,10 @@ public class TimestampTzLiteral extends DateTimeLiteral {
         if (DateTimeChecker.hasTimeZone(s)) {
             return new TimestampTzLiteral(dateType, s);
         }
-        return fromTimeZone(dateType, new DateTimeV2Literal(s), timeZone);
+        // Parse at the target scale before applying the zone. An intermediate
+        // DATETIMEV2(6) can round .4999996 to .500000 and cause a second carry.
+        TimestampTzLiteral local = new TimestampTzLiteral(dateType, s);
+        return fromLocalDateTime(dateType, local.toJavaDateType(), timeZone);
     }
 
     /**
@@ -118,7 +117,12 @@ public class TimestampTzLiteral extends DateTimeLiteral {
         DateTimeV2Literal rounded = new DateTimeV2Literal(DateTimeV2Type.of(dateType.getScale()),
                 literal.year, literal.month, literal.day, literal.hour, literal.minute,
                 literal.second, literal.microSecond);
-        LocalDateTime utc = toUtc(rounded.toJavaDateType(),
+        return fromLocalDateTime(dateType, rounded.toJavaDateType(), timeZone);
+    }
+
+    private static TimestampTzLiteral fromLocalDateTime(TimeStampTzType dateType,
+            LocalDateTime local, String timeZone) {
+        LocalDateTime utc = toUtc(local,
                 TimeZoneParser.parse(timeZone, TimeZoneParser.Usage.SESSION));
         return new TimestampTzLiteral(dateType,
                 utc.getYear(), utc.getMonthValue(), utc.getDayOfMonth(),

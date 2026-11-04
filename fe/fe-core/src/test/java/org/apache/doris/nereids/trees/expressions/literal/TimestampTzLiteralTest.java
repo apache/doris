@@ -161,6 +161,41 @@ class TimestampTzLiteralTest {
     }
 
     @Test
+    void testDstGapStringRoundsOnce() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setTimeZone("America/New_York");
+        context.setThreadLocalInfo();
+        try {
+            for (int scale : new int[] {0, 3}) {
+                TimeStampTzType type = TimeStampTzType.of(scale);
+                String fraction = "9".repeat(scale) + "4999996";
+                String input = "2024-03-10 02:59:59." + fraction;
+                TimestampTzLiteral expected = new TimestampTzLiteral(type,
+                        2024, 3, 10, 7, 59, 59, scale == 0 ? 0 : 999000);
+                Assertions.assertEquals(expected, new StringLiteral(input).checkedCastTo(type));
+                Assertions.assertEquals(expected, TimestampTzLiteral.fromSessionTimeZone(type, input));
+                Assertions.assertEquals(expected,
+                        new TimestampTzLiteral(type, input + " America/New_York"));
+                Assertions.assertEquals(expected, new TimestampTzLiteral(type, input + "-05:00"));
+                if (scale == 0) {
+                    Assertions.assertEquals(expected, new TimestampTzLiteral(type,
+                            "20240310025959.4999996America/New_York"));
+                }
+
+                // An explicit DATETIMEV2(6) cast does round to microseconds first.
+                Assertions.assertEquals(new TimestampTzLiteral(type, 2024, 3, 10, 7, 0, 0, 0),
+                        new DateTimeV2Literal(input).checkedCastTo(type));
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
     void testGetStringValueKeepsUtcSuffix() {
         TimestampTzLiteral literal = new TimestampTzLiteral(TimeStampTzType.of(6),
                 "2024-01-15 12:00:00 +00:00");

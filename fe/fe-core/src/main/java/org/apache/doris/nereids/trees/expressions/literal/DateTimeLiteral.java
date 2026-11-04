@@ -249,7 +249,15 @@ public class DateTimeLiteral extends DateLiteral {
             this.second = localDateTime.getSecond();
         }
 
-        microSecond = DateUtils.getOrDefault(temporal, ChronoField.NANO_OF_SECOND) / 100L;
+        long nanoSecond = DateUtils.getOrDefault(temporal, ChronoField.NANO_OF_SECOND);
+        if (this.dataType instanceof TimeStampTzType) {
+            // Keep the target digits and one rounding digit. For TIMESTAMPTZ(0),
+            // .4999996 must round to zero, not to .500000 and then to one second.
+            int scale = ((TimeStampTzType) this.dataType).getScale();
+            long factor = (long) Math.pow(10, DateUtils.NANOSECOND_SCALE - scale - 1);
+            nanoSecond = nanoSecond / factor * factor;
+        }
+        microSecond = nanoSecond / 100L;
         // Microseconds have 7 digits.
         long sevenDigit = microSecond % 10;
         microSecond = microSecond / 10;
