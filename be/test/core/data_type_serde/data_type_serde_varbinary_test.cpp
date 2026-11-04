@@ -23,7 +23,9 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
+#include <iostream>
 #include <memory>
 #include <orc/OrcFile.hh>
 #include <string>
@@ -36,6 +38,7 @@
 #include "core/column/column_string.h"
 #include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_spatial.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "core/data_type_serde/data_type_serde.h"
@@ -555,6 +558,57 @@ TEST_F(DataTypeVarbinarySerDeTest, OrcWriteSupported) {
     EXPECT_EQ(batch->numElements, 1);
     EXPECT_EQ(batch->length[0], 3);
     EXPECT_EQ(memcmp(batch->data[0], v.data(), 3), 0);
+}
+
+static void expect_spatial_orc_read_rejected(const DataTypePtr& type) {
+    // Isolate the old bad assert_cast so it becomes a failed test rather than
+    // aborting the complete BE UT process when exercising the scan SerDe seam.
+    EXPECT_EXIT(
+            {
+                const auto wkb = spatial_serde_point();
+                auto column = type->create_column();
+                orc::StringVectorBatch batch(1, *orc::getDefaultPool());
+                batch.numElements = 1;
+                batch.data[0] = const_cast<char*>(wkb.data());
+                batch.length[0] = wkb.size();
+                auto file_type = orc::createPrimitiveType(orc::BINARY);
+                OrcDecodedColumnView view;
+                view.file_type = file_type.get();
+                view.selected_type = file_type.get();
+                view.batch = &batch;
+                view.rows = 1;
+                const auto status = type->get_serde()->read_column_from_orc(*column, view);
+                std::cerr << status.to_string();
+                std::_Exit(!status.ok() && column->empty() ? 0 : 1);
+            },
+            ::testing::ExitedWithCode(0), "ORC does not support spatial columns");
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, OrcReadRejectsSpatial) {
+    ::testing::FLAGS_gtest_death_test_style = "threadsafe";
+    for (const auto primitive : {TYPE_GEOMETRY, TYPE_GEOGRAPHY}) {
+        const auto type = std::make_shared<DataTypeSpatial>(primitive);
+        expect_spatial_orc_read_rejected(type);
+        expect_spatial_orc_read_rejected(make_nullable(type));
+    }
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, OrcWriteRejectsSpatial) {
+    for (const auto primitive : {TYPE_GEOMETRY, TYPE_GEOGRAPHY}) {
+        DataTypeSpatial type(primitive);
+        auto column = type.create_column();
+        const auto wkb = spatial_serde_point();
+        column->insert_data(wkb.data(), wkb.size());
+        orc::StringVectorBatch batch(1, *orc::getDefaultPool());
+        batch.numElements = 0;
+        Arena arena;
+        const auto status = type.get_serde()->write_column_to_orc("UTC", *column, nullptr, &batch,
+                                                                  0, 1, arena, {});
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("ORC does not support spatial columns"),
+                  std::string::npos);
+        EXPECT_EQ(batch.numElements, 0);
+    }
 }
 
 TEST_F(DataTypeVarbinarySerDeTest, OrcReadBytesNullsSelectionAndOwnership) {
