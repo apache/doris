@@ -17,10 +17,14 @@
 
 package org.apache.doris.task;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.master.ReportHandler;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TPartitionVersionInfo;
@@ -31,6 +35,8 @@ import org.apache.doris.transaction.PublishVersionDaemon;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
+import com.google.common.collect.HashMultimap;
+import com.google.common.collect.SetMultimap;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -43,6 +49,11 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 public class AgentTaskCleanupDaemonTest {
     private static final long BACKEND_ID = 10001L;
@@ -52,6 +63,11 @@ public class AgentTaskCleanupDaemonTest {
     private MockedStatic<Env> mockedEnv;
     private Backend backend;
     private AgentTaskCleanupDaemon daemon;
+    private SystemInfoService infoService;
+    private InternalCatalog catalog;
+    private Database database;
+    private Env env;
+    private GlobalTransactionMgrIface transactionMgr;
 
     @BeforeEach
     public void setUp() {
@@ -61,11 +77,18 @@ public class AgentTaskCleanupDaemonTest {
         backend.setAlive(false);
         Backend healthyBackend = new Backend(HEALTHY_BACKEND_ID, "127.0.0.2", 9050);
         healthyBackend.setAlive(true);
-        SystemInfoService infoService = Mockito.mock(SystemInfoService.class);
-        Mockito.when(infoService.getAllClusterBackends(false)).thenReturn(List.of(backend, healthyBackend));
-        Mockito.when(infoService.getBackend(BACKEND_ID)).thenReturn(backend);
-        mockedEnv = Mockito.mockStatic(Env.class);
-        mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(infoService);
+        infoService = new SystemInfoService();
+        infoService.addBackend(backend);
+        infoService.addBackend(healthyBackend);
+        catalog = Mockito.mock(InternalCatalog.class);
+        database = Mockito.spy(new Database(1L, "publish_test"));
+        Mockito.when(catalog.getDbNullable(1L)).thenReturn(database);
+        Mockito.when(catalog.getDbNullable(2L)).thenReturn(new Database(2L, "other_publish_test"));
+        env = Mockito.mock(Env.class);
+        Mockito.when(env.getEditLog()).thenReturn(Mockito.mock(EditLog.class));
+        transactionMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        Mockito.doCallRealMethod().when(env).eraseDatabase(Mockito.anyLong(), Mockito.anyBoolean());
+        mockedEnv = mockEnv();
         daemon = new AgentTaskCleanupDaemon();
     }
 
@@ -148,7 +171,7 @@ public class AgentTaskCleanupDaemonTest {
 
     @Test
     public void testVisibleTransactionRemovesRetainedOfflinePublishTask() throws Exception {
-        TransactionState transaction = new TransactionState();
+        TransactionState transaction = newTransaction();
         transaction.setTransactionStatus(TransactionStatus.COMMITTED);
         PublishVersionTask offlineTask = newPublishTask(BACKEND_ID, transaction.getTransactionId());
         PublishVersionTask healthyTask = newPublishTask(HEALTHY_BACKEND_ID, transaction.getTransactionId());
@@ -178,6 +201,226 @@ public class AgentTaskCleanupDaemonTest {
         Assertions.assertTrue(AgentTaskQueue.getTask(TTaskType.PUBLISH_VERSION).isEmpty());
         Assertions.assertTrue(transaction.getPublishVersionTasks().isEmpty());
         Assertions.assertEquals(0, AgentTaskQueue.getTaskNum());
+    }
+
+    @Test
+    public void testDropBackendReclaimsReportPublishAndOtherTasks() throws Exception {
+        try (MockedStatic<AgentTaskExecutor> executor = Mockito.mockStatic(AgentTaskExecutor.class)) {
+            Deencapsulation.invoke(ReportHandler.class, "handleRepublishVersionInfo", republishInfo(), BACKEND_ID);
+        }
+        PublishVersionTask task = (PublishVersionTask) AgentTaskQueue.getTask(
+                BACKEND_ID, TTaskType.PUBLISH_VERSION, TRANSACTION_ID);
+        Assertions.assertNotNull(task);
+        for (int i = 0; i < AgentTaskCleanupDaemon.MAX_FAILURE_TIMES; i++) {
+            daemon.runAfterCatalogReady();
+        }
+        Assertions.assertTrue(AgentTaskQueue.contains(task));
+
+        DropReplicaTask dropTask = new DropReplicaTask(BACKEND_ID, 10L, 20L, 0, false);
+        PushTask pushTask = Mockito.mock(PushTask.class);
+        Mockito.when(pushTask.getBackendId()).thenReturn(BACKEND_ID);
+        Mockito.when(pushTask.getTaskType()).thenReturn(TTaskType.REALTIME_PUSH);
+        AgentTaskQueue.addTask(dropTask);
+        AgentTaskQueue.addTask(pushTask);
+        PublishVersionTask healthyTask = newPublishTask(HEALTHY_BACKEND_ID, TRANSACTION_ID);
+        AgentTaskQueue.addTask(healthyTask);
+
+        infoService.dropBackend(BACKEND_ID);
+        Assertions.assertNull(infoService.getBackend(BACKEND_ID));
+        Assertions.assertFalse(AgentTaskQueue.contains(task));
+        Assertions.assertTrue(task.isFinished());
+        Assertions.assertEquals(TStatusCode.ABORTED, task.getErrorCode());
+        Assertions.assertFalse(AgentTaskQueue.contains(dropTask));
+        Assertions.assertTrue(dropTask.isFinished());
+        Mockito.verify(pushTask).countDownLatchWithStatus(Mockito.eq(BACKEND_ID), Mockito.eq(0L),
+                Mockito.any(Status.class));
+        Mockito.verify(pushTask).setFinished(true);
+        Assertions.assertTrue(AgentTaskQueue.contains(healthyTask));
+        Assertions.assertEquals(1, AgentTaskQueue.getTaskNum());
+    }
+
+    @Test
+    public void testReplayDropBackendReclaimsPublishTask() {
+        PublishVersionTask task = newPublishTask(BACKEND_ID, TRANSACTION_ID);
+        AgentTaskQueue.addTask(task);
+        infoService.replayDropBackend(backend);
+        Assertions.assertFalse(AgentTaskQueue.contains(task));
+        Assertions.assertTrue(task.isFinished());
+        Assertions.assertEquals(TStatusCode.ABORTED, task.getErrorCode());
+        Assertions.assertEquals(0, AgentTaskQueue.getTaskNum());
+    }
+
+    @Test
+    public void testEraseDatabaseReclaimsOnlyItsPublishTasks() {
+        PublishVersionTask task = newPublishTask(BACKEND_ID, TRANSACTION_ID);
+        PublishVersionTask anotherBackendTask = newPublishTask(HEALTHY_BACKEND_ID, TRANSACTION_ID);
+        PublishVersionTask otherDbTask = new PublishVersionTask(BACKEND_ID, TRANSACTION_ID + 1, 2L,
+                List.of(new TPartitionVersionInfo(2L, 3L, 0L)), 0L);
+        DropReplicaTask dropTask = new DropReplicaTask(BACKEND_ID, 10L, 20L, 0, false);
+        AgentTaskQueue.addTask(task);
+        AgentTaskQueue.addTask(anotherBackendTask);
+        AgentTaskQueue.addTask(otherDbTask);
+        AgentTaskQueue.addTask(dropTask);
+
+        database.markDropped();
+        env.eraseDatabase(1L, false);
+        Mockito.verify(transactionMgr).removeDatabaseTransactionMgr(1L);
+        for (PublishVersionTask removed : List.of(task, anotherBackendTask)) {
+            Assertions.assertFalse(AgentTaskQueue.contains(removed));
+            Assertions.assertTrue(removed.isFinished());
+            Assertions.assertEquals(TStatusCode.ABORTED, removed.getErrorCode());
+        }
+        Assertions.assertTrue(AgentTaskQueue.contains(otherDbTask));
+        Assertions.assertFalse(otherDbTask.isFinished());
+        Assertions.assertTrue(AgentTaskQueue.contains(dropTask));
+        Assertions.assertFalse(dropTask.isFinished());
+        Assertions.assertEquals(2, AgentTaskQueue.getTaskNum());
+    }
+
+    @Test
+    public void testLateReportAfterBackendDropCannotRecreateTask() throws Exception {
+        CountDownLatch reportPrepared = new CountDownLatch(1);
+        CountDownLatch resumeReport = new CountDownLatch(1);
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        Map<Long, SetMultimap<Long, TPartitionVersionInfo>> report = republishInfo();
+        try {
+            Future<?> future = worker.submit(() -> {
+                try (MockedStatic<Env> threadEnv = mockEnv();
+                        MockedStatic<AgentTaskExecutor> executor = Mockito.mockStatic(AgentTaskExecutor.class)) {
+                    reportPrepared.countDown();
+                    Assertions.assertTrue(resumeReport.await(10, TimeUnit.SECONDS));
+                    Deencapsulation.invoke(ReportHandler.class, "handleRepublishVersionInfo", report, BACKEND_ID);
+                    ArgumentCaptor<AgentBatchTask> batch = ArgumentCaptor.forClass(AgentBatchTask.class);
+                    executor.verify(() -> AgentTaskExecutor.submit(batch.capture()));
+                    Assertions.assertTrue(batch.getValue().getAllTasks().isEmpty());
+                }
+                return null;
+            });
+            Assertions.assertTrue(reportPrepared.await(10, TimeUnit.SECONDS));
+            infoService.dropBackend(BACKEND_ID);
+            resumeReport.countDown();
+            future.get(10, TimeUnit.SECONDS);
+            Assertions.assertEquals(0, AgentTaskQueue.getTaskNum());
+        } finally {
+            resumeReport.countDown();
+            worker.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testLatePublishAfterDatabaseEraseIsRejected() {
+        PublishVersionTask task = newPublishTask(BACKEND_ID, TRANSACTION_ID);
+        database.markDropped();
+        env.eraseDatabase(1L, false);
+        Assertions.assertFalse(AgentTaskQueue.addTask(task));
+        Assertions.assertTrue(task.isFinished());
+        Assertions.assertEquals(TStatusCode.ABORTED, task.getErrorCode());
+
+        Mockito.when(catalog.getDbNullable(1L)).thenReturn(null);
+        Assertions.assertFalse(AgentTaskQueue.addTask(newPublishTask(BACKEND_ID, TRANSACTION_ID + 1)));
+        Assertions.assertEquals(0, AgentTaskQueue.getTaskNum());
+    }
+
+    @Test
+    public void testDatabaseEraseReclaimsConcurrentAdmission() throws Exception {
+        CountDownLatch metadataRead = new CountDownLatch(1);
+        CountDownLatch resumeAdmission = new CountDownLatch(1);
+        CountDownLatch databaseDropped = new CountDownLatch(1);
+        Mockito.doAnswer(invocation -> {
+            boolean dropped = (boolean) invocation.callRealMethod();
+            metadataRead.countDown();
+            Assertions.assertTrue(resumeAdmission.await(10, TimeUnit.SECONDS));
+            return dropped;
+        }).when(database).isDropped();
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        PublishVersionTask task = newPublishTask(BACKEND_ID, TRANSACTION_ID);
+        try {
+            Future<Boolean> admission = workers.submit(() -> {
+                try (MockedStatic<Env> threadEnv = mockEnv()) {
+                    return AgentTaskQueue.addTask(task);
+                }
+            });
+            Assertions.assertTrue(metadataRead.await(10, TimeUnit.SECONDS));
+            Future<?> erasure = workers.submit(() -> {
+                try (MockedStatic<Env> threadEnv = mockEnv()) {
+                    database.markDropped();
+                    databaseDropped.countDown();
+                    env.eraseDatabase(1L, false);
+                }
+            });
+            Assertions.assertTrue(databaseDropped.await(10, TimeUnit.SECONDS));
+            resumeAdmission.countDown();
+            Assertions.assertTrue(admission.get(10, TimeUnit.SECONDS));
+            erasure.get(10, TimeUnit.SECONDS);
+            Assertions.assertFalse(AgentTaskQueue.contains(task));
+            Assertions.assertTrue(task.isFinished());
+            Assertions.assertEquals(TStatusCode.ABORTED, task.getErrorCode());
+            Assertions.assertEquals(0, AgentTaskQueue.getTaskNum());
+        } finally {
+            resumeAdmission.countDown();
+            workers.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testDuplicateRepublishRetainsOriginalTaskForResend() {
+        backend.setAlive(true);
+        PublishVersionTask task = newPublishTask(BACKEND_ID, TRANSACTION_ID);
+        AgentTaskQueue.addTask(task);
+        try (MockedStatic<AgentTaskExecutor> executor = Mockito.mockStatic(AgentTaskExecutor.class)) {
+            Deencapsulation.invoke(ReportHandler.class, "handleRepublishVersionInfo", republishInfo(), BACKEND_ID);
+            ArgumentCaptor<AgentBatchTask> batch = ArgumentCaptor.forClass(AgentBatchTask.class);
+            executor.verify(() -> AgentTaskExecutor.submit(batch.capture()));
+            Assertions.assertTrue(batch.getValue().getAllTasks().isEmpty());
+            Assertions.assertSame(task, AgentTaskQueue.getTask(BACKEND_ID, TTaskType.PUBLISH_VERSION, TRANSACTION_ID));
+            Assertions.assertFalse(task.isFinished());
+
+            executor.reset();
+            Deencapsulation.invoke(ReportHandler.class, "taskReport", BACKEND_ID, Collections.emptyMap(), 0L);
+            executor.verify(() -> AgentTaskExecutor.submit(batch.capture()));
+            Assertions.assertEquals(List.of(task), batch.getValue().getAllTasks());
+        }
+    }
+
+    @Test
+    public void testRemovedBackendPublishIsTrackedWithoutDispatch() throws Exception {
+        infoService.dropBackend(BACKEND_ID);
+        TransactionState transaction = newTransaction();
+        transaction.setTransactionStatus(TransactionStatus.COMMITTED);
+        AgentBatchTask batch = new AgentBatchTask();
+        Deencapsulation.invoke(new PublishVersionDaemon(), "addPublishVersionTask",
+                Set.of(BACKEND_ID, HEALTHY_BACKEND_ID), TRANSACTION_ID, transaction,
+                List.of(new TPartitionVersionInfo(2L, 3L, 0L)), Collections.emptyMap(), 0L, batch);
+        PublishVersionTask rejected = transaction.getPublishVersionTasks().get(BACKEND_ID).get(0);
+        Assertions.assertTrue(rejected.isFinished());
+        Assertions.assertEquals(TStatusCode.ABORTED, rejected.getErrorCode());
+        Assertions.assertTrue(rejected.getSuccTablets().isEmpty());
+        Assertions.assertFalse(AgentTaskQueue.contains(rejected));
+        PublishVersionTask accepted = transaction.getPublishVersionTasks().get(HEALTHY_BACKEND_ID).get(0);
+        Assertions.assertEquals(List.of(accepted), batch.getAllTasks());
+        Assertions.assertTrue(AgentTaskQueue.contains(accepted));
+    }
+
+    private TransactionState newTransaction() {
+        return new TransactionState(1L, List.of(), TRANSACTION_ID, "publish_test", null,
+                TransactionState.LoadJobSourceType.FRONTEND,
+                new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE, 0, "127.0.0.1", 0L),
+                -1L, 10000L);
+    }
+
+    private MockedStatic<Env> mockEnv() {
+        MockedStatic<Env> result = Mockito.mockStatic(Env.class);
+        result.when(Env::getCurrentEnv).thenReturn(env);
+        result.when(Env::getCurrentSystemInfo).thenReturn(infoService);
+        result.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+        result.when(Env::getCurrentGlobalTransactionMgr).thenReturn(transactionMgr);
+        return result;
+    }
+
+    private Map<Long, SetMultimap<Long, TPartitionVersionInfo>> republishInfo() {
+        SetMultimap<Long, TPartitionVersionInfo> transactions = HashMultimap.create();
+        transactions.put(TRANSACTION_ID, new TPartitionVersionInfo(2L, 3L, 0L));
+        return Map.of(1L, transactions);
     }
 
     private PublishVersionTask newPublishTask(long backendId, long transactionId) {

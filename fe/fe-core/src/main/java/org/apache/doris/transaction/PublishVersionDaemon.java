@@ -438,11 +438,12 @@ public class PublishVersionDaemon extends MasterDaemon {
                     partitionVersionInfos,
                     createPublishVersionTaskTime);
             task.setBaseTabletsIds(beIdToBaseTabletIds.getOrDefault(backendId, Collections.emptySet()));
-            // add to AgentTaskQueue for handling finish report.
-            // not check return value, because the add will success
-            AgentTaskQueue.addTask(task);
-            batchTask.addTask(task);
+            // Keep rejected tasks in the transaction so a removed backend is not treated as a success.
+            boolean added = AgentTaskQueue.addTask(task);
             transactionState.addPublishVersionTask(backendId, task);
+            if (added) {
+                batchTask.addTask(task);
+            }
         }
     }
 }

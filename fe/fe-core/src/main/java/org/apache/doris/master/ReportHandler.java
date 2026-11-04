@@ -1337,9 +1337,10 @@ public class ReportHandler extends Daemon {
             for (long txnId : map.keySet()) {
                 PublishVersionTask task = new PublishVersionTask(backendId, txnId, dbId,
                         Lists.newArrayList(map.get(txnId)), createPublishVersionTaskTime);
-                batchTask.addTask(task);
                 // add to AgentTaskQueue for handling finish report.
-                AgentTaskQueue.addTask(task);
+                if (AgentTaskQueue.addTask(task)) {
+                    batchTask.addTask(task);
+                }
             }
         }
         AgentTaskExecutor.submit(batchTask);
