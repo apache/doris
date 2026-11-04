@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.algebra.Union;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
@@ -156,6 +157,14 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
     @Override
     public Boolean visitPhysicalCTEProducer(PhysicalCTEProducer<? extends Plan> anchor,
             PushDownContext ctx) {
+        return false;
+    }
+
+    @Override
+    public Boolean visitPhysicalAssertNumRows(
+            PhysicalAssertNumRows<? extends Plan> assertNumRows, PushDownContext ctx) {
+        // Filtering its input can hide a cardinality error or make a scalar subquery
+        // synthesize a NULL row that did not exist before filtering.
         return false;
     }
 
