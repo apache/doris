@@ -46,6 +46,7 @@
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "format_v2/column_data.h"
+#include "format_v2/table_reader.h"
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -1029,6 +1030,167 @@ TEST(JsonReaderTest, AppliesDeleteAndNormalConjunctsWithPredicateFilterAccountin
     EXPECT_EQ(nullable_int_at(*block.get_by_position(0).column, 0), 2);
     EXPECT_EQ(nullable_string_at(*block.get_by_position(1).column, 0), "bob");
     EXPECT_EQ(io_ctx->predicate_filtered_rows, 1);
+}
+
+// Partition-only scans have no file-local output columns, but still need one logical row per
+// accepted JSON record so TableReader can materialize the partition constants.
+TEST(JsonReaderTest, EmptyFileProjectionPreservesRows) {
+    ObjectPool pool;
+    const auto slots = build_slots(&pool);
+    for (const auto& source_slots : {slots, std::vector<SlotDescriptor*> {}}) {
+        auto result = read_once("empty_projection.jsonl", "{\"id\":1}\n\n{}\n{\"id\":3}\n",
+                                json_scan_params(), source_slots, {}, true, true);
+        ASSERT_TRUE(result.status.ok()) << result.status;
+        EXPECT_EQ(result.block.columns(), 0);
+        EXPECT_EQ(result.rows, 3);
+        EXPECT_FALSE(result.eof);
+        EXPECT_TRUE(result.second_status.ok());
+        EXPECT_EQ(result.second_rows, 0);
+        EXPECT_TRUE(result.second_eof);
+    }
+}
+
+TEST(JsonReaderTest, EmptyFileProjectionPreservesOuterArrayRows) {
+    auto result = read_once("empty_projection_array.json", R"([{"id":1},{},{"id":3}])",
+                            json_scan_params(false, true), {}, {}, true, true);
+    ASSERT_TRUE(result.status.ok()) << result.status;
+    EXPECT_EQ(result.rows, 3);
+    EXPECT_TRUE(result.second_status.ok());
+    EXPECT_TRUE(result.second_eof);
+}
+
+TEST(JsonReaderTest, EmptyFileProjectionPreservesJsonRootRows) {
+    auto result = read_once("empty_projection_root.jsonl",
+                            "{\"payload\":{\"id\":1}}\n{\"payload\":{\"id\":2}}\n",
+                            json_scan_params(true, false, "", "$.payload"), {}, {}, true, true);
+    ASSERT_TRUE(result.status.ok()) << result.status;
+    EXPECT_EQ(result.rows, 2);
+    EXPECT_TRUE(result.second_status.ok());
+    EXPECT_TRUE(result.second_eof);
+}
+
+TEST(JsonReaderTest, EmptyFileProjectionHonorsJsonPaths) {
+    ObjectPool pool;
+    const auto slots = build_slots(&pool);
+    auto result = read_once("empty_projection_jsonpaths.jsonl",
+                            "{\"payload\":{\"id\":1}}\n{\"other\":2}\n{\"payload\":{\"id\":3}}\n",
+                            json_scan_params(true, false, R"(["$.payload.id","$.payload.user"])"),
+                            slots, {}, true, true);
+    ASSERT_TRUE(result.status.ok()) << result.status;
+    EXPECT_EQ(result.rows, 2);
+    EXPECT_TRUE(result.second_status.ok());
+    EXPECT_TRUE(result.second_eof);
+}
+
+TEST(JsonReaderTest, EmptyFileProjectionPreservesRootJsonPathRows) {
+    auto result = read_once("empty_projection_root_path.jsonl", "{\"id\":1}\n{}\n",
+                            json_scan_params(true, false, R"(["$."])"), {}, {}, true, true);
+    ASSERT_TRUE(result.status.ok()) << result.status;
+    EXPECT_EQ(result.rows, 2);
+    EXPECT_TRUE(result.second_eof);
+}
+
+TEST(JsonReaderTest, EmptyFileProjectionPreservesRootedArrayJsonPathRows) {
+    auto result = read_once("empty_projection_rooted_array.json",
+                            R"({"rows":[{"payload":{"id":1}},{"other":2},{"payload":{"id":3}}]})",
+                            json_scan_params(false, true, R"(["$.payload.id"])", "$.rows"), {}, {},
+                            true, true);
+    ASSERT_TRUE(result.status.ok()) << result.status;
+    EXPECT_EQ(result.rows, 2);
+    EXPECT_TRUE(result.second_status.ok());
+    EXPECT_TRUE(result.second_eof);
+}
+
+TEST(JsonReaderTest, EmptyFileProjectionPreservesMalformedNullRows) {
+    auto result = read_once("empty_projection_malformed.jsonl", "not-json\n{\"id\":1}\n",
+                            json_scan_params(true, false, "", "", true), {}, {}, true, true);
+    ASSERT_TRUE(result.status.ok()) << result.status;
+    EXPECT_EQ(result.rows, 2);
+    EXPECT_TRUE(result.second_status.ok());
+    EXPECT_TRUE(result.second_eof);
+
+    auto strict = read_once("empty_projection_strict.jsonl", "not-json\n", json_scan_params(), {},
+                            {}, false, true);
+    EXPECT_FALSE(strict.status.ok());
+}
+
+TEST(JsonReaderTest, EmptyFileProjectionPreservesEmptyInput) {
+    for (const std::string content : {"", "\n", "[]\n"}) {
+        auto result = read_once("empty_projection_empty.jsonl", content,
+                                json_scan_params(true, true), {}, {}, false, true);
+        ASSERT_TRUE(result.status.ok()) << result.status;
+        EXPECT_EQ(result.rows, 0);
+        EXPECT_TRUE(result.eof);
+    }
+}
+
+TEST(JsonReaderTest, EmptyFileProjectionHonorsBatchSize) {
+    const auto path = write_json_file("empty_projection_batches.jsonl",
+                                      "{\"id\":1}\n{\"id\":2}\n{\"id\":3}\n"
+                                      "{\"id\":4}\n{\"id\":5}\n");
+    auto properties = std::make_shared<io::FileSystemProperties>();
+    properties->system_type = TFileType::FILE_LOCAL;
+    auto desc = file_description(path.string());
+    auto params = json_scan_params();
+    RuntimeProfile profile("json_empty_projection_batches");
+    MockRuntimeState state;
+    state._batch_size = 2;
+    JsonReader reader(properties, desc, std::make_shared<io::IOContext>(), &profile, &params,
+                      file_range(path), {});
+    ASSERT_TRUE(reader.init(&state).ok());
+    ASSERT_TRUE(reader.open(std::make_shared<FileScanRequest>()).ok());
+    for (const size_t expected_rows : {2, 2, 1, 0}) {
+        Block block;
+        size_t rows = 0;
+        bool eof = false;
+        ASSERT_TRUE(reader.get_block(&block, &rows, &eof).ok());
+        EXPECT_EQ(block.columns(), 0);
+        EXPECT_EQ(rows, expected_rows);
+        EXPECT_EQ(eof, expected_rows == 0);
+    }
+}
+
+TEST(JsonReaderTest, EmptyFileProjectionMaterializesPartitionRows) {
+    const auto path =
+            write_json_file("partition_only.jsonl", "{\"id\":1}\n{\"id\":2}\n{\"id\":3}\n");
+    auto params = json_scan_params();
+    const std::vector<SlotDescriptor*> file_slots;
+    ColumnDefinition partition;
+    partition.identifier = Field::create_field<TYPE_STRING>("dt");
+    partition.local_id = 0;
+    partition.name = "dt";
+    partition.type = std::make_shared<DataTypeString>();
+    partition.is_partition_key = true;
+    RuntimeProfile profile("json_partition_only");
+    MockRuntimeState state;
+    state._batch_size = 2;
+    TableReader reader;
+    ASSERT_TRUE(reader.init({.projected_columns = {partition},
+                             .conjuncts = {},
+                             .format = FileFormat::JSON,
+                             .scan_params = &params,
+                             .io_ctx = std::make_shared<io::IOContext>(),
+                             .runtime_state = &state,
+                             .scanner_profile = &profile,
+                             .file_slot_descs = &file_slots})
+                        .ok());
+    SplitReadOptions split;
+    split.current_range = file_range(path);
+    split.current_split_format = FileFormat::JSON;
+    split.partition_values.emplace("dt", Field::create_field<TYPE_STRING>("p1"));
+    ASSERT_TRUE(reader.prepare_split(split).ok());
+    bool eos = false;
+    for (const size_t expected_rows : {2, 1, 0}) {
+        Block block({{partition.type->create_column(), partition.type, partition.name}});
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        ASSERT_EQ(block.rows(), expected_rows);
+        EXPECT_EQ(eos, expected_rows == 0);
+        const auto column = block.get_by_position(0).column->convert_to_full_column_if_const();
+        for (size_t row = 0; row < expected_rows; ++row) {
+            EXPECT_EQ(column->get_data_at(row).to_string(), "p1");
+        }
+    }
+    EXPECT_TRUE(reader.close().ok());
 }
 
 } // namespace doris::format::json
