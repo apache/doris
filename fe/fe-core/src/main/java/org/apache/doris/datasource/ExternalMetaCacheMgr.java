@@ -55,6 +55,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.locks.Lock;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
@@ -137,6 +138,11 @@ public class ExternalMetaCacheMgr {
                 Config.max_external_cache_loader_thread_pool_size,
                 Config.max_external_cache_loader_thread_pool_size * 1000,
                 "scheduleExecutor", 10, true);
+
+        if (!isCheckpointCatalog) {
+            // Enumeration workers must not block inside queue admission before the first-Split deadline.
+            ((ThreadPoolExecutor) scheduleExecutor).setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+        }
 
         fsCache = new FileSystemCache();
         rowCountCache = new ExternalRowCountCache(rowCountRefreshExecutor);

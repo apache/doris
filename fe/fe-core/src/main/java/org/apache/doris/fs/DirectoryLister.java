@@ -26,4 +26,13 @@ import org.apache.doris.fs.remote.RemoteFile;
 public interface DirectoryLister {
     RemoteIterator<RemoteFile> listFiles(FileSystem fs, boolean recursive, TableIf table, String location)
             throws FileSystemIOException;
+
+    default RemoteIterator<RemoteFile> listFiles(FileSystem fs, boolean recursive, TableIf table, String location,
+            Runnable checkCancelled) throws FileSystemIOException {
+        checkCancelled.run();
+        RemoteIterator<RemoteFile> iterator = listFiles(fs, recursive, table, location);
+        checkCancelled.run();
+        return iterator;
+    }
+
 }

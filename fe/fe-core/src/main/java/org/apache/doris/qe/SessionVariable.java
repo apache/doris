@@ -604,6 +604,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String NUM_FILES_IN_BATCH_MODE = "num_files_in_batch_mode";
 
+    public static final String FIRST_SPLIT_WAIT_TIMEOUT_MS = "first_split_wait_timeout_ms";
+    public static final String SPLIT_PRODUCER_PARALLELISM = "split_producer_parallelism";
+
     public static final String FETCH_SPLITS_MAX_WAIT_TIME = "fetch_splits_max_wait_time_ms";
 
     /**
@@ -2687,6 +2690,30 @@ public class SessionVariable implements Serializable, Writable {
                     "If the number of files exceeds the threshold, scan ranges will be got through batch mode."},
             needForward = true)
     public int numFilesInBatchMode = 1024;
+
+    @VariableMgr.VarAttr(name = FIRST_SPLIT_WAIT_TIMEOUT_MS, checker = "checkFirstSplitWaitTimeout",
+            needForward = true, description = "First split wait timeout in milliseconds.")
+    public long firstSplitWaitTimeoutMs = 30000;
+
+    public void checkFirstSplitWaitTimeout(String value) throws Exception {
+        checkFieldLongValue(FIRST_SPLIT_WAIT_TIMEOUT_MS, 1, value);
+    }
+
+    public long getFirstSplitWaitTimeoutMs() {
+        return firstSplitWaitTimeoutMs;
+    }
+
+    @VariableMgr.VarAttr(name = SPLIT_PRODUCER_PARALLELISM, checker = "checkSplitProducerParallelism",
+            needForward = true, description = "Maximum Hive split producers per scan; zero uses the existing limit.")
+    public int splitProducerParallelism;
+
+    public void checkSplitProducerParallelism(String value) throws Exception {
+        checkFieldValue(SPLIT_PRODUCER_PARALLELISM, 0, value);
+    }
+
+    public int getSplitProducerParallelism() {
+        return splitProducerParallelism;
+    }
 
     @VariableMgr.VarAttr(
             name = FETCH_SPLITS_MAX_WAIT_TIME,

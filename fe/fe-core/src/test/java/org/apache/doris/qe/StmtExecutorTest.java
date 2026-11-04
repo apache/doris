@@ -17,13 +17,16 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.datasource.SplitAssignment;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
@@ -39,6 +42,7 @@ import com.google.common.collect.Lists;
 import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedConstruction;
 import org.mockito.Mockito;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
@@ -76,6 +80,25 @@ public class StmtExecutorTest extends TestWithFeService {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
         stmtExecutor.execute();
         Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+    }
+
+    @Test
+    public void testInternalPlanningFailureClosesAlreadyRegisteredSplitTasks() {
+        StmtExecutor executor = new StmtExecutor(connectContext, "select 1");
+        SplitAssignment assignment = new SplitAssignment(
+                null, null, null, Collections.emptyMap(), Collections.emptyList(), false);
+        AtomicInteger unregistered = new AtomicInteger();
+        try (MockedConstruction<NereidsPlanner> planners = Mockito.mockConstruction(NereidsPlanner.class,
+                (planner, ignored) -> Mockito.doAnswer(invocation -> {
+                    // A previous scan can start before planning a later relation fails.
+                    executor.registerSplitAssignment(assignment, unregistered::incrementAndGet);
+                    throw new RuntimeException("later relation planning failed");
+                }).when(planner).plan(Mockito.any(StatementBase.class), Mockito.any(TQueryOptions.class)))) {
+            Assertions.assertThrows(RuntimeException.class, executor::executeInternalQuery);
+            Assertions.assertTrue(assignment.isStop());
+            Assertions.assertTrue(assignment.getTerminationFuture().isDone());
+            Assertions.assertEquals(1, unregistered.get());
+        }
     }
 
     // The deferral gate (#67503): a coordinator is kept alive past GetFlightInfo only when the BE

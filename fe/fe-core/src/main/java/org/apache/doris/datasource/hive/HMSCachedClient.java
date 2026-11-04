@@ -68,6 +68,21 @@ public interface HMSCachedClient {
         return getPartitions(dbName, tblName, partitionNames);
     }
 
+    default Partition getPartition(String dbName, String tblName, List<String> values, Runnable checkCancelled) {
+        checkCancelled.run();
+        Partition partition = getPartition(dbName, tblName, values);
+        checkCancelled.run();
+        return partition;
+    }
+
+    default List<Partition> getExistingPartitions(String dbName, String tblName, List<String> names,
+            Runnable checkCancelled) {
+        checkCancelled.run();
+        List<Partition> partitions = getExistingPartitions(dbName, tblName, names);
+        checkCancelled.run();
+        return partitions;
+    }
+
     Table getTable(String dbName, String tblName);
 
     List<FieldSchema> getSchema(String dbName, String tblName);

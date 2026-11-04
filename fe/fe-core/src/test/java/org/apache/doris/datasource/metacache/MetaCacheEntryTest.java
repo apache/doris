@@ -47,6 +47,58 @@ import java.util.concurrent.atomic.AtomicReference;
 public class MetaCacheEntryTest {
 
     @Test
+    public void requestOwnedMissDoesNotWaitForAnotherOwnerAndCannotUndoInvalidation() throws Exception {
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        CountDownLatch loading = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        MetaCacheEntry<String, String> entry = new MetaCacheEntry<>("scan-owned", key -> "default",
+                CacheSpec.fromProperties(Maps.newHashMap(), "enabled", true,
+                        "ttl", CacheSpec.CACHE_NO_TTL, "capacity", 10L), workers);
+        try {
+            Future<String> first = workers.submit(() -> entry.getForLoadScope("partition", key -> {
+                loading.countDown();
+                try {
+                    Assert.assertTrue(release.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(e);
+                }
+                return "old";
+            }));
+            Assert.assertTrue(loading.await(5, TimeUnit.SECONDS));
+            Future<String> second = workers.submit(() -> entry.getForLoadScope("partition", key -> "new"));
+            Assert.assertEquals("new", second.get(5, TimeUnit.SECONDS));
+            entry.invalidateKey("partition");
+            release.countDown();
+            Assert.assertEquals("old", first.get(5, TimeUnit.SECONDS));
+            Assert.assertNull(entry.peekIfPresent("partition"));
+        } finally {
+            release.countDown();
+            workers.shutdownNow();
+        }
+    }
+
+    @Test
+    public void cancelledMissDoesNotPoisonTheNextScanOrPublishPartialBatches() {
+        ExecutorService workers = Executors.newSingleThreadExecutor();
+        MetaCacheEntry<String, String> entry = new MetaCacheEntry<>("scan-owned", key -> "default",
+                CacheSpec.fromProperties(Maps.newHashMap(), "enabled", true,
+                        "ttl", CacheSpec.CACHE_NO_TTL, "capacity", 10L), workers);
+        try {
+            Assert.assertThrows(java.util.concurrent.CancellationException.class,
+                    () -> entry.getAllForLoadScope(Arrays.asList("a", "b"), keys -> {
+                        throw new java.util.concurrent.CancellationException("query cancelled");
+                    }));
+            Assert.assertNull(entry.peekIfPresent("a"));
+            Assert.assertNull(entry.peekIfPresent("b"));
+            Assert.assertEquals("complete", entry.getForLoadScope("a", key -> "complete"));
+            Assert.assertEquals("complete", entry.peekIfPresent("a"));
+        } finally {
+            workers.shutdownNow();
+        }
+    }
+
+    @Test
     public void testCompactStringPayloadEstimate() {
         // Latin-1 characters weigh one byte, other characters two; the estimate scales with
         // string length so skewed payloads dominate their entries.

@@ -94,6 +94,14 @@ public interface FileSystem {
      * */
     Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result);
 
+    default Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result, Runnable checkCancelled) {
+        checkCancelled.run();
+        Status status = listFiles(remotePath, recursive, result);
+        checkCancelled.run();
+        return status;
+    }
+
+
     /**
      * List files in remotePath by wildcard <br/>
      * The {@link RemoteFile}'name will only contain file name (Not full path)

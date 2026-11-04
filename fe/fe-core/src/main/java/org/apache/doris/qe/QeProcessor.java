@@ -26,6 +26,7 @@ import org.apache.doris.thrift.TUniqueId;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 public interface QeProcessor {
 
@@ -34,6 +35,8 @@ public interface QeProcessor {
     void registerQuery(TUniqueId queryId, QeProcessorImpl.QueryInfo info) throws UserException;
 
     void registerInstances(TUniqueId queryId, Integer instancesNum) throws UserException;
+
+    void registerSplitTermination(TUniqueId queryId, CompletableFuture<Void> termination);
 
     void unregisterQuery(TUniqueId queryId);
 

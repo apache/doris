@@ -40,7 +40,8 @@ import org.apache.doris.datasource.ExternalScanTaskCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalUtil;
 import org.apache.doris.datasource.FileQueryScanNode;
-import org.apache.doris.datasource.SplitAssignment;
+import org.apache.doris.datasource.SplitProducer;
+import org.apache.doris.datasource.SplitScanContext;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.credentials.CredentialUtils;
 import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
@@ -50,6 +51,8 @@ import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergRuntimeContext;
+import org.apache.doris.datasource.iceberg.IcebergScanFileIO;
+import org.apache.doris.datasource.iceberg.IcebergScanPlanningScope;
 import org.apache.doris.datasource.iceberg.IcebergSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
@@ -164,8 +167,6 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.FutureTask;
-import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -1722,13 +1723,14 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     public void doStartSplit() throws UserException {
-        TableScan scan = createTableScan();
         ExecutorService executor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
         Closeable generationLease = IcebergUtils.retainTableGenerationForAsyncPlanning(
                 source.getTargetTable(), frozenGenerationSource);
-        AsyncPlanningTask planningTask = new AsyncPlanningTask(executor, splitAssignment, generationLease, () -> {
+        SplitProducer planningTask = new SplitProducer(executor, splitAssignment, () -> {
             AtomicReference<CloseableIterable<FileScanTask>> taskRef = new AtomicReference<>();
             try {
+                splitAssignment.getScanContext().checkCancelled();
+                TableScan scan = preExecutionAuthenticator.execute(this::createTableScan);
                 preExecutionAuthenticator.execute(
                         () -> {
                             long startTime = System.currentTimeMillis();
@@ -1770,119 +1772,8 @@ public class IcebergScanNode extends FileQueryScanNode {
                     }
                 }
             }
-        });
-        splitAssignment.addCloseable(planningTask);
+        }, generationLease);
         planningTask.submit();
-    }
-
-    /** Owns the planner generation until the worker actually exits, including cancellation races. */
-    @VisibleForTesting
-    static final class AsyncPlanningTask implements Runnable, Closeable {
-        private final ExecutorService executor;
-        private final SplitAssignment splitAssignment;
-        private final Closeable generationLease;
-        private final Runnable planning;
-        private final FutureTask<Void> submission;
-        private boolean submitted;
-        private boolean started;
-        private boolean closeRequested;
-        private boolean finished;
-        private Thread runner;
-
-        AsyncPlanningTask(ExecutorService executor, SplitAssignment splitAssignment,
-                Closeable generationLease, Runnable planning) {
-            this.executor = Objects.requireNonNull(executor, "executor is null");
-            this.splitAssignment = Objects.requireNonNull(splitAssignment, "splitAssignment is null");
-            this.generationLease = Objects.requireNonNull(generationLease, "generationLease is null");
-            this.planning = Objects.requireNonNull(planning, "planning is null");
-            this.submission = new FutureTask<>(this, null);
-        }
-
-        void submit() {
-            try {
-                synchronized (this) {
-                    if (finished) {
-                        return;
-                    }
-                    submitted = true;
-                }
-                executor.execute(submission);
-                synchronized (this) {
-                    if (finished && executor instanceof ThreadPoolExecutor) {
-                        ((ThreadPoolExecutor) executor).remove(submission);
-                    }
-                }
-            } catch (RuntimeException | Error e) {
-                finish();
-                throw e;
-            }
-        }
-
-        @Override
-        public void run() {
-            boolean cancelled;
-            synchronized (this) {
-                if (finished) {
-                    return;
-                }
-                started = true;
-                runner = Thread.currentThread();
-                cancelled = closeRequested;
-            }
-            try {
-                if (!cancelled) {
-                    planning.run();
-                }
-            } finally {
-                finish();
-            }
-        }
-
-        @Override
-        public void close() {
-            Thread threadToInterrupt = null;
-            boolean finishBeforeStart = false;
-            synchronized (this) {
-                if (finished) {
-                    return;
-                }
-                closeRequested = true;
-                if (started) {
-                    threadToInterrupt = runner;
-                } else {
-                    finishBeforeStart = true;
-                    // Make cancellation visible to BlockedPolicy even if close() wins in the
-                    // submitted-but-not-yet-enqueued window.
-                    submission.cancel(false);
-                    if (submitted && executor instanceof ThreadPoolExecutor) {
-                        ((ThreadPoolExecutor) executor).remove(submission);
-                    }
-                }
-            }
-            if (threadToInterrupt != null) {
-                threadToInterrupt.interrupt();
-            }
-            if (finishBeforeStart) {
-                finish();
-            }
-        }
-
-        private void finish() {
-            synchronized (this) {
-                if (finished) {
-                    return;
-                }
-                finished = true;
-                runner = null;
-            }
-            splitAssignment.removeCloseable(this);
-            try {
-                generationLease.close();
-            } catch (IOException e) {
-                splitAssignment.setException(
-                        new UserException("Failed to release Iceberg planning generation", e));
-            }
-        }
     }
 
     @VisibleForTesting
@@ -2075,10 +1966,80 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
     }
 
+    private CloseableIterable<FileScanTask> planSdkFiles(TableScan scan) {
+        if (splitAssignment == null) {
+            return scan.planFiles();
+        }
+        SplitScanContext scanContext = splitAssignment.getScanContext();
+        IcebergScanPlanningScope scope = new IcebergScanPlanningScope(scanContext, getPlanningExecutor());
+        try {
+            scope.checkCancelled();
+            Optional<TableScan> scoped = DorisDataTableScan.withPlanningTable(scan,
+                    table -> IcebergSnapshotCacheValue.withFileIO(table,
+                            io -> new IcebergScanFileIO(io, scope::checkCancelled)), scope);
+            if (!scoped.isPresent()) {
+                // Custom Table/Scan implementations retain their SDK semantics. An opaque entered SDK call
+                // remains cooperative only at our outer source boundary.
+                scope.close();
+                scanContext.checkCancelled();
+                return scan.planFiles();
+            }
+            scope.checkCancelled();
+            CloseableIterable<FileScanTask> tasks = scoped.get().planFiles();
+            return new CloseableIterable<FileScanTask>() {
+                @Override
+                public CloseableIterator<FileScanTask> iterator() {
+                    CloseableIterator<FileScanTask> iterator = tasks.iterator();
+                    return new CloseableIterator<FileScanTask>() {
+                        @Override
+                        public boolean hasNext() {
+                            return iterator.hasNext();
+                        }
+
+                        @Override
+                        public FileScanTask next() {
+                            return iterator.next();
+                        }
+
+                        @Override
+                        public void close() throws IOException {
+                            try {
+                                scope.close();
+                            } finally {
+                                iterator.close();
+                            }
+                        }
+                    };
+                }
+
+                @Override
+                public void close() throws IOException {
+                    try {
+                        scope.close();
+                    } finally {
+                        tasks.close();
+                    }
+                }
+            };
+        } catch (RuntimeException | Error e) {
+            // Delete-file planning is eager: a partial submission failure can precede the source's creation.
+            // Its accepted SDK jobs still belong to this source and must actually exit before it unwinds.
+            try {
+                scope.close();
+            } catch (RuntimeException | Error closeFailure) {
+                e.addSuppressed(closeFailure);
+            }
+            if (e instanceof RuntimeException) {
+                scanContext.checkCancelled();
+            }
+            throw e;
+        }
+    }
+
     private CloseableIterable<FileScanTask> splitFiles(TableScan scan) {
         if (sessionVariable.getFileSplitSize() > 0) {
             targetSplitSize = sessionVariable.getFileSplitSize();
-            return splitFiles(scan.planFiles(), targetSplitSize);
+            return splitFiles(planSdkFiles(scan), targetSplitSize);
         }
         if (isBatchMode() || tableLevelPushDownCount) {
             // Currently iceberg batch split mode will use max split size.
@@ -2087,7 +2048,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             // Keep planFiles lazy for that path instead of materializing and retaining the whole
             // table in the statement cache.
             targetSplitSize = sessionVariable.getMaxSplitSize();
-            return splitFiles(scan.planFiles(), targetSplitSize);
+            return splitFiles(planSdkFiles(scan), targetSplitSize);
         }
 
         // Non Batch Mode

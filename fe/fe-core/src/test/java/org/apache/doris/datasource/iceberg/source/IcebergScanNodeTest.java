@@ -48,6 +48,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.datasource.SplitAssignment;
 import org.apache.doris.datasource.SplitGenerator;
+import org.apache.doris.datasource.SplitProducer;
 import org.apache.doris.datasource.SplitToScanRange;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
@@ -4547,34 +4548,37 @@ public class IcebergScanNodeTest {
     public void testAsyncPlanningRetainsGenerationUntilWorkerActuallyTerminates() throws Exception {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         CountDownLatch workerStarted = new CountDownLatch(1);
-        CountDownLatch interruptObserved = new CountDownLatch(1);
+        CountDownLatch cancellationObserved = new CountDownLatch(1);
         CountDownLatch allowWorkerToFinish = new CountDownLatch(1);
         CountDownLatch generationReleased = new CountDownLatch(1);
         SplitAssignment assignment = newSplitAssignment();
         try {
-            IcebergScanNode.AsyncPlanningTask task = new IcebergScanNode.AsyncPlanningTask(
-                    executor, assignment, generationReleased::countDown, () -> {
+            SplitProducer task = new SplitProducer(
+                    executor, assignment, () -> {
                         workerStarted.countDown();
                         while (true) {
                             try {
                                 allowWorkerToFinish.await();
                                 return;
                             } catch (InterruptedException e) {
-                                interruptObserved.countDown();
+                                Thread.currentThread().interrupt();
+                                throw new AssertionError(e);
                             }
                         }
-                    });
-            assignment.addCloseable(task);
+                    }, generationReleased::countDown);
             task.submit();
             Assert.assertTrue(workerStarted.await(3L, TimeUnit.SECONDS));
 
+            assignment.getScanContext().whenCancelled(cancellationObserved::countDown);
             assignment.stop();
-            Assert.assertTrue(interruptObserved.await(3L, TimeUnit.SECONDS));
+            Assert.assertTrue(cancellationObserved.await(3L, TimeUnit.SECONDS));
             Assert.assertEquals("a running planner must retain its generation after cancellation",
                     1L, generationReleased.getCount());
 
+            Assert.assertFalse(assignment.getTerminationFuture().isDone());
             allowWorkerToFinish.countDown();
             Assert.assertTrue(generationReleased.await(3L, TimeUnit.SECONDS));
+            assignment.getTerminationFuture().get(3L, TimeUnit.SECONDS);
         } finally {
             allowWorkerToFinish.countDown();
             executor.shutdownNow();
@@ -4600,9 +4604,8 @@ public class IcebergScanNodeTest {
             });
             Assert.assertTrue(blockerStarted.await(3L, TimeUnit.SECONDS));
 
-            IcebergScanNode.AsyncPlanningTask task = new IcebergScanNode.AsyncPlanningTask(
-                    executor, assignment, generationReleased::countDown, planningRuns::incrementAndGet);
-            assignment.addCloseable(task);
+            SplitProducer task = new SplitProducer(
+                    executor, assignment, planningRuns::incrementAndGet, generationReleased::countDown);
             task.submit();
             Assert.assertEquals(1, executor.getQueue().size());
 
@@ -4631,9 +4634,8 @@ public class IcebergScanNodeTest {
             delegate.execute(invocation.getArgument(0));
             return null;
         }).when(executor).execute(Mockito.any(Runnable.class));
-        IcebergScanNode.AsyncPlanningTask task = new IcebergScanNode.AsyncPlanningTask(
-                executor, assignment, generationReleased::countDown, planningRuns::incrementAndGet);
-        assignment.addCloseable(task);
+        SplitProducer task = new SplitProducer(
+                executor, assignment, planningRuns::incrementAndGet, generationReleased::countDown);
         Thread submitter = new Thread(task::submit);
         try {
             submitter.start();
@@ -4693,9 +4695,8 @@ public class IcebergScanNodeTest {
         Assert.assertTrue(blockerStarted.await(3L, TimeUnit.SECONDS));
         executor.execute(() -> { });
 
-        IcebergScanNode.AsyncPlanningTask task = new IcebergScanNode.AsyncPlanningTask(
-                executor, assignment, generationReleased::countDown, planningRuns::incrementAndGet);
-        assignment.addCloseable(task);
+        SplitProducer task = new SplitProducer(
+                executor, assignment, planningRuns::incrementAndGet, generationReleased::countDown);
         Thread submitter = new Thread(task::submit);
         try {
             submitter.start();

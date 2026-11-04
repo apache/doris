@@ -32,7 +32,9 @@ import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TColumnCategory;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNodeType;
@@ -40,6 +42,7 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
+import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TIcebergFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
@@ -47,15 +50,18 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 public class FileQueryScanNodeTest {
     private static final long MB = 1024L * 1024L;
@@ -123,6 +129,65 @@ public class FileQueryScanNodeTest {
     public void setUp() {
         table = Mockito.mock(TableIf.class);
         Mockito.when(table.getName()).thenReturn("test_table");
+    }
+
+    @Test
+    public void testProducerFailureDuringEndpointRegistrationKeepsOriginalError() throws Exception {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        Backend backend = new Backend(1L, "127.0.0.1", 9050);
+        FileSplit sample = Mockito.mock(FileSplit.class);
+        Mockito.when(sample.getLocationType()).thenReturn(TFileType.FILE_S3);
+        Env env = Mockito.mock(Env.class);
+        SplitSourceManager manager = Mockito.mock(SplitSourceManager.class);
+        Mockito.when(env.getSplitSourceManager()).thenReturn(manager);
+        UserException original = new UserException("manifest or file listing failed");
+        Set<Long> sources = new HashSet<>();
+        try (MockedStatic<Env> current = Mockito.mockStatic(Env.class);
+                MockedConstruction<FederationBackendPolicy> policies = Mockito.mockConstruction(
+                        FederationBackendPolicy.class, (policy, ignored) -> {
+                            Mockito.when(policy.numBackends()).thenReturn(1);
+                            Mockito.when(policy.getBackends()).thenReturn(Collections.singletonList(backend));
+                        });
+                MockedConstruction<SplitAssignment> assignments = Mockito.mockConstruction(
+                        SplitAssignment.class, (assignment, ignored) -> {
+                            Mockito.when(assignment.getSampleSplit()).thenReturn(sample);
+                            Mockito.when(assignment.getSources()).thenAnswer(invocation -> new HashSet<>(sources));
+                            Mockito.doAnswer(invocation -> sources.add(invocation.getArgument(0)))
+                                    .when(assignment).registerSource(Mockito.anyLong());
+                            Mockito.when(assignment.isStop()).thenReturn(true);
+                            Mockito.doNothing().doThrow(original).when(assignment).checkException();
+                        })) {
+            current.when(Env::getCurrentEnv).thenReturn(env);
+            TestFileQueryScanNode node = new TestFileQueryScanNode(context.getSessionVariable()) {
+                @Override
+                public boolean isBatchMode() {
+                    return true;
+                }
+
+                @Override
+                public int numApproximateSplits() {
+                    return 1;
+                }
+
+                @Override
+                protected TFileFormatType getFileFormatType() {
+                    return TFileFormatType.FORMAT_PARQUET;
+                }
+            };
+            node.params = new TFileScanRangeParams();
+
+            Assert.assertSame(original, Assert.assertThrows(UserException.class, node::createScanRangeLocations));
+
+            Assert.assertEquals(1, sources.size());
+            Mockito.verify(manager).removeSplitSource(sources.iterator().next());
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
     }
 
     @Test

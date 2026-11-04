@@ -788,4 +788,8 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     protected boolean fileCacheAdmissionCheck() throws UserException {
         return true;
     }
+
+    /** Stop Split enumeration while keeping already-issued fetch endpoints reachable until cleanup. */
+    public void stopSplitGeneration() {
+    }
 }

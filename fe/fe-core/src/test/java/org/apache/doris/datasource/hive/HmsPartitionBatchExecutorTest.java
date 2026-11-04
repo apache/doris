@@ -31,6 +31,36 @@ import java.util.stream.IntStream;
 public class HmsPartitionBatchExecutorTest {
 
     @Test
+    public void cancellationAfterAnRpcPreventsTheNextPartitionRequest() {
+        org.apache.doris.datasource.SplitScanContext context = new org.apache.doris.datasource.SplitScanContext();
+        java.util.concurrent.atomic.AtomicInteger requests = new java.util.concurrent.atomic.AtomicInteger();
+        HmsPartitionBatchExecutor executor = new HmsPartitionBatchExecutor(2, (db, table, batch) -> {
+            requests.incrementAndGet();
+            context.cancel();
+            return infos(batch);
+        }, context::checkCancelled);
+
+        Assertions.assertThrows(java.util.concurrent.CancellationException.class,
+                () -> executor.executeWithStats(request(names(5))));
+        Assertions.assertEquals(1, requests.get());
+    }
+
+    @Test
+    public void cancellationDuringAnOversizeFailurePreventsTheFallbackRpc() {
+        org.apache.doris.datasource.SplitScanContext context = new org.apache.doris.datasource.SplitScanContext();
+        java.util.concurrent.atomic.AtomicInteger requests = new java.util.concurrent.atomic.AtomicInteger();
+        HmsPartitionBatchExecutor executor = new HmsPartitionBatchExecutor(4, (db, table, batch) -> {
+            requests.incrementAndGet();
+            context.cancel();
+            throw remoteFailure("frame too large");
+        }, context::checkCancelled);
+
+        Assertions.assertThrows(java.util.concurrent.CancellationException.class,
+                () -> executor.executeWithStats(request(names(5))));
+        Assertions.assertEquals(1, requests.get());
+    }
+
+    @Test
     public void boundsLargeRequestAndRestoresOrder() {
         List<Integer> batchSizes = new ArrayList<>();
         HmsPartitionBatchExecutor executor = executor(5000, (db, table, names) -> {

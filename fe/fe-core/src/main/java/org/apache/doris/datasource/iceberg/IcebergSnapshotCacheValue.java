@@ -44,6 +44,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.UnaryOperator;
 import javax.annotation.Nullable;
 
 public class IcebergSnapshotCacheValue {
@@ -340,6 +341,24 @@ public class IcebergSnapshotCacheValue {
         }
     }
 
+    /** Replaces only FileIO on the native table views whose snapshot semantics Doris owns. */
+    public static Optional<Table> withFileIO(Table table, UnaryOperator<FileIO> wrapIO) {
+        if (table instanceof QueryScopedTable) {
+            return Optional.of(new QueryScopedTable((QueryScopedTable) table, wrapIO.apply(table.io())));
+        }
+        if (table.getClass() != BaseTable.class) {
+            return Optional.empty();
+        }
+        BaseTable baseTable = (BaseTable) table;
+        FileIO io = wrapIO.apply(table.io());
+        return Optional.of(new BaseTable(baseTable.operations(), table.name(), baseTable.reporter()) {
+            @Override
+            public FileIO io() {
+                return io;
+            }
+        });
+    }
+
     static boolean isFrozenGeneration(Table table) {
         return table instanceof HasTableOperations
                 && ((HasTableOperations) table).operations() instanceof FrozenTableOperations;
@@ -573,6 +592,7 @@ public class IcebergSnapshotCacheValue {
      */
     private static final class QueryScopedTable extends BaseTable {
         private final QueryScopedTableOperations queryOperations;
+        private final FileIO fileIO;
         private final Snapshot currentSnapshot;
         private final Map<Long, Snapshot> querySnapshots = new HashMap<>();
 
@@ -586,11 +606,27 @@ public class IcebergSnapshotCacheValue {
             super(queryOperations, name, reporter == null
                     ? org.apache.iceberg.metrics.LoggingMetricsReporter.instance() : reporter);
             this.queryOperations = queryOperations;
+            this.fileIO = queryOperations.io();
             this.currentSnapshot = currentSnapshotJson == null
                     ? null : SnapshotParser.fromJson(currentSnapshotJson);
             if (currentSnapshot != null) {
                 querySnapshots.put(currentSnapshot.snapshotId(), currentSnapshot);
             }
+        }
+
+        private QueryScopedTable(QueryScopedTable original, FileIO fileIO) {
+            super(original.queryOperations, original.name(), original.reporter());
+            this.queryOperations = original.queryOperations;
+            this.fileIO = fileIO;
+            this.currentSnapshot = original.currentSnapshot;
+            synchronized (original) {
+                this.querySnapshots.putAll(original.querySnapshots);
+            }
+        }
+
+        @Override
+        public FileIO io() {
+            return fileIO;
         }
 
         @Override
