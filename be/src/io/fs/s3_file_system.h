@@ -58,8 +58,8 @@ public:
     //    this only happens to a resource that no storage policy references.
     // FE allows a change of backend through ALTER RESOURCE, but it is not a supported way to move
     // a resource; this only keeps a BE from silently staying on the old backend.
-    static Result<std::shared_ptr<S3FileSystem>> refresh(std::shared_ptr<S3FileSystem> fs,
-                                                         ObjStorageConfig config);
+    static Result<std::shared_ptr<S3FileSystem>> refresh_resource(std::shared_ptr<S3FileSystem> fs,
+                                                                  ObjStorageConfig config);
 
     // Applies a refreshed configuration of the storage vault this file system serves. The backend
     // of a vault cannot be altered, so another backend means that the meta service handed the id

@@ -77,7 +77,7 @@ public:
 
     // Replaces the state with `config` as it is, without merging, which allows another backend.
     // Readers keep the holder they resolved once, so moving the holder to another backend while
-    // the bucket and prefix stay reaches all of them (S3FileSystem::refresh). The client is built
+    // the bucket and prefix stay reaches all of them (S3FileSystem::refresh_resource). The client is built
     // and published like in reset(), with the same overlap check.
     Status rebind(const ObjClientConfig& config);
 
