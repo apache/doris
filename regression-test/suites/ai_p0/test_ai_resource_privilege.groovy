@@ -71,6 +71,40 @@ suite("test_ai_resource_privilege", "p0,auth") {
             queries.each { query -> sql "EXPLAIN ${query}" }
             sql_impl(adminConnection, "REVOKE USAGE_PRIV ON RESOURCE '${resourceName}' FROM '${userName}'")
             assertDenied()
+
+            sql "SET enable_sql_cache = true"
+            sql "SELECT 20261104"
+            explain {
+                sql "physical plan SELECT 20261104"
+                contains "PhysicalSqlCache"
+            }
+            def nullQueries = [
+                "SELECT AI_GENERATE('${resourceName}', NULL)",
+                "SELECT AI_GENERATE(NULL)",
+                "SELECT AI_GENERATE(CONCAT('${resourceName}', ''), NULL)",
+                "SELECT EMBED('${resourceName}', CAST(NULL AS STRING))",
+                "SELECT EMBED(CAST(NULL AS STRING))",
+                "SELECT EMBED('${resourceName}', CAST(NULL AS JSON))",
+                "SELECT EMBED(CAST(NULL AS JSON))"
+            ]
+            nullQueries.each { query ->
+                sql_impl(adminConnection, "GRANT USAGE_PRIV ON RESOURCE '${resourceName}' TO '${userName}'")
+                sql query
+                sql query
+                explain {
+                    sql "physical plan ${query}"
+                    notContains "PhysicalSqlCache"
+                }
+                sql_impl(adminConnection, "REVOKE USAGE_PRIV ON RESOURCE '${resourceName}' FROM '${userName}'")
+                test {
+                    sql query
+                    exception "privilege(s) on resource ${resourceName}"
+                }
+                test {
+                    sql "EXPLAIN ${query}"
+                    exception "privilege(s) on resource ${resourceName}"
+                }
+            }
         }
     } finally {
         sql "DROP USER IF EXISTS '${userName}'"
