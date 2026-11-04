@@ -111,9 +111,15 @@ void ArrowFlightBatchReaderBase::close(const Status& reason) {
         Status status;
         // One retry: the FE keeps the route when an attempt fails (for example a BE missed the
         // FE's one-second deadline), and a cached connection to the FE may have gone stale.
+        // Neither applies to an FE that cannot be connected to, so that one gets no retry.
         for (int attempt = 0; attempt < 2; ++attempt) {
-            FrontendServiceConnection client(env->frontend_client_cache(), address, 2000, &status);
-            if (status.ok()) {
+            // An FE that sorts before the one that planned the query delays every early close on
+            // every BE. So the connection comes from a cache that holds only transports opened
+            // with this 2 s timeout, and acquiring it does not back off (max_retries = 0).
+            FrontendServiceConnection client(env->flight_cancel_frontend_client_cache(), address,
+                                             2000, &status, 0);
+            const bool connected = status.ok();
+            if (connected) {
                 try {
                     TStatus result;
                     client->cancelFlightQuery(result, _statement->query_id);
@@ -129,11 +135,14 @@ void ArrowFlightBatchReaderBase::close(const Status& reason) {
                 } catch (const apache::thrift::TException& e) {
                     status = Status::RpcError("Flight cancellation failed: {}", e.what());
                     // Discard a transport that may contain an incomplete response.
-                    static_cast<void>(client.reopen(1000));
+                    static_cast<void>(client.reopen(2000));
                 }
             }
             LOG(WARNING) << "Failed to cancel Flight result " << print_id(_statement->query_id)
                          << " through FE " << address << ": " << status;
+            if (!connected) {
+                break;
+            }
         }
     }
 }

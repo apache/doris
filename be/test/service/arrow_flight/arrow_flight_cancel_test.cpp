@@ -24,6 +24,7 @@
 #include <thrift/transport/TBufferTransports.h>
 #include <thrift/transport/TServerSocket.h>
 
+#include <chrono>
 #include <future>
 #include <thread>
 
@@ -279,7 +280,11 @@ TEST_F(ArrowFlightCancelTest, RealFlightRpcCancellationCleansUpQuery) {
 class FlightCancelCoordinator : public FrontendServiceNull {
 public:
     void cancelFlightQuery(TStatus& result, const TUniqueId& result_id) override {
-        if (++calls <= rejections) {
+        int call = ++calls;
+        if (call == 1 && first_call_delay_ms > 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(first_call_delay_ms));
+        }
+        if (call <= rejections) {
             result.__set_status_code(TStatusCode::CANCELLED);
             return;
         }
@@ -308,6 +313,7 @@ public:
     std::shared_ptr<PBackendService_Stub> stub;
     std::atomic<int> calls {0};
     int rejections = 0;
+    int first_call_delay_ms = 0;
 };
 
 class FlightCancelServerReady : public apache::thrift::server::TServerEventHandler {
@@ -369,6 +375,10 @@ protected:
         _frontend_cache = std::make_unique<ClientCache<FrontendServiceClient>>();
         _previous_frontend_cache = std::exchange(ExecEnv::GetInstance()->_frontend_client_cache,
                                                  _frontend_cache.get());
+        _flight_cancel_frontend_cache = std::make_unique<ClientCache<FrontendServiceClient>>();
+        _previous_flight_cancel_frontend_cache =
+                std::exchange(ExecEnv::GetInstance()->_flight_cancel_frontend_client_cache,
+                              _flight_cancel_frontend_cache.get());
         _coordinator = std::make_shared<FlightCancelCoordinator>();
         _coordinator->buffer_id = _id;
         _coordinator->query_id = _state.query_id();
@@ -387,17 +397,21 @@ protected:
         TFrontendInfo frontend;
         frontend.coordinator_address.hostname = "127.0.0.1";
         frontend.coordinator_address.port = socket->getPort();
+        _fe_address = frontend.coordinator_address;
         _previous_frontends = *ExecEnv::GetInstance()->_frontends;
         ExecEnv::GetInstance()->update_frontends({frontend});
     }
     void TearDown() override {
         _frontend_cache.reset();
+        _flight_cancel_frontend_cache.reset();
         if (_fe_server) {
             _fe_server->stop();
             _fe_thread.join();
         }
         ExecEnv::GetInstance()->_dns_cache = _previous_dns_cache;
         ExecEnv::GetInstance()->_frontend_client_cache = _previous_frontend_cache;
+        ExecEnv::GetInstance()->_flight_cancel_frontend_client_cache =
+                _previous_flight_cancel_frontend_cache;
         *ExecEnv::GetInstance()->_frontends = _previous_frontends;
         ExecEnv::GetInstance()->_fragment_mgr = _previous_fragment_mgr;
         _buffer->cancel(Status::Cancelled("test cleanup"));
@@ -419,6 +433,9 @@ protected:
     FragmentMgr* _previous_fragment_mgr = nullptr;
     std::unique_ptr<ClientCache<FrontendServiceClient>> _frontend_cache;
     ClientCache<FrontendServiceClient>* _previous_frontend_cache = nullptr;
+    std::unique_ptr<ClientCache<FrontendServiceClient>> _flight_cancel_frontend_cache;
+    ClientCache<FrontendServiceClient>* _previous_flight_cancel_frontend_cache = nullptr;
+    TNetworkAddress _fe_address;
     std::shared_ptr<FlightCancelCoordinator> _coordinator;
     std::unique_ptr<apache::thrift::server::TThreadedServer> _fe_server;
     std::thread _fe_thread;
@@ -457,6 +474,43 @@ TEST_F(ArrowFlightRemoteCancelTest, RetryCoordinatorApplicationError) {
     ASSERT_TRUE((*reader)->Close().ok());
     EXPECT_EQ(_coordinator->calls, 2);
     EXPECT_FALSE(registered());
+    EXPECT_TRUE(_state.get_query_ctx()->is_cancelled());
+}
+
+TEST_F(ArrowFlightRemoteCancelTest, CloseIgnoresLongTimeoutSharedTransport) {
+    fill_buffer();
+    auto reader = ArrowFlightBatchRemoteReader::Create(_statement);
+    ASSERT_TRUE(reader.ok()) << reader.status();
+    {
+        // Another FE caller leaves a transport with a 60 s timeout in the shared cache.
+        Status status;
+        FrontendServiceConnection client(_frontend_cache.get(), _fe_address, 60000, &status);
+        ASSERT_TRUE(status.ok()) << status;
+    }
+    _coordinator->first_call_delay_ms = 5000;
+    auto start = std::chrono::steady_clock::now();
+    ASSERT_TRUE((*reader)->Close().ok());
+    // The first call times out after 2 s, and the retry cancels the query.
+    EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(4));
+    EXPECT_EQ(_coordinator->calls, 2);
+    EXPECT_TRUE(_state.get_query_ctx()->is_cancelled());
+}
+
+TEST_F(ArrowFlightRemoteCancelTest, CloseMovesPastUnreachableFrontend) {
+    fill_buffer();
+    auto reader = ArrowFlightBatchRemoteReader::Create(_statement);
+    ASSERT_TRUE(reader.ok()) << reader.status();
+    // An FE that refuses connections and sorts before the one that planned the query.
+    TFrontendInfo stopped;
+    stopped.coordinator_address.hostname = _fe_address.hostname;
+    stopped.coordinator_address.port = 1;
+    TFrontendInfo planner;
+    planner.coordinator_address = _fe_address;
+    ExecEnv::GetInstance()->update_frontends({stopped, planner});
+    auto start = std::chrono::steady_clock::now();
+    ASSERT_TRUE((*reader)->Close().ok());
+    EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(2));
+    EXPECT_EQ(_coordinator->calls, 1);
     EXPECT_TRUE(_state.get_query_ctx()->is_cancelled());
 }
 
