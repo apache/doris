@@ -278,6 +278,9 @@ public:
     static constexpr int32_t YYINITIAL = 0;
 
 private:
+    // Lays the ZZ_* tables out flat for the standard tokenizers' core loop.
+    friend struct Uax29Table;
+
     static constexpr int32_t ZZ_UNKNOWN_ERROR = 0;
     static constexpr int32_t ZZ_NO_MATCH = 1;
     static constexpr int32_t ZZ_PUSHBACK_2BIG = 2;

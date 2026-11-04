@@ -32,13 +32,12 @@
 #include <utility>
 #include <vector>
 
+#include "CLucene/analysis/standard95/StandardAnalyzer.h"
 #include "common/exception.h"
 #include "common/status.h"
 #include "io/fs/local_file_system.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h"
-#include "storage/index/inverted/analysis/analyzer/analyzer.h"
-#include "storage/index/inverted/analysis/inverted_index_parser.h"
 #include "storage/index/inverted/analysis/text_stream_contract.h"
 #include "storage/index/inverted/clucene/inverted_index_writer.h"
 #include "storage/index/inverted/clucene/lucene_analyzer_bridge.h"
@@ -265,11 +264,11 @@ TEST(LuceneBackedTextAnalyzerTest, KeepsTheTextStreamContract) {
     const LuceneBackedTextAnalyzer scripted(std::make_shared<ScriptedLuceneAnalyzer>());
     expect_text_stream_contract([&] { return scripted.create_stream(); },
                                 {"a ^b _ c", words(1000), words(256), "x"});
-    // The builtin standard parser is CLucene's StandardAnalyzer behind a LuceneBackedTextAnalyzer.
-    const TextAnalyzerPtr standard = InvertedIndexAnalyzer::create_builtin_analyzer(
-            InvertedIndexParserType::PARSER_STANDARD, "", "", "");
-    ASSERT_NE(dynamic_cast<const LuceneBackedTextAnalyzer*>(standard.get()), nullptr);
-    expect_text_stream_contract([&] { return standard->create_stream(); },
+    // A real CLucene analyzer behind the adapter: the standard one, which the builtin standard
+    // parser used before it had a tokenizer of its own.
+    const LuceneBackedTextAnalyzer standard(
+            std::make_shared<lucene::analysis::standard95::StandardAnalyzer>());
+    expect_text_stream_contract([&] { return standard.create_stream(); },
                                 {"The Quick brown fox", words(1000), "中文 mixed 文本", "x"});
 }
 

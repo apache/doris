@@ -17,68 +17,52 @@
 
 #pragma once
 
-#include <memory>
-#include <string>
+#include <cstddef>
+#include <cstdint>
 #include <string_view>
-#include <utility>
 
-#include "common/exception.h"
-#include "storage/index/inverted/analysis/per_token_stream.h"
+#include "storage/index/inverted/analysis/text_token_stream.h"
 #include "storage/index/inverted/analysis/tokenizer/standard/standard_tokenizer_impl.h"
 
 namespace doris::segment_v2::inverted_index {
 
-// The words of the value by the Unicode word break rules (UAX#29); a word longer than
-// max_token_length is dropped, and its position is skipped.
-class StandardTokenizer final : public PerTokenTokenizer {
+struct Uax29Table;
+
+// The custom standard tokenizer: the UAX#29 words of the value, each one position after the last.
+// It keeps the rules of StandardTokenizerImpl, the JFlex scanner it was, whose buffer of
+// max_token_length bytes is the window a token is matched in: a character that does not fit ends
+// the token, so a longer word is cut into pieces, and a character that does not fit an empty window
+// ends the value. E.g. with max_token_length=2, "abc" makes "ab" and "c", and "ab中cd" makes "ab"
+// and nothing after it.
+//
+// A value that is valid UTF-8 runs through the DFA of Uax29Table, and its terms are views of the
+// value. Any other value runs through the scanner itself, whose reaction to invalid bytes depends
+// on where its buffer refills; those terms are copied, because a refill moves the buffer.
+class StandardTokenizer final : public TextTokenizer {
 public:
-    StandardTokenizer() { _scanner = std::make_unique<StandardTokenizerImpl>(); }
+    StandardTokenizer();
 
-    void set_max_token_length(int32_t length) {
-        if (length < 1) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT,
-                            "max_token_length must be greater than zero");
-        } else if (length > MAX_TOKEN_LENGTH_LIMIT) {
-            throw Exception(
-                    ErrorCode::INVALID_ARGUMENT,
-                    "max_token_length may not exceed " + std::to_string(MAX_TOKEN_LENGTH_LIMIT));
-        }
-        if (length != _max_token_length) {
-            _max_token_length = length;
-            _scanner->set_buffer_size(length);
-        }
-    }
+    void set_max_token_length(int32_t length);
 
-    // The scan window, max_token_length bytes.
+    void reset(std::string_view text) override;
+    bool next_batch(TokenBatch& batch) override;
+    // The scanner's window, max_token_length bytes.
     size_t reserved_bytes() const override { return _scanner->buffer_capacity(); }
 
     static constexpr int32_t DEFAULT_MAX_TOKEN_LENGTH = 255;
     static constexpr int32_t MAX_TOKEN_LENGTH_LIMIT = 16383;
 
-protected:
-    void on_reset(std::string_view text) override { _scanner->yyreset(text); }
-
-    bool next_token(TokenRef& token) override {
-        int32_t skipped_positions = 0;
-        while (true) {
-            const auto token_type = _scanner->get_next_token();
-            if (token_type == StandardTokenizerImpl::TokenType::EOF_TOKEN) {
-                return false;
-            }
-            if (std::cmp_less_equal(_scanner->yylength(), _max_token_length)) {
-                const std::string_view term = _scanner->get_text();
-                token = {.data = term.data(),
-                         .size = static_cast<uint32_t>(term.size()),
-                         .position_increment = skipped_positions + 1};
-                return true;
-            }
-            skipped_positions++;
-        }
-    }
-
 private:
+    bool next_valid_batch(TokenBatch& batch);
+    bool next_scanner_batch(TokenBatch& batch);
+
+    const Uax29Table& _table;
     StandardTokenizerImplPtr _scanner;
     int32_t _max_token_length = DEFAULT_MAX_TOKEN_LENGTH;
+    std::string_view _text;
+    bool _valid = true;      // the value is valid UTF-8
+    size_t _pos = 0;         // where the next token of a valid value starts
+    bool _exhausted = false; // the scanner reached the end of an invalid value
 };
 
 } // namespace doris::segment_v2::inverted_index

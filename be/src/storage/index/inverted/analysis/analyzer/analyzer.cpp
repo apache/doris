@@ -52,6 +52,7 @@
 #include "storage/index/inverted/analysis/tokenizer/icu/icu_tokenizer_factory.h"
 #include "storage/index/inverted/analysis/tokenizer/ik/ik_tokenizer_factory.h"
 #include "storage/index/inverted/analysis/tokenizer/kuromoji/kuromoji_tokenizer_factory.h"
+#include "storage/index/inverted/analysis/tokenizer/standard/uax29_tokenizer.h"
 #include "storage/index/inverted/clucene/lucene_backed_text_analyzer.h"
 
 namespace doris::segment_v2::inverted_index {
@@ -222,9 +223,11 @@ TextAnalyzerPtr build_builtin_analyzer(InvertedIndexParserType parser_type,
                                        const std::string& stop_words) {
     if (parser_type == InvertedIndexParserType::PARSER_STANDARD ||
         parser_type == InvertedIndexParserType::PARSER_UNICODE) {
-        return lucene_builtin_analyzer(
-                std::make_shared<lucene::analysis::standard95::StandardAnalyzer>(), lower_case,
-                stop_words);
+        return std::make_shared<ChainAnalyzer>(
+                std::vector<CharFilterFactoryPtr> {},
+                std::make_shared<Uax29TokenizerFactory>(builtin_lowercase(lower_case, true),
+                                                        stop_words != "none"),
+                std::vector<TokenFilterFactoryPtr> {});
     }
     if (parser_type == InvertedIndexParserType::PARSER_CHINESE) {
         auto chinese_analyzer =

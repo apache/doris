@@ -54,6 +54,7 @@
 #include "storage/index/inverted/analysis/tokenizer/ngram/ngram_tokenizer.h"
 #include "storage/index/inverted/analysis/tokenizer/pinyin/pinyin_tokenizer.h"
 #include "storage/index/inverted/analysis/tokenizer/standard/standard_tokenizer.h"
+#include "storage/index/inverted/analysis/tokenizer/standard/uax29_tokenizer.h"
 #include "storage/index/inverted/analysis/tokenizer/tokenizer_factory.h"
 #include "util/defer_op.h"
 
@@ -258,6 +259,18 @@ TEST(ComponentStreamTest, EnglishTokenizerReleasesItsLoweredCopy) {
         EnglishTokenizer english(lowercase);
         expect_released_at_next_row(english, repeat_to("Ab ", kLongRowBytes), "short", lowercase,
                                     [&] { return lowercase ? english._lowered.capacity() : 0; });
+    }
+}
+
+TEST(ComponentStreamTest, Uax29TokenizerReleasesItsLoweredCopy) {
+    for (bool lowercase : {true, false}) {
+        SCOPED_TRACE(lowercase);
+        expect_text_stream_contract(
+                [lowercase] { return std::make_unique<Uax29Tokenizer>(lowercase, true); },
+                contract_texts());
+        Uax29Tokenizer standard(lowercase, true);
+        expect_released_at_next_row(standard, repeat_to("Ab ", kLongRowBytes), "short", lowercase,
+                                    [&] { return lowercase ? standard._lowered.capacity() : 0; });
     }
 }
 
