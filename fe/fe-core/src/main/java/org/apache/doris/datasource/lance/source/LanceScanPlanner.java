@@ -56,16 +56,19 @@ final class LanceScanPlanner {
     private final List<Expr> lancePushedConjuncts;
     private final int fragmentsPerSplit;
     private final int countParallelism;
+    private final boolean distanceRefinementEnabled;
     private int plannedFragments;
     private int plannedFragmentsPerSplit;
     private int plannedUnindexedFragments;
     private int plannedIndexSegments;
     private int plannedIndexFragments;
+    private boolean plannedDistanceRefinement;
     private LanceScalarIndexPlanner.Plan scalarIndexPlan;
     private VectorIndexStatus vectorIndexStatus = VectorIndexStatus.NOT_PLANNED;
 
     private LanceScanPlanner(LanceTableMetadata metadata, SearchKind kind, TExternalSearchRequest request,
-            int fieldId, List<Expr> pushedConjuncts, int fragmentsPerSplit, int countParallelism) {
+            int fieldId, List<Expr> pushedConjuncts, int fragmentsPerSplit, int countParallelism,
+            boolean distanceRefinementEnabled) {
         this.plannedMetadata = metadata;
         this.searchKind = kind;
         this.externalSearchRequest = request;
@@ -73,19 +76,22 @@ final class LanceScanPlanner {
         this.lancePushedConjuncts = pushedConjuncts;
         this.fragmentsPerSplit = fragmentsPerSplit;
         this.countParallelism = countParallelism;
+        this.distanceRefinementEnabled = distanceRefinementEnabled;
     }
 
     static LanceScanPlan plan(LanceTableMetadata metadata, SearchKind kind, TExternalSearchRequest request,
-            int fieldId, List<Expr> pushedConjuncts, int fragmentsPerSplit, int countParallelism) throws UserException {
+            int fieldId, List<Expr> pushedConjuncts, int fragmentsPerSplit, int countParallelism,
+            boolean distanceRefinementEnabled) throws UserException {
         try (LanceMetadataMetrics metrics = LanceMetadataMetrics.startSplitPlanning()) {
             LanceScanPlanner planner = new LanceScanPlanner(metadata, kind, request,
-                    fieldId, pushedConjuncts, fragmentsPerSplit, countParallelism);
+                    fieldId, pushedConjuncts, fragmentsPerSplit, countParallelism,
+                    distanceRefinementEnabled);
             List<Split> splits = planner.buildSplits();
             LanceScanPlan plan = new LanceScanPlan(splits, planner.plannedFragments,
                     planner.plannedFragmentsPerSplit, planner.plannedIndexSegments, planner.plannedIndexFragments,
                     planner.plannedUnindexedFragments,
                     planner.scalarIndexPlan == null ? null : planner.scalarIndexPlan.indexName,
-                    planner.vectorIndexStatus);
+                    planner.vectorIndexStatus, planner.plannedDistanceRefinement);
             metrics.succeeded();
             return plan;
         }
@@ -251,6 +257,17 @@ final class LanceScanPlanner {
             plannedIndexSegments = plan.splitCount();
             plannedIndexFragments = plan.indexSegmentFragmentCount();
             plannedUnindexedFragments = plannedFragments - plannedIndexFragments;
+            // A quantized index scores candidates from its codes, which is a different scale from
+            // the exact distances of the uncovered-fragment splits added below. A second physical
+            // segment is the other source of the same mismatch: a delta segment shares the trained
+            // model of the index it extends, but an independently trained one carries its own
+            // codebook, and the manifest does not say which this is. The Doris TopN above the scan
+            // merges every split on one `_distance` column, so in both cases the index candidates
+            // are rescored against the stored vectors. Indexes that keep full vectors already
+            // report exact distances; an unidentified type is rescored, like the range check above.
+            plannedDistanceRefinement = distanceRefinementEnabled
+                    && !storesExactVectors(matchingSegments)
+                    && (plannedUnindexedFragments > 0 || plannedIndexSegments > 1);
             plan.addUncoveredFragments(visibleFragments.values(), 1);
             return Optional.of(plan.buildSplits());
         }
@@ -367,6 +384,13 @@ final class LanceScanPlanner {
             return Optional.empty();
         }
         return Optional.of(plan);
+    }
+
+    /** IVF_FLAT and IVF_HNSW_FLAT keep the stored vectors, so their candidate distances are exact. */
+    private static boolean storesExactVectors(List<LanceIndexSegmentInfo> indexSegments) {
+        return indexSegments.stream()
+                .allMatch(segment -> segment.getIndexType() == IndexType.IVF_FLAT
+                        || segment.getIndexType() == IndexType.IVF_HNSW_FLAT);
     }
 
     private static List<Long> effectiveFragmentIds(List<Long> fragmentIds,

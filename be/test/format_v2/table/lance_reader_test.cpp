@@ -1211,6 +1211,101 @@ TEST(LanceTableReaderVectorSearchTest, RejectsIndexSegmentsWhenUseIndexIsFalse) 
     }
 }
 
+TEST(LanceTableReaderVectorSearchTest, ForcedRefinementRescoresQuantizedIndexCandidates) {
+    // A quantized index scores candidates from its codes. FE asks the index-segment splits of a
+    // plan whose scores are merged across scales to rescore them against the stored vectors, so
+    // every split reports one scale. Here row 0 ([0, 0, 0]) and row 256
+    // ([0.49, 0, 0]) both quantize onto the query's own bucket, so both have code distance zero
+    // while their exact squared L2 distances to [0.51, 0, 0] are 0.2601 and 0.0004.
+    const std::filesystem::path uri =
+            "./be/test/format_v2/table/lance/data/distance_range_sq.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(uri, &fixture).ok());
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false),
+                           projected_column("_distance", TYPE_FLOAT, true)};
+    TQueryGlobals globals;
+    RuntimeState state(globals);
+    for (const bool refine : {false, true}) {
+        SCOPED_TRACE(refine ? "refined" : "quantized");
+        RuntimeProfile profile("lance_forced_refinement");
+        auto params = make_float32_vector_search_params({0.51F, 0.0F, 0.0F}, 3, 0);
+        params.lance_scan_params.external_search_request.vector_search_options.__set_use_index(
+                true);
+        if (refine) {
+            params.lance_scan_params.__set_refine_vector_distances(true);
+        }
+        auto range = make_indexed_lance_range(uri, fixture, fixture.fragment_ids, "embedding_idx");
+        LanceTableReader reader;
+        ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &params).ok());
+        ASSERT_TRUE(prepare_range(&reader, range).ok());
+        Block block;
+        add_output_columns(&block, columns);
+        const auto rows = read_vector_search_rows(&reader, &block);
+        // The tied code distances leave the unrefined order arbitrary, so look rows up by id.
+        ASSERT_EQ(3, rows.size());
+        std::map<int64_t, float> distances;
+        for (const auto& row : rows) {
+            distances.emplace(row.first, row.second);
+        }
+        ASSERT_EQ(3, distances.size());
+        ASSERT_TRUE(distances.contains(0) && distances.contains(1) && distances.contains(256));
+        if (refine) {
+            EXPECT_NEAR(0.0004F, distances[256], 1e-6F);
+            EXPECT_NEAR(0.2401F, distances[1], 1e-5F);
+            EXPECT_NEAR(0.2601F, distances[0], 1e-5F);
+            // Refinement also reorders the candidates it rescored.
+            EXPECT_EQ(256, rows[0].first);
+            auto* refined = profile.get_counter("LancePlannedDistanceRefinementSplits");
+            ASSERT_NE(nullptr, refined);
+            EXPECT_EQ(1, refined->value());
+        } else {
+            // The query quantizes onto the bucket row 0 holds, so each candidate reports the
+            // squared distance to that bucket instead of to the query itself.
+            EXPECT_FLOAT_EQ(0.0F, distances[256]);
+            EXPECT_FLOAT_EQ(0.0F, distances[0]);
+            EXPECT_FLOAT_EQ(1.0F, distances[1]);
+        }
+        EXPECT_TRUE(reader.close().ok());
+    }
+}
+
+TEST(LanceTableReaderVectorSearchTest, DistanceRefinementIsIgnoredOnFlatSplits) {
+    // The flag is set once for the plan, and the plan's flat splits receive it too. They select
+    // no candidates through an index and already score exactly, so it changes nothing for them.
+    const std::filesystem::path uri =
+            "./be/test/format_v2/table/lance/data/distance_range_sq.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(uri, &fixture).ok());
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false),
+                           projected_column("_distance", TYPE_FLOAT, true)};
+    TQueryGlobals globals;
+    RuntimeState state(globals);
+    RuntimeProfile profile("lance_refinement_on_flat_split");
+    auto params = make_float32_vector_search_params({0.51F, 0.0F, 0.0F}, 3, 0);
+    params.lance_scan_params.__set_refine_vector_distances(true);
+    auto range = make_lance_range(uri, fixture.version, fixture.fragment_ids);
+    LanceTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &params).ok());
+    ASSERT_TRUE(prepare_range(&reader, range).ok());
+    Block block;
+    add_output_columns(&block, columns);
+
+    const auto rows = read_vector_search_rows(&reader, &block);
+
+    // A flat scan of this fixture reports the exact squared L2 distances to [0.51, 0, 0].
+    ASSERT_EQ(3, rows.size());
+    EXPECT_EQ(256, rows[0].first);
+    EXPECT_NEAR(0.0004F, rows[0].second, 1e-6F);
+    EXPECT_EQ(1, rows[1].first);
+    EXPECT_NEAR(0.2401F, rows[1].second, 1e-5F);
+    EXPECT_EQ(0, rows[2].first);
+    EXPECT_NEAR(0.2601F, rows[2].second, 1e-5F);
+    auto* refined = profile.get_counter("LancePlannedDistanceRefinementSplits");
+    ASSERT_NE(nullptr, refined);
+    EXPECT_EQ(0, refined->value());
+    EXPECT_TRUE(reader.close().ok());
+}
+
 TEST(LanceTableReaderSnapshotTest, RejectsFragmentIdsMissingFromTheSnapshot) {
     // lance-c silently skips a fragment id its snapshot lacks, which would drop rows.
     const std::filesystem::path dataset_uri =

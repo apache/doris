@@ -64,6 +64,24 @@ TopK boundary have no guaranteed row order.
 `use_index=false` computes exact scores over the selected rows. With indexes,
 candidate selection is approximate. Doris always refines multi-vector candidates
 against their original values so indexed and unindexed rows use the same score.
+The same holds for a single-vector search whose index does not store full
+vectors and whose candidates are merged with scores from another scale. That
+happens when the index covers only part of the dataset, because the plan
+searches the uncovered fragments exactly, and when one logical index has several
+physical segments, because a segment trained on its own fragment set carries its
+own codebook. The global TopK merges every split on one `_distance` column, so
+those candidates are rescored against the original values. `EXPLAIN` reports
+this as `lanceSearchRefineDistances=true`. Only IVF_FLAT and IVF_HNSW_FLAT keep
+full vectors, and the planner reads the type the manifest reports: a manifest
+that does not identify it is rescored as well, which is the common case, so a
+partially indexed IVF_FLAT dataset usually reports `true` too. Rescoring an
+index that was already exact costs a vector read and changes no distance.
+
+Rescoring reads back `top_k` vectors per index split. Setting
+`enable_lance_vector_distance_refinement = false` skips it, and those queries
+then merge approximate and exact distances in one TopK, so both the reported
+`_distance` values and the returned order can be wrong. A search whose index
+covers every fragment in a single segment is unaffected either way.
 `refine_factor` can increase the candidate pool beyond this default refinement.
 It does not turn ANN candidate selection into an exhaustive search.
 

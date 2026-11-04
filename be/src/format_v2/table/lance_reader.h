@@ -114,6 +114,7 @@ private:
     RuntimeProfile::Counter* _planned_index_segment_count = nullptr;
     RuntimeProfile::Counter* _planned_indexed_fragment_count = nullptr;
     RuntimeProfile::Counter* _planned_flat_search_fragment_count = nullptr;
+    RuntimeProfile::Counter* _planned_distance_refinement_splits = nullptr;
     RuntimeProfile::Counter* _dataset_open_time = nullptr;
     RuntimeProfile::Counter* _scanner_configure_time = nullptr;
     RuntimeProfile::Counter* _runtime_filter_sql_translation_time = nullptr;
