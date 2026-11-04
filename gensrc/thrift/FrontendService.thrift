@@ -1007,8 +1007,9 @@ struct TFetchSchemaTableDataResult {
 struct TMySqlLoadAcquireTokenResult {
     1: optional Status.TStatus status
     2: optional string token
-    // Second newest token in the master queue, used for Flight ticket signing.
-    3: optional string signing_token
+    // Field id 3 is reserved; do not reuse it.
+    // Complete retained token queue, oldest first and newest last.
+    4: optional list<string> auth_tokens
 }
 
 struct TTabletCooldownInfo {

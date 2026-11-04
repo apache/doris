@@ -295,7 +295,9 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
 
                     List<FlightEndpoint> endpoints = Lists.newArrayList();
                     Env env = Env.getCurrentEnv();
-                    String signingToken = env.getTokenManager().acquireSigningToken();
+                    List<String> authTokens = env.getTokenManager().acquireAuthTokens();
+                    // An old master returns a single current token during rolling upgrades.
+                    String signingToken = authTokens.get(Math.max(0, authTokens.size() - 2));
                     for (FlightSqlEndpointsLocation endpointLoc : connectContext.getFlightSqlEndpointsLocations()) {
                         TUniqueId tid = endpointLoc.getFinstId();
                         // Ticket contains the IP and Brpc Port of the Doris BE node where the query result is located.

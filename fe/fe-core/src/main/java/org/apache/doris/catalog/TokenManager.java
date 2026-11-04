@@ -28,13 +28,13 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.collect.EvictingQueue;
-import com.google.common.collect.Iterables;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.apache.thrift.transport.TTransportException;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Executors;
@@ -54,8 +54,10 @@ public class TokenManager {
     private  int thriftTimeoutMs = 300 * 1000;
     private  EvictingQueue<String> tokenQueue;
     private volatile String latestToken;
-    // Retained across follower-to-master promotion; populated only after a successful acquisition.
-    private volatile String lastAcquiredSigningToken;
+    // Protected by this; retain an immutable copy across follower-to-master promotion.
+    private List<String> lastAcquiredAuthTokens = List.of();
+    private long nextAuthTokenRequestId;
+    private long lastCachedAuthTokenRequestId;
     private  ScheduledExecutorService tokenGenerator;
 
     public TokenManager() {
@@ -72,12 +74,16 @@ public class TokenManager {
         if (this.tokenGenerator != null) {
             this.tokenGenerator.shutdownNow();
         }
-        this.tokenQueue = EvictingQueue.create(tokenQueueSize);
-        // Seed [cached signing token, new token], so promotion keeps using the signing key
-        // acquired from the old master. Without a cache, initialize two new generations.
-        String signingToken = lastAcquiredSigningToken;
-        this.addNewToken(signingToken == null ? generateNewToken() : signingToken);
-        this.addNewToken(generateNewToken());
+        // Preserve the entire cached queue even if this FE has a smaller configured capacity.
+        this.tokenQueue = EvictingQueue.create(Math.max(tokenQueueSize, lastAcquiredAuthTokens.size()));
+        for (String token : lastAcquiredAuthTokens) {
+            this.addNewToken(token);
+        }
+        // An uncached follower needs two initial tokens; an old master may have supplied only one.
+        // A complete cached queue is restored unchanged, preserving both signing and current keys.
+        while (this.tokenQueue.size() < 2) {
+            this.addNewToken(generateNewToken());
+        }
         this.tokenGenerator = Executors.newScheduledThreadPool(1,
                 new CustomThreadFactory("token-generator"));
         EvictingQueue<String> queue = this.tokenQueue;
@@ -124,28 +130,51 @@ public class TokenManager {
         }
     }
 
-    public String acquireSigningToken() throws UserException {
-        if (Env.getCurrentEnv().isMaster() || FeConstants.runningUnitTest) {
-            synchronized (this) {
-                // Sign with the second newest key; BEs verify against every retained key.
-                return Iterables.get(tokenQueue, tokenQueue.size() - 2);
+    public List<String> acquireAuthTokens() throws UserException {
+        EvictingQueue<String> queue;
+        long requestId;
+        synchronized (this) {
+            if (Env.getCurrentEnv().isMaster() || FeConstants.runningUnitTest) {
+                return getAuthTokens();
             }
-        } else {
-            try {
-                TMySqlLoadAcquireTokenResult result = acquireTokenFromMaster();
-                // During FE rolling upgrades an old master only returns token. Use it to
-                // keep issuing signed tickets until the master supports signing_token.
-                // An explicitly empty signing_token is an error, not a legacy response.
-                String token = result.isSetSigningToken() ? result.getSigningToken() : result.getToken();
+            queue = tokenQueue;
+            requestId = ++nextAuthTokenRequestId;
+        }
+        try {
+            TMySqlLoadAcquireTokenResult result = acquireTokenFromMaster();
+            List<String> tokens;
+            if (result.isSetAuthTokens()) {
+                tokens = result.getAuthTokens();
+            } else {
+                // An old master supplies only its current token during rolling upgrades.
+                tokens = Collections.singletonList(result.getToken());
+            }
+            // A present but empty queue or key is an error, not a legacy response.
+            if (tokens.isEmpty()) {
+                throw new UserException("Auth tokens are not available from master");
+            }
+            for (String token : tokens) {
                 if (token == null || token.isEmpty()) {
-                    throw new UserException("Flight signing token is not available from master");
+                    throw new UserException("Auth tokens are not available from master");
                 }
-                lastAcquiredSigningToken = token;
-                return token;
-            } catch (TException e) {
-                LOG.warn("acquire signing token error", e);
-                throw new UserException("Acquire signing token from master failed", e);
             }
+            tokens = List.copyOf(tokens);
+            synchronized (this) {
+                // A successful RPC may return after promotion rebuilt the queue. Use that
+                // queue instead of issuing tickets with keys absent from the new heartbeats.
+                if (queue != tokenQueue) {
+                    return getAuthTokens();
+                }
+                // Older RPCs may complete after newer ones and must not replace their cache.
+                if (requestId > lastCachedAuthTokenRequestId) {
+                    lastAcquiredAuthTokens = tokens;
+                    lastCachedAuthTokenRequestId = requestId;
+                }
+            }
+            return tokens;
+        } catch (TException e) {
+            LOG.warn("acquire auth tokens error", e);
+            throw new UserException("Acquire auth tokens from master failed", e);
         }
     }
 

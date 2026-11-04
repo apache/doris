@@ -103,7 +103,7 @@ public class DorisFlightSqlProducerTest {
         TokenManager tokens = Mockito.mock(TokenManager.class);
         Mockito.when(env.getTokenManager()).thenReturn(tokens);
         Mockito.when(env.getClusterId()).thenReturn(42);
-        Mockito.when(tokens.acquireSigningToken()).thenReturn("flight-test-token");
+        Mockito.when(tokens.acquireAuthTokens()).thenReturn(List.of("flight-test-token", "latest-token"));
         TUniqueId id = new TUniqueId(1, 2);
         String unsigned = DebugUtil.printId(id) + "&127.0.0.1&8060&c2VsZWN0IDE=";
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
@@ -128,10 +128,10 @@ public class DorisFlightSqlProducerTest {
                     .unpack(TicketStatementQuery.class).getStatementHandle().toStringUtf8();
             Assertions.assertTrue(handle.startsWith(unsigned + "&v1&42&"));
             Assertions.assertEquals(9, handle.split("&", -1).length);
-            Mockito.verify(tokens).acquireSigningToken();
+            Mockito.verify(tokens).acquireAuthTokens();
 
             // Missing signing credentials must fail the request, never issue an unsigned ticket.
-            Mockito.when(tokens.acquireSigningToken()).thenReturn("");
+            Mockito.when(tokens.acquireAuthTokens()).thenReturn(List.of("", "latest-token"));
             Assertions.assertThrows(FlightRuntimeException.class,
                     () -> producer.getFlightInfoStatement(
                             CommandStatementQuery.newBuilder().setQuery("select 1").build(), callContext,
