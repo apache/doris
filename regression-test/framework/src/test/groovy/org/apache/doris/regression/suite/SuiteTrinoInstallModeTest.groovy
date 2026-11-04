@@ -57,8 +57,8 @@ class SuiteTrinoInstallModeTest {
         def suite = suite(settings)
         // No download path, S3 or SSH configuration: installation must not be entered.
         suite.dispatchTrinoConnectors(["unreachable.example"] as ArrayList)
-        assertEquals("true", settings.enableTrinoConnectorTest)
-        assertEquals("true", settings.enableMongoDBTest)
+        assertEquals("true", suite.context.config.otherConfigs.get("enableTrinoConnectorTest"))
+        assertEquals("true", suite.context.config.otherConfigs.get("enableMongoDBTest"))
     }
 
     @Test
