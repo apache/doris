@@ -438,4 +438,24 @@ public class ConnectorSessionImplTest {
         public void close() {
         }
     }
+
+    @Test
+    public void connectorPropertiesAreFrozenForOneExecutionAndResetForTheNext() {
+        ConnectContext ctx = new ConnectContext();
+        StatementContext statement = new StatementContext();
+        ctx.setStatementContext(statement);
+        ctx.getSessionVariable().enableExternalScanTaskReuse = false;
+        ConnectorSession first = ConnectorSessionBuilder.from(ctx).build();
+        ctx.getSessionVariable().enableExternalScanTaskReuse = true;
+        ConnectorSession sameExecution = ConnectorSessionBuilder.from(ctx).build();
+        Assertions.assertFalse(first.isExternalScanTaskReuseEnabled());
+        Assertions.assertSame(first.getSessionProperties(), sameExecution.getSessionProperties());
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> first.getSessionProperties().put("enable_external_scan_task_reuse", "true"));
+        statement.resetConnectorStatementScope();
+        ConnectorSession nextExecution = ConnectorSessionBuilder.from(ctx).build();
+        Assertions.assertTrue(nextExecution.isExternalScanTaskReuseEnabled());
+        Assertions.assertFalse(first.isExternalScanTaskReuseEnabled());
+    }
+
 }

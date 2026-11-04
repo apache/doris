@@ -271,6 +271,10 @@ public class StatementContext implements Closeable {
     // prepared-statement context drops it per execution via resetConnectorStatementScope() (see
     // ExecuteCommand) so one execution's cached tables never leak into the next.
     private ConnectorStatementScopeImpl connectorStatementScope;
+    // The session variables as a connector session sees them (ConnectorSessionBuilder), computed once per
+    // execution: a plan builds several sessions, and each read every variable by reflection. Dropped with the
+    // connector scope, so a reused prepared-statement context reads them again.
+    private Map<String, String> connectorSessionProperties;
 
     // table locks
     private final Stack<CloseableResource> plannerResources = new Stack<>();
@@ -1181,6 +1185,14 @@ public class StatementContext implements Closeable {
         return this.disableRules;
     }
 
+    public synchronized Map<String, String> getOrComputeConnectorSessionProperties(
+            Supplier<Map<String, String>> compute) {
+        if (this.connectorSessionProperties == null) {
+            this.connectorSessionProperties = Collections.unmodifiableMap(compute.get());
+        }
+        return this.connectorSessionProperties;
+    }
+
     /**
      * Returns this statement's connector scope, lazily creating it on first use (mirrors
      * {@link #getOrCacheDisableRules}). A connector reaches it through
@@ -1236,6 +1248,7 @@ public class StatementContext implements Closeable {
         invalidatePartitionPolicy(true);
         closeConnectorStatementScope();
         this.connectorStatementScope = null;
+        this.connectorSessionProperties = null;
         this.connectorWriteSchemas.clear();
         this.connectorWriteMetadataIdentities.clear();
         this.connectorDeleteTargets.clear();
