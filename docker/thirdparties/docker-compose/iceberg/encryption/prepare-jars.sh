@@ -35,6 +35,8 @@ while read -r module expected_sha256; do
     filename="${module}-1.12.0.jar"
     destination="${fixture_dir}/jars/${filename}"
     if [[ -f "${destination}" ]] && [[ "$(sha256_file "${destination}")" == "${expected_sha256}" ]]; then
+        # Cached artifacts may retain owner-only permissions from an earlier download.
+        chmod 0644 "${destination}"
         continue
     fi
     temporary="$(mktemp "${destination}.tmp.XXXXXX")"
@@ -45,6 +47,8 @@ while read -r module expected_sha256; do
         echo "Checksum mismatch for Iceberg encryption fixture ${filename}" >&2
         exit 1
     fi
+    # Spark's non-root container user must read these host-created public jars.
+    chmod 0644 "${temporary}"
     mv -f "${temporary}" "${destination}"
     trap - EXIT
 done <<'ARTIFACTS'
