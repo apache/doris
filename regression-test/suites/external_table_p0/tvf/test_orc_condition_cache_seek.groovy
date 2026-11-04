@@ -63,7 +63,9 @@ suite("test_orc_condition_cache_seek", "p0,external") {
         sql "SET parallel_pipeline_task_num = 1"
         sql "SET max_file_scanners_concurrency = 1"
         sql "SET batch_size = 2048"
-        int attempts = sql("SHOW BACKENDS").size() + 1
+        // A full LRU-K shard needs one scan for ghost history and another for admission.
+        // Allow a third visit to one backend even when scans are spread across all backends.
+        int attempts = 2 * sql("SHOW BACKENDS").size() + 1
         for (boolean minMax : [false, true]) {
             sql "SET enable_orc_filter_by_min_max = ${minMax}"
             for (boolean lazy : [false, true]) {
@@ -89,7 +91,6 @@ suite("test_orc_condition_cache_seek", "p0,external") {
                         assertTrue((profile =~ /(?m)ConditionCacheFilteredRows:\s*[1-9]/).find(), profile)
                     }
                 }
-                // Warming each backend once must yield a hit on the next scan of this file.
                 assertTrue(cacheHit, "No condition cache hit after ${attempts} scans")
             }
         }
