@@ -85,18 +85,38 @@ public class IcebergNestedSchemaEvolutionParserTest {
     }
 
     @Test
-    public void testNestedColumnDefaultClausesAreNotInGrammar() {
-        for (String sql : List.of(
-                "ALTER TABLE t ADD COLUMN s.b BIGINT NULL DEFAULT 7",
-                "ALTER TABLE t ADD COLUMN s.c BIGINT NULL DEFAULT NULL",
-                "ALTER TABLE t ADD COLUMN s.ts DATETIME NULL DEFAULT CURRENT_TIMESTAMP "
-                        + "ON UPDATE CURRENT_TIMESTAMP",
-                "ALTER TABLE t MODIFY COLUMN s.a BIGINT DEFAULT 7",
-                "ALTER TABLE t MODIFY COLUMN s.a BIGINT DEFAULT NULL",
-                "ALTER TABLE t MODIFY COLUMN s.ts DATETIME DEFAULT CURRENT_TIMESTAMP "
-                        + "ON UPDATE CURRENT_TIMESTAMP")) {
-            Assertions.assertThrows(ParseException.class, () -> parser.parseSingle(sql), sql);
+    public void testNestedColumnDefaultsUseTheFullColumnDefinition() {
+        for (String parent : List.of("s", "arr.element", "m.value")) {
+            AddColumnOp add = assertSingleClausePath("ALTER TABLE t ADD COLUMN " + parent
+                    + ".added INT NOT NULL DEFAULT -7 COMMENT 'required default' AFTER a",
+                    AddColumnOp.class, parent + ".added");
+            Assertions.assertFalse(add.getColumnDef().isNullable());
+            Assertions.assertEquals("-7", add.getColumnDef().getDefaultValueString());
+            Assertions.assertEquals("required default", add.getColumnDef().getComment());
+            Assertions.assertEquals("a", add.getColPos().getLastCol());
+            AddColumnOp reparsed = assertSingleClausePath("ALTER TABLE t " + add.toSql(),
+                    AddColumnOp.class, parent + ".added");
+            Assertions.assertEquals("-7", reparsed.getColumnDef().getDefaultValueString());
+            Assertions.assertFalse(reparsed.getColumnDef().isNullable());
         }
+        AddColumnOp nullDefault = assertSingleClausePath("ALTER TABLE t ADD COLUMN s.added INT DEFAULT NULL",
+                AddColumnOp.class, "s.added");
+        Assertions.assertTrue(nullDefault.getColumnDef().hasDefaultValue());
+        Assertions.assertNull(nullDefault.getColumnDef().getDefaultValueString());
+        AddColumnOp stringDefault = assertSingleClausePath(
+                "ALTER TABLE t ADD COLUMN s.added STRING DEFAULT 'value'", AddColumnOp.class, "s.added");
+        Assertions.assertEquals("value", stringDefault.getColumnDef().getDefaultValueString());
+    }
+
+    @Test
+    public void testNestedOnUpdateAndModifyDefaultsReachSemanticValidation() {
+        AddColumnOp add = assertSingleClausePath("ALTER TABLE t ADD COLUMN s.ts DATETIME "
+                + "DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", AddColumnOp.class, "s.ts");
+        Assertions.assertTrue(add.getColumnDef().hasDefaultValue());
+        Assertions.assertTrue(add.getColumnDef().hasOnUpdateDefaultValue());
+        ModifyColumnOp modify = assertSingleClausePath("ALTER TABLE t MODIFY COLUMN s.added INT DEFAULT 7",
+                ModifyColumnOp.class, "s.added");
+        Assertions.assertEquals("7", modify.getColumnDef().getDefaultValueString());
     }
 
     @Test

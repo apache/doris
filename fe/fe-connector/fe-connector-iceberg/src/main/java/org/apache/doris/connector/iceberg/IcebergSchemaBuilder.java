@@ -404,13 +404,20 @@ public final class IcebergSchemaBuilder {
         }
         switch (type.typeId()) {
             case BOOLEAN:
-                try {
-                    return Literal.of(Boolean.parseBoolean(value));
-                } catch (IllegalArgumentException e) {
-                    throw new IllegalArgumentException("Invalid Boolean string: " + value, e);
+                if ("true".equalsIgnoreCase(value) || "1".equals(value)) {
+                    return Literal.of(true);
                 }
-            case INTEGER:
+                if ("false".equalsIgnoreCase(value) || "0".equals(value)) {
+                    return Literal.of(false);
+                }
+                throw new IllegalArgumentException("Invalid Boolean string: " + value);
             case DATE:
+                if (!value.matches("[+-]?[0-9]+")) {
+                    return Literal.of((Integer) IcebergPartitionUtils.parsePartitionValueFromString(
+                            value, type, ZoneOffset.UTC));
+                }
+                return Literal.of(Integer.parseInt(value));
+            case INTEGER:
                 try {
                     return Literal.of(Integer.parseInt(value));
                 } catch (NumberFormatException e) {
@@ -423,9 +430,14 @@ public final class IcebergSchemaBuilder {
                             value, type, ZoneOffset.UTC));
                 }
                 return Expressions.nanos(Long.parseLong(value));
-            case LONG:
             case TIME:
             case TIMESTAMP:
+                if (!value.matches("[+-]?[0-9]+")) {
+                    return Literal.of((Long) IcebergPartitionUtils.parsePartitionValueFromString(
+                            value, type, ZoneOffset.UTC));
+                }
+                return Literal.of(Long.parseLong(value));
+            case LONG:
                 try {
                     return Literal.of(Long.parseLong(value));
                 } catch (NumberFormatException e) {

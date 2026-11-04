@@ -146,14 +146,6 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
             checkIcebergCompoundColumnOperations(alterTableOps);
             for (AlterTableOp alterTableOp : alterTableOps) {
                 ColumnDefinition columnDefinition = getColumnDefinition(alterTableOp);
-                ColumnPath nestedColumnPath = getNestedColumnPath(alterTableOp);
-                // Keep this before AddColumnOp.validate(), whose generic NOT NULL check would mask
-                // the Iceberg nested-field invariant. Metadata validation retains the same guard for other callers.
-                if (alterTableOp instanceof AddColumnOp && columnDefinition != null && nestedColumnPath != null
-                        && !columnDefinition.isNullable()) {
-                    throw new AnalysisException("New nested field '" + nestedColumnPath.getFullPath()
-                            + "' must be nullable");
-                }
                 if (!isIcebergColumnSchemaOperation(alterTableOp)) {
                     continue;
                 }

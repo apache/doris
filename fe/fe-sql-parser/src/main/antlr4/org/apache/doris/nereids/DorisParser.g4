@@ -1805,14 +1805,7 @@ columnDef
     ;
 
 columnDefWithPath
-    : columnDef
-    | colNames+=identifier (DOT colNames+=identifier)+ type=dataType
-        KEY?
-        (aggType=aggTypeDef)?
-        ((GENERATED ALWAYS)? AS LEFT_PAREN generatedExpr=expression RIGHT_PAREN)?
-        ((NOT)? nullable=NULL)?
-        (AUTO_INCREMENT (LEFT_PAREN autoIncInitValue=number RIGHT_PAREN)?)?
-        (COMMENT comment=STRING_LITERAL)?
+    : (colNames+=identifier DOT)* columnDef
     ;
 
 indexDefs
