@@ -381,6 +381,16 @@ enum TPaimonReaderType {
     PAIMON_RUST = 3,
 }
 
+// A managed BLOB column file, aligned with a Parquet anchor by absolute Paimon row id.
+struct TPaimonBlobFileDesc {
+    1: optional string path;
+    2: optional i64 file_size;
+    // This .blob file's own logical row range: [first_row_id, first_row_id + row_count).
+    3: optional i64 first_row_id;
+    4: optional i64 row_count;
+    5: optional i32 field_id;
+}
+
 struct TPaimonFileDesc {
     1: optional string paimon_split
     2: optional string paimon_column_names
@@ -407,6 +417,13 @@ struct TPaimonFileDesc {
     // to materialize the public file-location metadata column. This master-only field is appended after
     // the branch-4.1 fields instead of reusing field 18.
     20: optional string original_file_path;
+    // Keep BLOB scan metadata aligned with branch-4.1.
+    21: optional list<TPaimonBlobFileDesc> blob_files
+    // Logical row ID of row position 0 in the complete Parquet anchor. Byte splits of
+    // the same anchor share this origin; this is not the first row returned by a split.
+    22: optional i64 anchor_first_row_id
+    // Complete anchor range: [anchor_first_row_id, anchor_first_row_id + anchor_row_count).
+    23: optional i64 anchor_row_count
 }
 
 struct TTrinoConnectorFileDesc {
