@@ -410,6 +410,81 @@ TEST(BinaryColumnExtractIteratorV2Test, SharedCacheReusesRowidBatchAcrossPaths) 
     EXPECT_EQ(counters->next_batch, 0);
 }
 
+void check_exact_sparse_promotion_result(const IColumn& dst, const rowid_t* rowids) {
+    ASSERT_EQ(dst.size(), 6);
+    const auto& nullable = assert_cast<const ColumnNullable&>(dst);
+    const auto& variant = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+    constexpr std::string_view expected[] {"11", "", "", R"({"c":44})", "null", ""};
+    for (size_t row = 0; row < 6; ++row) {
+        const size_t source_row = rowids != nullptr ? rowids[row] : row;
+        const bool missing = source_row == 1 || source_row == 2 || source_row == 5;
+        EXPECT_EQ(nullable.is_null_at(row), missing) << source_row;
+        if (!missing) {
+            EXPECT_EQ(variant_v2_json_at(variant, row), expected[source_row]);
+        }
+    }
+}
+
+// Compaction promotes one physical path at a time. A row containing only a.b must
+// stay NULL in the promoted a column; hierarchical query assembly reads a.b separately.
+void check_exact_sparse_promotion(const std::string& path, bool by_rowids) {
+    SCOPED_TRACE(path + (by_rowids ? " rowids" : " batch"));
+    auto sparse = variant_util::create_variant_binary_column();
+    auto& map = assert_cast<ColumnMap&>(*sparse);
+    DataTypeInt64 int_type;
+    auto ints = ColumnInt64::create();
+    ints->insert_value(11);
+    ints->insert_value(22);
+    ints->insert_value(33);
+
+    append_storage_cell(map, path, int_type, *ints, 0);
+    map.get_offsets().push_back(1);
+    append_storage_cell(map, path + ".b", int_type, *ints, 1);
+    map.get_offsets().push_back(2);
+    append_storage_cell(map, path + "-", int_type, *ints, 2);
+    map.get_offsets().push_back(3);
+    // Objects stored at the exact path must keep their complete value.
+    append_raw_storage_cell(map, path, jsonb_storage_cell(R"({"c":44})"));
+    map.get_offsets().push_back(4);
+    const char none = static_cast<char>(FieldType::OLAP_FIELD_TYPE_NONE);
+    append_raw_storage_cell(map, path, std::string_view(&none, 1));
+    map.get_offsets().push_back(5);
+    map.get_offsets().push_back(5);
+
+    auto counters = std::make_shared<SparseReadCounters>();
+    auto cache = std::make_shared<BinaryColumnCache>(
+            std::make_unique<FixedSparseIterator>(std::move(sparse), counters),
+            variant_util::create_variant_binary_column());
+    OlapReaderStatistics stats;
+    StorageReadOptions read_options(stats);
+    BinaryColumnExtractIterator extract(path, std::move(cache), &read_options);
+    ColumnIteratorOptions iterator_options;
+    iterator_options.stats = &stats;
+    ASSERT_TRUE(extract.init(iterator_options).ok());
+    auto dst = make_v2_destination();
+    // Exercise reordered rows as well as the sequential compaction read.
+    const rowid_t rowids[] {3, 1, 0, 5, 4, 2};
+    if (by_rowids) {
+        ASSERT_TRUE(extract.read_by_rowids(rowids, std::size(rowids), dst).ok());
+    } else {
+        ASSERT_TRUE(extract.seek_to_ordinal(0).ok());
+        size_t rows = 6;
+        bool has_null = false;
+        ASSERT_TRUE(extract.next_batch(&rows, dst, &has_null).ok());
+        ASSERT_EQ(rows, 6);
+        EXPECT_TRUE(has_null);
+    }
+    check_exact_sparse_promotion_result(*dst, by_rowids ? rowids : nullptr);
+}
+
+TEST(BinaryColumnExtractIteratorV2Test, PromotionReadsOnlyExactSparseCells) {
+    for (const std::string path : {"a", "p.a"}) {
+        for (const bool by_rowids : {false, true}) {
+            check_exact_sparse_promotion(path, by_rowids);
+        }
+    }
+}
+
 TEST(BinaryColumnExtractIteratorV2Test, RejectsInvalidOffsets) {
     auto sparse = variant_util::create_variant_binary_column();
     auto& map = assert_cast<ColumnMap&>(*sparse);
