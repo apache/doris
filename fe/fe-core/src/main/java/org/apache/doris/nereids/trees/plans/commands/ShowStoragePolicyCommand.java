@@ -25,6 +25,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -55,7 +56,8 @@ public class ShowStoragePolicyCommand extends ShowCommand {
 
     @Override
     public ShowResultSetMetaData getMetaData() {
-        return USING_META_DATA;
+        // The header doRun answers with: the objects using the policies, or the policies themselves.
+        return isUsing ? USING_META_DATA : StoragePolicy.STORAGE_META_DATA;
     }
 
     @Override

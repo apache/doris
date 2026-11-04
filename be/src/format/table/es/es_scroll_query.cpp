@@ -115,6 +115,11 @@ std::string ESScrollQueryBuilder::build(const std::map<std::string, std::string>
     if (pure_docvalue) {
         es_query_dsl.AddMember("stored_fields", "_none_", allocator);
         es_query_dsl.AddMember("docvalue_fields", source_node, allocator);
+    } else if (auto it = properties.find("read_full_source");
+               it != properties.end() && it->second == "true") {
+        // Source projections fail when an alias includes a source-disabled backing. Requesting
+        // full source retains enabled backings; disabled hits still have no source to decode.
+        es_query_dsl.AddMember("_source", true, allocator);
     } else {
         es_query_dsl.AddMember("_source", source_node, allocator);
     }

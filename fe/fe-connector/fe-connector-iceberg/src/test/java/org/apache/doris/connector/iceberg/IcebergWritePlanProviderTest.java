@@ -21,6 +21,7 @@ import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorTableNotFoundException;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
@@ -44,6 +45,7 @@ import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TIcebergCommitData;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TIcebergDeleteSink;
 import org.apache.doris.thrift.TIcebergMergeSink;
@@ -56,6 +58,7 @@ import org.apache.doris.thrift.TSortInfo;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileFormat;
@@ -73,6 +76,8 @@ import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.data.GenericRecord;
+import org.apache.iceberg.exceptions.NoSuchTableException;
+import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
@@ -83,6 +88,9 @@ import org.apache.iceberg.io.OutputFile;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.DateTimeUtil;
+import org.apache.thrift.TException;
+import org.apache.thrift.TSerializer;
+import org.apache.thrift.protocol.TBinaryProtocol;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -122,6 +130,55 @@ public class IcebergWritePlanProviderTest {
 
     private static final Map<String, String> NON_REST_PROPS =
             Collections.singletonMap("iceberg.catalog.type", "hadoop");
+
+    @Test
+    public void writeTableAbsencePreservesIdentityAndCause() {
+        for (boolean authenticated : new boolean[] {false, true}) {
+            for (boolean wrapped : new boolean[] {false, true}) {
+                RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+                NoSuchTableException nativeFailure = new NoSuchTableException("missing db1.t1");
+                RuntimeException failure = wrapped ? new RuntimeException("catalog wrapper", nativeFailure)
+                        : nativeFailure;
+                ops.loadTableFailure = failure;
+                IcebergWritePlanProvider provider = new IcebergWritePlanProvider(
+                        IcebergCatalogProperties.of(NON_REST_PROPS), ops,
+                        authenticated ? new RecordingConnectorContext() : null);
+                ConnectorTableNotFoundException missing = Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                        () -> provider.getWriteColumns(new WriteSession(null).noScope(),
+                                new IcebergTableHandle("db1", "t1"), Optional.empty()));
+                Assertions.assertEquals("db1", missing.getDatabaseName());
+                Assertions.assertEquals("t1", missing.getTableName());
+                Assertions.assertTrue(ExceptionUtils.getThrowableList(missing).contains(nativeFailure));
+                Assertions.assertTrue(ExceptionUtils.getThrowableList(missing).contains(failure));
+                Assertions.assertEquals(Collections.singletonList("loadTable:db1.t1"), ops.log);
+            }
+        }
+    }
+
+    @Test
+    public void ordinaryWriteReadFailuresKeepTheirContract() {
+        for (boolean authenticated : new boolean[] {false, true}) {
+            for (RuntimeException failure : Arrays.asList(new SecurityException("permission denied"),
+                    new IllegalStateException("transport failed"), new NotFoundException("missing metadata file"))) {
+                RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+                ops.loadTableFailure = failure;
+                IcebergWritePlanProvider provider = new IcebergWritePlanProvider(
+                        IcebergCatalogProperties.of(NON_REST_PROPS), ops,
+                        authenticated ? new RecordingConnectorContext() : null);
+                RuntimeException actual = Assertions.assertThrows(RuntimeException.class,
+                        () -> provider.getWriteColumns(new WriteSession(null).noScope(),
+                                new IcebergTableHandle("db1", "t1"), Optional.empty()));
+                Assertions.assertFalse(actual instanceof ConnectorTableNotFoundException);
+                if (authenticated) {
+                    Assertions.assertInstanceOf(DorisConnectorException.class, actual);
+                    Assertions.assertSame(failure, actual.getCause());
+                } else {
+                    Assertions.assertSame(failure, actual);
+                }
+                Assertions.assertEquals(Collections.singletonList("loadTable:db1.t1"), ops.log);
+            }
+        }
+    }
 
     @Test
     public void variantDataWritesNeedUnshreddedFormatThreeParquetTables() {
@@ -2515,6 +2572,42 @@ public class IcebergWritePlanProviderTest {
     // "s3://bucket/wh/db1/t1/data" and "oss://bucket/wh/db1/t1/data" -> "bucket/wh/db1/t1/data".
     private static String pathAfterScheme(String location) {
         return location.substring(location.indexOf("://") + 3);
+    }
+
+    // planWrite registers the raw location each sink dialect carries with the transaction, so a file BE
+    // reports under the normalized address it wrote (the s3:// form of this oss:// table, as delete files once
+    // were) fails the statement instead of being recorded where other engines cannot resolve it.
+    @Test
+    public void planWriteRegistersTheCommitLocationOfEverySinkDialect() {
+        for (WriteOperation operation : Arrays.asList(WriteOperation.INSERT, WriteOperation.REWRITE,
+                WriteOperation.DELETE, WriteOperation.UPDATE)) {
+            Table table = partitionedSortedTable(freshCatalog());
+            RecordingConnectorContext ctx = contextWithStorage();
+            RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+            ops.table = table;
+            IcebergConnectorTransaction txn = new IcebergConnectorTransaction(42L, ops, ctx);
+            providerFor(table, ctx).planWrite(new WriteSession(txn),
+                    new WriteHandle(new IcebergTableHandle("db1", "t1")).writeOperation(operation));
+
+            txn.addCommitData(commitFragment("oss://bucket/wh/db1/t1/data/id=1/f.parquet"));
+            DorisConnectorException rejected = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> txn.addCommitData(commitFragment("s3://bucket/wh/db1/t1/data/id=1/f.parquet")),
+                    operation + " must reject a file reported under the normalized location");
+            Assertions.assertTrue(rejected.getMessage().contains("s3://bucket/wh/db1/t1/data/id=1/f.parquet"),
+                    rejected.getMessage());
+            Assertions.assertEquals(1, txn.getCommitDataList().size(), operation.toString());
+        }
+    }
+
+    private static byte[] commitFragment(String filePath) {
+        TIcebergCommitData data = new TIcebergCommitData();
+        data.setFilePath(filePath);
+        data.setFileContent(TFileContent.DATA);
+        try {
+            return new TSerializer(new TBinaryProtocol.Factory()).serialize(data);
+        } catch (TException e) {
+            throw new AssertionError(e);
+        }
     }
 
     @Test

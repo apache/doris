@@ -692,6 +692,11 @@ void PInternalService::cancel_plan_fragment(google::protobuf::RpcController* /*c
         LOG(INFO) << fmt::format("Cancel query {}, reason: {}", print_id(query_id),
                                  actual_cancel_status.to_string());
         _exec_env->fragment_mgr()->cancel_query(query_id, actual_cancel_status);
+        // LIMIT_REACH/FINISHED can leave valid unread results; only an abort may discard them.
+        if (!actual_cancel_status.ok() && !actual_cancel_status.is<ErrorCode::LIMIT_REACH>() &&
+            !actual_cancel_status.is<ErrorCode::FINISHED>()) {
+            _exec_env->result_mgr()->cancel_arrow_flight_buffers(query_id, actual_cancel_status);
+        }
 
         // TODO: the logic seems useless, cancel only return Status::OK. remove it
         st.to_protobuf(result->mutable_status());
@@ -731,6 +736,7 @@ void PInternalService::fetch_arrow_data(google::protobuf::RpcController* control
         auto st = ExecEnv::GetInstance()->result_mgr()->find_buffer(unique_id, arrow_buffer);
         if (!st.ok()) {
             LOG(WARNING) << "Result buffer not found! Query ID: " << print_id(unique_id);
+            ctx->on_failure(st);
             return;
         }
         if (st = arrow_buffer->get_batch(ctx); !st.ok()) {

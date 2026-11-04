@@ -17,17 +17,23 @@
 
 package org.apache.doris.job.extensions.insert.streaming;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.job.base.JobExecuteType;
+import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.cdc.request.TaskFailureRequest;
 import org.apache.doris.job.common.FailureReason;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.job.offset.s3.S3EventSourceOffsetProvider;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TxnStateCallbackFactory;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
@@ -45,6 +51,43 @@ public class StreamingInsertJobStatusTransitionTest {
         Deencapsulation.setField(job, "jobName", "test_job");
         Deencapsulation.setField(job, "jobStatus", status);
         return job;
+    }
+
+    @Test
+    public void testErrorMsgKeepsReadableCharactersAndValidJson() {
+        String message = TaskFailureRequest.SCHEMA_CHANGE_UNSUPPORTED
+                + " Table: source.orders -> target.orders; columns added=[city]."
+                + " Source DDL: [ALTER TABLE orders ADD city VARCHAR(30) COMMENT 'city']"
+                + "\nDetails: \"quoted\", path=C:\\data";
+        String json = visibleErrorMsg(new FailureReason(message));
+
+        Assertions.assertTrue(json.contains("source.orders -> target.orders"), json);
+        Assertions.assertTrue(json.contains("columns added=[city]"), json);
+        Assertions.assertTrue(json.contains("COMMENT 'city'"), json);
+        Assertions.assertFalse(json.contains("\\" + "u003e"), json);
+        Assertions.assertFalse(json.contains("\\" + "u003d"), json);
+        Assertions.assertFalse(json.contains("\\" + "u0027"), json);
+        JsonObject parsed = JsonParser.parseString(json).getAsJsonObject();
+        Assertions.assertEquals("CANNOT_RESUME_ERR", parsed.get("code").getAsString());
+        Assertions.assertEquals(message, parsed.get("msg").getAsString());
+    }
+
+    @Test
+    public void testErrorMsgIsEmptyWithoutFailure() {
+        Assertions.assertEquals("", visibleErrorMsg(null));
+    }
+
+    private static String visibleErrorMsg(FailureReason reason) {
+        StreamingInsertJob job = newJob(JobStatus.PAUSED);
+        job.setCreateUser(UserIdentity.ROOT);
+        JobExecutionConfiguration config = new JobExecutionConfiguration();
+        config.setExecuteType(JobExecuteType.STREAMING);
+        job.setJobConfig(config);
+        job.setExecuteSql("SELECT 1");
+        job.setEncryptedSql("SELECT 1");
+        job.setFailureReason(reason);
+        int index = InsertJob.SCHEMA.stream().map(column -> column.getName()).toList().indexOf("ErrorMsg");
+        return job.getTvfInfo().getColumnValue().get(index).getStringVal();
     }
 
     @Test

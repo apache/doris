@@ -25,6 +25,8 @@ import org.apache.doris.thrift.TUniqueId;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.Collections;
 
@@ -75,14 +77,15 @@ class SingleFragmentPipelineTaskTest {
         Assertions.assertTrue(task.getBackendHealthStatus(-1L).ok());
     }
 
-    @Test
-    void zeroCapturedProcessEpochIsIgnoredForCompatibility() {
-        Backend backend = createBackend(0L);
+    @ParameterizedTest
+    @ValueSource(longs = {-1L, 0L})
+    void positiveEpochAfterUninitializedCaptureIsUnhealthy(long capturedEpoch) {
+        Backend backend = createBackend(capturedEpoch);
         SingleFragmentPipelineTask task = createTask(backend);
 
         backend.setLastStartTime(100L);
 
-        Assertions.assertTrue(task.getBackendHealthStatus(-1L).ok());
+        Assertions.assertFalse(task.getBackendHealthStatus(-1L).ok());
     }
 
     @Test

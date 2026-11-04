@@ -489,6 +489,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     public long streamingSplitEstimate(ConnectorSession session, ConnectorTableHandle handle,
             Optional<ConnectorExpression> filter, boolean countPushdown) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        if (iceHandle.isResolvedEmptySnapshot() && !iceHandle.isSystemTable()) {
+            resolveTable(session, iceHandle);
+        }
         if (iceHandle.isResolvedEmptySnapshot() || iceHandle.isSystemTable()
                 || !sessionBool(session, ENABLE_EXTERNAL_TABLE_BATCH_MODE, true)) {
             return -1;
@@ -570,6 +573,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         validateMetadataColumnReader(session, columns);
         if (iceHandle.isResolvedEmptySnapshot()) {
+            resolveTable(session, iceHandle);
             // The batch decision is made before the engine pins MVCC; once pinned empty, streaming must
             // preserve that boundary instead of interpreting Iceberg's sentinel as the latest snapshot.
             return emptySplitSource();
@@ -866,7 +870,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<ConnectorExpression> filter,
             boolean countPushdown) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
-        if (iceHandle.isResolvedEmptySnapshot() && !isSnapshotIndependentSystemTable(iceHandle)) {
+        if (iceHandle.isResolvedEmptySnapshot() && !iceHandle.isSystemTable()) {
+            // Empty pins still need admission: otherwise COUNT/empty scans bypass the encryption fence.
+            resolveTable(session, iceHandle);
             // Iceberg has no snapshot id that can represent "before the first commit". Returning no ranges is
             // the read-side MVCC fence; otherwise a refreshed Table would turn -1 into "latest" and expose a
             // concurrent first append to MERGE after its anti-join had already decided the row was absent. Static
@@ -1084,6 +1090,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     private List<ConnectorScanRange> doPlanSystemTableScan(IcebergTableHandle handle,
             List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter,
             ConnectorSession session) {
+        if (handle.isResolvedEmptySnapshot() && !isSnapshotIndependentSystemTable(handle)) {
+            // Keep the empty-table fence inside the same auth scope as every other system-table load.
+            resolveSysBaseTable(session, handle);
+            return Collections.emptyList();
+        }
         if (IcebergLabelsSysTable.isLabels(handle)) {
             return doPlanLabelsSystemTableScan(handle, columns, session);
         }
@@ -3625,6 +3636,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                                 TableIdentifier.of(handle.getDbName(), handle.getTableName()), directLoader),
                         directLoader);
         rejectServerSideScanPlanning(raw, handle);
+        IcebergEncryptionRead.check(raw, catalogProps, context);
         return wrapTableForScan(raw);
     }
 
@@ -3694,20 +3706,28 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     /** The base table a system-table scan reads, shared with metadata binding; see {@link #resolveSysTable}. */
     private Table resolveSysBaseTable(ConnectorSession session, IcebergTableHandle handle) {
         IcebergCatalogOps ops = catalogOpsResolver.apply(session);
+        Supplier<Table> directLoader = () -> {
+            try {
+                return ops.loadTable(handle.getDbName(), handle.getTableName());
+            } catch (RuntimeException failure) {
+                throw IcebergExceptionUtils.wrapTableAbsenceFailure(handle, failure);
+            }
+        };
         // Keep the raw base shared with metadata binding and ordinary scan properties. The caller already owns
         // the auth scope, and avoiding a fresh load prevents system-table slots and rows crossing generations.
         Table base = tableCache == null
                 ? resourceTracker == null
                         ? IcebergStatementScope.sharedTable(session, handle.getDbName(), handle.getTableName(),
-                                () -> ops.loadTable(handle.getDbName(), handle.getTableName()))
+                                directLoader)
                         : IcebergStatementScope.sharedTrackedTable(session, handle.getDbName(), handle.getTableName(),
-                                resourceTracker, () -> ops.loadTable(handle.getDbName(), handle.getTableName()),
+                                resourceTracker, directLoader,
                                 table -> IcebergConnector.cachedTableCleanup(table, catalogProps.getFlavor()))
                 : IcebergStatementScope.sharedBorrowedTable(session, handle.getDbName(), handle.getTableName(),
                         () -> tableCache.borrow(TableIdentifier.of(handle.getDbName(), handle.getTableName()),
-                                () -> ops.loadTable(handle.getDbName(), handle.getTableName())),
-                        () -> ops.loadTable(handle.getDbName(), handle.getTableName()));
+                                directLoader),
+                        directLoader);
         rejectServerSideScanPlanning(base, handle);
+        IcebergEncryptionRead.check(base, catalogProps, context);
         return base;
     }
 

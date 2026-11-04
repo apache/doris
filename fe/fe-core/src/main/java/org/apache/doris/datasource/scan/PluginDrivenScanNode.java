@@ -167,6 +167,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
     // Set during filter pushdown; may be updated from the original table handle.
     private ConnectorTableHandle currentHandle;
+    // A query TVF has no shared table identity; persisted base/sys scans retain their pre-handle observation.
+    private final Optional<PluginDrivenExternalTable.MetadataRead> metadataRead;
 
     // Nereids partition-pruning result, injected by the translator. Defaults to NOT_PRUNED
     // so that connectors / non-partitioned tables read all partitions unless pruning applies.
@@ -219,10 +221,19 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             boolean needCheckColumnPriv, SessionVariable sv,
             ScanContext scanContext, Connector connector,
             ConnectorSession connectorSession, ConnectorTableHandle tableHandle) {
+        this(id, desc, needCheckColumnPriv, sv, scanContext, connector, connectorSession, tableHandle,
+                Optional.empty());
+    }
+
+    private PluginDrivenScanNode(PlanNodeId id, TupleDescriptor desc,
+            boolean needCheckColumnPriv, SessionVariable sv, ScanContext scanContext, Connector connector,
+            ConnectorSession connectorSession, ConnectorTableHandle tableHandle,
+            Optional<PluginDrivenExternalTable.MetadataRead> metadataRead) {
         super(id, desc, "PluginDrivenScanNode", scanContext, needCheckColumnPriv, sv);
         this.connector = connector;
         this.connectorSession = connectorSession;
         this.currentHandle = tableHandle;
+        this.metadataRead = metadataRead;
     }
 
     @Override
@@ -305,6 +316,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         return m;
     }
 
+    private <T> T readMetadata(Supplier<T> operation) {
+        return metadataRead.isPresent() ? metadataRead.get().execute(operation) : operation.get();
+    }
+
     /**
      * Creates a PluginDrivenScanNode by resolving the connector, session, and table handle
      * from the plugin-driven catalog and table.
@@ -316,6 +331,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         Connector connector = catalog.getConnector();
         ConnectorSession session = catalog.buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        PluginDrivenExternalTable.MetadataRead read = table.observeConnectorMetadata(session, metadata);
         // Resolve through the table's sys-aware seam (NOT raw metadata.getTableHandle): for a normal
         // table this is identical to getTableHandle(session, dbName, remoteName), but for a
         // PluginDrivenSysExternalTable the override returns the connector's SYSTEM handle (carrying
@@ -328,7 +344,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                                 + (table.getDb() == null ? "" : table.getDb().getFullName()) + "." + table.getName()
                                 + "' does not exist"));
         return new PluginDrivenScanNode(id, desc, needCheckColumnPriv, sv,
-                scanContext, connector, session, handle);
+                scanContext, connector, session, handle, Optional.of(read));
     }
 
     /**
@@ -1310,7 +1326,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         ConnectorFilterConstraint constraint = buildFilterConstraint(conjuncts);
         Optional<FilterApplicationResult<ConnectorTableHandle>> result;
         try {
-            result = metadata.applyFilter(connectorSession, currentHandle, constraint);
+            result = readMetadata(() -> metadata.applyFilter(connectorSession, currentHandle, constraint));
         } catch (RuntimeException failure) {
             if (scanProvider != null) {
                 try {
@@ -1931,8 +1947,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 .explainOnly(isExplainOnly())
                 .build();
         List<ConnectorScanRange> ranges = executeWithProfileFinalization(
-                () -> onPluginClassLoader(scanProvider,
-                        () -> scanProvider.planScan(connectorSession, request)),
+                () -> readMetadata(() -> onPluginClassLoader(scanProvider,
+                        () -> scanProvider.planScan(connectorSession, request))),
                 () -> collectAndAppendConnectorScanProfiles(scanProvider));
 
         if (variantCompatibilityDeferred) {
@@ -2181,8 +2197,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // scans below the partition-batch threshold.
         if (hasSlots) {
             boolean countPushdown = isTableLevelCountStarPushdown();
-            long estimate = onPluginClassLoader(scanProvider, () -> scanProvider.streamingSplitEstimate(
-                    connectorSession, currentHandle, buildRemainingFilter(), countPushdown));
+            long estimate = readMetadata(() -> onPluginClassLoader(scanProvider,
+                    () -> scanProvider.streamingSplitEstimate(
+                            connectorSession, currentHandle, buildRemainingFilter(), countPushdown)));
             if (estimate >= 0) {
                 // Streaming does not know the final scanned-partition count before dispatch. Partition
                 // rules need that count now; use synchronous planning, which publishes the connector count.
@@ -2405,7 +2422,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
                 @Override
                 public List<Split> getNextBatch() {
-                    return onPluginClassLoader(scanProvider, () -> {
+                    return readMetadata(() -> onPluginClassLoader(scanProvider, () -> {
                         List<Split> splits = new ArrayList<>(splitAssignment.getSplitBatchSize());
                         while (splits.size() < splitAssignment.getSplitBatchSize()
                                 && splitAssignment.needMoreSplit()) {
@@ -2424,7 +2441,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                                     request.withRequiredPartitions(partitions.subList(begin, end)));
                         }
                         return splits;
-                    });
+                    }));
                 }
 
                 private void closeSource() {
@@ -2468,7 +2485,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
             @Override
             public List<Split> getNextBatch() {
-                return onPluginClassLoader(scanProvider, () -> {
+                return readMetadata(() -> onPluginClassLoader(scanProvider, () -> {
                     request.getScanContext().checkCancelled();
                     if (source == null) {
                         source = scanProvider.streamSplits(connectorSession, request);
@@ -2482,7 +2499,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                     }
                     generatedSplits.setValue(generatedSplits.getValue() + splits.size());
                     return splits;
-                });
+                }));
             }
 
             @Override
@@ -2672,9 +2689,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 // rebuilds it over the full schema (no-op for every non-lazy-mat read / every connector
                 // without a pruned dictionary).
                 pinTopnLazyMaterialize();
-                cachedPropertiesResult = onPluginClassLoader(scanProvider,
+                cachedPropertiesResult = readMetadata(() -> onPluginClassLoader(scanProvider,
                         () -> scanProvider.getScanNodePropertiesResult(
-                                connectorSession, currentHandle, columns, filter));
+                                connectorSession, currentHandle, columns, filter)));
             }
             if (cachedPropertiesResult == null) {
                 cachedPropertiesResult = ScanNodePropertiesResult.of(Collections.emptyMap());
@@ -2763,9 +2780,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         }
         Map<String, ConnectorColumnHandle> allHandles;
         if (pinnedSchema != null) {
-            allHandles = metadata.getColumnHandles(connectorSession, currentHandle, connectorSnapshot);
+            ConnectorMvccSnapshot pinnedSnapshot = connectorSnapshot;
+            allHandles = readMetadata(() -> metadata.getColumnHandles(connectorSession, currentHandle, pinnedSnapshot));
         } else {
-            allHandles = metadata.getColumnHandles(connectorSession, currentHandle);
+            allHandles = readMetadata(() -> metadata.getColumnHandles(connectorSession, currentHandle));
         }
         if (allHandles.isEmpty()) {
             return Collections.emptyList();

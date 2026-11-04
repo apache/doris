@@ -8,6 +8,7 @@ string1
 string2
 string3
 string4
+string_ignore_above_10
 
 -- !es7_regexp_alternation --
 string1
@@ -18,6 +19,7 @@ string1
 string2
 string3
 string4
+string_ignore_above_10
 
 -- !es7_is_null --
 3
@@ -37,6 +39,7 @@ string1
 string2
 string3
 string4
+string_ignore_above_10
 
 -- !es8_regexp_alternation --
 string1
@@ -47,6 +50,7 @@ string1
 string2
 string3
 string4
+string_ignore_above_10
 
 -- !es8_is_null --
 3
