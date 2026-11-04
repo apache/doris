@@ -23,74 +23,99 @@
 #include <optional>
 #include <string_view>
 
-#include "common/logging.h"
+#include "common/compiler_util.h"
 #include "storage/index/inverted/analysis/scratch.h"
 
 namespace doris::segment_v2::inverted_index {
 
-ASCIIFoldingFilter::ASCIIFoldingFilter(std::unique_ptr<TextTokenStream> in, bool preserve_original)
-        : PerTokenFilter(std::move(in)), _preserve_original(preserve_original), _output(512, 0) {}
+namespace {
 
-bool ASCIIFoldingFilter::next_token(TokenRef& token) {
-    if (_state != std::nullopt) {
-        DCHECK(_preserve_original);
-        // The input token it views is still in the input batch: input_token() has not run since.
-        token = {.data = _state->data(),
-                 .size = static_cast<uint32_t>(_state->size()),
-                 .position_increment = 0};
-        _state = std::nullopt;
-        return true;
-    }
-    if (!input_token(token)) {
-        return false;
-    }
-    const char* buffer = token.data;
-    auto length = static_cast<int32_t>(token.size);
+// Whether folding may change `term`: only a valid character at or above U+0080 folds, and the
+// folding loop drops invalid bytes only along with folding such a character. "a\xFF" is left as it
+// is, while "\xFF\xC3\x86" folds to "AE". Inlined: it runs for every token.
+ALWAYS_INLINE inline bool may_fold(std::string_view term) {
+    const char* text = term.data();
+    const auto length = static_cast<int32_t>(term.size());
     for (int32_t i = 0; i < length;) {
         UChar32 c = U_UNASSIGNED;
-        U8_NEXT(buffer, i, length, c);
-        if (c < 0) {
+        U8_NEXT(text, i, length, c);
+        if (c >= 0x0080) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// The folded form of `term`, a view of `output`, or nothing when the term folds to itself, as one
+// of characters without an ASCII form does, e.g. "中".
+std::optional<std::string_view> fold(std::string_view term, std::string& output) {
+    // No character folds to more than twice its UTF-8 length, e.g. "⒇" (3 bytes) folds to "(20)".
+    if (output.size() < 2 * term.size()) {
+        output.resize(2 * term.size());
+    }
+    const int32_t folded_size = ASCIIFoldingFilter::fold_to_ascii(
+            term.data(), 0, output.data(), 0, static_cast<int32_t>(term.size()));
+    const std::string_view folded(output.data(), folded_size);
+    if (folded == term) {
+        return std::nullopt;
+    }
+    return folded;
+}
+
+} // namespace
+
+ASCIIFoldingFilter::ASCIIFoldingFilter(std::unique_ptr<TextTokenStream> in)
+        : TextTokenFilter(std::move(in)) {}
+
+void ASCIIFoldingFilter::reset(std::string_view text) {
+    TextTokenFilter::reset(text);
+    release_oversized_scratch(_output);
+}
+
+bool ASCIIFoldingFilter::next_batch(TokenBatch& batch) {
+    if (!_in->next_batch(batch)) {
+        return false;
+    }
+    for (TokenRef& token : batch.tokens()) {
+        if (!may_fold(token.term())) {
             continue;
         }
-        if (c >= 0x0080) {
-            fold_to_ascii(buffer, length);
-            token.data = _output.data();
-            token.size = static_cast<uint32_t>(_output_pos);
-            break;
+        if (const auto folded = fold(token.term(), _output)) {
+            char* term = batch.allocate_term(folded->size());
+            folded->copy(term, folded->size());
+            token.data = term;
+            token.size = static_cast<uint32_t>(folded->size());
         }
     }
     return true;
 }
 
-void ASCIIFoldingFilter::on_reset() {
-    _state = std::nullopt;
-    release_oversized_scratch(_output);
-}
-
-void ASCIIFoldingFilter::fold_to_ascii(const char* in, int32_t length) {
-    // Worst-case scenario: 3-byte UTF-8 → 4-byte ASCII (expansion ratio ~1.33x)
-    // Conservative estimate: 2x input length is sufficient to cover all cases
-    int32_t max_size_needed = 2 * length;
-    if (_output.size() < max_size_needed) {
-        _output.resize(max_size_needed);
-    }
-
-    _output_pos = fold_to_ascii(in, 0, _output.data(), 0, length);
-    if (_preserve_original && need_to_preserve(in, length)) {
-        _state = std::string_view(in, length);
-    }
-}
-
-bool ASCIIFoldingFilter::need_to_preserve(const char* in, int32_t input_length) {
-    if (input_length != _output_pos) {
+bool ASCIIFoldingPreserveOriginalFilter::next_token(TokenRef& token) {
+    if (_original != std::nullopt) {
+        // The input token it views is still in the input batch: input_token() has not run since.
+        token = {.data = _original->data(),
+                 .size = static_cast<uint32_t>(_original->size()),
+                 .position_increment = 0};
+        _original = std::nullopt;
         return true;
     }
-    for (int32_t i = 0; i < input_length; i++) {
-        if (in[i] != _output[i]) {
-            return true;
-        }
+    if (!input_token(token)) {
+        return false;
     }
-    return false;
+    if (!may_fold(token.term())) {
+        return true;
+    }
+    if (const auto folded = fold(token.term(), _output)) {
+        _original = token.term();
+        token.data = folded->data();
+        token.size = static_cast<uint32_t>(folded->size());
+    }
+    return true;
+}
+
+void ASCIIFoldingPreserveOriginalFilter::on_reset() {
+    _original = std::nullopt;
+    release_oversized_scratch(_output);
 }
 
 int32_t ASCIIFoldingFilter::fold_to_ascii(const char* in, int32_t input_pos, char* out,

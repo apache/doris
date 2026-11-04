@@ -17,41 +17,60 @@
 
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
 
 #include "storage/index/inverted/analysis/per_token_stream.h"
+#include "storage/index/inverted/analysis/text_token_stream.h"
+#include "storage/index/inverted/analysis/token_batch.h"
 
 namespace doris::segment_v2::inverted_index {
 
-// Folds the letters, digits and symbols of every token to their ASCII equivalents; with
-// preserve_original, a token that changed is followed by the original at the same position.
-class ASCIIFoldingFilter final : public PerTokenFilter {
+// Folds the letters, digits and symbols of every token to their ASCII equivalents where it stands
+// in the batch, one token for one: a term that folding changes is replaced by a view of its folded
+// form in term storage, the rest keep their views. preserve_original can make two tokens of one,
+// so ASCIIFoldingPreserveOriginalFilter does that instead.
+class ASCIIFoldingFilter final : public TextTokenFilter {
 public:
-    ASCIIFoldingFilter(std::unique_ptr<TextTokenStream> in, bool preserve_original);
+    explicit ASCIIFoldingFilter(std::unique_ptr<TextTokenStream> in);
+
+    void reset(std::string_view text) override;
+    bool next_batch(TokenBatch& batch) override;
+    // The scratch of one folded token, and the input.
+    size_t reserved_bytes() const override {
+        return TextTokenFilter::reserved_bytes() + _output.capacity();
+    }
+
+    static int32_t fold_to_ascii(const char* in, int32_t input_pos, char* out, int32_t output_pos,
+                                 int32_t length);
+
+private:
+    std::string _output;
+};
+
+// asciifolding with preserve_original: a token that folding changes is followed by the original at
+// the same position, e.g. "café" makes "cafe" and then "café" with a position increment of 0.
+class ASCIIFoldingPreserveOriginalFilter final : public PerTokenFilter {
+public:
+    explicit ASCIIFoldingPreserveOriginalFilter(std::unique_ptr<TextTokenStream> in)
+            : PerTokenFilter(std::move(in)) {}
 
     // The scratch of one folded token, and the input.
     size_t reserved_bytes() const override {
         return PerTokenFilter::reserved_bytes() + _output.capacity();
     }
 
-    static int32_t fold_to_ascii(const char* in, int32_t input_pos, char* out, int32_t output_pos,
-                                 int32_t length);
-
 protected:
     void on_reset() override;
     bool next_token(TokenRef& token) override;
 
 private:
-    void fold_to_ascii(const char* in, int32_t length);
-    bool need_to_preserve(const char* in, int32_t input_length);
-
     // The original of the token last folded, still to come out.
-    std::optional<std::string_view> _state;
-    bool _preserve_original = false;
-    int32_t _output_pos = 0;
+    std::optional<std::string_view> _original;
     std::string _output;
 };
 
