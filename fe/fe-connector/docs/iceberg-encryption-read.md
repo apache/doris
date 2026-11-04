@@ -105,17 +105,14 @@ with pushdown enabled/disabled, DESC and system tables, with the table cache
 enabled/disabled and repeated reads. Plaintext row/count results are checked
 before and after rejection. Missing fixture services fail the enabled suite.
 
-The main `regression-test/conf/regression-conf.groovy` defaults
-`icebergEncryptionReadEnabled=true`. Before running with this configuration,
-set `enable_encryption_read=true` in every FE's Iceberg plugin configuration and
-restart the FE. The suite expects `UNSUPPORTED_CATALOG` for the REST fixture;
-it must still reject every declared encrypted table. The regression option sets
-the expected error and does not change the FE configuration.
+The suite runs against the default FE deployment, with `enable_encryption_read`
+absent or set to `false` in every FE's Iceberg plugin configuration. It always
+expects `READ_DISABLED`, including when the catalog requests encrypted reads;
+there is no separate regression setting for the expected deployment state.
+An incorrect error classification fails the suite.
 
-To test the default, disabled FE deployment, set
-`icebergEncryptionReadEnabled=false` in `regression-conf-custom.groovy`; this run
-expects `READ_DISABLED`. The external CI pipeline replaces the main regression
-configuration with its own file and uses this disabled mode while its FE plugin
-setting remains at the production default. HMS backend-capability classification
-and retained v3 keys also have connector unit coverage. Neither regression mode
-exercises native decryption or grants encrypted-write support.
+Connector unit tests explicitly construct enabled and disabled plugin contexts
+to cover both switch states, unsupported catalogs and table formats, retained
+v3 keys, custom managers and unavailable backend capabilities. The SQL suite
+and these unit tests validate admission; they do not exercise native decryption
+or grant encrypted-write support.

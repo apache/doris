@@ -27,9 +27,6 @@ suite("test_iceberg_encryption_read_guard", "p0,external") {
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String uri = "http://${host}:${restPort}"
     String db = "iceberg_encryption_read_guard_db"
-    boolean readEnabled = "true".equalsIgnoreCase(
-            context.config.otherConfigs.get("icebergEncryptionReadEnabled"))
-    String rejection = readEnabled ? "UNSUPPORTED_CATALOG" : "READ_DISABLED"
 
     def restRequest = { String method, String path, Map body, List<Integer> statuses ->
         def connection = (HttpURLConnection) new URL("${uri}${path}").openConnection()
@@ -114,22 +111,23 @@ suite("test_iceberg_encryption_read_guard", "p0,external") {
                 // Repeated failures exercise a warmed table cache as well as the initial acquisition.
                 for (int attempt = 0; attempt < 2; attempt++) {
                     for (String table : ["declared_data", "declared_empty"]) {
+                        // Assert the default-off deployment contract even when the catalog requests encryption.
                         test {
                             sql "SELECT id FROM ${catalog}.${db}.${table} ORDER BY id"
-                            exception "Iceberg encryption [${rejection}]"
+                            exception "Iceberg encryption [READ_DISABLED]"
                         }
                         test {
                             sql "SELECT COUNT(*) FROM ${catalog}.${db}.${table}"
-                            exception "Iceberg encryption [${rejection}]"
+                            exception "Iceberg encryption [READ_DISABLED]"
                         }
                         test {
                             sql "DESC ${catalog}.${db}.${table}"
-                            exception "Iceberg encryption [${rejection}]"
+                            exception "Iceberg encryption [READ_DISABLED]"
                         }
                         for (String systemTable : ["files", "snapshots", "position_deletes"]) {
                             test {
                                 sql "SELECT COUNT(*) FROM ${catalog}.${db}.`${table}\$${systemTable}`"
-                                exception "Iceberg encryption [${rejection}]"
+                                exception "Iceberg encryption [READ_DISABLED]"
                             }
                         }
                     }
