@@ -30,6 +30,7 @@ import org.apache.fluss.metadata.DatabaseDescriptor;
 import org.apache.fluss.metadata.PartitionSpec;
 import org.apache.fluss.metadata.Schema;
 import org.apache.fluss.metadata.TableBucket;
+import org.apache.fluss.metadata.TableChange;
 import org.apache.fluss.metadata.TableDescriptor;
 import org.apache.fluss.metadata.TablePath;
 import org.apache.fluss.row.BinaryString;
@@ -48,6 +49,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -586,6 +588,40 @@ public class FlussJniScannerLogTest {
         Exception e = Assertions.assertThrows(Exception.class,
                 () -> runScanner(params(tablePath, columns("nope", "int"), 0, 1), 1024));
         Assertions.assertTrue(rootMessage(e).contains("nope"), rootMessage(e));
+    }
+
+    /**
+     * Table infos are kept from one range to the next ({@link FlussTableInfoCache}), so a range can find
+     * the info an earlier range kept from before a column was added. One that does not read the new column
+     * reads newer rows through it; one planned with the new column loads a new info rather than failing.
+     */
+    @Test
+    public void columnAddedAfterAnEarlierRangeIsFound() throws Exception {
+        TablePath tablePath = TablePath.of(db, "added_column");
+        createIntTable(tablePath);
+        appendInts(tablePath, 0, 1);
+        Assertions.assertEquals(1, scanAll(tablePath, columns("id", "int"), 0, 1, 1024).length);
+
+        admin.alterTable(tablePath, Collections.singletonList(TableChange.addColumn(
+                "extra", DataTypes.INT(), null, TableChange.ColumnPosition.last())), false).get();
+        appendRows(tablePath, GenericRow.of(1, 7));
+
+        Object[][] kept = scanAll(tablePath, columns("id", "int"), 0, 2, 1024);
+        Assertions.assertArrayEquals(new Object[][] {{0}, {1}}, kept);
+        Object[][] reloaded = scanAll(tablePath, columns("id", "int", "extra", "int"), 1, 2, 1024);
+        Assertions.assertArrayEquals(new Object[][] {{1, 7}}, reloaded);
+    }
+
+    @Test
+    public void stalePlannedTableIdentityFailsInsteadOfReadingAnotherTable() throws Exception {
+        TablePath tablePath = TablePath.of(db, "planned_identity");
+        createIntTable(tablePath);
+        appendInts(tablePath, 0, 1);
+        Map<String, String> requested = columns("id", "int");
+        requested.put("fluss.table_id", String.valueOf(admin.getTableInfo(tablePath).get().getTableId() + 1));
+        IOException failure = Assertions.assertThrows(IOException.class,
+                () -> scanAll(tablePath, requested, 0, 1, 1024));
+        Assertions.assertTrue(rootMessage(failure).contains("identity or schema changed"), rootMessage(failure));
     }
 
     // ---------------------------------------------------------------- helpers

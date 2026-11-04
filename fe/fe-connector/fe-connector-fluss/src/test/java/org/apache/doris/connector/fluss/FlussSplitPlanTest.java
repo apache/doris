@@ -2159,6 +2159,8 @@ public class FlussSplitPlanTest {
         Map<String, String> expected = new LinkedHashMap<>();
         expected.put("fluss.db_name", "db");
         expected.put("fluss.table_name", "log_tbl");
+        expected.put("fluss.table_id", "1");
+        expected.put("fluss.schema_id", "1");
         expected.put("fluss.client.bootstrap.servers", "localhost:9123");
         expected.put("fluss.client.client.writer.batch-size", "2mb");
         Assertions.assertEquals(expected, params.getFlussProperties());

@@ -94,10 +94,26 @@ public class FlussConnector implements Connector {
     // database and table, and targeted invalidation must follow the same path as lookup.
     private final Map<TablePath, TablePath> lakeTablePaths = new LinkedHashMap<>();
 
+    // Outlives the per-statement admin ops; see FlussTableInfoCache.
+    private final FlussTableInfoCache tableInfos;
+
+    // Outlives the per-node scan providers; see FlussLakePropertiesCache.
+    private final FlussLakePropertiesCache lakeProperties;
+
+    // Outlives the per-statement admin ops; see FlussPartitionListCache.
+    private final FlussPartitionListCache partitionLists;
+
     public FlussConnector(FlussCatalogProperties properties, ConnectorContext context) {
         this.properties = properties;
         this.catalogName = context.getCatalogName();
         this.context = context;
+        this.tableInfos = new FlussTableInfoCache(Long.parseLong(properties.getRawCatalogProperties()
+                .getOrDefault(FlussTableInfoCache.TTL_PROPERTY, String.valueOf(FlussTableInfoCache.DEFAULT_TTL_SEC))));
+        this.lakeProperties = new FlussLakePropertiesCache(Long.parseLong(properties.getRawCatalogProperties()
+                .getOrDefault(FlussTableInfoCache.TTL_PROPERTY, String.valueOf(FlussTableInfoCache.DEFAULT_TTL_SEC))));
+        this.partitionLists = new FlussPartitionListCache(Long.parseLong(properties.getRawCatalogProperties()
+                .getOrDefault(FlussPartitionListCache.TTL_PROPERTY,
+                        String.valueOf(FlussPartitionListCache.DEFAULT_TTL_SEC))));
     }
 
     @Override
@@ -113,7 +129,7 @@ public class FlussConnector implements Connector {
      */
     @Override
     public ConnectorScanPlanProvider getScanPlanProvider() {
-        return new FlussScanPlanProvider(adminOps(), properties, this::getOrCreateLakeSibling);
+        return new FlussScanPlanProvider(adminOps(), properties, this::getOrCreateLakeSibling, lakeProperties);
     }
 
     /**
@@ -230,6 +246,9 @@ public class FlussConnector implements Connector {
 
     @Override
     public synchronized void invalidateTable(String dbName, String tableName) {
+        tableInfos.invalidate(TablePath.of(dbName, tableName));
+        partitionLists.invalidate(TablePath.of(dbName, tableName));
+        lakeProperties.invalidateAll();
         if (lakeSibling != null) {
             // Keep the mapping until the table is resolved again (which replaces it) or the whole catalog
             // is invalidated. A single engine refresh may emit more than one targeted invalidation, and a
@@ -243,6 +262,9 @@ public class FlussConnector implements Connector {
 
     @Override
     public synchronized void invalidateDb(String dbName) {
+        tableInfos.invalidateDb(dbName);
+        partitionLists.invalidateDb(dbName);
+        lakeProperties.invalidateAll();
         if (lakeSibling != null) {
             Set<String> lakeDatabases = new LinkedHashSet<>();
             // An unresolved table cannot have populated the sibling's table cache, but the sibling may
@@ -261,6 +283,9 @@ public class FlussConnector implements Connector {
 
     @Override
     public synchronized void invalidateAll() {
+        tableInfos.invalidateAll();
+        partitionLists.invalidateAll();
+        lakeProperties.invalidateAll();
         lakeTablePaths.clear();
         if (lakeSibling != null) {
             lakeSibling.invalidateAll();
@@ -270,6 +295,9 @@ public class FlussConnector implements Connector {
     @Override
     public synchronized void invalidatePartition(
             String dbName, String tableName, List<String> partitionNames) {
+        tableInfos.invalidate(TablePath.of(dbName, tableName));
+        partitionLists.invalidate(TablePath.of(dbName, tableName));
+        lakeProperties.invalidateAll();
         if (lakeSibling != null) {
             TablePath lakePath = lakeTablePaths.get(TablePath.of(dbName, tableName));
             lakeSibling.invalidatePartition(
@@ -337,7 +365,7 @@ public class FlussConnector implements Connector {
 
     private FlussAdminOps adminOps() {
         return new ConnectionBackedFlussAdminOps(getOrCreateConnection(), catalogName,
-                properties.getBootstrapServers());
+                properties.getBootstrapServers(), tableInfos, partitionLists);
     }
 
     private synchronized Connection getOrCreateConnection() {
