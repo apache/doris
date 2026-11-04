@@ -28,6 +28,7 @@ import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.extensions.insert.streaming.DataSourceConfigValidator;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
+import org.apache.doris.job.util.StreamingJobUtils;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -168,6 +169,8 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                 boolean sourcePropModified =
                         isPropertiesModified(streamingJob.getSourceProperties(), this.getSourceProperties());
                 if (sourcePropModified) {
+                    StreamingJobUtils.checkCdcDriverPrivilege(ConnectContext.get(),
+                            sourceProperties.get(DataSourceConfigKeys.DRIVER_URL));
                     DataSourceConfigValidator.validateSource(this.getSourceProperties(),
                             streamingJob.getDataSourceType().name());
                     checkUnmodifiableSourceProperties(streamingJob.getSourceProperties());
@@ -325,7 +328,8 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                                     inputTvf.getProperties().getMap().get(unmodifiable)),
                             "The '%s' property cannot be modified in ALTER JOB for cdc_stream", unmodifiable);
                 }
-                CdcStreamTableValuedFunction.validateProperties(inputTvf.getProperties().getMap());
+                // Validate merged resource properties as the ALTER caller, before schema discovery.
+                new CdcStreamTableValuedFunction(inputTvf.getProperties().getMap()).checkAuth(ConnectContext.get());
                 break;
             default:
                 throw new IllegalArgumentException("Unsupported tvf type:" + inputTvf.getFunctionName());
