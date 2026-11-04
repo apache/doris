@@ -22,6 +22,7 @@
 
 #include "io/fs/local_file_system.h"
 #include "io/fs/stream_load_pipe.h"
+#include "load/group_commit/wal/wal_file_reader.h"
 #include "load/group_commit/wal/wal_manager.h"
 #include "runtime/cluster_info.h"
 #include "runtime/fragment_mgr.h"
