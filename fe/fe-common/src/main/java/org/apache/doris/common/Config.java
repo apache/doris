@@ -476,6 +476,10 @@ public class Config extends ConfigBase {
     @ConfField(description = "The port of FE Arrow-Flight-SQL server")
     public static int arrow_flight_sql_port = 8070;
 
+    /** Lifetime for opening a BE result stream with a signed ticket, in [1, 3600] seconds. */
+    @ConfField(mutable = true)
+    public static int arrow_flight_ticket_lifetime_seconds = 300;
+
     @ConfField(description = "The number of IO threads in the MySQL service")
     public static int mysql_service_io_threads_num = 4;
 
@@ -2489,6 +2493,7 @@ public class Config extends ConfigBase {
 
     /**
      * Used by TokenManager to control the number of tokens keep in memory.
+     * Must be at least 2: Flight tickets are signed with the second newest token.
      * One token will keep alive for {token_queue_size * token_generate_period_hour} hours.
      * By defaults, one token will keep for 3 days.
      */

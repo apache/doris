@@ -19,18 +19,105 @@
 
 #include <absl/strings/str_split.h>
 #include <arrow/status.h>
+#include <openssl/crypto.h>
+#include <openssl/hmac.h>
+#include <openssl/sha.h>
 
+#include <charconv>
+#include <cstdint>
 #include <memory>
+#include <string_view>
+#include <system_error>
+#include <vector>
 
 #include "arrow/flight/sql/server.h"
+#include "common/config.h"
 #include "format/arrow/arrow_utils.h"
+#include "runtime/cluster_info.h"
+#include "runtime/exec_env.h"
 #include "service/arrow_flight/arrow_flight_batch_reader.h"
 #include "service/arrow_flight/flight_sql_info.h"
 #include "service/backend_options.h"
+#include "util/time.h"
 #include "util/uid_util.h"
 #include "util/url_coding.h"
 
 namespace doris::flight {
+
+namespace {
+constexpr int64_t kMaxLifetimeMs = 3600000;
+constexpr int64_t kClockSkewMs = 30000;
+constexpr std::string_view kKeyDomain = "doris/flight-ticket/key/v1";
+// Include the terminating NUL in the authenticated prefix, matching the FE signer.
+constexpr char kPayloadDomain[] = "doris/flight-ticket/payload/v1";
+
+Status invalid_ticket() {
+    // Tickets are credentials; never echo them in errors or logs.
+    return Status::NotAuthorized("Invalid or expired Flight result ticket");
+}
+
+Status hmac_sha256(std::string_view key, std::string_view message, std::string* result) {
+    unsigned char digest[SHA256_DIGEST_LENGTH];
+    unsigned int length = 0;
+    // An OpenSSL failure must not authenticate two empty MACs.
+    if (HMAC(EVP_sha256(), key.data(), static_cast<int>(key.size()),
+             reinterpret_cast<const unsigned char*>(message.data()), message.size(), digest,
+             &length) == nullptr ||
+        length != SHA256_DIGEST_LENGTH) {
+        return Status::InternalError("Flight ticket HMAC failed");
+    }
+    result->assign(reinterpret_cast<const char*>(digest), length);
+    return Status::OK();
+}
+
+Status verify_flight_ticket(const std::string& ticket, const std::vector<std::string>& fields,
+                            const std::vector<std::string>& tokens, int32_t cluster_id,
+                            int64_t now_ms) {
+    // Keep the original four fields, followed by v1, cluster, issued, expires, base64 MAC.
+    // A legacy four-field ticket must fail when verification is enabled.
+    if (fields.size() != 9 || fields[4] != "v1") {
+        return invalid_ticket();
+    }
+    auto parse_number = [](const std::string& text, auto* value) {
+        auto parsed = std::from_chars(text.data(), text.data() + text.size(), *value);
+        return parsed.ec == std::errc() && parsed.ptr == text.data() + text.size();
+    };
+    int32_t ticket_cluster_id = 0;
+    int64_t issued = 0;
+    int64_t expires = 0;
+    // Order nonnegative timestamps before subtraction to avoid overflow on hostile inputs.
+    if (!parse_number(fields[5], &ticket_cluster_id) || ticket_cluster_id != cluster_id ||
+        !parse_number(fields[6], &issued) || !parse_number(fields[7], &expires) || now_ms < 0 ||
+        issued < 0 || expires <= issued || expires - issued > kMaxLifetimeMs ||
+        (issued > now_ms && issued - now_ms > kClockSkewMs) ||
+        (now_ms > expires && now_ms - expires > kClockSkewMs)) {
+        return invalid_ticket();
+    }
+    std::string mac;
+    if (fields[8].size() != 44 || !base64_decode(fields[8], &mac) ||
+        mac.size() != SHA256_DIGEST_LENGTH) {
+        return invalid_ticket();
+    }
+    // Authenticate the exact original ticket and all metadata, excluding only the final MAC.
+    std::string message(kPayloadDomain, sizeof(kPayloadDomain));
+    message.append(ticket, 0, ticket.rfind('&'));
+    // FE and BE may observe different heartbeat generations; try every retained token.
+    for (const auto& token : tokens) {
+        // Never derive a publicly computable key from an empty token.
+        if (token.empty()) {
+            continue;
+        }
+        std::string key;
+        RETURN_IF_ERROR(hmac_sha256(token, kKeyDomain, &key));
+        std::string expected;
+        RETURN_IF_ERROR(hmac_sha256(key, message, &expected));
+        if (CRYPTO_memcmp(expected.data(), mac.data(), expected.size()) == 0) {
+            return Status::OK();
+        }
+    }
+    return invalid_ticket();
+}
+} // namespace
 
 class FlightSqlServer::Impl {
 private:
@@ -46,15 +133,22 @@ private:
 
     arrow::Result<std::shared_ptr<QueryStatement>> decode_ticket(const std::string& ticket) {
         std::vector<std::string> fields = absl::StrSplit(ticket, "&");
-        if (fields.size() != 4) {
-            return arrow::Status::Invalid(
-                    fmt::format("Malformed ticket: {}, size: {}", ticket, fields.size()));
+        // Accept both formats during rolling upgrades when verification is explicitly disabled.
+        if (fields.size() != 4 && fields.size() != 9) {
+            return arrow::Status::Invalid("Malformed Flight ticket");
+        }
+        if (config::enable_arrow_flight_ticket_signature_check) {
+            // Require authentication even if the client removes the entire signature suffix.
+            std::vector<std::string> tokens;
+            int32_t cluster_id = -1;
+            ExecEnv::GetInstance()->cluster_info()->get_auth_tokens(&tokens, &cluster_id);
+            RETURN_ARROW_STATUS_IF_ERROR(
+                    verify_flight_ticket(ticket, fields, tokens, cluster_id, UnixMillis()));
         }
 
         std::vector<std::string> str = absl::StrSplit(fields[0], "-");
         if (str.size() != 2) {
-            return arrow::Status::Invalid("Malformed ticket: {}, missing query id: {}", ticket,
-                                          fields[0]);
+            return arrow::Status::Invalid("Malformed Flight ticket: missing query id");
         }
 
         TUniqueId queryid;
@@ -136,11 +230,9 @@ Status FlightSqlServer::init(int port) {
                     .Value(&bind_location));
     arrow::flight::FlightServerOptions flight_options(bind_location);
 
-    // Not authenticated in BE flight server.
-    // After the authentication between the ADBC Client and the FE flight server is completed,
-    // the FE flight server will put the query id in the Ticket and send it back to the Client.
-    // When the Client uses the Ticket to fetch data from the BE flight server, the BE flight
-    // server will verify the query id, this step is equivalent to authentication.
+    // The FE authenticates SQL users and issues HMAC-protected result tickets.
+    // enable_arrow_flight_ticket_signature_check requires verification before local
+    // access or forwarding. Disable only for compatibility with legacy unsigned tickets.
     _header_middleware = std::make_shared<NoOpHeaderAuthServerMiddlewareFactory>();
     _bearer_middleware = std::make_shared<NoOpBearerAuthServerMiddlewareFactory>();
     flight_options.auth_handler = std::make_unique<arrow::flight::NoOpAuthHandler>();

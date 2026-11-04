@@ -26,6 +26,7 @@ import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter.PreparedQuery
 import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.arrowflight.results.FlightSqlResultCacheEntry;
 import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
@@ -293,13 +294,17 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                     }
 
                     List<FlightEndpoint> endpoints = Lists.newArrayList();
+                    Env env = Env.getCurrentEnv();
+                    String signingToken = env.getTokenManager().acquireSigningToken();
                     for (FlightSqlEndpointsLocation endpointLoc : connectContext.getFlightSqlEndpointsLocations()) {
                         TUniqueId tid = endpointLoc.getFinstId();
                         // Ticket contains the IP and Brpc Port of the Doris BE node where the query result is located.
+                        String unsignedTicket = DebugUtil.printId(tid) + "&"
+                                + endpointLoc.getResultInternalServiceAddr().hostname + "&"
+                                + endpointLoc.getResultInternalServiceAddr().port + "&"
+                                + Base64.getEncoder().encodeToString(query.getBytes(StandardCharsets.UTF_8));
                         final ByteString handle = ByteString.copyFromUtf8(
-                                DebugUtil.printId(tid) + "&" + endpointLoc.getResultInternalServiceAddr().hostname + "&"
-                                        + endpointLoc.getResultInternalServiceAddr().port + "&"
-                                        + Base64.getEncoder().encodeToString(query.getBytes(StandardCharsets.UTF_8)));
+                                FlightTicketCodec.sign(signingToken, env.getClusterId(), unsignedTicket));
                         TicketStatementQuery ticketStatement = TicketStatementQuery.newBuilder()
                                 .setStatementHandle(handle).build();
                         Ticket ticket = new Ticket(Any.pack(ticketStatement).toByteArray());

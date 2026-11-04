@@ -53,6 +53,9 @@ struct TMasterInfo {
     // Cleanup reference only; this is not an active-query safe point.
     // ATTN(changelog-rename): formerly "row_binlog_ttl_reference_tso"
     15: optional i64 changelog_ttl_reference_tso;
+    // Complete retained token queue, oldest first and newest last. New BEs must
+    // receive older signing keys without having observed previous heartbeats.
+    16: optional list<string> auth_tokens;
 }
 
 struct TBackendInfo {

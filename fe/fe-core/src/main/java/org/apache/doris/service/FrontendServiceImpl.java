@@ -3593,16 +3593,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
         try {
-            String token = Env.getCurrentEnv().getTokenManager().acquireToken();
-            result.setToken(token);
+            result.setToken(Env.getCurrentEnv().getTokenManager().acquireToken());
+            result.setSigningToken(Env.getCurrentEnv().getTokenManager().acquireSigningToken());
+            return result;
         } catch (Throwable e) {
             LOG.warn("catch unknown result.", e);
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
             status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
             return result;
         }
-
-        return result;
     }
 
     @Override

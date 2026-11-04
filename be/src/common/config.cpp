@@ -76,6 +76,10 @@ DEFINE_Int32(brpc_port, "8060");
 
 DEFINE_Int32(arrow_flight_sql_port, "8050");
 
+// Require signed Flight result tickets. Disabled by default for 4.2 rolling upgrades;
+// change the default to true in 5.0. Enable after all FEs issue signed tickets.
+DEFINE_Bool(enable_arrow_flight_ticket_signature_check, "false");
+
 // Validate Arrow input buffers in opted-in Arrow readers before converting them to Doris columns.
 DEFINE_Bool(enable_arrow_input_validation, "true");
 

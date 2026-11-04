@@ -28,11 +28,14 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.collect.EvictingQueue;
+import com.google.common.collect.Iterables;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.apache.thrift.transport.TTransportException;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -50,25 +53,37 @@ public class TokenManager {
 
     private  int thriftTimeoutMs = 300 * 1000;
     private  EvictingQueue<String> tokenQueue;
-    private  String latestToken;
+    private volatile String latestToken;
     private  ScheduledExecutorService tokenGenerator;
 
     public TokenManager() {
     }
 
-    public void start() {
+    public synchronized void start() {
+        if (Config.token_queue_size < 2) {
+            throw new IllegalArgumentException("token_queue_size must be at least 2");
+        }
         this.tokenQueue = EvictingQueue.create(Config.token_queue_size);
-        // init one token to avoid async issue.
+        // Seed both generations so the first heartbeat also carries the signing key to new BEs.
+        this.addNewToken(generateNewToken());
         this.addNewToken(generateNewToken());
         this.tokenGenerator = Executors.newScheduledThreadPool(1,
                 new CustomThreadFactory("token-generator"));
-        this.tokenGenerator.scheduleAtFixedRate(() -> this.addNewToken(generateNewToken()), 0,
+        // Publish the initial queue before the first scheduled rotation.
+        this.tokenGenerator.scheduleAtFixedRate(() -> this.addNewToken(generateNewToken()),
+                Config.token_generate_period_hour,
                 Config.token_generate_period_hour, TimeUnit.HOURS);
     }
 
-    private void addNewToken(String token) {
+    private synchronized void addNewToken(String token) {
         tokenQueue.offer(token);
         latestToken = token;
+    }
+
+    // Called by the master's heartbeat sender. Oldest first, newest last; copy under the
+    // rotation lock so both heartbeat fields can be populated from the same generation.
+    public synchronized List<String> getAuthTokens() {
+        return new ArrayList<>(tokenQueue);
     }
 
     private String generateNewToken() {
@@ -80,7 +95,7 @@ public class TokenManager {
             return latestToken;
         } else {
             try {
-                return acquireTokenFromMaster();
+                return acquireTokenFromMaster().getToken();
             } catch (TException e) {
                 LOG.warn("acquire token error", e);
                 throw new UserException("Acquire token from master failed", e);
@@ -88,7 +103,31 @@ public class TokenManager {
         }
     }
 
-    private String acquireTokenFromMaster() throws TException {
+    public String acquireSigningToken() throws UserException {
+        if (Env.getCurrentEnv().isMaster() || FeConstants.runningUnitTest) {
+            synchronized (this) {
+                // Sign with the second newest key; BEs verify against every retained key.
+                return Iterables.get(tokenQueue, tokenQueue.size() - 2);
+            }
+        } else {
+            try {
+                TMySqlLoadAcquireTokenResult result = acquireTokenFromMaster();
+                // During FE rolling upgrades an old master only returns token. Use it to
+                // keep issuing signed tickets until the master supports signing_token.
+                // An explicitly empty signing_token is an error, not a legacy response.
+                String token = result.isSetSigningToken() ? result.getSigningToken() : result.getToken();
+                if (token == null || token.isEmpty()) {
+                    throw new UserException("Flight signing token is not available from master");
+                }
+                return token;
+            } catch (TException e) {
+                LOG.warn("acquire signing token error", e);
+                throw new UserException("Acquire signing token from master failed", e);
+            }
+        }
+    }
+
+    private TMySqlLoadAcquireTokenResult acquireTokenFromMaster() throws TException {
         TNetworkAddress thriftAddress = getMasterAddress();
         FrontendService.Client client = getClient(thriftAddress);
 
@@ -103,7 +142,7 @@ public class TokenManager {
             if (result.getStatus().getStatusCode() != TStatusCode.OK) {
                 throw new TException("get acquire token failed.");
             }
-            return result.getToken();
+            return result;
         } catch (TTransportException e) {
             boolean ok = ClientPool.frontendPool.reopenOrClear(thriftAddress, client, thriftTimeoutMs);
             if (!ok) {
@@ -117,7 +156,7 @@ public class TokenManager {
                     throw new TException("acquire token from master failed. " + result.getStatus());
                 }
                 isReturnToPool = true;
-                return result.getToken();
+                return result;
             }
         } finally {
             if (isReturnToPool) {
@@ -134,7 +173,9 @@ public class TokenManager {
      */
     public boolean checkAuthToken(String token) throws UserException {
         if (Env.getCurrentEnv().isMaster() || FeConstants.runningUnitTest) {
-            return tokenQueue.contains(token);
+            synchronized (this) {
+                return tokenQueue.contains(token);
+            }
         } else {
             try {
                 return checkTokenFromMaster(token);

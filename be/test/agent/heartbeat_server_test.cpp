@@ -22,6 +22,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
@@ -70,8 +71,12 @@ TEST(HeartbeatServerTest, DoesNotExposeTokens) {
 
     server.heartbeat(result, master);
     ASSERT_EQ(TStatusCode::OK, result.status.status_code);
-    EXPECT_EQ("heartbeat_auth_secret_c", cluster.curr_auth_token);
-    EXPECT_EQ("heartbeat_auth_secret_b", cluster.last_auth_token);
+    std::vector<std::string> auth_tokens;
+    int32_t cluster_id;
+    cluster.get_auth_tokens(&auth_tokens, &cluster_id);
+    EXPECT_EQ((std::vector<std::string> {"heartbeat_auth_secret_b", "heartbeat_auth_secret_c"}),
+              auth_tokens);
+    EXPECT_EQ(7, cluster_id);
 
     master.__set_token("heartbeat_mismatched_secret");
     server.heartbeat(result, master);
