@@ -94,10 +94,17 @@ suite("test_timestamptz_dst_gap") {
                        CAST('2024-03-10 02:59:59.4999996 America/New_York' AS DATETIMEV2(0))
             """
             sql "SET time_zone = 'Australia/Lord_Howe'"
-            // The local hour start is in the 30-minute gap. Keep its 15-minute position.
+            // The gap candidate 02:15 becomes 02:45, after input 02:35. Select 01:15 instead.
             order_qt_gap_hour_origin """
-                SELECT hour_floor(CAST('2024-10-06 02:45:00.123456+11:00' AS TIMESTAMPTZ(6)),
-                                  1, CAST('2024-10-05 02:15:00.123456+11:00' AS TIMESTAMPTZ(6)))
+                SELECT hour_floor(t, 1, o), hour_ceil(t, 1, o)
+                FROM (SELECT CAST('2024-10-06 02:35:00.123456+11:00' AS TIMESTAMPTZ(6)) AS t,
+                             CAST('2024-10-05 02:15:00.123456+10:30' AS TIMESTAMPTZ(6)) AS o) s
+            """
+            sql "SET time_zone = 'Africa/Monrovia'"
+            // Floor selects an earlier boundary. Truncation still resets local fields, then shifts the gap.
+            order_qt_gap_minute_floor """
+                SELECT minute_floor(t), date_trunc(t, 'minute'), second_floor(t, 60)
+                FROM (SELECT CAST('1972-01-07 00:44:40.123456Z' AS TIMESTAMPTZ(6)) AS t) s
             """
             sql "SET time_zone = '+00:00'"
             // A fixed offset has no gap. A repeated local time keeps its first occurrence.

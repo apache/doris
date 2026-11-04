@@ -27,10 +27,12 @@ import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
+import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 
 /**
@@ -172,27 +174,19 @@ public class TimeRoundSeries {
         }
         ZoneId zoneId = ZoneId.of(timeZone);
 
-        // Get the ZonedDateTime for the date to determine its offset
-        ZonedDateTime zonedDate = utcDate.atZone(ZoneId.of("UTC")).withZoneSameInstant(zoneId);
-
-        // Use the date's offset to ensure consistent conversion for both date and origin
-        // This prevents historical timezone offset inconsistencies (e.g., Asia/Shanghai
-        // used +08:05:43 before 1900, then +08:00 after) from affecting the calculation
-        ZoneId fixedOffsetZone = ZoneId.ofOffset("UTC", zonedDate.getOffset());
-
-        // Convert UTC time to local time using the fixed offset from date
-        LocalDateTime localDate = utcDate.atZone(ZoneId.of("UTC")).withZoneSameInstant(fixedOffsetZone)
-                .toLocalDateTime();
-
-        // Handle origin: START_ORIGINAL_DAY is already in local time, don't convert it
-        // Only convert origin if it's a real UTC timestamp (from TimestampTzLiteral)
-        LocalDateTime localOrigin;
-        if (utcOrigin.equals(START_ORIGINAL_DAY)) {
-            localOrigin = START_ORIGINAL_DAY;
-        } else {
-            localOrigin = utcOrigin.atZone(ZoneId.of("UTC")).withZoneSameInstant(fixedOffsetZone)
-                    .toLocalDateTime();
+        // Seconds use the UTC time line in BE. They do not need a local calendar boundary.
+        if (tag == DATE.SECOND) {
+            return getDateCeilOrFloor(tag, utcDate, period, utcOrigin, getCeil);
         }
+        ZonedDateTime zonedDate = utcDate.atZone(ZoneOffset.UTC).withZoneSameInstant(zoneId);
+        LocalDateTime localDate = zonedDate.toLocalDateTime();
+
+        // The default origin is a local calendar value. A supplied origin is an instant.
+        // On Lord Howe, an Oct 5 origin uses +10:30 even if the Oct 6 input uses +11:00.
+        LocalDateTime localOrigin = utcOrigin.equals(START_ORIGINAL_DAY) ? START_ORIGINAL_DAY
+                : utcOrigin.atZone(ZoneOffset.UTC).withZoneSameInstant(zoneId).toLocalDateTime();
+        // Keep the input's occurrence for hour and minute boundaries in an overlap, as BE does.
+        ZoneOffset preferredOffset = tag == DATE.HOUR || tag == DATE.MINUTE ? zonedDate.getOffset() : null;
 
         // Perform ceil/floor operation on local time
         LocalDateTime localResult = getDateCeilOrFloor(tag, localDate, period, localOrigin, getCeil);
@@ -201,10 +195,15 @@ public class TimeRoundSeries {
             return null;
         }
 
-        // Convert result back to UTC: treat localResult as being in the zoneId timezone
-        // and convert to UTC
-        LocalDateTime utcResult = localResult.atZone(zoneId).withZoneSameInstant(ZoneId.of("UTC"))
-                .toLocalDateTime();
+        LocalDateTime utcResult = LocalDateTime.ofInstant(
+                DateUtils.convertLocalToInstant(localResult, zoneId, preferredOffset), ZoneOffset.UTC);
+        // On Lord Howe, the 02:15 gap candidate becomes 02:45, after input 02:35.
+        // Recompute each candidate from the original calendar origin.
+        while (!getCeil && utcResult.isAfter(utcDate)) {
+            localResult = getDateCeilOrFloor(tag, localResult.minusNanos(1000), period, localOrigin, false);
+            utcResult = LocalDateTime.ofInstant(
+                    DateUtils.convertLocalToInstant(localResult, zoneId, preferredOffset), ZoneOffset.UTC);
+        }
         return utcResult;
     }
 

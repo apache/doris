@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Test;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 
 class DateUtilsTest {
     @Test
@@ -58,4 +59,16 @@ class DateUtilsTest {
             Assertions.assertEquals(expected, DateUtils.convertLocalToInstant(local, zone));
         }
     }
+
+    @Test
+    void testPreferredOffsetOnlySelectsAnOverlap() {
+        ZoneId zone = ZoneId.of("America/New_York");
+        Assertions.assertEquals(Instant.parse("2024-03-10T07:30:00.123456789Z"),
+                DateUtils.convertLocalToInstant(LocalDateTime.parse("2024-03-10T02:30:00.123456789"),
+                        zone, ZoneOffset.ofHours(-4)));
+        Assertions.assertEquals(Instant.parse("2024-11-03T06:30:00.123456789Z"),
+                DateUtils.convertLocalToInstant(LocalDateTime.parse("2024-11-03T01:30:00.123456789"),
+                        zone, ZoneOffset.ofHours(-5)));
+    }
+
 }

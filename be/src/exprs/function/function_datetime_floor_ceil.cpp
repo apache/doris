@@ -882,24 +882,47 @@ struct DateTimeFloorCeilCore {
 
         int64_t step = diff - delta_inside_period +
                        (Flag::Type == FLOOR ? 0 : (delta_inside_period == 0 ? 0 : period));
-        bool is_neg = step < 0;
-        TimeInterval interval(Flag::Unit, std::abs(step), is_neg);
-        bool result = ts_res.template date_add_interval<Flag::Unit>(interval);
-
-        // For TimestampTzValue on date-based units, convert result from local time back to UTC
         if constexpr (need_tz_conversion) {
-            if (result) {
-                DateV2Value<DateTimeV2ValueType> local_result(ts_res.to_date_int_val());
+            // Keep the original calendar fields when selecting an earlier period.
+            // Subtracting a month from an adjusted day can change the origin's day.
+            const DateV2Value<DateTimeV2ValueType> round_origin(ts_res.to_date_int_val());
+            int preferred_offset = 0;
+            if constexpr (Flag::Unit == HOUR || Flag::Unit == MINUTE) {
+                preferred_offset = ts_arg.utc_offset(tz);
+            }
+            const auto resolve = [&]() {
+                auto local_result = round_origin;
+                TimeInterval interval(Flag::Unit, std::abs(step), step < 0);
+                // A large period can put the boundary outside years 0 through 9999.
+                if (!local_result.template date_add_interval<Flag::Unit>(interval)) {
+                    return false;
+                }
                 if constexpr (Flag::Unit == HOUR || Flag::Unit == MINUTE) {
-                    const int preferred_offset = ts_arg.utc_offset(tz);
                     ts_origin.convert_local_to_utc(tz, local_result, preferred_offset);
                 } else {
                     ts_origin.convert_local_to_utc(tz, local_result);
                 }
+                return true;
+            };
+            if (!resolve()) {
+                return false;
             }
+            if constexpr (Flag::Type == FLOOR) {
+                // A gap can move the candidate after the input. On Lord Howe on
+                // 2024-10-06, 02:15 becomes 02:45, which is after input 02:35.
+                // Select an earlier period until the resolved result is a floor.
+                while (ts_origin > ts_arg) {
+                    step -= period;
+                    if (!resolve()) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        } else {
+            TimeInterval interval(Flag::Unit, std::abs(step), step < 0);
+            return ts_res.template date_add_interval<Flag::Unit>(interval);
         }
-
-        return result;
     }
 
     /// optimized path

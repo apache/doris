@@ -28,6 +28,8 @@ import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.ResolverStyle;
@@ -467,7 +469,17 @@ public class DateUtils {
      * A repeated local time uses its first occurrence. This matches BE zone.lookup(civil).pre.
      */
     public static Instant convertLocalToInstant(LocalDateTime localDateTime, ZoneId fromZone) {
-        return localDateTime.atZone(fromZone).toInstant();
+        return convertLocalToInstant(localDateTime, fromZone, null);
+    }
+
+    /**
+     * Use the same gap rule, with an optional offset for repeated local times.
+     * A calendar operation can keep the input's occurrence in an overlap.
+     * The preferred offset does not change gap resolution.
+     */
+    public static Instant convertLocalToInstant(LocalDateTime localDateTime, ZoneId fromZone,
+            ZoneOffset preferredOffset) {
+        return ZonedDateTime.ofLocal(localDateTime, fromZone, preferredOffset).toInstant();
     }
 
     /**
