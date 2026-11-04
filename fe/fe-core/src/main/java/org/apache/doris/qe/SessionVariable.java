@@ -174,6 +174,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String BATCH_SIZE = "batch_size";
     public static final String BROKER_LOAD_BATCH_SIZE = "broker_load_batch_size";
     public static final String PREFERRED_BLOCK_SIZE_BYTES = "preferred_block_size_bytes";
+    public static final String LAZY_READ_RATIO = "lazy_read_ratio";
     public static final String DISABLE_STREAMING_PREAGGREGATIONS = "disable_streaming_preaggregations";
     public static final String ENABLE_DISTINCT_STREAMING_AGGREGATION = "enable_distinct_streaming_aggregation";
     public static final String ENABLE_STREAMING_AGG_HASH_JOIN_FORCE_PASSTHROUGH =
@@ -1445,6 +1446,12 @@ public class SessionVariable implements Serializable, Writable {
             description = "Target output block size in bytes for adaptive batch size. "
                     + "Range [1MB, 512MB]. Default 8MB.")
     public long preferredBlockSizeBytes = 8388608L; // 8MB
+
+    // Sparse-read physical output columns only when the current batch filters more than this percent.
+    @VarAttrDef.VarAttr(name = LAZY_READ_RATIO, needForward = true, checker = "checkLazyReadRatio",
+            description = "Sparse-read physical output columns when batch filtering exceeds this percent. "
+                    + "Range [0, 100]. Default 50.")
+    public int lazyReadRatio = 50;
 
     @VarAttrDef.VarAttr(name = DISABLE_STREAMING_PREAGGREGATIONS, needForward = true, fuzzy = true)
     public boolean disableStreamPreaggregations = false;
@@ -5781,6 +5788,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setBatchSize(batchSize);
         tResult.setPreferredBlockSizeBytes(preferredBlockSizeBytes);
+        tResult.setLazyReadRatio(lazyReadRatio);
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);
         tResult.setEnableDistinctStreamingAggregation(enableDistinctStreamingAggregation);
         tResult.setEnableStreamingAggHashJoinForcePassthrough(enableStreamingAggHashJoinForcePassthrough);
@@ -6525,6 +6533,17 @@ public class SessionVariable implements Serializable, Writable {
                     "preferred_block_size_bytes should be between 1MB ("
                     + PREFERRED_BLOCK_SIZE_BYTES_MIN + ") and 512MB ("
                     + PREFERRED_BLOCK_SIZE_BYTES_MAX + "), got " + v);
+        }
+    }
+
+    public void checkLazyReadRatio(String value) {
+        try {
+            int ratio = Integer.parseInt(value);
+            if (ratio < 0 || ratio > 100) {
+                throw new InvalidParameterException(LAZY_READ_RATIO + " should be between 0 and 100, got " + ratio);
+            }
+        } catch (NumberFormatException e) {
+            throw new InvalidParameterException(LAZY_READ_RATIO + " should be an integer between 0 and 100");
         }
     }
 
