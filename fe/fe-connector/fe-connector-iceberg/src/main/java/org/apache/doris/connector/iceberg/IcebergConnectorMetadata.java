@@ -111,7 +111,9 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -1891,6 +1893,27 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         if (!column.isNullable() && defaultValue == null) {
             throw new DorisConnectorException("can't add a non-nullable column to an Iceberg table: "
                     + column.getName() + " without a non-null default");
+        }
+        if (defaultValue != null && Types.TimestampType.withZone().equals(icebergType)) {
+            long micros = (Long) defaultValue.value();
+            int precision = column.getType().getPrecision();
+            // Round the resolved instant, so equivalent explicit/session zones retain the same value.
+            if (precision >= 0 && precision < 6) {
+                long unit = (long) Math.pow(10, 6 - precision);
+                long remainder = Math.floorMod(micros, unit);
+                micros -= remainder;
+                if (remainder >= unit / 2) {
+                    micros += unit;
+                }
+            }
+            int utcYear = LocalDateTime.ofEpochSecond(Math.floorDiv(micros, 1_000_000L),
+                    (int) (Math.floorMod(micros, 1_000_000L) * 1000), ZoneOffset.UTC).getYear();
+            // Doris readers accept UTC years 0000 through 9999.
+            if (utcYear < 0 || utcYear > 9999) {
+                throw new IllegalArgumentException("Iceberg TIMESTAMPTZ default for column " + column.getName()
+                        + " is outside the supported UTC range: " + column.getDefaultValue());
+            }
+            defaultValue = Literal.of(micros);
         }
         return defaultValue;
     }

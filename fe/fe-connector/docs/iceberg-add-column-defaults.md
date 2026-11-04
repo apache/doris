@@ -22,11 +22,15 @@ are still rejected by the existing commit checks.
 Boolean defaults accept `0`/`1` and `false`/`true`. DATE and DATETIME defaults
 accept validated SQL date and timestamp strings, preserving fractional
 seconds. External SQL defaults, including compact forms such as `20240102`,
-are normalized before connector conversion using the target type's precision.
+are normalized to canonical text before connector conversion.
 The conversion also retains the existing numeric epoch forms used by
 connector callers. TIMESTAMPTZ literals without an offset use the DDL
 session's time zone, and the persisted default retains that instant when
 read or written in another time zone.
+Zoned defaults are rounded to the requested precision after resolving the
+instant, so explicit and implicit forms of the same time zone agree at DST
+boundaries. Resolved UTC values outside years 0000 through 9999 are rejected
+before the schema update is staged.
 Decimal defaults are exactly rescaled to the declared scale. SQL string escapes
 follow the DDL session's SQL mode, and compact UUID constants are canonicalized.
 Non-finite FLOAT and DOUBLE defaults are rejected before metadata publication

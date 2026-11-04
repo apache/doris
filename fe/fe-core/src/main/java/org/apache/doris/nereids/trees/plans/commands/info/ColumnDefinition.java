@@ -579,10 +579,10 @@ public class ColumnDefinition {
                     Literal normalized;
                     if (type.isTimeStampTzType()) {
                         TimeStampTzType zonedType = (TimeStampTzType) type;
-                        // Keep unqualified values as civil text for the connector's session-zone handling.
+                        // Retain civil precision until the connector binds the session zone.
                         normalized = DateTimeChecker.hasTimeZone(value)
                                 ? new TimestampTzLiteral(zonedType, value)
-                                : new DateTimeV2Literal(DateTimeV2Type.of(zonedType.getScale()), value);
+                                : new DateTimeV2Literal(value);
                     } else if (type.isTimeStampNsType()) {
                         normalized = new TimeStampNsLiteral(value);
                     } else if (type.isDateTimeV2Type()) {
