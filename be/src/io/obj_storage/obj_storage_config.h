@@ -149,8 +149,8 @@ Status validate_obj_client_config(const ObjClientConfig& config);
 // target stays: S3 keeps its endpoint, region and endpoint override, Azure keeps its endpoint.
 // Credentials, connection options, usage, the S3 vendor and addressing, and the Azure account
 // and container come from `update`, as the flat-field merge does. A different backend is a
-// different storage target, which needs a new binding rather than a reset, so it is rejected;
-// S3FileSystem::refresh builds that binding for a refreshed resource.
+// different storage target, which a merge cannot express, so it is rejected;
+// S3FileSystem::refresh handles it for a refreshed resource.
 Result<ObjClientConfig> merge_obj_client_config(const ObjClientConfig& current,
                                                 const ObjClientConfig& update);
 

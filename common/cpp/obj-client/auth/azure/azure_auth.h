@@ -47,8 +47,8 @@ struct AzureSharedKeyConfig {
 using AzureAuthConfig = std::variant<AzureSharedKeyConfig>;
 
 // The fields each method requires for the storage account `account`; returns the error, or
-// nullopt when `auth` is complete. BE checks its inputs with it. Recycler reads storage metadata
-// that the meta service validated when it stored it, and does not check it again.
+// nullopt when `auth` is complete. BE checks its inputs with it. Recycler does not call it:
+// S3Conf::from_obj_store_info loads the SharedKey pair complete or not at all.
 std::optional<std::string> validate_azure_auth(std::string_view account,
                                                const AzureAuthConfig& auth);
 
