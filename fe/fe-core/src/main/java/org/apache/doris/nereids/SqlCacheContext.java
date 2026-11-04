@@ -28,6 +28,7 @@ import org.apache.doris.catalog.OlapTableWrapper;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.cache.SqlCacheMetadataVersions;
 import org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.mvcc.MvccReadSelector;
@@ -48,6 +49,7 @@ import org.apache.doris.qe.cache.SqlCacheVersionProvider;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -57,6 +59,7 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -72,7 +75,7 @@ public class SqlCacheContext {
     private volatile TUniqueId queryId;
     // if contains udf/udaf/tableValuesFunction we can not process it and skip use sql cache
     private volatile boolean cannotProcessExpression;
-    private volatile boolean invalidated;
+    private final SqlCacheMetadataVersions.Snapshot metadataVersions;
     private volatile String originSql;
     private volatile String physicalPlan;
     private volatile long latestPartitionId = -1;
@@ -80,10 +83,9 @@ public class SqlCacheContext {
     private volatile long latestPartitionVersion = -1;
     private volatile long sumOfPartitionNum = -1;
     // value: version of table
-    // Invalidation also reads dependencies while a query is still binding them.
-    private volatile Map<TableReference, TableVersion> usedTables = ImmutableMap.of();
+    private final Map<TableReference, TableVersion> usedTables = Maps.newLinkedHashMap();
     // value: ddl sql
-    private volatile Map<FullTableName, String> usedViews = ImmutableMap.of();
+    private final Map<FullTableName, String> usedViews = Maps.newLinkedHashMap();
     // value: usedColumns
     private final Map<FullTableName, Set<String>> checkPrivilegeTablesOrViews = Maps.newLinkedHashMap();
     private final Map<FullTableName, List<RowFilterSpec>> rowPolicies = Maps.newLinkedHashMap();
@@ -115,7 +117,14 @@ public class SqlCacheContext {
     private Map<String, String> externalCatalogConfigs = Maps.newConcurrentMap();
 
     /** SqlCacheContext */
+    @VisibleForTesting
     public SqlCacheContext(UserIdentity userIdentity) {
+        this(userIdentity, new SqlCacheMetadataVersions().snapshot());
+    }
+
+    /** Create a cache candidate with revisions captured at statement creation. */
+    public SqlCacheContext(UserIdentity userIdentity, SqlCacheMetadataVersions.Snapshot metadataVersions) {
+        this.metadataVersions = metadataVersions;
         if (userIdentity == null) {
             ConnectContext connectContext = ConnectContext.get();
             if (connectContext != null) {
@@ -161,11 +170,11 @@ public class SqlCacheContext {
     }
 
     public boolean supportSqlCache() {
-        return !invalidated && !containsCannotProcessExpression() && !hasUnsupportedTables();
+        return !containsCannotProcessExpression() && !hasUnsupportedTables();
     }
 
-    public void invalidate() {
-        invalidated = true;
+    public boolean metadataVersionsMatch() {
+        return metadataVersions.isCurrent();
     }
 
     /** computeAffectQueryResultVariables */
@@ -210,6 +219,8 @@ public class SqlCacheContext {
             setCannotProcessExpression(true);
             return;
         }
+        metadataVersions.addTable(tableIf.getId(),
+                new FullTableName(catalog.getName(), database.getFullName(), tableIf.getName()));
         if (!catalog.isInternalCatalog() && !this.externalCatalogConfigs.containsKey(catalog.getName())) {
             this.externalCatalogConfigs.put(catalog.getName(), getCatalogConfigs(catalog));
         }
@@ -245,7 +256,7 @@ public class SqlCacheContext {
             LOG.warn("table {}, can not get version", tableIf.getName(), e);
         }
 
-        usedTables = ImmutableMap.<TableReference, TableVersion>builder().putAll(usedTables).put(
+        usedTables.put(
                 new TableReference(new FullTableName(database.getCatalog().getName(),
                         database.getFullName(), tableIf.getName()), selector),
                 new TableVersion(
@@ -259,7 +270,7 @@ public class SqlCacheContext {
                         tableIf instanceof OlapTable ? ((OlapTable) tableIf).getBaseIndexId() : -1L,
                         tableIf instanceof OlapTable ? ((OlapTable) tableIf).getBaseSchemaVersion() : -1
                 )
-        ).buildKeepingLast();
+        );
     }
 
     /** addUsedView */
@@ -277,14 +288,16 @@ public class SqlCacheContext {
             setCannotProcessExpression(true);
             return;
         }
+        metadataVersions.addTable(tableIf.getId(),
+                new FullTableName(catalog.getName(), database.getFullName(), tableIf.getName()));
         if (!catalog.isInternalCatalog() && !this.externalCatalogConfigs.containsKey(catalog.getName())) {
             this.externalCatalogConfigs.put(catalog.getName(), getCatalogConfigs(catalog));
         }
 
-        usedViews = ImmutableMap.<FullTableName, String>builder().putAll(usedViews).put(
+        usedViews.put(
                 new FullTableName(database.getCatalog().getName(), database.getFullName(), tableIf.getName()),
                 ddlSql
-        ).buildKeepingLast();
+        );
     }
 
     /** addNeedCheckPrivilegeTablesOrViews */
@@ -408,7 +421,7 @@ public class SqlCacheContext {
     }
 
     public Map<TableReference, TableVersion> getUsedTables() {
-        return usedTables;
+        return Collections.unmodifiableMap(usedTables);
     }
 
     /** Record native scan dependencies before the first SQL cache key is computed. */

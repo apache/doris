@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.TimeUnit;
 
 /** Metadata and partition dependencies of a partitioned OLAP SQL cache entry. */
 public class OlapTableSqlCacheVersion {
@@ -151,36 +152,55 @@ public class OlapTableSqlCacheVersion {
 
     /** Check metadata first, and refresh partition dependencies when the table's data version changes. */
     public boolean matches(OlapTable table, long currentVersion) throws RpcException {
-        if (!metadataMatches(table)) {
+        List<Partition> partitions = new ArrayList<>(partitionVersions.size());
+        if (!table.tryReadLock(1, TimeUnit.MINUTES)) {
             return false;
         }
-        if (currentVersion == validatedTableVersion) {
-            return true;
+        try {
+            if (!metadataMatches(table)) {
+                return false;
+            }
+            if (currentVersion == validatedTableVersion) {
+                return true;
+            }
+            for (Long id : partitionVersions.keySet()) {
+                partitions.add(table.getPartition(id));
+            }
+        } finally {
+            table.readUnlock();
         }
-        List<Partition> partitions = new ArrayList<>(partitionVersions.size());
-        for (Long id : partitionVersions.keySet()) {
-            partitions.add(table.getPartition(id));
-        }
+        // Publication validation has no planner locks. Keep cloud version IO outside its metadata read locks.
         List<Long> versions = getPartitionVersions(partitions);
-        // Native versions are protected by the statement's table read lock; the extra lock is cloud-only.
-        if (Config.isCloudMode()) {
-            table.versionReadLock();
+        if (!table.tryReadLock(1, TimeUnit.MINUTES)) {
+            return false;
         }
         try {
-            for (int i = 0; i < partitions.size(); i++) {
-                Pair<Long, Long> cached = partitionVersions.get(partitions.get(i).getId());
-                if (!cached.first.equals(versions.get(i))
-                        || (cached.first != Partition.PARTITION_INIT_VERSION
-                                && cached.second != partitions.get(i).getVisibleVersionTime())) {
-                    return false;
+            if (!metadataMatches(table)) {
+                return false;
+            }
+            if (Config.isCloudMode()) {
+                table.versionReadLock();
+            }
+            try {
+                for (int i = 0; i < partitions.size(); i++) {
+                    Partition partition = partitions.get(i);
+                    Pair<Long, Long> cached = partitionVersions.get(partition.getId());
+                    if (table.getPartition(partition.getId()) != partition
+                            || !cached.first.equals(versions.get(i))
+                            || (cached.first != Partition.PARTITION_INIT_VERSION
+                                    && cached.second != partition.getVisibleVersionTime())) {
+                        return false;
+                    }
+                }
+                validatedTableVersion = currentVersion;
+                return true;
+            } finally {
+                if (Config.isCloudMode()) {
+                    table.versionReadUnlock();
                 }
             }
-            validatedTableVersion = currentVersion;
-            return true;
         } finally {
-            if (Config.isCloudMode()) {
-                table.versionReadUnlock();
-            }
+            table.readUnlock();
         }
     }
 

@@ -5896,10 +5896,10 @@ public class Env {
             table.writeLock();
             try {
                 String tableName = table.getName();
-                onTableChanged(table);
                 db.unregisterTable(tableName);
                 table.setName(newTableName);
                 db.registerTable(table);
+                onTableChanged(table, tableName);
                 constraintManager.renameTable(
                         TableNameInfoUtils.fromDb(db, tableName),
                         TableNameInfoUtils.fromDb(db, newTableName));
@@ -7837,9 +7837,14 @@ public class Env {
             invalidateCache("SQL", () -> getSqlCacheManager().invalidateAboutTableData((OlapTable) table));
             return;
         }
+        onTableChanged(table, table.getName());
+    }
+
+    /** Notify after mutation while retaining the original name of a renamed or replaced table. */
+    public void onTableChanged(TableIf table, String originalName) {
         DatabaseIf<?> db = table.getDatabase();
         FullTableName name = db == null || db.getCatalog() == null ? null
-                : new FullTableName(db.getCatalog().getName(), db.getFullName(), table.getName());
+                : new FullTableName(db.getCatalog().getName(), db.getFullName(), originalName);
         onTableChanged(table.getId(), name, table instanceof OlapTable);
     }
 

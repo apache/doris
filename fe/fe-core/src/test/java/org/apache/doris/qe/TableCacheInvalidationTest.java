@@ -31,7 +31,6 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.mtmv.MTMVRelationManager;
 import org.apache.doris.mtmv.MTMVService;
-import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.SqlCacheContext.FullTableName;
 import org.apache.doris.nereids.SqlCacheContext.ScanTable;
@@ -70,7 +69,9 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 class TableCacheInvalidationTest extends TestWithFeService {
@@ -115,6 +116,7 @@ class TableCacheInvalidationTest extends TestWithFeService {
         Env.getCurrentEnv().getSqlCacheManager().invalidateAll();
         Env.getCurrentEnv().getSortedPartitionsCacheManager().invalidateAll();
         aggregates.invalidated.clear();
+        aggregates.onInvalidate = () -> { };
         SimpleAggCacheMgr.setTestInstance(aggregates);
     }
 
@@ -164,22 +166,34 @@ class TableCacheInvalidationTest extends TestWithFeService {
     @Test
     void replayRenameTableRemovesSortedEntryUnderOldName() throws Exception {
         warmBothTables();
+        List<String> namesAtNotification = new ArrayList<>();
+        aggregates.onInvalidate = () -> namesAtNotification.add(target.getName());
         replay(OperationType.OP_RENAME_TABLE,
                 TableInfo.createForTableRename(database.getId(), target.getId(), "target", "renamed"));
         Assertions.assertEquals("renamed", target.getName());
+        Assertions.assertEquals(ImmutableList.of("renamed"), namesAtNotification);
         assertTargetInvalidated();
         getSQLPlanOrErrorMsg("SELECT id FROM cache_replay.renamed WHERE id=1");
         Assertions.assertEquals(2, Env.getCurrentEnv().getSortedPartitionsCacheManager()
                 .getPartitionCaches().estimatedSize());
     }
 
-    @Test
-    void replayReplaceTableInvalidatesBothIdentities() throws Exception {
+    @ParameterizedTest
+    @CsvSource({"false", "true"})
+    void replayReplaceTableInvalidatesBothIdentities(boolean swap) throws Exception {
         warmBothTables();
+        List<Long> identitiesAtNotification = new ArrayList<>();
+        aggregates.onInvalidate = () -> identitiesAtNotification.add(database.getTableNullable("target").getId());
         replay(OperationType.OP_REPLACE_TABLE, new ReplaceTableOperationLog(database.getId(),
-                target.getId(), "target", control.getId(), "control", false, false));
+                target.getId(), "target", control.getId(), "control", swap, false));
         Assertions.assertSame(control, database.getTableNullable("target"));
-        Assertions.assertNull(database.getTableNullable("control"));
+        Assertions.assertFalse(identitiesAtNotification.isEmpty());
+        Assertions.assertTrue(identitiesAtNotification.stream().allMatch(id -> id == control.getId()));
+        if (swap) {
+            Assertions.assertSame(target, database.getTableNullable("control"));
+        } else {
+            Assertions.assertNull(database.getTableNullable("control"));
+        }
         Assertions.assertEquals(0, Env.getCurrentEnv().getSqlCacheManager().getSqlCaches().estimatedSize());
         Assertions.assertEquals(0, Env.getCurrentEnv().getSortedPartitionsCacheManager()
                 .getPartitionCaches().estimatedSize());
@@ -302,18 +316,12 @@ class TableCacheInvalidationTest extends TestWithFeService {
         Assertions.assertEquals(tableVersion, target.getVisibleVersion());
         Assertions.assertEquals(topologyVersion, target.getPartitionTopologyVersion());
         Assertions.assertEquals(schemaVersion, target.getBaseSchemaVersion());
-        if (backend) {
-            CacheAnalyzer analyzer = Mockito.mock(CacheAnalyzer.class);
-            Mockito.when(analyzer.getCache()).thenReturn(Mockito.mock(SqlCache.class));
-            Mockito.when(analyzer.getScanTables()).thenReturn(ImmutableList.of());
-            manager.tryAddBeCache(connectContext, query, analyzer);
-        } else {
-            manager.tryAddFeSqlCache(connectContext, query);
-        }
+        publishCachedQuery(backend, query);
         Assertions.assertEquals(0, manager.getSqlCaches().estimatedSize(),
                 "an executing query must not republish its old metadata dependencies");
-        Assertions.assertFalse(cached.supportSqlCache());
-        Assertions.assertTrue(unrelated.supportSqlCache());
+        Assertions.assertTrue(cached.supportSqlCache());
+        Assertions.assertFalse(cached.metadataVersionsMatch());
+        Assertions.assertTrue(unrelated.metadataVersionsMatch());
     }
 
     @ParameterizedTest
@@ -339,6 +347,54 @@ class TableCacheInvalidationTest extends TestWithFeService {
         Assertions.assertEquals(0, manager.getSqlCaches().estimatedSize());
     }
 
+    @ParameterizedTest
+    @CsvSource({"false", "true"})
+    void publicationValidatesDataWithoutAnInvalidationNotification(boolean backend) throws Exception {
+        target.getPartition("p1").updateVisibleVersionAndTime(3L, 123456L);
+        String query = "SELECT id FROM target PARTITION(p1)";
+        SqlCacheContext cached = prepareCachedQuery(query, target);
+        target.getPartition("p1").updateVisibleVersionAndTime(4L, 123457L);
+        target.updateVisibleVersionAndTime(target.getVisibleVersion() + 1, 123457L);
+        Assertions.assertTrue(cached.metadataVersionsMatch());
+        NereidsSqlCacheManager manager = Env.getCurrentEnv().getSqlCacheManager();
+        publishCachedQuery(backend, query);
+        Assertions.assertEquals(0, manager.getSqlCaches().estimatedSize());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,false", "false,true", "true,false", "true,true"})
+    void publicationPreservesUnchangedPartitionDependencies(boolean backend, boolean writeOtherPartition)
+            throws Exception {
+        String query = "SELECT id FROM target PARTITION(p1)";
+        SqlCacheContext cached = prepareCachedQuery(query, target);
+        if (writeOtherPartition) {
+            target.writeLock();
+            try {
+                Partition p2 = target.getPartition("p2");
+                p2.updateVisibleVersionAndTime(p2.getVisibleVersion() + 1, 123457L);
+                target.updateVisibleVersionAndTime(target.getVisibleVersion() + 1, 123457L);
+                Env.getCurrentEnv().onTableChanged(target, Env.TableChangeType.DATA);
+            } finally {
+                target.writeUnlock();
+            }
+        }
+        publishCachedQuery(backend, query);
+        Assertions.assertTrue(cached.metadataVersionsMatch());
+        Assertions.assertEquals(1, Env.getCurrentEnv().getSqlCacheManager().getSqlCaches().estimatedSize());
+    }
+
+    private void publishCachedQuery(boolean backend, String query) {
+        NereidsSqlCacheManager manager = Env.getCurrentEnv().getSqlCacheManager();
+        if (backend) {
+            CacheAnalyzer analyzer = Mockito.mock(CacheAnalyzer.class);
+            Mockito.when(analyzer.getCache()).thenReturn(Mockito.mock(SqlCache.class));
+            Mockito.when(analyzer.getScanTables()).thenReturn(ImmutableList.of());
+            manager.tryAddBeCache(connectContext, query, analyzer);
+        } else {
+            manager.tryAddFeSqlCache(connectContext, query);
+        }
+    }
+
     private void replayPartitionMetadataChange(boolean rename) throws Exception {
         Partition partition = target.getPartition("p1");
         if (rename) {
@@ -357,11 +413,10 @@ class TableCacheInvalidationTest extends TestWithFeService {
         StatementContext statement = connectContext.getStatementContext();
         // A constant statement has no table dependencies.
         StatementContext constantStatement = new StatementContext(connectContext, new OriginStatement("SELECT 1", 0));
-        new NereidsPlanner(constantStatement);
         SqlCacheContext constant = constantStatement.getSqlCacheContext().get();
         connectContext.setStatementContext(statement);
         NereidsSqlCacheManager manager = Env.getCurrentEnv().getSqlCacheManager();
-        // Replacing the configured cache must not lose the executing-query registration.
+        // Replacing the result-cache container must preserve dependency revisions.
         NereidsSqlCacheManager.updateConfig();
         switch (scope) {
             case "database":
@@ -376,14 +431,15 @@ class TableCacheInvalidationTest extends TestWithFeService {
             default:
                 throw new AssertionError(scope);
         }
-        Assertions.assertFalse(cached.supportSqlCache());
-        Assertions.assertEquals(!scope.equals("all"), constant.supportSqlCache());
+        manager.tryAddFeSqlCache(connectContext, "SELECT id FROM target");
+        Assertions.assertEquals(0, manager.getSqlCaches().estimatedSize());
+        Assertions.assertFalse(cached.metadataVersionsMatch());
+        Assertions.assertEquals(!scope.equals("all"), constant.metadataVersionsMatch());
     }
 
     private SqlCacheContext prepareCachedQuery(String query, OlapTable table) {
         StatementContext statement = new StatementContext(connectContext, new OriginStatement(query, 0));
         connectContext.setStatementContext(statement);
-        new NereidsPlanner(statement);
         SqlCacheContext cached = statement.getSqlCacheContext().get();
         cached.addUsedTable(table);
         if (table.isPartitionedTable()) {
@@ -441,7 +497,8 @@ class TableCacheInvalidationTest extends TestWithFeService {
     }
 
     private SqlCacheContext warmSql(String key, OlapTable table) {
-        SqlCacheContext context = new SqlCacheContext(UserIdentity.ROOT);
+        SqlCacheContext context = new SqlCacheContext(UserIdentity.ROOT,
+                Env.getCurrentEnv().getSqlCacheManager().newMetadataSnapshot());
         context.addUsedTable(table);
         Env.getCurrentEnv().getSqlCacheManager().getSqlCaches().put(key, context);
         return context;
@@ -479,10 +536,12 @@ class TableCacheInvalidationTest extends TestWithFeService {
 
     private static class RecordingSimpleAggCache extends SimpleAggCacheMgr {
         private final Set<Long> invalidated = new HashSet<>();
+        private Runnable onInvalidate = () -> { };
 
         @Override
         public void invalidateTable(long tableId) {
             invalidated.add(tableId);
+            onInvalidate.run();
         }
     }
 }

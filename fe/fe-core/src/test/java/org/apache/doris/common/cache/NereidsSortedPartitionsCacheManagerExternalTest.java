@@ -304,6 +304,7 @@ public class NereidsSortedPartitionsCacheManagerExternalTest {
     /** Supplies the legacy manager for tests that also cover generic ExternalTable delegation. */
     private static MockedStatic<Env> mockEnvWithRangesCacheManager(NereidsSortedPartitionsCacheManager rangesCacheMgr) {
         Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getSqlCacheManager()).thenReturn(new NereidsSqlCacheManager());
         Mockito.when(env.getSortedPartitionsCacheManager()).thenReturn(rangesCacheMgr);
         MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
         envStatic.when(Env::getCurrentEnv).thenReturn(env);

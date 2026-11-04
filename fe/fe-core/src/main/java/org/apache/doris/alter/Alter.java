@@ -845,9 +845,6 @@ public class Alter {
             Env.getCurrentEnv().getConstraintManager().dropAndRenameConstraints(origTableInfo, newTableInfo);
         }
 
-        // Both old names can have dependent rewrite plans, including when the source is not swapped back.
-        Env.getCurrentEnv().onTableChanged(origTable);
-        Env.getCurrentEnv().onTableChanged(newTbl);
         // drop origin table and new table
         db.unregisterTable(oldTblName);
         db.unregisterTable(newTblName);
@@ -858,8 +855,11 @@ public class Alter {
             // rename origin table name to new table name and add it to database
             origTable.checkAndSetName(newTblName, false);
             db.registerTable(origTable);
-        } else {
-
+        }
+        // Advance revisions after the name mapping changes, retaining both original dependency identities.
+        Env.getCurrentEnv().onTableChanged(origTable, oldTblName);
+        Env.getCurrentEnv().onTableChanged(newTbl, newTblName);
+        if (!swapTable) {
             // not swap, the origin table is not used anymore, need to drop all its tablets.
             // put original table to recycle bin.
             if (isForce) {
