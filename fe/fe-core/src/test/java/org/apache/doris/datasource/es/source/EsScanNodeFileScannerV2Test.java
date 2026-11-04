@@ -22,6 +22,7 @@ import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
@@ -35,6 +36,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.datasource.es.DorisEsException;
 import org.apache.doris.datasource.es.EsFieldContext;
+import org.apache.doris.datasource.es.EsMappingUtils;
 import org.apache.doris.datasource.es.EsShardPartitions;
 import org.apache.doris.datasource.es.EsShardRouting;
 import org.apache.doris.datasource.es.EsTablePartitions;
@@ -190,6 +192,43 @@ class EsScanNodeFileScannerV2Test {
                     java.lang.reflect.InvocationTargetException.class, () -> build.invoke(rejected));
             Assertions.assertInstanceOf(DorisEsException.class, error.getCause());
             Assertions.assertTrue(error.getCause().getMessage().contains("Cannot evaluate esquery locally"));
+        }
+    }
+
+    @Test
+    void mappedDateFormatsReachBothScanProtocols() throws Exception {
+        String mapping = "{\"test\":{\"mappings\":{\"properties\":{\"id\":"
+                + "{\"type\":\"date\",\"format\":\"basic_date||epoch_millis\"}}}}}";
+        for (boolean v2 : Arrays.asList(false, true)) {
+            TestScanNode node = createNode(v2);
+            EsTable table = (EsTable) node.getTupleDesc().getTable();
+            Mockito.doReturn(EsMappingUtils.resolveFieldContext(Collections.singletonList("id"),
+                    "test", mapping, null)).when(table).fieldContext();
+            java.util.Map<String, String> properties = v2
+                    ? node.getScanRangeLocations(0).get(0).getScanRange().getExtScanRange()
+                            .getFileScanRange().getParams().getEsProperties()
+                    : node.serialize().getEsScanNode().getProperties();
+            Assertions.assertEquals("{\"test\":{\"id\":\"basic_date||epoch_millis\"}}",
+                    properties.get("date_format_context"));
+        }
+    }
+
+    @Test
+    void sourceJsonbNullPredicatesStayLocalWithBothScanners() throws Exception {
+        for (boolean v2 : Arrays.asList(false, true)) {
+            for (boolean notNull : Arrays.asList(false, true)) {
+                TestScanNode node = createNode(v2);
+                EsTable table = (EsTable) node.getTupleDesc().getTable();
+                Mockito.doReturn(new Column("obj", Type.JSONB)).when(table).getColumn("obj");
+                Expr predicate = new IsNullPredicate(new SlotRef(null, "obj"), notNull);
+                node.getConjuncts().add(predicate);
+                Method build = EsScanNode.class.getDeclaredMethod("buildQuery");
+                build.setAccessible(true);
+                build.invoke(node);
+                Assertions.assertEquals(Collections.singletonList(predicate), node.getConjuncts());
+                Assertions.assertTrue(node.getNodeExplainString("", org.apache.doris.thrift.TExplainLevel.NORMAL)
+                        .contains("REMOTE_PREDICATES: {\"match_all\":{}}"));
+            }
         }
     }
 

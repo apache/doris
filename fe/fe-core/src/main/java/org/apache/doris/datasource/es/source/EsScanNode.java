@@ -41,6 +41,7 @@ import org.apache.doris.datasource.es.QueryBuilders;
 import org.apache.doris.datasource.es.QueryBuilders.BoolQueryBuilder;
 import org.apache.doris.datasource.es.QueryBuilders.BuilderOptions;
 import org.apache.doris.datasource.es.QueryBuilders.QueryBuilder;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.PartitionPruner;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.RangePartitionPrunerV2;
@@ -200,6 +201,9 @@ public class EsScanNode extends ExternalScanNode {
             properties.put("read_full_source", "true");
         }
         properties.put(EsResource.QUERY_DSL, queryBuilder.toJson());
+        if (!table.fieldContext().getDateFormatContext().isEmpty()) {
+            properties.put("date_format_context", GsonUtils.GSON.toJson(table.fieldContext().getDateFormatContext()));
+        }
         if (table.isEnableKeywordSniff() && table.fieldsContext().size() > 0) {
             esScanNode.setFieldsContext(table.fieldsContext());
         }
@@ -507,8 +511,10 @@ public class EsScanNode extends ExternalScanNode {
             String name = ((SlotRef) expr).getColumnName();
             if (!"_id".equals(name) && table.getColumn(name) != null
                     && (table.getColumn(name).getType().isStringType()
-                            || table.getColumn(name).getType().isArrayType())) {
-                // A source string can be the whole JSON array instead of one indexed element.
+                            || table.getColumn(name).getType().isArrayType()
+                            || table.getColumn(name).getType().isJsonbType())) {
+                // Source containers such as {} are nonnull even when ES indexes no leaf value.
+                // A source string can also be the whole JSON array instead of one indexed element.
                 fields.add(name);
             }
         }

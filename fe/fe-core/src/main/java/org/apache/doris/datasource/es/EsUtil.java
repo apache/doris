@@ -112,7 +112,8 @@ public class EsUtil {
     public static List<Column> genColumnsFromEs(EsRestClient client, String indexName, String mappingType,
             boolean mappingEsId, Map<String, String> column2typeMap) {
         String mapping = client.getMapping(indexName);
-        ObjectNode mappings = getMapping(mapping);
+        // Inference and scans must select the same legacy type across alias backings.
+        ObjectNode mappings = EsMappingUtils.getMapping(mapping, mappingType);
         // Get array_fields while removing _meta property.
         List<String> arrayFields = new ArrayList<>();
         ObjectNode rootSchema = getRootSchema(mappings, mappingType, arrayFields);

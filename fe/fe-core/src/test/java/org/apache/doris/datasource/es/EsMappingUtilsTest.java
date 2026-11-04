@@ -198,6 +198,28 @@ public class EsMappingUtilsTest {
     }
 
     @Test
+    void aliasBackingSelectionHonorsTheRequestedLegacyType() {
+        String mapping = "{\"a\":{\"mappings\":{\"empty\":{},\"wanted\":{\"properties\":"
+                + "{\"x\":{\"type\":\"long\"}}}}},\"b\":{\"mappings\":{\"other\":{\"properties\":"
+                + "{\"y\":{\"type\":\"long\"}}}}}}";
+        Assertions.assertEquals("long", EsMappingUtils.getMappingProps("alias", mapping, "wanted")
+                .path("x").path("type").asText());
+        Assertions.assertEquals("long", EsMappingUtils.resolveFieldContext(
+                Collections.singletonList("x"), "alias", mapping, "wanted").getColumn2typeMap().get("x"));
+    }
+
+    @Test
+    void sourceNumericPredicatesStayLocalWithoutDisablingDocvalues() {
+        for (String type : Arrays.asList("byte", "short", "integer", "long", "unsigned_long", "float", "double")) {
+            String mapping = "{\"test\":{\"mappings\":{\"properties\":{\"n\":{\"type\":\"" + type + "\"}}}}}";
+            EsFieldContext fields = EsMappingUtils.resolveFieldContext(
+                    Collections.singletonList("n"), "test", mapping, null);
+            Assertions.assertTrue(fields.getSourceModeUnsafeFields().contains("n"), type);
+            Assertions.assertEquals("n", fields.getDocValueFieldsContext().get("n"), type);
+        }
+    }
+
+    @Test
     void runtimeFieldNamedPropertiesIsNotALegacyType() throws Exception {
         ObjectNode mapping = (ObjectNode) new ObjectMapper().readTree(
                 "{\"runtime\":{\"properties\":{\"type\":\"long\"}}}");
