@@ -27,7 +27,8 @@ using EmitProbMap = std::unordered_map<Rune, double>;
 // read by atof, and one line of emission probabilities for each of B, E, M and S:
 // "rune:probability" pairs split at ','. A missing or illegal line fails the load; a later pair of
 // the same rune replaces the earlier one, and what follows the S line is not read. Upstream's
-// statMap, which only printing read, is gone.
+// statMap, which only printing read, is gone, and so is GetEmitProb: the cuts read the model as
+// FlatDict lays it out.
 struct HMMModel {
     /*
      * STATUS:
@@ -99,14 +100,6 @@ struct HMMModel {
         if (!get_line(ifile, line) || !load_emit_prob(line, emit_prob_s)) {
             throw_illegal(file_path, "S emission probability");
         }
-    }
-
-    double get_emit_prob(const EmitProbMap* pt_mp, Rune key, double def_val) const {
-        const auto cit = pt_mp->find(key);
-        if (cit == pt_mp->end()) {
-            return def_val;
-        }
-        return cit->second;
     }
 
     // The next line that is neither blank nor a comment, trimmed.

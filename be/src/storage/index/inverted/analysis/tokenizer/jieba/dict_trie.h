@@ -8,16 +8,13 @@
 #include <cstddef>
 #include <cstdlib>
 #include <fstream>
-#include <memory>
 #include <string>
 #include <unordered_set>
 #include <vector>
 
-#include "common/check.h"
 #include "common/exception.h"
 #include "common/logging.h"
 #include "storage/index/inverted/analysis/tokenizer/jieba/string_util.h"
-#include "storage/index/inverted/analysis/tokenizer/jieba/trie.h"
 #include "storage/index/inverted/analysis/tokenizer/jieba/unicode.h"
 
 namespace doris::segment_v2::inverted_index::jieba {
@@ -25,7 +22,14 @@ namespace doris::segment_v2::inverted_index::jieba {
 inline constexpr double MIN_DOUBLE = -3.14e+100;
 inline constexpr size_t DICT_COLUMN_NUM = 3;
 
-// The words of the main dictionary and the user dictionaries, with their weights, in a trie.
+// A dictionary word and its weight. Upstream's part-of-speech tag is gone: only tagging read it.
+struct DictUnit {
+    Unicode word;
+    double weight = 0.0;
+};
+
+// The words of the main dictionary and the user dictionaries, with their weights. FlatDict builds
+// the trie the cuts walk out of them; upstream built a trie of pointers to these units here.
 //
 // A main dictionary line is "word frequency tag", three columns split at single spaces, with the
 // frequency read by atof; any other line fails the load. A word's weight is log(frequency / the sum
@@ -33,7 +37,7 @@ inline constexpr size_t DICT_COLUMN_NUM = 3;
 // first two take the median weight of the main dictionary (upstream's default WordWeightMedian, the
 // only option Jieba used), the third log(frequency / the main dictionary's sum), with the frequency
 // read by atoi. A user line with more columns adds a unit with no word, and every user word of one
-// rune is remembered for is_user_dict_single_chinese_word(), whatever its script.
+// rune is remembered in user_dict_single_chinese_words(), whatever its script.
 class DictTrie {
 public:
     // `user_dict_paths` lists the user dictionaries, separated by '|' or ';'.
@@ -41,18 +45,22 @@ public:
         init(dict_path, user_dict_paths);
     }
 
-    void find(RuneStrArray::const_iterator begin, RuneStrArray::const_iterator end,
-              std::vector<Dag>& res, size_t max_word_len = MAX_WORD_LENGTH) const {
-        _trie->find(begin, end, res, max_word_len);
-    }
+    // One unit for every line of the main dictionary and then of the user dictionaries, in the
+    // order of the files and their lines. A unit whose word did not decode has an empty word and
+    // is no word of the trie; of several units of the same word, the trie takes the last, which
+    // lets a user word replace the main dictionary's unit of that word, as upstream's trie did
+    // when it inserted the units in this order.
+    const std::vector<DictUnit>& units() const { return _static_node_infos; }
 
-    bool is_user_dict_single_chinese_word(const Rune& word) const {
-        return _user_dict_single_chinese_word.contains(word);
+    const std::unordered_set<Rune>& user_dict_single_chinese_words() const {
+        return _user_dict_single_chinese_word;
     }
 
     double get_min_weight() const { return _min_weight; }
 
 private:
+    // Upstream also shrank the units to fit before it pointed its trie into them; nothing keeps
+    // them now.
     void init(const std::string& dict_path, const std::string& user_dict_paths) {
         load_dict(dict_path);
         _freq_sum = calc_freq_sum(_static_node_infos);
@@ -61,21 +69,6 @@ private:
 
         // Upstream skipped this for an empty list, which splits into no file anyway.
         load_user_dict(user_dict_paths);
-        shrink(_static_node_infos);
-        create_trie(_static_node_infos);
-    }
-
-    // The trie points into _static_node_infos, which no longer changes.
-    void create_trie(const std::vector<DictUnit>& dict_units) {
-        DORIS_CHECK(!dict_units.empty());
-        std::vector<Unicode> words;
-        std::vector<const DictUnit*> value_pointers;
-        for (const DictUnit& dict_unit : dict_units) {
-            words.push_back(dict_unit.word);
-            value_pointers.push_back(&dict_unit);
-        }
-
-        _trie = std::make_unique<Trie>(words, value_pointers);
     }
 
     // Decodes `word` into the unit and sets its weight. A word that does not decode leaves the
@@ -195,10 +188,7 @@ private:
         }
     }
 
-    static void shrink(std::vector<DictUnit>& units) { units.shrink_to_fit(); }
-
     std::vector<DictUnit> _static_node_infos;
-    std::unique_ptr<Trie> _trie;
 
     double _freq_sum = 0.0;
     double _min_weight = 0.0;
