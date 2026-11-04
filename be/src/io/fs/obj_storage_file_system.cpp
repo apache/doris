@@ -89,7 +89,7 @@ Result<std::shared_ptr<ObjStorageFileSystem>> ObjStorageFileSystem::create(ObjSt
     return fs;
 }
 
-Result<std::shared_ptr<ObjStorageFileSystem>> ObjStorageFileSystem::refresh(
+Result<std::shared_ptr<ObjStorageFileSystem>> ObjStorageFileSystem::refresh_resource(
         std::shared_ptr<ObjStorageFileSystem> fs, ObjStorageConfig config) {
     const auto& holder = fs->client_holder();
     auto current = holder->state();

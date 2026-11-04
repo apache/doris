@@ -1810,7 +1810,7 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
                 << param.id << ' ' << param.name;
         // FE allows an ALTER RESOURCE to another backend, e.g. S3 to Azure; refresh then builds
         // a new file system instead of keeping the old target.
-        auto res = io::ObjStorageFileSystem::refresh(
+        auto res = io::ObjStorageFileSystem::refresh_resource(
                 std::static_pointer_cast<io::ObjStorageFileSystem>(existed_fs),
                 std::move(config).value());
         if (!res.has_value()) {

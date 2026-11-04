@@ -661,7 +661,7 @@ TEST_F(ObjClientFactoryTest, RefreshKeepsTheHolderWhileTheTargetStays) {
     as_oss.__set_provider(TObjStorageType::OSS);
     as_oss.__set_endpoint("other-endpoint.example.com");
     auto oss_storage = TEST_TRY(ObjStorageConfigResolver::from_storage_param(as_oss));
-    auto after_oss = TEST_TRY(ObjStorageFileSystem::refresh(fs, oss_storage));
+    auto after_oss = TEST_TRY(ObjStorageFileSystem::refresh_resource(fs, oss_storage));
     EXPECT_EQ(after_oss, fs);
     EXPECT_EQ(reader->state()->config.provider(), ObjStorageProvider::OSS);
     EXPECT_EQ(reader->state()->config.endpoint(), "rebind.example.com");
@@ -670,7 +670,7 @@ TEST_F(ObjClientFactoryTest, RefreshKeepsTheHolderWhileTheTargetStays) {
     as_azure.__set_bucket("frozen-bucket");
     as_azure.__set_root_path("frozen-root");
     auto azure_storage = TEST_TRY(ObjStorageConfigResolver::from_storage_param(as_azure));
-    auto azure_refresh = ObjStorageFileSystem::refresh(fs, azure_storage);
+    auto azure_refresh = ObjStorageFileSystem::refresh_resource(fs, azure_storage);
 #ifdef USE_AZURE
     ASSERT_TRUE(azure_refresh.has_value()) << azure_refresh.error();
     EXPECT_EQ(azure_refresh.value(), fs);
@@ -680,7 +680,7 @@ TEST_F(ObjClientFactoryTest, RefreshKeepsTheHolderWhileTheTargetStays) {
     ASSERT_NE(azure_client, nullptr);
 
     // Reverting reaches the holder that readers kept.
-    auto reverted = TEST_TRY(ObjStorageFileSystem::refresh(fs, storage));
+    auto reverted = TEST_TRY(ObjStorageFileSystem::refresh_resource(fs, storage));
     EXPECT_EQ(reverted, fs);
     EXPECT_EQ(reader->state()->config.provider(), ObjStorageProvider::AWS);
     EXPECT_NE(reader->get(), azure_client);
@@ -689,7 +689,7 @@ TEST_F(ObjClientFactoryTest, RefreshKeepsTheHolderWhileTheTargetStays) {
     auto rotated = param;
     rotated.__set_sk("rotated-after-revert");
     auto rotated_storage = TEST_TRY(ObjStorageConfigResolver::from_storage_param(rotated));
-    auto after_rotation = TEST_TRY(ObjStorageFileSystem::refresh(fs, rotated_storage));
+    auto after_rotation = TEST_TRY(ObjStorageFileSystem::refresh_resource(fs, rotated_storage));
     EXPECT_EQ(after_rotation, fs);
     EXPECT_EQ(secret_key_of(reader->state()->config), "rotated-after-revert");
 #else
@@ -709,7 +709,7 @@ TEST_F(ObjClientFactoryTest, RefreshResetsTheSameBackendAndRebuildsAMovedTarget)
     auto rotated = param;
     rotated.__set_sk("rotated-sk");
     auto rotated_storage = TEST_TRY(ObjStorageConfigResolver::from_storage_param(rotated));
-    auto same = TEST_TRY(ObjStorageFileSystem::refresh(fs, rotated_storage));
+    auto same = TEST_TRY(ObjStorageFileSystem::refresh_resource(fs, rotated_storage));
     EXPECT_EQ(same, fs);
     EXPECT_EQ(secret_key_of(fs->client_holder()->state()->config), "rotated-sk");
 
@@ -719,7 +719,7 @@ TEST_F(ObjClientFactoryTest, RefreshResetsTheSameBackendAndRebuildsAMovedTarget)
     auto azure_param = make_azure_param("refresh-azure.example.com");
     azure_param.__set_root_path("azure-root");
     auto azure_storage = TEST_TRY(ObjStorageConfigResolver::from_storage_param(azure_param));
-    auto rebuilt = ObjStorageFileSystem::refresh(fs, azure_storage);
+    auto rebuilt = ObjStorageFileSystem::refresh_resource(fs, azure_storage);
 #ifdef USE_AZURE
     ASSERT_TRUE(rebuilt.has_value()) << rebuilt.error();
     EXPECT_NE(rebuilt.value(), fs);

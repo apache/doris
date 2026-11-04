@@ -151,7 +151,7 @@ Status validate_obj_client_config(const ObjClientConfig& config);
 // Credentials, connection options, usage, the S3 vendor and addressing, and the Azure account
 // and container come from `update`, as the flat-field merge does. A different backend is a
 // different storage target, which a merge cannot express, so it is rejected;
-// ObjStorageFileSystem::refresh handles it for a refreshed resource.
+// ObjStorageFileSystem::refresh_resource handles it for a refreshed resource.
 Result<ObjClientConfig> merge_obj_client_config(const ObjClientConfig& current,
                                                 const ObjClientConfig& update);
 
