@@ -20,6 +20,7 @@
 
 import os
 import pathlib
+import re
 import subprocess
 import tempfile
 import unittest
@@ -38,11 +39,12 @@ class RedactFileEncryptionTest(unittest.TestCase):
         for language in ("java", "cpp"):
             destination = cls.output / language
             destination.mkdir()
-            subprocess.run([str(thirdparty / "installed/bin/thrift"), "--gen", language,
-                            "-out", str(destination), str(ROOT / "gensrc/thrift/FileEncryption.thrift")],
+            subprocess.run([str(thirdparty / "installed/bin/thrift"), "-r", "--gen", language,
+                            "-I", str(ROOT / "gensrc/thrift"), "-I", str(ROOT / "gensrc/build/thrift"),
+                            "-out", str(destination), str(ROOT / "gensrc/thrift/PlanNodes.thrift")],
                            check=True, capture_output=True)
         cls.java = (cls.output / "java/org/apache/doris/thrift/TFileEncryptionInfo.java").read_text()
-        cls.cpp = (cls.output / "cpp/FileEncryption_types.cpp").read_text()
+        cls.cpp = (cls.output / "cpp/PlanNodes_types.cpp").read_text()
 
     @classmethod
     def tearDownClass(cls):
@@ -60,7 +62,9 @@ class RedactFileEncryptionTest(unittest.TestCase):
         transformed = redact.redact_cpp(self.cpp)
         again = redact.redact_cpp(transformed.replace("\n// " + redact.MARKER + "\n", ""))
         self.assertEqual(transformed, again)
-        self.assertNotIn("to_string(key)", transformed)
+        diagnostic = re.search(r"void TFileEncryptionInfo::printTo\(std::ostream& out\) const \{.*?\n\}",
+                               transformed, re.S).group()
+        self.assertNotIn("to_string(key)", diagnostic)
         self.assertIn("TCompactProtocolT<TMemoryBuffer>", transformed)
 
     def test_generator_drift_fails_closed(self):
@@ -70,6 +74,13 @@ class RedactFileEncryptionTest(unittest.TestCase):
             redact.redact_java(self.java.replace("aad_prefix;", "renamed;"))
         with self.assertRaises(ValueError):
             redact.redact_cpp(self.cpp.replace("::write(", "::renamed("))
+
+    def test_other_plan_descriptors_keep_their_diagnostics(self):
+        transformed = redact.redact_cpp(self.cpp)
+        signature = r"void TFileRangeDesc::printTo\(std::ostream& out\) const \{.*?\n\}"
+        original = re.search(signature, self.cpp, re.S)
+        self.assertIsNotNone(original)
+        self.assertEqual(original.group(), re.search(signature, transformed, re.S).group())
 
 
 if __name__ == "__main__":

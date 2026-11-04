@@ -55,9 +55,9 @@ inline Status validate_file_scan_support(const TFileScanRangeParams& params,
                 }
             }
             // A plain data file can still have encrypted deletes. Reject before reader selection,
-            // caches or metadata COUNT shortcuts; protocol recognition does not implement decryption.
+            // caches or metadata COUNT shortcuts until native decryption is implemented.
             if (encrypted) {
-                return Status::NotSupported("File encryption [BACKEND_CAPABILITY_UNAVAILABLE]");
+                return Status::NotSupported("File encryption [READ_UNAVAILABLE]");
             }
         }
         return Status::OK();

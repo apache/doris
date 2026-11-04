@@ -20,7 +20,6 @@ package org.apache.doris.datasource.scan;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.rpc.FileScanEncryption;
-import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TFileEncryptionInfo;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRange;
@@ -42,24 +41,19 @@ public final class FileScanEncryptionGuard {
     private FileScanEncryptionGuard() {
     }
 
-    public static void checkBackend(Backend backend) {
-        if (backend == null || !backend.getConnectorCapabilities()
-                .contains(FileScanEncryption.ICEBERG_READER_CAPABILITY)) {
-            throw new IllegalStateException("File encryption [BACKEND_CAPABILITY_UNAVAILABLE]");
-        }
-        // OSS fragment channels use plaintext; split responses use a separate FE RPC channel.
-        // Reader support alone must never authorize sending an unwrapped key over either channel.
-        throw new IllegalStateException("File encryption [RPC_PROTECTION_UNAVAILABLE]");
+    private static void rejectEncryptedRead() {
+        // Native decryption and protected transport for file keys are not implemented yet.
+        throw new IllegalStateException("File encryption [READ_UNAVAILABLE]");
     }
 
-    public static void checkFragments(TPipelineFragmentParamsList fragments, Backend backend) {
+    public static void checkFragments(TPipelineFragmentParamsList fragments) {
         if (!fragments.isSetParamsList()) {
             return;
         }
         for (TPipelineFragmentParams fragment : fragments.getParamsList()) {
             if (fragment.isSetFileScanParams()) {
                 for (TFileScanRangeParams params : fragment.getFileScanParams().values()) {
-                    checkParams(params, backend);
+                    checkParams(params);
                 }
             }
             if (fragment.isSetLocalParams()) {
@@ -67,7 +61,7 @@ public final class FileScanEncryptionGuard {
                     if (instance.isSetPerNodeScanRanges()) {
                         for (List<TScanRangeParams> ranges : instance.getPerNodeScanRanges().values()) {
                             for (TScanRangeParams range : ranges) {
-                                checkRange(range.getScanRange(), backend);
+                                checkRange(range.getScanRange());
                             }
                         }
                     }
@@ -76,25 +70,25 @@ public final class FileScanEncryptionGuard {
         }
     }
 
-    public static void checkBatch(List<TScanRangeLocations> ranges, Backend backend) {
+    public static void checkBatch(List<TScanRangeLocations> ranges) {
         for (TScanRangeLocations range : ranges) {
-            checkRange(range.getScanRange(), backend);
+            checkRange(range.getScanRange());
         }
     }
 
-    private static void checkParams(TFileScanRangeParams params, Backend backend) {
+    private static void checkParams(TFileScanRangeParams params) {
         if (params.isSetTableFormatParams() && FileScanEncryption.validate(params.getTableFormatParams())) {
-            checkBackend(backend);
+            rejectEncryptedRead();
         }
     }
 
-    private static void checkRange(TScanRange range, Backend backend) {
+    private static void checkRange(TScanRange range) {
         if (!range.isSetExtScanRange() || !range.getExtScanRange().isSetFileScanRange()) {
             return;
         }
         TFileScanRange fileScan = range.getExtScanRange().getFileScanRange();
         if (fileScan.isSetParams()) {
-            checkParams(fileScan.getParams(), backend);
+            checkParams(fileScan.getParams());
         }
         if (fileScan.isSetRanges()) {
             DebugPoint injection = DebugPointUtil.getDebugPoint("FileScanEncryptionGuard.inject");
@@ -106,7 +100,7 @@ public final class FileScanEncryptionGuard {
                     table = injectedDescriptor(injection);
                 }
                 if (table != null && FileScanEncryption.validate(table)) {
-                    checkBackend(backend);
+                    rejectEncryptedRead();
                 }
             }
         }

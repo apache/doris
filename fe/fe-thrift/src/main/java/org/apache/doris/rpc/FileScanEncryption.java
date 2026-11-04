@@ -25,8 +25,6 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 /** Wire validation shared by scan planning and dispatch; never formats secret payloads. */
 public final class FileScanEncryption {
     public static final int VERSION = 1;
-    public static final String PROTOCOL_CAPABILITY = "file-encryption-v1";
-    public static final String ICEBERG_READER_CAPABILITY = "iceberg-pme-reader-v1";
 
     private FileScanEncryption() {
     }

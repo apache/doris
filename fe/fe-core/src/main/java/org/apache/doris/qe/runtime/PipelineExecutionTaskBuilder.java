@@ -119,8 +119,7 @@ public class PipelineExecutionTaskBuilder {
                 .parallelStream()
                 .map(kv -> {
                     try {
-                        FileScanEncryptionGuard.checkFragments(kv.getValue(),
-                                ((BackendWorker) kv.getKey()).getBackend());
+                        FileScanEncryptionGuard.checkFragments(kv.getValue());
                         ByteString serializeString =
                                 new TFastSerializer(1024, new Factory()).serialize(kv.getValue());
                         return Pair.of(kv.getKey(), serializeString);

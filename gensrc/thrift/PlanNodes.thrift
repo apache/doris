@@ -24,7 +24,6 @@ include "Opcodes.thrift"
 include "Partitions.thrift"
 include "Descriptors.thrift"
 include "ExternalTableSchema.thrift"
-include "FileEncryption.thrift"
 
 enum TPlanNodeType {
   OLAP_SCAN_NODE = 0,
@@ -323,6 +322,16 @@ struct TFileAttributes {
     1001: optional bool ignore_csv_redundant_col;
 }
 
+// Query-scoped secrets. Generated diagnostics are redacted by redact_file_encryption.py.
+// Only binary/compact RPC preserves this payload; diagnostic JSON is deliberately lossy.
+struct TFileEncryptionInfo {
+    // Version 1: Parquet AES_GCM_V1, with an unwrapped file key and the exact SDK AAD prefix.
+    1: optional i32 version;
+    2: optional binary key;
+    // Presence is required by version 1, including when the prefix is empty.
+    3: optional binary aad_prefix;
+}
+
 struct TIcebergDeleteFileDesc {
     1: optional string path;
     2: optional i64 position_lower_bound;
@@ -341,7 +350,7 @@ struct TIcebergDeleteFileDesc {
     10: optional string referenced_data_file_path;
     11: optional i64 file_size;
     // Independent of the data file key. Absence retains plaintext semantics.
-    12: optional FileEncryption.TFileEncryptionInfo encryption_info;
+    12: optional TFileEncryptionInfo encryption_info;
 }
 
 struct TIcebergFileDesc {
@@ -369,7 +378,7 @@ struct TIcebergFileDesc {
     // equality_delete_schema` (the split-local schema of dropped equality-delete keys). Master
     // carries those schemas in TFileScanRangeParams.history_schema_info. Do not reuse this id.
     // Absence retains plaintext semantics; an empty or unsupported payload must never do so.
-    14: optional FileEncryption.TFileEncryptionInfo encryption_info;
+    14: optional TFileEncryptionInfo encryption_info;
 }
 
 struct TPaimonDeletionFileDesc {

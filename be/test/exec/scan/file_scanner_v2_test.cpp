@@ -89,9 +89,7 @@ TEST(FileScannerV2Test, EncryptionNeverFallsThroughToPlainReadersOrCounts) {
             iceberg.__set_delete_files({file});
         }
         range.table_format_params.__set_iceberg_params(iceberg);
-        EXPECT_NE(validate_file_scan_support(params, &range)
-                          .to_string()
-                          .find("BACKEND_CAPABILITY_UNAVAILABLE"),
+        EXPECT_NE(validate_file_scan_support(params, &range).to_string().find("READ_UNAVAILABLE"),
                   std::string::npos);
         params.__set_table_format_params(range.table_format_params);
         EXPECT_FALSE(validate_file_scan_support(params).ok());

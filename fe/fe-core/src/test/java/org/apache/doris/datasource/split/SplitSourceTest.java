@@ -453,7 +453,7 @@ public class SplitSourceTest {
         assignment.finishSchedule();
         SplitSource source = new SplitSource(backend, assignment, 1000);
         UserException failure = Assertions.assertThrows(UserException.class, () -> source.getNextBatch(10));
-        Assertions.assertTrue(failure.getMessage().contains("BACKEND_CAPABILITY_UNAVAILABLE"));
+        Assertions.assertTrue(failure.getMessage().contains("READ_UNAVAILABLE"));
         Assertions.assertSame(failure, Assertions.assertThrows(UserException.class, () -> source.getNextBatch(10)),
                 "A denied last batch must not become a successful EOF on retry");
         Assertions.assertSame(failure, Assertions.assertThrows(UserException.class,

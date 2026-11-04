@@ -35,7 +35,7 @@ THRIFT_CPP_ARGS = -I ${CURDIR} -I ${BUILD_DIR}/thrift/ --gen cpp:moveable_types,
 ${BUILD_DIR}/gen_cpp:
 	mkdir -p $@
 # handwrite thrift
-${BUILD_DIR}/gen_cpp/FileEncryption_types.cpp: ${CURDIR}/FileEncryption.thrift ${CURDIR}/../script/redact_file_encryption.py | ${BUILD_DIR}/gen_cpp
+${BUILD_DIR}/gen_cpp/PlanNodes_types.cpp: ${CURDIR}/PlanNodes.thrift ${CURDIR}/../script/redact_file_encryption.py | ${BUILD_DIR}/gen_cpp
 	${THRIFT} ${THRIFT_CPP_ARGS} $<
 	python3 ${CURDIR}/../script/redact_file_encryption.py --cpp $@
 

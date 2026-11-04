@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "gen_cpp/FileEncryption_types.h"
+#include "gen_cpp/PlanNodes_types.h"
 
 namespace doris::format {
 

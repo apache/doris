@@ -166,7 +166,7 @@ public class SplitSource {
         }
         // Lazy splits leave FE after initial dispatch; apply the same checks before each RPC response.
         try {
-            FileScanEncryptionGuard.checkBatch(scanRanges, backend);
+            FileScanEncryptionGuard.checkBatch(scanRanges);
         } catch (IllegalArgumentException | IllegalStateException e) {
             // The rejected ranges were already drained. Stop every producer and preserve the error,
             // including when this source had marked its last batch before checking the descriptors.

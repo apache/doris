@@ -62,11 +62,11 @@ suite("test_iceberg_encryption_wire_guard", "p0,external,nonConcurrent") {
                         for (int attempt = 0; attempt < 2; attempt++) {
                             test {
                                 sql "SELECT id FROM encryption_wire_regression.iceberg_encryption_wire_db.guard_data_v${version} ORDER BY id"
-                                exception "File encryption [BACKEND_CAPABILITY_UNAVAILABLE]"
+                                exception "File encryption [READ_UNAVAILABLE]"
                             }
                             test {
                                 sql "SELECT COUNT(*) FROM encryption_wire_regression.iceberg_encryption_wire_db.guard_data_v${version}"
-                                exception "File encryption [BACKEND_CAPABILITY_UNAVAILABLE]"
+                                exception "File encryption [READ_UNAVAILABLE]"
                             }
                         }
                         GetDebugPoint().disableDebugPointForAllFEs(point)

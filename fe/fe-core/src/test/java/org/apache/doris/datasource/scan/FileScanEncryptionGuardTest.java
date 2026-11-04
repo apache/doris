@@ -17,8 +17,6 @@
 
 package org.apache.doris.datasource.scan;
 
-import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileEncryptionInfo;
 import org.apache.doris.thrift.TFileRangeDesc;
@@ -42,9 +40,9 @@ import java.util.Map;
 
 class FileScanEncryptionGuardTest {
     @Test
-    void legacyPlaintextScansNeedNoNewCapabilities() {
-        FileScanEncryptionGuard.checkBatch(List.of(location(new TIcebergFileDesc())), null);
-        FileScanEncryptionGuard.checkFragments(new TPipelineFragmentParamsList(), null);
+    void plaintextScansRemainAvailable() {
+        FileScanEncryptionGuard.checkBatch(List.of(location(new TIcebergFileDesc())));
+        FileScanEncryptionGuard.checkFragments(new TPipelineFragmentParamsList());
     }
 
     @Test
@@ -54,11 +52,11 @@ class FileScanEncryptionGuardTest {
                     : new TIcebergFileDesc().setDeleteFiles(List.of(new TIcebergDeleteFileDesc()
                             .setContent(content).setEncryptionInfo(info())));
             TScanRangeLocations location = location(iceberg);
-            assertUnavailable(() -> FileScanEncryptionGuard.checkBatch(List.of(location), null));
+            assertUnavailable(() -> FileScanEncryptionGuard.checkBatch(List.of(location)));
             TPipelineFragmentParamsList fragments = fragments(location);
-            assertUnavailable(() -> FileScanEncryptionGuard.checkFragments(fragments, new Backend()));
-            // Reassigning exactly the same ranges to another legacy backend must recheck the receiver.
-            assertUnavailable(() -> FileScanEncryptionGuard.checkFragments(fragments, new Backend()));
+            assertUnavailable(() -> FileScanEncryptionGuard.checkFragments(fragments));
+            // A repeated dispatch must remain rejected until encrypted execution is implemented.
+            assertUnavailable(() -> FileScanEncryptionGuard.checkFragments(fragments));
         }
     }
 
@@ -68,24 +66,14 @@ class FileScanEncryptionGuardTest {
                 new TFileScanRangeParams().setTableFormatParams(new TTableFormatFileDesc()
                         .setIcebergParams(new TIcebergFileDesc().setEncryptionInfo(info())))));
         assertUnavailable(() -> FileScanEncryptionGuard.checkFragments(
-                new TPipelineFragmentParamsList().setParamsList(List.of(fragment)), null));
-    }
-
-    @Test
-    void readerCapabilityDoesNotAuthorizeUnprotectedKeyTransport() {
-        Backend capable = GsonUtils.GSON.fromJson(
-                "{\"fileEncryptionCapabilities\":{\"version\":1,\"readerSupported\":true}}", Backend.class);
-        IllegalStateException error = Assertions.assertThrows(IllegalStateException.class,
-                () -> FileScanEncryptionGuard.checkFragments(fragments(location(
-                        new TIcebergFileDesc().setEncryptionInfo(info()))), capable));
-        Assertions.assertEquals("File encryption [RPC_PROTECTION_UNAVAILABLE]", error.getMessage());
+                new TPipelineFragmentParamsList().setParamsList(List.of(fragment))));
     }
 
     @Test
     void malformedAndFutureDescriptorsDoNotBecomePlaintext() {
         for (TFileEncryptionInfo value : List.of(new TFileEncryptionInfo(), info().setVersion(9))) {
             Assertions.assertThrows(IllegalArgumentException.class, () -> FileScanEncryptionGuard.checkBatch(
-                    List.of(location(new TIcebergFileDesc().setEncryptionInfo(value))), null));
+                    List.of(location(new TIcebergFileDesc().setEncryptionInfo(value)))));
         }
     }
 
@@ -107,6 +95,6 @@ class FileScanEncryptionGuardTest {
 
     private static void assertUnavailable(Runnable action) {
         IllegalStateException error = Assertions.assertThrows(IllegalStateException.class, action::run);
-        Assertions.assertEquals("File encryption [BACKEND_CAPABILITY_UNAVAILABLE]", error.getMessage());
+        Assertions.assertEquals("File encryption [READ_UNAVAILABLE]", error.getMessage());
     }
 }

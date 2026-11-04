@@ -4,9 +4,9 @@ This is protocol preparation. It does not enable encrypted SQL reads, implement
 native decryption, or establish a protected RPC channel. D1 admission remains in
 place; D4 also rejects secret-bearing ranges before dispatch and on the BE.
 
-## File payload and compatibility
+## File payload
 
-`FileEncryption.thrift:TFileEncryptionInfo` is a query-scoped secret carrier.
+`PlanNodes.thrift:TFileEncryptionInfo` is a query-scoped secret carrier.
 Its optional fields are `1: version`, `2: binary key`, and `3: binary aad_prefix`.
 Version 1 means Parquet AES_GCM_V1 with the SDK-unwrapped file key and exact AAD
 prefix bytes. AAD is binary; do not convert it to text or reconstruct it from the
@@ -31,21 +31,12 @@ Java's existing object serialization also uses explicit Compact Thrift encoding.
 These encodings are transport representations, not permission to persist keys.
 Never put them in durable plan dumps, persistent caches or audit records.
 
-## Capabilities and dispatch
+## Dispatch
 
-Heartbeat fields are independently optional:
-
-- `TBackendInfo.12: file_encryption_protocol_version` recognizes a wire version.
-- `TBackendInfo.13: supports_iceberg_pme_reader` advertises executable reader support.
-
-D4 reports protocol version 1 and **false** reader support. An old heartbeat means
-version 0 and false. FE publishes the version/reader pair together, persists it in
-backend metadata, and revokes support on a legacy heartbeat after downgrade or
-replay. Unknown protocol versions cannot advertise a usable reader.
-
-The existing connector capability intersection exposes `file-encryption-v1` and,
-only when both bits permit it, `iceberg-pme-reader-v1`. Protocol recognition alone
-must never satisfy the encrypted read capability.
+FE and BE are deployed together for this feature. This change does not introduce
+heartbeat capability fields, version negotiation, downgrade handling or backend
+capability persistence. Native encrypted execution remains uniformly disabled
+until the reader and protected key transport are implemented.
 
 The pipeline task builder validates assigned file parameters and ranges before
 serialization. The direct typed fragment RPC entry has the same restriction.
@@ -65,19 +56,19 @@ including retry targets, must meet this requirement. HTTPS for SQL, catalog or
 object storage access does not establish protection of either internal channel.
 
 The OSS fragment channel provider currently selects plaintext gRPC. D4 therefore
-rejects every encrypted dispatch: an unsupported receiver gets
-`BACKEND_CAPABILITY_UNAVAILABLE`; even a simulated capable receiver gets
-`RPC_PROTECTION_UNAVAILABLE`. There is no configuration flag that asserts the
-transport is secure. A subsequent change must integrate and verify actual
-protection of both channels before lifting this restriction. Advertising native
-reader support or enabling the Iceberg plugin option cannot bypass it.
+rejects every encrypted dispatch with `READ_UNAVAILABLE`. There is no configuration
+flag that asserts the transport is secure. A subsequent change must implement the
+native reader and verify actual protection of both channels before lifting this
+restriction. Enabling the Iceberg plugin option cannot bypass it.
 
 ## Diagnostic redaction
 
 Thrift 0.24 does not enforce sensitive annotations. The normal FE generation,
 regression-framework generation and C++ generation apply the same narrowly scoped
 `gensrc/script/redact_file_encryption.py` transform. A compiler shape mismatch
-fails generation. The transform is idempotent and leaves wire field IDs intact.
+fails generation. The transform is idempotent and leaves wire field IDs intact. C++ redaction
+targets only `TFileEncryptionInfo` inside the generated `PlanNodes_types.cpp`;
+other plan descriptors retain their ordinary diagnostic output.
 
 - Generated Java `toString()` and C++ `printTo()` redact the entire carrier,
   including when nested inside scan descriptors and plan parameters.
@@ -99,8 +90,9 @@ key-scoped cache lifecycle; those remain required before final read enablement.
 `FileEncryptionInfoTest` covers Java Binary/Compact round trips, distinct data
 and delete values, absent payloads, object serialization, nested strings, Gson
 and both JSON Thrift protocols. `FileScanEncryptionTest` checks descriptor shape.
-FE guard/capability tests cover independent delete kinds, downgrade/replay,
-unknown versions, reassignment and the protected-transport prerequisite.
+FE guard tests cover independent delete kinds, unknown payload versions, repeated
+dispatch and rejection before execution. SplitSource tests preserve a terminal
+error when a rejected last batch is fetched again.
 `FileEncryptionInfoTest` in BE covers binary bytes, key sizes, stream printing,
 nested containers, `ThriftDebugString` and JSON; FileScannerV2 has a pre-reader
 rejection test. Generator self-tests cover idempotence and compiler drift.
@@ -126,4 +118,4 @@ bash run-regression-test.sh --run -d external_table_p0/iceberg \
 
 The standard Iceberg stack and FE debug points must be enabled. No separate
 feature-mode variable is needed. These tests do not replace a future complete
-mixed-version cluster or native encrypted SQL interoperability run.
+native encrypted SQL interoperability run.
