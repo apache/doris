@@ -95,7 +95,7 @@ suite("test_paimon_pk_vector_ann", "p0,external") {
                 CREATE DATABASE IF NOT EXISTS paimon.${database};
                 DROP TABLE IF EXISTS paimon.${database}.${table};
                 CREATE TABLE paimon.${database}.${table} (
-                    id BIGINT, tag INT, embedding ARRAY<FLOAT>
+                    id BIGINT, tag INT, embedding ARRAY<FLOAT> NOT NULL
                 ) USING paimon TBLPROPERTIES (
                     'primary-key' = 'id', 'bucket' = '${fixture[2]}',
                     'merge-engine' = 'partial-update',
@@ -117,6 +117,33 @@ suite("test_paimon_pk_vector_ann", "p0,external") {
         sql "use ${database}"
         def fixtureCount = sql("select count(*) from ann_l2")
         assertEquals(rows.toLong(), fixtureCount[0][0], "fixture must have ${rows} rows")
+
+        // Nullable vectors must keep Doris' ordinary validation. Populate before enabling
+        // the index so this case includes a stored NULL without requiring an index build.
+        spark_paimon_multi """
+            DROP TABLE IF EXISTS paimon.${database}.ann_nullable;
+            CREATE TABLE paimon.${database}.ann_nullable (
+                id BIGINT, embedding ARRAY<FLOAT>
+            ) USING paimon TBLPROPERTIES (
+                'primary-key'='id', 'bucket'='1', 'file.format'='parquet',
+                'field.embedding.vector-dim'='${dimension}', 'vector-index.search-mode'='full'
+            );
+            INSERT INTO paimon.${database}.ann_nullable
+                VALUES (1, CAST(NULL AS ARRAY<FLOAT>)), (2, array_repeat(CAST(0 AS FLOAT), 16));
+            ALTER TABLE paimon.${database}.ann_nullable SET TBLPROPERTIES (
+                'pk-vector.index.columns'='embedding',
+                'fields.embedding.pk-vector.index.type'='ivf-rq',
+                'fields.embedding.pk-vector.distance.metric'='l2'
+            );
+        """
+        for (int rust : [0, 1]) {
+            sql "set enable_paimon_rust_reader=${rust}"
+            test {
+                sql """select id from ann_nullable
+                    order by l2_distance_approximate(embedding, array_repeat(cast(0 as float), 16)) limit 1"""
+                exception "First argument for function l2_distance_approximate cannot be null"
+            }
+        }
 
         // The probe vector is the embedding of id=7 itself, taken from the data:
         // its top-1 neighbor must be id=7 with distance 0, and every leg below
@@ -224,7 +251,7 @@ suite("test_paimon_pk_vector_ann", "p0,external") {
         spark_paimon_multi """
             DROP TABLE IF EXISTS paimon.${database}.ann_l2_unindexed;
             CREATE TABLE paimon.${database}.ann_l2_unindexed (
-                id BIGINT, tag INT, embedding ARRAY<FLOAT>
+                id BIGINT, tag INT, embedding ARRAY<FLOAT> NOT NULL
             ) USING paimon TBLPROPERTIES (
                 'primary-key'='id', 'bucket'='1', 'merge-engine'='partial-update',
                 'deletion-vectors.enabled'='true', 'deletion-vectors.merge-on-read'='false',
@@ -351,7 +378,7 @@ suite("test_paimon_pk_vector_ann", "p0,external") {
         // "Missing partition values").
         spark_paimon_multi """
             CREATE TABLE IF NOT EXISTS paimon.${database}.ann_l2_nodv (
-                id BIGINT, tag INT, embedding ARRAY<FLOAT>
+                id BIGINT, tag INT, embedding ARRAY<FLOAT> NOT NULL
             ) USING paimon TBLPROPERTIES (
                 'primary-key' = 'id', 'bucket' = '2',
                 'merge-engine' = 'first-row',
@@ -370,7 +397,7 @@ suite("test_paimon_pk_vector_ann", "p0,external") {
             CREATE DATABASE IF NOT EXISTS paimon.${database};
             DROP TABLE IF EXISTS paimon.${database}.ann_l2_part;
             CREATE TABLE paimon.${database}.ann_l2_part (
-                id BIGINT, dt STRING, tag INT, embedding ARRAY<FLOAT>
+                id BIGINT, dt STRING, tag INT, embedding ARRAY<FLOAT> NOT NULL
             ) USING paimon PARTITIONED BY (dt) TBLPROPERTIES (
                 'primary-key' = 'id', 'bucket' = '2',
                 'merge-engine' = 'partial-update',

@@ -129,8 +129,8 @@ public class PushDownVectorTopNIntoPaimonScanTest {
         cascadesContext = Mockito.mock(CascadesContext.class);
         // The rewrite's pre-flight (PaimonVectorSearch.vectorScanEligible) requires a
         // rust-capable BE via the all-backend capability negotiation, mirroring
-        // PaimonScanNodeTest's routing fixture — the vector protocol rides the
-        // same bit, since the rust reader and the vector protocol ship together.
+        // PaimonScanNodeTest's routing fixture. The bit does not negotiate ANN
+        // separately, so an older Rust-capable BE can reject the new payload.
         Backend rustBackend = GsonUtils.GSON.fromJson(
                 "{\"supportsPaimonRustReader\":true}",
                 Backend.class);
@@ -555,6 +555,64 @@ public class PushDownVectorTopNIntoPaimonScanTest {
     // ------------------------------------------------------------------ negative cases
 
     @Test
+    public void testNullablePaimonVectorKeepsDistanceValidation() {
+        for (boolean innerProduct : new boolean[] {false, true}) {
+            LogicalFileScan scan = paimonScan(ImmutableMap.of(
+                    "pk-vector.index.columns", "vec", "fields.vec.pk-vector.distance.metric",
+                    innerProduct ? "inner_product" : "l2"));
+            FileStoreTable table = (FileStoreTable) ((PaimonExternalTable) scan.getTable())
+                    .getPaimonTable(scan.getRelationSnapshot());
+            List<DataField> fields = table.rowType().getFields().stream()
+                    .map(field -> field.name().equals("vec")
+                            ? new DataField(field.id(), field.name(), field.type().copy(true)) : field)
+                    .collect(Collectors.toList());
+            Mockito.when(table.rowType()).thenReturn(new org.apache.paimon.types.RowType(fields));
+            TableSchema nullable = new TableSchema(5, fields, fields.size() - 1,
+                    Collections.emptyList(), Collections.emptyList(), Collections.emptyMap(), null);
+            Mockito.when(table.schema()).thenReturn(nullable);
+            Mockito.when(table.schemaManager().listAll()).thenReturn(Collections.singletonList(nullable));
+            Alias dis = new Alias(innerProduct
+                    ? new InnerProductApproximate(vecSlot(scan), queryVector())
+                    : new L2DistanceApproximate(vecSlot(scan), queryVector()), "dis");
+            assertNotPushedDown(topN(
+                    new LogicalProject<>(ImmutableList.of(idSlot(scan), dis), scan), dis, !innerProduct));
+        }
+    }
+
+    @Test
+    public void testHistoricalNullableOrMissingVectorKeepsDistanceValidation() {
+        for (boolean missingVector : new boolean[] {false, true}) {
+            List<DataField> oldFields = new java.util.ArrayList<>();
+            oldFields.add(new DataField(0, "id", new IntType()));
+            if (!missingVector) {
+                oldFields.add(new DataField(1, "vec", new org.apache.paimon.types.VectorType(
+                        true, 2, new org.apache.paimon.types.FloatType())));
+            }
+            TableSchema historical = new TableSchema(4, oldFields, 1,
+                    Collections.emptyList(), Collections.emptyList(), Collections.emptyMap(), null);
+            LogicalFileScan scan = paimonScan(ImmutableMap.of(
+                    "pk-vector.index.columns", "vec", "fields.vec.pk-vector.distance.metric", "l2"),
+                    Optional.empty(), null, false, Collections.singletonList(historical), null);
+            Alias dis = new Alias(new L2DistanceApproximate(vecSlot(scan), queryVector()), "dis");
+            assertNotPushedDown(topN(
+                    new LogicalProject<>(ImmutableList.of(idSlot(scan), dis), scan), dis, true));
+        }
+    }
+
+    @Test
+    public void testPaimonNullabilityControlsRewriteInsteadOfDorisColumn() {
+        // External columns may be nullable in Doris even when Paimon declares NOT NULL.
+        LogicalFileScan scan = paimonScan(ImmutableMap.of(
+                "pk-vector.index.columns", "vec", "fields.vec.pk-vector.distance.metric", "l2"),
+                Optional.empty(), null, true);
+        Assertions.assertTrue(vecSlot(scan).nullable());
+        Alias dis = new Alias(new L2DistanceApproximate(vecSlot(scan), queryVector()), "dis");
+        LogicalTopN<Plan> input = topN(
+                new LogicalProject<>(ImmutableList.of(idSlot(scan), dis), scan), dis, true);
+        Assertions.assertNotSame(input, applyRule(0, input));
+    }
+
+    @Test
     public void testRustReaderDisabledNotPushedDown() {
         // Only the BE paimon-rust reader can execute the index-only search.
         ctx.getSessionVariable().setEnablePaimonRustReader(false);
@@ -934,21 +992,35 @@ public class PushDownVectorTopNIntoPaimonScanTest {
         // vector reader's Arrow safe cast NULLs out-of-range values the ordinary
         // path preserves, so the rewrite must decline and let the query run
         // ordinary (see PaimonRustReaderCapabilities.hasRustIncompatibleSchemaHistory).
-        TableSchema widened = new TableSchema(4,
-                Collections.singletonList(new DataField(0, "ts", new TimestampType(9))),
-                0, Collections.emptyList(), Collections.emptyList(),
+        DataField id = new DataField(0, "id", new IntType());
+        DataField vec = new DataField(1, "vec", new org.apache.paimon.types.VectorType(false, 2,
+                new org.apache.paimon.types.FloatType()));
+        TableSchema widened = new TableSchema(5,
+                ImmutableList.of(id, vec, new DataField(2, "ts", new TimestampType(9))),
+                2, Collections.emptyList(), Collections.emptyList(),
                 Collections.emptyMap(), null);
-        TableSchema millis = new TableSchema(5,
-                Collections.singletonList(new DataField(0, "ts", new TimestampType(3))),
-                0, Collections.emptyList(), Collections.emptyList(),
+        TableSchema millis = new TableSchema(4,
+                ImmutableList.of(id, vec, new DataField(2, "ts", new TimestampType(3))),
+                2, Collections.emptyList(), Collections.emptyList(),
                 Collections.emptyMap(), null);
         LogicalFileScan scan = paimonScan(ImmutableMap.of(
                 "pk-vector.index.columns", "vec",
-                "fields.vec.pk-vector.distance.metric", "l2"), Optional.empty(), null, false,
-                ImmutableList.of(widened, millis), null);
+                "fields.vec.pk-vector.distance.metric", "l2"));
+        FileStoreTable table = (FileStoreTable) ((PaimonExternalTable) scan.getTable())
+                .getPaimonTable(Optional.empty());
+        Mockito.when(table.schema()).thenReturn(widened);
+        Mockito.when(table.rowType()).thenReturn(new org.apache.paimon.types.RowType(widened.fields()));
+        Mockito.when(table.schemaManager().listAll()).thenReturn(ImmutableList.of(widened, millis));
         Alias dis = new Alias(new L2DistanceApproximate(vecSlot(scan), queryVector()), "dis");
         assertNotPushedDown(topN(
                 new LogicalProject<>(ImmutableList.of(idSlot(scan), dis), scan), dis, true));
+
+        // The vector is NOT NULL in both schemas: removing the timestamp evolution
+        // must restore eligibility instead of letting the new nullability gate mask this test.
+        Mockito.when(table.schemaManager().listAll()).thenReturn(ImmutableList.of(widened));
+        LogicalTopN<Plan> control = topN(
+                new LogicalProject<>(ImmutableList.of(idSlot(scan), dis), scan), dis, true);
+        Assertions.assertNotSame(control, applyRule(0, control));
     }
 
     @Test
@@ -1318,11 +1390,18 @@ public class PushDownVectorTopNIntoPaimonScanTest {
         Mockito.when(paimonTable.options()).thenReturn(options);
         Mockito.when(paimonTable.location())
                 .thenReturn(new Path("file:///warehouse/wh/paimon_db.db/paimon_tbl"));
+        List<DataField> fields = new java.util.ArrayList<>();
+        for (String name : paimonFieldNames) {
+            fields.add(new DataField(fields.size(), name,
+                    name.equalsIgnoreCase("vec") || name.equalsIgnoreCase("vec2")
+                            ? new org.apache.paimon.types.VectorType(false, 2,
+                                    new org.apache.paimon.types.FloatType()) : new IntType()));
+        }
+        org.apache.paimon.types.RowType rowType = new org.apache.paimon.types.RowType(fields);
         // The schema-history pre-flight: a current schema whose id is alone in the
         // history means no evolution, so the positive cases pass it.
         TableSchema currentSchema = new TableSchema(
-                5, Collections.singletonList(new DataField(0, "id", new IntType())),
-                0, Collections.emptyList(), Collections.emptyList(),
+                5, fields, fields.size() - 1, Collections.emptyList(), Collections.emptyList(),
                 Collections.emptyMap(), null);
         Mockito.when(paimonTable.schema()).thenReturn(currentSchema);
         List<TableSchema> history = new java.util.ArrayList<>();
@@ -1335,9 +1414,6 @@ public class PushDownVectorTopNIntoPaimonScanTest {
         Mockito.when(paimonTable.schemaManager()).thenReturn(schemaManager);
         // rowType drives the synthetic-distance-column collision pre-flight; its
         // field names track the fixture schema (or the test's explicit names).
-        org.apache.paimon.types.RowType rowType = Mockito.mock(
-                org.apache.paimon.types.RowType.class);
-        Mockito.when(rowType.getFieldNames()).thenReturn(paimonFieldNames);
         Mockito.when(paimonTable.rowType()).thenReturn(rowType);
         Mockito.when(paimonTable.fileIO()).thenReturn(null);
         Mockito.when(paimonTable.coreOptions()).thenReturn(null);

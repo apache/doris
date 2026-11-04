@@ -359,7 +359,7 @@ public class PushDownVectorTopNIntoPaimonScan implements RewriteRuleFactory {
                     || projectContainsNonMovableExpression(project, orderKeyAlias)
                     || (table instanceof FileStoreTable
                             && PaimonVectorSearch.hasRustIncompatibleSchemaHistory(
-                                    (FileStoreTable) table))
+                                    (FileStoreTable) table, annColumnName))
                     || projectionNeedsNanosecondReader(project, optionalFilter)) {
                 return null;
             }

@@ -26,6 +26,7 @@ import org.apache.paimon.table.Table;
 
 import java.util.Collection;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Shared definition of the reader-produced primary-key vector (ANN) search output
@@ -96,10 +97,9 @@ public final class PaimonVectorSearch {
      * evaluates the relation-option-processed table while the rewrite sees the
      * raw cached table, so a {@code t@options} override can still make the
      * scan node reject a split the pre-flight accepted — the scan node stays
-     * authoritative and fails loudly. The BE capability is the single
-     * {@code supports_paimon_rust_reader} bit: the rust reader and the
-     * PK-vector protocol ship in the same release, so every BE that reports
-     * the bit implements both.
+     * authoritative and fails loudly. The single BE capability bit
+     * {@code supports_paimon_rust_reader} does not negotiate ANN separately:
+     * an older Rust-capable BE may reject the new payload during a rolling upgrade.
      */
     public static boolean vectorScanEligible(Table paimonTable, String tableLocation,
             Map<String, String> backendStorageProperties, Collection<Backend> backends) {
@@ -117,5 +117,10 @@ public final class PaimonVectorSearch {
      */
     public static boolean hasRustIncompatibleSchemaHistory(FileStoreTable table) {
         return PaimonRustReaderCapabilities.hasRustIncompatibleSchemaHistory(table);
+    }
+
+    /** SQL ANN must preserve the distance function's error on stored NULL vectors. */
+    public static boolean hasRustIncompatibleSchemaHistory(FileStoreTable table, String vectorColumn) {
+        return PaimonRustReaderCapabilities.hasRustIncompatibleSchemaHistory(table, Optional.of(vectorColumn));
     }
 }

@@ -41,6 +41,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -139,8 +140,20 @@ final class PaimonRustReaderCapabilities {
      *  preserves, so the rewrite must decline and let the query run ordinary.
      *  Conservative when the incompatible files are long gone: rare, and correctness-safe. */
     public static boolean hasRustIncompatibleSchemaHistory(FileStoreTable table) {
+        return hasRustIncompatibleSchemaHistory(table, Optional.empty());
+    }
+
+    /** SQL distance calls reject NULL vectors; TVF searches deliberately skip them. */
+    public static boolean hasRustIncompatibleSchemaHistory(FileStoreTable table,
+            Optional<String> requiredNonNullColumn) {
         TableSchema current = table.schema();
         if (current == null || !hasCompatibleSchemaVersion(current)) {
+            return true;
+        }
+        Optional<DataField> vectorField = requiredNonNullColumn.flatMap(name -> current.fields().stream()
+                .filter(field -> field.name().equalsIgnoreCase(name)).findFirst());
+        if (requiredNonNullColumn.isPresent()
+                && (!vectorField.isPresent() || vectorField.get().type().isNullable())) {
             return true;
         }
         List<TableSchema> history;
@@ -153,6 +166,13 @@ final class PaimonRustReaderCapabilities {
         for (TableSchema historical : history) {
             if (historical == null || historical.id() == current.id()) {
                 continue;
+            }
+            // A later NOT NULL declaration does not validate old files: Paimon permits
+            // tightening through alter-column-null-to-not-null.disabled=false. A vector
+            // added after those files were written may likewise materialize as NULL.
+            if (vectorField.isPresent() && historical.fields().stream().noneMatch(field ->
+                    field.id() == vectorField.get().id() && !field.type().isNullable())) {
+                return true;
             }
             if (!hasCompatibleSchemaVersion(historical)
                     || hasIncompatibleEvolution(historical.fields(), current.fields())) {
