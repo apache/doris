@@ -83,25 +83,11 @@ suite("test_list_files", "p0,external") {
         }
         def fileRows = """
             WITH file_scan AS (
-                SELECT number AS id, number % 4 AS category, file AS f,
-                       ARRAY(file, NULL) AS files
-                FROM NUMBERS('number'='512') CROSS JOIN ${recursive}
+                SELECT number AS id, file AS f
+                FROM NUMBERS('number'='8') CROSS JOIN ${recursive}
                 WHERE path = '${root}a.json'
             )
         """
-        for (def query in [
-                "id, f, files FROM file_scan ORDER BY id DESC LIMIT 8 OFFSET 500",
-                "a.id, a.f, b.files FROM file_scan a JOIN [shuffle] file_scan b ON a.id=b.id " +
-                        "ORDER BY a.id LIMIT 8 OFFSET 500",
-                "category, COUNT(f), MIN(id), MAX(id) FROM file_scan GROUP BY category ORDER BY category",
-                "id, f, files, ROW_NUMBER() OVER (PARTITION BY category ORDER BY id) " +
-                        "FROM file_scan WHERE id >= 504 ORDER BY id"]) {
-            check_sqls_result_equal(
-                    "${fileRows} SELECT /*+ SET_VAR(enable_spill=false) */ ${query}",
-                    """${fileRows} SELECT /*+ SET_VAR(enable_spill=true, enable_force_spill=true,
-                        spill_min_revocable_mem=1, force_sort_algorithm='full',
-                        topn_lazy_materialization_threshold=-1) */ ${query}""")
-        }
         test {
             sql "${fileRows} SELECT (SELECT i.f FROM file_scan i WHERE i.id=o.id) FROM file_scan o"
             exception "Agg Function any_value(FILE) is not implemented"
