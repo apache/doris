@@ -126,6 +126,8 @@ suite("test_paimon_pk_vector_ann", "p0,external") {
                 id BIGINT, embedding ARRAY<FLOAT>
             ) USING paimon TBLPROPERTIES (
                 'primary-key'='id', 'bucket'='1', 'file.format'='parquet',
+                'merge-engine'='partial-update', 'deletion-vectors.enabled'='true',
+                'deletion-vectors.merge-on-read'='false',
                 'field.embedding.vector-dim'='${dimension}', 'vector-index.search-mode'='full'
             );
             INSERT INTO paimon.${database}.ann_nullable
