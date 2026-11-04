@@ -30,6 +30,7 @@
 #include "core/column/column_vector.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
+#include "format/format_common.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/expr/equality_delete_predicate.h"
 #include "format_v2/jni/fluss_jni_reader.h"

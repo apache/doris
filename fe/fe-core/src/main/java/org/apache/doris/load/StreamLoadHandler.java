@@ -146,7 +146,9 @@ public class StreamLoadHandler {
         if (request.isSetBackendId()) {
             long backendId = request.getBackendId();
             Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
-            Preconditions.checkNotNull(backend);
+            if (backend == null) {
+                throw new UserException("Backend " + backendId + " does not exist");
+            }
             String computeGroup = backend.getCloudClusterName();
             // Token/auth-code and user-less internal loads keep their existing trusted path. Regular
             // stream loads must still validate compute group privilege, existence, and status.

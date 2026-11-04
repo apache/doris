@@ -32,6 +32,7 @@
 #include "common/config.h"
 #include "cpp/obj-client/s3_obj_storage_client.h"
 #include "io/fs/read_io_trace_test_util.h"
+#include "io/fs/s3_file_system.h"
 #include "io/io_common.h"
 #include "runtime/runtime_profile.h"
 #include "util/countdown_latch.h"

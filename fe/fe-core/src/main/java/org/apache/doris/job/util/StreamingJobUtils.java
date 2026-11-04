@@ -31,6 +31,7 @@ import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
@@ -43,6 +44,8 @@ import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.streaming.PostgresResourceValidator;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
@@ -263,6 +266,15 @@ public class StreamingJobUtils {
         TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         ctx.setQueryId(queryId);
         return ctx;
+    }
+
+    public static void checkCdcDriverPrivilege(ConnectContext ctx, String driverUrl) {
+        if ((StringUtils.startsWithIgnoreCase(driverUrl, "http://")
+                || StringUtils.startsWithIgnoreCase(driverUrl, "https://"))
+                && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN)) {
+            throw new AnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR.formatErrorMsg("ADMIN")
+                    + " HTTP/HTTPS CDC driver URLs require ADMIN privilege. Use a preinstalled JDBC driver instead.");
+        }
     }
 
     public static JdbcClient getJdbcClient(DataSourceType sourceType, Map<String, String> properties) {
