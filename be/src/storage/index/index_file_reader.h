@@ -56,6 +56,7 @@
 namespace doris {
 class TabletIndex;
 namespace segment_v2 {
+class AnnIndexSource;
 class ReaderFileEntry;
 class DorisCompoundReader;
 
@@ -85,6 +86,12 @@ public:
                               const io::IOContext* io_ctx = nullptr);
     MOCK_FUNCTION Result<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> open(
             const TabletIndex* index_meta, const io::IOContext* io_ctx = nullptr) const;
+    // The files of one ANN index, for the ANN reader. Picking the storage behind
+    // them is this class's job, the only one that knows every format. The caller
+    // must keep this IndexFileReader alive for the source's lifetime, and the
+    // source alive for its inputs' lifetime.
+    MOCK_FUNCTION Result<std::unique_ptr<AnnIndexSource>> open_ann_source(
+            const TabletIndex* index_meta, const io::IOContext* io_ctx) const;
     // Opens one BLOB logical index of kind kBkd: resolves its named sub-files
     // (bkd_data / bkd_index / bkd_nulls) into extents through the CONTAINER's own
     // directory and hands back a reader bound to this IndexFileReader's file.
