@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
+import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.authorization.spi.AuthorizationPlugin;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
@@ -114,6 +115,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -1055,6 +1057,12 @@ public class StmtExecutorTest extends TestWithFeService {
                         throw new RpcException("test-be", SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG);
                     }
                     throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG);
+                }
+                if (flight) {
+                    // As the coordinator does for a query whose results stay on the BEs.
+                    context.addFlightSqlEndpointsLocation(new FlightSqlEndpointsLocation(queryId,
+                            new TNetworkAddress("127.0.0.1", 8070), new TNetworkAddress("127.0.0.1", 8060),
+                            new ArrayList<>()));
                 }
                 return null;
             }).when(coordinator).exec();
