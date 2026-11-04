@@ -17,6 +17,7 @@
 
 #include "common/exception.h"
 #include "storage/index/ann/ann_index_writer.h"
+#include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/clucene/inverted_index_writer.h"
 #include "storage/index/inverted/snii/snii_bkd_index_writer.h"
 #include "storage/index/inverted/snii/snii_index_writer.h"

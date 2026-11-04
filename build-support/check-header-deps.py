@@ -644,16 +644,11 @@ CLUCENE_WHY = (
 # the gate, so the tables only shrink.
 # Files that include a CLucene header and are under a root or reached from one.
 CLUCENE_INCLUDING_FILES = {
-    # ANN storage (T11, T12).
-    "storage/index/ann/ann_index_writer.h",
-    "storage/index/ann/faiss_ann_index.cpp",
-    "storage/index/ann/faiss_ann_index.h",
     # Shared index file headers the roots reach (T11 to T13).
     "storage/index/index_common_impl.h",
     "storage/index/index_compound_reader.h",
     "storage/index/index_file_reader.h",
     "storage/index/index_file_writer.h",
-    "storage/index/index_fs_directory.h",
     "storage/index/inverted/clucene/inverted_index_searcher.h",
     # The analysis layer (T3, T4, T8, T9).
     "storage/index/inverted/analysis/analyzer/analyzer.cpp",
@@ -682,13 +677,6 @@ CLUCENE_INCLUDING_FILES = {
 }
 # Files under a root whose code names a CLucene symbol.
 CLUCENE_SYMBOL_FILES = {
-    # ANN storage (T11, T12).
-    "storage/index/ann/ann_index.h",
-    "storage/index/ann/ann_index_reader.cpp",
-    "storage/index/ann/ann_index_writer.cpp",
-    "storage/index/ann/ann_index_writer.h",
-    "storage/index/ann/faiss_ann_index.cpp",
-    "storage/index/ann/faiss_ann_index.h",
     # The analysis layer (T3, T4, T8, T9).
     "storage/index/inverted/analysis/analyzer/analyzer.cpp",
     "storage/index/inverted/analysis/analyzer/analyzer.h",

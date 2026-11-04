@@ -36,6 +36,7 @@
 #include "storage/index/index_storage_format_v2.h"
 #include "storage/index/index_writer.h"
 #include "storage/index/inverted/clucene/clucene_index_reader.h"
+#include "storage/index/inverted/clucene/lucene_ann_store.h"
 #include "storage/index/inverted/clucene/searcher_cache_value.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/index/inverted/snii/query/gram_boolean_query.h"
@@ -206,7 +207,7 @@ Status IndexFileWriter::_insert_directory_into_map(int64_t index_id,
 Result<std::shared_ptr<DorisFSDirectory>> IndexFileWriter::open(const TabletIndex* index_meta) {
     // No index under SNII writes through a CLucene filesystem directory: text
     // postings go through the SPIMI writer, and an ANN index uses self-cleaning
-    // per-file staging (see open_ann_directory).
+    // per-file staging (see open_ann_sink).
     if (_storage_format == InvertedIndexStorageFormatPB::SNII) {
         return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                 "SNII format does not open CLucene filesystem directories"));
@@ -223,7 +224,7 @@ Result<std::shared_ptr<DorisFSDirectory>> IndexFileWriter::open(const TabletInde
     return dir;
 }
 
-Result<std::shared_ptr<lucene::store::Directory>> IndexFileWriter::open_ann_directory(
+Result<std::shared_ptr<AnnIndexSink>> IndexFileWriter::open_ann_sink(
         const TabletIndex* index_meta) {
     if (_storage_format != InvertedIndexStorageFormatPB::SNII) {
         // V1/V2 stage ANN output exactly like every other index.
@@ -231,9 +232,13 @@ Result<std::shared_ptr<lucene::store::Directory>> IndexFileWriter::open_ann_dire
         if (!dir.has_value()) {
             return ResultError(dir.error());
         }
-        return std::shared_ptr<lucene::store::Directory>(std::move(dir.value()));
+        return std::make_shared<LuceneAnnSink>(std::move(dir.value()));
     }
-    return _open_snii_ann_staging_directory(index_meta);
+    auto staging = _open_snii_ann_staging_directory(index_meta);
+    if (!staging.has_value()) {
+        return ResultError(staging.error());
+    }
+    return std::make_shared<LuceneAnnSink>(std::move(staging.value()));
 }
 
 Result<std::shared_ptr<lucene::store::Directory>> IndexFileWriter::_open_snii_ann_staging_directory(
@@ -257,10 +262,10 @@ Result<std::shared_ptr<lucene::store::Directory>> IndexFileWriter::_open_snii_an
     return dir;
 }
 
-void IndexFileWriter::discard_ann_staging_directory(const TabletIndex* index_meta) {
+void IndexFileWriter::discard_ann_staging(const TabletIndex* index_meta) {
     // Only SNII stages an ANN index somewhere disposable. Branching here rather
     // than in the caller keeps the format knowledge on the side that owns it,
-    // exactly as open_ann_directory() does.
+    // exactly as open_ann_sink() does.
     if (_storage_format != InvertedIndexStorageFormatPB::SNII) {
         return;
     }
@@ -276,7 +281,7 @@ void IndexFileWriter::abandon_snii_staging() {
     }
     // Empty each directory before dropping the map. Releasing only this writer's
     // reference would free nothing while a producer is still alive holding the
-    // same directory through its own _dir -- which is exactly the state a segment
+    // same directory through its own _sink -- which is exactly the state a segment
     // that failed before clear() is in. Emptying makes the abort independent of
     // who else is still holding on.
     for (const auto& [key, dir] : _indices_dirs) {

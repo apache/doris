@@ -31,10 +31,10 @@
 #include "storage/index/ann/ann_index_iterator.h"
 #include "storage/index/ann/ann_index_result_cache/ann_index_result_cache.h"
 #include "storage/index/ann/ann_index_result_cache/ann_index_result_cache_handle.h"
+#include "storage/index/ann/ann_index_storage.h"
 #include "storage/index/ann/ann_index_writer.h"
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/ann/faiss_ann_index.h"
-#include "storage/index/index_compound_reader.h"
 #include "storage/index/index_file_reader.h"
 #include "util/once.h"
 
@@ -77,37 +77,26 @@ Status AnnIndexReader::load_index(io::IOContext* io_ctx) {
     return _load_index_once.call([&]() {
         DorisMetrics::instance()->ann_index_load_cnt->increment(1);
 
-        try {
-            // An exception will be thrown if loading fails
-            RETURN_IF_ERROR(
-                    _index_file_reader->init(config::inverted_index_read_buffer_size, io_ctx));
-            auto compound_dir = _index_file_reader->open(&_index_meta, io_ctx);
-            if (!compound_dir.has_value()) {
-                return Status::IOError("Failed to open index file: {}",
-                                       compound_dir.error().to_string());
-            }
-            _vector_index = std::make_unique<FaissVectorIndex>();
-            _vector_index->set_metric(_metric_type);
-            _vector_index->set_type(_index_type);
-            // Provide a cache key prefix so IVF_ON_DISK can cache ivfdata
-            // blocks in StoragePageCache. Use cache_key (which includes
-            // index_id) rather than file_path, because the idx file is a
-            // compound file shared by multiple indexes.
-            static_cast<FaissVectorIndex*>(_vector_index.get())
-                    ->set_ivfdata_cache_key_prefix(
-                            _index_file_reader->get_index_file_cache_key(&_index_meta));
-            RETURN_IF_ERROR(_vector_index->load(compound_dir->get()));
-            // Keep the compound directory alive. For IVF_ON_DISK the
-            // CachedRandomAccessReader holds a cloned CSIndexInput whose
-            // `base` raw pointer references the compound reader's underlying
-            // stream. Destroying the directory would make `base` dangling.
-            // For other types this is harmless (just holds a file handle).
-            _compound_dir = std::move(*compound_dir);
-        } catch (CLuceneError& err) {
-            LOG_ERROR("Failed to load ann index: {}", err.what());
-            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                    "CLuceneError occur when open ann idx file, error msg: {}", err.what());
+        RETURN_IF_ERROR(_index_file_reader->init(config::inverted_index_read_buffer_size, io_ctx));
+        auto source = _index_file_reader->open_ann_source(&_index_meta, io_ctx);
+        if (!source.has_value()) {
+            return Status::IOError("Failed to open index file: {}", source.error().to_string());
         }
+        _vector_index = std::make_unique<FaissVectorIndex>();
+        _vector_index->set_metric(_metric_type);
+        _vector_index->set_type(_index_type);
+        // Provide a cache key prefix so IVF_ON_DISK can cache ivfdata
+        // blocks in StoragePageCache. Use cache_key (which includes
+        // index_id) rather than file_path, because the idx file is a
+        // compound file shared by multiple indexes.
+        static_cast<FaissVectorIndex*>(_vector_index.get())
+                ->set_ivfdata_cache_key_prefix(
+                        _index_file_reader->get_index_file_cache_key(&_index_meta));
+        RETURN_IF_ERROR(_vector_index->load(source->get(), io_ctx));
+        // Keep the source alive. For IVF_ON_DISK the CachedRandomAccessReader
+        // reads ann.ivfdata through an input opened from it on every search.
+        // For other types this is harmless (just holds a file handle).
+        _source = std::move(*source);
         return Status::OK();
     });
 }

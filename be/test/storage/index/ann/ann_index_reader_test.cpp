@@ -24,17 +24,84 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <string_view>
+#include <vector>
 
+#include "storage/cache/ann_index_ivf_list_cache.h"
 #include "storage/index/ann/ann_index.h"
 #include "storage/index/ann/ann_index_iterator.h"
+#include "storage/index/ann/ann_index_storage.h"
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/ann/faiss_ann_index.h"
 #include "storage/index/ann/vector_search_utils.h"
+#include "storage/index/inverted/clucene/lucene_ann_store.h"
 #include "storage/tablet/tablet_schema.h"
+#include "util/defer_op.h"
 
 using namespace doris::vector_search_utils;
 
 namespace doris {
+
+namespace {
+
+// Who was destroyed, in order.
+using TeardownLog = std::vector<std::string>;
+
+class TrackedSource;
+
+// An input that logs its destruction and, on the way out, writes into the source it was opened
+// from. That write is the kind of use an input may make of its source: destroyed after its source,
+// it is a heap-use-after-free under ASAN.
+class TrackedInput final : public segment_v2::AnnIndexInput {
+public:
+    TrackedInput(std::string name, std::unique_ptr<segment_v2::AnnIndexInput> input,
+                 TrackedSource* source, TeardownLog* log)
+            : _name(std::move(name)), _input(std::move(input)), _source(source), _log(log) {}
+    ~TrackedInput() override;
+
+    uint64_t length() const override { return _input->length(); }
+    Status read_at(uint64_t offset, void* out, size_t size, const io::IOContext* io_ctx) override {
+        return _input->read_at(offset, out, size, io_ctx);
+    }
+
+private:
+    std::string _name;
+    std::unique_ptr<segment_v2::AnnIndexInput> _input;
+    TrackedSource* _source;
+    TeardownLog* _log;
+};
+
+class TrackedSource final : public segment_v2::AnnIndexSource {
+public:
+    TrackedSource(std::unique_ptr<segment_v2::AnnIndexSource> source, TeardownLog* log)
+            : _source(std::move(source)), _log(log) {}
+    ~TrackedSource() override {
+        EXPECT_EQ(live_inputs, 0) << "the source was destroyed before an input it opened";
+        _log->emplace_back("source");
+    }
+
+    Result<std::unique_ptr<segment_v2::AnnIndexInput>> open_input(std::string_view name) override {
+        auto input = _source->open_input(name);
+        DORIS_CHECK(input.has_value()) << input.error();
+        ++live_inputs;
+        return std::make_unique<TrackedInput>(std::string(name), std::move(input.value()), this,
+                                              _log);
+    }
+    std::string debug_string() const override { return _source->debug_string(); }
+
+    int live_inputs = 0;
+
+private:
+    std::unique_ptr<segment_v2::AnnIndexSource> _source;
+    TeardownLog* _log;
+};
+
+TrackedInput::~TrackedInput() {
+    --_source->live_inputs;
+    _log->emplace_back("input " + _name);
+}
+
+} // namespace
 
 class AnnIndexReaderTest : public VectorSearchTest {
 protected:
@@ -134,13 +201,12 @@ TEST_F(AnnIndexReaderTest, TestLoadIndexSuccess) {
     EXPECT_CALL(*_mock_index_file_reader, init(testing::_, testing::_))
             .WillOnce(testing::Return(Status::OK()));
 
-    // For the open method that returns Result<unique_ptr<...>>, we need to use a different approach
-    // since gmock has issues with non-copyable return types
-    EXPECT_CALL(*_mock_index_file_reader, open(testing::_, testing::_))
+    // For the open_ann_source method that returns Result<unique_ptr<...>>, we need to use a
+    // different approach since gmock has issues with non-copyable return types
+    EXPECT_CALL(*_mock_index_file_reader, open_ann_source(testing::_, testing::_))
             .WillOnce(testing::Invoke(
                     [](const doris::TabletIndex*, const doris::io::IOContext*)
-                            -> doris::Result<std::unique_ptr<doris::segment_v2::DorisCompoundReader,
-                                                             doris::segment_v2::DirectoryDeleter>> {
+                            -> doris::Result<std::unique_ptr<doris::segment_v2::AnnIndexSource>> {
                         return doris::ResultError(doris::Status::IOError("Mock not implemented"));
                     }));
 
@@ -172,11 +238,10 @@ TEST_F(AnnIndexReaderTest, TestLoadIndexFailureOpen) {
     EXPECT_CALL(*_mock_index_file_reader, init(testing::_, testing::_))
             .WillOnce(testing::Return(Status::OK()));
 
-    EXPECT_CALL(*_mock_index_file_reader, open(testing::_, testing::_))
+    EXPECT_CALL(*_mock_index_file_reader, open_ann_source(testing::_, testing::_))
             .WillOnce(testing::Invoke(
                     [](const doris::TabletIndex*, const doris::io::IOContext*)
-                            -> doris::Result<std::unique_ptr<doris::segment_v2::DorisCompoundReader,
-                                                             doris::segment_v2::DirectoryDeleter>> {
+                            -> doris::Result<std::unique_ptr<doris::segment_v2::AnnIndexSource>> {
                         return doris::ResultError(doris::Status::IOError("Open failed"));
                     }));
 
@@ -535,7 +600,7 @@ TEST_F(AnnIndexReaderTest, AnnIndexReaderRangeSearch) {
         auto vectors = doris::vector_search_utils::generate_test_vectors_matrix(num_vectors, dim);
         doris::vector_search_utils::add_vectors_to_indexes_serial_mode(
                 doris_faiss_index.get(), native_faiss_index.get(), vectors);
-        std::ignore = doris_faiss_index->save(this->_ram_dir.get());
+        std::ignore = save_to_directory(doris_faiss_index.get(), this->_ram_dir);
         std::vector<float> query_value = vectors[0];
         const float radius = doris::vector_search_utils::get_radius_from_matrix(query_value.data(),
                                                                                 dim, vectors, 0.3);
@@ -555,7 +620,7 @@ TEST_F(AnnIndexReaderTest, AnnIndexReaderRangeSearch) {
         doris::segment_v2::AnnRangeSearchResult result;
         auto stats = std::make_unique<doris::segment_v2::AnnIndexStats>();
         auto doris_faiss_vector_index = std::make_unique<doris::segment_v2::FaissVectorIndex>();
-        std::ignore = doris_faiss_vector_index->load(this->_ram_dir.get());
+        std::ignore = load_from_directory(doris_faiss_vector_index.get(), this->_ram_dir);
         ann_index_reader->_vector_index = std::move(doris_faiss_vector_index);
         std::ignore = ann_index_reader->range_search(params, custom_params, &result, stats.get());
 
@@ -618,7 +683,7 @@ TEST_F(AnnIndexReaderTest, AnnIndexReaderIVFRangeSearch) {
         doris_faiss_index->add(1, vec.data());
     }
 
-    std::ignore = doris_faiss_index->save(this->_ram_dir.get());
+    std::ignore = save_to_directory(doris_faiss_index.get(), this->_ram_dir);
     std::vector<float> query_value = vectors[0];
     const float radius = doris::vector_search_utils::get_radius_from_matrix(query_value.data(), 32,
                                                                             vectors, 0.3F);
@@ -637,7 +702,7 @@ TEST_F(AnnIndexReaderTest, AnnIndexReaderIVFRangeSearch) {
     doris::segment_v2::AnnRangeSearchResult result;
     auto stats = std::make_unique<doris::segment_v2::AnnIndexStats>();
     auto doris_faiss_vector_index = std::make_unique<doris::segment_v2::FaissVectorIndex>();
-    std::ignore = doris_faiss_vector_index->load(this->_ram_dir.get());
+    std::ignore = load_from_directory(doris_faiss_vector_index.get(), this->_ram_dir);
     ann_index_reader->_vector_index = std::move(doris_faiss_vector_index);
     Status status = ann_index_reader->range_search(params, custom_params, &result, stats.get());
 
@@ -646,6 +711,82 @@ TEST_F(AnnIndexReaderTest, AnnIndexReaderIVFRangeSearch) {
         EXPECT_NE(result.roaring, nullptr);
         EXPECT_GE(result.roaring->cardinality(), 0);
     }
+}
+
+// An IVF_ON_DISK index keeps reading ann.ivfdata after the load: the CachedRandomAccessReader
+// inside _vector_index holds an input opened from _source and reads it on every search. So the
+// reader must destroy _vector_index before _source, which it does by declaring _source first. The
+// logging source and inputs above record the teardown, and an input destroyed after its source
+// writes into freed memory, which ASAN reports.
+TEST_F(AnnIndexReaderTest, IvfOnDiskIndexIsDestroyedBeforeItsSource) {
+    // IVF_ON_DISK reads through the list cache in production (exec_env_init installs it).
+    const bool owns_cache = AnnIndexIVFListCache::instance() == nullptr;
+    if (owns_cache) {
+        AnnIndexIVFListCache::create_global_cache(64 * 1024 * 1024);
+    }
+    Defer destroy_cache([owns_cache] {
+        if (owns_cache) {
+            AnnIndexIVFListCache::destroy_global_cache();
+        }
+    });
+
+    constexpr int kDim = 8;
+    constexpr int kRows = 256;
+    const std::vector<float> vectors = generate_test_vectors_flatten(kRows, kDim);
+    {
+        segment_v2::FaissVectorIndex builder;
+        segment_v2::FaissBuildParameter params;
+        params.dim = kDim;
+        params.ivf_nlist = 4;
+        params.index_type = segment_v2::FaissBuildParameter::IndexType::IVF_ON_DISK;
+        params.metric_type = segment_v2::FaissBuildParameter::MetricType::L2;
+        params.quantizer = segment_v2::FaissBuildParameter::Quantizer::FLAT;
+        builder.build(params);
+        ASSERT_TRUE(builder.train(kRows, vectors.data()).ok());
+        ASSERT_TRUE(builder.add(kRows, vectors.data()).ok());
+        ASSERT_TRUE(save_to_directory(&builder, _ram_dir).ok());
+    }
+
+    TabletIndex index_meta;
+    index_meta._properties = {{"index_type", "ivf_on_disk"},
+                              {"metric_type", "l2_distance"},
+                              {"dim", std::to_string(kDim)},
+                              {"nlist", "4"}};
+    // Part of the list cache key: a distinctive id keeps this test off entries other tests may have
+    // left in a cache they installed.
+    index_meta._index_id = 46011;
+    TeardownLog log;
+    auto file_reader = std::make_shared<MockIndexFileReader>();
+    EXPECT_CALL(*file_reader, init(testing::_, testing::_)).WillOnce(testing::Return(Status::OK()));
+    EXPECT_CALL(*file_reader, open_ann_source(testing::_, testing::_))
+            .WillOnce(
+                    testing::Invoke([&](const TabletIndex*, const io::IOContext*)
+                                            -> Result<std::unique_ptr<segment_v2::AnnIndexSource>> {
+                        return std::make_unique<TrackedSource>(
+                                std::make_unique<segment_v2::LuceneAnnSource>(_ram_dir), &log);
+                    }));
+    {
+        auto reader = std::make_shared<segment_v2::AnnIndexReader>(&index_meta, file_reader);
+        io::IOContext io_ctx;
+        ASSERT_TRUE(reader->load_index(&io_ctx).ok());
+
+        roaring::Roaring candidates;
+        candidates.addRange(0, kRows);
+        segment_v2::AnnTopNParam param {.query_value = vectors.data(),
+                                        .query_value_size = kDim,
+                                        .limit = 4,
+                                        ._user_params = VectorSearchUserParams {},
+                                        .roaring = &candidates,
+                                        .rows_of_segment = kRows,
+                                        .enable_result_cache = false};
+        segment_v2::AnnIndexStats stats;
+        ASSERT_TRUE(reader->query(&io_ctx, &param, &stats).ok());
+        // The search went to ann.ivfdata, through the input the index still holds.
+        EXPECT_GT(stats.ivf_on_disk_cache_miss_cnt.value(), 0);
+        // ann.faiss was read and closed by the load; ann.ivfdata stays open in the index.
+        EXPECT_EQ(log, TeardownLog({"input ann.faiss"}));
+    }
+    EXPECT_EQ(log, TeardownLog({"input ann.faiss", "input ann.ivfdata", "source"}));
 }
 
 } // namespace doris

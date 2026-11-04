@@ -61,6 +61,7 @@ namespace doris {
 class TabletIndex;
 
 namespace segment_v2 {
+class AnnIndexSink;
 class DorisFSDirectory;
 namespace snii_doris {
 class DorisSniiFileWriter;
@@ -81,24 +82,21 @@ public:
     virtual ~IndexFileWriter() = default;
 
     MOCK_FUNCTION Result<std::shared_ptr<DorisFSDirectory>> open(const TabletIndex* index_meta);
-    // The directory an ANN index is built into. Separate from open() because the
+    // The storage an ANN index is built into. Separate from open() because the
     // two formats stage ANN output in different places: V1/V2 hand faiss the same
     // CLucene filesystem directory every other index gets, while SNII hands it a
-    // memory-backed staging directory whose bytes begin_close() seals into a blob
-    // logical index. Callers only ever write through it, so the return type is
-    // the lucene::store::Directory base -- widening open() itself would push that
-    // base type onto the CLucene inverted writer and index_tool, which genuinely
-    // need the DorisFSDirectory subclass.
-    Result<std::shared_ptr<lucene::store::Directory>> open_ann_directory(
-            const TabletIndex* index_meta);
-    // SNII only: drops the staging directory of one ANN index whose serialization
-    // failed. Its sub-files unlink themselves once their last owner is gone, and
-    // the producer releases its own reference alongside this call -- without that
-    // a failed save keeps an ANN-sized file and its descriptor on the temp
-    // filesystem until this writer is destroyed, which for a rowset build is not
-    // until every other segment has been written. V1/V2 keep their directory: its
-    // files ARE the index output, and begin_close() is what removes them.
-    void discard_ann_staging_directory(const TabletIndex* index_meta);
+    // staging directory of self-cleaning files whose bytes begin_close() seals
+    // into a blob logical index. Either is wrapped in the CLucene ANN adapter, so
+    // the ANN writer sees neither the directory nor CLucene.
+    Result<std::shared_ptr<AnnIndexSink>> open_ann_sink(const TabletIndex* index_meta);
+    // SNII only: drops the staging of one ANN index whose serialization failed.
+    // Its sub-files unlink themselves once their last owner is gone, and the
+    // producer releases its own sink alongside this call -- without that a failed
+    // save keeps an ANN-sized file and its descriptor on the temp filesystem
+    // until this writer is destroyed, which for a rowset build is not until every
+    // other segment has been written. V1/V2 keep their directory: its files ARE
+    // the index output, and begin_close() is what removes them.
+    void discard_ann_staging(const TabletIndex* index_meta);
     // SNII only: drops the staging of EVERY index on this writer because the
     // segment they belong to is being abandoned. Layered above the per-index
     // discard, not a duplicate of it: that one fires the instant one ANN
