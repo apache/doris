@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference.ArrayItemSlot;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Not;
@@ -78,6 +79,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.Set;
 import java.util.Stack;
 
 /**
@@ -289,12 +291,23 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             offsetContext.setType(TAccessPathType.META);
             // cardinality(map_keys(m)) == cardinality(m) == cardinality(map_values(m)):
             // all three count map entries, so emit the same [map_col, OFFSET] path.
-            Expression effectiveArg = (arg instanceof MapKeys || arg instanceof MapValues)
-                    ? arg.child(0) : arg;
+            Expression effectiveArg = normalizeMapArrayProducer(arg);
             return effectiveArg.accept(this, offsetContext);
         }
         // fall through to default
         return visit(cardinality, context);
+    }
+
+    /**
+     * map_keys / map_values produce an array whose container shape (length and nullness) is the
+     * map's own: their metadata requirement belongs to the map column, not to the KEYS / VALUES
+     * sub-column, which has no offsets of its own (the BE rejects e.g. `m.VALUES.OFFSET` when the
+     * value is a struct). Returns the map expression for such an array producer, the expression
+     * itself otherwise.
+     */
+    private static Expression normalizeMapArrayProducer(Expression expression) {
+        return (expression instanceof MapKeys || expression instanceof MapValues)
+                ? expression.child(0) : expression;
     }
 
     @Override
@@ -487,9 +500,53 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
 
         Expression argument = arrayMap.getArgument(0);
         if ((argument instanceof Lambda)) {
-            return collectArrayPathInLambda((Lambda) argument, context);
+            Lambda lambda = (Lambda) argument;
+            return collectArrayMapPathInLambda(lambda, context);
         }
         return visit(arrayMap, context);
+    }
+
+    private Void collectArrayMapPathInLambda(Lambda lambda, CollectorContext context) {
+        if (isRootContainerMetadata(context)) {
+            // A metadata requirement on the ARRAY_MAP result itself (OFFSET for cardinality(arr),
+            // NULL for arr IS NULL) describes the output ARRAY container, not the lambda elements.
+            // The output container is shaped by the input arrays: array_map copies the first
+            // input's offsets and its null map is the union of all inputs' null maps. Pushing that
+            // context into the lambda body would attach the metadata to the element layer instead,
+            // producing e.g. `arr.*.OFFSET`, which the BE rejects for a struct element (OFFSET
+            // metadata is only supported at array/map/string level). Route the container metadata
+            // to the input arrays, and collect the element paths the lambda actually reads with a
+            // fresh data context so that the elements stay available to the lambda body.
+            // A map_keys / map_values input is normalized to its map column: the produced array's
+            // container is the map itself, so the metadata must not be attached to the KEYS /
+            // VALUES sub-column (which has no offsets of its own, e.g. for a struct value).
+            for (ArrayItemReference lambdaArgument : lambda.getLambdaArguments()) {
+                continueCollectAccessPath(
+                        normalizeMapArrayProducer(lambdaArgument.getArrayExpression()),
+                        copyContext(context));
+            }
+            return collectArrayPathInLambda(lambda,
+                    new CollectorContext(context.statementContext, context.bottomFilter));
+        }
+        // Only a root request is routed to the input containers. A prefixed request such as the
+        // `[*, OFFSET]` of cardinality(element_at(array_map(...), 1)) addresses an element of the
+        // ARRAY_MAP result, whose shape is produced by the lambda and is unrelated to the input
+        // array's containers. Keep the lambda traversal for it: the unrepresentable metadata is
+        // dropped and the element data the lambda reads is preserved.
+        return collectArrayPathInLambda(lambda, context);
+    }
+
+    /**
+     * Whether the pending metadata requirement addresses the current expression's own container,
+     * e.g. the `[OFFSET]` of cardinality(arr) or the `[NULL]` of arr IS NULL, rather than one of
+     * its descendants such as the `[*, OFFSET]` produced by cardinality(element_at(&lt;array&gt;, 1)).
+     * Every metadata request is created together with exactly one OFFSET / NULL suffix (see
+     * visitCardinality / visitLength / visitMapSize / visitIsNull), and the visitors only prepend
+     * the components they descend through, so a single-component metadata path is a root request.
+     */
+    private static boolean isRootContainerMetadata(CollectorContext context) {
+        return context.getType() == TAccessPathType.META
+                && context.getAccessPathBuilder().getPathList().size() == 1;
     }
 
     @Override
@@ -732,6 +789,44 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         } finally {
             nameToLambdaArguments.pop();
         }
+
+        // After visiting the lambda body, for any bound array whose lambda variable
+        // was NOT referenced in the body (e.g. x -> true where x never appears),
+        // visitArrayItemSlot was never called and the array column's access path is
+        // missing. This gap is exposed when an is-null or offset-only path has been
+        // registered for the same slot — NestedColumnPruning then incorrectly prunes
+        // the complex column to null-only / offset-only instead of reading full data.
+        //
+        // Detect usage by scanning the lambda body for ArrayItemSlots matching the
+        // argument name, which is more reliable than getInputSlots() that deliberately
+        // excludes ArrayItemSlot and may falsely match outer slots.
+        //
+        // Must use a fresh context: when the body DOES reference some variables
+        // (e.g. (x,y) -> x > 0), visitArrayItemSlot mutates context.accessPathBuilder
+        // in-place (addPrefix without cleanup). A fresh context isolates the fallback
+        // path for unreferenced variables from pollution by referenced ones.
+        for (Expression argument : arguments) {
+            if (argument instanceof ArrayItemReference) {
+                ExprId argExprId = ((ArrayItemReference) argument).getExprId();
+                Set<ArrayItemSlot> arrayItemSlots = arguments.get(0)
+                        .<ArrayItemSlot>collect(e -> e instanceof ArrayItemSlot);
+                boolean isReferenced = false;
+                for (ArrayItemSlot slot : arrayItemSlots) {
+                    if (slot.getExprId().equals(argExprId)) {
+                        isReferenced = true;
+                        break;
+                    }
+                }
+                if (!isReferenced) {
+                    Expression boundArray = argument.child(0);
+                    CollectorContext fullAccessCtx = new CollectorContext(
+                            context.statementContext, context.bottomFilter);
+                    fullAccessCtx.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_ALL);
+                    continueCollectAccessPath(boundArray, fullAccessCtx);
+                }
+            }
+        }
+
         return null;
     }
 
