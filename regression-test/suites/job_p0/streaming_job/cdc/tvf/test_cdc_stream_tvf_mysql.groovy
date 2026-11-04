@@ -138,6 +138,27 @@ suite("test_cdc_stream_tvf_mysql", "p0,external,mysql,external_docker,external_d
             exception "ssl_mode 'verify-ca' requires ssl_rootcert to be set"
         }
 
+        // Remote driver URLs require ADMIN even for standalone TVF queries.
+        String driverUser = "test_cdc_stream_tvf_mysql_driver_user"
+        def jdbcTokens = context.getJdbcUrl().split('/')
+        String driverUserUrl = jdbcTokens[0] + "//" + jdbcTokens[2] + "/" + currentDb + "?"
+        sql """DROP USER IF EXISTS '${driverUser}'"""
+        sql """CREATE USER '${driverUser}' IDENTIFIED BY '123456'"""
+        sql """GRANT SELECT_PRIV ON ${currentDb}.* TO '${driverUser}'"""
+        try {
+            connectToDoris(driverUser, "123456", driverUserUrl) {
+                test {
+                    sql """SELECT * FROM cdc_stream(
+                            "type" = "mysql", "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
+                            "database" = "${mysqlDb}", "table" = "${table1}", "offset" = "latest",
+                            "driver_url" = "${driver_url}")"""
+                    exception "HTTP/HTTPS CDC driver URLs require ADMIN privilege"
+                }
+            }
+        } finally {
+            sql """DROP USER '${driverUser}'"""
+        }
+
         // --- Data setup ---
 
         connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
