@@ -35,8 +35,10 @@ while read -r module expected_sha256; do
     filename="${module}-1.12.0.jar"
     destination="${fixture_dir}/jars/${filename}"
     if [[ -f "${destination}" ]] && [[ "$(sha256_file "${destination}")" == "${expected_sha256}" ]]; then
-        # Cached artifacts may retain owner-only permissions from an earlier download.
-        chmod 0644 "${destination}"
+        # Spark needs other-user read access; readable shared caches may belong to another user.
+        if [[ -z "$(find -L "${destination}" -prune -perm -004 -print)" ]]; then
+            chmod 0644 "${destination}"
+        fi
         continue
     fi
     temporary="$(mktemp "${destination}.tmp.XXXXXX")"
