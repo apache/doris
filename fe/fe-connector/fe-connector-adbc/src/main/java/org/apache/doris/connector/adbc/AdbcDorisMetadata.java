@@ -38,7 +38,10 @@ final class AdbcDorisMetadata {
     }
 
     static List<AdbcNamespace> readNamespaces(AdbcConnection connection) throws AdbcException, IOException {
-        String catalog = connection.getCurrentCatalog();
+        List<String> catalogs = new ArrayList<>(1);
+        // Older Doris servers expose the current catalog through SQL but lack Flight GetSessionOptions.
+        readRows(connection, "SELECT CURRENT_CATALOG()", row -> catalogs.add(row.get(0)));
+        String catalog = catalogs.get(0);
         if (catalog == null || catalog.isEmpty()) {
             throw new DorisConnectorException("The Doris ADBC connection must select a remote catalog");
         }

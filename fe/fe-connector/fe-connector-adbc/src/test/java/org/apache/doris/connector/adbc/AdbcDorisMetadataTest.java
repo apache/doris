@@ -17,8 +17,12 @@
 
 package org.apache.doris.connector.adbc;
 
+import org.apache.doris.connector.spi.DorisConnectorException;
+
 import org.apache.arrow.adbc.core.AdbcConnection;
+import org.apache.arrow.adbc.core.AdbcException;
 import org.apache.arrow.adbc.core.AdbcStatement;
+import org.apache.arrow.adbc.core.AdbcStatusCode;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
@@ -49,7 +53,34 @@ class AdbcDorisMetadataTest {
         try (RecordingClient client = new RecordingClient("warehouse`one", List.of(
                 List.of("db_one"), List.of("db_two")))) {
             Assertions.assertEquals(List.of("db_one", "db_two"), metadata(client).listDatabaseNames(null));
-            Assertions.assertEquals(List.of("SHOW DATABASES FROM `warehouse``one`"), client.queries);
+            Assertions.assertEquals(List.of("SELECT CURRENT_CATALOG()", "SHOW DATABASES FROM `warehouse``one`"),
+                    client.queries);
+            Assertions.assertEquals(2, client.closedStatements);
+        }
+    }
+
+    @Test
+    void namespacesRemainAvailableWithoutSessionOptions() {
+        try (RecordingClient client = new RecordingClient("warehouse`one", List.of(List.of("db_one")))) {
+            // The native Flight driver reports NOT_FOUND when an older server lacks GetSessionOptions.
+            client.currentCatalogFailure = new AdbcException("current catalog not supported", null,
+                    AdbcStatusCode.NOT_FOUND, null, 0);
+            AdbcConnectorMetadata metadata = metadata(client);
+            Assertions.assertEquals(List.of("db_one"),
+                    Assertions.assertDoesNotThrow(() -> metadata.listDatabaseNames(null)));
+            client.rows = List.of(List.of("base_table", "BASE TABLE"));
+            Assertions.assertEquals(List.of("base_table"), metadata.listTableNames(null, "db_one"));
+            Assertions.assertEquals(List.of("SELECT CURRENT_CATALOG()", "SHOW DATABASES FROM `warehouse``one`",
+                    "SHOW FULL TABLES FROM `warehouse``one`.`db_one`"), client.queries);
+            Assertions.assertEquals(3, client.closedStatements);
+        }
+    }
+
+    @Test
+    void missingCurrentCatalogStopsBeforeDiscovery() {
+        try (RecordingClient client = new RecordingClient("", List.of(List.of("db_one")))) {
+            Assertions.assertThrows(DorisConnectorException.class, () -> metadata(client).listDatabaseNames(null));
+            Assertions.assertEquals(List.of("SELECT CURRENT_CATALOG()"), client.queries);
             Assertions.assertEquals(1, client.closedStatements);
         }
     }
@@ -62,12 +93,12 @@ class AdbcDorisMetadataTest {
             client.rows = List.of(List.of("base_table", "BASE TABLE"), List.of("view_table", "VIEW"),
                     List.of("system_table", "SYSTEM VIEW"));
             Assertions.assertEquals(List.of("base_table"), metadata.listTableNames(null, "db`one"));
-            Assertions.assertEquals("SHOW FULL TABLES FROM `internal`.`db``one`", client.queries.get(1));
+            Assertions.assertEquals("SHOW FULL TABLES FROM `internal`.`db``one`", client.queries.get(2));
             AdbcTableHandle handle = (AdbcTableHandle) metadata.getTableHandle(null, "db`one", "base_table")
                     .orElseThrow();
             Assertions.assertEquals("internal", handle.getRemoteCatalog());
             Assertions.assertEquals("db`one", handle.getRemoteDbSchema());
-            Assertions.assertEquals(2, client.closedStatements);
+            Assertions.assertEquals(3, client.closedStatements);
         }
     }
 
@@ -97,6 +128,7 @@ class AdbcDorisMetadataTest {
         private final RootAllocator allocator = new RootAllocator();
         private final List<String> queries = new ArrayList<>();
         private final String currentCatalog;
+        private AdbcException currentCatalogFailure;
         private List<List<String>> rows;
         private int closedStatements;
 
@@ -111,7 +143,10 @@ class AdbcDorisMetadataTest {
             try {
                 return body.apply(new AdbcConnection() {
                     @Override
-                    public String getCurrentCatalog() {
+                    public String getCurrentCatalog() throws AdbcException {
+                        if (currentCatalogFailure != null) {
+                            throw currentCatalogFailure;
+                        }
                         return currentCatalog;
                     }
 
@@ -174,7 +209,10 @@ class AdbcDorisMetadataTest {
         }
 
         private ArrowReader response() throws IOException {
-            int columns = queries.get(queries.size() - 1).startsWith("SHOW FULL TABLES") ? 2 : 1;
+            String query = queries.get(queries.size() - 1);
+            int columns = query.startsWith("SHOW FULL TABLES") ? 2 : 1;
+            List<List<String>> responseRows = query.equals("SELECT CURRENT_CATALOG()")
+                    ? List.of(List.of(currentCatalog)) : rows;
             List<Field> fields = new ArrayList<>();
             for (int column = 0; column < columns; column++) {
                 fields.add(new Field("column_" + column, FieldType.nullable(ArrowType.Utf8.INSTANCE), null));
@@ -184,7 +222,7 @@ class AdbcDorisMetadataTest {
                     ArrowStreamWriter writer = new ArrowStreamWriter(root, null, Channels.newChannel(bytes))) {
                 writer.start();
                 // One row per batch ensures discovery consumes the whole stream.
-                for (List<String> row : rows) {
+                for (List<String> row : responseRows) {
                     root.allocateNew();
                     for (int column = 0; column < columns; column++) {
                         ((VarCharVector) root.getVector(column)).setSafe(0,
