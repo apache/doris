@@ -42,6 +42,7 @@
 #include <random>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <thread>
 #include <type_traits>
@@ -65,6 +66,8 @@
 #include "storage/index/index_writer.h"
 #include "testutil/mock/obj_storage_client_test_stub.h"
 #include "testutil/obj_storage_test_util.h"
+#include "util/countdown_latch.h"
+#include "util/defer_op.h"
 #include "util/slice.h"
 #include "util/threadpool.h"
 #include "util/uuid_generator.h"
@@ -1472,6 +1475,56 @@ TEST_F(S3FileWriterInvalidationTest, upload_that_has_not_taken_the_client_fails)
 
     EXPECT_EQ(writer->append(generate_test_string('a', 1024)), Status::OK());
     EXPECT_FALSE(writer->close().ok());
+    EXPECT_EQ(mock_client->put_object_count, 0);
+}
+
+TEST_F(S3FileWriterInvalidationTest, async_close_waits_for_upload_callbacks_after_invalidation) {
+    auto [mock_client, writer] = create_s3_client("invalidate_before_async_close");
+    CountDownLatch upload_started(1);
+    CountDownLatch release_upload(1);
+    CountDownLatch close_waiting(1);
+    auto* sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard upload_guard;
+    SyncPoint::CallbackGuard wait_guard;
+    // Even a failed assertion must release and drain the callback that captures the writer.
+    // In particular, the old early return from _complete() must fail this test without a UAF.
+    Defer drain_upload {[&] {
+        release_upload.count_down();
+        writer->_wait_until_finish("invalidation test cleanup");
+        if (writer->state() == FileWriter::State::ASYNC_CLOSING) {
+            std::ignore = writer->close();
+        }
+    }};
+    sp->set_call_back(
+            "S3FileWriter::_put_object:before_get_client",
+            [&](auto&&) {
+                upload_started.count_down();
+                release_upload.wait();
+            },
+            &upload_guard);
+    sp->set_call_back(
+            "S3FileWriter::_wait_until_finish:before_wait",
+            [&](auto&& args) {
+                if (try_any_cast<std::string_view>(args[0]) == "PutObject") {
+                    close_waiting.count_down();
+                }
+            },
+            &wait_guard);
+
+    ASSERT_TRUE(writer->append(generate_test_string('d', 1024)).ok());
+    writer->_obj_client->invalidate(Status::InvalidArgument<false>("backend changed"));
+    ASSERT_TRUE(writer->close(true).ok());
+    ASSERT_TRUE(upload_started.wait_for(std::chrono::seconds(5)));
+    ASSERT_TRUE(close_waiting.wait_for(std::chrono::seconds(5)));
+    // The async-close future must not become ready while an upload still holds `this`.
+    auto pending = writer->try_finish_close();
+    EXPECT_TRUE(pending.is<ErrorCode::NEED_SEND_AGAIN>()) << pending;
+
+    release_upload.count_down();
+    auto st = writer->close();
+    EXPECT_FALSE(st.ok());
+    EXPECT_NE(st.to_string().find("invalid obj storage client"), std::string::npos) << st;
+    EXPECT_EQ(writer->state(), FileWriter::State::CLOSED);
     EXPECT_EQ(mock_client->put_object_count, 0);
 }
 
