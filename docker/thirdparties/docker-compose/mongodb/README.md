@@ -53,3 +53,23 @@ WHERE json_extract_int(payload, '$.n') = 7;
 ```
 
 Automatic schema inference still maps BSON documents to Trino `row` / Doris `STRUCT`. Use an explicit `json` declaration when a field should be read as a whole JSON value. BSON documents use the connector's Extended JSON representation, so embedded ObjectIds appear as `{"$oid":"..."}` objects. For BSON string values declared as `json`, their contents must be valid JSON text; malformed text fails the query. The JSON suite covers both real BSON documents and valid JSON text, plus a malformed-text negative case.
+
+### Deployment-managed Trino plugins
+
+For a CI cluster whose deployment step installs the complete Trino plugin set,
+set `trinoConnectorInstallMode = "preinstalled"` in the regression configuration.
+Keep `enableTrinoConnectorTest = true` and `enableMongoDBTest = true`: the mode
+only disables the shared dispatcher's download, SSH/SCP and directory replacement;
+it does not skip any catalog creation or query assertions. No S3 download settings
+or SSH access are required by the dispatcher in this mode.
+
+Install the full MongoDB 435 ZIP (including dependencies and service metadata)
+alongside every other connector needed by the selected suites on **every FE/BE**,
+in the directory configured by `trino_connector_plugin_dir`, before starting Doris.
+The deployment step must validate the files on every node and fail on incomplete
+installation. Missing or incompatible plugins still fail the regression queries;
+the framework does not install a fallback. Restart processes after plugin changes,
+because Trino connector factories are loaded only once.
+
+The default mode is `framework`, preserving existing shared-fixture distribution.
+An unknown mode fails explicitly rather than replacing a deployment-owned directory.
