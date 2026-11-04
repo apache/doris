@@ -210,6 +210,7 @@ org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#classifyColumn(jav
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#collectScanProfiles(org.apache.doris.connector.spi.ConnectorSession):java.util.List
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#getDeleteFiles(org.apache.doris.thrift.TTableFormatFileDesc):java.util.List
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#getMustReadColumns(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle):java.util.Set
+org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#getPathPartitionKeys(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle):java.util.Optional
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#getScanNodeProperties(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,java.util.List,java.util.Optional):java.util.Map
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#getScanNodePropertiesResult(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,java.util.List,java.util.Optional):org.apache.doris.connector.spi.scan.ScanNodePropertiesResult
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#ignorePartitionPruneShortCircuit():boolean
