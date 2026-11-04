@@ -31,8 +31,10 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.mtmv.MTMVRelationManager;
 import org.apache.doris.mtmv.MTMVService;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.SqlCacheContext.FullTableName;
+import org.apache.doris.nereids.SqlCacheContext.ScanTable;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.stats.SimpleAggCacheMgr;
 import org.apache.doris.persist.AlterViewInfo;
@@ -40,9 +42,12 @@ import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.ReplaceTableOperationLog;
+import org.apache.doris.persist.SetPartitionVersionOperationLog;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TableRenameColumnInfo;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.cache.CacheAnalyzer;
+import org.apache.doris.qe.cache.SqlCache;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.PartitionCommitInfo;
 import org.apache.doris.transaction.TableCommitInfo;
@@ -57,6 +62,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.Mockito;
 
 import java.io.ByteArrayInputStream;
@@ -256,18 +263,7 @@ class TableCacheInvalidationTest extends TestWithFeService {
     void nonPartitionedCacheChecksSchemaAndChangesBackendKey() throws Exception {
         OlapTable table = (OlapTable) database.getTableOrMetaException("plain");
         String query = "SELECT * FROM plain";
-        StatementContext statement = new StatementContext(connectContext, new OriginStatement(query, 0));
-        connectContext.setStatementContext(statement);
-        SqlCacheContext cached = statement.getSqlCacheContext().get();
-        cached.addUsedTable(table);
-        cached.setPhysicalPlan("cached plan");
-        cached.setColLabels(ImmutableList.of("id", "v"));
-        cached.setFieldInfos(ImmutableList.of());
-        cached.setResultExprs(ImmutableList.of());
-        cached.setQueryId(new TUniqueId(1, 1));
-        cached.setResultSetInFe(new CommonResultSet(
-                new CommonResultSet.CommonResultSetMetaData(ImmutableList.of()), ImmutableList.of()));
-        connectContext.setQueryId(new TUniqueId(1, 1));
+        SqlCacheContext cached = prepareCachedQuery(query, table);
         Env env = Env.getCurrentEnv();
         env.getSqlCacheManager().tryAddFeSqlCache(connectContext, query);
         String oldKey = cached.getUsedTables().values().iterator().next().getCacheKey();
@@ -285,6 +281,128 @@ class TableCacheInvalidationTest extends TestWithFeService {
             Assertions.assertFalse(env.getSqlCacheManager().tryParseSql(connectContext, query).isPresent());
         }
         Assertions.assertEquals(0, env.getSqlCacheManager().getSqlCaches().estimatedSize());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,false", "false,true", "true,false", "true,true"})
+    void metadataReplayRejectsInFlightPublication(boolean rename, boolean backend) throws Exception {
+        target.getPartition("p1").updateVisibleVersionAndTime(3L, 123456L);
+        String query = "SELECT id FROM target PARTITION(p1)";
+        SqlCacheContext cached = prepareCachedQuery(query, target);
+        StatementContext statement = connectContext.getStatementContext();
+        SqlCacheContext unrelated = prepareCachedQuery("SELECT id FROM control", control);
+        connectContext.setStatementContext(statement);
+        NereidsSqlCacheManager manager = Env.getCurrentEnv().getSqlCacheManager();
+        long tableVersion = target.getVisibleVersion();
+        long topologyVersion = target.getPartitionTopologyVersion();
+        int schemaVersion = target.getBaseSchemaVersion();
+
+        replayPartitionMetadataChange(rename);
+
+        Assertions.assertEquals(tableVersion, target.getVisibleVersion());
+        Assertions.assertEquals(topologyVersion, target.getPartitionTopologyVersion());
+        Assertions.assertEquals(schemaVersion, target.getBaseSchemaVersion());
+        if (backend) {
+            CacheAnalyzer analyzer = Mockito.mock(CacheAnalyzer.class);
+            Mockito.when(analyzer.getCache()).thenReturn(Mockito.mock(SqlCache.class));
+            Mockito.when(analyzer.getScanTables()).thenReturn(ImmutableList.of());
+            manager.tryAddBeCache(connectContext, query, analyzer);
+        } else {
+            manager.tryAddFeSqlCache(connectContext, query);
+        }
+        Assertions.assertEquals(0, manager.getSqlCaches().estimatedSize(),
+                "an executing query must not republish its old metadata dependencies");
+        Assertions.assertFalse(cached.supportSqlCache());
+        Assertions.assertTrue(unrelated.supportSqlCache());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false", "true"})
+    void metadataReplayRejectsContextPutAfterEviction(boolean rename) throws Exception {
+        target.getPartition("p1").updateVisibleVersionAndTime(3L, 123456L);
+        String query = "SELECT id FROM target PARTITION(p1)";
+        SqlCacheContext cached = prepareCachedQuery(query, target);
+        NereidsSqlCacheManager manager = Env.getCurrentEnv().getSqlCacheManager();
+        manager.tryAddFeSqlCache(connectContext, query);
+        String key = manager.getSqlCaches().asMap().keySet().iterator().next();
+
+        replayPartitionMetadataChange(rename);
+        Assertions.assertEquals(0, manager.getSqlCaches().estimatedSize());
+        // Model invalidation between the publisher's final check and its put.
+        manager.getSqlCaches().put(key, cached);
+
+        try (StatementContext lookup = new StatementContext(connectContext, new OriginStatement(query, 0))) {
+            connectContext.setStatementContext(lookup);
+            Assertions.assertFalse(manager.tryParseSql(connectContext, query).isPresent(),
+                    "a late put must not make an invalidated context usable again");
+        }
+        Assertions.assertEquals(0, manager.getSqlCaches().estimatedSize());
+    }
+
+    private void replayPartitionMetadataChange(boolean rename) throws Exception {
+        Partition partition = target.getPartition("p1");
+        if (rename) {
+            replay(OperationType.OP_RENAME_PARTITION, TableInfo.createForPartitionRename(
+                    database.getId(), target.getId(), partition.getId(), "p1", "renamed_partition"));
+        } else {
+            replay(OperationType.OP_SET_PARTITION_VERSION, new SetPartitionVersionOperationLog(
+                    database.getFullName(), target.getName(), partition.getId(), 2L));
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"database", "catalog", "all"})
+    void namespaceInvalidationReachesExecutingQueries(String scope) {
+        SqlCacheContext cached = prepareCachedQuery("SELECT id FROM target", target);
+        StatementContext statement = connectContext.getStatementContext();
+        // A constant statement has no table dependencies.
+        StatementContext constantStatement = new StatementContext(connectContext, new OriginStatement("SELECT 1", 0));
+        new NereidsPlanner(constantStatement);
+        SqlCacheContext constant = constantStatement.getSqlCacheContext().get();
+        connectContext.setStatementContext(statement);
+        NereidsSqlCacheManager manager = Env.getCurrentEnv().getSqlCacheManager();
+        // Replacing the configured cache must not lose the executing-query registration.
+        NereidsSqlCacheManager.updateConfig();
+        switch (scope) {
+            case "database":
+                Env.getCurrentEnv().onDatabaseChanged(InternalCatalog.INTERNAL_CATALOG_NAME, "cache_replay");
+                break;
+            case "catalog":
+                Env.getCurrentEnv().onCatalogChanged(InternalCatalog.INTERNAL_CATALOG_NAME);
+                break;
+            case "all":
+                manager.invalidateAll();
+                break;
+            default:
+                throw new AssertionError(scope);
+        }
+        Assertions.assertFalse(cached.supportSqlCache());
+        Assertions.assertEquals(!scope.equals("all"), constant.supportSqlCache());
+    }
+
+    private SqlCacheContext prepareCachedQuery(String query, OlapTable table) {
+        StatementContext statement = new StatementContext(connectContext, new OriginStatement(query, 0));
+        connectContext.setStatementContext(statement);
+        new NereidsPlanner(statement);
+        SqlCacheContext cached = statement.getSqlCacheContext().get();
+        cached.addUsedTable(table);
+        if (table.isPartitionedTable()) {
+            Partition partition = table.getPartition("p1");
+            cached.addOlapScan(table, ImmutableMap.of(partition.getId(), partition.getCachedVisibleVersion()));
+            ScanTable scan = new ScanTable(new FullTableName(
+                    InternalCatalog.INTERNAL_CATALOG_NAME, database.getFullName(), table.getName()));
+            scan.addScanPartition(partition.getId());
+            cached.addScanTable(scan, table);
+        }
+        cached.setPhysicalPlan("cached plan");
+        cached.setColLabels(ImmutableList.of("id", "v"));
+        cached.setFieldInfos(ImmutableList.of());
+        cached.setResultExprs(ImmutableList.of());
+        cached.setQueryId(new TUniqueId(1, 1));
+        cached.setResultSetInFe(new CommonResultSet(
+                new CommonResultSet.CommonResultSetMetaData(ImmutableList.of()), ImmutableList.of()));
+        connectContext.setQueryId(new TUniqueId(1, 1));
+        return cached;
     }
 
     @Test

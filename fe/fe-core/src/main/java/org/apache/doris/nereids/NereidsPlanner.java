@@ -140,6 +140,8 @@ public class NereidsPlanner extends Planner {
 
     public NereidsPlanner(StatementContext statementContext) {
         this.statementContext = statementContext;
+        statementContext.getSqlCacheContext().ifPresent(context ->
+                Env.getCurrentEnv().getSqlCacheManager().registerSqlCacheContext(context));
     }
 
     void pinBeExecVersion(org.apache.doris.thrift.TQueryOptions queryOptions) {

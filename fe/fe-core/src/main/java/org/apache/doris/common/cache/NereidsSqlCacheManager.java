@@ -95,6 +95,8 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Predicate;
+import java.util.stream.Stream;
 
 /**
  * NereidsSqlCacheManager
@@ -104,12 +106,18 @@ public class NereidsSqlCacheManager {
     // key: <ctl.db>:<user>:<sql>
     // value: SqlCacheContext
     private volatile Cache<String, SqlCacheContext> sqlCaches;
+    // Track executing contexts without keeping completed query contexts alive.
+    private final Cache<SqlCacheContext, Boolean> sqlCacheContexts = Caffeine.newBuilder().weakKeys().build();
 
     public NereidsSqlCacheManager() {
         sqlCaches = buildSqlCaches(
                 Config.sql_cache_manage_num,
                 Config.expire_sql_cache_in_fe_second
         );
+    }
+
+    public void registerSqlCacheContext(SqlCacheContext context) {
+        sqlCacheContexts.put(context, Boolean.TRUE);
     }
 
     @VisibleForTesting
@@ -134,34 +142,14 @@ public class NereidsSqlCacheManager {
 
     /** Also accepts the identity of a table that has already been dropped or renamed. */
     public void invalidateAboutTable(long tableId, FullTableName invalidateTableName) {
-        Set<String> invalidateKeys = new LinkedHashSet<>();
-        for (Entry<String, SqlCacheContext> kv : sqlCaches.asMap().entrySet()) {
-            String key = kv.getKey();
-            SqlCacheContext context = kv.getValue();
-            for (Entry<TableReference, TableVersion> nameToVersion : context.getUsedTables().entrySet()) {
-                FullTableName tableName = nameToVersion.getKey().tableName;
-                TableVersion tableVersion = nameToVersion.getValue();
-                if (tableVersion.id == tableId) {
-                    invalidateKeys.add(key);
-                    break;
-                }
-                if (tableName.equals(invalidateTableName)) {
-                    invalidateKeys.add(key);
-                    break;
-                }
-            }
-            if (context.getUsedViews().containsKey(invalidateTableName)) {
-                invalidateKeys.add(key);
-            }
-        }
-
-        for (String invalidateKey : invalidateKeys) {
-            sqlCaches.invalidate(invalidateKey);
-        }
+        invalidateContexts(context -> context.getUsedTables().entrySet().stream()
+                .anyMatch(entry -> entry.getValue().id == tableId
+                        || entry.getKey().tableName.equals(invalidateTableName))
+                || context.getUsedViews().containsKey(invalidateTableName));
     }
 
     public void invalidateAll() {
-        sqlCaches.invalidateAll();
+        invalidateContexts(context -> true);
     }
 
     public void invalidateAboutDatabase(String catalog, String db) {
@@ -173,14 +161,23 @@ public class NereidsSqlCacheManager {
     }
 
     private void invalidateAboutNamespace(String catalog, String db) {
+        invalidateContexts(context -> Stream.concat(
+                context.getUsedTables().keySet().stream().map(reference -> reference.tableName),
+                context.getUsedViews().keySet().stream())
+                .anyMatch(name -> name.catalog.equals(catalog) && (db == null || name.db.equals(db))));
+    }
+
+    private void invalidateContexts(Predicate<SqlCacheContext> affected) {
+        for (SqlCacheContext context : sqlCacheContexts.asMap().keySet()) {
+            if (affected.test(context)) {
+                context.invalidate();
+            }
+        }
         Set<String> invalidateKeys = new LinkedHashSet<>();
         for (Entry<String, SqlCacheContext> entry : sqlCaches.asMap().entrySet()) {
             SqlCacheContext context = entry.getValue();
-            boolean usedTable = context.getUsedTables().keySet().stream().map(reference -> reference.tableName)
-                    .anyMatch(name -> name.catalog.equals(catalog) && (db == null || name.db.equals(db)));
-            boolean usedView = context.getUsedViews().keySet().stream()
-                    .anyMatch(name -> name.catalog.equals(catalog) && (db == null || name.db.equals(db)));
-            if (usedTable || usedView) {
+            if (affected.test(context)) {
+                context.invalidate();
                 invalidateKeys.add(entry.getKey());
             }
         }
@@ -491,7 +488,7 @@ public class NereidsSqlCacheManager {
     }
 
     private IsChanged tablesOrDataChanged(Env env, SqlCacheContext sqlCacheContext, StatementContext statement) {
-        if (sqlCacheContext.hasUnsupportedTables()) {
+        if (!sqlCacheContext.supportSqlCache()) {
             return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
         }
 
