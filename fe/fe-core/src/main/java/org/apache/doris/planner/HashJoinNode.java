@@ -133,6 +133,16 @@ public class HashJoinNode extends JoinNodeBase {
     }
 
     @Override
+    public StorageHashLayout getStorageHashLayout() {
+        if (distrMode == DistributionMode.BROADCAST) {
+            // Replicating the build does not change the probe's storage layout. Preserve
+            // NONE/UNKNOWN/CONFLICT too, rather than including the build to fill a missing tag.
+            return children.get(0).getStorageHashLayout();
+        }
+        return super.getStorageHashLayout();
+    }
+
+    @Override
     public boolean requiresShuffleForCorrectness() {
         // BE: HashJoinBuild/Probe.is_shuffled_operator() = PARTITIONED || BUCKET_SHUFFLE || COLOCATE.
         // (BROADCAST and NONE are not shuffled — they don't depend on hash distribution.)

@@ -21,6 +21,7 @@ import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.RandomDistributionDesc;
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.HashDistributionInfo.HashType;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -42,6 +43,9 @@ public class DistributionDescriptor {
     private final boolean isAutoBucket;
     private int bucketNum;
     private List<String> cols;
+    // Default to CRC32 so hash paths that never call setHashType (e.g. CreateMTMVInfo/CreateTableInfo) still
+    // translate to a non-null hash type.
+    private HashType hashType = HashType.CRC32;
 
     public DistributionDescriptor(boolean isHash, boolean isAutoBucket, int bucketNum, List<String> cols) {
         this.isHash = isHash;
@@ -67,6 +71,10 @@ public class DistributionDescriptor {
 
     public void updateBucketNum(int bucketNum) {
         this.bucketNum = bucketNum;
+    }
+
+    public void updateHashType(HashType hashType) {
+        this.hashType = hashType;
     }
 
     /**
@@ -122,7 +130,7 @@ public class DistributionDescriptor {
 
     public DistributionDesc translateToCatalogStyle() {
         if (isHash) {
-            return new HashDistributionDesc(bucketNum, isAutoBucket, cols);
+            return new HashDistributionDesc(bucketNum, isAutoBucket, cols, hashType);
         }
         return new RandomDistributionDesc(bucketNum, isAutoBucket);
     }

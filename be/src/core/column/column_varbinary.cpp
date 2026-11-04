@@ -31,6 +31,7 @@
 #include "core/data_type/primitive_type.h"
 #include "exec/sort/sort_block.h"
 #include "util/hash_util.hpp"
+#include "util/raw_value.h"
 
 namespace doris {
 
@@ -258,6 +259,34 @@ void ColumnVarbinary::update_crc32c_single(size_t start, size_t end, uint32_t& h
                 hash = crc32c_extend(hash, reinterpret_cast<const uint8_t*>(_data[i].data()),
                                      _data[i].size());
             }
+        }
+    }
+}
+
+void ColumnVarbinary::update_identity_hash(uint32_t* __restrict hashes, uint32_t mod,
+                                           const uint8_t* __restrict null_map) const {
+    // Hash each value's raw bytes, bit-identical with the scalar RawValue::identity_hash
+    // TYPE_VARBINARY path (raw byte append, no terminating zero) and with ColumnString's batch
+    // identity hash on the same bytes. A null row appends the shared four zero canonical bytes.
+    const size_t rows = size();
+    auto append_row = [&](size_t i) {
+        hashes[i] =
+                RawValue::append_identity_bytes(_data[i].data(), _data[i].size(), hashes[i], mod);
+    };
+    if (null_map != nullptr) {
+        for (size_t i = 0; i < rows; ++i) {
+            if (null_map[i] == 0) {
+                append_row(i);
+            } else {
+                // Null convention of RawValue::identity_hash: four zero canonical bytes.
+                hashes[i] = RawValue::append_identity_bytes(&RawValue::NULL_IDENTITY_BYTES,
+                                                            sizeof(RawValue::NULL_IDENTITY_BYTES),
+                                                            hashes[i], mod);
+            }
+        }
+    } else {
+        for (size_t i = 0; i < rows; ++i) {
+            append_row(i);
         }
     }
 }

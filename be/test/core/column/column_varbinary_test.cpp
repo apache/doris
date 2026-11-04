@@ -316,6 +316,56 @@ TEST_F(ColumnVarbinaryTest, ShuffleHashesMatchStringOfTheSameBytes) {
     }
 }
 
+TEST_F(ColumnVarbinaryTest, IdentityHashMatchesStringOfTheSameBytes) {
+    // The identity batch path must be bit-identical with the scalar RawValue::identity_hash
+    // TYPE_VARBINARY case (tablet routing) and with ColumnString's batch identity hash on the
+    // same bytes. Same value matrix as ShuffleHashesMatchStringOfTheSameBytes, with rows that
+    // collide across algorithms removed as irrelevant here.
+    const std::vector<std::string> values = {"",
+                                             std::string("\0\xff", 2),
+                                             "abc",
+                                             make_bytes(doris::StringView::kInlineSize, 0x11),
+                                             make_bytes(doris::StringView::kInlineSize + 1, 0x22),
+                                             make_bytes(40, 0x80)};
+    const std::vector<uint8_t> null_map = {0, 1, 0, 0, 1, 0};
+    auto binary = ColumnVarbinary::create();
+    auto string = ColumnString::create();
+    for (const auto& value : values) {
+        binary->insert_data(value.data(), value.size());
+        string->insert_data(value.data(), value.size());
+    }
+    const auto rows = static_cast<uint32_t>(values.size());
+    auto seeds = [&]() {
+        std::vector<uint32_t> hashes(rows);
+        for (uint32_t i = 0; i < rows; ++i) {
+            hashes[i] = 7 * i + 1;
+        }
+        return hashes;
+    };
+
+    for (const uint8_t* nulls : {static_cast<const uint8_t*>(nullptr), null_map.data()}) {
+        SCOPED_TRACE(nulls == nullptr ? "without null map" : "with null map");
+        auto binary_hashes = seeds();
+        auto string_hashes = seeds();
+        binary->update_identity_hash(binary_hashes.data(), 97, nulls);
+        string->update_identity_hash(string_hashes.data(), 97, nulls);
+        EXPECT_EQ(binary_hashes, string_hashes);
+        EXPECT_NE(binary_hashes, seeds());
+    }
+
+    // A null row (marked via the caller's null map, as held by ColumnNullable) must take the
+    // shared four zero canonical bytes: it equals the scalar identity_hash(nullptr, ...) result
+    // and differs from a non-null empty value, which appends zero bytes.
+    auto with_null = ColumnVarbinary::create();
+    with_null->insert_default();
+    with_null->insert_data("", 0);
+    const std::vector<uint8_t> null_map_two = {1, 0};
+    std::vector<uint32_t> hashes(2, 5);
+    with_null->update_identity_hash(hashes.data(), 97, null_map_two.data());
+    EXPECT_EQ(hashes[0], RawValue::identity_hash(nullptr, 0, TYPE_VARBINARY, 5, 97));
+    EXPECT_NE(hashes[0], hashes[1]);
+}
+
 TEST_F(ColumnVarbinaryTest, ArrayOfVarbinaryHashesLikeArrayOfString) {
     // A shuffle join on ARRAY<VARBINARY> keys hashes the array elements through
     // update_crc32c_single.

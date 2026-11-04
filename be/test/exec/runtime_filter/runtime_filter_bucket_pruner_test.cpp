@@ -21,7 +21,10 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <limits>
+#include <map>
 #include <memory>
+#include <numeric>
 #include <set>
 #include <utility>
 #include <vector>
@@ -32,6 +35,7 @@
 #include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exec/runtime_filter/runtime_filter_wrapper.h"
 #include "exprs/create_predicate_function.h"
+#include "exprs/hybrid_set.h"
 #include "exprs/runtime_filter_expr.h"
 #include "exprs/vdirect_in_predicate.h"
 #include "exprs/vexpr_context.h"
@@ -48,12 +52,13 @@ protected:
 
     std::shared_ptr<RuntimeFilterWrapper> make_in_wrapper(int filter_id,
                                                           const std::vector<int32_t>& values,
-                                                          bool null_aware = false) {
+                                                          bool null_aware = false,
+                                                          int max_in_num = 1024) {
         RuntimeFilterParams params {.filter_id = filter_id,
                                     .filter_type = RuntimeFilterType::IN_FILTER,
                                     .column_return_type = TYPE_INT,
                                     .null_aware = null_aware,
-                                    .max_in_num = 1024};
+                                    .max_in_num = max_in_num};
         auto wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
         for (const int32_t value : values) {
             wrapper->hybrid_set()->insert(&value);
@@ -123,10 +128,12 @@ protected:
         return std::make_shared<VExprContext>(wrapper);
     }
 
-    TRuntimeFilterDesc bucket_prune_desc(int filter_id) {
+    TRuntimeFilterDesc bucket_prune_desc(
+            int filter_id, TDistributionHashType::type hash_type = TDistributionHashType::CRC32) {
         TRuntimeFilterDesc desc;
         desc.__set_filter_id(filter_id);
         desc.__set_bucket_pruning_target_ids({SCAN_NODE_ID});
+        desc.__set_bucket_pruning_target_hash_types({{SCAN_NODE_ID, hash_type}});
         return desc;
     }
 
@@ -165,16 +172,24 @@ TEST_F(RuntimeFilterBucketPrunerTest, ExactSetHashesSharedAcrossConsumers) {
     auto second = make_in_conjunct(filter_id, {}, runtime_filter_wrapper);
     auto target_type = first->root()->get_impl()->children()[0]->data_type();
 
-    auto first_hashes = assert_cast<RuntimeFilterExpr*>(first->root().get())
-                                ->get_bucket_prune_hashes(target_type);
-    auto second_hashes = assert_cast<RuntimeFilterExpr*>(second->root().get())
-                                 ->get_bucket_prune_hashes(target_type);
-    auto nullable_hashes = assert_cast<RuntimeFilterExpr*>(first->root().get())
-                                   ->get_bucket_prune_hashes(std::make_shared<DataTypeNullable>(
-                                           std::make_shared<DataTypeInt32>()));
+    auto first_hashes =
+            assert_cast<RuntimeFilterExpr*>(first->root().get())
+                    ->get_bucket_prune_hashes(target_type, TDistributionHashType::CRC32, 8);
+    auto second_hashes =
+            assert_cast<RuntimeFilterExpr*>(second->root().get())
+                    ->get_bucket_prune_hashes(target_type, TDistributionHashType::CRC32, 8);
+    auto nullable_hashes =
+            assert_cast<RuntimeFilterExpr*>(first->root().get())
+                    ->get_bucket_prune_hashes(
+                            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()),
+                            TDistributionHashType::CRC32, 8);
 
     EXPECT_EQ(first_hashes.get(), second_hashes.get());
     EXPECT_EQ(first_hashes.get(), nullable_hashes.get());
+    EXPECT_EQ(first_hashes.get(), runtime_filter_wrapper
+                                          ->get_or_compute_bucket_prune_hashes(
+                                                  target_type, TDistributionHashType::CRC32, 97)
+                                          .get());
     ASSERT_EQ(first_hashes->size(), 4);
     EXPECT_EQ(first_hashes->back(), HashUtil::zlib_crc_hash_null(0));
 }
@@ -184,10 +199,230 @@ TEST_F(RuntimeFilterBucketPrunerTest, RejectsMergeAfterBucketHashesStart) {
     auto wrapper = make_in_wrapper(filter_id, {1});
     auto other = make_in_wrapper(filter_id, {2});
 
-    static_cast<void>(
-            wrapper->get_or_compute_bucket_prune_hashes(std::make_shared<DataTypeInt32>()));
+    static_cast<void>(wrapper->get_or_compute_bucket_prune_hashes(std::make_shared<DataTypeInt32>(),
+                                                                  TDistributionHashType::CRC32, 8));
 
     EXPECT_DEATH({ static_cast<void>(wrapper->merge(other.get())); }, "Check failed");
+}
+
+TEST_F(RuntimeFilterBucketPrunerTest, IdentityExactInKeepsIdentityBucket) {
+    constexpr int filter_id = 17;
+    // value 2 separates the algorithms on 4 buckets: crc32(2) % 4 == 3 while 2 % 4 == 2, so
+    // this case fails if the pruning silently fell back to CRC32 (the previous value 1 gave
+    // crc32(1) % 4 == 1 == 1 % 4 and could not tell the two apart).
+    constexpr int32_t value = 2;
+    VExprContextSPtrs conjuncts {make_in_conjunct(filter_id, {value})};
+    std::vector<TRuntimeFilterDesc> rf_descs {
+            bucket_prune_desc(filter_id, TDistributionHashType::IDENTITY)};
+
+    RuntimeFilterBucketPruner pruner;
+    int64_t newly_pruned = 0;
+    ASSERT_TRUE(pruner.prune_by_runtime_filters(four_bucket_ranges(), conjuncts, rf_descs,
+                                                SCAN_NODE_ID, 1024, &newly_pruned)
+                        .ok());
+    EXPECT_EQ(newly_pruned, 3);
+    for (int32_t bucket_seq = 0; bucket_seq < 4; ++bucket_seq) {
+        EXPECT_EQ(pruner.is_bucket_pruned(bucket_seq, 4), bucket_seq != value % 4);
+    }
+}
+
+TEST_F(RuntimeFilterBucketPrunerTest, IdentityExactInSeparatesFromCrc32AcrossCounts) {
+    constexpr int filter_id = 18;
+    constexpr int32_t value = 10;
+    VExprContextSPtrs conjuncts {make_in_conjunct(filter_id, {value})};
+
+    // For every bucket count, the IDENTITY descriptor must keep exactly value % n while the
+    // CRC32 fallback would keep zlib_crc32(value) % n; the two must disagree for at least
+    // one count so a regression to CRC32 cannot pass unnoticed.
+    int disagreements = 0;
+    for (int32_t bucket_num : {4, 5, 8, 97, 257}) {
+        BucketPruneRanges ranges;
+        for (int32_t bucket_seq = 0; bucket_seq < bucket_num; ++bucket_seq) {
+            add_range(&ranges, ranges.size(), bucket_seq, bucket_num);
+        }
+        std::vector<TRuntimeFilterDesc> identity_descs {
+                bucket_prune_desc(filter_id, TDistributionHashType::IDENTITY)};
+        RuntimeFilterBucketPruner identity_pruner;
+        int64_t newly_pruned = 0;
+        ASSERT_TRUE(identity_pruner
+                            .prune_by_runtime_filters(ranges, conjuncts, identity_descs,
+                                                      SCAN_NODE_ID, 1024, &newly_pruned)
+                            .ok());
+        EXPECT_EQ(newly_pruned, bucket_num - 1);
+        for (int32_t bucket_seq = 0; bucket_seq < bucket_num; ++bucket_seq) {
+            EXPECT_EQ(identity_pruner.is_bucket_pruned(bucket_seq, bucket_num),
+                      bucket_seq != value % bucket_num);
+        }
+        if (bucket_for_value(value, bucket_num) != value % bucket_num) {
+            ++disagreements;
+        }
+    }
+    EXPECT_GE(disagreements, 1);
+}
+
+// Count values actually visited, so the full-coverage shortcut is checked without timing tests.
+class CountingIntSet : public HybridSet<TYPE_INT> {
+public:
+    CountingIntSet() : HybridSet<TYPE_INT>(false) {}
+
+    class CountingIterator : public IteratorBase {
+    public:
+        CountingIterator(IteratorBase* inner, size_t& visited) : _inner(inner), _visited(visited) {}
+        const void* get_value() override {
+            ++_visited;
+            return _inner->get_value();
+        }
+        bool has_next() const override { return _inner->has_next(); }
+        void next() override { _inner->next(); }
+
+    private:
+        IteratorBase* _inner;
+        size_t& _visited;
+    };
+
+    IteratorBase* begin() override {
+        _iterator =
+                std::make_unique<CountingIterator>(HybridSet<TYPE_INT>::begin(), values_visited);
+        return _iterator.get();
+    }
+
+    size_t values_visited = 0;
+
+private:
+    std::unique_ptr<CountingIterator> _iterator;
+};
+
+TEST_F(RuntimeFilterBucketPrunerTest, IdentityCacheStopsAfterFullCoverage) {
+    auto wrapper = make_in_wrapper(17, {});
+    auto values = std::make_shared<CountingIntSet>();
+    for (int32_t value = 0; value < 1024; ++value) {
+        values->insert(&value);
+    }
+    wrapper->_hybrid_set = values;
+    auto buckets = wrapper->get_or_compute_bucket_prune_hashes(std::make_shared<DataTypeInt32>(),
+                                                               TDistributionHashType::IDENTITY, 1);
+    ASSERT_EQ(buckets->size(), 1);
+    EXPECT_EQ(buckets->front(), 0U);
+    EXPECT_EQ(values->values_visited, 1);
+    EXPECT_EQ(values->size(), 1024);
+}
+
+TEST_F(RuntimeFilterBucketPrunerTest, IdentityCacheDeduplicatesAndSharesBuckets) {
+    auto wrapper = make_in_wrapper(17, {0, 4, 8, 12, -4}, true);
+    auto first = make_in_conjunct(17, {}, wrapper);
+    auto second = make_in_conjunct(17, {}, wrapper);
+    auto target_type = std::make_shared<DataTypeInt32>();
+    auto buckets =
+            assert_cast<RuntimeFilterExpr*>(first->root().get())
+                    ->get_bucket_prune_hashes(target_type, TDistributionHashType::IDENTITY, 4);
+    // Every non-null value and NULL select the same bucket; retain it only once.
+    ASSERT_EQ(buckets->size(), 1);
+    EXPECT_EQ(buckets->front(), 0U);
+    EXPECT_EQ(buckets.get(),
+              assert_cast<RuntimeFilterExpr*>(second->root().get())
+                      ->get_bucket_prune_hashes(target_type, TDistributionHashType::IDENTITY, 4)
+                      .get());
+    EXPECT_EQ(buckets.get(), wrapper->get_or_compute_bucket_prune_hashes(
+                                            std::make_shared<DataTypeNullable>(target_type),
+                                            TDistributionHashType::IDENTITY, 4)
+                                     .get());
+}
+
+TEST_F(RuntimeFilterBucketPrunerTest, IdentityCacheHandlesEmptyAndNullOnlySets) {
+    auto target_type = std::make_shared<DataTypeInt32>();
+    for (bool null_aware : {false, true}) {
+        auto wrapper = make_in_wrapper(17, {}, null_aware);
+        for (uint32_t bucket_num : {1U, 7U, 768U}) {
+            auto buckets = wrapper->get_or_compute_bucket_prune_hashes(
+                    target_type, TDistributionHashType::IDENTITY, bucket_num);
+            if (null_aware) {
+                ASSERT_EQ(buckets->size(), 1);
+                EXPECT_EQ(buckets->front(), 0U);
+            } else {
+                EXPECT_TRUE(buckets->empty());
+            }
+        }
+    }
+}
+
+TEST_F(RuntimeFilterBucketPrunerTest, IdentityCacheHandlesLargeBucketCount) {
+    auto wrapper = make_in_wrapper(17, {-1, 0, 1}, true);
+    auto buckets = wrapper->get_or_compute_bucket_prune_hashes(
+            std::make_shared<DataTypeInt32>(), TDistributionHashType::IDENTITY,
+            std::numeric_limits<uint32_t>::max());
+    // Scratch space must also be bounded by the set size, not by this huge bucket count.
+    const std::set<uint32_t> expected {0, 1};
+    EXPECT_EQ(std::set<uint32_t>(buckets->begin(), buckets->end()), expected);
+    EXPECT_LE(buckets->capacity(), expected.size());
+}
+
+TEST_F(RuntimeFilterBucketPrunerTest, IdentityCacheRetainsOnlyBucketsAcrossManyCounts) {
+    constexpr int value_count = 40960;
+    constexpr uint32_t max_bucket_num = 768;
+    std::vector<int32_t> values(value_count);
+    std::iota(values.begin(), values.end(), 0);
+    auto wrapper = make_in_wrapper(17, values, true, value_count);
+    auto target_type = std::make_shared<DataTypeInt32>();
+    size_t retained_capacity = 0;
+    for (uint32_t bucket_num = 1; bucket_num <= max_bucket_num; ++bucket_num) {
+        SCOPED_TRACE(bucket_num);
+        auto buckets = wrapper->get_or_compute_bucket_prune_hashes(
+                target_type, TDistributionHashType::IDENTITY, bucket_num);
+        // Contiguous values cover every bucket. The old cache retained value_count + 1
+        // entries per count (~120 MiB); duplicates must not survive in size OR capacity.
+        ASSERT_EQ(buckets->size(), bucket_num);
+        EXPECT_LE(buckets->capacity(), bucket_num);
+        EXPECT_EQ(std::set<uint32_t>(buckets->begin(), buckets->end()).size(), bucket_num);
+        for (uint32_t bucket : *buckets) {
+            EXPECT_LT(bucket, bucket_num);
+        }
+        retained_capacity += buckets->capacity();
+        EXPECT_EQ(buckets.get(),
+                  wrapper->get_or_compute_bucket_prune_hashes(
+                                 target_type, TDistributionHashType::IDENTITY, bucket_num)
+                          .get());
+    }
+    EXPECT_LE(retained_capacity, max_bucket_num * (max_bucket_num + 1) / 2);
+    EXPECT_EQ(wrapper->hybrid_set()->size(), value_count);
+    EXPECT_TRUE(wrapper->hybrid_set()->contain_null());
+}
+
+TEST_F(RuntimeFilterBucketPrunerTest, IdentitySparseBucketsRemainCorrectAcrossCounts) {
+    constexpr int filter_id = 17;
+    const std::vector<int32_t> values {-1, 0, 4, 8, 12};
+    auto wrapper = make_in_wrapper(filter_id, values, true);
+    VExprContextSPtrs conjuncts {make_in_conjunct(filter_id, {}, wrapper)};
+    std::vector<TRuntimeFilterDesc> rf_descs {
+            bucket_prune_desc(filter_id, TDistributionHashType::IDENTITY)};
+    BucketPruneRanges ranges;
+    std::map<int32_t, std::set<uint32_t>> expected_by_num;
+    int64_t expected_pruned = 0;
+    for (int32_t bucket_num : {4, 7, 97}) {
+        auto& expected = expected_by_num[bucket_num];
+        expected.insert(0); // NULL's canonical bytes select bucket zero.
+        for (int32_t value : values) {
+            expected.insert(static_cast<uint32_t>(value) % static_cast<uint32_t>(bucket_num));
+        }
+        expected_pruned += bucket_num - static_cast<int64_t>(expected.size());
+        for (int32_t bucket = 0; bucket < bucket_num; ++bucket) {
+            add_range(&ranges, ranges.size(), bucket, bucket_num);
+        }
+    }
+    RuntimeFilterBucketPruner pruner;
+    int64_t newly_pruned = 0;
+    ASSERT_TRUE(pruner.prune_by_runtime_filters(ranges, conjuncts, rf_descs, SCAN_NODE_ID, 1024,
+                                                &newly_pruned)
+                        .ok());
+    EXPECT_EQ(newly_pruned, expected_pruned);
+    for (const auto& [bucket_num, expected] : expected_by_num) {
+        auto buckets = wrapper->get_or_compute_bucket_prune_hashes(
+                std::make_shared<DataTypeInt32>(), TDistributionHashType::IDENTITY, bucket_num);
+        EXPECT_EQ(std::set<uint32_t>(buckets->begin(), buckets->end()), expected);
+        EXPECT_EQ(buckets->size(), expected.size());
+        for (int32_t bucket = 0; bucket < bucket_num; ++bucket) {
+            EXPECT_EQ(pruner.is_bucket_pruned(bucket, bucket_num), !expected.contains(bucket));
+        }
+    }
 }
 
 TEST_F(RuntimeFilterBucketPrunerTest, ExactInKeepsOnlyMatchingBucket) {

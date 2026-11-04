@@ -19,12 +19,16 @@
 
 #include "storage/olap_utils.h"
 #include "util/hash_util.hpp"
+#include "util/raw_value.h"
 
 namespace doris {
 
 bool ScanKeyBucketPruner::init(const std::vector<std::unique_ptr<OlapScanRange>>& ranges,
-                               int32_t bucket_num) {
+                               int32_t bucket_num, TDistributionHashType::type hash_type) {
     DORIS_CHECK_GT(bucket_num, 0);
+    DORIS_CHECK(hash_type == TDistributionHashType::CRC32 ||
+                hash_type == TDistributionHashType::IDENTITY)
+            << "unsupported distribution hash type " << static_cast<int>(hash_type);
     _bucket_ranges.clear();
     for (const auto& range : ranges) {
         if (!range->has_lower_bound || !range->has_upper_bound || !range->begin_include ||
@@ -41,10 +45,21 @@ bool ScanKeyBucketPruner::init(const std::vector<std::unique_ptr<OlapScanRange>>
     _bucket_ranges.resize(bucket_num);
     for (const auto& range : ranges) {
         const auto& value = range->begin_scan_range.get_field(0).get<TYPE_VARCHAR>();
-        // Identical to ColumnString::update_crcs_with_value for a single non-null
-        // VARCHAR distribution column: raw bytes, seed zero, and the full bucket count.
-        const uint32_t hash =
-                HashUtil::zlib_crc_hash(value.data(), static_cast<uint32_t>(value.size()), 0);
+        // Identical to the function the table's buckets were built with, at seed zero over
+        // the full bucket count:
+        // CRC32: ColumnString::update_crcs_with_value for a single non-null VARCHAR
+        // distribution column (raw bytes).
+        // IDENTITY: RawValue::identity_hash for the same column (canonical little-endian
+        // unsigned-integer append, as used by tablet routing and FE pruning). The VARCHAR
+        // key range carries no terminating zero; for identity this equals the routing value
+        // because a trailing zero byte only shifts the value's high bits.
+        uint32_t hash = 0;
+        if (hash_type == TDistributionHashType::IDENTITY) {
+            hash = RawValue::append_identity_bytes(value.data(), value.size(), 0,
+                                                   static_cast<uint32_t>(bucket_num));
+        } else {
+            hash = HashUtil::zlib_crc_hash(value.data(), static_cast<uint32_t>(value.size()), 0);
+        }
         _bucket_ranges[hash % bucket_num].push_back(range.get());
     }
     return true;

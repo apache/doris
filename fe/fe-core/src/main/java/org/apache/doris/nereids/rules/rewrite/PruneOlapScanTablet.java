@@ -110,6 +110,7 @@ public class PruneOlapScanTablet extends OneRewriteRuleFactory {
                 hashInfo.getDistributionColumns(),
                 filterMap,
                 hashInfo.getBucketNum(),
-                isBaseIndexSelected).prune();
+                isBaseIndexSelected,
+                hashInfo.getHashType()).prune();
     }
 }

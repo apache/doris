@@ -72,6 +72,21 @@ class RuntimeFilterPruneClassifierTest {
                 new HashDistributionInfo(8, ImmutableList.of(distributionColumn)));
 
         Assertions.assertTrue(classification.canPruneBuckets());
+        Assertions.assertEquals(HashDistributionInfo.HashType.CRC32,
+                classification.getBucketHashType());
+    }
+
+    @Test
+    void testIdentityHashTypePropagatedForBucketPruning() {
+        Column distributionColumn = new Column("dist_col", PrimitiveType.INT);
+        RuntimeFilterPruneClassifier.Classification classification = classifyBucket(
+                TRuntimeFilterType.IN, distributionColumn,
+                new HashDistributionInfo(8, false, ImmutableList.of(distributionColumn),
+                        HashDistributionInfo.HashType.IDENTITY));
+
+        Assertions.assertTrue(classification.canPruneBuckets());
+        Assertions.assertEquals(HashDistributionInfo.HashType.IDENTITY,
+                classification.getBucketHashType());
     }
 
     @Test

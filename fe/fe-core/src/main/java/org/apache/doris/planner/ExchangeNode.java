@@ -23,6 +23,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
@@ -59,6 +60,8 @@ public class ExchangeNode extends PlanNode {
 
     private boolean isRightChildOfBroadcastHashJoin = false;
     private TPartitionType partitionType;
+    // storage bucketing hash carried for BUCKET_SHFFULE_HASH_PARTITIONED; defaults to CRC32 (legacy)
+    private HashDistributionInfo.HashType distributionHashType = HashDistributionInfo.HashType.CRC32;
 
     /**
      * use for Nereids only.
@@ -79,6 +82,24 @@ public class ExchangeNode extends PlanNode {
 
     public void setPartitionType(TPartitionType partitionType) {
         this.partitionType = partitionType;
+    }
+
+    public HashDistributionInfo.HashType getDistributionHashType() {
+        return distributionHashType;
+    }
+
+    @Override
+    public StorageHashLayout getStorageHashLayout() {
+        // Children belong to the sender fragment. An execution exchange establishes no
+        // receiver storage layout, regardless of the sender's algorithm or our legacy tag.
+        return partitionType == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED
+                ? StorageHashLayout.known(distributionHashType) : StorageHashLayout.NONE;
+    }
+
+    public void setDistributionHashType(HashDistributionInfo.HashType distributionHashType) {
+        this.distributionHashType = distributionHashType == null
+                ? HashDistributionInfo.HashType.CRC32
+                : distributionHashType;
     }
 
     public void updateTupleIds(TupleDescriptor outputTupleDesc) {

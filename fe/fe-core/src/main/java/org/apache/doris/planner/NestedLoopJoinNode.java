@@ -106,6 +106,12 @@ public class NestedLoopJoinNode extends JoinNodeBase {
     }
 
     @Override
+    public StorageHashLayout getStorageHashLayout() {
+        // Nereids derives every nested-loop join output from its left/probe child distribution.
+        return children.get(0).getStorageHashLayout();
+    }
+
+    @Override
     protected void toThrift(TPlanNode msg) {
         msg.nested_loop_join_node = new TNestedLoopJoinNode();
         msg.nested_loop_join_node.join_op = joinOp.toThrift();

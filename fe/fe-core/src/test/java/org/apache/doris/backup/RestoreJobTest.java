@@ -17,19 +17,28 @@
 
 package org.apache.doris.backup;
 
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.backup.BackupJobInfo.BackupIndexInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupOlapTableInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupPartitionInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupTabletInfo;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.HashDistributionInfo.HashType;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
@@ -41,16 +50,20 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.nereids.trees.plans.commands.BackupCommand.BackupContent;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -248,6 +261,91 @@ public class RestoreJobTest {
         tbl.setName("newName");
         partNames = Lists.newArrayList(tbl.getPartitionNames());
         System.out.println("tbl signature: " + tbl.getSignature(BackupHandler.SIGNATURE_VERSION, partNames));
+    }
+
+    @ParameterizedTest
+    @EnumSource(HashType.class)
+    public void testRestoreDisjointPartitionWithSameHash(HashType hashType) throws Exception {
+        // Bucket counts may differ between partitions; only the table-wide hash must match.
+        checkRestoreDisjointPartition(hashType, hashType, 5);
+    }
+
+    @ParameterizedTest
+    @EnumSource(HashType.class)
+    public void testRestoreDisjointPartitionWithDifferentHash(HashType localHash) throws Exception {
+        HashType remoteHash = localHash == HashType.CRC32 ? HashType.IDENTITY : HashType.CRC32;
+        checkRestoreDisjointPartition(localHash, remoteHash, 8);
+    }
+
+    private void checkRestoreDisjointPartition(HashType localHash, HashType remoteHash, int remoteBuckets)
+            throws Exception {
+        OlapTable local = createHashPartitionedTable(30003L, "p1", 40003L, 0, 10, localHash, 8);
+        OlapTable remote = createHashPartitionedTable(30004L, "p2", 40004L, 10, 20, remoteHash, remoteBuckets);
+        db.registerTable(local);
+        List<String> intersectPartNames = Lists.newArrayList();
+        Assertions.assertTrue(local.getIntersectPartNamesWith(remote, intersectPartNames).ok());
+        Assertions.assertTrue(intersectPartNames.isEmpty());
+
+        jobInfo.backupOlapTableObjects.clear();
+        jobInfo.content = BackupContent.METADATA_ONLY;
+        BackupOlapTableInfo tableInfo = new BackupOlapTableInfo();
+        tableInfo.id = remote.getId();
+        BackupPartitionInfo partitionInfo = new BackupPartitionInfo();
+        partitionInfo.id = remote.getPartition("p2").getId();
+        tableInfo.partitions.put("p2", partitionInfo);
+        jobInfo.backupOlapTableObjects.put(remote.getName(), tableInfo);
+        BackupMeta meta = new BackupMeta(Lists.newArrayList(remote), Lists.newArrayList());
+        mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+        RestoreJob restore = Mockito.spy(new RestoreJob(label, "2018-01-01 01:01:01",
+                db.getId(), db.getFullName(), jobInfo, false,
+                new ReplicaAllocation((short) 1), 100000, -1,
+                false, false, false, false, false, false, false, false,
+                env, Repository.KEEP_ON_LOCAL_REPO_ID, meta));
+        // Exercise real metadata validation, partition resetting and attachment. Only skip BE tasks
+        // and file mappings: this test has no physical tablets to create or restore.
+        Mockito.doNothing().when(restore).createReplicas(Mockito.any(), Mockito.any(), Mockito.any());
+        Mockito.doNothing().when(restore).genFileMapping(Mockito.any(), Mockito.any(),
+                Mockito.anyLong(), Mockito.any(), Mockito.anyBoolean());
+        Mockito.doNothing().when(restore).doCreateReplicas();
+        Deencapsulation.invoke(restore, "checkAndPrepareMeta");
+        if (localHash == remoteHash) {
+            Assertions.assertTrue(restore.getStatus().ok(), restore.getStatus().toString());
+            Assertions.assertEquals(RestoreJob.RestoreJobState.CREATING, restore.getState());
+            Assertions.assertEquals(1, restore.restoredPartitions.size());
+            restore.allReplicasCreated();
+            Assertions.assertSame(remote.getPartition("p2"), local.getPartition("p2"));
+            HashDistributionInfo restoredDistribution =
+                    (HashDistributionInfo) local.getPartition("p2").getDistributionInfo();
+            Assertions.assertEquals(remoteHash, restoredDistribution.getHashType());
+            Assertions.assertEquals(remoteBuckets, restoredDistribution.getBucketNum());
+        } else {
+            Assertions.assertFalse(restore.getStatus().ok(),
+                    "Mixed hash restore passed metadata validation: " + localHash + " <- " + remoteHash);
+            Assertions.assertTrue(restore.getStatus().getErrMsg().contains("different schema"));
+            Assertions.assertTrue(restore.restoredPartitions.isEmpty());
+            Assertions.assertNull(local.getPartition("p2"));
+        }
+    }
+
+    private OlapTable createHashPartitionedTable(long tableId, String partitionName, long partitionId,
+            int lower, int upper, HashType hashType, int buckets) throws AnalysisException {
+        Column key = new Column("id", PrimitiveType.BIGINT, true);
+        Column date = new Column("dt", PrimitiveType.INT, true);
+        List<Column> partitionColumns = Lists.newArrayList(date);
+        RangePartitionInfo partitionInfo = new RangePartitionInfo(partitionColumns);
+        PartitionKey lowerKey = PartitionKey.createPartitionKey(
+                Lists.newArrayList(new PartitionValue(Integer.toString(lower))), partitionColumns);
+        PartitionKey upperKey = PartitionKey.createPartitionKey(
+                Lists.newArrayList(new PartitionValue(Integer.toString(upper))), partitionColumns);
+        partitionInfo.addPartition(partitionId, false, new RangePartitionItem(Range.closedOpen(lowerKey, upperKey)),
+                new DataProperty(TStorageMedium.HDD), new ReplicaAllocation((short) 1), false, true);
+        HashDistributionInfo distribution = new HashDistributionInfo(
+                buckets, false, Lists.newArrayList(key), hashType);
+        OlapTable table = new OlapTable(tableId, "restore_hash_table", Lists.newArrayList(key, date), KeysType.DUP_KEYS,
+                partitionInfo, distribution);
+        table.addPartition(new Partition(partitionId, partitionName,
+                new MaterializedIndex(tableId, MaterializedIndex.IndexState.NORMAL), distribution));
+        return table;
     }
 
     @Test

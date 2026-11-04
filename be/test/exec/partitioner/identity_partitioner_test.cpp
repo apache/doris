@@ -1,0 +1,327 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include <gtest/gtest.h>
+
+#include <array>
+#include <boost/multiprecision/cpp_int.hpp>
+#include <limits>
+#include <memory>
+#include <vector>
+
+#include "common/object_pool.h"
+#include "core/block/block.h"
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
+#include "core/value/decimalv2_value.h"
+#include "core/value/ipv4_value.h"
+#include "core/value/ipv6_value.h"
+#include "core/value/vdatetime_value.h"
+#include "exec/partitioner/partitioner.h"
+#include "runtime/descriptor_helper.h"
+#include "runtime/descriptors.h"
+#include "testutil/column_helper.h"
+#include "testutil/mock/mock_runtime_state.h"
+#include "util/raw_value.h"
+
+namespace doris {
+
+// Unit tests for the BE-side identity reshuffle partitioner used by bucket-shuffle join when the
+// target table is bucketed with distribution_hash_type = identity. It must interpret every value's
+// canonical little-endian bytes as unsigned and compose multiple columns identically to FE pruning
+// and BE tablet routing.
+class IdentityPartitionerTest : public ::testing::Test {
+protected:
+    void SetUp() override {
+        TDescriptorTableBuilder dtb;
+        TTupleDescriptorBuilder tuple_builder;
+        tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                       .type(TYPE_INT)
+                                       .nullable(true)
+                                       .column_name("c1")
+                                       .column_pos(1)
+                                       .build());
+        tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                       .type(TYPE_STRING)
+                                       .nullable(false)
+                                       .column_name("c2")
+                                       .column_pos(2)
+                                       .build());
+        tuple_builder.build(&dtb);
+        TDescriptorTable thrift_tbl = dtb.desc_tbl();
+
+        DescriptorTbl* desc_tbl = nullptr;
+        auto st = DescriptorTbl::create(&_pool, thrift_tbl, &desc_tbl);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        _state.set_desc_tbl(desc_tbl);
+
+        _tuple_id = thrift_tbl.tupleDescriptors[0].id;
+        _row_desc = std::make_unique<RowDescriptor>(*desc_tbl, std::vector<TTupleId> {_tuple_id});
+        _slot_ids.push_back(thrift_tbl.slotDescriptors[0].id);
+        _slot_ids.push_back(thrift_tbl.slotDescriptors[1].id);
+    }
+
+    TExpr make_slot_ref(size_t slot_index, PrimitiveType type, bool nullable) {
+        TExprNode node;
+        node.__set_node_type(TExprNodeType::SLOT_REF);
+        node.__set_num_children(0);
+        TSlotRef slot_ref;
+        slot_ref.__set_slot_id(_slot_ids[slot_index]);
+        slot_ref.__set_tuple_id(_tuple_id);
+        node.__set_slot_ref(slot_ref);
+        TTypeDesc type_desc = create_type_desc(type);
+        type_desc.__set_is_nullable(nullable);
+        node.__set_type(type_desc);
+        node.__set_is_nullable(nullable);
+        TExpr expr;
+        expr.nodes.emplace_back(std::move(node));
+        return expr;
+    }
+
+    TExpr make_int_slot_ref() { return make_slot_ref(0, TYPE_INT, true); }
+
+    TExpr make_string_slot_ref() { return make_slot_ref(1, TYPE_STRING, false); }
+
+    template <typename Partitioner>
+    std::vector<PartitionerBase::HashValType> run(int partition_count, Block block,
+                                                  std::vector<TExpr> exprs) {
+        Partitioner partitioner(partition_count);
+        EXPECT_TRUE(partitioner.init(exprs).ok());
+        EXPECT_TRUE(partitioner.prepare(&_state, *_row_desc).ok());
+        EXPECT_TRUE(partitioner.open(&_state).ok());
+        EXPECT_TRUE(partitioner.do_partitioning(&_state, &block).ok());
+        return partitioner.get_channel_ids();
+    }
+
+    template <typename Partitioner>
+    std::vector<PartitionerBase::HashValType> run(int partition_count, Block block) {
+        return run<Partitioner>(partition_count, std::move(block), {make_int_slot_ref()});
+    }
+
+    ObjectPool _pool;
+    MockRuntimeState _state;
+    std::unique_ptr<RowDescriptor> _row_desc;
+    TTupleId _tuple_id = 0;
+    std::vector<TSlotId> _slot_ids;
+};
+
+// Positive integers retain value-modulo behavior; for a power-of-two bucket count, two's-complement
+// unsigned bytes also place negative values in the same buckets as negative-safe signed modulo.
+TEST_F(IdentityPartitionerTest, ChannelIsValueModBucketCount) {
+    constexpr int n = 8;
+    std::vector<int32_t> values = {3, 8, 100, 999, -1, -8};
+    auto channels =
+            run<IdentityHashPartitioner>(n, ColumnHelper::create_block<DataTypeInt32>(values));
+    ASSERT_EQ(values.size(), channels.size());
+    for (size_t i = 0; i < values.size(); i++) {
+        EXPECT_EQ(static_cast<PartitionerBase::HashValType>(((values[i] % n) + n) % n), channels[i])
+                << "row " << i << " value " << values[i];
+    }
+}
+
+// Canonical two's-complement bytes are unsigned, so negative values need no special branch.
+TEST_F(IdentityPartitionerTest, NegativeValueUsesUnsignedBytes) {
+    constexpr int n = 10;
+    auto channels =
+            run<IdentityHashPartitioner>(n, ColumnHelper::create_block<DataTypeInt32>({-1, -8}));
+    ASSERT_EQ(2U, channels.size());
+    EXPECT_EQ(5U, channels[0]); // UINT32_MAX % 10
+    EXPECT_EQ(8U, channels[1]); // (UINT32_MAX - 7) % 10
+}
+
+TEST_F(IdentityPartitionerTest, SupportsMultipleTypedColumns) {
+    constexpr int n = 257;
+    auto block = ColumnHelper::create_block<DataTypeInt32>({1, 2});
+    auto strings = ColumnHelper::create_block<DataTypeString>({"A", "BC"});
+    block.insert(strings.get_by_position(0));
+    auto channels = run<IdentityHashPartitioner>(n, std::move(block),
+                                                 {make_int_slot_ref(), make_string_slot_ref()});
+    ASSERT_EQ(2U, channels.size());
+    EXPECT_EQ(64U, channels[0]); // (1 * 256 + 'A') % 257
+    // unsigned_le("BC") = 0x4342; append it after uint32_le(2).
+    EXPECT_EQ((2U * 256U * 256U + 0x4342U) % n, channels[1]);
+}
+
+// A null distribution value is represented by four zero bytes.
+TEST_F(IdentityPartitionerTest, NullGoesToChannelZero) {
+    constexpr int n = 8;
+    // row 0 null -> 0; row 1 = 300 -> 300 % 8 = 4
+    auto channels = run<IdentityHashPartitioner>(
+            n, ColumnHelper::create_nullable_block<DataTypeInt32>({0, 300}, {1, 0}));
+    ASSERT_EQ(2U, channels.size());
+    EXPECT_EQ(0U, channels[0]);
+    EXPECT_EQ(4U, channels[1]);
+}
+
+// Guard against the two branches being swapped: crc32 reshuffle must differ from identity for at
+// least one row (crc32 does not collapse to value % n).
+TEST_F(IdentityPartitionerTest, Crc32DiffersFromIdentity) {
+    constexpr int n = 8;
+    std::vector<int32_t> values = {3, 8, 100, 999, 5, 6, 7, 12};
+    auto identity =
+            run<IdentityHashPartitioner>(n, ColumnHelper::create_block<DataTypeInt32>(values));
+    auto crc32 = run<Crc32HashPartitioner<ShuffleChannelIds>>(
+            n, ColumnHelper::create_block<DataTypeInt32>(values));
+    ASSERT_EQ(values.size(), identity.size());
+    ASSERT_EQ(values.size(), crc32.size());
+    bool differs = false;
+    for (size_t i = 0; i < values.size(); i++) {
+        if (identity[i] != crc32[i]) {
+            differs = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(differs);
+}
+
+namespace {
+
+// Like the FE pruning tests' BigInteger oracle, construct the entire unsigned value before
+// taking the modulus. This deliberately does not reproduce RawValue's chunked modular loop.
+boost::multiprecision::cpp_int append_bytes(boost::multiprecision::cpp_int prefix,
+                                            const void* value, size_t size) {
+    const auto* bytes = static_cast<const uint8_t*>(value);
+    boost::multiprecision::cpp_int suffix = 0;
+    for (size_t i = 0; i < size; ++i) {
+        suffix += boost::multiprecision::cpp_int(bytes[i]) << (8 * i);
+    }
+    return (prefix << (8 * size)) + suffix;
+}
+
+std::array<uint8_t, 32> make_high_bytes(size_t width, bool negative) {
+    std::array<uint8_t, 32> bytes {};
+    // Nonzero on both sides of every 4/8/16-byte boundary, including the high byte.
+    for (size_t i = 0; i < width; ++i) {
+        bytes[i] = static_cast<uint8_t>(17 + 7 * i);
+    }
+    bytes[width - 1] = negative ? 0xe3 : 0x63;
+    return bytes;
+}
+
+uint32_t bucket(const boost::multiprecision::cpp_int& value, uint32_t modulus) {
+    return (value % modulus).convert_to<uint32_t>();
+}
+
+} // namespace
+
+TEST(IdentityHashTest, FixedWidthHighBytes) {
+    const std::vector<std::pair<PrimitiveType, size_t>> types = {
+            {TYPE_BOOLEAN, 1},      {TYPE_TINYINT, 1},      {TYPE_SMALLINT, 2},
+            {TYPE_INT, 4},          {TYPE_FLOAT, 4},        {TYPE_DATEV2, 4},
+            {TYPE_DECIMAL32, 4},    {TYPE_IPV4, 4},         {TYPE_BIGINT, 8},
+            {TYPE_DOUBLE, 8},       {TYPE_TIMEV2, 8},       {TYPE_DATETIMEV2, 8},
+            {TYPE_TIMESTAMP_NS, 8}, {TYPE_TIMESTAMPTZ, 8},  {TYPE_DECIMAL64, 8},
+            {TYPE_LARGEINT, 16},    {TYPE_DECIMAL128I, 16}, {TYPE_IPV6, 16},
+            {TYPE_DECIMAL256, 32}};
+    for (auto [type, width] : types) {
+        for (bool negative : {false, true}) {
+            auto bytes = make_high_bytes(width, negative);
+            for (uint32_t seed : {0U, 37U, 0xfedcba98U}) {
+                auto expected = append_bytes(seed, bytes.data(), width);
+                for (uint32_t modulus : {251U, 1009U, 1024U}) {
+                    SCOPED_TRACE(::testing::Message()
+                                 << "type=" << type << " width=" << width << " negative="
+                                 << negative << " seed=" << seed << " modulus=" << modulus);
+                    EXPECT_EQ(bucket(expected, modulus),
+                              RawValue::identity_hash(bytes.data(), bytes.size(), type, seed,
+                                                      modulus));
+                }
+                // A power-of-two modulus alone cannot expose loss of high bytes. Ensure these
+                // vectors distinguish the common 2/4/8/16-byte truncations with an odd modulus.
+                for (size_t truncated : {2U, 4U, 8U, 16U}) {
+                    if (truncated < width) {
+                        auto wrong = append_bytes(seed, bytes.data(), truncated);
+                        EXPECT_TRUE(bucket(expected, 251) != bucket(wrong, 251) ||
+                                    bucket(expected, 1009) != bucket(wrong, 1009));
+                    }
+                }
+            }
+        }
+    }
+}
+
+TEST(IdentityHashTest, WideColumnsWithNullTail) {
+    std::array<uint8_t, 32> wide {};
+    for (size_t i = 0; i < wide.size(); ++i) {
+        wide[i] = static_cast<uint8_t>(0xf1 - 3 * i);
+    }
+    const int64_t second = -0x123456789abcdefLL;
+    const uint32_t null_bytes = 0;
+    const std::string tail = "identity";
+    for (uint32_t seed : {37U, 0xfedcba98U}) {
+        auto expected = append_bytes(seed, wide.data(), wide.size());
+        expected = append_bytes(expected, &second, sizeof(second));
+        expected = append_bytes(expected, &null_bytes, sizeof(null_bytes));
+        for (uint32_t modulus : {251U, 1009U, 1024U}) {
+            uint32_t hash = RawValue::identity_hash(wide.data(), wide.size(), TYPE_DECIMAL256, seed,
+                                                    modulus);
+            hash = RawValue::identity_hash(&second, sizeof(second), TYPE_BIGINT, hash, modulus);
+            hash = RawValue::identity_hash(nullptr, 0, TYPE_LARGEINT, hash, modulus);
+            EXPECT_EQ(bucket(expected, modulus), hash);
+            EXPECT_EQ(
+                    bucket(append_bytes(expected, tail.data(), tail.size()), modulus),
+                    RawValue::identity_hash(tail.data(), tail.size(), TYPE_STRING, hash, modulus));
+        }
+    }
+}
+
+TEST(IdentityHashTest, LegacyTypes) {
+    auto date = VecDateTimeValue::create_from_olap_date(20260102);
+    char date_buffer[64];
+    const int date_length = date.to_buffer(date_buffer);
+    for (uint32_t seed : {0U, 37U, 0xfedcba98U}) {
+        for (uint32_t modulus : {251U, 1009U, 1024U}) {
+            EXPECT_EQ(bucket(append_bytes(seed, date_buffer, date_length), modulus),
+                      RawValue::identity_hash(&date, sizeof(date), TYPE_DATE, seed, modulus));
+            for (int64_t signed_integer : {123456789012LL, -123456789012LL}) {
+                const DecimalV2Value decimal(signed_integer, 456000000);
+                const int32_t fraction = decimal.frac_value();
+                const int64_t integer = decimal.int_value();
+                auto expected = append_bytes(seed, &fraction, sizeof(fraction));
+                expected = append_bytes(expected, &integer, sizeof(integer));
+                EXPECT_EQ(bucket(expected, modulus),
+                          RawValue::identity_hash(&decimal, sizeof(decimal), TYPE_DECIMALV2, seed,
+                                                  modulus));
+            }
+        }
+    }
+}
+
+TEST(IdentityHashTest, TimestampNsCanonicalBytes) {
+    constexpr uint32_t n = 257;
+    const TimeStampNsValue one_nanosecond(1);
+    EXPECT_EQ(1U, RawValue::identity_hash(&one_nanosecond, sizeof(one_nanosecond),
+                                          TYPE_TIMESTAMP_NS, 0, n));
+
+    const TimeStampNsValue before_epoch(-1);
+    EXPECT_EQ(
+            std::numeric_limits<uint64_t>::max() % n,
+            RawValue::identity_hash(&before_epoch, sizeof(before_epoch), TYPE_TIMESTAMP_NS, 0, n));
+}
+
+TEST(IdentityHashTest, IpCanonicalBytes) {
+    constexpr uint32_t n = 257;
+    IPv4 ipv4 = 0;
+    ASSERT_TRUE(IPv4Value::from_string(ipv4, "1.2.3.4"));
+    EXPECT_EQ(2U, RawValue::identity_hash(&ipv4, sizeof(ipv4), TYPE_IPV4, 0, n));
+
+    IPv6 ipv6 = 0;
+    ASSERT_TRUE(IPv6Value::from_string(ipv6, "::1"));
+    EXPECT_EQ(1U, RawValue::identity_hash(&ipv6, sizeof(ipv6), TYPE_IPV6, 0, n));
+}
+
+} // namespace doris

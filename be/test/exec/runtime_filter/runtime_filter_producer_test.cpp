@@ -227,7 +227,8 @@ TEST_F(RuntimeFilterProducerTest, publish_mixed_targets_local_consumer_gets_priv
     std::vector<RuntimeFilterExprPtr> exprs;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(local_consumer->acquire_expr(exprs));
     ASSERT_EQ(exprs.size(), 1);
-    auto hashes = exprs[0]->get_bucket_prune_hashes(std::make_shared<DataTypeInt32>());
+    auto hashes = exprs[0]->get_bucket_prune_hashes(std::make_shared<DataTypeInt32>(),
+                                                    TDistributionHashType::CRC32, 8);
     ASSERT_EQ(hashes->size(), 1);
 
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producer2->publish(_runtime_states[1].get(), true));
@@ -258,13 +259,18 @@ TEST_F(RuntimeFilterProducerTest, publish_mixed_targets_local_consumer_gets_priv
     ASSERT_NE(local_consumer->_wrapper->bloom_filter_func(),
               merge_consumer->_wrapper->bloom_filter_func());
 
-    ASSERT_EQ(exprs[0]->get_bucket_prune_hashes(std::make_shared<DataTypeInt32>()), hashes);
+    ASSERT_EQ(exprs[0]->get_bucket_prune_hashes(std::make_shared<DataTypeInt32>(),
+                                                TDistributionHashType::CRC32, 8),
+              hashes);
     ASSERT_EQ(hashes->size(), 1);
 
     std::vector<RuntimeFilterExprPtr> merged_exprs;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(merge_consumer->acquire_expr(merged_exprs));
     ASSERT_EQ(merged_exprs.size(), 1);
-    ASSERT_EQ(merged_exprs[0]->get_bucket_prune_hashes(std::make_shared<DataTypeInt32>())->size(),
+    ASSERT_EQ(merged_exprs[0]
+                      ->get_bucket_prune_hashes(std::make_shared<DataTypeInt32>(),
+                                                TDistributionHashType::CRC32, 8)
+                      ->size(),
               2);
 }
 
@@ -357,7 +363,10 @@ TEST_F(RuntimeFilterProducerTest, publish_mixed_targets_shared_wrapper) {
     std::vector<RuntimeFilterExprPtr> exprs;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(local_consumer->acquire_expr(exprs));
     ASSERT_EQ(exprs.size(), 1);
-    ASSERT_EQ(exprs[0]->get_bucket_prune_hashes(std::make_shared<DataTypeInt32>())->size(), 1);
+    ASSERT_EQ(exprs[0]->get_bucket_prune_hashes(std::make_shared<DataTypeInt32>(),
+                                                TDistributionHashType::CRC32, 8)
+                      ->size(),
+              1);
 
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producer2->publish(_runtime_states[1].get(), true));
     ASSERT_EQ(merge_consumer->_rf_state, RuntimeFilterConsumer::State::READY);

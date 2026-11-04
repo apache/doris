@@ -276,9 +276,20 @@ TEST_F(RuntimeFilterWrapperTest, DateInFilterRoundTripPreservesBucketHash) {
     EXPECT_EQ(assigned_date->type(), TIME_DATE);
     EXPECT_EQ(*assigned_date, date);
 
-    auto hashes = consumer->get_or_compute_bucket_prune_hashes(std::make_shared<DataTypeDate>());
-    ASSERT_EQ(hashes->size(), 1);
-    EXPECT_EQ(hashes->front(), RawValue::zlib_crc32(&date, sizeof(date), TYPE_DATE, 0));
+    auto target_type = std::make_shared<DataTypeDate>();
+    // Verify both algorithms against the original DATE across non-power-of-two bucket counts.
+    for (uint32_t bucket_num : {3U, 7U, 97U}) {
+        auto hashes = consumer->get_or_compute_bucket_prune_hashes(
+                target_type, TDistributionHashType::CRC32, bucket_num);
+        ASSERT_EQ(hashes->size(), 1);
+        EXPECT_EQ(hashes->front(), RawValue::zlib_crc32(&date, sizeof(date), TYPE_DATE, 0));
+
+        auto buckets = consumer->get_or_compute_bucket_prune_hashes(
+                target_type, TDistributionHashType::IDENTITY, bucket_num);
+        ASSERT_EQ(buckets->size(), 1);
+        EXPECT_EQ(buckets->front(),
+                  RawValue::identity_hash(&date, sizeof(date), TYPE_DATE, 0, bucket_num));
+    }
 }
 
 TEST_F(RuntimeFilterWrapperTest, TestMinMaxAssign) {
@@ -1345,7 +1356,8 @@ TEST_F(RuntimeFilterWrapperTest, TestClone) {
         ASSERT_TRUE(wrapper->insert(ColumnHelper::create_column<DataType>({1, 2}), 0).ok());
         wrapper->hybrid_set()->insert((const void*)nullptr);
         wrapper->set_state(RuntimeFilterWrapper::State::READY);
-        auto hashes = wrapper->get_or_compute_bucket_prune_hashes(std::make_shared<DataType>());
+        auto hashes = wrapper->get_or_compute_bucket_prune_hashes(std::make_shared<DataType>(),
+                                                                  TDistributionHashType::CRC32, 8);
         ASSERT_EQ(hashes->size(), 3);
 
         std::shared_ptr<RuntimeFilterWrapper> cloned;
