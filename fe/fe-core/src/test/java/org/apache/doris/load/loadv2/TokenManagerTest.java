@@ -238,32 +238,6 @@ public class TokenManagerTest {
             }).when(client).acquireToken();
             Assertions.assertEquals(received, manager.acquireAuthTokens());
             Assertions.assertEquals(received, manager.getAuthTokens());
-
-            // The newer acquisition completes while an older RPC is still outstanding.
-            Mockito.when(env.isMaster()).thenReturn(false);
-            TokenManager orderingManager = startManager();
-            TMySqlLoadAcquireTokenResult olderResult = new TMySqlLoadAcquireTokenResult();
-            olderResult.setStatus(new TStatus(TStatusCode.OK));
-            olderResult.setToken("older-current");
-            List<String> olderTokens = List.of("older-signing", "older-current");
-            olderResult.setAuthTokens(olderTokens);
-            TMySqlLoadAcquireTokenResult newerResult = new TMySqlLoadAcquireTokenResult();
-            newerResult.setStatus(new TStatus(TStatusCode.OK));
-            newerResult.setToken("newer-current");
-            List<String> newerTokens = List.of("newer-older", "newer-signing", "newer-current");
-            newerResult.setAuthTokens(newerTokens);
-            int[] calls = {0};
-            Mockito.doAnswer(invocation -> {
-                if (++calls[0] == 1) {
-                    Assertions.assertEquals(newerTokens, orderingManager.acquireAuthTokens());
-                    return olderResult;
-                }
-                return newerResult;
-            }).when(client).acquireToken();
-            Assertions.assertEquals(newerTokens, orderingManager.acquireAuthTokens());
-            Mockito.when(env.isMaster()).thenReturn(true);
-            orderingManager.start();
-            Assertions.assertEquals(newerTokens, orderingManager.getAuthTokens());
         } finally {
             ClientPool.frontendPool = previousPool;
         }

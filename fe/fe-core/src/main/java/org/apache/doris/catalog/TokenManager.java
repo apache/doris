@@ -56,8 +56,6 @@ public class TokenManager {
     private volatile String latestToken;
     // Protected by this; retain an immutable copy across follower-to-master promotion.
     private List<String> lastAcquiredAuthTokens = List.of();
-    private long nextAuthTokenRequestId;
-    private long lastCachedAuthTokenRequestId;
     private  ScheduledExecutorService tokenGenerator;
 
     public TokenManager() {
@@ -132,13 +130,11 @@ public class TokenManager {
 
     public List<String> acquireAuthTokens() throws UserException {
         EvictingQueue<String> queue;
-        long requestId;
         synchronized (this) {
             if (Env.getCurrentEnv().isMaster() || FeConstants.runningUnitTest) {
                 return getAuthTokens();
             }
             queue = tokenQueue;
-            requestId = ++nextAuthTokenRequestId;
         }
         try {
             TMySqlLoadAcquireTokenResult result = acquireTokenFromMaster();
@@ -165,14 +161,8 @@ public class TokenManager {
                 if (queue != tokenQueue) {
                     return getAuthTokens();
                 }
-                // Older RPCs may complete after newer ones and must not replace their cache.
-                if (requestId > lastCachedAuthTokenRequestId) {
-                    lastAcquiredAuthTokens = tokens;
-                    lastCachedAuthTokenRequestId = requestId;
-                }
-                // The caller must use the newer cached queue as well, rather than sign
-                // with an older RPC response that has already been superseded.
-                return lastAcquiredAuthTokens;
+                lastAcquiredAuthTokens = tokens;
+                return tokens;
             }
         } catch (TException e) {
             LOG.warn("acquire auth tokens error", e);
