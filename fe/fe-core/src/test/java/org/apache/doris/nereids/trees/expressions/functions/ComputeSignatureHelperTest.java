@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
@@ -36,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
@@ -47,11 +49,14 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TimeStampNsType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToArgumentType;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -248,6 +253,48 @@ public class ComputeSignatureHelperTest {
         Assertions.assertEquals(TimeStampNsType.INSTANCE,
                 ((ArrayType) signature.getArgType(0)).getItemType());
         Assertions.assertEquals(TimeStampNsType.INSTANCE, signature.getArgType(1));
+    }
+
+    @Test
+    void testIndexedAnyMixedTemporalCommonTypeInBothModes() {
+        boolean original = GlobalVariable.enableNewTypeCoercionBehavior;
+        try {
+            for (boolean newBehavior : new boolean[] {false, true}) {
+                GlobalVariable.enableNewTypeCoercionBehavior = newBehavior;
+                for (DataType peer : List.of(DateV2Type.INSTANCE, DateTimeV2Type.MAX, TimeStampTzType.MAX)) {
+                    FunctionSignature signature = FunctionSignature.ret(IntegerType.INSTANCE)
+                            .args(new AnyDataType(0), new AnyDataType(0));
+                    FunctionSignature resolved = ComputeSignatureHelper.implementAnyDataTypeWithIndex(signature,
+                            List.of(new SlotReference("ns", TimeStampNsType.INSTANCE), new SlotReference("peer", peer)));
+                    Assertions.assertEquals(TimeStampNsType.INSTANCE, resolved.getArgType(0));
+                    Assertions.assertEquals(TimeStampNsType.INSTANCE, resolved.getArgType(1));
+                }
+            }
+        } finally {
+            GlobalVariable.enableNewTypeCoercionBehavior = original;
+        }
+    }
+
+    @Test
+    void testIndexedAnyFailureReportsAllIncompatibleTypes() {
+        boolean original = GlobalVariable.enableNewTypeCoercionBehavior;
+        try {
+            for (boolean newBehavior : new boolean[] {false, true}) {
+                GlobalVariable.enableNewTypeCoercionBehavior = newBehavior;
+                FunctionSignature signature = FunctionSignature.ret(IntegerType.INSTANCE)
+                        .args(new AnyDataType(0), new AnyDataType(0), new AnyDataType(0));
+                List<Expression> arguments = List.of(new SlotReference("ns", TimeStampNsType.INSTANCE),
+                        new SlotReference("date", DateV2Type.INSTANCE),
+                        new SlotReference("map", MapType.of(StringType.INSTANCE, StringType.INSTANCE)));
+                AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                        () -> ComputeSignatureHelper.implementAnyDataTypeWithIndex(signature, arguments));
+                Assertions.assertEquals("Cannot find a common type for indexed ANY arguments: "
+                        + List.of(TimeStampNsType.INSTANCE, DateV2Type.INSTANCE,
+                                MapType.of(StringType.INSTANCE, StringType.INSTANCE)), error.getMessage());
+            }
+        } finally {
+            GlobalVariable.enableNewTypeCoercionBehavior = original;
+        }
     }
 
     @Test

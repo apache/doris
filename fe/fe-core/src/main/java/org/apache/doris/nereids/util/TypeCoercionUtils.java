@@ -242,18 +242,33 @@ public class TypeCoercionUtils {
         }
     }
 
+    /** Implicit argument conversion, including the exact temporal literal exception. */
+    public static Optional<DataType> implicitCast(Expression input, DataType expected) {
+        Optional<DataType> castType = implicitCast(input.getDataType(), expected);
+        if (!castType.isPresent() && input.getDataType().isTimeStampNsType() && expected.isDateLikeType()) {
+            // Use normal CAST evaluation for legality, effective strictness and TRY_CAST.
+            // Exactness concerns the resulting value, including any explicitly requested rounding.
+            Expression evaluated = input instanceof Cast ? ExpressionUtils.foldConstantArgument(input) : input;
+            return ExpressionUtils.getLiteralAfterUnwrapNullable(evaluated)
+                    .filter(TimeStampNsLiteral.class::isInstance)
+                    .map(TimeStampNsLiteral.class::cast)
+                    .filter(literal -> TemporalConversionProperties
+                            .isTimeStampNsLiteralExactlyRepresentable(literal, expected))
+                    .map(literal -> expected);
+        }
+        return castType;
+    }
+
     /**
      * Return Optional.empty() if we cannot do implicit cast.
      */
     public static Optional<DataType> implicitCastPrimitive(DataType input, DataType expected) {
-        // TIMESTAMP_NS has a different physical representation from DATETIMEV2. Temporal and
-        // numeric inputs may be promoted to TIMESTAMP_NS now that the corresponding casts exist,
-        // but never implicitly demote TIMESTAMP_NS to DATETIMEV2 because that loses nanoseconds.
-        if (input.isTimeStampNsType() || expected.isTimeStampNsType()) {
-            return TemporalTypeCoercion.implicitCastPrimitive(input, expected);
-        }
-
         Optional<DataType> castType = implicitCastPrimitiveInternal(input, expected);
+        // A rejected NS conversion must not fall through to legacy compatibility: it could
+        // silently lose nanoseconds or admit a type without a supported conversion.
+        if (castType.isPresent() || input.isTimeStampNsType() || expected.isTimeStampNsType()) {
+            return castType;
+        }
         // TODO: complete the cast logic like FunctionCallExpr.analyzeImpl
         boolean legacyCastCompatible = false;
         try {
@@ -263,10 +278,7 @@ public class TypeCoercionUtils {
         } catch (Throwable t) {
             // ignore.
         }
-        if (!castType.isPresent() && legacyCastCompatible) {
-            castType = Optional.of(expected);
-        }
-        return castType;
+        return legacyCastCompatible ? Optional.of(expected) : Optional.empty();
     }
 
     /**
@@ -274,16 +286,27 @@ public class TypeCoercionUtils {
      */
     @Developing
     private static Optional<DataType> implicitCastPrimitiveInternal(DataType input, DataType expected) {
-        DataType returnType = null;
-        if (expected.acceptsType(input)) {
-            // If the expected type
-            // is already a parent of the input type, no need to cast.
+        if (input.equals(expected) || expected instanceof AnyDataType) {
             return Optional.of(input);
         }
         if (input instanceof NullType) {
-            // Cast null type (usually from null literals) into target types
-            returnType = expected.defaultConcreteType();
-        } else if (input instanceof NumericType) {
+            return Optional.of(expected.defaultConcreteType());
+        }
+        if (expected.isTimeStampNsType()) {
+            return input instanceof NumericType || input.isDateLikeType()
+                    || input instanceof TimeV2Type || input instanceof CharacterType
+                    ? Optional.of(expected) : Optional.empty();
+        }
+        if (input.isTimeStampNsType()) {
+            return expected instanceof FloatType || expected instanceof DoubleType || expected instanceof CharacterType
+                    ? Optional.of(expected.defaultConcreteType()) : Optional.empty();
+        }
+        if (expected.acceptsType(input)) {
+            // A parent type accepts the input without a cast.
+            return Optional.of(input);
+        }
+        DataType returnType = null;
+        if (input instanceof NumericType) {
             if (expected instanceof DecimalV2Type) {
                 // If input is a numeric type but not decimal, and we expect a decimal type,
                 // cast the input to decimal.
@@ -377,7 +400,7 @@ public class TypeCoercionUtils {
         return hasSpecifiedType(dataType, type -> specifiedType.isAssignableFrom(type.getClass()));
     }
 
-    static boolean hasSpecifiedType(DataType dataType, Predicate<DataType> predicate) {
+    private static boolean hasSpecifiedType(DataType dataType, Predicate<DataType> predicate) {
         if (dataType instanceof ArrayType) {
             return hasSpecifiedType(((ArrayType) dataType).getItemType(), predicate);
         } else if (dataType instanceof MapType) {
@@ -796,7 +819,7 @@ public class TypeCoercionUtils {
         for (int i = 0; i < inputs.size(); i++) {
             Expression input = inputs.get(i);
             DataType expectedType = expectedTypes.get(i);
-            Optional<DataType> castType = TemporalTypeCoercion.implicitCastArgument(input, expectedType);
+            Optional<DataType> castType = implicitCast(input, expectedType);
             implicitCastTypes.add(castType);
         }
         return implicitCastTypes.build();

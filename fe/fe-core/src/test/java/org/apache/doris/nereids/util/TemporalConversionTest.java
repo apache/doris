@@ -25,6 +25,12 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.TryCast;
+import org.apache.doris.nereids.trees.expressions.functions.ComputeSignature;
+import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.IdenticalSignature;
+import org.apache.doris.nereids.trees.expressions.functions.ImplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.NullOrIdenticalSignature;
+import org.apache.doris.nereids.trees.expressions.functions.SearchSignature;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -95,17 +101,9 @@ class TemporalConversionTest {
         Expression exact = new TimeStampNsLiteral("2024-01-02 03:04:05.123000000");
         Expression inexact = new TimeStampNsLiteral("2024-01-02 03:04:05.123000001");
         DataType target = DateTimeV2Type.of(3);
-        List<FunctionSignature> signatures = List.of(FunctionSignature.ret(target).args(target));
-        TemporalTypeCoercion.SignaturePolicy exactPolicy =
-                new TemporalTypeCoercion.SignaturePolicy(signatures, List.of(exact));
-        Assertions.assertTrue(exactPolicy.accepts(exact, target));
-        Assertions.assertEquals(Optional.of(target), TemporalTypeCoercion.implicitCastArgument(exact, target));
-        TemporalTypeCoercion.SignaturePolicy inexactPolicy =
-                new TemporalTypeCoercion.SignaturePolicy(signatures, List.of(inexact));
-        Assertions.assertFalse(inexactPolicy.accepts(inexact, target));
-        Assertions.assertTrue(TemporalTypeCoercion.implicitCastArgument(inexact, target).isEmpty());
-        Assertions.assertTrue(TemporalTypeCoercion.implicitCastArgument(
-                new SlotReference("ns", TimeStampNsType.INSTANCE), target).isEmpty());
+        assertTemporalCoercion(exact, target, true);
+        assertTemporalCoercion(inexact, target, false);
+        assertTemporalCoercion(new SlotReference("ns", TimeStampNsType.INSTANCE), target, false);
     }
 
     @Test
@@ -196,42 +194,79 @@ class TemporalConversionTest {
         }
     }
 
+    private Optional<FunctionSignature> searchSignature(List<FunctionSignature> signatures, List<Expression> inputs) {
+        return SearchSignature.from(Mockito.mock(ComputeSignature.class), signatures, inputs)
+                .orElseSearch(IdenticalSignature::isIdentical)
+                .orElseSearch(NullOrIdenticalSignature::isNullOrIdentical)
+                .orElseSearch(ImplicitlyCastableSignature::isImplicitlyCastable)
+                .orElseSearch(ExplicitlyCastableSignature::isExplicitlyCastable)
+                .result();
+    }
+
     private void assertTemporalCoercion(Expression input, DataType target, boolean accepted) {
-        TemporalTypeCoercion.SignaturePolicy policy = new TemporalTypeCoercion.SignaturePolicy(
-                List.of(FunctionSignature.ret(target).args(target)), List.of(input));
-        Assertions.assertEquals(accepted, policy.accepts(input, target));
+        FunctionSignature signature = FunctionSignature.ret(target).args(target);
+        Assertions.assertEquals(accepted ? Optional.of(signature) : Optional.empty(),
+                searchSignature(List.of(signature), List.of(input)));
         Assertions.assertEquals(accepted ? Optional.of(target) : Optional.empty(),
-                TemporalTypeCoercion.implicitCastArgument(input, target));
+                TypeCoercionUtils.implicitCast(input, target));
     }
 
     private void assertTemporalCastFailure(Cast input) {
         DataType target = DateTimeV2Type.MAX;
         CastException expected = Assertions.assertThrows(CastException.class,
                 () -> FoldConstantRuleOnFE.evaluateWithoutContext(input));
-        TemporalTypeCoercion.SignaturePolicy policy = new TemporalTypeCoercion.SignaturePolicy(
-                List.of(FunctionSignature.ret(target).args(target)), List.of(input));
+        List<FunctionSignature> signatures = List.of(FunctionSignature.ret(target).args(target));
         Assertions.assertEquals(expected.getMessage(), Assertions.assertThrows(CastException.class,
-                () -> policy.accepts(input, target)).getMessage());
+                () -> searchSignature(signatures, List.of(input))).getMessage());
         Assertions.assertEquals(expected.getMessage(), Assertions.assertThrows(CastException.class,
-                () -> TemporalTypeCoercion.implicitCastArgument(input, target)).getMessage());
+                () -> TypeCoercionUtils.implicitCast(input, target)).getMessage());
     }
 
     @Test
     void mixedTemporalOverloadsDoNotFallBackToStrings() {
         Expression ns = new SlotReference("ns", TimeStampNsType.INSTANCE);
         Expression date = new SlotReference("date", DateV2Type.INSTANCE);
-        List<FunctionSignature> signatures = List.of(
-                FunctionSignature.ret(TimeStampNsType.INSTANCE)
-                        .args(TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE),
-                FunctionSignature.ret(StringType.INSTANCE).args(StringType.INSTANCE, StringType.INSTANCE));
-        TemporalTypeCoercion.SignaturePolicy policy =
-                new TemporalTypeCoercion.SignaturePolicy(signatures, List.of(ns, date));
-        Assertions.assertFalse(policy.accepts(ns, StringType.INSTANCE));
-        Assertions.assertFalse(policy.accepts(date, DateTimeV2Type.MAX));
-        Assertions.assertTrue(policy.accepts(date, TimeStampNsType.INSTANCE));
-        TemporalTypeCoercion.SignaturePolicy untyped =
-                new TemporalTypeCoercion.SignaturePolicy(signatures, List.of(date, date));
-        Assertions.assertFalse(untyped.accepts(date, TimeStampNsType.INSTANCE));
+        FunctionSignature nsSignature = FunctionSignature.ret(TimeStampNsType.INSTANCE)
+                .args(TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE);
+        FunctionSignature dateSignature = FunctionSignature.ret(DateTimeV2Type.MAX)
+                .args(DateTimeV2Type.MAX, DateTimeV2Type.MAX);
+        FunctionSignature stringSignature = FunctionSignature.ret(StringType.INSTANCE)
+                .args(StringType.INSTANCE, StringType.INSTANCE);
+        Assertions.assertEquals(Optional.of(nsSignature), searchSignature(
+                List.of(stringSignature, dateSignature, nsSignature), List.of(ns, date)));
+        Assertions.assertTrue(searchSignature(List.of(dateSignature, stringSignature), List.of(ns, date)).isEmpty());
+        Assertions.assertTrue(searchSignature(List.of(nsSignature), List.of(date, date)).isEmpty());
+    }
+
+    @Test
+    void mixedTemporalDetectionIncludesNestedTypes() {
+        DataType nsArray = ArrayType.of(TimeStampNsType.INSTANCE);
+        DataType dates = MapType.of(StringType.INSTANCE, DateTimeV2Type.MAX);
+        DataType both = new StructType(List.of(
+                new StructField("ns", nsArray, true, ""), new StructField("dates", dates, true, "")));
+        Assertions.assertTrue(TemporalTypeCoercion.containsMixedTimeStampNsDateLikeTypes(List.of(both)));
+        Assertions.assertTrue(TemporalTypeCoercion.containsMixedTimeStampNsDateLikeTypes(List.of(nsArray, dates)));
+        Assertions.assertTrue(TemporalTypeCoercion.containsMixedTimeStampNsDateLikeTypes(List.of(dates, nsArray)));
+        Assertions.assertTrue(TemporalTypeCoercion.containsMixedTimeStampNsDateLikeTypes(
+                List.of(MapType.of(TimeStampNsType.INSTANCE, TimeStampTzType.MAX))));
+        Assertions.assertFalse(TemporalTypeCoercion.containsMixedTimeStampNsDateLikeTypes(List.of(nsArray)));
+        Assertions.assertFalse(TemporalTypeCoercion.containsMixedTimeStampNsDateLikeTypes(List.of(dates)));
+        Assertions.assertFalse(TemporalTypeCoercion.containsMixedTimeStampNsDateLikeTypes(List.of()));
+    }
+
+    @Test
+    void temporalPairDetectionIsSymmetricAndExcludesIdenticalNsTypes() {
+        DataType ns = TimeStampNsType.INSTANCE;
+        for (DataType other : List.of(DateV2Type.INSTANCE, DateTimeV2Type.MAX, TimeStampTzType.MAX)) {
+            Assertions.assertTrue(TemporalTypeCoercion.isTimeStampNsAndDateLikePair(ns, other));
+            Assertions.assertTrue(TemporalTypeCoercion.isTimeStampNsAndDateLikePair(other, ns));
+            Assertions.assertEquals(Optional.of(ns), TemporalTypeCoercion.getCommonDataTypeWithTimeStampNsType(other));
+        }
+        Assertions.assertFalse(TemporalTypeCoercion.isTimeStampNsAndDateLikePair(ns, ns));
+        Assertions.assertFalse(TemporalTypeCoercion.isTimeStampNsAndDateLikePair(ns, StringType.INSTANCE));
+        Assertions.assertFalse(TemporalTypeCoercion.isTimeStampNsAndDateLikePair(StringType.INSTANCE, ns));
+        Assertions.assertFalse(TemporalTypeCoercion.isTimeStampNsAndDateLikePair(
+                DateV2Type.INSTANCE, DateTimeV2Type.MAX));
     }
 
     @Test

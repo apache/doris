@@ -39,7 +39,6 @@ import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToArgumentType;
 import org.apache.doris.nereids.types.coercion.ScaleTimeType;
 import org.apache.doris.nereids.util.ResponsibilityChain;
-import org.apache.doris.nereids.util.TemporalTypeCoercion;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.GlobalVariable;
 
@@ -336,7 +335,6 @@ public class ComputeSignatureHelper {
                     ? TypeCoercionUtils.findWiderCommonType(dataTypes.getValue(), false, true)
                     : TypeCoercionUtils.findWiderCommonTypeForComparison(dataTypes.getValue());
             if (!dataType.isPresent()) {
-                TemporalTypeCoercion.checkIndexedAnyCommonType(dataTypes.getValue());
                 throw new AnalysisException("Cannot find a common type for indexed ANY arguments: "
                         + dataTypes.getValue());
             }

@@ -17,59 +17,71 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.Cast;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.DoubleType;
-import org.apache.doris.nereids.types.FloatType;
-import org.apache.doris.nereids.types.NullType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeV2Type;
-import org.apache.doris.nereids.types.coercion.AnyDataType;
-import org.apache.doris.nereids.types.coercion.CharacterType;
-import org.apache.doris.nereids.types.coercion.NumericType;
 
 import java.util.List;
 import java.util.Optional;
 
 /**
- * Select target types and function overloads for temporal arguments: common-type promotion,
- * implicit argument compatibility and signature admission/preference.
- *
- * <p>Selection may consult {@link TemporalConversionProperties} for literal exactness, but
- * conversion properties do not depend on these selection policies. Cast construction and mode
- * selection remain in {@link TypeCoercionUtils}; explicit CAST legality remains in CheckCast.
- * Literal-based selection reuses the normal constant evaluator; conversion mechanics stay there.
+ * Temporal common-type promotion and detection of mixed temporal groups.
+ * Implicit argument conversion belongs to {@link TypeCoercionUtils}; overload admission
+ * belongs to SearchSignature. Conversion properties remain in {@link TemporalConversionProperties}.
  */
 public final class TemporalTypeCoercion {
+    private static final int HAS_TIMESTAMP_NS = 1;
+    private static final int HAS_OTHER_DATE_LIKE = 2;
+    private static final int HAS_BOTH = HAS_TIMESTAMP_NS | HAS_OTHER_DATE_LIKE;
+
     private TemporalTypeCoercion() {
     }
 
-    /** Whether a type tree contains a temporal peer with a calendar range different from NS. */
-    public static boolean hasOtherDateLikeType(DataType dataType) {
-        return TypeCoercionUtils.hasSpecifiedType(dataType, TemporalTypeCoercion::isOtherDateLikeType);
+    /** Detect both temporal families in one traversal, including nested types. */
+    public static boolean containsMixedTimeStampNsDateLikeTypes(List<DataType> dataTypes) {
+        int found = 0;
+        for (DataType dataType : dataTypes) {
+            found = collectTemporalFamilies(dataType, found);
+            if (found == HAS_BOTH) {
+                return true;
+            }
+        }
+        return false;
     }
 
-    /** Whether function arguments require the mixed-temporal overflow policy, including nested types. */
-    public static boolean containsMixedTimeStampNsDateLikeTypes(List<DataType> dataTypes) {
-        return dataTypes.stream().anyMatch(TypeCoercionUtils::hasTimeStampNsType)
-                && dataTypes.stream().anyMatch(TemporalTypeCoercion::hasOtherDateLikeType);
+    private static int collectTemporalFamilies(DataType dataType, int found) {
+        if (found == HAS_BOTH) {
+            return found;
+        }
+        if (dataType instanceof ArrayType) {
+            return collectTemporalFamilies(((ArrayType) dataType).getItemType(), found);
+        } else if (dataType instanceof MapType) {
+            MapType map = (MapType) dataType;
+            return collectTemporalFamilies(map.getValueType(), collectTemporalFamilies(map.getKeyType(), found));
+        } else if (dataType instanceof StructType) {
+            for (StructField field : ((StructType) dataType).getFields()) {
+                found = collectTemporalFamilies(field.getDataType(), found);
+                if (found == HAS_BOTH) {
+                    break;
+                }
+            }
+            return found;
+        } else if (dataType.isTimeStampNsType()) {
+            return found | HAS_TIMESTAMP_NS;
+        } else if (dataType.isDateLikeType()) {
+            return found | HAS_OTHER_DATE_LIKE;
+        }
+        return found;
     }
 
     /** Choose the common type when one operand is TIMESTAMP_NS. */
     public static Optional<DataType> getCommonDataTypeWithTimeStampNsType(DataType otherType) {
-        if (otherType instanceof TimeStampNsType) {
-            return Optional.of(TimeStampNsType.INSTANCE);
-        }
-        if (isOtherDateLikeType(otherType)) {
-            return Optional.of(TimeStampNsType.INSTANCE);
-        }
-        if (otherType.isNumericType() || otherType instanceof TimeV2Type
-                || otherType.isStringLikeType()) {
+        if (otherType.isDateLikeType() || otherType.isNumericType()
+                || otherType instanceof TimeV2Type || otherType.isStringLikeType()) {
             return Optional.of(TimeStampNsType.INSTANCE);
         }
         return Optional.empty();
@@ -77,14 +89,14 @@ public final class TemporalTypeCoercion {
 
     /** Whether a comparison must preserve NS precision and check the temporal peer for overflow. */
     public static boolean isTimeStampNsAndDateLikePair(DataType left, DataType right) {
-        return (left instanceof TimeStampNsType && right.isDateLikeType()
-                && !(right instanceof TimeStampNsType))
-                || (right instanceof TimeStampNsType && left.isDateLikeType()
-                && !(left instanceof TimeStampNsType));
+        if (left.isTimeStampNsType()) {
+            return isOtherDateLikeType(right);
+        }
+        return right.isTimeStampNsType() && left.isDateLikeType();
     }
 
     /** A date-like type other than the fixed-range nanosecond representation. */
-    public static boolean isOtherDateLikeType(DataType dataType) {
+    private static boolean isOtherDateLikeType(DataType dataType) {
         return dataType.isDateLikeType() && !dataType.isTimeStampNsType();
     }
 
@@ -92,133 +104,12 @@ public final class TemporalTypeCoercion {
     public static boolean containsTimeStampNsAndOnlyCompatibleTemporalTypes(List<DataType> dataTypes) {
         boolean containsTimeStampNs = false;
         for (DataType dataType : dataTypes) {
-            if (dataType instanceof TimeStampNsType) {
+            if (dataType.isTimeStampNsType()) {
                 containsTimeStampNs = true;
-            } else if (!isOtherDateLikeType(dataType)
-                    && !dataType.isNullType() && !(dataType instanceof TimeV2Type)) {
+            } else if (!dataType.isDateLikeType() && !dataType.isNullType() && !(dataType instanceof TimeV2Type)) {
                 return false;
             }
         }
         return containsTimeStampNs;
-    }
-
-    /** Called only for a conversion involving TIMESTAMP_NS; rejection is final. */
-    public static Optional<DataType> implicitCastPrimitive(DataType input, DataType expected) {
-        if (input.equals(expected) || expected instanceof AnyDataType) {
-            return Optional.of(input);
-        } else if (input instanceof NullType) {
-            return Optional.of(expected.defaultConcreteType());
-        } else if (expected instanceof TimeStampNsType
-                && (input instanceof NumericType || input.isDateLikeType()
-                        || input instanceof TimeV2Type || input instanceof CharacterType)) {
-            return Optional.of(expected);
-        } else if (input instanceof TimeStampNsType
-                && (expected instanceof FloatType || expected instanceof DoubleType)) {
-            return Optional.of(expected);
-        } else if (input instanceof TimeStampNsType && expected instanceof CharacterType) {
-            return Optional.of(expected.defaultConcreteType());
-        }
-        return Optional.empty();
-    }
-
-    /** Apply the same value-aware exception used when admitting a temporal function overload. */
-    public static Optional<DataType> implicitCastArgument(Expression input, DataType expectedType) {
-        Optional<DataType> castType = TypeCoercionUtils.implicitCast(input.getDataType(), expectedType);
-        if (!castType.isPresent() && input.getDataType().isTimeStampNsType() && expectedType.isDateLikeType()
-                && canExactlyCoerceTimeStampNsLiteral(input, expectedType)) {
-            return Optional.of(expectedType);
-        }
-        return castType;
-    }
-
-    private static boolean canExactlyCoerceTimeStampNsLiteral(Expression input, DataType targetType) {
-        // Evaluate CAST through the normal FE folding path, preserving legality, effective
-        // strictness and TRY_CAST semantics. Do not infer exactness from the pre-cast child.
-        // Other expressions retain literal-only admission, including nullable wrappers.
-        Expression evaluated = input instanceof Cast ? ExpressionUtils.foldConstantArgument(input) : input;
-        return ExpressionUtils.getLiteralAfterUnwrapNullable(evaluated)
-                .filter(TimeStampNsLiteral.class::isInstance)
-                .map(TimeStampNsLiteral.class::cast)
-                .map(literal -> TemporalConversionProperties
-                        .isTimeStampNsLiteralExactlyRepresentable(literal, targetType))
-                .orElse(false);
-    }
-
-    /** Preserve the diagnostic of mixed temporal indexed-ANY arguments. */
-    public static void checkIndexedAnyCommonType(List<DataType> types) {
-        if (types.stream().anyMatch(DataType::isTimeStampNsType)
-                && types.stream().anyMatch(TemporalTypeCoercion::isOtherDateLikeType)) {
-            throw new AnalysisException("Cannot find an exact common type for indexed ANY arguments");
-        }
-    }
-
-    /**
-     * Function overload selection, separate from the common-type and argument policies above.
-     * Candidate ordering and matching rounds remain in SearchSignature.
-     */
-    public static final class SignaturePolicy {
-        private final boolean hasTimeStampNsArgument;
-        private final boolean hasOtherDateLikeArgument;
-        private final boolean hasHomogeneousDateLikeSignature;
-
-        /** Capture only per-search type facts; no value or session-dependent results are cached. */
-        public SignaturePolicy(List<FunctionSignature> signatures, List<Expression> arguments) {
-            this.hasTimeStampNsArgument = arguments.stream()
-                    .anyMatch(argument -> argument.getDataType().isTimeStampNsType());
-            this.hasOtherDateLikeArgument = arguments.stream()
-                    .anyMatch(argument -> argument.getDataType().isDateLikeType()
-                            && !argument.getDataType().isTimeStampNsType());
-            this.hasHomogeneousDateLikeSignature = signatures.stream()
-                    .anyMatch(SignaturePolicy::hasHomogeneousDateLikeArguments);
-        }
-
-        /** Apply temporal restrictions before the generic signature matching predicate. */
-        public boolean accepts(Expression argument, DataType sigArgType) {
-            DataType realType = argument.getDataType();
-            if (hasTimeStampNsArgument && hasOtherDateLikeArgument && hasHomogeneousDateLikeSignature
-                    && realType.isDateLikeType() && !sigArgType.isDateLikeType()) {
-                // Do not bypass temporal exactness checks through a generic string overload.
-                return false;
-            }
-            if (hasTimeStampNsArgument && hasOtherDateLikeArgument && hasHomogeneousDateLikeSignature
-                    && realType.isDateLikeType()
-                    && sigArgType.isDateLikeType() && !sigArgType.isTimeStampNsType()) {
-                // Mixed temporal calls use TIMESTAMP_NS without truncation or nullable overflow.
-                return false;
-            }
-            if (sigArgType.isTimeStampNsType() && !hasTimeStampNsArgument) {
-                // TIMESTAMP_NS overloads preserve a typed nanosecond argument. They must not
-                // change the historical binding of character or other temporal input.
-                return false;
-            }
-            if (realType.isTimeStampNsType() && sigArgType.isDateLikeType()
-                    && !sigArgType.isTimeStampNsType()
-                    && !canExactlyCoerceTimeStampNsLiteral(argument, sigArgType)) {
-                return false;
-            }
-            return true;
-        }
-
-        /** Prefer a zoned overload for a string with an explicit timezone; retain historical scores. */
-        public int literalPreference(DataType targetType, String value) {
-            if (!targetType.isTimeStampTzType()) {
-                return 0;
-            }
-            return DateTimeChecker.hasTimeZone(value) ? 1 : -1;
-        }
-
-        private static boolean hasHomogeneousDateLikeArguments(FunctionSignature signature) {
-            Optional<DataType> temporalType = signature.argumentsTypes.stream()
-                    .filter(DataType::isDateLikeType).findFirst();
-            if (!temporalType.isPresent()) {
-                return signature.getVarArgType().filter(DataType::isDateLikeType).isPresent();
-            }
-            // Temporal overloads share one argument type. STRUCT fields and MAP keys/values
-            // can instead have independent types, e.g. struct(DATEV2, TIMESTAMP_NS).
-            return signature.argumentsTypes.stream().filter(DataType::isDateLikeType)
-                    .allMatch(temporalType.get()::equals)
-                    && signature.getVarArgType().filter(DataType::isDateLikeType)
-                            .map(temporalType.get()::equals).orElse(true);
-        }
     }
 }
