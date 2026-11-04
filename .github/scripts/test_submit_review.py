@@ -860,16 +860,64 @@ class DiffLocationsTest(unittest.TestCase):
 
 
 class ReviewWorkflowTest(unittest.TestCase):
+    def test_only_authorized_review_requests_share_the_pr_queue(self):
+        workflow = (Path(__file__).resolve().parents[1] / "workflows/code-review-runner.yml").read_text()
+        outer = workflow.split("concurrency:\n", 1)[1].split("\njobs:", 1)[0]
+        group = re.search(r"\$\{\{(.*?)\}\}", outer, re.DOTALL)[1]
+        selector = workflow.split("  select-auth:\n", 1)[1].split("  code-review:\n", 1)[0]
+        eligible = re.search(r"    if: >-\n(.*?)    steps:", selector, re.DOTALL)[1]
+
+        def evaluate(expression, github, inputs):
+            # These two expressions use only boolean operators, comparisons and
+            # the string functions below; evaluate the actual YAML conditions.
+            expression = " ".join(expression.split()).replace("&&", " and ").replace("||", " or ")
+            expression = re.sub(r"\btrue\b", "True", expression)
+            expression = re.sub(r"\bfalse\b", "False", expression)
+            return eval(expression, {"__builtins__": {}}, {
+                "github": github, "inputs": inputs,
+                "startsWith": lambda value, prefix: value.startswith(prefix),
+                "format": lambda pattern, value: pattern.format(value),
+            })
+
+        cases = [
+            ("issue_comment", "/review", "MEMBER", True, "", False, True),
+            ("issue_comment", "/review focus", "OWNER", True, "", False, True),
+            ("issue_comment", "/review", "COLLABORATOR", True, "", False, True),
+            ("issue_comment", "ordinary comment", "MEMBER", True, "", False, False),
+            ("issue_comment", "/review", "NONE", True, "", False, False),
+            ("issue_comment", "/review", "MEMBER", False, "", False, False),
+            ("workflow_dispatch", "", "", False, "123", False, True),
+            ("workflow_dispatch", "", "", False, "123", True, False),
+            ("workflow_dispatch", "", "", False, "", False, False),
+        ]
+        for event, body, association, is_pr, pr_number, canary, expected in cases:
+            for run_id in ("900001", "900002"):
+                with self.subTest(event=event, body=body, association=association,
+                                  is_pr=is_pr, canary=canary, run_id=run_id):
+                    github = SimpleNamespace(event_name=event, run_id=run_id, event=SimpleNamespace(
+                        issue=SimpleNamespace(number=123 if event == "issue_comment" else "", pull_request=is_pr),
+                        comment=SimpleNamespace(body=body, author_association=association)))
+                    inputs = SimpleNamespace(runtime_canary=canary, pr_number=pr_number)
+                    self.assertEqual(bool(evaluate(eligible, github, inputs)), expected)
+                    self.assertEqual(evaluate(group, github, inputs),
+                                     "code-review-pr-123" if expected else "code-review-event-" + run_id)
+
     def test_queue_is_per_pr_and_failure_artifact_is_explicit(self):
         workflow = (Path(__file__).resolve().parents[1] / "workflows/code-review-runner.yml").read_text()
         review_job = workflow.split("  code-review:\n", 1)[1].split("  aggregate-status:", 1)[0]
         concurrency = re.search(r"^    concurrency:\n((?:      .*\n)+)", review_job, re.MULTILINE)
         self.assertIsNotNone(concurrency)
-        self.assertIn("github.event.issue.number || inputs.pr_number || github.run_id", concurrency[1])
+        self.assertIn("needs.select-auth.outputs.auth_name", concurrency[1])
+        outer = workflow.split("concurrency:\n", 1)[1].split("\njobs:", 1)[0]
+        self.assertIn("code-review-pr-{0}", outer)
+        self.assertIn("github.event.issue.number || inputs.pr_number", outer)
+        self.assertIn("startsWith(github.event.comment.body, '/review')", outer)
+        self.assertIn("code-review-event-{0}", outer)
+        self.assertIn("cancel-in-progress: false", outer)
+        self.assertIn("queue: max", outer)
         self.assertIn("cancel-in-progress: false", concurrency[1])
         self.assertIn("queue: max", concurrency[1])
         self.assertNotIn("sha", concurrency[1])
-        self.assertNotRegex(workflow, r"(?m)^concurrency:")
         artifact = review_job.split("      - name: Preserve failed final review diagnostics\n", 1)[1]
         artifact = artifact.split("      - name:", 1)[0]
         self.assertIn("always()", artifact)
