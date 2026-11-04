@@ -253,6 +253,7 @@ class PluginDrivenScanNodePartitionBatchTest {
                     Collections.emptyMap(), Collections.emptyList(), true, batchSize, queueCapacity);
             node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
             Deencapsulation.setField(node, "splitAssignment", assignment);
+            Deencapsulation.setField(node, "metadataRead", java.util.Optional.empty());
             Deencapsulation.setField(node, "sessionVariable", variables);
             provider = Mockito.mock(ConnectorScanPlanProvider.class, Mockito.CALLS_REAL_METHODS);
             Mockito.when(provider.supportsBatchScan(Mockito.any(), Mockito.any())).thenReturn(true);
