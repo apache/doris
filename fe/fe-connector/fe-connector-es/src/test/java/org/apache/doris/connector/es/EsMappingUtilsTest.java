@@ -205,6 +205,19 @@ public class EsMappingUtilsTest {
     }
 
     @Test
+    void explicitDateFormatsRequireSourcePredicateEvaluation() {
+        for (String format : Arrays.asList("yyyy-MM-dd||epoch_millis",
+                "yyyy-MM-dd HH:mm:ss||epoch_millis")) {
+            String mapping = "{\"test\":{\"mappings\":{\"properties\":{"
+                    + "\"d\":{\"type\":\"date\",\"format\":\"" + format + "\"}}}}}";
+            EsFieldContext context = EsMappingUtils.resolveFieldContext(
+                    Collections.singletonList("d"), "test", mapping, null);
+            Assertions.assertTrue(context.getSourceModeUnsafeFields().contains("d"), format);
+            Assertions.assertTrue(context.getDocValueFieldsContext().containsKey("d"), format);
+        }
+    }
+
+    @Test
     void indexMalformedDefaultsRespectFieldOverridesAndFieldTypes() {
         String mapping = "{\"test\":{\"settings\":{\"index\":{\"mapping\":"
                 + "{\"ignore_malformed\":\"true\",\"coerce\":\"false\"}}},\"mappings\":{\"properties\":{"

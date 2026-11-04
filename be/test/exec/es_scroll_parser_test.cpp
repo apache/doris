@@ -464,6 +464,8 @@ TEST_F(EsScrollParserTest, BooleanSourceRepresentations) {
                                                     {R"("false")", false},
                                                     {R"("true")", true},
                                                     {"false", false},
+                                                    {"0", false},
+                                                    {"1", true},
                                                     {"true", true}}) {
         ScrollParser parser(false);
         auto status =
@@ -508,6 +510,20 @@ TEST_F(EsScrollParserTest, InvalidBooleanSourceIsRejected) {
     columns.push_back(slot.type()->create_column());
     bool eof = false;
     EXPECT_FALSE(parser.fill_columns(slots, columns, &eof, {}, cctz::utc_time_zone()).ok());
+}
+
+TEST_F(EsScrollParserTest, UnsupportedBooleanSourceTypesAreRejected) {
+    for (bool array : {false, true}) {
+        for (const std::string value :
+             {"1.25", "2147483648", "9223372036854775808", "{}", R"({"x":1})"}) {
+            SCOPED_TRACE(value);
+            SCOPED_TRACE(array);
+            MutableColumnPtr column;
+            EXPECT_FALSE(read_scalar(TPrimitiveType::BOOLEAN, array ? "[" + value + "]" : value,
+                                     &column, array)
+                                 .ok());
+        }
+    }
 }
 
 // Test timezone pattern matching for ES datetime parsing fix
