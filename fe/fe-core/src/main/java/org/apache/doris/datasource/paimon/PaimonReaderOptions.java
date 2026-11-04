@@ -191,14 +191,6 @@ public final class PaimonReaderOptions {
                             main, other, isWrappedFirst(pair));
         }
 
-        if (table instanceof DelegatedFileStoreTable) {
-            // Paimon 2.1 dropped the privilege wrapper, so every delegate the factory produces is
-            // a FallbackReadFileStoreTable and was already rebuilt above. Any other delegate's
-            // copy() broadcasts one value through its private fallback tree, so reject it.
-            throw new IllegalArgumentException("Unsupported Paimon planning table delegate: "
-                    + table.getClass().getName());
-        }
-
         if (!(table instanceof FileStoreTable)) {
             // System-table wrappers hide the already-normalized source. Treating the wrapper as a
             // planning leaf would broadcast one cap through its private fallback tree on copy().

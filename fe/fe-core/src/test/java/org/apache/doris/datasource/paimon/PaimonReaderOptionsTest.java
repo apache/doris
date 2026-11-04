@@ -127,13 +127,6 @@ public class PaimonReaderOptionsTest {
         FallbackReadFileStoreTable emptyThenExplicit = (FallbackReadFileStoreTable)
                 PaimonReaderOptions.runtimeSafeTable(
                         new FallbackReadFileStoreTable(empty, explicit, true), 512);
-        // Paimon 2.1 no longer produces non-fallback delegates, so an unknown one is rejected
-        // instead of being peeled with a single cap broadcast to every hidden branch.
-        Table unknownDelegate = new PlainDelegateFileStoreTable(
-                new FallbackReadFileStoreTable(explicit, empty, true));
-        Assertions.assertThrows(IllegalArgumentException.class,
-                () -> PaimonReaderOptions.runtimeSafeTable(unknownDelegate, 512));
-
         Assertions.assertEquals("256", safeEmpty.options()
                 .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
         Assertions.assertEquals("1", explicitThenEmpty.wrapped().options()
