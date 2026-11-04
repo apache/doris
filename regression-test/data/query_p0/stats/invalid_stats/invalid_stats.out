@@ -5,13 +5,19 @@ PhysicalResultSink
 ----PhysicalOlapScan[nation]
 ----PhysicalOlapScan[region]
 
--- !ndv_min_max_invalid --
+-- !ndv_min_max_unknown --
 PhysicalResultSink
 --hashJoin[INNER_JOIN broadcast] hashCondition=((region.r_regionkey = nation.n_regionkey)) otherCondition=()
-----PhysicalOlapScan[region]
 ----PhysicalOlapScan[nation]
+----PhysicalOlapScan[region]
 
 -- !reorder_2 --
+PhysicalResultSink
+--hashJoin[INNER_JOIN broadcast] hashCondition=((region.r_regionkey = nation.n_regionkey)) otherCondition=()
+----PhysicalOlapScan[nation]
+----PhysicalOlapScan[region]
+
+-- !sampled_null_unused_column --
 PhysicalResultSink
 --hashJoin[INNER_JOIN broadcast] hashCondition=((region.r_regionkey = nation.n_regionkey)) otherCondition=()
 ----PhysicalOlapScan[nation]

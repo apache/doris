@@ -101,7 +101,9 @@ suite("test_analyze_all_null") {
         sql("memo plan select * from invalidTest")
         contains "col1#0 -> ndv=100.0000"
         contains "col2#1 -> unknown("
-        contains "col3#2 -> ndv=0.0000"
+        // Keep the raw cached statistics above, but normalize sampled all-null
+        // statistics with non-null MIN/MAX to UNKNOWN in optimizer estimates.
+        contains "col3#2 -> unknown("
     }
 
     sql """drop database if exists test_analyze_all_null"""

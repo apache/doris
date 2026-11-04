@@ -58,13 +58,19 @@ suite("invalid_stats") {
    
     sql "alter table region modify column r_regionkey set stats ('ndv'='0', 'num_nulls'='0', 'min_value'='0', 'max_value'='4', 'row_count'='0');"
     
-    // r_regionkey stats invalid: ndv=0, but min or max is not null
-    qt_ndv_min_max_invalid "explain shape plan select r_regionkey from region join nation on r_regionkey=n_regionkey"
+    // NDV=0 and num_nulls=row_count=0 with non-null MIN/MAX is normalized to UNKNOWN.
+    // This must not disable join reordering.
+    qt_ndv_min_max_unknown "explain shape plan select r_regionkey from region join nation on r_regionkey=n_regionkey"
     
     // inject normal stats and check join order is nation-region
     sql "alter table region modify column r_regionkey set stats ('ndv'='5', 'num_nulls'='0', 'min_value'='0', 'max_value'='4', 'row_count'='5');"
     
     qt_reorder_2 "explain shape plan select r_regionkey from region join nation on r_regionkey=n_regionkey"
+
+    // An unused sampled-all-null column must not disable reordering of the join keys.
+    sql "alter table region modify column r_comment set stats ('ndv'='0', 'num_nulls'='5', 'min_value'='a', 'max_value'='z', 'row_count'='5');"
+    qt_sampled_null_unused_column "explain shape plan select r_regionkey from region join nation on r_regionkey=n_regionkey"
+    sql "drop stats region(r_comment)"
 
     // r_regionkey stats invalid: ndv > 10*row
     sql "alter table region modify column r_regionkey set stats ('ndv'='10', 'num_nulls'='0', 'min_value'='0', 'max_value'='4', 'row_count'='1');"
