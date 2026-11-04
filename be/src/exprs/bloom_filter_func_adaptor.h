@@ -17,6 +17,11 @@
 
 #pragma once
 
+#include <atomic>
+#include <cstdint>
+#include <memory>
+#include <utility>
+
 #include "common/status.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
@@ -30,6 +35,8 @@ namespace doris {
 
 class BloomFilterAdaptor : public FilterBase {
 public:
+    using DataVersion = std::pair<std::shared_ptr<const std::atomic<uint64_t>>, uint64_t>;
+
     BloomFilterAdaptor(bool null_aware) : FilterBase(null_aware) {
         _bloom_filter = std::make_shared<doris::BlockBloomFilter>();
     }
@@ -38,17 +45,33 @@ public:
         return new BloomFilterAdaptor(null_aware);
     }
 
-    Status merge(BloomFilterAdaptor* other) { return _bloom_filter->merge(*other->_bloom_filter); }
+    Status merge(BloomFilterAdaptor* other) {
+        auto status = _bloom_filter->merge(*other->_bloom_filter);
+        invalidate_digest();
+        return status;
+    }
 
     Status init(int64_t len) {
         int log_space = (int)log2(len);
-        return _bloom_filter->init(log_space, /*hash_seed*/ 0);
+        auto status = _bloom_filter->init(log_space, /*hash_seed*/ 0);
+        invalidate_digest();
+        return status;
     }
 
     Status init(butil::IOBufAsZeroCopyInputStream* data, const size_t data_size) {
         int log_space = (int)log2(data_size);
-        return _bloom_filter->init_from_directory(log_space, data, data_size, false, 0);
+        auto status = _bloom_filter->init_from_directory(log_space, data, data_size, false, 0);
+        invalidate_digest();
+        return status;
     }
+
+    DataVersion data_version() const {
+        return {_data_version, _data_version->load(std::memory_order_acquire)};
+    }
+
+    // Invalidate after a completed payload mutation, once per batch rather than per row.
+    // This token does not make concurrent payload mutation/probing safe.
+    void invalidate_digest() { _data_version->fetch_add(1, std::memory_order_release); }
 
     char* data() { return _bloom_filter->directory().data; }
 
@@ -65,6 +88,7 @@ public:
         }
     }
 
+    // OpV2's enclosing batch/set operation invalidates the digest once after these inserts.
     template <typename fixed_len_to_uint32_method, typename T>
     void add_element(T element) {
         if constexpr (std::is_same_v<T, StringRef>) {
@@ -76,6 +100,10 @@ public:
 
 private:
     std::shared_ptr<doris::BlockBloomFilter> _bloom_filter;
+    // Copies share both the payload and its token. Keeping a token alive does not retain the
+    // large Bloom directory, and a newly allocated adaptor cannot reuse an old token identity.
+    std::shared_ptr<std::atomic<uint64_t>> _data_version =
+            std::make_shared<std::atomic<uint64_t>>(0);
 };
 
 template <typename fixed_len_to_uint32_method, class T>
