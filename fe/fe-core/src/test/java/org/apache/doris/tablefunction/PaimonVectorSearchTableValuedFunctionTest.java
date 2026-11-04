@@ -30,6 +30,7 @@ import org.apache.doris.datasource.paimon.PaimonMvccSnapshot;
 import org.apache.doris.datasource.paimon.PaimonSnapshot;
 import org.apache.doris.datasource.paimon.PaimonSnapshotCacheValue;
 import org.apache.doris.datasource.paimon.source.PaimonScanNode;
+import org.apache.doris.datasource.paimon.source.PaimonSplit;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
@@ -62,13 +63,27 @@ import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TVectorMetric;
 
 import com.google.common.collect.ImmutableMap;
+import org.apache.paimon.data.BinaryRow;
+import org.apache.paimon.index.GlobalIndexMeta;
+import org.apache.paimon.index.IndexFileMeta;
+import org.apache.paimon.index.pk.PrimaryKeyIndexSourceFile;
+import org.apache.paimon.index.pk.PrimaryKeyIndexSourceMeta;
+import org.apache.paimon.io.DataFileMeta;
+import org.apache.paimon.io.DataInputDeserializer;
+import org.apache.paimon.manifest.FileSource;
 import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.stats.SimpleStats;
 import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.source.BatchVectorSearchBuilder;
+import org.apache.paimon.table.source.BucketVectorSearchSplit;
+import org.apache.paimon.table.source.DataSplit;
+import org.apache.paimon.table.source.VectorScan;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.FloatType;
 import org.apache.paimon.types.IntType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.VectorType;
+import org.apache.paimon.utils.Range;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
@@ -165,6 +180,7 @@ public class PaimonVectorSearchTableValuedFunctionTest {
                             .collect(java.util.stream.Collectors.toList()));
             TExternalSearchRequest request = function.getSearchRequest();
             Assertions.assertTrue(request.getPaimonOptions().isTvfDistance());
+            Assertions.assertFalse(request.isSetVectorSearchOptions());
             Assertions.assertEquals(TVectorMetric.L2, request.getSearchQuery().getVectorSearch().getMetric());
             Assertions.assertEquals(1.0f, ByteBuffer.wrap(request.getSearchQuery().getVectorSearch()
                     .getQueryVector().getValues()).order(ByteOrder.LITTLE_ENDIAN).getFloat());
@@ -178,11 +194,74 @@ public class PaimonVectorSearchTableValuedFunctionTest {
                     "metric", "dot", "nprobes", "4", "refine_factor", "8", "use_index", "false"));
             TExternalSearchRequest request = function.getSearchRequest();
             Assertions.assertEquals(TVectorMetric.DOT_PRODUCT, request.getSearchQuery().getVectorSearch().getMetric());
-            Assertions.assertEquals(ImmutableMap.of("ivf.nprobe", "4", "refine_factor", "8",
-                    "vector-index.search-mode", "full"), request.getPaimonOptions().getOptions());
+            Assertions.assertEquals(ImmutableMap.of("ivf.nprobe", "4", "refine_factor", "8"),
+                    request.getPaimonOptions().getOptions());
+            Assertions.assertFalse(request.getVectorSearchOptions().isUseIndex());
             request.getPaimonOptions().setTvfDistance(false);
             Assertions.assertTrue(function.getSearchRequest().getPaimonOptions().isTvfDistance());
         }
+    }
+
+    @Test
+    public void testFlatSearchTransportsAllFilesWithoutIndexSources() throws Exception {
+        for (boolean useIndex : new boolean[] {true, false}) {
+            try (Fixture fixture = new Fixture("l2")) {
+                fixture.table.options().put("vector-index.search-mode", "fast");
+                Map<String, String> fullOptions = new HashMap<>(fixture.table.options());
+                fullOptions.put("vector-index.search-mode", "full");
+                FileStoreTable fullTable = Mockito.mock(FileStoreTable.class);
+                Mockito.when(fullTable.options()).thenReturn(fullOptions);
+                Mockito.when(fullTable.rowType()).thenReturn(fixture.table.rowType());
+                Mockito.when(fullTable.copyWithoutTimeTravel(Mockito.anyMap())).thenReturn(fullTable);
+                Mockito.when(fixture.table.copyWithoutTimeTravel(
+                        Collections.singletonMap("vector-index.search-mode", "full"))).thenReturn(fullTable);
+
+                DataSplit data = DataSplit.builder().withSnapshot(7L).withPartition(BinaryRow.EMPTY_ROW)
+                        .withBucket(0).withBucketPath("file:///bucket-0")
+                        .withDataFiles(Arrays.asList(dataFile("indexed.parquet"), dataFile("unindexed.parquet")))
+                        .build();
+                byte[] sourceMeta = new PrimaryKeyIndexSourceMeta(1,
+                        new PrimaryKeyIndexSourceFile("indexed.parquet", 1L)).serialize();
+                IndexFileMeta index = new IndexFileMeta("ivf-rq", "missing.index", 128L, 1L,
+                        new GlobalIndexMeta(0, 0, 1, null, null, sourceMeta), null);
+                Map<String, List<Range>> ranges = ImmutableMap.of(
+                        "indexed.parquet", Collections.singletonList(new Range(0, 0)),
+                        "unindexed.parquet", Collections.singletonList(new Range(0, 0)));
+                BucketVectorSearchSplit input = new BucketVectorSearchSplit(data,
+                        Collections.singletonList(index), ranges);
+                BatchVectorSearchBuilder builder = Mockito.mock(
+                        BatchVectorSearchBuilder.class, Mockito.RETURNS_SELF);
+                VectorScan scan = Mockito.mock(VectorScan.class);
+                VectorScan.Plan plan = Mockito.mock(VectorScan.Plan.class);
+                Mockito.when(fixture.table.newBatchVectorSearchBuilder()).thenReturn(builder);
+                Mockito.when(fullTable.newBatchVectorSearchBuilder()).thenReturn(builder);
+                Mockito.when(builder.newVectorScan()).thenReturn(scan);
+                Mockito.when(scan.scan()).thenReturn(plan);
+                Mockito.when(plan.splits()).thenReturn(Collections.singletonList(input));
+
+                PaimonScanNode node = createScanNode(fixture.function(
+                        ImmutableMap.of("use_index", Boolean.toString(useIndex))));
+                FileStoreTable processed = Deencapsulation.invoke(node, "getProcessedTable");
+                Assertions.assertEquals(useIndex ? "fast" : "full",
+                        processed.options().get("vector-index.search-mode"));
+                PaimonSplit split = (PaimonSplit) node.getVectorSearchSplits().get(0);
+                BucketVectorSearchSplit transported = BucketVectorSearchSplit.deserialize(
+                        new DataInputDeserializer(split.getVectorPayloadBytes()));
+                Assertions.assertEquals(data, transported.dataSplit());
+                Assertions.assertEquals(ranges, transported.rowRangesByFile());
+                Assertions.assertEquals(useIndex ? Collections.singletonList(index) : Collections.emptyList(),
+                        transported.payloadFiles());
+                Assertions.assertFalse(input.payloadFiles().isEmpty(), "the cached input must retain its index");
+                Assertions.assertEquals("fast", fixture.table.options().get("vector-index.search-mode"));
+                Assertions.assertEquals(useIndex, searchRequest(node).getVectorSearchOptions().isUseIndex());
+            }
+        }
+    }
+
+    private static DataFileMeta dataFile(String name) {
+        return DataFileMeta.forAppend(name, 1024L, 1L, SimpleStats.EMPTY_STATS, 1L, 1L, 1L,
+                Collections.emptyList(), null, FileSource.APPEND, Collections.emptyList(), null, null,
+                Collections.emptyList());
     }
 
     @Test

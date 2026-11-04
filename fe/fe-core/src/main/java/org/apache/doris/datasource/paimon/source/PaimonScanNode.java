@@ -319,6 +319,12 @@ public class PaimonScanNode extends FileQueryScanNode {
         return tvfSearchRequest != null;
     }
 
+    private boolean useVectorIndex() {
+        return !isExternalSearch() || !tvfSearchRequest.isSetVectorSearchOptions()
+                || !tvfSearchRequest.getVectorSearchOptions().isSetUseIndex()
+                || tvfSearchRequest.getVectorSearchOptions().isUseIndex();
+    }
+
     @Override
     protected void doInitialize() throws UserException {
         checkVariantV2Enabled(desc);
@@ -543,6 +549,9 @@ public class PaimonScanNode extends FileQueryScanNode {
             }
             options.putAll(overrides);
             request.setPaimonOptions(tvfSearchRequest.getPaimonOptions().deepCopy().setOptions(options));
+            if (tvfSearchRequest.isSetVectorSearchOptions()) {
+                request.setVectorSearchOptions(tvfSearchRequest.getVectorSearchOptions().deepCopy());
+            }
         }
         params.setExternalSearchRequest(request);
     }
@@ -1699,6 +1708,12 @@ public class PaimonScanNode extends FileQueryScanNode {
                         + vectorSplit.getClass().getName());
             }
             BucketVectorSearchSplit bucketSplit = (BucketVectorSearchSplit) vectorSplit;
+            if (!useVectorIndex()) {
+                // FULL alone only enables fallback for uncovered files; indexed files still use
+                // ANN. Remove the index sources so every active file uses the exact reader.
+                bucketSplit = new BucketVectorSearchSplit(bucketSplit.dataSplit(),
+                        Collections.emptyList(), bucketSplit.rowRangesByFile());
+            }
             // Serialize with Paimon's own DataOutputSerializer: the bytes must be
             // exactly BucketVectorSearchSplit.serialize's DataOutputView form
             // (magic "PKVSPLIT", version 1, big-endian), which
@@ -2392,6 +2407,12 @@ public class PaimonScanNode extends FileQueryScanNode {
             }
         } else {
             finalTable = systemTable == null ? baseTable : source.getPaimonTable(null);
+        }
+        if (!useVectorIndex()) {
+            // The PK reader resolves this mode from the table schema, not query-level search
+            // options. Pin it on the disposable read handle that is also serialized to BE.
+            finalTable = ((FileStoreTable) finalTable).copyWithoutTimeTravel(
+                    Collections.singletonMap(CoreOptions.VECTOR_INDEX_SEARCH_MODE.key(), "full"));
         }
         try {
             // This is the last common boundary before planning and serialization, including scans

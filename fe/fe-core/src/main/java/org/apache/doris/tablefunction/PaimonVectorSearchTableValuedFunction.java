@@ -59,6 +59,7 @@ import org.apache.doris.thrift.TExternalSearchRequest;
 import org.apache.doris.thrift.TPaimonVectorSearchOptions;
 import org.apache.doris.thrift.TSearchVector;
 import org.apache.doris.thrift.TVectorMetric;
+import org.apache.doris.thrift.TVectorSearchOptions;
 import org.apache.doris.thrift.TVectorSearchParams;
 
 import com.google.common.collect.ImmutableSet;
@@ -206,14 +207,15 @@ public class PaimonVectorSearchTableValuedFunction extends ExternalSearchTableVa
             searchOptions.put("refine_factor", String.valueOf(parseLong(
                     params.get("refine_factor"), "refine_factor", 1, MAX_CANDIDATES_PER_SPLIT / (topK + offset))));
         }
-        if (params.containsKey("use_index") && !parseBoolean(params.get("use_index"), "use_index")) {
-            searchOptions.put("vector-index.search-mode", "full");
-        }
         request = new TExternalSearchRequest().setSchemaVersion(1)
                 .setSearchQuery(TExternalSearchQuery.vector_search(new TVectorSearchParams()
                         .setColumn(column).setQueryVector(query).setMetric(vectorMetric)
                         .setTopK(topK).setOffset(offset)))
                 .setPaimonOptions(new TPaimonVectorSearchOptions().setOptions(searchOptions).setTvfDistance(true));
+        if (params.containsKey("use_index")) {
+            request.setVectorSearchOptions(new TVectorSearchOptions()
+                    .setUseIndex(parseBoolean(params.get("use_index"), "use_index")));
+        }
         List<Column> schema = new ArrayList<>(PaimonUtil.parseSchema(table,
                 sourceTable.getCatalog().getEnableMappingVarbinary(),
                 sourceTable.getCatalog().getEnableMappingTimestampTz()));

@@ -218,6 +218,36 @@ suite("test_paimon_pk_vector_ann", "p0,external") {
                     order by _distance, id""")).sort()
             assertEquals(expected, flat, "use_index=false must preserve exhaustive Top-K")
         }
+        // Write the data before configuring PK-vector indexing, leaving every data file
+        // uncovered. FAST is a positive control: indexed search returns no candidates,
+        // while use_index=false must scan the raw files despite the persisted FAST mode.
+        spark_paimon_multi """
+            DROP TABLE IF EXISTS paimon.${database}.ann_l2_unindexed;
+            CREATE TABLE paimon.${database}.ann_l2_unindexed (
+                id BIGINT, tag INT, embedding ARRAY<FLOAT>
+            ) USING paimon TBLPROPERTIES (
+                'primary-key'='id', 'bucket'='1', 'merge-engine'='partial-update',
+                'deletion-vectors.enabled'='true', 'deletion-vectors.merge-on-read'='false',
+                'changelog-producer'='none', 'vector-field'='embedding',
+                'field.embedding.vector-dim'='${dimension}', 'vector-index.search-mode'='fast'
+            );
+            INSERT INTO paimon.${database}.ann_l2_unindexed ${generatedRows};
+            ALTER TABLE paimon.${database}.ann_l2_unindexed SET TBLPROPERTIES (
+                'pk-vector.index.columns'='embedding',
+                'fields.embedding.pk-vector.index.type'='ivf-rq',
+                'fields.embedding.pk-vector.distance.metric'='l2',
+                'fields.embedding.pk-vector.index.options'='${vectorOptions}'
+            );
+        """
+        sql "set enable_paimon_rust_reader=0"
+        def unindexedExpected = idsOf(sql("""select id from ann_l2_unindexed
+                order by l2_distance(embedding, ${probe}) limit 5""")).sort()
+        sql "set enable_paimon_rust_reader=1"
+        assertTrue(sql("""select id from ${tvf("ann_l2_unindexed", "l2", 5,
+                ", 'use_index'='true'")}""").isEmpty(), "FAST search must have no indexed candidates")
+        def unindexedFlat = idsOf(sql("""select id from ${tvf("ann_l2_unindexed", "l2", 5,
+                ", 'use_index'='false'")} order by _distance, id""")).sort()
+        assertEquals(unindexedExpected, unindexedFlat, "flat search must include uncovered data files")
         def tvfFiltered = idsOf(sql("""select id from ${tvf("ann_l2", "l2", 5,
                 ", 'filter'='tag < 3', 'prefilter'='true'")} order by _distance, id""")).sort()
         assertEquals(bruteFiltered, tvfFiltered, "TVF prefilter must restrict candidate generation")
