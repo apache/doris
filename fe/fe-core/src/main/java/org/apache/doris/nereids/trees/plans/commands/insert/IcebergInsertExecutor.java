@@ -55,6 +55,10 @@ public class IcebergInsertExecutor extends BaseExternalTableInsertExecutor {
     protected void beforeExec() throws UserException {
         IcebergTransaction transaction = (IcebergTransaction) transactionManager.getTransaction(txnId);
         transaction.beginInsert((IcebergExternalTable) table, targetIcebergTable, insertCtx);
+        // Empty static overwrites execute without a BE sink or newly written files.
+        if (!emptyInsert) {
+            transaction.addCommitLocations(dataSink.toThrift());
+        }
     }
 
     @Override

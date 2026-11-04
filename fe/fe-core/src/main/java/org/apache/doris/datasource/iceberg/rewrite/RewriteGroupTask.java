@@ -221,8 +221,8 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         Preconditions.checkState(insertExecutor instanceof IcebergRewriteExecutor,
                 "Expected IcebergRewriteExecutor, got: " + insertExecutor.getClass());
 
-        // Step 3: Set transaction id for updating CommitData
-        insertExecutor.getCoordinator().setTxnId(transactionId);
+        // Step 3: Register this group's sink location with the shared transaction before execution.
+        ((IcebergRewriteExecutor) insertExecutor).bindTransaction(transactionId);
 
         // Step 4: Publish coordinator so cancel() can reach the running BE tasks
         stmtExecutor.setCoord(insertExecutor.getCoordinator());
