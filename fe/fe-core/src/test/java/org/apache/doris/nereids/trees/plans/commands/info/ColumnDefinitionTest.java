@@ -27,6 +27,8 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.HllType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.QuantileStateType;
@@ -58,6 +60,20 @@ public class ColumnDefinitionTest {
     @AfterEach
     public void tearDown() {
         Config.enable_non_aggregate_table_state_types = false;
+    }
+
+    @Test
+    public void testCivilTemporalDefaultsAreNormalizedForExternalDdl() {
+        DataType[] types = {DateV2Type.INSTANCE, DateTimeV2Type.of(6), DateTimeV2Type.of(6)};
+        String[] inputs = {"20240102", "20240102030405", "2024-01-02 03:04:05.123456"};
+        String[] expected = {"2024-01-02", "2024-01-02 03:04:05.000000", "2024-01-02 03:04:05.123456"};
+        for (int i = 0; i < types.length; i++) {
+            ColumnDefinition column = new ColumnDefinition("added", types[i],
+                    false, null, false, Optional.of(new DefaultValue(inputs[i])), "");
+            column.validate(false, ImmutableSet.of(), ImmutableSet.of(), false, KeysType.DUP_KEYS);
+            Assertions.assertEquals(expected[i], column.translateToCatalogStyle().getDefaultValue());
+            Assertions.assertEquals(expected[i], column.translateToCatalogStyleForSchemaChange().getDefaultValue());
+        }
     }
 
     @Test
