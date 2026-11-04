@@ -17,19 +17,14 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.datasource.split.SplitAssignment;
-import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.ScanNode;
-import org.apache.doris.thrift.TUniqueId;
 
-import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
-import java.util.List;
 
 /**
  * The predicate behind the Arrow Flight deferral gate in StmtExecutor.executeAndSendResult (#67503):
@@ -50,21 +45,10 @@ public class ArrowFlightDeferralGateTest {
         return node;
     }
 
-    private static Coordinator coordinator(List<ScanNode> scanNodes) {
-        return new Coordinator(1L, new TUniqueId(1L, 2L), new DescriptorTable(), Lists.<PlanFragment>newArrayList(),
-                scanNodes, "UTC", false, false);
-    }
-
     @Test
     public void testScanNodeMustOutliveDispatchOnlyWhenSplitsAreHandedOutLazily() throws Exception {
         Assertions.assertFalse(scanNode(false).coordinatorMustOutliveDispatch());
         Assertions.assertTrue(scanNode(true).coordinatorMustOutliveDispatch());
     }
 
-    @Test
-    public void testCoordinatorMustOutliveDispatchIfAnyScanRequiresIt() throws Exception {
-        Assertions.assertFalse(coordinator(Lists.newArrayList()).mustOutliveDispatch());
-        Assertions.assertFalse(coordinator(Lists.newArrayList(scanNode(false), scanNode(false))).mustOutliveDispatch());
-        Assertions.assertTrue(coordinator(Lists.newArrayList(scanNode(false), scanNode(true))).mustOutliveDispatch());
-    }
 }

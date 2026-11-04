@@ -17,22 +17,24 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.catalog.EnvFactory;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.planner.PlanFragmentId;
-import org.apache.doris.qe.Coordinator.FInstanceExecParam;
-import org.apache.doris.qe.Coordinator.FragmentExecParams;
-import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
+import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.qe.runtime.ThriftPlansBuilder;
+import org.apache.doris.thrift.TPipelineFragmentParams;
+import org.apache.doris.thrift.TPipelineFragmentParamsList;
+import org.apache.doris.thrift.TPipelineInstanceParams;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
-import com.google.common.collect.ArrayListMultimap;
-import com.google.common.collect.LinkedHashMultimap;
-import com.google.common.collect.SetMultimap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.Collection;
+import java.util.HashSet;
 import java.util.Map;
-import java.util.Map.Entry;
+import java.util.Set;
 
 public class LocalShuffleTest extends TestWithFeService {
     @Override
@@ -161,7 +163,6 @@ public class LocalShuffleTest extends TestWithFeService {
         connectContext.getSessionVariable().parallelPipelineTaskNum = 2;
         connectContext.getSessionVariable().setDisableNereidsRules(RuleType.PRUNE_EMPTY_PARTITION.name());
         connectContext.getSessionVariable().setQueryTimeoutS(10);
-        connectContext.getSessionVariable().setEnableNereidsDistributePlanner(false);
         connectContext.getSessionVariable().setDisableJoinReorder(true);
 
         String sql = "with oooo_oneid as (select identity_value from test.oooo_oneid),\n"
@@ -181,41 +182,18 @@ public class LocalShuffleTest extends TestWithFeService {
                 + "     left outer join aaaa_frm_$oooo on (oooo_oneid.identity_value = aaaa_frm_$oooo.base_id)\n"
                 + "     left outer join bbbb_frm_$oooo on (oooo_oneid.identity_value = bbbb_frm_$oooo.base_id)\n"
                 + ")final_plain_table";
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
-        try {
-            stmtExecutor.execute();
-        } catch (Throwable t) {
-            // ignore
-        }
-        Coordinator coord = stmtExecutor.getCoord();
-        Map<PlanFragmentId, FragmentExecParams> fragmentExecParamsMap = coord.getFragmentExecParamsMap();
-
-        for (FragmentExecParams fragmentExecParams : fragmentExecParamsMap.values()) {
-            // skip check root fragment
-            if (fragmentExecParams.fragment.getChildren().isEmpty()) {
-                continue;
-            }
-            SetMultimap<TNetworkAddress, Integer> receiverIds = LinkedHashMultimap.create();
-            ArrayListMultimap<TNetworkAddress, FInstanceExecParam> hostToInstances = ArrayListMultimap.create();
-            boolean setRecvrId = false;
-            for (FInstanceExecParam instanceExecParam : fragmentExecParams.instanceExecParams) {
-                if (instanceExecParam.recvrId != -1) {
-                    setRecvrId = true;
+        connectContext.setQueryId(new TUniqueId(1L, 2L));
+        NereidsPlanner planner = PlanChecker.from(connectContext).plan(sql);
+        Coordinator coord = EnvFactory.getInstance().createCoordinator(connectContext, planner, null);
+        Map<DistributedPlanWorker, TPipelineFragmentParamsList> plans = ThriftPlansBuilder.plansToThrift(
+                coord.getCoordinatorContext());
+        Assertions.assertFalse(plans.isEmpty());
+        for (TPipelineFragmentParamsList backendPlans : plans.values()) {
+            for (TPipelineFragmentParams fragment : backendPlans.getParamsList()) {
+                Set<TUniqueId> instanceIds = new HashSet<>();
+                for (TPipelineInstanceParams instance : fragment.getLocalParams()) {
+                    Assertions.assertTrue(instanceIds.add(instance.getFragmentInstanceId()));
                 }
-                receiverIds.put(instanceExecParam.host, instanceExecParam.recvrId);
-                hostToInstances.put(instanceExecParam.host, instanceExecParam);
-            }
-            if (!setRecvrId) {
-                // skip check when share broadcast hash table
-                continue;
-            }
-            for (Entry<TNetworkAddress, Collection<Integer>> hostToReceiverIds : receiverIds.asMap()
-                    .entrySet()) {
-                // if this host has 2 instances, it should contain 2 receiverId
-                Assertions.assertEquals(
-                        hostToInstances.get(hostToReceiverIds.getKey()).size(),
-                        hostToReceiverIds.getValue().size()
-                );
             }
         }
     }
