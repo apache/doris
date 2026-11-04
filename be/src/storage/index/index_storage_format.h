@@ -20,6 +20,10 @@
 #include "common/status.h"
 #include "storage/index/index_common.h"
 
+namespace lucene::store {
+class IndexOutput;
+} // namespace lucene::store
+
 namespace doris::segment_v2 {
 
 class IndexFileWriter;

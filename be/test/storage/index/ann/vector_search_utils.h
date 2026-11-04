@@ -39,9 +39,11 @@
 #include "runtime/exec_env.h"
 #include "storage/index/ann/ann_index.h"
 #include "storage/index/ann/ann_index_iterator.h"
+#include "storage/index/ann/ann_index_storage.h"
 #include "storage/index/index_common.h"
 #include "storage/index/index_compound_reader.h"
 #include "storage/index/index_file_reader.h"
+#include "storage/index/index_fs_directory.h"
 #include "storage/index/index_writer.h"
 #include "storage/tablet/tablet_schema.h"
 // Add CLucene RAM Directory header
@@ -113,6 +115,15 @@ std::unique_ptr<doris::segment_v2::IndexSearchResult> perform_doris_index_range_
         segment_v2::VectorIndex* index, const float* query_vector, float radius,
         const segment_v2::IndexSearchParameters& params);
 
+// Saves and loads a vector index through the CLucene ANN adapters over a test directory, which is
+// how V1/V2 keep an ANN index. The source is dropped on return, which is safe here only because a
+// Lucene input reads the directory itself, and the caller keeps the directory alive for as long as
+// the index (IVF_ON_DISK keeps reading ann.ivfdata through such an input).
+Status save_to_directory(segment_v2::VectorIndex* index,
+                         std::shared_ptr<lucene::store::Directory> dir);
+Status load_from_directory(segment_v2::VectorIndex* index,
+                           std::shared_ptr<lucene::store::Directory> dir);
+
 class MockIndexFileReader : public ::doris::segment_v2::IndexFileReader {
 public:
     MockIndexFileReader()
@@ -121,9 +132,9 @@ public:
 
     MOCK_METHOD2(init, doris::Status(int, const doris::io::IOContext* io_ctx));
 
-    MOCK_CONST_METHOD2(
-            open, Result<std::unique_ptr<DorisCompoundReader, doris::segment_v2::DirectoryDeleter>>(
-                          const doris::TabletIndex*, const doris::io::IOContext*));
+    MOCK_CONST_METHOD2(open_ann_source,
+                       Result<std::unique_ptr<doris::segment_v2::AnnIndexSource>>(
+                               const doris::TabletIndex*, const doris::io::IOContext*));
 };
 
 class MockTabletSchema : public doris::TabletIndex {};

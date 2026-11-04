@@ -18,6 +18,7 @@
 #include "storage/index/index_storage_format_v2.h"
 
 #include "common/cast_set.h"
+#include "storage/index/index_common_impl.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_fs_directory.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"

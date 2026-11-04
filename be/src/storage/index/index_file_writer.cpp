@@ -36,10 +36,11 @@
 #include "storage/index/index_storage_format_v2.h"
 #include "storage/index/index_writer.h"
 #include "storage/index/inverted/clucene/clucene_index_reader.h"
+#include "storage/index/inverted/clucene/lucene_ann_store.h"
 #include "storage/index/inverted/clucene/searcher_cache_value.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/index/inverted/snii/query/gram_boolean_query.h"
-#include "storage/index/inverted/snii/snii_blob_staging_directory.h"
+#include "storage/index/inverted/snii/snii_ann_store.h"
 #include "storage/index/inverted/snii/snii_doris_adapter.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/defer_op.h"
@@ -158,6 +159,45 @@ void snii_resolve_index_write_params(bool is_direct_load, bool has_norms,
     input->stop_gram_df_threshold = snii_effective_stop_gram_df_threshold(*input);
 }
 
+namespace {
+
+// Registers what one index is written through -- its CLucene directory under V1/V2, its ANN
+// staging under SNII -- refusing a second registration of the key: two producers of one index
+// would write the same files.
+template <typename Value>
+Status insert_index_entry(std::map<std::pair<int64_t, std::string>, Value>* map,
+                          const std::pair<int64_t, std::string>& key, Value value) {
+    auto [it, inserted] = map->emplace(key, std::move(value));
+    if (!inserted) {
+        LOG(ERROR) << "IndexFileWriter::open attempted to insert a duplicate key: (" << key.first
+                   << ", " << key.second << ")";
+        LOG(ERROR) << "Directories already in map: ";
+        for (const auto& entry : *map) {
+            LOG(ERROR) << "Key: (" << entry.first.first << ", " << entry.first.second << ")";
+        }
+        return Status::InternalError("IndexFileWriter::open attempted to insert a duplicate dir");
+    }
+    return Status::OK();
+}
+
+// Drops what one index is written through, for delete_index(). An absent key is logged, not
+// refused.
+template <typename Value>
+void erase_index_entry(std::map<std::pair<int64_t, std::string>, Value>* map,
+                       const std::pair<int64_t, std::string>& key) {
+    auto index_it = map->find(key);
+    DBUG_EXECUTE_IF("IndexFileWriter::delete_index_indices_dirs_reach_end",
+                    { index_it = map->end(); })
+    if (index_it == map->end()) {
+        LOG(WARNING) << "No inverted index with id " << key.first << " and suffix " << key.second
+                     << " found.";
+        return;
+    }
+    map->erase(index_it);
+}
+
+} // namespace
+
 IndexFileWriter::IndexFileWriter(io::FileSystemSPtr fs, std::string index_path_prefix,
                                  std::string rowset_id, int64_t seg_id,
                                  InvertedIndexStorageFormatPB storage_format,
@@ -189,24 +229,14 @@ Status IndexFileWriter::initialize(InvertedIndexDirectoryMap& indices_dirs) {
 Status IndexFileWriter::_insert_directory_into_map(int64_t index_id,
                                                    const std::string& index_suffix,
                                                    std::shared_ptr<lucene::store::Directory> dir) {
-    auto key = std::make_pair(index_id, index_suffix);
-    auto [it, inserted] = _indices_dirs.emplace(key, std::move(dir));
-    if (!inserted) {
-        LOG(ERROR) << "IndexFileWriter::open attempted to insert a duplicate key: (" << key.first
-                   << ", " << key.second << ")";
-        LOG(ERROR) << "Directories already in map: ";
-        for (const auto& entry : _indices_dirs) {
-            LOG(ERROR) << "Key: (" << entry.first.first << ", " << entry.first.second << ")";
-        }
-        return Status::InternalError("IndexFileWriter::open attempted to insert a duplicate dir");
-    }
-    return Status::OK();
+    return insert_index_entry(&_indices_dirs, std::make_pair(index_id, index_suffix),
+                              std::move(dir));
 }
 
 Result<std::shared_ptr<DorisFSDirectory>> IndexFileWriter::open(const TabletIndex* index_meta) {
     // No index under SNII writes through a CLucene filesystem directory: text
     // postings go through the SPIMI writer, and an ANN index uses self-cleaning
-    // per-file staging (see open_ann_directory).
+    // per-file staging (see open_ann_sink).
     if (_storage_format == InvertedIndexStorageFormatPB::SNII) {
         return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                 "SNII format does not open CLucene filesystem directories"));
@@ -223,7 +253,7 @@ Result<std::shared_ptr<DorisFSDirectory>> IndexFileWriter::open(const TabletInde
     return dir;
 }
 
-Result<std::shared_ptr<lucene::store::Directory>> IndexFileWriter::open_ann_directory(
+Result<std::shared_ptr<AnnIndexSink>> IndexFileWriter::open_ann_sink(
         const TabletIndex* index_meta) {
     if (_storage_format != InvertedIndexStorageFormatPB::SNII) {
         // V1/V2 stage ANN output exactly like every other index.
@@ -231,101 +261,79 @@ Result<std::shared_ptr<lucene::store::Directory>> IndexFileWriter::open_ann_dire
         if (!dir.has_value()) {
             return ResultError(dir.error());
         }
-        return std::shared_ptr<lucene::store::Directory>(std::move(dir.value()));
+        return std::make_shared<LuceneAnnSink>(std::move(dir.value()));
     }
-    return _open_snii_ann_staging_directory(index_meta);
+    return _open_snii_ann_staging(index_meta);
 }
 
-Result<std::shared_ptr<lucene::store::Directory>> IndexFileWriter::_open_snii_ann_staging_directory(
+Result<std::shared_ptr<AnnIndexSink>> IndexFileWriter::_open_snii_ann_staging(
         const TabletIndex* index_meta) {
     // The container stores an ANN index as a blob logical index (kAnn), exactly
     // as it stores the BKD, and the kind stamped at seal time depends on this
     // gate -- so refusing anything else here is what keeps the seal honest.
     if (!index_meta->is_ann_index()) {
         return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
-                "SNII format only stages ANN indexes through a directory"));
+                "SNII format only stages ANN indexes"));
     }
-    auto dir = std::make_shared<snii_doris::SniiBlobStagingDirectory>();
-    RETURN_IF_ERROR_RESULT(_insert_directory_into_map(index_meta->index_id(),
-                                                      index_meta->get_index_suffix(), dir));
-    // Copied, not borrowed: the staged bytes are not harvested until
-    // begin_close(), and nothing promises the caller's TabletIndex is still alive
-    // by then.
-    _snii_blob_dir_metas.emplace(
+    auto staging = std::make_shared<snii_doris::SniiAnnStaging>();
+    // The metadata is copied, not borrowed: the staged bytes are not harvested
+    // until begin_close(), and nothing promises the caller's TabletIndex is
+    // still alive by then.
+    RETURN_IF_ERROR_RESULT(insert_index_entry(
+            &_snii_ann_staging,
             std::make_pair(index_meta->index_id(), index_meta->get_index_suffix()),
-            std::make_shared<TabletIndex>(*index_meta));
-    return dir;
+            SniiAnnStagingEntry {.staging = staging,
+                                 .meta = std::make_shared<TabletIndex>(*index_meta)}));
+    return staging;
 }
 
-void IndexFileWriter::discard_ann_staging_directory(const TabletIndex* index_meta) {
-    // Only SNII stages an ANN index somewhere disposable. Branching here rather
-    // than in the caller keeps the format knowledge on the side that owns it,
-    // exactly as open_ann_directory() does.
-    if (_storage_format != InvertedIndexStorageFormatPB::SNII) {
-        return;
-    }
+void IndexFileWriter::discard_ann_staging(const TabletIndex* index_meta) {
     DCHECK(index_meta != nullptr);
-    const auto key = std::make_pair(index_meta->index_id(), index_meta->get_index_suffix());
-    _indices_dirs.erase(key);
-    _snii_blob_dir_metas.erase(key);
+    // Only SNII stages an ANN index somewhere disposable; under V1/V2 the map is
+    // empty and their directory stays, its files being the index output.
+    _snii_ann_staging.erase(std::make_pair(index_meta->index_id(), index_meta->get_index_suffix()));
 }
 
 void IndexFileWriter::abandon_snii_staging() {
-    if (_storage_format != InvertedIndexStorageFormatPB::SNII) {
-        return;
-    }
-    // Empty each directory before dropping the map. Releasing only this writer's
+    // Empty each staging before dropping the map. Releasing only this writer's
     // reference would free nothing while a producer is still alive holding the
-    // same directory through its own _dir -- which is exactly the state a segment
+    // same staging through its own _sink -- which is exactly the state a segment
     // that failed before clear() is in. Emptying makes the abort independent of
-    // who else is still holding on.
-    for (const auto& [key, dir] : _indices_dirs) {
-        if (std::strcmp(dir->getObjectName(),
-                        snii_doris::SniiBlobStagingDirectory::getClassName()) == 0) {
-            static_cast<snii_doris::SniiBlobStagingDirectory*>(dir.get())->discard_staged_files();
-        }
+    // who else is still holding on. Under V1/V2 the map is empty, and their
+    // directories stay for the writer's own cleanup.
+    for (const auto& [key, entry] : _snii_ann_staging) {
+        entry.staging->discard_staged_files();
     }
-    _release_snii_blob_directories();
+    _release_snii_ann_staging();
 }
 
-Status IndexFileWriter::_seal_snii_blob_directories() {
+Status IndexFileWriter::_seal_snii_ann_staging() {
     DORIS_CHECK(_storage_format == InvertedIndexStorageFormatPB::SNII);
-    for (const auto& [key, dir] : _indices_dirs) {
-        const auto meta_it = _snii_blob_dir_metas.find(key);
-        // Every SNII directory is registered with its metadata by open(), which
-        // is the only way one gets into this map.
-        DORIS_CHECK(meta_it != _snii_blob_dir_metas.end());
+    for (const auto& [key, entry] : _snii_ann_staging) {
         // The staging gate admits ONLY ann indexes under SNII, and the kind
         // stamped below depends on it. Asserted here, where it is relied upon, so
         // that widening that gate cannot silently mislabel another index kind.
-        DORIS_CHECK(meta_it->second->is_ann_index());
-        // ... and the only thing that ever enters the map under SNII is a staging
-        // directory, so this is a type assertion, not a runtime branch.
-        DORIS_CHECK(std::strcmp(dir->getObjectName(),
-                                snii_doris::SniiBlobStagingDirectory::getClassName()) == 0);
-
+        DORIS_CHECK(entry.meta->is_ann_index());
         // The sources TAKE the staged files, so they own them alone from here on:
-        // finish() may pull the bytes after this directory is gone, and it can
+        // finish() may pull the bytes after this staging is gone, and it can
         // unlink each sub-file as soon as it has copied it instead of waiting for
-        // whoever else happens to still hold the directory.
-        auto* staging = static_cast<snii_doris::SniiBlobStagingDirectory*>(dir.get());
+        // whoever else happens to still hold the staging.
         // All cold: a faiss index is read at QUERY time, never at container open,
         // so nothing here belongs in the hot area the text metadata groups share.
-        RETURN_IF_ERROR(add_snii_blob_index(meta_it->second.get(),
+        RETURN_IF_ERROR(add_snii_blob_index(entry.meta.get(),
                                             doris::snii::format::LogicalIndexKind::kAnn,
-                                            staging->take_blob_sources(), {}));
+                                            entry.staging->take_blob_sources(), {}));
     }
     return Status::OK();
 }
 
-void IndexFileWriter::_release_snii_blob_directories() {
+void IndexFileWriter::_release_snii_ann_staging() {
     // Dropping the map is all this has to do: sealing already handed the staged
     // files to the blob sources, which unlink them as finish() copies them, and
-    // an unsealed directory unlinks its own on the way out. So -- unlike
+    // an unsealed staging unlinks its own on the way out. So -- unlike
     // DorisFSDirectory::deleteDirectory() -- there is no throwing cleanup call to
     // make from this Status-returning close path.
-    _indices_dirs.clear();
-    _snii_blob_dir_metas.clear();
+    _snii_ann_staging.clear();
 }
 
 Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t doc_count,
@@ -474,22 +482,16 @@ Status IndexFileWriter::delete_index(const TabletIndex* index_meta) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT>("Index metadata is null.");
     }
 
-    auto index_id = index_meta->index_id();
-    const auto& index_suffix = index_meta->get_index_suffix();
-
-    // Check if the specified index exists
-    auto index_it = _indices_dirs.find(std::make_pair(index_id, index_suffix));
-    DBUG_EXECUTE_IF("IndexFileWriter::delete_index_indices_dirs_reach_end",
-                    { index_it = _indices_dirs.end(); })
-    if (index_it == _indices_dirs.end()) {
-        std::ostringstream errMsg;
-        errMsg << "No inverted index with id " << index_id << " and suffix " << index_suffix
-               << " found.";
-        LOG(WARNING) << errMsg.str();
-        return Status::OK();
+    const auto key = std::make_pair(index_meta->index_id(), index_meta->get_index_suffix());
+    // Under SNII the one index a writer is asked to delete is an ANN index with
+    // no data to build (AnnIndexColumnWriter::finish), and what goes is the
+    // staging open_ann_sink() registered for it. Left in place, it would reach
+    // begin_close() empty, and the container refuses a blob without files.
+    if (_storage_format == InvertedIndexStorageFormatPB::SNII) {
+        erase_index_entry(&_snii_ann_staging, key);
+    } else {
+        erase_index_entry(&_indices_dirs, key);
     }
-
-    _indices_dirs.erase(index_it);
     return Status::OK();
 }
 
@@ -580,13 +582,12 @@ Status IndexFileWriter::begin_close() {
             _snii_compound_writer = std::make_unique<doris::snii::writer::SniiCompoundWriter>(
                     _snii_file_writer.get());
         }
-        // The staging directories are dead either way: finish() has copied every
-        // staged byte into the container, or sealing failed and nobody will ever
-        // read them. Released on BOTH paths -- unlike the non-SNII branch below,
-        // finish_close() returns before _indices_dirs is cleared, so a failed
-        // close would otherwise pin an ANN-sized buffer for the writer's life.
-        Defer release_staging([this] { _release_snii_blob_directories(); });
-        RETURN_IF_ERROR(_seal_snii_blob_directories());
+        // The ANN staging is dead either way: finish() has copied every staged
+        // byte into the container, or sealing failed and nobody will ever read
+        // it. Released on BOTH paths -- nothing after this clears it, so a
+        // failed close would otherwise pin the staged files for the writer's life.
+        Defer release_staging([this] { _release_snii_ann_staging(); });
+        RETURN_IF_ERROR(_seal_snii_ann_staging());
         RETURN_IF_ERROR(_snii_compound_writer->finish());
         _total_file_size = _idx_v2_writer->bytes_appended();
         _file_info.set_index_size(_total_file_size);
@@ -694,6 +695,10 @@ std::string IndexFileWriter::debug_string() const {
     for (const auto& [index, dir] : _indices_dirs) {
         indices_dirs << "index id is: " << index.first << " , index suffix is: " << index.second
                      << " , index dir is: " << dir->toString();
+    }
+    for (const auto& [index, entry] : _snii_ann_staging) {
+        indices_dirs << "index id is: " << index.first << " , index suffix is: " << index.second
+                     << " , index staging is: " << entry.staging->debug_string();
     }
     return fmt::format(
             "inverted index file writer debug string: index storage format is: {}, index path "

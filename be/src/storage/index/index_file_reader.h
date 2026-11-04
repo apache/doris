@@ -17,20 +17,6 @@
 
 #pragma once
 
-// CLucene is third-party code and is not clean under -Wconversion (which
-// -Wshorten-64-to-32 belongs to). Whether its first expansion lands inside
-// someone else's suppressed region depends on include order, so suppress it
-// deliberately here (same pattern as index_common_impl.h).
-#ifdef __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wconversion"
-#endif
-#include <CLucene.h> // IWYU pragma: keep
-#include <CLucene/store/IndexInput.h>
-#ifdef __clang__
-#pragma clang diagnostic pop
-#endif
-
 #include <gen_cpp/olap_file.pb.h>
 
 #include <map>
@@ -53,9 +39,16 @@
 #include "storage/index/inverted/snii/snii_bkd_searcher.h"
 #include "storage/index/inverted/snii/snii_doris_adapter.h"
 
+// SNII and ANN include this header and use no CLucene, so the input of a V2 file is only declared
+// here.
+namespace lucene::store {
+class IndexInput;
+} // namespace lucene::store
+
 namespace doris {
 class TabletIndex;
 namespace segment_v2 {
+class AnnIndexSource;
 class ReaderFileEntry;
 class DorisCompoundReader;
 
@@ -70,21 +63,27 @@ public:
     using IndicesEntriesMap =
             std::map<std::pair<int64_t, std::string>, std::unique_ptr<EntriesType>>;
 
+    // The constructor and the destructor are out of line: both may destroy _stream and the
+    // entries, whose types are incomplete here.
     IndexFileReader(io::FileSystemSPtr fs, std::string index_path_prefix,
                     InvertedIndexStorageFormatPB storage_format,
                     InvertedIndexFileInfo idx_file_info = InvertedIndexFileInfo(),
-                    int64_t tablet_id = -1)
-            : _fs(std::move(fs)),
-              _index_path_prefix(std::move(index_path_prefix)),
-              _storage_format(storage_format),
-              _idx_file_info(std::move(idx_file_info)),
-              _tablet_id(tablet_id) {}
-    virtual ~IndexFileReader() = default;
+                    int64_t tablet_id = -1);
+    virtual ~IndexFileReader();
 
     MOCK_FUNCTION Status init(int32_t read_buffer_size = config::inverted_index_read_buffer_size,
                               const io::IOContext* io_ctx = nullptr);
+    // The CLucene directory of one V1 or V2 index. SNII has none and is refused
+    // with INVERTED_INDEX_NOT_SUPPORTED.
     MOCK_FUNCTION Result<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> open(
             const TabletIndex* index_meta, const io::IOContext* io_ctx = nullptr) const;
+    // The files of one ANN index, for the ANN reader. Picking the storage behind
+    // them is this class's job, the only one that knows every format: the
+    // compound reader under V1 and V2, the container's blob under SNII. The
+    // caller must keep this IndexFileReader alive for the source's lifetime, and
+    // the source alive for its inputs' lifetime.
+    MOCK_FUNCTION Result<std::unique_ptr<AnnIndexSource>> open_ann_source(
+            const TabletIndex* index_meta, const io::IOContext* io_ctx) const;
     // Opens one BLOB logical index of kind kBkd: resolves its named sub-files
     // (bkd_data / bkd_index / bkd_nulls) into extents through the CONTAINER's own
     // directory and hands back a reader bound to this IndexFileReader's file.
@@ -132,12 +131,7 @@ public:
     Status has_null(const TabletIndex* index_meta, bool* res) const;
     Result<InvertedIndexDirectoryMap> get_all_directories();
     // open file v2, init _stream
-    int64_t get_inverted_file_size() const {
-        if (_storage_format == InvertedIndexStorageFormatPB::SNII) {
-            return _snii_file_reader == nullptr ? 0 : _snii_file_reader->size();
-        }
-        return _stream == nullptr ? 0 : _stream->length();
-    }
+    int64_t get_inverted_file_size() const;
     const std::string& get_index_path_prefix() const { return _index_path_prefix; }
     InvertedIndexStorageFormatPB get_storage_format() const { return _storage_format; }
     friend IndexFileWriter;
@@ -151,7 +145,7 @@ protected:
 
 private:
     IndicesEntriesMap _indices_entries;
-    std::unique_ptr<CL_NS(store)::IndexInput> _stream = nullptr;
+    std::unique_ptr<lucene::store::IndexInput> _stream = nullptr;
     std::shared_ptr<snii_doris::DorisSniiFileReader> _snii_file_reader;
     std::unique_ptr<doris::snii::reader::SniiSegmentReader> _snii_segment_reader;
     const io::FileSystemSPtr _fs;

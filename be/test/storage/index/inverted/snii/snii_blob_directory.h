@@ -41,7 +41,11 @@ class SniiBlobDirectory;
 // refcount -- a plain `delete` would double-free against a holder's DEC.
 using SniiBlobDirectoryPtr = std::unique_ptr<SniiBlobDirectory, DirectoryDeleter>;
 
-// Exposes one SNII blob entry as a read-only CLucene Directory using positioned reads. Empty entries open successfully, clones have independent cursors, and close() does not throw.
+// Test shell: exposes one SNII blob entry as a read-only CLucene Directory using positioned reads,
+// so that snii_blob_bkd_roundtrip_test can query an unmodified CLucene bkd_reader straight out of a
+// container. Production code reads no blob through CLucene: an ANN blob is read through
+// SniiAnnSource, a BKD blob through the native BKD reader. Empty entries open successfully, clones
+// have independent cursors, and close() does not throw.
 class SniiBlobDirectory : public lucene::store::Directory {
 public:
     // Validates the entry (blob kind; every file inside [0, data_area_end)) and

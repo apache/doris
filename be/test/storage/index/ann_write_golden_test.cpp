@@ -21,7 +21,6 @@
 // how they interleave, so the builds here run on one thread, and each index is written twice to
 // show the bytes repeat.
 
-#include <CLucene.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest.h>
 
@@ -35,7 +34,9 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "io/fs/local_file_system.h"
+#include "storage/index/ann/ann_index_storage.h"
 #include "storage/index/ann/ann_index_writer.h"
+#include "storage/index/index_compound_reader.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
@@ -157,7 +158,35 @@ struct SubFile {
     bool operator==(const SubFile&) const = default;
 };
 
-// Every sub-file of the ANN index, by name, read through the production reader.
+// The names of the ANN index's sub-files, from the format's own table of them: the entries of the
+// compound reader in V2, the container's directory entry in SNII.
+std::vector<std::string> sub_file_names(const IndexFileReader& reader,
+                                        InvertedIndexStorageFormatPB format,
+                                        const TabletIndex& meta) {
+    std::vector<std::string> names;
+    if (format == InvertedIndexStorageFormatPB::SNII) {
+        auto entries = reader.snii_logical_indexes();
+        EXPECT_TRUE(entries.has_value()) << entries.error();
+        if (entries.has_value()) {
+            for (const auto& entry : entries.value()) {
+                if (std::cmp_equal(entry.index_id, meta.index_id())) {
+                    for (const auto& file : entry.files) {
+                        names.push_back(file.name);
+                    }
+                }
+            }
+        }
+        return names;
+    }
+    auto directory = reader.open(&meta);
+    EXPECT_TRUE(directory.has_value()) << directory.error();
+    if (directory.has_value()) {
+        EXPECT_TRUE(directory.value()->list(&names));
+    }
+    return names;
+}
+
+// Every sub-file of the ANN index, by name, read through the production ANN reader.
 std::map<std::string, SubFile> sub_files(const std::string& prefix,
                                          InvertedIndexStorageFormatPB format,
                                          const TabletIndex& meta) {
@@ -165,21 +194,20 @@ std::map<std::string, SubFile> sub_files(const std::string& prefix,
     IndexFileReader reader(io::global_local_filesystem(), prefix, format);
     const Status status = reader.init();
     EXPECT_TRUE(status.ok()) << status.to_string();
-    auto directory = reader.open(&meta);
-    EXPECT_TRUE(directory.has_value()) << directory.error();
-    if (!directory.has_value()) {
+    auto source = reader.open_ann_source(&meta, nullptr);
+    EXPECT_TRUE(source.has_value()) << source.error();
+    if (!source.has_value()) {
         return files;
     }
-    std::vector<std::string> names;
-    EXPECT_TRUE(directory.value()->list(&names));
-    for (const std::string& name : names) {
-        lucene::store::IndexInput* raw = nullptr;
-        CLuceneError error;
-        EXPECT_TRUE(directory.value()->openInput(name.c_str(), raw, error)) << error.what();
-        std::unique_ptr<lucene::store::IndexInput> input(raw);
-        std::vector<uint8_t> bytes(static_cast<size_t>(input->length()));
-        input->readBytes(bytes.data(), static_cast<int32_t>(bytes.size()));
-        input->close();
+    for (const std::string& name : sub_file_names(reader, format, meta)) {
+        auto input = source.value()->open_input(name);
+        EXPECT_TRUE(input.has_value()) << input.error();
+        if (!input.has_value()) {
+            continue;
+        }
+        std::vector<uint8_t> bytes(input.value()->length());
+        const Status read = input.value()->read_at(0, bytes.data(), bytes.size(), nullptr);
+        EXPECT_TRUE(read.ok()) << read.to_string();
         files[name] = {.length = bytes.size(),
                        .digest = HashUtil::xxHash64WithSeed(
                                reinterpret_cast<const char*>(bytes.data()), bytes.size(), 0)};

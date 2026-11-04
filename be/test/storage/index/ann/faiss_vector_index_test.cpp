@@ -79,14 +79,14 @@ TEST_F(VectorSearchTest, TestSaveAndLoad) {
         std::ignore = index1->add(num_vectors, vectors.data());
 
         // Step 4: Save the index
-        auto save_status = index1->save(_ram_dir.get());
+        auto save_status = vector_search_utils::save_to_directory(index1.get(), _ram_dir);
         ASSERT_TRUE(save_status.ok()) << "Failed to save index: " << save_status.to_string();
 
         // Step 5: Create a new index instance
         auto index2 = std::make_unique<FaissVectorIndex>();
 
         // Step 6: Load the index
-        auto load_status = index2->load(_ram_dir.get());
+        auto load_status = vector_search_utils::load_from_directory(index2.get(), _ram_dir);
         ASSERT_TRUE(load_status.ok()) << "Failed to load index: " << load_status.to_string();
 
         // Step 7: Verify the loaded index works by searching
@@ -166,7 +166,7 @@ TEST_F(VectorSearchTest, TestSaveAndLoadIVF) {
         std::ignore = index1->add(num_vectors, vectors.data());
 
         // Step 4: Save the index
-        auto save_status = index1->save(_ram_dir.get());
+        auto save_status = vector_search_utils::save_to_directory(index1.get(), _ram_dir);
         ASSERT_TRUE(save_status.ok()) << "Failed to save index: " << save_status.to_string();
 
         // Step 5: Create a new index instance
@@ -174,7 +174,7 @@ TEST_F(VectorSearchTest, TestSaveAndLoadIVF) {
         index2->set_type(segment_v2::AnnIndexType::IVF);
 
         // Step 6: Load the index
-        auto load_status = index2->load(_ram_dir.get());
+        auto load_status = vector_search_utils::load_from_directory(index2.get(), _ram_dir);
         ASSERT_TRUE(load_status.ok()) << "Failed to load index: " << load_status.to_string();
 
         // Step 7: Verify the loaded index works by searching
@@ -450,11 +450,11 @@ TEST_F(VectorSearchTest, SearchAllVectors) {
         ASSERT_EQ(index1->add(500, vectors.data()).ok(), true);
 
         // Save index
-        ASSERT_TRUE(index1->save(_ram_dir.get()).ok());
+        ASSERT_TRUE(vector_search_utils::save_to_directory(index1.get(), _ram_dir).ok());
 
         // Step 2: Load index
         auto index2 = std::make_unique<FaissVectorIndex>();
-        ASSERT_TRUE(index2->load(_ram_dir.get()).ok());
+        ASSERT_TRUE(vector_search_utils::load_from_directory(index2.get(), _ram_dir).ok());
 
         // Step 3: Search all vectors
         HNSWSearchParameters search_params;
@@ -756,11 +756,11 @@ TEST_F(VectorSearchTest, RangeSearchAllRowsAsCandidates) {
 
         float radius = distances[num_vectors / 4].second;
         // Save index
-        ASSERT_TRUE(index1->save(_ram_dir.get()).ok());
+        ASSERT_TRUE(vector_search_utils::save_to_directory(index1.get(), _ram_dir).ok());
 
         // Step 2: Load index
         auto index2 = std::make_unique<FaissVectorIndex>();
-        ASSERT_TRUE(index2->load(_ram_dir.get()).ok());
+        ASSERT_TRUE(vector_search_utils::load_from_directory(index2.get(), _ram_dir).ok());
 
         // Step 3: Range search
         // Use a vector we know is in the index
@@ -1445,12 +1445,12 @@ TEST_F(VectorSearchTest, IVFOnDiskSaveLoadAndSearch) {
     ASSERT_TRUE(index1->add(num_vectors, vectors.data()).ok());
 
     auto dir = std::make_shared<lucene::store::RAMDirectory>();
-    ASSERT_TRUE(index1->save(dir.get()).ok());
+    ASSERT_TRUE(vector_search_utils::save_to_directory(index1.get(), dir).ok());
 
     auto index2 = std::make_unique<FaissVectorIndex>();
     index2->set_type(AnnIndexType::IVF_ON_DISK);
     index2->set_ivfdata_cache_key_prefix("ut_stampede_test");
-    ASSERT_TRUE(index2->load(dir.get()).ok());
+    ASSERT_TRUE(vector_search_utils::load_from_directory(index2.get(), dir).ok());
 
     auto query_vec = vector_search_utils::generate_random_vector(params.dim);
     IVFSearchParameters search_params;
@@ -1507,12 +1507,12 @@ TEST_F(VectorSearchTest, IVFOnDiskSearchWithoutTheListCacheStillReads) {
     ASSERT_TRUE(builder->add(num_vectors, vectors.data()).ok());
 
     auto dir = std::make_shared<lucene::store::RAMDirectory>();
-    ASSERT_TRUE(builder->save(dir.get()).ok());
+    ASSERT_TRUE(vector_search_utils::save_to_directory(builder.get(), dir).ok());
 
     auto index = std::make_shared<FaissVectorIndex>();
     index->set_type(AnnIndexType::IVF_ON_DISK);
     index->set_ivfdata_cache_key_prefix("ut_no_list_cache");
-    ASSERT_TRUE(index->load(dir.get()).ok());
+    ASSERT_TRUE(vector_search_utils::load_from_directory(index.get(), dir).ok());
 
     auto query_vec = std::make_shared<std::vector<float>>(
             vector_search_utils::generate_random_vector(params.dim));
@@ -1569,12 +1569,12 @@ TEST_F(VectorSearchTest, IVFOnDiskConcurrentSearchStampedeProtection) {
     ASSERT_TRUE(index_builder->add(num_vectors, vectors.data()).ok());
 
     auto dir = std::make_shared<lucene::store::RAMDirectory>();
-    ASSERT_TRUE(index_builder->save(dir.get()).ok());
+    ASSERT_TRUE(vector_search_utils::save_to_directory(index_builder.get(), dir).ok());
 
     auto shared_index = std::make_shared<FaissVectorIndex>();
     shared_index->set_type(AnnIndexType::IVF_ON_DISK);
     shared_index->set_ivfdata_cache_key_prefix("ut_stampede_shared");
-    ASSERT_TRUE(shared_index->load(dir.get()).ok());
+    ASSERT_TRUE(vector_search_utils::load_from_directory(shared_index.get(), dir).ok());
 
     constexpr int kThreads = 8;
     auto query_vec = vector_search_utils::generate_random_vector(params.dim);
@@ -1648,10 +1648,10 @@ TEST_F(VectorSearchTest, NprobeClampedToNlist) {
     ASSERT_TRUE(index->train(num_vectors, vecs.data()).ok());
     ASSERT_TRUE(index->add(num_vectors, vecs.data()).ok());
 
-    ASSERT_TRUE(index->save(_ram_dir.get()).ok());
+    ASSERT_TRUE(vector_search_utils::save_to_directory(index.get(), _ram_dir).ok());
     auto loaded = std::make_unique<FaissVectorIndex>();
     loaded->set_type(AnnIndexType::IVF);
-    ASSERT_TRUE(loaded->load(_ram_dir.get()).ok());
+    ASSERT_TRUE(vector_search_utils::load_from_directory(loaded.get(), _ram_dir).ok());
 
     auto roaring = std::make_unique<roaring::Roaring>();
     for (int i = 0; i < num_vectors; ++i) roaring->add(i);
@@ -1700,10 +1700,10 @@ TEST_F(VectorSearchTest, EfSearchLinkedToK) {
     // HNSW does not need explicit train
     ASSERT_TRUE(index->add(num_vectors, vecs.data()).ok());
 
-    ASSERT_TRUE(index->save(_ram_dir.get()).ok());
+    ASSERT_TRUE(vector_search_utils::save_to_directory(index.get(), _ram_dir).ok());
     auto loaded = std::make_unique<FaissVectorIndex>();
     loaded->set_type(AnnIndexType::HNSW);
-    ASSERT_TRUE(loaded->load(_ram_dir.get()).ok());
+    ASSERT_TRUE(vector_search_utils::load_from_directory(loaded.get(), _ram_dir).ok());
 
     auto roaring = std::make_unique<roaring::Roaring>();
     for (int i = 0; i < num_vectors; ++i) roaring->add(i);

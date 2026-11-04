@@ -23,7 +23,7 @@
 #include "common/status.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
-#include "storage/index/index_common.h"
+#include "storage/index/index_common_impl.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/debug_points.h"

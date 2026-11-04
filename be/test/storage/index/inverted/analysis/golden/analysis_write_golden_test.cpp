@@ -39,6 +39,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "io/fs/local_file_system.h"
+#include "storage/index/index_compound_reader.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h"

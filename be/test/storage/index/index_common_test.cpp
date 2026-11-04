@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 
 #include "common/status.h"
+#include "storage/index/index_common_impl.h"
 
 namespace doris::segment_v2 {
 
