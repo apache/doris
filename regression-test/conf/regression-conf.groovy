@@ -249,6 +249,8 @@ extArrowFlightSqlPassword= ""
 extArrowFlightHttpPort= 8030
 
 // iceberg rest catalog config
+// Match enable_encryption_read in every FE's Iceberg plugin configuration.
+icebergEncryptionReadEnabled=true
 iceberg_rest_uri_port=18181
 iceberg_scan_planning_rest_uri_port=18182
 iceberg_minio_port=19001
