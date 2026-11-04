@@ -127,8 +127,12 @@ public final class CreateIcebergUnknownFixtures {
     private static void create(Catalog catalog, TableIdentifier id, FileFormat format, boolean present)
             throws Exception {
         catalog.dropTable(id);
+        // Use MOR so UPDATE/DELETE/MERGE reach the UNKNOWN write rejection.
         Table table = catalog.buildTable(id, schema(true, false))
                 .withProperty("format-version", "3")
+                .withProperty("write.delete.mode", "merge-on-read")
+                .withProperty("write.update.mode", "merge-on-read")
+                .withProperty("write.merge.mode", "merge-on-read")
                 .withProperty("write.format.default", format.name().toLowerCase(Locale.ROOT)).create();
         // Valid files omit UNKNOWN. The companion fixture intentionally stores non-NULL STRING
         // fields under those IDs to prove readers ignore the values AND their pruning statistics.
