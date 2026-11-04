@@ -162,6 +162,7 @@ public class OlapScanNode extends ScanNode {
     private String reasonOfPreAggregation = null;
     private boolean forceOpenPreAgg = false;
     private OlapTable olapTable = null;
+    private String tableNameInPlan = null;
     private long totalTabletsNum = 0;
     private long selectedIndexId = -1;
     private Collection<Long> selectedPartitionIds = Lists.newArrayList();
@@ -228,6 +229,7 @@ public class OlapScanNode extends ScanNode {
     public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, ScanContext scanContext) {
         super(id, desc, planNodeName, scanContext, StatisticalType.OLAP_SCAN_NODE);
         olapTable = (OlapTable) desc.getTable();
+        tableNameInPlan = olapTable.getName();
         distributionColumnIds = Sets.newTreeSet();
 
         Set<String> distColumnName = getDistributionColumnNames();
@@ -355,6 +357,10 @@ public class OlapScanNode extends ScanNode {
         helper.addValue(super.debugString());
         helper.addValue("olapTable=" + olapTable.getName());
         return helper.toString();
+    }
+
+    public String getTableNameInPlan() {
+        return tableNameInPlan;
     }
 
     /**
