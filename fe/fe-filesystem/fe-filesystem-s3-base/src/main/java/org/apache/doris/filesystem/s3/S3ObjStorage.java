@@ -53,6 +53,7 @@ import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
@@ -313,7 +314,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         } catch (NoSuchKeyException e) {
             throw new FileNotFoundException("Object not found: " + remotePath);
         } catch (S3Exception e) {
-            if (e.statusCode() == 404) {
+            if (e.statusCode() == 404 && !(e instanceof NoSuchBucketException)
+                    && (e.awsErrorDetails() == null || !"NoSuchBucket".equals(e.awsErrorDetails().errorCode()))) {
                 throw new FileNotFoundException("Object not found: " + remotePath);
             }
             throw new IOException("headObject failed for " + remotePath + ": " + e.getMessage(), e);
