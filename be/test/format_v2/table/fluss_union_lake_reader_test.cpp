@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <map>
@@ -987,4 +988,91 @@ TEST(FlussUnionLakeReaderTest, ClosesTheLakeHalf) {
 }
 
 } // namespace
+// Every test uses the production fast paths, including the scan-local compatibility cache.
+TEST(FlussUnionLakeReaderTest, FastIntegerKeysHandleSortedAndUnsortedBatches) {
+    for (const std::vector<int32_t>& ids : {std::vector<int32_t> {1, 2, 3, 4}, {4, 2, 1, 3}}) {
+        auto params = union_scan_params("$aWQ=");
+        FlussUnionLakeReader reader;
+        ASSERT_TRUE(init_reader(&reader, &params).ok());
+        auto* lake = install_lake_reader(&reader);
+        auto key = ColumnInt32::create();
+        key->insert_value(2);
+        key->insert_value(4);
+        Block keys;
+        keys.insert({std::move(key), int_type(), "id"});
+        reader._test_tail_reader = [keys](const Tail&, Block* out) {
+            *out = keys;
+            return Status::OK();
+        };
+        ShardedKVCache cache {2};
+        format::SplitReadOptions options;
+        options.cache = &cache;
+        options.current_range = wrapped_lake_split(":0:100:110");
+        ASSERT_TRUE(reader.prepare_split(options).ok());
+        ASSERT_NE(nullptr, reader._fast_keys);
+        lake->blocks.push_back(make_block(ids, {"a", "b", "c", "d"}, {10, 20, 30, 40}));
+        Block result;
+        bool eos = false;
+        ASSERT_TRUE(reader.get_block(&result, &eos).ok());
+        std::vector<int32_t> expected;
+        for (auto id : ids) {
+            if (id != 2 && id != 4) {
+                expected.push_back(id);
+            }
+        }
+        EXPECT_EQ(expected, ids_of(result));
+    }
+}
+
+TEST(FlussUnionLakeReaderTest, ProcessCacheReusesOnlyTheSameVersionedTail) {
+    static std::atomic<int64_t> next_table_id {901};
+    const auto table_id = next_table_id.fetch_add(2);
+    SuppressionFixture first;
+    first.scan_params.fluss_properties["fluss.table_id"] = std::to_string(table_id);
+    first.scan_params.fluss_properties["fluss.schema_id"] = "1";
+    ASSERT_TRUE(first.open(make_key_block({2}, {"b"})).ok());
+    ASSERT_TRUE(first.reader.prepare_split(first.split(":0:120:130")).ok());
+    EXPECT_EQ(1, first.tails_read.size());
+    ASSERT_NE(nullptr, first.reader._packed_keys);
+
+    SuppressionFixture hit;
+    hit.scan_params = first.scan_params;
+    ASSERT_TRUE(hit.open(make_key_block({3}, {"c"})).ok());
+    ASSERT_TRUE(hit.reader.prepare_split(hit.split(":0:120:130")).ok());
+    EXPECT_TRUE(hit.tails_read.empty());
+    hit.lake->blocks.push_back(make_block({1, 2, 3}, {"a", "b", "c"}, {10, 20, 30}));
+    Block result;
+    bool eos = false;
+    ASSERT_TRUE(hit.reader.get_block(&result, &eos).ok());
+    EXPECT_EQ((std::vector<int32_t> {1, 3}), ids_of(result));
+
+    SuppressionFixture recreated;
+    recreated.scan_params = first.scan_params;
+    recreated.scan_params.fluss_properties["fluss.table_id"] = std::to_string(table_id + 1);
+    ASSERT_TRUE(recreated.open(make_key_block({3}, {"c"})).ok());
+    ASSERT_TRUE(recreated.reader.prepare_split(recreated.split(":0:120:130")).ok());
+    EXPECT_EQ(1, recreated.tails_read.size());
+    Tail tail;
+    ASSERT_TRUE(FlussUnionLakeReader::parse_tail(":0:120:130", &tail).ok());
+    EXPECT_NE(first.reader._tail_cache_key(tail), recreated.reader._tail_cache_key(tail));
+    ASSERT_TRUE(first.reader.close().ok());
+    EXPECT_NE(nullptr, hit.reader._current_keys);
+}
+
+TEST(FlussUnionLakeReaderTest, PackedCompositeKeysPreserveFieldBoundaries) {
+    auto one = ColumnString::create();
+    auto two = ColumnString::create();
+    one->insert_data("ab", 2);
+    one->insert_data("a", 1);
+    two->insert_data("c", 1);
+    two->insert_data("bc", 2);
+    Block keys;
+    keys.insert({std::move(one), string_type(), "a"});
+    keys.insert({std::move(two), string_type(), "b"});
+    auto packed = FlussUnionLakeReader::build_packed_keys(keys);
+    ASSERT_NE(nullptr, packed);
+    EXPECT_EQ(2, packed->keys.size());
+    EXPECT_EQ(nullptr, FlussUnionLakeReader::build_int_keys(keys));
+}
+
 } // namespace doris::format::fluss
