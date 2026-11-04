@@ -609,6 +609,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String NUM_PARTITIONS_IN_BATCH_MODE = "num_partitions_in_batch_mode";
 
     public static final String NUM_FILES_IN_BATCH_MODE = "num_files_in_batch_mode";
+    public static final String SPLIT_INITIAL_BATCH_SIZE = "split_initial_batch_size";
 
     public static final String FETCH_SPLITS_MAX_WAIT_TIME = "fetch_splits_max_wait_time_ms";
 
@@ -2767,6 +2768,21 @@ public class SessionVariable implements Serializable, Writable {
                     "If the number of files exceeds the threshold, scan ranges will be got through batch mode."},
             needForward = true)
     public int numFilesInBatchMode = 1;
+
+    @VariableMgr.VarAttr(name = SPLIT_INITIAL_BATCH_SIZE, checker = "checkSplitInitialBatchSize", needForward = true)
+    public int splitInitialBatchSize = 64;
+
+    public void checkSplitInitialBatchSize(String value) throws Exception {
+        checkFieldValue(SPLIT_INITIAL_BATCH_SIZE, 1, value);
+    }
+
+    public int getSplitBatchSize() {
+        return splitBatchSize;
+    }
+
+    public int getSplitQueueCapacity() {
+        return splitQueueCapacity;
+    }
 
     @VariableMgr.VarAttr(
             name = FETCH_SPLITS_MAX_WAIT_TIME,

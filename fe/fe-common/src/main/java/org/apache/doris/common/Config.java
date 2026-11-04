@@ -2472,6 +2472,17 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false)
     public static int max_external_cache_loader_thread_pool_size = 64;
 
+    @ConfField(callback = PositiveIntConfHandler.class, description = "Positive worker count for fair split production")
+    public static int external_scan_split_threads = 64;
+
+    @ConfField(callback = PositiveIntConfHandler.class,
+            description = "Positive worker count for independent metadata tasks")
+    public static int external_scan_metadata_threads = 64;
+
+    @ConfField(callback = PositiveIntConfHandler.class,
+            description = "Positive maximum queued tasks per query in each external scan scheduler")
+    public static int external_scan_task_queue_capacity = 128;
+
     /**
      * Max cache num of external catalog's file
      * Decrease this value if FE's memory is small

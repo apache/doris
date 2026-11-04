@@ -26,9 +26,11 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
+import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.SplitAssignment;
+import org.apache.doris.datasource.SplitSource;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache;
@@ -40,8 +42,13 @@ import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.spi.Split;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TScanRangeLocations;
 
+import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.Multimap;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.MockedStatic;
@@ -58,7 +65,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 public class HiveSplitEstimateTest {
@@ -157,13 +163,28 @@ public class HiveSplitEstimateTest {
         Field initialized = HiveScanNode.class.getDeclaredField("partitionInit");
         initialized.setAccessible(true);
         initialized.set(node, true);
-        SplitAssignment assignment = Mockito.mock(SplitAssignment.class);
-        Mockito.when(assignment.needMoreSplit()).thenReturn(true);
+        Backend backend = new Backend(1, "127.0.0.1", 9050);
+        FederationBackendPolicy policy = Mockito.mock(FederationBackendPolicy.class);
+        Mockito.when(policy.numBackends()).thenReturn(1);
+        Mockito.when(policy.computeScanRangeAssignment(Mockito.anyList())).thenAnswer(call -> {
+            Multimap<Backend, Split> assigned = ArrayListMultimap.create();
+            for (Split split : call.<List<Split>>getArgument(0)) {
+                assigned.put(backend, split);
+            }
+            return assigned;
+        });
+        // Retain the complete small fixture so scheduling can finish before consumption.
+        // Exercise the real producer/assignment path rather than the removed addToQueue call.
+        SplitAssignment assignment = Mockito.spy(new SplitAssignment(policy, node,
+                (be, properties, split, keys, admission) -> new TScanRangeLocations(),
+                Collections.emptyMap(), Collections.emptyList(), true,
+                variables.getSplitBatchSize(), Math.max(1, totalFiles)));
         Field assignmentField = ScanNode.class.getDeclaredField("splitAssignment");
         assignmentField.setAccessible(true);
         assignmentField.set(node, assignment);
         CompletableFuture<Void> finished = new CompletableFuture<>();
         Mockito.doAnswer(call -> {
+            call.callRealMethod();
             finished.complete(null);
             return null;
         }).when(assignment).finishSchedule();
@@ -171,11 +192,6 @@ public class HiveSplitEstimateTest {
             finished.completeExceptionally(call.getArgument(0));
             return null;
         }).when(assignment).setException(Mockito.any());
-        AtomicInteger delivered = new AtomicInteger();
-        Mockito.doAnswer(call -> {
-            delivered.addAndGet(call.<List<?>>getArgument(0).size());
-            return null;
-        }).when(assignment).addToQueue(Mockito.anyList());
         HiveExternalMetaCache cache = Mockito.mock(HiveExternalMetaCache.class);
         Mockito.when(cache.getFilesByPartitions(Mockito.anyList(), Mockito.anyBoolean(), Mockito.anyBoolean(),
                 Mockito.isNull(), Mockito.same(table))).thenAnswer(call -> call.<List<HivePartition>>getArgument(0)
@@ -203,12 +219,18 @@ public class HiveSplitEstimateTest {
             node.startSplit(1);
             finished.get(5, TimeUnit.SECONDS);
             Mockito.verify(assignment, Mockito.never()).setException(Mockito.any());
-            if (choosePlanningMode) {
-                return delivered.get();
+            int delivered = 0;
+            SplitSource source = new SplitSource(backend, assignment, 1000);
+            while (!source.isLastBatch()) {
+                delivered += source.getNextBatch(variables.getSplitBatchSize()).size();
             }
-            Assert.assertEquals(totalFiles, delivered.get());
+            if (choosePlanningMode) {
+                return delivered;
+            }
+            Assert.assertEquals(totalFiles, delivered);
             return node.numApproximateSplits();
         } finally {
+            assignment.stop();
             executor.shutdownNow();
             Assert.assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
         }

@@ -79,6 +79,7 @@ import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.Closeable;
 import java.net.URI;
 import java.util.Arrays;
 import java.util.Collection;
@@ -89,6 +90,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.ToLongFunction;
 import java.util.stream.Collectors;
@@ -123,6 +125,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected FileSplitter fileSplitter;
     protected SummaryProfile summaryProfile;
+    private ScanTaskGroups.Lease scanTaskLease;
 
     // The data cache function only works for queries on Hive, Iceberg, Hudi(via HMS), and Paimon tables.
     // See: https://doris.incubator.apache.org/docs/dev/lakehouse/data-cache
@@ -503,9 +506,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
             Preconditions.checkArgument(maxWaitTime > 0, "fetch_splits_max_wait_time_ms must be positive");
             // File splits are generated lazily, and fetched by backends while scanning.
             // Only provide the unique ID of split source to backend.
-            splitAssignment = new SplitAssignment(backendPolicy, this, this::splitToScanRange,
-                    locationProperties, pathPartitionKeys, admissionResult,
-                    sessionVariable.splitBatchSize, sessionVariable.splitQueueCapacity);
+            getScanTaskLease();
+            splitAssignment = createSplitAssignment(locationProperties, pathPartitionKeys, admissionResult);
             splitAssignment.init();
             if (executor != null) {
                 executor.getSummaryProfile().setGetSplitsFinishTime();
@@ -526,7 +528,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
             // and finally numSplitsPerBE is 0, resulting in no data being queried.
             int numSplitsPerBE = Math.max(selectedSplitNum / backendPolicy.numBackends(), 1);
             for (Backend backend : backendPolicy.getBackends()) {
-                SplitSource splitSource = new SplitSource(backend, splitAssignment, maxWaitTime);
+                SplitSource splitSource = new SplitSource(backend, splitAssignment, maxWaitTime,
+                        sessionVariable.splitInitialBatchSize);
                 splitSources.add(splitSource);
                 Env.getCurrentEnv().getSplitSourceManager().registerSplitSource(splitSource);
                 TScanRangeLocations curLocations = newLocations();
@@ -587,7 +590,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         }
     }
 
-    private TScanRangeLocations splitToScanRange(
+    protected TScanRangeLocations splitToScanRange(
             Backend backend,
             Map<String, String> locationProperties,
             Split split,
@@ -903,13 +906,60 @@ public abstract class FileQueryScanNode extends FileScanNode {
     // the new structure of storage parameters expected from MS.
     protected abstract Map<String, String> getLocationProperties() throws UserException;
 
+    protected Executor getSplitTaskExecutor() {
+        return scanTaskLease == null
+                ? Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor()
+                : scanTaskLease.group(false);
+    }
+
+    protected boolean isScanTaskLeaseClosed() {
+        return scanTaskLease != null && scanTaskLease.isClosed();
+    }
+
+    protected ScanTaskGroups.Lease getScanTaskLease() {
+        if (scanTaskLease == null) {
+            ConnectContext context = ConnectContext.get();
+            if (context == null || context.getStatementContext() == null) {
+                return null;
+            }
+            ScanTaskGroups groups = context.getStatementContext()
+                    .getOrRegisterStatementResource(ScanTaskGroups.class, ScanTaskGroups::new);
+            scanTaskLease = groups.acquire();
+            context.getStatementContext().getOrRegisterStatementResource(this, () -> (Closeable) () -> {
+                if (context.getExecutor() == null || !context.getExecutor().isDeferredForArrowFlight()) {
+                    stop();
+                }
+            });
+        }
+        return scanTaskLease;
+    }
+
+    protected SplitAssignment createSplitAssignment(Map<String, String> properties,
+            List<String> partitionKeys, boolean admission) {
+        return new SplitAssignment(backendPolicy, this, this::splitToScanRange,
+                properties, partitionKeys, admission, sessionVariable.getSplitBatchSize(),
+                sessionVariable.getSplitQueueCapacity());
+    }
+
     @Override
     public void stop() {
+        if (splitAssignment == null) {
+            if (scanTaskLease != null) {
+                scanTaskLease.close();
+            }
+            return;
+        }
         if (splitAssignment != null) {
-            splitAssignment.stop();
-            SplitSourceManager manager = Env.getCurrentEnv().getSplitSourceManager();
-            for (Long sourceId : splitAssignment.getSources()) {
-                manager.removeSplitSource(sourceId);
+            try {
+                splitAssignment.stop();
+            } finally {
+                if (scanTaskLease != null) {
+                    scanTaskLease.close();
+                }
+                SplitSourceManager manager = Env.getCurrentEnv().getSplitSourceManager();
+                for (Long sourceId : splitAssignment.getSources()) {
+                    manager.removeSplitSource(sourceId);
+                }
             }
         }
     }

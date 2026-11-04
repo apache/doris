@@ -1344,8 +1344,10 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
             org.apache.iceberg.ManifestFile manifest, Table table, boolean accountRetainedSize)
             throws IOException {
         ManifestCacheValue.Builder builder = ManifestCacheValue.deleteFilesBuilder(accountRetainedSize);
+        // Cache the manifest's physical partition types, just as loadDataFiles does. Current table
+        // specs may promote a DATE to nanos or erase a dropped field before query-local adaptation.
         try (ManifestReader<org.apache.iceberg.DeleteFile> reader = ManifestFiles.readDeleteManifest(manifest,
-                table.io(), table.specs())) {
+                table.io(), null)) {
             for (org.apache.iceberg.DeleteFile deleteFile : reader) {
                 builder.addDeleteFile(deleteFile.copy());
             }

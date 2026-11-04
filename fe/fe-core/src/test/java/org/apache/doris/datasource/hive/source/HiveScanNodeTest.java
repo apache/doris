@@ -76,6 +76,8 @@ public class HiveScanNodeTest {
         partitions.set(node, Collections.singletonList(Mockito.mock(HivePartition.class)));
         org.apache.doris.datasource.SplitAssignment assignment =
                 Mockito.mock(org.apache.doris.datasource.SplitAssignment.class);
+        Mockito.when(assignment.needMoreSplit()).thenReturn(true);
+        Mockito.when(assignment.getSplitBatchSize()).thenReturn(8);
         Field splitAssignment = org.apache.doris.planner.ScanNode.class.getDeclaredField("splitAssignment");
         splitAssignment.setAccessible(true);
         splitAssignment.set(node, assignment);

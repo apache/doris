@@ -25,7 +25,9 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class FileSplitterTest {
 
@@ -237,4 +239,47 @@ public class FileSplitterTest {
         FileSplit s = (FileSplit) splits.get(0);
         Assert.assertEquals(2 * MB, s.getLength());
     }
+
+    @Test
+    public void testMillionRangesAreConstructedOnlyWhenConsumed() throws Exception {
+        FileSplitter splitter = new FileSplitter(32, 64, 2);
+        AtomicInteger created = new AtomicInteger();
+        Iterator<Split> ranges = splitter.splitFileIterator(LocationPath.of("hdfs://test/million"),
+                1, null, 1000000, 0, true, Collections.emptyList(),
+                (path, start, length, fileLength, splitSize, modificationTime, hosts, partitions) -> {
+                    created.incrementAndGet();
+                    return FileSplit.FileSplitCreator.DEFAULT.create(path, start, length, fileLength,
+                            splitSize, modificationTime, hosts, partitions);
+                });
+        Assert.assertEquals(0, created.get());
+        for (int offset = 0; offset < 7; offset++) {
+            Assert.assertTrue(ranges.hasNext());
+            Assert.assertTrue(ranges.hasNext());
+            Split split = ranges.next();
+            Assert.assertEquals(offset, split.getStart());
+            Assert.assertEquals(1, split.getLength());
+        }
+        Assert.assertEquals(7, created.get());
+        Assert.assertTrue(ranges.hasNext());
+    }
+
+    @Test
+    public void testExplicitSizeKeepsSlopTailAndPartitionValues() throws Exception {
+        FileSplitter splitter = new FileSplitter(32, 64, 2);
+        Iterator<Split> ranges = splitter.splitFileIterator(LocationPath.of("hdfs://test/slop"),
+                10, null, 31, 123, true, Collections.singletonList("p"), FileSplit.FileSplitCreator.DEFAULT);
+        long offset = 0;
+        for (long length : new long[] {10, 10, 11}) {
+            FileSplit split = (FileSplit) ranges.next();
+            Assert.assertEquals(offset, split.getStart());
+            Assert.assertEquals(length, split.getLength());
+            Assert.assertEquals(Collections.singletonList("p"), split.getPartitionValues());
+            Assert.assertEquals(123, split.getModificationTime());
+            offset += length;
+        }
+        Assert.assertFalse(ranges.hasNext());
+        Assert.assertThrows(java.util.NoSuchElementException.class, ranges::next);
+        Assert.assertEquals(2, splitter.getRemainingInitialSplitNum());
+    }
+
 }
