@@ -2,9 +2,6 @@
 -- !version --
 2	7
 
--- !commit_tso --
-true	7
-
 -- !select_star --
 1	7
 

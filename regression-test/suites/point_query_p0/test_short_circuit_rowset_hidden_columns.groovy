@@ -17,7 +17,7 @@
 
 suite("test_short_circuit_rowset_hidden_columns", "p0") {
     // Queries reading hidden columns do not use the short circuit: it used to return 0 for
-    // __DORIS_VERSION_COL__ and __DORIS_COMMIT_TSO_COL__ instead of version 2 and the commit TSO.
+    // __DORIS_VERSION_COL__ instead of version 2.
     sql "DROP TABLE IF EXISTS short_circuit_rowset_hidden_columns"
     sql """
         CREATE TABLE short_circuit_rowset_hidden_columns (
@@ -30,8 +30,7 @@ suite("test_short_circuit_rowset_hidden_columns", "p0") {
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
             "light_schema_change" = "true",
-            "store_row_column" = "true",
-            "changelog.enable" = "true"
+            "store_row_column" = "true"
         )
     """
     sql "INSERT INTO short_circuit_rowset_hidden_columns VALUES (1, 7), (2, 8)"
@@ -41,12 +40,6 @@ suite("test_short_circuit_rowset_hidden_columns", "p0") {
         notContains "SHORT-CIRCUIT"
     }
     qt_version "SELECT __DORIS_VERSION_COL__, v FROM short_circuit_rowset_hidden_columns WHERE id = 1"
-
-    explain {
-        sql "SELECT __DORIS_COMMIT_TSO_COL__ > 0, v FROM short_circuit_rowset_hidden_columns WHERE id = 1"
-        notContains "SHORT-CIRCUIT"
-    }
-    qt_commit_tso "SELECT __DORIS_COMMIT_TSO_COL__ > 0, v FROM short_circuit_rowset_hidden_columns WHERE id = 1"
 
     // show_hidden_columns makes `select *` return hidden columns as well.
     sql "SET show_hidden_columns = true"

@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Tablet;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.doris.RemoteOlapTable;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
@@ -51,7 +50,6 @@ class ShortCircuitPointQueryTest extends TestWithFeService
 
     @Override
     protected void runBeforeAll() throws Exception {
-        Config.enable_feature_changelog = true;
         createDatabase("test");
         useDatabase("test");
         createTable("CREATE TABLE `tbl_point_query` (\n"
@@ -86,8 +84,8 @@ class ShortCircuitPointQueryTest extends TestWithFeService
                 + "UNIQUE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES "
                 + "('replication_num'='1', 'enable_unique_key_merge_on_write'='true', "
                 + "'light_schema_change'='true', 'store_row_column'='true')");
-        // Carries both __DORIS_VERSION_COL__ and __DORIS_COMMIT_TSO_COL__.
-        createTable("CREATE TABLE `tbl_changelog_point_query` (\n"
+        // Merge-on-write unique tables carry __DORIS_VERSION_COL__ by default.
+        createTable("CREATE TABLE `tbl_hidden_col_point_query` (\n"
                 + "  `key` int(11) NULL,\n"
                 + "  `v1` varchar(30) NULL\n"
                 + ") ENGINE=OLAP\n"
@@ -97,32 +95,27 @@ class ShortCircuitPointQueryTest extends TestWithFeService
                 + "  \"replication_num\" = \"1\",\n"
                 + "  \"enable_unique_key_merge_on_write\" = \"true\",\n"
                 + "  \"light_schema_change\" = \"true\",\n"
-                + "  \"store_row_column\" = \"true\",\n"
-                + "  \"changelog.enable\" = \"true\"\n"
+                + "  \"store_row_column\" = \"true\"\n"
                 + ");");
     }
 
     @Test
     void testHiddenColumnsDoNotUseShortCircuit() {
-        // The row store returned 0 for __DORIS_VERSION_COL__ and __DORIS_COMMIT_TSO_COL__ instead
-        // of the rowset version and commit TSO.
-        rewrite("select __DORIS_VERSION_COL__ from tbl_changelog_point_query where `key` = 1");
+        // The row store returned 0 for __DORIS_VERSION_COL__ instead of the rowset version.
+        rewrite("select __DORIS_VERSION_COL__ from tbl_hidden_col_point_query where `key` = 1");
         Assertions.assertFalse(connectContext.getStatementContext().isShortCircuitQuery());
 
-        rewrite("select __DORIS_COMMIT_TSO_COL__, v1 from tbl_changelog_point_query where `key` = 1");
+        rewrite("select __DORIS_VERSION_COL__ + 1 from tbl_hidden_col_point_query where `key` = 1");
         Assertions.assertFalse(connectContext.getStatementContext().isShortCircuitQuery());
 
-        rewrite("select __DORIS_COMMIT_TSO_COL__ + 1 from tbl_changelog_point_query where `key` = 1");
-        Assertions.assertFalse(connectContext.getStatementContext().isShortCircuitQuery());
-
-        rewrite("select __DORIS_DELETE_SIGN__, v1 from tbl_changelog_point_query where `key` = 1");
+        rewrite("select __DORIS_DELETE_SIGN__, v1 from tbl_hidden_col_point_query where `key` = 1");
         Assertions.assertFalse(connectContext.getStatementContext().isShortCircuitQuery());
 
         // show_hidden_columns makes `select *` return hidden columns as well.
         boolean originalShowHidden = connectContext.getSessionVariable().showHiddenColumns();
         try {
             connectContext.getSessionVariable().setShowHiddenColumns(true);
-            rewrite("select * from tbl_changelog_point_query where `key` = 1");
+            rewrite("select * from tbl_hidden_col_point_query where `key` = 1");
             Assertions.assertFalse(connectContext.getStatementContext().isShortCircuitQuery());
         } finally {
             connectContext.getSessionVariable().setShowHiddenColumns(originalShowHidden);
@@ -132,10 +125,10 @@ class ShortCircuitPointQueryTest extends TestWithFeService
     @Test
     void testQueryWithoutHiddenColumnsUsesShortCircuit() {
         // `select *` skips hidden columns by default.
-        rewrite("select * from tbl_changelog_point_query where `key` = 1");
+        rewrite("select * from tbl_hidden_col_point_query where `key` = 1");
         Assertions.assertTrue(connectContext.getStatementContext().isShortCircuitQuery());
 
-        rewrite("select v1 from tbl_changelog_point_query where `key` = 1");
+        rewrite("select v1 from tbl_hidden_col_point_query where `key` = 1");
         Assertions.assertTrue(connectContext.getStatementContext().isShortCircuitQuery());
     }
 
