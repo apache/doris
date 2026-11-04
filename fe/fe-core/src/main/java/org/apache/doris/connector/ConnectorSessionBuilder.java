@@ -252,6 +252,16 @@ public final class ConnectorSessionBuilder {
      * Server-level globals (e.g., lower_case_table_names) are also included.
      */
     private static Map<String, String> extractSessionProperties(ConnectContext ctx) {
+        // Once per statement: the session variables, SET_VAR hints included, are settled before the
+        // first session is built during plan translation. Shared as is: a session only reads them.
+        StatementContext statementContext = ctx.getStatementContext();
+        if (statementContext == null) {
+            return readSessionProperties(ctx);
+        }
+        return statementContext.getOrComputeConnectorSessionProperties(() -> readSessionProperties(ctx));
+    }
+
+    private static Map<String, String> readSessionProperties(ConnectContext ctx) {
         Map<String, String> props = VariableMgr.toMap(ctx.getSessionVariable());
         // Server-level lower_case_table_names for identifier mapping
         props.put("lower_case_table_names",
