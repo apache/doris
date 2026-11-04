@@ -20,12 +20,14 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TActiveTabletStat;
 
+import com.google.common.collect.Sets;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -99,7 +101,7 @@ public class TabletSlidingWindowAccessStatsTest {
     @Test
     public void testEqualRatesPreferTheMostRecentlyTouched() {
         long now = System.currentTimeMillis();
-        stats.updateFromReport(1L, List.of(
+        stats.updateFromReport(1L, Arrays.asList(
                 queryStat(10L, 10L, now - 1_000L, 60_000L),
                 queryStat(20L, 10L, now, 60_000L)), Collections.emptyList());
 
@@ -143,7 +145,7 @@ public class TabletSlidingWindowAccessStatsTest {
 
         List<TabletSlidingWindowAccessStats.AccessStatsResult> top = stats.getTopNActive(4);
         Assertions.assertEquals(4, top.size());
-        Assertions.assertEquals(Set.of(1L, 2L, 3L, 4L),
+        Assertions.assertEquals(Sets.newHashSet(1L, 2L, 3L, 4L),
                 top.stream().map(r -> r.id).collect(Collectors.toSet()));
     }
 
@@ -169,9 +171,9 @@ public class TabletSlidingWindowAccessStatsTest {
         try {
             Config.active_tablet_sliding_window_time_window_second = 600;
             long now = System.currentTimeMillis();
-            stats.updateFromReport(1L, List.of(queryStat(10L, 1_000L, now - 120_000L, 60_000L)),
+            stats.updateFromReport(1L, Collections.singletonList(queryStat(10L, 1_000L, now - 120_000L, 60_000L)),
                     Collections.emptyList());
-            stats.updateFromReport(2L, List.of(queryStat(10L, 7L, now, 60_000L),
+            stats.updateFromReport(2L, Arrays.asList(queryStat(10L, 7L, now, 60_000L),
                     queryStat(20L, 900L, now - 120_000L, 60_000L)), Collections.emptyList());
             Assertions.assertEquals(1_007L, stats.getAccessInfo(10L).accessCount);
             Assertions.assertNotNull(stats.getAccessInfo(20L));
@@ -217,7 +219,7 @@ public class TabletSlidingWindowAccessStatsTest {
         Config.cloud_active_partition_scheduling_topn = 2;
         try {
             long now = System.currentTimeMillis();
-            stats.updateFromReport(1L, List.of(
+            stats.updateFromReport(1L, Arrays.asList(
                     queryStat(1L, 100L, now - 3_000L, 60_000L),
                     queryStat(2L, 1L, now - 2_000L, 60_000L)), Collections.emptyList());
             stats.updateFromReport(1L,
@@ -236,18 +238,18 @@ public class TabletSlidingWindowAccessStatsTest {
     @Test
     public void testTopNReservesCapacityForLoadTablets() {
         long now = System.currentTimeMillis();
-        stats.updateFromReport(1L, List.of(
+        stats.updateFromReport(1L, Arrays.asList(
                 queryStat(1L, 1_000L, now - 1L, 60_000L),
                 queryStat(2L, 900L, now - 2L, 60_000L),
                 queryStat(3L, 800L, now - 3L, 60_000L),
-                queryStat(4L, 700L, now - 4L, 60_000L)), List.of(
+                queryStat(4L, 700L, now - 4L, 60_000L)), Arrays.asList(
                 loadStat(101L, 10L, now - 101L, 60_000L),
                 loadStat(102L, 9L, now - 102L, 60_000L),
                 loadStat(103L, 8L, now - 103L, 60_000L),
                 loadStat(104L, 7L, now - 104L, 60_000L)));
 
         Set<Long> ids = stats.getTopNActive(4).stream().map(r -> r.id).collect(Collectors.toSet());
-        Assertions.assertEquals(Set.of(1L, 2L, 101L, 102L), ids);
+        Assertions.assertEquals(Sets.newHashSet(1L, 2L, 101L, 102L), ids);
     }
 
     @Test
@@ -303,16 +305,16 @@ public class TabletSlidingWindowAccessStatsTest {
         try {
             long now = System.currentTimeMillis();
             // Round 1: two hot queries and two cold-but-real loads. Nothing is capped yet.
-            stats.updateFromReport(1L, List.of(
+            stats.updateFromReport(1L, Arrays.asList(
                     queryStat(1L, 100L, now - 1_000L, 60_000L),
-                    queryStat(2L, 100L, now - 1_000L, 60_000L)), List.of(
+                    queryStat(2L, 100L, now - 1_000L, 60_000L)), Arrays.asList(
                     loadStat(101L, 1L, now - 1_000L, 60_000L),
                     loadStat(102L, 1L, now - 1_000L, 60_000L)));
             // Round 2: the query set churned, the same two tablets are still loading. The
             // query rates tie, so recency decides which pair keeps the query half.
-            stats.updateFromReport(1L, List.of(
+            stats.updateFromReport(1L, Arrays.asList(
                     queryStat(3L, 100L, now, 60_000L),
-                    queryStat(4L, 100L, now, 60_000L)), List.of(
+                    queryStat(4L, 100L, now, 60_000L)), Arrays.asList(
                     loadStat(101L, 1L, now, 60_000L),
                     loadStat(102L, 1L, now, 60_000L)));
 
@@ -322,7 +324,7 @@ public class TabletSlidingWindowAccessStatsTest {
             Assertions.assertNotNull(stats.getAccessInfo(102L));
             Assertions.assertEquals(6L, stats.getActiveIdsInWindow());
             Set<Long> top = stats.getTopNActive(4).stream().map(r -> r.id).collect(Collectors.toSet());
-            Assertions.assertEquals(Set.of(3L, 4L, 101L, 102L), top);
+            Assertions.assertEquals(Sets.newHashSet(3L, 4L, 101L, 102L), top);
         } finally {
             Config.cloud_active_partition_scheduling_topn = originalTopn;
         }
@@ -341,7 +343,7 @@ public class TabletSlidingWindowAccessStatsTest {
             stats.updateFromReport(1L, Collections.singletonList(queryStat(1L, 1L, now, 60_000L)),
                     Collections.singletonList(loadStat(10L, 100L, now, 60_000L)));
             // Still loading 10, and 11 starts loading. No queries this round.
-            stats.updateFromReport(1L, Collections.emptyList(), List.of(
+            stats.updateFromReport(1L, Collections.emptyList(), Arrays.asList(
                     loadStat(10L, 100L, now, 60_000L),
                     loadStat(11L, 90L, now, 60_000L)));
             // Another compute group queries 10 hard, making it the global query winner.
@@ -351,7 +353,7 @@ public class TabletSlidingWindowAccessStatsTest {
             // 10 takes the query slot; its own load entry is a duplicate, so the load slot must
             // go to 11. Dropping 11 during backend 1's retention would backfill with query 1.
             Set<Long> top = stats.getTopNActive(2).stream().map(r -> r.id).collect(Collectors.toSet());
-            Assertions.assertEquals(Set.of(10L, 11L), top);
+            Assertions.assertEquals(Sets.newHashSet(10L, 11L), top);
         } finally {
             Config.cloud_active_partition_scheduling_topn = originalTopn;
         }
