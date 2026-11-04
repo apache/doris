@@ -109,6 +109,31 @@ public class IcebergNestedSchemaEvolutionParserTest {
     }
 
     @Test
+    public void testEscapedDefaultsRoundTripInBothSqlModes() {
+        for (boolean noBackslashEscapes : List.of(false, true)) {
+            try (MockedStatic<SqlModeHelper> sqlMode = Mockito.mockStatic(SqlModeHelper.class)) {
+                sqlMode.when(SqlModeHelper::hasNoBackSlashEscapes).thenReturn(noBackslashEscapes);
+                String sqlPath = noBackslashEscapes ? "C:\\tmp\\" : "C:\\\\tmp\\\\";
+                String expected = "owner's \"field\" C:\\tmp\\";
+                for (String path : List.of("label", "s.label", "arr.element.label", "m.value.label")) {
+                    AddColumnOp add = assertSingleClausePath("ALTER TABLE t ADD COLUMN " + path
+                            + " STRING NOT NULL DEFAULT 'owner''s \"field\" " + sqlPath + "'",
+                            AddColumnOp.class, path);
+                    Assertions.assertEquals(expected, add.getColumnDef().getDefaultValueString());
+                    AddColumnOp reparsed = assertSingleClausePath("ALTER TABLE t " + add.toSql(),
+                            AddColumnOp.class, path);
+                    Assertions.assertEquals(expected, reparsed.getColumnDef().getDefaultValueString());
+                }
+                AddColumnOp escaped = assertSingleClausePath(
+                        "ALTER TABLE t ADD COLUMN s.text STRING DEFAULT 'line\\nnext'",
+                        AddColumnOp.class, "s.text");
+                Assertions.assertEquals(noBackslashEscapes ? "line\\nnext" : "line\nnext",
+                        escaped.getColumnDef().getDefaultValueString());
+            }
+        }
+    }
+
+    @Test
     public void testNestedOnUpdateAndModifyDefaultsReachSemanticValidation() {
         AddColumnOp add = assertSingleClausePath("ALTER TABLE t ADD COLUMN s.ts DATETIME "
                 + "DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", AddColumnOp.class, "s.ts");

@@ -24,6 +24,7 @@ import org.apache.doris.catalog.ColumnToThrift;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.DataType;
@@ -80,20 +81,20 @@ public class ColumnDefinitionTest {
     }
 
     @Test
-    public void testZonedExternalDefaultsUseSessionTimeZone() {
+    public void testZonedExternalDefaultsRetainConnectorInput() {
         ConnectContext previous = ConnectContext.get();
         ConnectContext context = new ConnectContext();
         context.setThreadLocalInfo();
         try {
             String[] zones = {"Asia/Shanghai", "UTC"};
-            String[] expected = {"2024-01-01 19:04:05.123456+00:00", "2024-01-02 03:04:05.123456+00:00"};
+            String expected = "2024-01-02 03:04:05.123456";
             for (int i = 0; i < zones.length; i++) {
                 context.getSessionVariable().setTimeZone(zones[i]);
                 ColumnDefinition column = new ColumnDefinition("added", TimeStampTzType.of(6),
                         false, null, false, Optional.of(new DefaultValue("2024-01-02 03:04:05.123456")), "");
                 column.validate(false, ImmutableSet.of(), ImmutableSet.of(), false, KeysType.DUP_KEYS);
-                Assertions.assertEquals(expected[i], column.translateToCatalogStyle().getDefaultValue());
-                Assertions.assertEquals(expected[i],
+                Assertions.assertEquals(expected, column.translateToCatalogStyle().getDefaultValue());
+                Assertions.assertEquals(expected,
                         column.translateToCatalogStyleForSchemaChange().getDefaultValue());
             }
         } finally {
@@ -101,6 +102,20 @@ public class ColumnDefinitionTest {
             if (previous != null) {
                 previous.setThreadLocalInfo();
             }
+        }
+    }
+
+    @Test
+    public void testZonedExternalDefaultsNormalizePrecisionAndExplicitZones() {
+        String[] values = {"20240102030405", "2024-01-02 03:04:05.123999",
+                "2024-01-02 03:04:05.123999+08:00"};
+        String[] expected = {"2024-01-02 03:04:05.000", "2024-01-02 03:04:05.124",
+                "2024-01-01 19:04:05.124+00:00"};
+        for (int i = 0; i < values.length; i++) {
+            ColumnDefinition column = new ColumnDefinition("ts", TimeStampTzType.of(3),
+                    false, null, false, Optional.of(new DefaultValue(values[i])), "");
+            column.validate(false, ImmutableSet.of(), ImmutableSet.of(), false, KeysType.DUP_KEYS);
+            Assertions.assertEquals(expected[i], column.translateToCatalogStyleForSchemaChange().getDefaultValue());
         }
     }
 
@@ -117,6 +132,41 @@ public class ColumnDefinitionTest {
             column.validate(false, ImmutableSet.of(), ImmutableSet.of(), false, KeysType.DUP_KEYS);
             Assertions.assertEquals(value[1], column.translateToCatalogStyle().getDefaultValue());
             Assertions.assertEquals(value[1], column.translateToCatalogStyleForSchemaChange().getDefaultValue());
+        }
+    }
+
+    @Test
+    public void testTimestampNsDefaultPreservesNamedZoneGapSemantics() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("+00:00");
+            String value = "2027-03-28 02:30:00.123456789CET";
+            ColumnDefinition column = new ColumnDefinition("ns", TimeStampNsType.INSTANCE,
+                    false, null, false, Optional.of(new DefaultValue(value)), "");
+            column.validate(false, ImmutableSet.of(), ImmutableSet.of(), false, KeysType.DUP_KEYS);
+            Assertions.assertEquals("2027-03-28 01:00:00.123456789",
+                    column.translateToCatalogStyle().getDefaultValue());
+            Assertions.assertEquals(new TimeStampNsLiteral(value).getStringValue(),
+                    column.translateToCatalogStyleForSchemaChange().getDefaultValue());
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testCompactUuidDefaultIsCanonicalized() {
+        for (String value : new String[] {"00112233445566778899aabbccddeeff",
+                "00112233-4455-6677-8899-aabbccddeeff"}) {
+            ColumnDefinition column = new ColumnDefinition("u", UuidType.INSTANCE,
+                    false, null, false, Optional.of(new DefaultValue(value)), "");
+            column.validate(false, ImmutableSet.of(), ImmutableSet.of(), false, KeysType.DUP_KEYS);
+            Assertions.assertEquals("00112233-4455-6677-8899-aabbccddeeff",
+                    column.translateToCatalogStyleForSchemaChange().getDefaultValue());
         }
     }
 

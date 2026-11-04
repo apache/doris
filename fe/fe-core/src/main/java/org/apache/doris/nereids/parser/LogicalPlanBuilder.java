@@ -4273,7 +4273,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     defaultValue = Optional.of(new DefaultValue("-" + ctx.DECIMAL_VALUE().getText()));
                 }
             } else if (ctx.stringValue != null) {
-                defaultValue = Optional.of(new DefaultValue(toStringValue(ctx.stringValue.getText())));
+                defaultValue = Optional.of(new DefaultValue(
+                        SqlLiteralUtils.parseStringLiteral(ctx.stringValue.getText())));
             } else if (ctx.nullValue != null) {
                 defaultValue = Optional.of(DefaultValue.NULL_DEFAULT_VALUE);
             } else if (ctx.defaultTimestamp != null) {
