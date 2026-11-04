@@ -1516,6 +1516,8 @@ public class AnalysisManager implements Writable {
                 long changelogIndexId = olapTable.hasChangelog()
                         ? olapTable.getChangelogIndexMeta().getIndexId() : -1;
                 long rowsForAllReplica = 0;
+                boolean enablePartitionAnalyze = StatisticsUtil.enablePartitionAnalyze();
+                Map<Long, Long> baseTabletRows = enablePartitionAnalyze ? new HashMap<>() : Collections.emptyMap();
                 for (Entry<Long, Long> entry : tabletRows.entrySet()) {
                     if (changelogIndexId > 0) {
                         TabletMeta tabletMeta = Env.getCurrentEnv().getTabletInvertedIndex()
@@ -1545,6 +1547,11 @@ public class AnalysisManager implements Writable {
                         }
                     }
                     rowsForAllReplica += entry.getValue();
+                    if (enablePartitionAnalyze) {
+                        // Partition accounting only matches base tablets. A changelog ID left in
+                        // its pending map would force a scan of every partition under the table lock.
+                        baseTabletRows.put(entry.getKey(), entry.getValue());
+                    }
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("Table id {}, tablet id {}, row count {}",
                                 record.getKey(), entry.getKey(), entry.getValue());
@@ -1555,8 +1562,8 @@ public class AnalysisManager implements Writable {
                         + "rows for all replica {}, tablets count {}",
                         olapTable.getName(), tableUpdateRows, replicaNum, rowsForAllReplica, tabletRows.size());
                 statsStatus.updatedRows.addAndGet(tableUpdateRows);
-                if (StatisticsUtil.enablePartitionAnalyze()) {
-                    updatePartitionRows(olapTable, tabletRows, statsStatus, replicaNum);
+                if (enablePartitionAnalyze) {
+                    updatePartitionRows(olapTable, baseTabletRows, statsStatus, replicaNum);
                 }
             }
             return;
