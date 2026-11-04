@@ -63,6 +63,14 @@ public interface FlussAdminOps {
 
     List<PartitionInfo> listPartitionInfos(TablePath tablePath);
 
+    /**
+     * The partitions the engine prunes over. Unlike {@link #listPartitionInfos(TablePath)} it may answer from
+     * a short-lived cache, so scan planning, which must not plan a dropped partition, does not use it.
+     */
+    default List<PartitionInfo> listPartitionInfosForPruning(TablePath tablePath) {
+        return listPartitionInfos(tablePath);
+    }
+
     /** Server-side partial partition pruning: only partitions matching {@code partialPartitionSpec}. */
     List<PartitionInfo> listPartitionInfos(TablePath tablePath, PartitionSpec partialPartitionSpec);
 
