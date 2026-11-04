@@ -124,18 +124,28 @@ suite("test_create_ai_resource") {
     sql """CREATE RESOURCE IF NOT EXISTS "${resourceName}"
             PROPERTIES(
                 'type' = 'ai',
-                'ai.provider_type' = 'deepseek',
-                'ai.endpoint' = 'https://api.deepseek.com/chat/completions',
-                'ai.model_name' = 'deepseek-chat',
-                'ai.api_key' = 'sk-xxx',
-                'ai.temperature' = '0.7',
-                'ai.max_token' = '1024',
-                'ai.max_retries' = '3',
-                'ai.retry_delay_second' = '1',
+                'ai.provider_type' = ' deepseek ',
+                'ai.endpoint' = ' https://api.deepseek.com/chat/completions ',
+                'ai.model_name' = ' deepseek-chat ',
+                'ai.api_key' = ' sk-xxx ',
+                'ai.temperature' = ' 0.7 ',
+                'ai.max_token' = ' 1024 ',
+                'ai.max_retries' = ' 3 ',
+                'ai.retry_delay_second' = ' 1 ',
+                'ai.dimensions' = ' 768 ',
+                'ai.anthropic_version' = ' 2023-06-01 ',
+                'ai.effort' = ' high ',
+                'ai.enable_structured_output' = ' true ',
                 'ai.validity_check' = 'false'
             );"""
     def res = sql """SHOW RESOURCES WHERE NAME = '${resourceName}'"""
     assertTrue(res.size() > 0)
+    def checkStoredProperties = { tag ->
+        quickRunTest(tag, "SHOW RESOURCES WHERE NAME = '${resourceName}'", true) { row ->
+            [row[2], row[2] in ['id', 'version'] ? '<generated>' : row[3]]
+        }
+    }
+    checkStoredProperties("normalized_create")
 
     for (String key : ['ai.model_name', 'ai.api_key', 'ai.max_retries', 'ai.anthropic_version', 'ai.effort']) {
         for (String value : ['', '   ']) {
@@ -165,6 +175,13 @@ suite("test_create_ai_resource") {
     sql """ALTER RESOURCE "${resourceName}" PROPERTIES(
         'ai.temperature' = '-1', 'ai.max_token' = '-1', 'ai.dimensions' = '-1'
     );"""
+    sql """ALTER RESOURCE "${resourceName}" PROPERTIES(
+        'ai.temperature' = ' 0.5 ', 'ai.max_token' = ' 2048 ',
+        'ai.max_retries' = ' 4 ', 'ai.retry_delay_second' = ' 2 ',
+        'ai.dimensions' = ' 1024 ', 'ai.model_name' = ' updated-model ',
+        'ai.enable_structured_output' = ' false '
+    );"""
+    checkStoredProperties("normalized_alter")
 
     try_sql("""DROP RESOURCE '${resourceName}'""")
 }

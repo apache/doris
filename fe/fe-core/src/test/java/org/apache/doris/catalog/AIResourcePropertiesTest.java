@@ -364,6 +364,76 @@ public class AIResourcePropertiesTest {
         Assertions.assertEquals("http://localhost:8000", thrift.getEndpoint());
         Assertions.assertEquals("key", thrift.getApiKey());
         Assertions.assertEquals("2023-06-01", thrift.getAnthropicVersion());
+        Assertions.assertEquals("model", properties.toMap().get("ai.model_name"));
+        Assertions.assertEquals("http://localhost:8000", properties.toMap().get("ai.endpoint"));
+        Assertions.assertEquals("key", properties.toMap().get("ai.api_key"));
+        Assertions.assertEquals("2023-06-01", properties.toMap().get("ai.anthropic_version"));
+    }
+
+    @Test
+    public void testCreateAndAlterPersistNormalizedProperties() throws Exception {
+        Map<String, String> expected = new HashMap<>(ImmutableMap.<String, String>builder()
+                .put("ai.provider_type", "LOCAL")
+                .put("ai.endpoint", "http://localhost:8000/chat")
+                .put("ai.model_name", "chat-model")
+                .put("ai.api_key", "chat-key")
+                .put("ai.embed.provider_type", "OPENAI")
+                .put("ai.embed.endpoint", "http://localhost:8001/embeddings")
+                .put("ai.embed.model_name", "text-model")
+                .put("ai.embed.api_key", "text-key")
+                .put("ai.embed.mm.provider_type", "GEMINI")
+                .put("ai.embed.mm.endpoint", "http://localhost:8002/embeddings")
+                .put("ai.embed.mm.model_name", "image-model")
+                .put("ai.embed.mm.api_key", "image-key")
+                .put("ai.temperature", "0.75")
+                .put("ai.max_token", "4294967296")
+                .put("ai.max_retries", "3")
+                .put("ai.retry_delay_second", "2")
+                .put("ai.dimensions", "768")
+                .put("ai.anthropic_version", "2023-06-01")
+                .put("ai.effort", "high")
+                .put("ai.enable_structured_output", "true")
+                .build());
+        Map<String, String> raw = new HashMap<>();
+        expected.forEach((key, value) -> raw.put(key, " \t" + value + "\t "));
+        raw.put("custom.property", " retained ");
+        raw.put("ai.validity_check", " false ");
+        expected.put("custom.property", " retained ");
+        expected.put("ai.validity_check", " false ");
+        Assertions.assertEquals(expected, AIResourceProperties.of(raw).toMap());
+        Assertions.assertEquals(" \t768\t ", raw.get("ai.dimensions"));
+
+        AIResource resource = new AIResource("normalized-resource");
+        resource.setProperties(ImmutableMap.copyOf(raw));
+        assertNormalizedMetadata(resource, expected);
+
+        resource.modifyProperties(ImmutableMap.of("ai.dimensions", " 1024 ",
+                "ai.max_retries", " 4 ", "ai.model_name", " updated-model ",
+                "ai.embed.api_key", " updated-key ", "ai.enable_structured_output", " false "));
+        expected.putAll(ImmutableMap.of("ai.dimensions", "1024", "ai.max_retries", "4",
+                "ai.model_name", "updated-model", "ai.embed.api_key", "updated-key",
+                "ai.enable_structured_output", "false"));
+        assertNormalizedMetadata(resource, expected);
+    }
+
+    private void assertNormalizedMetadata(AIResource resource, Map<String, String> expected) throws Exception {
+        Assertions.assertEquals(expected, resource.getCopiedProperties());
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (DataOutputStream output = new DataOutputStream(bytes)) {
+            resource.write(output);
+        }
+        try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+            AIResource loaded = (AIResource) Resource.read(input);
+            Assertions.assertEquals(expected, loaded.getCopiedProperties());
+            Assertions.assertEquals(resource.toThrift(), loaded.toThrift());
+            Assertions.assertDoesNotThrow(() -> Double.parseDouble(loaded.getProperty("ai.temperature")));
+            Assertions.assertDoesNotThrow(() -> Long.parseLong(loaded.getProperty("ai.max_token")));
+            Assertions.assertDoesNotThrow(() -> Integer.parseInt(loaded.getProperty("ai.max_retries")));
+            Assertions.assertDoesNotThrow(() -> Integer.parseInt(loaded.getProperty("ai.retry_delay_second")));
+            Assertions.assertDoesNotThrow(() -> Integer.parseInt(loaded.getProperty("ai.dimensions")));
+            Assertions.assertEquals(resource.toThrift().isEnableStructuredOutput(),
+                    Boolean.parseBoolean(loaded.getProperty("ai.enable_structured_output")));
+        }
     }
 
     @Test

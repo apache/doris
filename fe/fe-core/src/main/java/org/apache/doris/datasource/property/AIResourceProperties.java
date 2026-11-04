@@ -203,7 +203,13 @@ public final class AIResourceProperties {
     }
 
     public Map<String, String> toMap() {
-        return new HashMap<>(properties);
+        Map<String, String> normalized = new HashMap<>(properties);
+        for (Field field : ConnectorPropertiesUtils.getConnectorProperties(AIResourceProperties.class)) {
+            for (String name : field.getAnnotation(ConnectorProperty.class).names()) {
+                normalized.computeIfPresent(name, (key, value) -> value.trim());
+            }
+        }
+        return normalized;
     }
 
     public TAIResource toThrift() {
