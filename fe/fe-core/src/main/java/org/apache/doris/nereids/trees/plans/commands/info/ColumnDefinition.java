@@ -29,6 +29,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
@@ -38,6 +40,7 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
@@ -564,12 +567,16 @@ public class ColumnDefinition {
             try {
                 ColumnDef.validateDefaultValue(type.toCatalogDataType(),
                         defaultValue.get().getValue(), defaultValue.get().getDefaultValueExprDef());
-                if (!isOlap && type.isDateLikeType() && !type.isTimeStampTzType()
+                if (!isOlap && type.isDateLikeType()
                         && defaultValue.get().getDefaultValueExprDef() == null) {
-                    // Connectors receive civil SQL defaults, not numeric epoch carriers. Normalize
-                    // with the same parser as validation so compact dates cannot become epoch values.
-                    defaultValue = Optional.of(new DefaultValue(DateLiteralUtils.createLiteral(
-                            defaultValue.get().getValue(), type.toCatalogDataType()).getStringValue()));
+                    // Connectors receive canonical SQL values, not numeric epoch carriers. Bind zoned
+                    // literals in the DDL session and retain the target type's fractional precision.
+                    String value = defaultValue.get().getValue();
+                    String normalized = type.isTimeStampTzType()
+                            ? TimestampTzLiteral.fromSessionTimeZone((TimeStampTzType) type, value).getStringValue()
+                            : Literal.fromLegacyLiteral(DateLiteralUtils.createLiteral(value, type.toCatalogDataType()),
+                                    type.toCatalogDataType()).getStringValue();
+                    defaultValue = Optional.of(new DefaultValue(normalized));
                 }
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage(), e);

@@ -15,15 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import java.nio.file.Files
+import java.nio.file.Paths
+
 suite("test_iceberg_add_column_defaults", "p0,external") {
     if (!context.config.otherConfigs.get("enableIcebergTest")?.equalsIgnoreCase("true")) {
         return
     }
     String warehouse = context.config.otherConfigs.get("icebergAddColumnDefaultsWarehouse")
+    def prepareLocalDataDirectory = { String table ->
+        if (warehouse) {
+            Files.createDirectories(Paths.get(new URI("${warehouse}/add_column_defaults_db/${table}/data")))
+        }
+    }
     sql "DROP CATALOG IF EXISTS iceberg_add_column_defaults"
     if (warehouse) {
         sql """CREATE CATALOG iceberg_add_column_defaults PROPERTIES (
-            'type' = 'iceberg', 'iceberg.catalog.type' = 'hadoop', 'warehouse' = '${warehouse}')"""
+            'type' = 'iceberg', 'iceberg.catalog.type' = 'hadoop', 'warehouse' = '${warehouse}',
+            'enable.mapping.timestamp_tz' = 'true')"""
     } else {
         String host = context.config.otherConfigs.get("externalEnvIp")
         String restPort = context.config.otherConfigs.get("iceberg_rest_uri_port")
@@ -32,7 +41,8 @@ suite("test_iceberg_add_column_defaults", "p0,external") {
             'type' = 'iceberg', 'iceberg.catalog.type' = 'rest',
             'uri' = 'http://${host}:${restPort}',
             's3.access_key' = 'admin', 's3.secret_key' = 'password',
-            's3.endpoint' = 'http://${host}:${minioPort}', 's3.region' = 'us-east-1')"""
+            's3.endpoint' = 'http://${host}:${minioPort}', 's3.region' = 'us-east-1',
+            'enable.mapping.timestamp_tz' = 'true')"""
     }
     sql "SWITCH iceberg_add_column_defaults"
     sql "CREATE DATABASE IF NOT EXISTS add_column_defaults_db"
@@ -43,6 +53,7 @@ suite("test_iceberg_add_column_defaults", "p0,external") {
         sql """CREATE TABLE required_defaults_${format} (
             id INT, s STRUCT<a:INT>, arr ARRAY<STRUCT<a:INT>>, m MAP<STRING,STRUCT<a:INT>>
         ) PROPERTIES ('format-version' = '3', 'write.format.default' = '${format}')"""
+        prepareLocalDataDirectory("required_defaults_${format}")
         sql """INSERT INTO required_defaults_${format} VALUES
             (1, STRUCT(10), ARRAY(STRUCT(100), NULL), MAP('k', STRUCT(1000), 'n', NULL)),
             (2, NULL, NULL, NULL), (3, STRUCT(30), ARRAY(), MAP())"""
@@ -87,17 +98,17 @@ suite("test_iceberg_add_column_defaults", "p0,external") {
         test {
             sql """INSERT INTO required_defaults_${format} (id, s)
                 VALUES (7, STRUCT(1, NULL, 2))"""
-            exception "required field"
+            exception "NULL"
         }
         test {
             sql """INSERT INTO required_defaults_${format} (id, arr)
                 VALUES (7, ARRAY(STRUCT(1, NULL)))"""
-            exception "required field"
+            exception "NULL"
         }
         test {
             sql """INSERT INTO required_defaults_${format} (id, m)
                 VALUES (7, MAP('k', STRUCT(1, NULL)))"""
-            exception "required field"
+            exception "NULL"
         }
         test {
             sql "ALTER TABLE required_defaults_${format} ADD COLUMN no_default INT NOT NULL"
@@ -133,12 +144,16 @@ suite("test_iceberg_add_column_defaults", "p0,external") {
         sql "DROP TABLE IF EXISTS typed_defaults_${format}"
         sql """CREATE TABLE typed_defaults_${format} (id INT, s STRUCT<a:INT>)
             PROPERTIES ('format-version' = '3', 'write.format.default' = '${format}')"""
+        prepareLocalDataDirectory("typed_defaults_${format}")
         sql "INSERT INTO typed_defaults_${format} VALUES (1, STRUCT(10)), (2, NULL)"
+        sql "SET time_zone = 'Asia/Shanghai'"
         sql """ALTER TABLE typed_defaults_${format} ADD COLUMN (
             truth BOOLEAN NOT NULL DEFAULT '1', day DATE NOT NULL DEFAULT '2024-01-02',
             ts DATETIME(6) NOT NULL DEFAULT '2024-01-02 03:04:05.123456',
             compact_day DATE NOT NULL DEFAULT '20240102',
             compact_ts DATETIME(6) NOT NULL DEFAULT '20240102030405',
+            zoned_ts TIMESTAMPTZ(6) NOT NULL DEFAULT '2024-01-02 03:04:05.123456',
+            rounded_ts DATETIME(3) NOT NULL DEFAULT '2024-01-02 03:04:05.123999',
             amount DECIMAL(10,2) NOT NULL DEFAULT '1.50', label STRING NOT NULL DEFAULT 'hello')"""
         sql "ALTER TABLE typed_defaults_${format} ADD COLUMN s.truth BOOLEAN NOT NULL DEFAULT '1'"
         sql "ALTER TABLE typed_defaults_${format} ADD COLUMN s.day DATE NOT NULL DEFAULT '2024-01-02'"
@@ -147,6 +162,9 @@ suite("test_iceberg_add_column_defaults", "p0,external") {
         sql "ALTER TABLE typed_defaults_${format} ADD COLUMN s.compact_day DATE NOT NULL DEFAULT '20240102'"
         sql """ALTER TABLE typed_defaults_${format}
             ADD COLUMN s.compact_ts DATETIME(6) NOT NULL DEFAULT '20240102030405'"""
+        sql """ALTER TABLE typed_defaults_${format}
+            ADD COLUMN s.zoned_ts TIMESTAMPTZ(6) NOT NULL DEFAULT '2024-01-02 03:04:05.123456'"""
+        sql "SET time_zone = 'UTC'"
         "order_qt_${format}_typed_old_files" "SELECT * FROM typed_defaults_${format} ORDER BY id"
         sql "INSERT INTO typed_defaults_${format} (id) VALUES (3)"
         "order_qt_${format}_typed_write_defaults" "SELECT * FROM typed_defaults_${format} ORDER BY id"
