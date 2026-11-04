@@ -175,7 +175,7 @@ existing Spark/REST data fixture on its current SDK.
 
 | Environment option | Default port | Regression option |
 | --- | --- | --- |
-| `ICEBERG_ENCRYPTION_HMS_PORT` | 18383 | `iceberg_encryption_hms_port` |
+| `ICEBERG_ENCRYPTION_HMS_PORT` | 18383 | `iceberg_encryption_metastore_port` |
 | `ICEBERG_ENCRYPTION_KMS_PORT` | 18384 | `iceberg_encryption_kms_port` |
 | `ICEBERG_ENCRYPTION_FIXTURE_PORT` | 18385 | `iceberg_encryption_fixture_port` |
 

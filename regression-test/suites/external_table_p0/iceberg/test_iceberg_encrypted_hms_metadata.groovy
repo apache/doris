@@ -22,7 +22,7 @@ suite("test_iceberg_encrypted_hms_metadata", "p0,external") {
         return
     }
     String host = context.config.otherConfigs.get("externalEnvIp")
-    String hmsPort = context.config.otherConfigs.get("iceberg_encryption_hms_port")
+    String hmsPort = context.config.otherConfigs.get("iceberg_encryption_metastore_port")
     String kmsPort = context.config.otherConfigs.get("iceberg_encryption_kms_port")
     String fixturePort = context.config.otherConfigs.get("iceberg_encryption_fixture_port")
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")

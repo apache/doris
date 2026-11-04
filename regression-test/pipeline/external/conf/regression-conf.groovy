@@ -153,7 +153,8 @@ enableRefactorParamsTest=true
 // iceberg test config
 iceberg_rest_uri_port=18181
 iceberg_scan_planning_rest_uri_port=18182
-iceberg_encryption_hms_port=18383
+// Avoid the hms_port suffix: shared CI rewrites it for the default Hive service.
+iceberg_encryption_metastore_port=18383
 iceberg_encryption_kms_port=18384
 iceberg_encryption_fixture_port=18385
 iceberg_rest_uri_port_s3=19181
