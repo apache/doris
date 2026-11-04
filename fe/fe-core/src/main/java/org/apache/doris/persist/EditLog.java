@@ -395,13 +395,14 @@ public class EditLog {
                     CreateTableInfo info = (CreateTableInfo) journal.getData();
                     LOG.info("Begin to unprotect create table. {}", info);
                     env.replayCreateTable(info);
-                    env.onTableChanged(Strings.isNullOrEmpty(info.getCtlName())
-                            ? InternalCatalog.INTERNAL_CATALOG_NAME : info.getCtlName(),
-                            info.getDbName(), info.getTblName());
                     if (Strings.isNullOrEmpty(info.getCtlName()) || info.getCtlName().equals(
                             InternalCatalog.INTERNAL_CATALOG_NAME)) {
+                        // Legacy internal journals can omit the top-level table name.
+                        env.onTableChanged(info.getTable());
                         CreateTableRecord record = new CreateTableRecord(logId, info);
                         env.getBinlogManager().addCreateTableRecord(record);
+                    } else {
+                        env.onTableChanged(info.getCtlName(), info.getDbName(), info.getTblName());
                     }
                     break;
                 }

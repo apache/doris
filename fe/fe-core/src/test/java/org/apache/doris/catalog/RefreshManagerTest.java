@@ -17,9 +17,11 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.constraint.ConstraintManager;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.cache.CacheSpec;
@@ -40,6 +42,9 @@ import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.test.TestExternalTable;
+import org.apache.doris.mtmv.MTMVRelationManager;
+import org.apache.doris.mtmv.MTMVService;
+import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.gson.GsonUtils;
 
@@ -49,6 +54,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
@@ -88,6 +94,7 @@ public class RefreshManagerTest {
     private EditLog editLog;
     private AtomicInteger databaseObjectLoadCalls;
     private TestingCatalogMgr testingCatalogMgr;
+    private TestingEnv testingEnv;
 
     @BeforeEach
     public void setUp() {
@@ -108,7 +115,7 @@ public class RefreshManagerTest {
         cacheTypes.put(engineCache.engine(), engineCache);
         constraintManager = new RecordingConstraintManager();
         testingCatalogMgr = new TestingCatalogMgr(catalog);
-        TestingEnv testingEnv = new TestingEnv(testingCatalogMgr, metaCacheMgr, constraintManager);
+        testingEnv = Mockito.spy(new TestingEnv(testingCatalogMgr, metaCacheMgr, constraintManager));
         editLog = Mockito.mock(EditLog.class);
         testingEnv.setEditLog(editLog);
         mockedEnv = Mockito.mockStatic(Env.class);
@@ -158,6 +165,45 @@ public class RefreshManagerTest {
         InOrder order = Mockito.inOrder(metaCacheMgr);
         order.verify(metaCacheMgr).invalidateDbMetadataCache(CATALOG_ID, DATABASE_NAME);
         order.verify(metaCacheMgr).invalidateDbRowCountCache(CATALOG_ID, DATABASE_ID);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"true,false", "false,false", "true,true", "false,true"})
+    public void testReplayRefreshDbInvalidatesQueryCaches(
+            boolean databaseCached, boolean metadataFails) {
+        NereidsSqlCacheManager sqlCache = new NereidsSqlCacheManager();
+        Mockito.doReturn(sqlCache).when(testingEnv).getSqlCacheManager();
+        MTMVRelationManager relations = Mockito.mock(MTMVRelationManager.class);
+        MTMVService service = Mockito.mock(MTMVService.class);
+        Mockito.when(service.getRelationManager()).thenReturn(relations);
+        Mockito.doReturn(service).when(testingEnv).getMtmvService();
+        SqlCacheContext affected = new SqlCacheContext(UserIdentity.ROOT);
+        affected.addUsedTable(new ExternalTable(TABLE_ID, TABLE_NAME, TABLE_NAME,
+                catalog, database, TableIf.TableType.PLUGIN_EXTERNAL_TABLE));
+        sqlCache.getSqlCaches().put("affected", affected);
+        TestExternalDatabase otherDatabase = new TestExternalDatabase(
+                catalog, Util.genIdByName(CATALOG_NAME, "other_db"), "other_db", "other_db");
+        SqlCacheContext unrelated = new SqlCacheContext(UserIdentity.ROOT);
+        unrelated.addUsedTable(new ExternalTable(Util.genIdByName(CATALOG_NAME, "other_db", TABLE_NAME),
+                TABLE_NAME, TABLE_NAME, catalog, otherDatabase, TableIf.TableType.PLUGIN_EXTERNAL_TABLE));
+        sqlCache.getSqlCaches().put("unrelated", unrelated);
+        Assertions.assertSame(affected, sqlCache.getSqlCaches().getIfPresent("affected"));
+        if (!databaseCached) {
+            disableDatabaseObjectCacheWithTtlZero(catalog, database);
+        }
+        engineCache.failDbInvalidation = metadataFails;
+        ExternalObjectLog log = ExternalObjectLog.createForRefreshDb(CATALOG_ID, DATABASE_NAME);
+
+        if (metadataFails) {
+            Assertions.assertThrows(IllegalStateException.class, () -> new RefreshManager().replayRefreshDb(log));
+        } else {
+            new RefreshManager().replayRefreshDb(log);
+        }
+
+        Assertions.assertNull(sqlCache.getSqlCaches().getIfPresent("affected"));
+        Assertions.assertSame(unrelated, sqlCache.getSqlCaches().getIfPresent("unrelated"));
+        Mockito.verify(relations).invalidateRewriteCaches(CATALOG_NAME, DATABASE_NAME, null);
+        Mockito.verify(relations, Mockito.never()).invalidateRewriteCaches(CATALOG_NAME, "other_db", null);
     }
 
     @Test

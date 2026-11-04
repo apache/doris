@@ -36,11 +36,13 @@ import org.apache.doris.nereids.SqlCacheContext.FullTableName;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.stats.SimpleAggCacheMgr;
 import org.apache.doris.persist.AlterViewInfo;
+import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TableRenameColumnInfo;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.PartitionCommitInfo;
 import org.apache.doris.transaction.TableCommitInfo;
@@ -50,6 +52,7 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.gson.JsonObject;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -115,6 +118,27 @@ class TableCacheInvalidationTest extends TestWithFeService {
         Config.cache_partition_meta_table_manage_num = partitionCapacity;
         NereidsSqlCacheManager.updateConfig();
         NereidsSortedPartitionsCacheManager.updateConfig();
+    }
+
+    @Test
+    void replayLegacyCreateTableInvalidatesAllTableCaches() throws Exception {
+        warmBothTables();
+        JsonObject legacy = GsonUtils.GSON.toJsonTree(
+                new CreateTableInfo(database.getFullName(), database.getId(), target)).getAsJsonObject();
+        for (String field : ImmutableList.of("ctl", "tbl", "dbId")) {
+            legacy.remove(field);
+        }
+        CreateTableInfo info = GsonUtils.GSON.fromJson(legacy, CreateTableInfo.class);
+        Assertions.assertNull(info.getCtlName());
+        Assertions.assertNull(info.getTblName());
+        Assertions.assertEquals(-1L, info.getDbId());
+        database.unregisterTable(target.getId());
+
+        replay(OperationType.OP_CREATE_TABLE, info);
+
+        Assertions.assertEquals(target.getId(), database.getTableOrMetaException("target").getId());
+        Assertions.assertNotSame(target, database.getTableNullable("target"));
+        assertTargetInvalidated();
     }
 
     @Test

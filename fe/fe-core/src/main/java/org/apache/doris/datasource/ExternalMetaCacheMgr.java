@@ -295,21 +295,17 @@ public class ExternalMetaCacheMgr {
             routeCatalogEngines(catalogId, cache -> safeInvalidate(
                     cache, catalogId, "invalidateDbMetadataCache", () -> cache.invalidateDb(catalogId, dbName)));
         } finally {
-            // This cache has no database-scoped key, so database invalidation must clear it globally.
-            invalidateSortedPartitionsCache();
+            // Loaded database refreshes call this directly; notify every derived query cache here.
+            CatalogIf<?> catalog = getCatalog(catalogId);
+            if (catalog != null) {
+                Env.getCurrentEnv().onDatabaseChanged(catalog.getName(), dbName);
+            }
         }
     }
 
     public void invalidateDb(long catalogId, long dbId, String dbName) {
         try {
-            try {
-                invalidateDbMetadataCache(catalogId, dbName);
-            } finally {
-                CatalogIf<?> catalog = getCatalog(catalogId);
-                if (catalog != null) {
-                    Env.getCurrentEnv().onDatabaseChanged(catalog.getName(), dbName);
-                }
-            }
+            invalidateDbMetadataCache(catalogId, dbName);
         } finally {
             // Keep row-count invalidation last: it fences loads published before the metadata invalidation.
             rowCountCache.invalidateDb(catalogId, dbId);
