@@ -207,7 +207,7 @@ void check_vertical_spilled_batch(bool unique_keys) {
     reader._read_schema = std::make_shared<ReadSchema>(reader._tablet_schema->columns());
     reader._filter_row_ttl = true;
     reader._row_ttl_now_us = 100;
-    reader._reader_context.is_key_column_group = true;
+    reader._is_key_column_group = true;
     reader._next_block_func = unique_keys ? &VerticalBlockReader::_unique_key_next_block
                                           : &VerticalBlockReader::_direct_next_block;
     reader._vcollect_iter = std::make_shared<SpillingRowTtlIterator>(*reader._read_schema, &buffer);

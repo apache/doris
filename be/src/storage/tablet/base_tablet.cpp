@@ -158,7 +158,7 @@ Status _read_row_store_with_read_ahead(
     DORIS_CHECK(read_ahead_context != nullptr);
 
     StorageReadOptions read_options(stats);
-    read_options.version = rowset->version();
+    read_options.rowset_version = rowset->version();
     read_options.commit_tso = rowset->commit_tso();
     read_options.use_page_cache = !config::disable_storage_page_cache;
     if (io_ctx != nullptr) {

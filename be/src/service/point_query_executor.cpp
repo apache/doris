@@ -643,7 +643,7 @@ Status PointQueryExecutor::_lookup_row_data() {
                 read_ahead_options.io_ctx = io_ctx;
                 // Pre-read iterators need the same rowset constants as the synchronous path:
                 // a version column in rowset [7-7] must produce 7, not its stored placeholder 0.
-                read_ahead_options.version = rowset->version();
+                read_ahead_options.rowset_version = rowset->version();
                 read_ahead_options.commit_tso = rowset->commit_tso();
                 std::unique_ptr<segment_v2::SegmentReadAhead> read_ahead;
                 if (read_ahead_context != nullptr) {
