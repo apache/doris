@@ -90,7 +90,7 @@ public class TokenManagerTest {
 
     @Test
     public void testSigningQueueInitializationRotationAndSnapshot() throws UserException {
-        Config.token_queue_size = 3;
+        Config.token_queue_size = 4;
         TokenManager manager = startManager();
         List<String> initial = manager.getAuthTokens();
         Assertions.assertEquals(2, initial.size());
@@ -105,17 +105,34 @@ public class TokenManagerTest {
         Assertions.assertEquals(2, initial.size());
 
         Deencapsulation.invoke(manager, "addNewToken", "fourth-token");
-        Assertions.assertEquals(List.of(initial.get(1), "third-token", "fourth-token"), manager.getAuthTokens());
+        Assertions.assertEquals(List.of(initial.get(0), initial.get(1), "third-token", "fourth-token"),
+                manager.getAuthTokens());
         Assertions.assertEquals("third-token", manager.acquireSigningToken());
+
+        Deencapsulation.invoke(manager, "addNewToken", "fifth-token");
         Assertions.assertFalse(manager.checkAuthToken(initial.get(0)));
+        Assertions.assertTrue(manager.checkAuthToken("third-token"));
+        Deencapsulation.invoke(manager, "addNewToken", "sixth-token");
+        Assertions.assertTrue(manager.checkAuthToken("third-token"));
+        Deencapsulation.invoke(manager, "addNewToken", "seventh-token");
+        Assertions.assertFalse(manager.checkAuthToken("third-token"));
         manager.getAuthTokens().clear();
-        Assertions.assertEquals(3, manager.getAuthTokens().size());
+        Assertions.assertEquals(4, manager.getAuthTokens().size());
     }
 
     @Test
-    public void testRejectsQueueWithoutSigningGeneration() {
-        Config.token_queue_size = 1;
-        Assertions.assertThrows(IllegalArgumentException.class, () -> new TokenManager().start());
+    public void testMinimumQueueCapacity() {
+        for (int configuredSize : new int[] {-1, 0, 1, 2, 3, 4, 6}) {
+            Config.token_queue_size = configuredSize;
+            TokenManager manager = startManager();
+            for (int i = 0; i < 8; i++) {
+                Deencapsulation.invoke(manager, "addNewToken", "token-" + i);
+            }
+            List<String> expected = configuredSize <= 4
+                    ? List.of("token-4", "token-5", "token-6", "token-7")
+                    : List.of("token-2", "token-3", "token-4", "token-5", "token-6", "token-7");
+            Assertions.assertEquals(expected, manager.getAuthTokens(), "configured capacity: " + configuredSize);
+        }
     }
 
     @Test

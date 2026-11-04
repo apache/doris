@@ -62,14 +62,17 @@ public class TokenManager {
     }
 
     public synchronized void start() {
-        if (Config.token_queue_size < 2) {
-            throw new IllegalArgumentException("token_queue_size must be at least 2");
+        int tokenQueueSize = Config.token_queue_size;
+        // Retain signing keys for at least two rotation periods after their last use.
+        if (tokenQueueSize < 4) {
+            LOG.warn("token_queue_size is {}, using the minimum capacity of 4", tokenQueueSize);
+            tokenQueueSize = 4;
         }
         // Promotion calls start() again on the same TokenManager.
         if (this.tokenGenerator != null) {
             this.tokenGenerator.shutdownNow();
         }
-        this.tokenQueue = EvictingQueue.create(Config.token_queue_size);
+        this.tokenQueue = EvictingQueue.create(tokenQueueSize);
         // Seed [cached signing token, new token], so promotion keeps using the signing key
         // acquired from the old master. Without a cache, initialize two new generations.
         String signingToken = lastAcquiredSigningToken;

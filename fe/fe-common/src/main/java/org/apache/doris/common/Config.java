@@ -2493,8 +2493,8 @@ public class Config extends ConfigBase {
 
     /**
      * Used by TokenManager to control the number of tokens keep in memory.
-     * Must be at least 2: Flight tickets are signed with the second newest token.
-     * One token will keep alive for {token_queue_size * token_generate_period_hour} hours.
+     * Values below 4 are treated as 4 with a warning to retain Flight ticket signing keys across rotations.
+     * One token will keep alive for {max(token_queue_size, 4) * token_generate_period_hour} hours.
      * By defaults, one token will keep for 3 days.
      */
     @ConfField(mutable = false, masterOnly = true)
