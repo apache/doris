@@ -732,14 +732,16 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     }
 
     public Optional<Runnable> beginTableMetadataRefresh() {
-        return metaCache == null ? Optional.empty() : Optional.of(metaCache.beginMetadataRefresh());
+        extCatalog.beginTableLookupRefresh();
+        return Optional.of(extCatalog::endTableLookupRefresh);
     }
 
     /** A missing result is authorized only against the retained DB, names and object generations. */
     @SuppressWarnings("unchecked")
     public Optional<Runnable> observeTableLookup(ExternalTable table) {
+        OptionalLong refreshGeneration = extCatalog.observeTableLookupRefreshGeneration();
         MetaCache<T> cache = metaCache;
-        if (!initialized || cache == null
+        if (!refreshGeneration.isPresent() || !initialized || cache == null
                 || extCatalog.shouldBypassTableNameCache(SessionContext.current())) {
             return Optional.empty();
         }
@@ -764,7 +766,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             extCatalog.executeIfDatabaseCurrent(this, () -> {
                 synchronized (extCatalog) {
                     synchronized (this) {
-                        if (!initialized || metaCache != cache || !isTableMetadataLoadEpochCurrent(epoch)
+                        if (extCatalog.getTableLookupRefreshGeneration() != refreshGeneration.getAsLong()
+                                || !initialized || metaCache != cache || !isTableMetadataLoadEpochCurrent(epoch)
                                 || Env.getCurrentEnv().getCatalogMgr().getCatalog(extCatalog.getId()) != extCatalog) {
                             return false;
                         }
