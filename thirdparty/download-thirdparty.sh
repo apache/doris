@@ -833,9 +833,9 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " PARALLEL_HASHMAP " ]]; then
     echo "Finished patching ${PARALLEL_HASHMAP_SOURCE} (AArch64 int128 and ARM NEON)"
 fi
 
-# Paimon Java v11 commit transport and explicit native writer shutdown.
+# Paimon Java v14 commit transport and explicit native writer shutdown.
 if [[ " ${TP_ARCHIVES[*]} " =~ " PAIMON_RUST " ]]; then
-    paimon_write_checksum="$(cksum < "${TP_PATCH_DIR}/paimon-rust-0.4.0-doris-write.patch")"
+    paimon_write_checksum="$(cksum < "${TP_PATCH_DIR}/paimon-rust-0.5.0-rc1-doris-write.patch")"
     paimon_write_marker="${TP_SOURCE_DIR}/${PAIMON_RUST_SOURCE}/${PATCHED_MARK}_doris_write"
     if [[ -f "${paimon_write_marker}" ]] &&
         [[ "$(cat "${paimon_write_marker}")" != "${paimon_write_checksum}" ]]; then
@@ -845,7 +845,7 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " PAIMON_RUST " ]]; then
     cd "${TP_SOURCE_DIR}/${PAIMON_RUST_SOURCE}"
     if [[ ! -f "${PATCHED_MARK}_doris_write" ]]; then
         patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
-            -p1 <"${TP_PATCH_DIR}/paimon-rust-0.4.0-doris-write.patch"
+            -p1 <"${TP_PATCH_DIR}/paimon-rust-0.5.0-rc1-doris-write.patch"
         printf '%s\n' "${paimon_write_checksum}" > "${PATCHED_MARK}_doris_write"
     fi
     cd -

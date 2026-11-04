@@ -187,8 +187,8 @@ public:
         }
         const auto& desc = sink.table_desc;
         RETURN_IF_ERROR(paimon::validate_table_descriptor(desc));
-        if (!sink.__isset.commit_message_version || sink.commit_message_version != 11) {
-            return Status::NotSupported("Paimon Rust requires Java commit protocol version 11");
+        if (!sink.__isset.commit_message_version || sink.commit_message_version != 14) {
+            return Status::NotSupported("Paimon Rust requires Java commit protocol version 14");
         }
         DORIS_CHECK(sink.__isset.commit_user && !sink.commit_user.empty());
         DORIS_CHECK(sink.__isset.column_names);
