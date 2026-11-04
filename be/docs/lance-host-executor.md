@@ -21,21 +21,36 @@ for dependencies that otherwise construct another runtime.
 | Query scan, decode and execution-plan stream polls | The query's `ScannerScheduler`, with cooperative help from the waiting caller |
 | Blocking Doris FileReader/FileSystem operations | A `ThreadPoolToken` on `ExecEnv::s3_file_system_thread_pool()` |
 | Network readiness, timers and Tokio join/cancel notifications | One Doris `LanceReactor` service thread driving the threadless reactor |
-| Shared background/cache CPU work without a query | A bounded Doris `LanceBackground` pool |
+| Shared background/cache CPU work without a query, and deferred destruction | A bounded Doris `LanceBackground` pool |
 
-`lance_background_thread_pool_size` sets the maximum number of workers in the
-BE-wide `LanceBackground` pool. It defaults to `2` and must be greater than zero.
-Workers are created on demand, with a minimum of zero. Set it in `be.conf` and
-restart the BE to apply a different limit, for example:
+`lance_background_thread_pool_size` limits the BE-wide background CPU and cleanup
+pool. It defaults to `2`, creates workers on demand, and must be positive. The
+single `LanceReactor` worker drives control events, not these cleanup jobs.
+
+`lance_io_parallelism` is a positive startup setting, default `64`. Doris passes
+it as the SDK's `io_parallelism` storage option and uses it to bound each reader's
+submitted I/O queue jobs, capped by `max_s3_file_system_thread_num` (default `64`).
+The I/O pool is shared with other BE filesystem work; each reader does not own
+that many threads. Set these options in `be.conf` and restart the BE:
 
 ```properties
-lance_background_thread_pool_size = 4
+lance_cpu_parallelism = 8
+lance_io_parallelism = 64
+lance_background_thread_pool_size = 2
 ```
 
-The limit applies to background CPU work, including CPU submissions whose query
-has no scan scheduler. Query scan concurrency still belongs to `ScannerScheduler`,
-and blocking I/O uses the shared I/O pool. `LanceReactor` retains one worker to
-drive the single current-thread Tokio runtime.
+An explicit `io_parallelism` storage option can override the SDK budget. The
+host queue and shared I/O pool still enforce their limits. For host stores,
+precedence is explicit storage option, then `LANCE_IO_THREADS`, then `64`;
+Doris supplies an explicit option, so the BE setting takes precedence over the
+environment variable. Limits are resolved when opening a store and included
+in dataset/cache identity. Zero, negative, malformed and overflowing values
+are rejected. This is an I/O concurrency budget, not a Tokio thread count.
+
+CPU work uses the query's `ScannerScheduler`. The positive startup setting
+`lance_cpu_parallelism` defaults to eight submitted CPU queue jobs per reader,
+with cooperative help from its waiting caller. Neither the
+I/O setting nor the background-pool size changes the query's CPU scheduler.
 
 The query CPU path uses the existing scheduler and its workload-group limits.
 Host jobs attach the query's `ResourceContext`. Jobs without a query, including
@@ -56,14 +71,19 @@ inside dependent libraries, instead of starting Tokio blocking workers.
 | Local `file` / `file+uring` reads | Doris LocalFileReader on host I/O workers; no SDK uring pool |
 | Hugging Face HTTP and Xet reads | Xet wraps the already driven host reactor, including its host blocking executor; no `hf-xet` worker runtime |
 | GooseFS local page cache | The portable local page store uses host-dispatched file operations, retaining the cache even when uring was requested |
-| Pairwise Hamming calculations | The sequential SIMD implementation on the calling host task; no nested Rayon pool |
+| Pairwise Hamming calculations | Balanced SIMD CPU chunks on the operation executor, without a nested Rayon pool |
 | Raw data-file cache | Doris CachedRemoteFileReader / File Cache; the Lance-C Foyer integration is removed |
 
 The runtime checks are specific to host mode. Standalone Lance-C users that do
 not register host services retain the upstream execution choices. The local I/O
 fallbacks preserve read and cache behavior but do not retain native io_uring
-execution. A CPU task's outer parallelism belongs to the Doris scanner scheduler;
-a synchronous Hamming calculation does not start nested parallel workers.
+execution. Pairwise Hamming uses the operation executor's CPU budget. Its
+synchronous caller helps ready CPU children while joining bounded result slots,
+without requiring a Tokio completion bridge. Results keep their original ordering;
+64-bit and wider binary hashes retain their batch SIMD kernels. Small inputs or a
+single-worker budget run directly. The complete pairwise result can still require
+quadratic memory; this change does not add Rust allocation accounting. These SDK
+utility functions do not introduce a Hamming SQL operator into Doris.
 
 Xet normally rejects a current-thread Tokio runtime. The local dependency patch
 allows one only when it has an explicitly installed host blocking executor and
@@ -74,7 +94,8 @@ standalone system monitor or logging service.
 Async callback delivery remains serial and installs each completion's error in
 the delivery thread's TLS. Rejected host jobs must still deliver accepted
 completions exactly once, outside SDK wake locks. Runtime stop waits for callback
-delivery before stopping the control reactor.
+delivery and deferred destruction before stopping the control reactor. An accepted
+async scan also reports cancellation if its task is rejected before its first poll.
 
 This boundary does not cover FE JNI metadata runtimes or SDK-only write/index
 maintenance APIs. In particular, index training, mem-WAL FTS merge and optional
@@ -121,9 +142,10 @@ Each `LanceTableReader` keeps one executor across its splits. `prepare_split`,
 `get_block`, `read_by_row_ids`, `abort_split` and `close` enter a thread-bound
 executor scope. Schema discovery uses a temporary executor.
 
-Ready work is queued in the reader's CPU or I/O queue and bounded drivers
-are submitted to the host. Doris allows up to eight drivers per reader and
-queue; the shared scheduler and I/O pool enforce the global execution limits. A driver runs a bounded number of polls before
+Ready work is queued in the reader's CPU or I/O queue and bounded jobs
+are submitted to the host. Doris bounds CPU queue jobs by `lance_cpu_parallelism`; the
+I/O queue uses `min(lance_io_parallelism, max_s3_file_system_thread_num)`.
+The shared scheduler and I/O pool enforce their aggregate execution limits. A driver runs a bounded number of polls before
 resubmitting remaining work. The synchronous caller helps ready CPU children
 while waiting. This guarantees progress even when every scanner worker is
 waiting for children submitted to the same pool. I/O normally runs through
@@ -134,6 +156,35 @@ it. This retains the synchronous `TableReader` API while giving the host
 control over the execution threads. A running CPU closure or blocking system
 call cannot be preempted by cancellation.
 
+## Query ownership and control-reactor work
+
+A shared SDK `ScanScheduler` must not retain the query that created it. Its
+long-lived dispatch loop uses process services, while each submitted I/O task
+captures the submitting operation executor. The task's file reads, post-read
+processing and nested submissions consequently follow the current request.
+Normal completion, rejection and cancellation must all return the shared I/O
+slot exactly once, allowing later queries to reuse the scheduler.
+
+Legacy full-text index loading uses the same scoped spawning as modern reads.
+Reading token/document/posting files and constructing document mappings therefore
+cannot escape into a raw Tokio task. V1 batch reads and range-take tasks also
+preserve their operation executor. Plan-stream pumps keep ordinary decoder and
+filter polls on the host CPU path.
+
+Tokio still drives timers, readiness and join/abort notifications. A destructor
+may acquire an SDK lock, so a rejected task cannot be destroyed synchronously
+inside its wake callback. A short asynchronous reactor handoff submits
+actual destruction to the host cleanup queue without running destructors inline
+on the wake callback stack. Deferred buffer/future destruction
+and rejected async-completion callbacks run on `LanceBackground`, rather than
+occupying `LanceReactor`.
+
+During shutdown Doris closes ordinary task admission, drains existing I/O and
+background work, and keeps cleanup admission open. `lance_runtime_stop` waits
+for serial callbacks and the deferred-destruction fence while the reactor and
+background workers remain alive. Doris then joins the reactor and shuts down
+`LanceBackground`. No additional Lance cleanup thread pool is created.
+
 ## C ABI and lifetime
 
 `lance_runtime_install_host_services_v1` installs process-owned dispatch before
@@ -143,7 +194,9 @@ must outlive all SDK calls and the reactor driver. Registration and shutdown
 are process scoped; the driver rejects concurrent duplicate starts.
 
 A submit callback consumes a task and must eventually invoke its run callback
-or its discard callback exactly once. It must not execute work inline from a
+or its discard callback exactly once. Process-service queue `0` is CPU, `1` is
+blocking I/O, and `2` is deferred destruction. Queue `2` must remain admissible
+through `lance_runtime_stop`, including when ordinary submissions are rejected. It must not execute work inline from a
 wake callback. Dropping queued native jobs cancels their Rust tasks. The Tokio join
 bridge reports cancellation instead of treating a discarded async-task Runnable as
 a panic. Future destruction is deferred outside SDK wake locks. Query executors use weak

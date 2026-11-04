@@ -92,12 +92,13 @@ Status LanceHostRuntime::start() {
     options.submit = submit_service;
     if (lance_runtime_install_host_services_v1(&options) != 0)
         return lance_error("install host runtime services");
-    _installed = true;
     RETURN_IF_ERROR(_reactor->submit_func([] {
         SCOPED_INIT_THREAD_CONTEXT();
         const auto status = lance_runtime_drive();
         if (status != 0) LOG(ERROR) << "Lance host reactor failed";
     }));
+    // The stop fence needs a live driver; failed submission must not wait for one at teardown.
+    _installed = true;
     return Status::OK();
 }
 LanceHostRuntime::~LanceHostRuntime() {
@@ -110,19 +111,22 @@ void LanceHostRuntime::shutdown() {
     }
     // Fragment shutdown and session close precede this call in ExecEnv::destroy.
     // Drain workers while the reactor still handles joins and cancellation notifications.
-    if (_background) _background->shutdown();
     if (_io_token) _io_token->shutdown();
     _io_token.reset();
     if (_io) _io->shutdown();
+    // Cleanup jobs remain admissible while rejected work and SDK wakeups drain.
+    // Stopping this pool first would either strand destructors or run them on the reactor.
+    if (_background) _background->wait();
     if (_installed) lance_runtime_stop();
     if (_reactor) _reactor->shutdown();
+    if (_background) _background->shutdown();
     _reactor.reset();
     _background.reset();
     _io.reset();
 }
 void LanceHostRuntime::submit(uint32_t queue, std::shared_ptr<Task> task) {
     std::lock_guard lock(_dispatch_mutex);
-    if (_stopped) return;
+    if (_stopped && queue != 2) return;
     // Dropping a rejected callback cancels its Rust task; it must not escape or run inline
     // while Rust's wake callback could be holding an SDK lock.
     auto work = [task = std::move(task)] {
@@ -162,6 +166,10 @@ void LanceHostRuntime::submit_query(void* context, uint32_t queue, void (*run)(v
         task_context = nullptr;
         auto owner = executor->runtime.lock();
         if (!owner) return;
+        if (queue == 2) {
+            owner->submit(queue, std::move(task));
+            return;
+        }
         if (auto query = executor->query.lock()) {
             std::unique_lock dispatch(owner->_dispatch_mutex);
             if (owner->_stopped) return;
@@ -207,8 +215,9 @@ Status LanceHostRuntime::create_executor(RuntimeState* state, ::LanceHostExecuto
     options.retain_context = retain_query;
     options.release_context = release_query;
     options.submit_task = submit_query;
-    options.max_cpu_drivers = 8;
-    options.max_io_drivers = std::min(8, std::max(1, config::max_s3_file_system_thread_num));
+    options.max_cpu_drivers = config::lance_cpu_parallelism;
+    options.max_io_drivers = std::min(config::lance_io_parallelism,
+                                      std::max(1, config::max_s3_file_system_thread_num));
     *out = lance_host_executor_new_v1(&options);
     release_query(context);
     return *out ? Status::OK() : lance_error("create query host executor");

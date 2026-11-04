@@ -97,7 +97,7 @@ diff --git a/rust/lance-core/src/utils.rs b/rust/lance-core/src/utils.rs
 diff --git a/rust/lance-core/src/utils/task_executor.rs b/rust/lance-core/src/utils/task_executor.rs
 --- /dev/null
 +++ b/rust/lance-core/src/utils/task_executor.rs
-@@ -0,0 +1,399 @@
+@@ -0,0 +1,471 @@
 +// SPDX-License-Identifier: Apache-2.0
 +// SPDX-FileCopyrightText: Copyright The Lance Authors
 +
@@ -107,6 +107,7 @@ diff --git a/rust/lance-core/src/utils/task_executor.rs b/rust/lance-core/src/ut
 +use std::future::Future;
 +use std::panic::{AssertUnwindSafe, resume_unwind};
 +use std::pin::Pin;
++use std::sync::atomic::{AtomicUsize, Ordering};
 +use std::sync::{Arc, OnceLock, Weak};
 +use std::task::{Context, Poll};
 +
@@ -124,12 +125,24 @@ diff --git a/rust/lance-core/src/utils/task_executor.rs b/rust/lance-core/src/ut
 +    Cpu,
 +    /// Blocking file operations. A running operation must be allowed to finish.
 +    Io,
++    /// Deferred destruction, admitted until the host runtime has completely stopped.
++    Cleanup,
 +}
 +
 +/// The host must enqueue a task without blocking or executing it inline.
 +pub trait Executor: Send + Sync + 'static {
 +    /// Schedule exactly one execution of `task`, including during cancellation.
 +    fn schedule(&self, kind: TaskKind, task: Task);
++
++    /// Maximum fan-out for one synchronous CPU operation; process services default to serial.
++    fn cpu_parallelism(&self) -> usize {
++        1
++    }
++
++    /// Cooperatively execute a ready CPU child while a synchronous host caller joins its work.
++    fn run_cpu_task(&self) -> bool {
++        false
++    }
 +}
 +
 +thread_local! {
@@ -148,6 +161,45 @@ diff --git a/rust/lance-core/src/utils/task_executor.rs b/rust/lance-core/src/ut
 +    CURRENT_EXECUTOR
 +        .with(|current| current.borrow().as_ref().and_then(Weak::upgrade))
 +        .or_else(|| DEFAULT_EXECUTOR.get().cloned())
++}
++
++static DEFERRED_DROPS: AtomicUsize = AtomicUsize::new(0);
++static DROPS_DONE: tokio::sync::Notify = tokio::sync::Notify::const_new();
++
++struct DropCompletion;
++impl Drop for DropCompletion {
++    fn drop(&mut self) {
++        DEFERRED_DROPS.fetch_sub(1, Ordering::AcqRel);
++        DROPS_DONE.notify_waiters();
++    }
++}
++
++/// Leave wake locks before handing potentially expensive destructors to host cleanup workers.
++/// The host must continue accepting Cleanup jobs until its runtime-stop fence completes.
++pub fn defer_drop<T: Send + 'static>(reactor: Handle, value: T) {
++    DEFERRED_DROPS.fetch_add(1, Ordering::AcqRel);
++    let deferred = (value, DropCompletion);
++    let executor = DEFAULT_EXECUTOR.get().cloned();
++    reactor.spawn(async move {
++        if let Some(executor) = executor {
++            executor.schedule(TaskKind::Cleanup, Box::new(move || drop(deferred)));
++        } else {
++            drop(deferred);
++        }
++    });
++}
++
++/// Wait for reactor handoffs and all recursively scheduled destructors before stopping services.
++pub async fn drain_deferred_drops() {
++    loop {
++        let notified = DROPS_DONE.notified();
++        tokio::pin!(notified);
++        notified.as_mut().enable();
++        if DEFERRED_DROPS.load(Ordering::Acquire) == 0 {
++            return;
++        }
++        notified.await;
++    }
 +}
 +
 +struct ContextGuard(Option<Weak<dyn Executor>>);
@@ -211,9 +263,7 @@ diff --git a/rust/lance-core/src/utils/task_executor.rs b/rust/lance-core/src/ut
 +        } else {
 +            // A wake may hold a channel lock. Drop a retired future on the control runtime,
 +            // outside the wake callback, because its destructor can acquire that same lock.
-+            cleanup_reactor.spawn(async move {
-+                drop(runnable);
-+            });
++            defer_drop(cleanup_reactor.clone(), runnable);
 +        }
 +    };
 +    let (runnable, task) = async_task::spawn(AssertUnwindSafe(wrapped).catch_unwind(), schedule);
@@ -246,10 +296,32 @@ diff --git a/rust/lance-core/src/utils/task_executor.rs b/rust/lance-core/src/ut
 +    F: Future + Send + 'static,
 +    F::Output: Send + 'static,
 +{
-+    match current_executor() {
++    spawn_with_executor(current_executor(), future)
++}
++
++/// Spawn with the executor captured when an operation was submitted.
++/// Shared schedulers must use the request owner, not the query that created the scheduler.
++pub fn spawn_with_executor<F>(
++    executor: Option<Arc<dyn Executor>>,
++    future: F,
++) -> JoinHandle<F::Output>
++where
++    F: Future + Send + 'static,
++    F::Output: Send + 'static,
++{
++    match executor {
 +        Some(executor) => spawn_host(executor, TaskKind::Cpu, future),
 +        None => tokio::spawn(future),
 +    }
++}
++
++/// Spawn a process-scoped service without retaining its creator's query executor.
++pub fn spawn_background<F>(future: F) -> JoinHandle<F::Output>
++where
++    F: Future + Send + 'static,
++    F::Output: Send + 'static,
++{
++    spawn_with_executor(DEFAULT_EXECUTOR.get().cloned(), future)
 +}
 +
 +/// Spawn one blocking operation. The host must keep blocking I/O separate from CPU work.
@@ -763,10 +835,157 @@ diff --git a/rust/lance-encoding/src/decoder.rs b/rust/lance-encoding/src/decode
          Ok(check_scheduler_on_drop(decode_stream, scheduler_handle))
      }
  }
+diff --git a/rust/lance-index/src/scalar/inverted/index.rs b/rust/lance-index/src/scalar/inverted/index.rs
+--- a/rust/lance-index/src/scalar/inverted/index.rs
++++ b/rust/lance-index/src/scalar/inverted/index.rs
+@@ -54,10 +54,7 @@
+ use lance_select::{RowAddrMask, RowAddrTreeMap, RowSetOps};
+ use roaring::{RoaringBitmap, RoaringTreemap};
+ use std::sync::LazyLock;
+-use tokio::{
+-    sync::{Mutex, OnceCell},
+-    task::spawn_blocking,
+-};
++use tokio::sync::{Mutex, OnceCell};
+ use tracing::{debug, info, instrument, warn};
+
+ use super::documents::{
+diff --git a/rust/lance-index/src/scalar/inverted/index/inverted_index.rs b/rust/lance-index/src/scalar/inverted/index/inverted_index.rs
+--- a/rust/lance-index/src/scalar/inverted/index/inverted_index.rs
++++ b/rust/lance-index/src/scalar/inverted/index/inverted_index.rs
+@@ -252,7 +252,8 @@
+         index_cache: &LanceCache,
+     ) -> Result<Arc<Self>> {
+         log::warn!("loading legacy FTS index");
+-        let tokens_fut = tokio::spawn({
++        // Cold legacy-index loads must retain their query executor across I/O and CPU work.
++        let tokens_fut = lance_core::utils::task_executor::spawn({
+             let store = store.clone();
+             async move {
+                 let token_reader = store.open_index_file(TOKENS_FILE).await?;
+@@ -267,7 +268,7 @@
+                 Result::Ok((tokenizer, tokens))
+             }
+         });
+-        let invert_list_fut = tokio::spawn({
++        let invert_list_fut = lance_core::utils::task_executor::spawn({
+             let store = store.clone();
+             let index_cache_clone = index_cache.clone();
+             async move {
+@@ -277,7 +278,7 @@
+                 Result::Ok(Arc::new(invert_list))
+             }
+         });
+-        let docs_fut = tokio::spawn({
++        let docs_fut = lance_core::utils::task_executor::spawn({
+             let store = store.clone();
+             async move {
+                 let docs_reader = store.open_index_file(DOCS_FILE).await?;
+@@ -321,7 +322,8 @@
+         index_cache: &LanceCache,
+     ) -> Result<Arc<Self>> {
+         log::warn!("loading legacy FTS index");
+-        let tokens_fut = tokio::spawn({
++        // Cold legacy-index loads must retain their query executor across I/O and CPU work.
++        let tokens_fut = lance_core::utils::task_executor::spawn({
+             let store = store.clone();
+             async move {
+                 let token_reader = store.open_index_file(TOKENS_FILE).await?;
+@@ -336,7 +338,7 @@
+                 Result::Ok((tokenizer, tokens))
+             }
+         });
+-        let invert_list_fut = tokio::spawn({
++        let invert_list_fut = lance_core::utils::task_executor::spawn({
+             let store = store.clone();
+             let index_cache_clone = index_cache.clone();
+             async move {
+@@ -346,7 +348,7 @@
+                 Result::Ok(Arc::new(invert_list))
+             }
+         });
+-        let docs_fut = tokio::spawn({
++        let docs_fut = lance_core::utils::task_executor::spawn({
+             let store = store.clone();
+             async move {
+                 let docs_reader = store.open_index_file(DOCS_FILE).await?;
+diff --git a/rust/lance-index/src/scalar/inverted/index/posting_prewarm.rs b/rust/lance-index/src/scalar/inverted/index/posting_prewarm.rs
+--- a/rust/lance-index/src/scalar/inverted/index/posting_prewarm.rs
++++ b/rust/lance-index/src/scalar/inverted/index/posting_prewarm.rs
+@@ -307,7 +307,8 @@
+         let block_size = state.block_size;
+         let positions_layout = state.positions_layout;
+         let num_docs = self.modern_num_docs;
+-        let posting_lists = spawn_blocking(move || {
++        // Posting reconstruction is pure CPU work, not a blocking storage operation.
++        let posting_lists = spawn_cpu(move || {
+             let ctx = PostingBuildCtx {
+                 max_scores: max_scores.as_deref().map(|v| v.as_slice()),
+                 lengths: lengths.as_deref().map(|v| v.as_slice()),
+@@ -329,12 +330,7 @@
+             }
+             Result::Ok(posting_lists)
+         })
+-        .await
+-        .map_err(|err| {
+-            Error::internal(format!(
+-                "Failed to build chunk posting lists in blocking task: {err}"
+-            ))
+-        })??;
++        .await?;
+         for (token_id, _) in &posting_lists {
+             self.publish_modern_posting_validated(*token_id).await?;
+         }
+@@ -385,7 +381,7 @@
+             }
+         };
+
+-        let groups = spawn_blocking(move || {
++        let groups = spawn_cpu(move || {
+             let mut groups = Vec::with_capacity(ranges.len());
+             for (start, end) in ranges {
+                 let start_usize = start as usize;
+@@ -419,12 +415,7 @@
+             }
+             Result::Ok(groups)
+         })
+-        .await
+-        .map_err(|err| {
+-            Error::internal(format!(
+-                "Failed to build packed prewarm posting groups in blocking task: {err}"
+-            ))
+-        })??;
++        .await?;
+         for (start, end, _) in &groups {
+             for token_id in *start..*end {
+                 self.publish_modern_posting_validated(token_id).await?;
+diff --git a/rust/lance-index/src/scalar/inverted/index/token_set.rs b/rust/lance-index/src/scalar/inverted/index/token_set.rs
+--- a/rust/lance-index/src/scalar/inverted/index/token_set.rs
++++ b/rust/lance-index/src/scalar/inverted/index/token_set.rs
+@@ -181,7 +181,8 @@
+     async fn load_arrow(reader: Arc<dyn IndexReader>) -> Result<Self> {
+         let batch = reader.read_range(0..reader.num_rows(), None).await?;
+
+-        let (tokens, next_id, total_length) = spawn_blocking(move || {
++        // Dictionary construction is CPU work; the host I/O pool must remain available for reads.
++        let (tokens, next_id, total_length) = spawn_cpu(move || {
+             let mut next_id = 0;
+             let mut total_length = 0;
+             let mut tokens = fst::MapBuilder::memory();
+@@ -201,8 +202,7 @@
+
+             Ok::<_, Error>((tokens.into_map(), next_id, total_length))
+         })
+-        .await
+-        .map_err(|err| Error::execution(format!("failed to spawn blocking task: {}", err)))??;
++        .await?;
+
+         Ok(Self {
+             tokens: TokenMap::Fst(tokens),
 diff --git a/rust/lance-io/src/object_store.rs b/rust/lance-io/src/object_store.rs
 --- a/rust/lance-io/src/object_store.rs
 +++ b/rust/lance-io/src/object_store.rs
-@@ -618,6 +618,29 @@
+@@ -618,6 +618,49 @@
  }
 
  impl ObjectStore {
@@ -776,6 +995,26 @@ diff --git a/rust/lance-io/src/object_store.rs b/rust/lance-io/src/object_store.
 +        store_prefix: String,
 +        params: &ObjectStoreParams,
 +    ) -> Result<Self> {
++        let configured = params
++            .storage_options()
++            .and_then(|options| options.get("io_parallelism"))
++            .cloned()
++            .or_else(|| std::env::var("LANCE_IO_THREADS").ok());
++        let io_parallelism = match configured {
++            Some(value) => value
++                .trim()
++                .parse::<u32>()
++                .ok()
++                .filter(|value| *value > 0)
++                .map(|value| value as usize)
++                .ok_or_else(|| {
++                    Error::invalid_input(format!(
++                        "host io_parallelism must be an integer in 1..={}, got {value:?}",
++                        u32::MAX
++                    ))
++                })?,
++            None => DEFAULT_CLOUD_IO_PARALLELISM,
++        };
 +        Ok(Self {
 +            inner,
 +            local_dir_operations: None,
@@ -785,7 +1024,7 @@ diff --git a/rust/lance-io/src/object_store.rs b/rust/lance-io/src/object_store.
 +            max_iop_size: *DEFAULT_MAX_IOP_SIZE,
 +            use_constant_size_upload_parts: false,
 +            list_is_lexically_ordered: true,
-+            io_parallelism: DEFAULT_CLOUD_IO_PARALLELISM,
++            io_parallelism,
 +            download_retry_count: 0,
 +            io_tracker: Default::default(),
 +            store_prefix,
@@ -796,7 +1035,19 @@ diff --git a/rust/lance-io/src/object_store.rs b/rust/lance-io/src/object_store.
      /// Parse from a string URI.
      ///
      /// Returns the ObjectStore instance and the absolute path to the object.
-@@ -873,6 +896,17 @@
+@@ -812,6 +855,11 @@
+     /// window of 0 makes those streams never poll their input — e.g. a metadata-only `count_rows`
+     /// would hang rather than return.
+     pub fn io_parallelism(&self) -> usize {
++        // A host resolves its explicit per-store budget at open; a process-global
++        // environment override must not change it behind the host scheduler.
++        if self.scheme == "host" {
++            return self.io_parallelism;
++        }
+         std::env::var("LANCE_IO_THREADS")
+             .map(|val| val.parse::<usize>().unwrap())
+             .unwrap_or(self.io_parallelism)
+@@ -873,6 +921,17 @@
              }
              #[cfg(target_os = "linux")]
              "file+uring" => {
@@ -814,7 +1065,7 @@ diff --git a/rust/lance-io/src/object_store.rs b/rust/lance-io/src/object_store.
                  // Check if current-thread mode enabled
                  let use_current_thread = std::env::var("LANCE_URING_CURRENT_THREAD")
                      .map(|v| str_is_truthy(&v))
-@@ -938,6 +972,17 @@
+@@ -938,6 +997,17 @@
              }
              #[cfg(target_os = "linux")]
              "file+uring" => {
@@ -832,35 +1083,331 @@ diff --git a/rust/lance-io/src/object_store.rs b/rust/lance-io/src/object_store.
                  // Check if current-thread mode enabled
                  let use_current_thread = std::env::var("LANCE_URING_CURRENT_THREAD")
                      .map(|v| str_is_truthy(&v))
+diff --git a/rust/lance-io/src/scheduler.rs b/rust/lance-io/src/scheduler.rs
+--- a/rust/lance-io/src/scheduler.rs
++++ b/rust/lance-io/src/scheduler.rs
+@@ -5,6 +5,7 @@
+ use futures::channel::oneshot;
+ use futures::future::Either;
+ use futures::{FutureExt, TryFutureExt};
++use lance_core::utils::task_executor::{self, Executor};
+ use object_store::path::Path;
+ use std::collections::BinaryHeap;
+ use std::fmt::Debug;
+@@ -477,9 +478,13 @@
+ }
+
+ struct IoTask {
++    // A shared scheduler follows each request's owner, never its first query.
++    executor: Option<Arc<dyn Executor>>,
+     reader: Arc<dyn Reader>,
+     to_read: Range<u64>,
+-    when_done: Box<dyn FnOnce(Result<Bytes>) + Send>,
++    when_done: Option<Box<dyn FnOnce(Result<Bytes>) + Send>>,
++    // Pending requests have not reserved a slot and must not refund one on cancellation.
++    inflight: Option<Arc<IoQueue>>,
+     priority: u128,
+     bypass_backpressure: bool,
+ }
+@@ -529,13 +534,21 @@
+     fn num_bytes(&self) -> u64 {
+         self.to_read.end - self.to_read.start
+     }
+-    fn cancel(self) {
+-        (self.when_done)(Err(Error::internal(
++    fn complete(&mut self, result: Result<Bytes>) {
++        if let Some(queue) = self.inflight.take() {
++            queue.on_iop_complete();
++        }
++        if let Some(callback) = self.when_done.take() {
++            callback(result);
++        }
++    }
++    fn cancel(mut self) {
++        self.complete(Err(Error::internal(
+             "Scheduler closed before I/O was completed".to_string(),
+         )));
+     }
+
+-    async fn run(self) {
++    async fn run(mut self) {
+         let file_path = self.reader.path().as_ref();
+         let num_bytes = self.num_bytes();
+         let bytes = if self.to_read.start == self.to_read.end {
+@@ -563,7 +576,19 @@
+             range_end = self.to_read.end,
+             "File I/O completed"
+         );
+-        (self.when_done)(bytes);
++        self.complete(bytes);
++    }
++}
++
++impl Drop for IoTask {
++    fn drop(&mut self) {
++        // A host may discard a queued task before its first poll. Completion must
++        // still release the shared slot and resolve its batch instead of starving later queries.
++        if self.when_done.is_some() {
++            self.complete(Err(Error::internal(
++                "I/O task was cancelled before completion".to_string(),
++            )));
++        }
+     }
+ }
+
+@@ -575,8 +600,10 @@
+     loop {
+         let next_task = tasks.pop().await;
+         match next_task {
+-            Some(task) => {
+-                tokio::spawn(task.run());
++            Some(mut task) => {
++                task.inflight = Some(tasks.clone());
++                let executor = task.executor.clone();
++                task_executor::spawn_with_executor(executor, task.run());
+             }
+             None => {
+                 // The sender has been dropped, we are done
+@@ -909,7 +936,7 @@
+             // Best we can do here is fire and forget.  If the I/O loop is still running when the scheduler is
+             // dropped we can't wait for it to finish or we'd block a tokio thread.  We could spawn a blocking task
+             // to wait for it to finish but that doesn't seem helpful.
+-            tokio::task::spawn(async move { run_io_loop(io_queue_clone).await });
++            task_executor::spawn_background(async move { run_io_loop(io_queue_clone).await });
+             IoQueueType::Standard(io_queue)
+         };
+         Arc::new(Self {
+@@ -1019,15 +1046,15 @@
+
+         for (task_idx, iop) in request.into_iter().enumerate() {
+             let dest = dest.clone();
+-            let io_queue_clone = io_queue.clone();
+             let num_bytes = iop.end - iop.start;
+             let task = IoTask {
++                executor: task_executor::current_executor(),
++                inflight: None,
+                 reader: reader.clone(),
+                 to_read: iop,
+                 priority,
+                 bypass_backpressure,
+-                when_done: Box::new(move |data| {
+-                    io_queue_clone.on_iop_complete();
++                when_done: Some(Box::new(move |data| {
+                     let mut dest = dest.lock().unwrap();
+                     let chunk = DataChunk {
+                         data,
+@@ -1035,7 +1062,7 @@
+                         num_bytes,
+                     };
+                     dest.deliver_data(chunk);
+-                }),
++                })),
+             };
+             io_queue.push(task);
+         }
+@@ -1398,12 +1425,14 @@
+
+     fn make_task(priority: u128, bypass_backpressure: bool) -> IoTask {
+         IoTask {
++            executor: task_executor::current_executor(),
++            inflight: None,
+             reader: Arc::new(TrackingReader {
+                 get_range_count: Arc::new(AtomicU64::new(0)),
+                 path: Path::parse("test").unwrap(),
+             }),
+             to_read: 0..1,
+-            when_done: Box::new(|_| {}),
++            when_done: Some(Box::new(|_| {})),
+             priority,
+             bypass_backpressure,
+         }
 diff --git a/rust/lance-linalg/src/distance/hamming.rs b/rust/lance-linalg/src/distance/hamming.rs
 --- a/rust/lance-linalg/src/distance/hamming.rs
 +++ b/rust/lance-linalg/src/distance/hamming.rs
-@@ -630,6 +630,12 @@
+@@ -18,6 +18,8 @@
+ };
+ use arrow_schema::{DataType, Field, Schema, SchemaRef};
+ use rayon::prelude::*;
++
++mod host;
+
+ use crate::distance::assert_batch_layout;
+ use crate::{Error, Result};
+@@ -630,6 +632,19 @@
      row_ids: Option<&[u64]>,
      threshold: Option<u32>,
  ) -> PairwiseResult {
-+    // Outer query parallelism belongs to the host. A nested Rayon pool would
-+    // bypass its CPU budget and lose the calling query's resource context.
-+    if lance_core::utils::task_executor::current_executor().is_some() {
-+        return pairwise_hamming_distance(hashes, row_ids, threshold);
++    if let Some(executor) = lance_core::utils::task_executor::current_executor() {
++        return host::compute(
++            executor,
++            hashes.to_vec(),
++            row_ids,
++            threshold,
++            hashes.len(),
++            |hashes, ids, threshold, start, end| {
++                process_row_range(hashes, ids, threshold, start, end)
++            },
++        );
 +    }
 +
      let n = hashes.len();
      if n < 2 {
          return PairwiseResult::new();
-@@ -709,6 +715,12 @@
+@@ -709,6 +724,19 @@
      row_ids: Option<&[u64]>,
      threshold: Option<u32>,
  ) -> PairwiseResult {
-+    // Outer query parallelism belongs to the host. A nested Rayon pool would
-+    // bypass its CPU budget and lose the calling query's resource context.
-+    if lance_core::utils::task_executor::current_executor().is_some() {
-+        return pairwise_hamming_distance_binary(hashes, row_ids, threshold);
++    if let Some(executor) = lance_core::utils::task_executor::current_executor() {
++        return host::compute(
++            executor,
++            hashes.clone(),
++            row_ids,
++            threshold,
++            hashes.len(),
++            |hashes, ids, threshold, start, end| {
++                process_row_range_binary(hashes, ids, threshold, start, end)
++            },
++        );
 +    }
 +
      let n = hashes.len();
      if n < 2 {
          return PairwiseResult::new();
+diff --git a/rust/lance-linalg/src/distance/hamming/host.rs b/rust/lance-linalg/src/distance/hamming/host.rs
+--- /dev/null
++++ b/rust/lance-linalg/src/distance/hamming/host.rs
+@@ -0,0 +1,105 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: Copyright The Lance Authors
++
++//! Bounded host fork/join for the synchronous pairwise API, without a nested worker pool.
++
++use std::sync::{Arc, mpsc};
++use std::thread::Thread;
++
++use lance_core::utils::task_executor::{Executor, ExecutorGuard, TaskKind};
++
++use super::{PairwiseResult, compute_balanced_chunks};
++
++struct Completion {
++    sender: Option<mpsc::SyncSender<PairwiseResult>>,
++    caller: Thread,
++}
++impl Completion {
++    fn finish(mut self, result: PairwiseResult) {
++        // Each slot has one producer and capacity one, so CPU workers never block on delivery.
++        let _ = self.sender.take().unwrap().try_send(result);
++    }
++}
++impl Drop for Completion {
++    fn drop(&mut self) {
++        // Disconnect before waking: otherwise a cancelled worker can wake the caller
++        // just before its slot disconnects, leaving the caller parked forever.
++        drop(self.sender.take());
++        self.caller.unpark();
++    }
++}
++
++pub(super) fn compute<T, F>(
++    executor: Arc<dyn Executor>,
++    hashes: T,
++    row_ids: Option<&[u64]>,
++    threshold: Option<u32>,
++    rows: usize,
++    kernel: F,
++) -> PairwiseResult
++where
++    T: Send + Sync + 'static,
++    F: Fn(&T, Option<&[u64]>, u32, usize, usize) -> PairwiseResult + Send + Sync + 'static,
++{
++    if rows < 2 {
++        return PairwiseResult::new();
++    }
++    let threshold = threshold.unwrap_or(u32::MAX);
++    let pairs = rows.saturating_mul(rows - 1) / 2;
++    let parallelism = executor.cpu_parallelism().max(1);
++    if parallelism == 1 || pairs < 10_000 {
++        return kernel(&hashes, row_ids, threshold, 0, rows);
++    }
++    let hashes = Arc::new(hashes);
++    let row_ids = row_ids.map(Arc::<[u64]>::from);
++    let kernel = Arc::new(kernel);
++    let chunks = compute_balanced_chunks(rows, pairs.div_ceil(parallelism));
++    let mut receivers = Vec::with_capacity(chunks.len());
++    for (start, end) in chunks {
++        let (sender, receiver) = mpsc::sync_channel(1);
++        let completion = Completion {
++            sender: Some(sender),
++            caller: std::thread::current(),
++        };
++        let hashes = hashes.clone();
++        let row_ids = row_ids.clone();
++        let kernel = kernel.clone();
++        let owner = executor.clone();
++        executor.schedule(
++            TaskKind::Cpu,
++            Box::new(move || {
++                let _scope = ExecutorGuard::enter(owner);
++                let result = kernel(&hashes, row_ids.as_deref(), threshold, start, end);
++                completion.finish(result);
++            }),
++        );
++        receivers.push(receiver);
++    }
++    // No Tokio bridge is needed to join. Helping children prevents starvation when
++    // every host worker is inside a synchronous reader waiting for its own children.
++    let mut results: Vec<Option<PairwiseResult>> = (0..receivers.len()).map(|_| None).collect();
++    let mut remaining = receivers.len();
++    while remaining != 0 {
++        for (receiver, result) in receivers.iter().zip(results.iter_mut()) {
++            if result.is_some() {
++                continue;
++            }
++            match receiver.try_recv() {
++                Ok(part) => {
++                    *result = Some(part);
++                    remaining -= 1;
++                }
++                Err(mpsc::TryRecvError::Empty) => {}
++                Err(mpsc::TryRecvError::Disconnected) => panic!("host Hamming task was cancelled"),
++            }
++        }
++        if remaining != 0 && !executor.run_cpu_task() {
++            std::thread::park();
++        }
++    }
++    let mut result = PairwiseResult::new();
++    for part in results {
++        result.extend(part.unwrap());
++    }
++    result
++}
+diff --git a/rust/lance/src/dataset/fragment.rs b/rust/lance/src/dataset/fragment.rs
+--- a/rust/lance/src/dataset/fragment.rs
++++ b/rust/lance/src/dataset/fragment.rs
+@@ -166,7 +166,8 @@
+             let num_rows = range.end - range.start;
+             let reader = reader.clone();
+             let projection = projection.clone();
+-            let task = tokio::task::spawn(async move {
++            // V1 decode must follow the same query executor as modern file reads.
++            let task = lance_core::utils::task_executor::spawn(async move {
+                 v1_read_batch(
+                     &reader,
+                     &ReadBatchParams::Range(range.clone()),
+diff --git a/rust/lance/src/dataset/take.rs b/rust/lance/src/dataset/take.rs
+--- a/rust/lance/src/dataset/take.rs
++++ b/rust/lance/src/dataset/take.rs
+@@ -436,7 +436,8 @@
+                     .await
+                     .map_err(|err| DataFusionError::External(Box::new(err)))
+             };
+-            async move { tokio::task::spawn(fut).await.unwrap() }
++            // Range takes can include CPU-heavy row reconstruction after I/O.
++            async move { lance_core::utils::task_executor::spawn(fut).await.unwrap() }
+         })
+         .buffered(batch_readahead);
+
 diff --git a/rust/lance/src/io/exec/filtered_read.rs b/rust/lance/src/io/exec/filtered_read.rs
 --- a/rust/lance/src/io/exec/filtered_read.rs
 +++ b/rust/lance/src/io/exec/filtered_read.rs

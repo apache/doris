@@ -722,6 +722,12 @@ Status build_lance_storage_options(const TFileScanRangeParams* scan_params,
                                    std::vector<std::string>* options) {
     DORIS_CHECK(options != nullptr);
     options->clear();
+    // Include the host budget in dataset/cache identity as well as the SDK open options.
+    // A catalog may override the SDK budget, while host dispatch still obeys its own bound.
+    if (config::enable_lance_host_executor) {
+        options->emplace_back("io_parallelism");
+        options->emplace_back(std::to_string(config::lance_io_parallelism));
+    }
     if (scan_params == nullptr || !scan_params->__isset.lance_scan_params ||
         !scan_params->lance_scan_params.__isset.lance_storage_options) {
         return Status::OK();
@@ -735,6 +741,10 @@ Status build_lance_storage_options(const TFileScanRangeParams* scan_params,
             return Status::InvalidArgument(
                     "Lance storage option '{}' contains a NUL and cannot reach lance-c",
                     key.substr(0, key.find('\0')));
+        }
+        if (config::enable_lance_host_executor && key == "io_parallelism") {
+            (*options)[1] = value;
+            continue;
         }
         options->emplace_back(key);
         options->emplace_back(value);

@@ -366,7 +366,7 @@ diff --git a/include/lance/host_executor.hpp b/include/lance/host_executor.hpp
 diff --git a/include/lance/lance.h b/include/lance/lance.h
 --- a/include/lance/lance.h
 +++ b/include/lance/lance.h
-@@ -187,8 +187,115 @@
+@@ -187,8 +187,117 @@
 
  typedef struct LanceDataset  LanceDataset;
  typedef struct LanceScanner  LanceScanner;
@@ -374,11 +374,13 @@ diff --git a/include/lance/lance.h b/include/lance/lance.h
 + * Tokio remains responsible for network readiness, timers, join notifications and shared I/O services.
 + * Operation-owned scan/decoder tasks and spawn_cpu use the injected executor.
 + */
-+#define LANCE_DORIS_HOST_RUNTIME_ABI 4
++#define LANCE_DORIS_HOST_RUNTIME_ABI 5
 +typedef struct LanceHostExecutor LanceHostExecutor;
 +typedef struct LanceHostExecutorScope LanceHostExecutorScope;
 +
 +/* Host-owned process services. submit consumes task_context and must call run or discard once.
++ * Queue 0 is CPU, 1 is blocking I/O, and 2 is deferred destruction. Keep accepting queue 2
++ * through lance_runtime_stop, including when new CPU/I/O submissions are rejected.
 + * Install before any Doris SDK call; drive the reactor on a host service thread. It creates no
 + * Rust worker or blocking threads. Keep context alive until all objects and the driver are closed.
 + */
@@ -541,7 +543,7 @@ diff --git a/src/async_dispatcher.rs b/src/async_dispatcher.rs
 +static HOST_DISPATCHER: LazyLock<HostDispatcher> = LazyLock::new(HostDispatcher::default);
 +
 +// Exactly one host drain owns the queue, preserving the C API's serial callback contract.
-+// A rejected host job is destroyed on the control reactor, outside SDK wake locks; its
++// A rejected host job is destroyed on host cleanup workers, outside SDK wake locks; its
 +// guard must still deliver accepted completions rather than leaking an exported stream.
 +struct HostDrain(bool);
 +impl HostDrain {
@@ -650,7 +652,7 @@ diff --git a/src/async_dispatcher.rs b/src/async_dispatcher.rs
 diff --git a/src/host_executor.rs b/src/host_executor.rs
 --- /dev/null
 +++ b/src/host_executor.rs
-@@ -0,0 +1,658 @@
+@@ -0,0 +1,917 @@
 +// SPDX-License-Identifier: Apache-2.0
 +// SPDX-FileCopyrightText: Copyright The Lance Authors
 +
@@ -841,18 +843,30 @@ diff --git a/src/host_executor.rs b/src/host_executor.rs
 +    }
 +}
 +impl Executor for HostRuntime {
++    fn cpu_parallelism(&self) -> usize {
++        self.driver_limits[0] as usize
++    }
++    fn run_cpu_task(&self) -> bool {
++        self.run(0, 1) != 0
++    }
++
 +    fn schedule(&self, kind: TaskKind, task: Task) {
 +        let queue = match kind {
 +            TaskKind::Cpu => 0,
 +            TaskKind::Io => 1,
++            TaskKind::Cleanup => {
++                crate::host_services::SERVICES
++                    .get()
++                    .expect("host services installed")
++                    .schedule(TaskKind::Cleanup, task);
++                return;
++            }
 +        };
 +        {
 +            let mut tasks = self.queues[queue].lock().unwrap_or_else(|e| e.into_inner());
 +            if self.closed.load(Ordering::Acquire) {
 +                // Cancellation can wake a task while holding a library lock.
-+                RT.spawn(async move {
-+                    drop(task);
-+                });
++                task_executor::defer_drop(RT.handle().clone(), task);
 +                return;
 +            }
 +            tasks.push_back(task);
@@ -877,14 +891,25 @@ diff --git a/src/host_executor.rs b/src/host_executor.rs
 +            .collect();
 +        let context = self.context;
 +        let release = self.release_context;
-+        RT.spawn(async move {
-+            drop(tasks);
-+            if let Some(release) = release {
-+                unsafe { release(context as *mut c_void) };
-+            }
-+        });
++        task_executor::defer_drop(
++            RT.handle().clone(),
++            (tasks, ReleasedContext { context, release }),
++        );
 +    }
 +}
++// Tuple field order drops queued futures before releasing their foreign context, even on unwind.
++struct ReleasedContext {
++    context: usize,
++    release: Option<unsafe extern "C" fn(*mut c_void)>,
++}
++impl Drop for ReleasedContext {
++    fn drop(&mut self) {
++        if let Some(release) = self.release {
++            unsafe { release(self.context as *mut c_void) };
++        }
++    }
++}
++
 +// The host can discard a queued driver during shutdown; no raw SDK pointer outlives its reader.
 +struct QueueDriver {
 +    runtime: Weak<HostRuntime>,
@@ -1308,11 +1333,247 @@ diff --git a/src/host_executor.rs b/src/host_executor.rs
 +        }
 +        assert_eq!(counts.released.load(Ordering::SeqCst), 1);
 +    }
++    #[test]
++    fn shared_io_scheduler_preserves_each_request_executor() {
++        use bytes::Bytes;
++        use futures::future::BoxFuture;
++        use lance_core::deepsize::{Context as SizeContext, DeepSizeOf};
++        use lance_io::{
++            object_store::ObjectStore,
++            scheduler::{ScanScheduler, SchedulerConfig},
++            traits::Reader,
++        };
++        use object_store::path::Path;
++        use std::ops::Range;
++
++        struct ProbeReader {
++            path: Path,
++            expected: Mutex<Option<Weak<dyn Executor>>>,
++        }
++        impl std::fmt::Debug for ProbeReader {
++            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++                f.write_str("ProbeReader")
++            }
++        }
++        impl DeepSizeOf for ProbeReader {
++            fn deep_size_of_children(&self, _: &mut SizeContext) -> usize {
++                0
++            }
++        }
++        impl Reader for ProbeReader {
++            fn path(&self) -> &Path {
++                &self.path
++            }
++            fn block_size(&self) -> usize {
++                1
++            }
++            fn io_parallelism(&self) -> usize {
++                2
++            }
++            fn size(&self) -> BoxFuture<'_, object_store::Result<usize>> {
++                Box::pin(async { Ok(4) })
++            }
++            fn get_range(
++                &self,
++                range: Range<usize>,
++            ) -> BoxFuture<'static, object_store::Result<Bytes>> {
++                let expected = self
++                    .expected
++                    .lock()
++                    .unwrap()
++                    .as_ref()
++                    .unwrap()
++                    .upgrade()
++                    .unwrap();
++                Box::pin(async move {
++                    let actual =
++                        task_executor::current_executor().expect("I/O lost its query executor");
++                    assert!(
++                        Arc::ptr_eq(&expected, &actual),
++                        "I/O inherited the scheduler creator instead of this request"
++                    );
++                    Ok(Bytes::from(vec![1; range.len()]))
++                })
++            }
++            fn get_all(&self) -> BoxFuture<'_, object_store::Result<Bytes>> {
++                self.get_range(0..4)
++            }
++        }
++        let first = HostRuntime::new(Default::default());
++        let second = HostRuntime::new(Default::default());
++        let scheduler = first.block_on(async {
++            use lance_io::object_store::{
++                ObjectStoreParams, storage_options::StorageOptionsAccessor,
++            };
++            let params = ObjectStoreParams {
++                storage_options_accessor: Some(Arc::new(
++                    StorageOptionsAccessor::with_static_options(std::collections::HashMap::from([
++                        ("io_parallelism".into(), "2".into()),
++                    ])),
++                )),
++                ..Default::default()
++            };
++            let store = ObjectStore::with_host_store(
++                Arc::new(object_store::memory::InMemory::new()),
++                "probe".into(),
++                &params,
++            )
++            .unwrap();
++            ScanScheduler::new(Arc::new(store), SchedulerConfig::default_for_testing())
++        });
++        let reader = Arc::new(ProbeReader {
++            path: Path::from("probe"),
++            expected: Mutex::new(None),
++        });
++        let file = scheduler.open_reader(reader.clone());
++        for runtime in [&first, &second] {
++            let executor: Arc<dyn Executor> = (*runtime).clone();
++            *reader.expected.lock().unwrap() = Some(Arc::downgrade(&executor));
++            let bytes = runtime
++                .block_on(async {
++                    file.submit_request(std::iter::once(0..4).collect(), 0)
++                        .await
++                })
++                .unwrap();
++            assert_eq!(bytes[0].as_ref(), &[1; 4]);
++        }
++        // Retiring queued I/O must return the shared scheduler's slots to later queries.
++        let pending = first.block_on(async {
++            (0..2)
++                .map(|_| file.submit_request(std::iter::once(0..4).collect(), 0))
++                .collect::<Vec<_>>()
++        });
++        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
++        while first.queues[0].lock().unwrap().len() < 2 {
++            assert!(
++                std::time::Instant::now() < deadline,
++                "I/O loop did not dispatch queued requests"
++            );
++            std::thread::yield_now();
++        }
++        first.retire();
++        drop(pending);
++        let result = second.block_on(async {
++            tokio::time::timeout(
++                std::time::Duration::from_secs(2),
++                file.submit_request(std::iter::once(0..4).collect(), 0),
++            )
++            .await
++        });
++        assert!(result.is_ok(), "cancelled query leaked shared I/O capacity");
++        assert!(result.unwrap().is_ok());
++    }
++
++    #[test]
++    fn hamming_pairwise_uses_host_cpu_chunks_without_rayon_workers() {
++        use lance_linalg::distance::hamming::{
++            pairwise_hamming_distance, pairwise_hamming_distance_parallel,
++        };
++        let runtime = HostRuntime::new(LanceHostExecutorOptionsV1 {
++            max_cpu_drivers: 4,
++            ..Default::default()
++        });
++        let hashes: Vec<u64> = (0..300).map(|x| x * 0x10001).collect();
++        let expected = pairwise_hamming_distance(&hashes, None, Some(3));
++        let result =
++            runtime.block_on(async { pairwise_hamming_distance_parallel(&hashes, None, Some(3)) });
++        assert_eq!(result.row_id_a, expected.row_id_a);
++        assert_eq!(result.row_id_b, expected.row_id_b);
++        assert_eq!(result.distances, expected.distances);
++        assert!(
++            runtime.completed.load(Ordering::Relaxed) > 1,
++            "Hamming bypassed host CPU scheduling"
++        );
++    }
++
++    #[test]
++    fn legacy_fts_load_keeps_the_query_executor() {
++        use lance_core::{
++            Error, Result,
++            cache::LanceCache,
++            deepsize::{Context as SizeContext, DeepSizeOf},
++        };
++        use lance_index::scalar::{
++            IndexFile, IndexReader, IndexStore, IndexWriter, inverted::InvertedIndex,
++        };
++        use std::any::Any;
++        #[derive(Clone)]
++        struct ProbeStore {
++            expected: Weak<dyn Executor>,
++            wrong: Arc<AtomicBool>,
++        }
++        impl std::fmt::Debug for ProbeStore {
++            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++                f.write_str("ProbeStore")
++            }
++        }
++        impl DeepSizeOf for ProbeStore {
++            fn deep_size_of_children(&self, _: &mut SizeContext) -> usize {
++                0
++            }
++        }
++        #[async_trait::async_trait]
++        impl IndexStore for ProbeStore {
++            fn as_any(&self) -> &dyn Any {
++                self
++            }
++            fn clone_arc(&self) -> Arc<dyn IndexStore> {
++                Arc::new(self.clone())
++            }
++            fn io_parallelism(&self) -> usize {
++                2
++            }
++            async fn new_index_file(
++                &self,
++                _: &str,
++                _: arrow_schema::SchemaRef,
++            ) -> Result<Box<dyn IndexWriter>> {
++                unreachable!()
++            }
++            async fn open_index_file(&self, name: &str) -> Result<Arc<dyn IndexReader>> {
++                if name != "metadata.lance" {
++                    let expected = self.expected.upgrade().unwrap();
++                    let same = task_executor::current_executor()
++                        .is_some_and(|actual| Arc::ptr_eq(&expected, &actual));
++                    self.wrong.fetch_or(!same, Ordering::SeqCst);
++                }
++                Err(Error::io("probe stops after checking executor ownership"))
++            }
++            fn with_io_priority(&self, _: u64) -> Arc<dyn IndexStore> {
++                self.clone_arc()
++            }
++            async fn copy_index_file(&self, _: &str, _: &dyn IndexStore) -> Result<IndexFile> {
++                unreachable!()
++            }
++            async fn rename_index_file(&self, _: &str, _: &str) -> Result<IndexFile> {
++                unreachable!()
++            }
++            async fn delete_index_file(&self, _: &str) -> Result<()> {
++                unreachable!()
++            }
++            async fn list_files_with_sizes(&self) -> Result<Vec<IndexFile>> {
++                unreachable!()
++            }
++        }
++        let runtime = HostRuntime::new(Default::default());
++        let executor: Arc<dyn Executor> = runtime.clone();
++        let wrong = Arc::new(AtomicBool::new(false));
++        let store = Arc::new(ProbeStore {
++            expected: Arc::downgrade(&executor),
++            wrong: wrong.clone(),
++        });
++        let result = runtime.block_on(InvertedIndex::load(store, None, &LanceCache::no_cache()));
++        assert!(result.is_err());
++        assert!(
++            !wrong.load(Ordering::SeqCst),
++            "legacy FTS load escaped to the reactor"
++        );
++    }
 +}
 diff --git a/src/host_services.rs b/src/host_services.rs
 --- /dev/null
 +++ b/src/host_services.rs
-@@ -0,0 +1,156 @@
+@@ -0,0 +1,166 @@
 +// SPDX-License-Identifier: Apache-2.0
 +// SPDX-FileCopyrightText: Copyright The Lance Authors
 +
@@ -1344,6 +1605,7 @@ diff --git a/src/host_services.rs b/src/host_services.rs
 +}
 +pub(crate) static SERVICES: OnceLock<Arc<HostServices>> = OnceLock::new();
 +static DRIVING: AtomicBool = AtomicBool::new(false);
++static STOPPING: std::sync::Mutex<()> = std::sync::Mutex::new(());
 +static STOPPED: AtomicBool = AtomicBool::new(false);
 +static STOP: tokio::sync::Notify = tokio::sync::Notify::const_new();
 +
@@ -1360,10 +1622,8 @@ diff --git a/src/host_services.rs b/src/host_services.rs
 +    let _ = catch_unwind(AssertUnwindSafe(|| {
 +        let task = unsafe { Box::from_raw(context.cast::<NativeTask>()) };
 +        // Rejection may occur inside a wake callback that holds an SDK lock. Future
-+        // destruction belongs on the host-driven control reactor, outside that callback.
-+        crate::runtime::RT.spawn(async move {
-+            drop(task);
-+        });
++        // destruction is handed off to host cleanup workers, outside that callback stack.
++        task_executor::defer_drop(crate::runtime::RT.handle().clone(), task);
 +    }));
 +}
 +
@@ -1372,6 +1632,7 @@ diff --git a/src/host_services.rs b/src/host_services.rs
 +    let queue = match kind {
 +        TaskKind::Cpu => 0,
 +        TaskKind::Io => 1,
++        TaskKind::Cleanup => 2,
 +    };
 +    unsafe {
 +        submit(
@@ -1463,16 +1724,26 @@ diff --git a/src/host_services.rs b/src/host_services.rs
 +/// Call after all sessions and readers are closed; keep the reactor driver alive until return.
 +#[unsafe(no_mangle)]
 +pub extern "C" fn lance_runtime_stop() {
++    let _stop = STOPPING.lock().unwrap_or_else(|error| error.into_inner());
++    if STOPPED.load(Ordering::Acquire) {
++        return;
++    }
 +    // Rejected I/O jobs may still own callback completions on the live reactor.
 +    // Finish those before stopping the driver that performs deferred destruction.
 +    crate::async_dispatcher::drain_host_callbacks();
++    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
++    crate::runtime::RT.spawn(async move {
++        task_executor::drain_deferred_drops().await;
++        let _ = sender.send(());
++    });
++    let _ = receiver.recv();
 +    STOPPED.store(true, Ordering::Release);
 +    STOP.notify_one();
 +}
 diff --git a/src/host_storage.rs b/src/host_storage.rs
 --- /dev/null
 +++ b/src/host_storage.rs
-@@ -0,0 +1,660 @@
+@@ -0,0 +1,685 @@
 +// SPDX-License-Identifier: Apache-2.0
 +// SPDX-FileCopyrightText: Copyright The Lance Authors
 +
@@ -2132,6 +2403,31 @@ diff --git a/src/host_storage.rs b/src/host_storage.rs
 +        let error = block_on(file.read(0, 5)).unwrap_err();
 +        assert!(error.to_string().contains("fewer bytes"));
 +    }
++    #[test]
++    fn host_storage_accepts_explicit_io_parallelism_and_rejects_invalid_limits() {
++        use lance_io::object_store::{ObjectStoreParams, storage_options::StorageOptionsAccessor};
++        use std::collections::HashMap;
++        let provider = HostProvider { storage: storage() };
++        for value in ["7", "0", "-1", "invalid", "4294967296"] {
++            let params = ObjectStoreParams {
++                storage_options_accessor: Some(Arc::new(
++                    StorageOptionsAccessor::with_static_options(HashMap::from([(
++                        "io_parallelism".into(),
++                        value.into(),
++                    )])),
++                )),
++                ..Default::default()
++            };
++            let result = block_on(
++                provider.new_store(Url::parse("s3://example-bucket/dataset").unwrap(), &params),
++            );
++            if value == "7" {
++                assert_eq!(result.unwrap().io_parallelism(), 7);
++            } else {
++                assert!(result.is_err(), "accepted invalid io_parallelism={value}");
++            }
++        }
++    }
 +}
 diff --git a/src/lib.rs b/src/lib.rs
 --- a/src/lib.rs
@@ -2245,7 +2541,62 @@ diff --git a/src/runtime.rs b/src/runtime.rs
 diff --git a/src/scanner.rs b/src/scanner.rs
 --- a/src/scanner.rs
 +++ b/src/scanner.rs
-@@ -2350,7 +2350,9 @@
+@@ -2323,12 +2323,11 @@
+
+     // Wrap non-Send raw pointers for the async task.
+     // Safety: The C caller guarantees callback_ctx remains valid until callback fires.
+-    #[derive(Clone, Copy)]
+     struct SendCallback {
+         callback: LanceCallback,
+-        ctx: *mut c_void,
++        ctx: usize,
++        delivered: AtomicBool,
+     }
+-    unsafe impl Send for SendCallback {}
+
+     impl SendCallback {
+         fn dispatch(
+@@ -2337,24 +2336,49 @@
+             result: *mut c_void,
+             error: Option<(LanceErrorCode, String)>,
+         ) {
+-            async_dispatcher::dispatch_callback(self.callback, self.ctx, status, result, error);
++            if !self.delivered.swap(true, Ordering::AcqRel) {
++                async_dispatcher::dispatch_callback(
++                    self.callback,
++                    self.ctx as *mut c_void,
++                    status,
++                    result,
++                    error,
++                );
++            }
++        }
++    }
++    impl Drop for SendCallback {
++        fn drop(&mut self) {
++            // A rejected host task may never be polled. Its accepted C completion must
++            // still fire exactly once so the caller can release its callback context.
++            self.dispatch(
++                -1,
++                ptr::null_mut(),
++                Some((
++                    LanceErrorCode::Internal,
++                    "async scan was cancelled before completion".into(),
++                )),
++            );
+         }
+     }
+
+-    let send_cb = SendCallback {
++    let send_cb = Arc::new(SendCallback {
+         callback,
+-        ctx: callback_ctx,
+-    };
++        ctx: callback_ctx as usize,
++        delivered: AtomicBool::new(false),
++    });
+
+     // Shared poison flag moved into the task: the GuardedReader below flips
      // it if a panic is caught during the consumer's later `get_next` calls.
      let poisoned = s.poison_flag();
 
@@ -2256,6 +2607,11 @@ diff --git a/src/scanner.rs b/src/scanner.rs
          // Copies kept outside the inner future (which consumes the originals)
          // so the panic arm below can still poison the handle and report.
          let poisoned_on_panic = Arc::clone(&poisoned);
+-        let send_cb_on_panic = send_cb;
++        let send_cb_on_panic = send_cb.clone();
+         // The whole task body runs under catch_unwind (issue #61): a panic
+         // here would otherwise die as an unobserved JoinError — the callback
+         // would never fire and the C caller would hang forever waiting for a
 diff --git a/src/stream_guard.rs b/src/stream_guard.rs
 --- a/src/stream_guard.rs
 +++ b/src/stream_guard.rs
@@ -2478,7 +2834,7 @@ diff --git a/tests/common/mod.rs b/tests/common/mod.rs
 diff --git a/tests/host_callback_test.rs b/tests/host_callback_test.rs
 --- /dev/null
 +++ b/tests/host_callback_test.rs
-@@ -0,0 +1,123 @@
+@@ -0,0 +1,174 @@
 +// SPDX-License-Identifier: Apache-2.0
 +// SPDX-FileCopyrightText: Copyright The Lance Authors
 +
@@ -2486,18 +2842,19 @@ diff --git a/tests/host_callback_test.rs b/tests/host_callback_test.rs
 +mod common;
 +use lance_c::*;
 +use std::ffi::c_void;
-+use std::sync::atomic::{AtomicUsize, Ordering};
++use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 +use std::sync::{Arc, Mutex, mpsc};
 +
 +type Job = Box<dyn FnOnce() + Send>;
++static REJECT: AtomicBool = AtomicBool::new(false);
 +unsafe extern "C" fn submit(
 +    context: *mut c_void,
-+    _: u32,
++    queue: u32,
 +    run: unsafe extern "C" fn(*mut c_void),
 +    discard: unsafe extern "C" fn(*mut c_void),
 +    task: *mut c_void,
 +) {
-+    if std::env::var_os("LANCE_CALLBACK_REJECT").is_some() {
++    if queue != 2 && REJECT.load(Ordering::Acquire) {
 +        unsafe { discard(task) };
 +    } else {
 +        let sender = unsafe { &*context.cast::<mpsc::Sender<Option<Job>>>() };
@@ -2513,9 +2870,13 @@ diff --git a/tests/host_callback_test.rs b/tests/host_callback_test.rs
 +    concurrent: AtomicUsize,
 +    done: AtomicUsize,
 +    errors: AtomicUsize,
++    reactor: Option<std::thread::ThreadId>,
 +}
 +unsafe extern "C" fn observe(context: *mut c_void, status: i32, result: *mut c_void) {
 +    let probe = unsafe { &*context.cast::<Probe>() };
++    if probe.reactor == Some(std::thread::current().id()) {
++        probe.errors.fetch_add(1, Ordering::SeqCst);
++    }
 +    let active = probe.active.fetch_add(1, Ordering::SeqCst) + 1;
 +    probe.concurrent.fetch_max(active, Ordering::SeqCst);
 +    if status != -1 || !result.is_null() || lance_last_error_code() == LanceErrorCode::Ok {
@@ -2572,8 +2933,47 @@ diff --git a/tests/host_callback_test.rs b/tests/host_callback_test.rs
 +        0
 +    );
 +    let reactor = std::thread::spawn(|| assert_eq!(lance_runtime_drive(), 0));
++    let reject = std::env::var_os("LANCE_CALLBACK_REJECT").is_some();
++    let temp = tempfile::tempdir().unwrap();
++    let scanner = if reject {
++        use arrow::array::Int64Array;
++        use arrow::datatypes::{DataType, Field, Schema};
++        use arrow::record_batch::{RecordBatch, RecordBatchIterator};
++        let schema = Arc::new(Schema::new(vec![Field::new(
++            "value",
++            DataType::Int64,
++            false,
++        )]));
++        let batch = RecordBatch::try_new(
++            schema.clone(),
++            vec![Arc::new(Int64Array::from_iter_values(0..8))],
++        )
++        .unwrap();
++        lance_c::runtime::block_on(async {
++            lance::Dataset::write(
++                Box::new(RecordBatchIterator::new(vec![Ok(batch)], schema)),
++                temp.path().to_str().unwrap(),
++                None,
++            )
++            .await
++            .unwrap();
++        });
++        let uri = std::ffi::CString::new(temp.path().to_str().unwrap()).unwrap();
++        let dataset = unsafe { lance_dataset_open(uri.as_ptr(), std::ptr::null(), 0) };
++        assert!(!dataset.is_null());
++        let scanner = unsafe { lance_scanner_new(dataset, std::ptr::null(), std::ptr::null()) };
++        assert!(!scanner.is_null());
++        unsafe { lance_dataset_close(dataset) };
++        scanner
++    } else {
++        std::ptr::null_mut()
++    };
++    REJECT.store(reject, Ordering::Release);
 +    let before = std::fs::read_dir("/proc/self/task").unwrap().count();
-+    let probe = Box::<Probe>::default();
++    let probe = Box::new(Probe {
++        reactor: Some(reactor.thread().id()),
++        ..Default::default()
++    });
 +    for _ in 0..64 {
 +        unsafe {
 +            lance_scanner_scan_async(
@@ -2583,8 +2983,15 @@ diff --git a/tests/host_callback_test.rs b/tests/host_callback_test.rs
 +            )
 +        };
 +    }
++    if reject {
++        // A valid scan accepted by the C API must also complete when its first poll is rejected.
++        unsafe {
++            lance_scanner_scan_async(scanner, Some(observe), &*probe as *const _ as *mut c_void)
++        };
++        unsafe { lance_scanner_close(scanner) };
++    }
 +    lance_runtime_stop();
-+    assert_eq!(probe.done.load(Ordering::SeqCst), 64);
++    assert_eq!(probe.done.load(Ordering::SeqCst), 64 + usize::from(reject));
 +    assert_eq!(probe.concurrent.load(Ordering::SeqCst), 1);
 +    assert_eq!(probe.errors.load(Ordering::SeqCst), 0);
 +    reactor.join().unwrap();
@@ -2896,7 +3303,7 @@ diff --git a/tests/host_file_reader_test.rs b/tests/host_file_reader_test.rs
 diff --git a/tests/host_storage_test.rs b/tests/host_storage_test.rs
 --- /dev/null
 +++ b/tests/host_storage_test.rs
-@@ -0,0 +1,257 @@
+@@ -0,0 +1,269 @@
 +// SPDX-License-Identifier: Apache-2.0
 +// SPDX-FileCopyrightText: Copyright The Lance Authors
 +
@@ -3100,6 +3507,16 @@ diff --git a/tests/host_storage_test.rs b/tests/host_storage_test.rs
 +                    cache.close().await;
 +                }
 +                "rayon" => {
++                    let options = LanceHostExecutorOptionsV1 {
++                        max_cpu_drivers: 4,
++                        max_io_drivers: 4,
++                        context: &*sender as *const _ as *mut c_void,
++                        submit_task: Some(submit),
++                        ..Default::default()
++                    };
++                    let executor = unsafe { lance_host_executor_new_v1(&options) };
++                    let scope = unsafe { lance_host_executor_enter(executor) };
++                    assert!(!scope.is_null());
 +                    let hashes: Vec<_> = (0..200_u64).collect();
 +                    let actual = lance_linalg::distance::pairwise_hamming_distance_parallel(
 +                        &hashes,
@@ -3135,6 +3552,8 @@ diff --git a/tests/host_storage_test.rs b/tests/host_storage_test.rs
 +                        threads(),
 +                        "distance computation started a Rayon pool"
 +                    );
++                    assert_eq!(unsafe { lance_host_executor_leave(scope) }, 0);
++                    unsafe { lance_host_executor_free(executor) };
 +                }
 +                _ => unreachable!(),
 +            }

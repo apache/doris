@@ -1268,6 +1268,8 @@ DECLARE_Int64(lance_metadata_cache_size_bytes);
 DECLARE_Bool(enable_lance_host_executor);
 // BE-wide background CPU thread limit, applied when the host runtime starts.
 DECLARE_Int32(lance_background_thread_pool_size);
+DECLARE_Int32(lance_io_parallelism);
+DECLARE_Int32(lance_cpu_parallelism);
 // Runtime BTree selection uses page metadata and preserves the explicit fragment domain.
 DECLARE_Bool(enable_lance_scalar_index_auto_selection);
 
