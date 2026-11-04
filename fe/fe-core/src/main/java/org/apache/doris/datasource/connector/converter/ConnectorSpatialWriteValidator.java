@@ -65,8 +65,7 @@ public final class ConnectorSpatialWriteValidator {
     public static void validate(Column targetColumn, Expression source) {
         Type targetType = targetColumn.getType();
         if (targetType.typeContainsSpatialType()) {
-            validateRequiredArrayNulls(source, targetColumn, targetColumn.getName());
-            validateExpression(source, targetType, targetColumn.getName());
+            validateExpression(source, targetColumn, targetColumn.getName());
         }
     }
 
@@ -89,19 +88,28 @@ public final class ConnectorSpatialWriteValidator {
             return;
         }
         for (Expression element : elements) {
-            if (element.isNullLiteral() || element instanceof Cast && element.child(0).isNullLiteral()) {
+            // Multiple identity casts around NULL still violate a required LIST element.
+            Expression value = element;
+            while (value instanceof Alias || value instanceof Cast) {
+                value = value.child(0);
+            }
+            if (value.isNullLiteral()) {
                 throw new AnalysisException("Spatial connector write cannot put NULL into required array element '"
                         + columnName + "[]'");
             }
         }
     }
 
-    private static void validateExpression(Expression expression, Type targetType, String columnName) {
+    private static void validateExpression(Expression expression, Column targetColumn, String columnName) {
+        Type targetType = targetColumn.getType();
         if (!targetType.typeContainsSpatialType()) {
             return;
         }
+        // ArrayType cannot retain requiredness. Keep the imported child Column at
+        // every level, e.g. the items list in STRUCT<items:ARRAY<GEOMETRY>>.
+        validateRequiredArrayNulls(expression, targetColumn, columnName);
         if (expression instanceof Alias) {
-            validateExpression(expression.child(0), targetType, columnName);
+            validateExpression(expression.child(0), targetColumn, columnName);
             return;
         }
         if (expression.isNullLiteral()) {
@@ -110,37 +118,36 @@ public final class ConnectorSpatialWriteValidator {
         DataType targetDataType = DataType.fromCatalogType(targetType);
         if (expression instanceof If && expression.getDataType().equals(targetDataType)) {
             If branch = (If) expression;
-            validateExpression(branch.getTrueValue(), targetType, columnName);
-            validateExpression(branch.getFalseValue(), targetType, columnName);
+            validateExpression(branch.getTrueValue(), targetColumn, columnName);
+            validateExpression(branch.getFalseValue(), targetColumn, columnName);
             return;
         }
         if (expression instanceof Cast && expression.getDataType().equals(targetDataType)) {
-            validateExpression(expression.child(0), targetType, columnName);
+            validateExpression(expression.child(0), targetColumn, columnName);
             return;
         }
         if (expression instanceof CaseWhen && expression.getDataType().equals(targetDataType)) {
             CaseWhen caseWhen = (CaseWhen) expression;
             caseWhen.getWhenClauses().forEach(clause ->
-                    validateExpression(clause.getResult(), targetType, columnName));
-            caseWhen.getDefaultValue().ifPresent(value -> validateExpression(value, targetType, columnName));
+                    validateExpression(clause.getResult(), targetColumn, columnName));
+            caseWhen.getDefaultValue().ifPresent(value -> validateExpression(value, targetColumn, columnName));
             return;
         }
         if (expression instanceof Coalesce && expression.getDataType().equals(targetDataType)) {
-            expression.children().forEach(child -> validateExpression(child, targetType, columnName));
+            expression.children().forEach(child -> validateExpression(child, targetColumn, columnName));
             return;
         }
         // INSERT VALUES can fold array/map/struct constructors containing typed NULLs to literals.
         // Inspect their values as well, rather than rejecting a NULL leaf's original CRS/type.
         if (expression instanceof ArrayLiteral && targetType instanceof ArrayType) {
             ((ArrayLiteral) expression).getValue().forEach(element ->
-                    validateExpression(element, ((ArrayType) targetType).getItemType(), columnName + "[]"));
+                    validateExpression(element, targetColumn.getChildren().get(0), columnName + "[]"));
             return;
         }
         if (expression instanceof MapLiteral && targetType instanceof MapType) {
-            MapType target = (MapType) targetType;
             ((MapLiteral) expression).getValue().forEach((key, value) -> {
-                validateExpression(key, target.getKeyType(), columnName + ".key");
-                validateExpression(value, target.getValueType(), columnName + ".value");
+                validateExpression(key, targetColumn.getChildren().get(0), columnName + ".key");
+                validateExpression(value, targetColumn.getChildren().get(1), columnName + ".value");
             });
             return;
         }
@@ -151,7 +158,7 @@ public final class ConnectorSpatialWriteValidator {
                 throw new AnalysisException("Spatial connector write struct fields do not match: " + columnName);
             }
             for (int i = 0; i < target.getFields().size(); i++) {
-                validateExpression(literal.getValue().get(i), target.getFields().get(i).getType(),
+                validateExpression(literal.getValue().get(i), targetColumn.getChildren().get(i),
                         columnName + "." + target.getFields().get(i).getName());
             }
             return;
@@ -159,16 +166,15 @@ public final class ConnectorSpatialWriteValidator {
         // Inspect constructor inputs before their casts can erase a nested leaf's CRS identity.
         if (expression instanceof Array && targetType instanceof ArrayType) {
             for (Expression element : ((Array) expression).getArguments()) {
-                validateExpression(element, ((ArrayType) targetType).getItemType(), columnName + "[]");
+                validateExpression(element, targetColumn.getChildren().get(0), columnName + "[]");
             }
             return;
         }
         if (expression instanceof CreateMap && targetType instanceof MapType) {
             CreateMap map = (CreateMap) expression;
-            MapType target = (MapType) targetType;
             for (int i = 0; i < map.arity(); i += 2) {
-                validateExpression(map.getArgument(i), target.getKeyType(), columnName + ".key");
-                validateExpression(map.getArgument(i + 1), target.getValueType(), columnName + ".value");
+                validateExpression(map.getArgument(i), targetColumn.getChildren().get(0), columnName + ".key");
+                validateExpression(map.getArgument(i + 1), targetColumn.getChildren().get(1), columnName + ".value");
             }
             return;
         }
@@ -180,7 +186,7 @@ public final class ConnectorSpatialWriteValidator {
                 throw new AnalysisException("Spatial connector write struct fields do not match: " + columnName);
             }
             for (int i = 0; i < target.getFields().size(); i++) {
-                validateExpression(expression.child(i * step + step - 1), target.getFields().get(i).getType(),
+                validateExpression(expression.child(i * step + step - 1), targetColumn.getChildren().get(i),
                         columnName + "." + target.getFields().get(i).getName());
             }
             return;

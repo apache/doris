@@ -36,14 +36,20 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeogFromWKB;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -156,6 +162,129 @@ public class ConnectorSpatialWriteValidatorTest {
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 () -> ConnectorSpatialWriteValidator.validate(target, nullElement));
         Assertions.assertTrue(exception.getMessage().contains("required array element"), exception.getMessage());
+    }
+
+    @Test
+    public void testStructRequiredSpatialListsRejectNullConstructors() {
+        for (String kind : ImmutableList.of("GEOMETRY", "GEOGRAPHY")) {
+            ConnectorType list = spatialList(kind, false);
+            Column target = importedColumn(ConnectorType.structOf(ImmutableList.of("items"),
+                    ImmutableList.of(list)));
+            Expression values = new CreateNamedStruct(new StringLiteral("items"),
+                    new Array(new Cast(NullLiteral.INSTANCE, spatialLeaf(kind))));
+            assertRequiredNullRejected(target, values, "payload.items[]");
+        }
+    }
+
+    @Test
+    public void testMapRequiredSpatialListsRejectNullConstructors() {
+        for (String kind : ImmutableList.of("GEOMETRY", "GEOGRAPHY")) {
+            Column target = importedColumn(ConnectorType.mapOf(ConnectorType.of("STRING"),
+                    spatialList(kind, false)));
+            Expression values = new CreateMap(new StringLiteral("ordinary-key"),
+                    new Array(new Cast(NullLiteral.INSTANCE, spatialLeaf(kind))));
+            assertRequiredNullRejected(target, values, "payload.value[]");
+        }
+    }
+
+    @Test
+    public void testNestedRequiredSpatialListsRejectFoldedNulls() {
+        for (String kind : ImmutableList.of("GEOMETRY", "GEOGRAPHY")) {
+            ArrayLiteral values = new ArrayLiteral(ImmutableList.of(new NullLiteral(spatialLeaf(kind))));
+            Column structure = importedColumn(ConnectorType.structOf(ImmutableList.of("items"),
+                    ImmutableList.of(spatialList(kind, false))));
+            StructLiteral structValues = new StructLiteral(ImmutableList.of(values),
+                    DataType.fromCatalogType(structure.getType()));
+            assertRequiredNullRejected(structure, structValues, "payload.items[]");
+            Column map = importedColumn(ConnectorType.mapOf(ConnectorType.of("STRING"), spatialList(kind, false)));
+            MapLiteral mapValues = new MapLiteral(ImmutableMap.of(new StringLiteral("ordinary-key"), values));
+            assertRequiredNullRejected(map, mapValues, "payload.value[]");
+        }
+    }
+
+    @Test
+    public void testNestedSpatialListsAcceptOptionalNullsAndRequiredValues() {
+        for (String kind : ImmutableList.of("GEOMETRY", "GEOGRAPHY")) {
+            for (boolean optional : ImmutableList.of(false, true)) {
+                ConnectorType list = spatialList(kind, optional);
+                Expression element = optional ? new Cast(NullLiteral.INSTANCE, spatialLeaf(kind))
+                        : new SlotReference("valid_shape", spatialLeaf(kind));
+                Column structure = importedColumn(ConnectorType.structOf(ImmutableList.of("items"),
+                        ImmutableList.of(list)));
+                Expression structValues = new CreateNamedStruct(new StringLiteral("items"), new Array(element));
+                Assertions.assertDoesNotThrow(() -> ConnectorSpatialWriteValidator.validate(structure, structValues));
+                Column map = importedColumn(ConnectorType.mapOf(ConnectorType.of("STRING"), list));
+                Expression mapValues = new CreateMap(new StringLiteral("ordinary-key"), new Array(element));
+                Assertions.assertDoesNotThrow(() -> ConnectorSpatialWriteValidator.validate(map, mapValues));
+                Assertions.assertDoesNotThrow(() -> ConnectorSpatialWriteValidator.validate(structure,
+                        new NullLiteral(DataType.fromCatalogType(structure.getType()))));
+            }
+        }
+    }
+
+    @Test
+    public void testDeepRequiredSpatialListsAndBranchesRetainColumnMetadata() {
+        for (String kind : ImmutableList.of("GEOMETRY", "GEOGRAPHY")) {
+            ConnectorType structure = ConnectorType.structOf(ImmutableList.of("items"),
+                    ImmutableList.of(spatialList(kind, false)));
+            Column deep = importedColumn(ConnectorType.arrayOf(
+                    ConnectorType.mapOf(ConnectorType.of("STRING"), structure), true));
+            Expression values = new Array(new CreateMap(new StringLiteral("ordinary-key"),
+                    new CreateNamedStruct(new StringLiteral("items"),
+                            new Array(new Cast(NullLiteral.INSTANCE, spatialLeaf(kind))))));
+            assertRequiredNullRejected(deep, values, "payload[].value.items[]");
+            Column direct = importedColumn(spatialList(kind, false));
+            Expression nestedCast = new Array(new Cast(new Cast(
+                    new NullLiteral(spatialLeaf(kind)), spatialLeaf(kind)), spatialLeaf(kind)));
+            assertRequiredNullRejected(direct, nestedCast, "payload[]");
+            Expression invalid = new Array(new Cast(NullLiteral.INSTANCE, spatialLeaf(kind)));
+            DataType arrayType = DataType.fromCatalogType(direct.getType());
+            for (Expression wrapped : ImmutableList.of(new Alias(invalid, "wrapped"),
+                    new Cast(invalid, arrayType),
+                    new If(BooleanLiteral.TRUE, invalid, new NullLiteral(arrayType)),
+                    new CaseWhen(ImmutableList.of(new WhenClause(BooleanLiteral.TRUE, invalid)),
+                            new NullLiteral(arrayType)),
+                    new Coalesce(invalid, new NullLiteral(arrayType)))) {
+                assertRequiredNullRejected(direct, wrapped, "payload[]");
+            }
+        }
+    }
+
+    @Test
+    public void testNestedOptionalSpatialListLiteralsRemainAccepted() {
+        for (String kind : ImmutableList.of("GEOMETRY", "GEOGRAPHY")) {
+            ArrayLiteral values = new ArrayLiteral(ImmutableList.of(new NullLiteral(spatialLeaf(kind))));
+            Column structure = importedColumn(ConnectorType.structOf(ImmutableList.of("items"),
+                    ImmutableList.of(spatialList(kind, true))));
+            StructLiteral structValues = new StructLiteral(ImmutableList.of(values),
+                    DataType.fromCatalogType(structure.getType()));
+            Assertions.assertDoesNotThrow(() -> ConnectorSpatialWriteValidator.validate(structure, structValues));
+            Column map = importedColumn(ConnectorType.mapOf(ConnectorType.of("STRING"), spatialList(kind, true)));
+            MapLiteral mapValues = new MapLiteral(ImmutableMap.of(new StringLiteral("ordinary-key"), values));
+            Assertions.assertDoesNotThrow(() -> ConnectorSpatialWriteValidator.validate(map, mapValues));
+        }
+    }
+
+    private static ConnectorType spatialList(String kind, boolean optionalElements) {
+        return ConnectorType.arrayOf(ConnectorType.of(kind).withSpatialMetadata("OGC:CRS84",
+                kind.equals("GEOGRAPHY") ? "spherical" : null), optionalElements);
+    }
+
+    private static DataType spatialLeaf(String kind) {
+        return DataType.fromCatalogType(kind.equals("GEOGRAPHY")
+                ? ScalarType.createGeographyType("OGC:CRS84", "spherical")
+                : ScalarType.createGeometryType("OGC:CRS84"));
+    }
+
+    private static Column importedColumn(ConnectorType type) {
+        return ConnectorColumnConverter.convertColumn(new ConnectorColumn("payload", type, null, true, null));
+    }
+
+    private static void assertRequiredNullRejected(Column target, Expression source, String path) {
+        AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                () -> ConnectorSpatialWriteValidator.validate(target, source));
+        Assertions.assertTrue(error.getMessage().contains("required array element"), error.getMessage());
+        Assertions.assertTrue(error.getMessage().contains(path), error.getMessage());
     }
 
     @Test

@@ -145,6 +145,26 @@ public class CreateIcebergSpatialV3Table {
         return Binary.fromConstantByteArray(bytes);
     }
 
+    private static void createRequiredNestedTargets(Catalog catalog, Namespace namespace,
+            Map<String, String> properties) {
+        for (boolean geography : new boolean[] {false, true}) {
+            org.apache.iceberg.types.Type spatial = geography
+                    ? Types.GeographyType.crs84() : Types.GeometryType.crs84();
+            TableIdentifier name = TableIdentifier.of(namespace,
+                    "spatial_required_" + (geography ? "geography" : "geometry"));
+            if (catalog.tableExists(name)) {
+                catalog.dropTable(name);
+            }
+            Schema schema = new Schema(
+                    Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                    Types.NestedField.optional(2, "payload", Types.StructType.of(
+                            Types.NestedField.optional(3, "items", Types.ListType.ofRequired(4, spatial)))),
+                    Types.NestedField.optional(5, "entries", Types.MapType.ofOptional(
+                            6, 7, Types.StringType.get(), Types.ListType.ofRequired(8, spatial))));
+            catalog.createTable(name, schema, PartitionSpec.unpartitioned(), properties);
+        }
+    }
+
     private static void createNestedSource(Catalog catalog, Namespace namespace,
             Map<String, String> properties) throws Exception {
         java.util.List<Types.NestedField> fields = new java.util.ArrayList<>();
@@ -366,6 +386,7 @@ public class CreateIcebergSpatialV3Table {
         nestedRow.addGroup("shapes").addGroup("list").append("element", row.getBinary("geog", 0));
         appendParquetRow(nestedTable, nestedMessage, nestedRow);
         createNestedSource(catalog, namespace, tableProperties);
+        createRequiredNestedTargets(catalog, namespace, tableProperties);
         createOrcWriteTargets(catalog, namespace, tableProperties);
         createEmbeddedNullCrsSources(catalog, namespace, tableProperties);
     }
@@ -1204,6 +1225,26 @@ public class CreateIcebergSpatialV3Table {
         ST_Equals(gg_array[1], gg_map['shape']),
         ST_DWithin(struct_element(gg_struct, 'shape'), gg_array[1], id)
         from spatial_nested_source where id in (1,2,5,6,7) order by id"""
+    // Import required LIST-element metadata from the external schema at each nesting level.
+    for (String kind : ["geometry", "geography"]) {
+        for (String field : ["payload", "entries"]) {
+            String value = field == "payload"
+                    ? "named_struct('items', array(CAST(NULL AS ${kind})))"
+                    : "map('ordinary-key', array(CAST(NULL AS ${kind})))"
+            test {
+                sql """insert into spatial_required_${kind} (id, ${field}) values (1, ${value})"""
+                exception "required array element"
+            }
+            test {
+                sql """insert into spatial_required_${kind} (id, ${field}) select 2, ${value}"""
+                exception "required array element"
+            }
+        }
+        String constructor = kind == "geometry" ? "ST_GeometryFromWKBTyped" : "ST_GeogFromWKB"
+        String pointValue = "${constructor}('0101000000000000000000F03F0000000000000040')"
+        sql """insert into spatial_required_${kind} values (3,
+            named_struct('items', array(${pointValue})), map('ordinary-key', array(${pointValue})))"""
+    }
     sql """drop table if exists spatial_nested_copy"""
     sql """create table spatial_nested_copy (
         id int, g_array array<geometry>, g_map map<string, geometry>,
