@@ -17,6 +17,13 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.RangePartitionItem;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.expression.rules.PartitionPruner;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -24,6 +31,9 @@ import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Range;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -146,6 +156,50 @@ class CastMonotonicityTest {
         Assertions.assertTrue(timestampTzCast.isMonotonic(
                 timestampNs("2024-03-10 02:00:00.000000000"),
                 timestampNs("2024-03-10 02:01:00.000000000")));
+    }
+
+    @Test
+    void testDateTimeV2ToTimeStampTzRejectsGap() {
+        Cast localCast = new Cast(new SlotReference("d", DateTimeV2Type.of(6)), TimeStampTzType.of(6));
+        DateTimeV2Literal lower = new DateTimeV2Literal("2024-03-10 02:00:00");
+        DateTimeV2Literal upper = new DateTimeV2Literal("2024-03-10 03:00:00");
+
+        setTimeZone("America/New_York");
+        Assertions.assertFalse(localCast.isMonotonic(lower, upper));
+        Assertions.assertFalse(localCast.isMonotonic(null, upper));
+        Assertions.assertTrue(localCast.isMonotonic(upper, new DateTimeV2Literal("2024-03-10 04:00:00")));
+        Cast roundedCast = new Cast(new SlotReference("d", DateTimeV2Type.of(6)), TimeStampTzType.of(0));
+        Assertions.assertFalse(roundedCast.isMonotonic(
+                new DateTimeV2Literal("2024-03-10 01:59:59.6"),
+                new DateTimeV2Literal("2024-03-10 02:59:59.6")));
+
+        setTimeZone("+00:00");
+        Assertions.assertTrue(localCast.isMonotonic(lower, upper));
+        Assertions.assertTrue(localCast.isMonotonic(null, null));
+    }
+
+    @Test
+    void testDateTimeV2GapPartitionIsRetained() {
+        setTimeZone("America/New_York");
+        DateTimeV2Type source = DateTimeV2Type.of(6);
+        TimeStampTzType target = TimeStampTzType.of(6);
+        DateTimeV2Literal lower = new DateTimeV2Literal(source, 2024, 3, 10, 2, 0, 0, 0);
+        DateTimeV2Literal upper = new DateTimeV2Literal(source, 2024, 3, 10, 3, 0, 0, 0);
+        TimestampTzLiteral wanted = new TimestampTzLiteral(target, 2024, 3, 10, 7, 30, 0, 0);
+        Assertions.assertEquals(lower.checkedCastTo(target), upper.checkedCastTo(target));
+        Assertions.assertEquals(wanted,
+                new DateTimeV2Literal(source, 2024, 3, 10, 2, 30, 0, 0).checkedCastTo(target));
+
+        PartitionKey lowerKey = new PartitionKey();
+        lowerKey.pushColumn(lower.toLegacyLiteral(), PrimitiveType.DATETIMEV2);
+        PartitionKey upperKey = new PartitionKey();
+        upperKey.pushColumn(upper.toLegacyLiteral(), PrimitiveType.DATETIMEV2);
+        RangePartitionItem item = new RangePartitionItem(Range.closedOpen(lowerKey, upperKey));
+        SlotReference d = new SlotReference("d", source);
+        Expression predicate = new EqualTo(new Cast(d, target), wanted);
+        Assertions.assertEquals(ImmutableList.of(1L), PartitionPruner.prune(
+                ImmutableList.<Slot>of(d), predicate, ImmutableMap.<Long, PartitionItem>of(1L, item),
+                CascadesContext.initTempContext(), PartitionPruner.PartitionTableType.OLAP).first);
     }
 
     private TimestampTzLiteral timestampTz(String value) {

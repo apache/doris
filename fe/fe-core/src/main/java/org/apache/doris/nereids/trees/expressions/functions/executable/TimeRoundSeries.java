@@ -21,17 +21,22 @@ import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
+import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.qe.ConnectContext;
 
+import java.time.DateTimeException;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
+import java.time.zone.ZoneOffsetTransition;
+import java.time.zone.ZoneRules;
 
 /**
  * executable functions:
@@ -51,8 +56,27 @@ public class TimeRoundSeries {
         SECOND
     }
 
-    // get it's from be/src/vec/functions/function_datetime_floor_ceil.cpp##time_round
-    private static LocalDateTime getDateCeilOrFloor(DATE tag, LocalDateTime date, int period, LocalDateTime origin,
+    private static LocalDateTime getDateCeilOrFloor(DATE tag, LocalDateTime date, int period,
+            LocalDateTime origin, boolean getCeil) {
+        return DateTimeV2Literal.fromJavaDateType(
+                getCalendarBoundary(tag, date, period, origin, getCeil), 6).toJavaDateType();
+    }
+
+    // A candidate can exceed the Doris year range. Check that range after the
+    // calendar calculation, so a gap search can still find a valid boundary.
+    private static LocalDateTime getOptionalCalendarBoundary(DATE tag, LocalDateTime date, int period,
+            LocalDateTime origin, boolean getCeil) {
+        try {
+            LocalDateTime boundary = getCalendarBoundary(tag, date, period, origin, getCeil);
+            return DateTimeV2Literal.isDateOutOfRange(boundary) ? null : boundary;
+        } catch (DateTimeException e) {
+            // An Integer.MAX_VALUE year period can exceed Java's year range too.
+            return null;
+        }
+    }
+
+    // Use the same local calendar calculation as BE time_round_two_args.
+    private static LocalDateTime getCalendarBoundary(DATE tag, LocalDateTime date, int period, LocalDateTime origin,
             boolean getCeil) {
         if (period < 1) {
             throw new AnalysisException("Operation " + tag.name().toLowerCase()
@@ -123,36 +147,24 @@ public class TimeRoundSeries {
         if (getCeil) {
             step = step + (deltaInsidePeriod == 0 ? 0 : period);
         }
-        Expression result = null;
+        LocalDateTime startTime = start.toJavaDateType();
         switch (tag) {
             case YEAR:
-                result = start.plusYears(step);
-                break;
+                return startTime.plusYears(step);
             case QUARTER:
-                result = start.plusMonths(step * 3);
-                break;
+                return startTime.plusMonths(step * 3);
             case MONTH:
-                result = start.plusMonths(step);
-                break;
+                return startTime.plusMonths(step);
             case DAY:
-                result = start.plusDays(step);
-                break;
+                return startTime.plusDays(step);
             case HOUR:
-                result = start.plusHours(step);
-                break;
+                return startTime.plusHours(step);
             case MINUTE:
-                result = start.plusMinutes(step);
-                break;
+                return startTime.plusMinutes(step);
             case SECOND:
-                result = start.plusSeconds(step);
-                break;
+                return startTime.plusSeconds(step);
             default:
-                break;
-        }
-        if (result != null && result instanceof DateTimeLiteral) {
-            return ((DateTimeLiteral) result).toJavaDateType();
-        } else {
-            return null;
+                return null;
         }
     }
 
@@ -172,40 +184,92 @@ public class TimeRoundSeries {
         }
         ZoneId zoneId = ZoneId.of(timeZone);
 
-        // Get the ZonedDateTime for the date to determine its offset
-        ZonedDateTime zonedDate = utcDate.atZone(ZoneId.of("UTC")).withZoneSameInstant(zoneId);
-
-        // Use the date's offset to ensure consistent conversion for both date and origin
-        // This prevents historical timezone offset inconsistencies (e.g., Asia/Shanghai
-        // used +08:05:43 before 1900, then +08:00 after) from affecting the calculation
-        ZoneId fixedOffsetZone = ZoneId.ofOffset("UTC", zonedDate.getOffset());
-
-        // Convert UTC time to local time using the fixed offset from date
-        LocalDateTime localDate = utcDate.atZone(ZoneId.of("UTC")).withZoneSameInstant(fixedOffsetZone)
-                .toLocalDateTime();
-
-        // Handle origin: START_ORIGINAL_DAY is already in local time, don't convert it
-        // Only convert origin if it's a real UTC timestamp (from TimestampTzLiteral)
-        LocalDateTime localOrigin;
-        if (utcOrigin.equals(START_ORIGINAL_DAY)) {
-            localOrigin = START_ORIGINAL_DAY;
-        } else {
-            localOrigin = utcOrigin.atZone(ZoneId.of("UTC")).withZoneSameInstant(fixedOffsetZone)
-                    .toLocalDateTime();
+        // Seconds use the UTC time line in BE. They do not need a local calendar boundary.
+        if (tag == DATE.SECOND) {
+            return getDateCeilOrFloor(tag, utcDate, period, utcOrigin, getCeil);
         }
+        ZonedDateTime zonedDate = utcDate.atZone(ZoneOffset.UTC).withZoneSameInstant(zoneId);
+        LocalDateTime localDate = zonedDate.toLocalDateTime();
 
-        // Perform ceil/floor operation on local time
-        LocalDateTime localResult = getDateCeilOrFloor(tag, localDate, period, localOrigin, getCeil);
+        // The default origin is a local calendar value. A supplied origin is an instant.
+        // On Lord Howe, an Oct 5 origin uses +10:30 even if the Oct 6 input uses +11:00.
+        LocalDateTime localOrigin = utcOrigin.equals(START_ORIGINAL_DAY) ? START_ORIGINAL_DAY
+                : utcOrigin.atZone(ZoneOffset.UTC).withZoneSameInstant(zoneId).toLocalDateTime();
+        // Keep the input's occurrence for hour and minute boundaries in an overlap, as BE does.
+        ZoneOffset preferredOffset = tag == DATE.HOUR || tag == DATE.MINUTE ? zonedDate.getOffset() : null;
 
-        if (localResult == null) {
-            return null;
+        Instant input = utcDate.toInstant(ZoneOffset.UTC);
+        Instant selected = null;
+        LocalDateTime localResult = getOptionalCalendarBoundary(tag, localDate, period, localOrigin, getCeil);
+        // On Lord Howe, the 02:15 gap candidate becomes 02:45, after input 02:35.
+        // Recompute each candidate from the original calendar origin.
+        while (localResult != null) {
+            Instant candidate = DateUtils.convertLocalToInstant(localResult, zoneId, preferredOffset);
+            if (getCeil || !candidate.isAfter(input)) {
+                selected = candidate;
+                break;
+            }
+            localResult = getOptionalCalendarBoundary(tag, localResult.minusNanos(1000), period, localOrigin, false);
         }
+        // A local ceil in year 10000 can coexist with a shifted gap boundary in 9999.
+        // Search the gap before reporting an out-of-range result.
+        Instant lower = selected == null || input.isBefore(selected) ? input : selected;
+        Instant cursor = (selected == null || input.isAfter(selected) ? input : selected).plusNanos(1);
+        ZoneRules rules = zoneId.getRules();
+        ZoneOffsetTransition transition = rules.previousTransition(cursor);
+        // Include the preceding transition. Its gap can move a boundary into the interval.
+        while (transition != null) {
+            // Skip gaps whose shifted times are all before the search interval.
+            if (transition.isGap() && transition.getInstant().plus(transition.getDuration()).isAfter(lower)) {
+                selected = selectGapBoundary(tag, input, period, localOrigin, getCeil, zoneId,
+                        preferredOffset, transition, selected);
+            }
+            if (!transition.getInstant().isAfter(lower)) {
+                break;
+            }
+            transition = rules.previousTransition(transition.getInstant());
+        }
+        if (selected == null) {
+            throw new AnalysisException("datetime out of range");
+        }
+        return LocalDateTime.ofInstant(selected, ZoneOffset.UTC);
+    }
 
-        // Convert result back to UTC: treat localResult as being in the zoneId timezone
-        // and convert to UTC
-        LocalDateTime utcResult = localResult.atZone(zoneId).withZoneSameInstant(ZoneId.of("UTC"))
-                .toLocalDateTime();
-        return utcResult;
+    private static Instant selectGapBoundary(DATE tag, Instant input, int period, LocalDateTime origin,
+            boolean getCeil, ZoneId zone, ZoneOffset preferredOffset, ZoneOffsetTransition transition,
+            Instant selected) {
+        LocalDateTime start = transition.getDateTimeBefore();
+        LocalDateTime end = transition.getDateTimeAfter();
+        LocalDateTime reference = LocalDateTime.ofInstant(input, transition.getOffsetBefore());
+        if (getCeil) {
+            reference = reference.isBefore(start) ? start : reference;
+        } else if (!reference.isBefore(end)) {
+            reference = end.minusNanos(1000);
+        }
+        // On Lord Howe, local grid boundaries 02:15 and 02:35 resolve to 02:45 and 02:35.
+        // Their instant order differs from their local order. Keep the closest instant.
+        LocalDateTime local = getOptionalCalendarBoundary(tag, reference, period, origin, getCeil);
+        if (local != null && !local.isBefore(start) && local.isBefore(end)) {
+            selected = selectCloserBoundary(input,
+                    DateUtils.convertLocalToInstant(local, zone, preferredOffset), selected, getCeil);
+        }
+        if (getCeil) {
+            local = getOptionalCalendarBoundary(tag, end, period, origin, true);
+            // A yearly boundary after a gap in year 9999 can exceed the supported range.
+            if (local != null) {
+                selected = selectCloserBoundary(input,
+                        DateUtils.convertLocalToInstant(local, zone, preferredOffset), selected, true);
+            }
+        }
+        return selected;
+    }
+
+    private static Instant selectCloserBoundary(Instant input, Instant candidate, Instant selected, boolean getCeil) {
+        if (getCeil ? !candidate.isBefore(input) && (selected == null || candidate.isBefore(selected))
+                : !candidate.isAfter(input) && (selected == null || candidate.isAfter(selected))) {
+            return candidate;
+        }
+        return selected;
     }
 
     /**

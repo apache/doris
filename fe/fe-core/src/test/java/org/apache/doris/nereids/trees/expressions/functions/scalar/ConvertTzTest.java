@@ -43,10 +43,10 @@ class ConvertTzTest {
         ConvertTz convertTz = new ConvertTz(timestampSlot,
                 new VarcharLiteral("Europe/Paris"), new VarcharLiteral("UTC"));
 
-        Assertions.assertTrue(convertTz.isMonotonic(
+        Assertions.assertFalse(convertTz.isMonotonic(
                 null,
                 new DateTimeLiteral("2021-03-28 02:00:00")));
-        Assertions.assertTrue(convertTz.isMonotonic(
+        Assertions.assertFalse(convertTz.isMonotonic(
                 new DateTimeLiteral("2021-10-31 02:00:00"),
                 null));
     }
@@ -126,7 +126,7 @@ class ConvertTzTest {
         ConvertTz convertTz = new ConvertTz(timestampSlot,
                 new VarcharLiteral("Europe/Paris"), new VarcharLiteral("UTC"));
 
-        Assertions.assertTrue(convertTz.isMonotonic(
+        Assertions.assertFalse(convertTz.isMonotonic(
                 new DateTimeLiteral("2021-03-28 02:00:00"),
                 new DateTimeLiteral("2021-03-28 03:00:00")));
     }
@@ -156,7 +156,7 @@ class ConvertTzTest {
         ConvertTz convertTz = new ConvertTz(timestampSlot,
                 new VarcharLiteral("Europe/Paris"), new VarcharLiteral("UTC"));
 
-        Assertions.assertTrue(convertTz.isMonotonic(
+        Assertions.assertFalse(convertTz.isMonotonic(
                 new DateTimeLiteral("2021-03-28 02:00:00"),
                 new DateTimeLiteral("2021-03-28 04:00:00")));
     }

@@ -754,14 +754,18 @@ public class IcebergPartitionUtilsTest {
     }
 
     @Test
-    public void parseSkippedLocalTimeMatchesWriterTransitionInstant() {
+    public void parseSkippedLocalTimePreservesPositionAndFraction() {
         ZoneId zone = ZoneId.of("America/New_York");
-        Assertions.assertEquals(1615705200_123456L, IcebergPartitionUtils.parsePartitionValueFromString(
+        // The one-hour gap moves 02:30 to 03:30-04:00, or 07:30 UTC.
+        Assertions.assertEquals(1615707000_123456L, IcebergPartitionUtils.parsePartitionValueFromString(
                 "2021-03-14 02:30:00.123456", Types.TimestampType.withZone(), zone));
         Assertions.assertEquals(1615707000_123456L, IcebergPartitionUtils.parsePartitionValueFromString(
                 "2021-03-14 02:30:00.123456-05:00", Types.TimestampType.withZone(), zone));
         Assertions.assertEquals(1615689000_123456L, IcebergPartitionUtils.parsePartitionValueFromString(
                 "2021-03-14 02:30:00.123456", Types.TimestampType.withoutZone(), zone));
+        // Lord Howe has a 30-minute gap. Local 02:15 becomes 02:45+11:00.
+        Assertions.assertEquals(1728143100_123456L, IcebergPartitionUtils.parsePartitionValueFromString(
+                "2024-10-06 02:15:00.123456", Types.TimestampType.withZone(), ZoneId.of("Australia/Lord_Howe")));
     }
 
     @Test
