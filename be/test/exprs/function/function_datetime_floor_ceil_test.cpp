@@ -45,7 +45,7 @@ struct TestCase {
     TimestampTzValue expected;
 };
 
-void check_floor(const TestCase& c) {
+void check_round(const TestCase& c) {
     const auto type = std::make_shared<DataTypeTimeStampTz>(6);
     const auto int_type = std::make_shared<DataTypeInt32>();
     SCOPED_TRACE(c.zone);
@@ -126,7 +126,36 @@ TEST(TimestampTzFloorTest, SelectNearestGapBoundary) {
              .expected = make_timestamptz(2024, 11, 3, 6, 0, 0, 0)},
     };
     for (const auto& c : cases) {
-        check_floor(c);
+        check_round(c);
+    }
+}
+
+TEST(TimestampTzFloorTest, FutureRulesAndYearLimit) {
+    const TestCase cases[] = {
+            {.zone = "Australia/Lord_Howe",
+             .function = "minute_ceil",
+             .period = 20,
+             .input = make_timestamptz(2824, 10, 5, 15, 29, 0, 123456),
+             .origin = make_timestamptz(2824, 10, 4, 15, 45, 0, 123456),
+             .expected = make_timestamptz(2824, 10, 5, 15, 35, 0, 123456)},
+            {.zone = "Asia/Kathmandu",
+             .function = "hour_floor",
+             .input = make_timestamptz(2824, 10, 5, 18, 35, 0, 123456),
+             .origin = make_timestamptz(2824, 10, 4, 18, 15, 0, 0),
+             .expected = make_timestamptz(2824, 10, 5, 18, 15, 0, 0)},
+            {.zone = "America/New_York",
+             .function = "year_ceil",
+             .input = make_timestamptz(9999, 3, 14, 7, 15, 0, 123456),
+             .origin = make_timestamptz(9998, 3, 14, 6, 30, 0, 123456),
+             .expected = make_timestamptz(9999, 3, 14, 7, 30, 0, 123456)},
+            {.zone = "America/New_York",
+             .function = "year_ceil",
+             .input = make_timestamptz(9999, 3, 14, 7, 30, 0, 123456),
+             .origin = make_timestamptz(9998, 3, 14, 6, 30, 0, 123456),
+             .expected = make_timestamptz(9999, 3, 14, 7, 30, 0, 123456)},
+    };
+    for (const auto& c : cases) {
+        check_round(c);
     }
 }
 

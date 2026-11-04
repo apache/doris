@@ -109,6 +109,23 @@ suite("test_timestamptz_dst_gap") {
                              CAST('2024-10-06 02:45:00.123456+11:00' AS TIMESTAMPTZ(6)) AS boundary,
                              CAST('2024-10-05 02:15:00.123456+10:30' AS TIMESTAMPTZ(6)) AS o) s
             """
+            // The same gap rule applies after CCTZ's stored transition table ends.
+            order_qt_gap_future """
+                SELECT minute_ceil(CAST('2824-10-06 01:59:00.123456+10:30' AS TIMESTAMPTZ(6)), 20,
+                                   CAST('2824-10-05 02:15:00.123456+10:30' AS TIMESTAMPTZ(6)))
+            """
+            sql "SET time_zone = 'America/New_York'"
+            order_qt_gap_year_limit """
+                SELECT year_ceil(t, 1, o), year_ceil(boundary, 1, o)
+                FROM (SELECT CAST('9999-03-14 03:15:00.123456-04:00' AS TIMESTAMPTZ(6)) AS t,
+                             CAST('9999-03-14 03:30:00.123456-04:00' AS TIMESTAMPTZ(6)) AS boundary,
+                             CAST('9998-03-14 02:30:00.123456-04:00' AS TIMESTAMPTZ(6)) AS o) s
+            """
+            test {
+                sql """SELECT year_ceil(CAST('9999-03-14 03:30:00.123457-04:00' AS TIMESTAMPTZ(6)), 1,
+                                        CAST('9998-03-14 02:30:00.123456-04:00' AS TIMESTAMPTZ(6)))"""
+                exception "out of range"
+            }
             sql "SET time_zone = 'Africa/Monrovia'"
             // Floor selects an earlier boundary. Truncation still resets local fields, then shifts the gap.
             order_qt_gap_minute_floor """

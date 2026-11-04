@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.executable;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.types.TimeStampTzType;
@@ -64,4 +65,35 @@ class TimeRoundSeriesTest {
             ConnectContext.remove();
         }
     }
+
+    @Test
+    void testTimestampTzFutureRulesAndYearLimit() {
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("Australia/Lord_Howe");
+            Assertions.assertEquals(new TimestampTzLiteral("2824-10-06 02:35:00.123456+11:00"),
+                    TimeRoundSeries.minuteCeil(new TimestampTzLiteral("2824-10-06 01:59:00.123456+10:30"),
+                            new IntegerLiteral(20), new TimestampTzLiteral("2824-10-05 02:15:00.123456+10:30")));
+
+            // Kathmandu has a fixed offset after 1986. Do not repeat its old gap.
+            context.getSessionVariable().setTimeZone("Asia/Kathmandu");
+            Assertions.assertEquals(new TimestampTzLiteral(TimeStampTzType.of(6), "2824-10-06 00:00:00+05:45"),
+                    TimeRoundSeries.hourFloor(new TimestampTzLiteral("2824-10-06 00:20:00.123456+05:45")));
+
+            context.getSessionVariable().setTimeZone("America/New_York");
+            TimestampTzLiteral origin = new TimestampTzLiteral("9998-03-14 02:30:00.123456-04:00");
+            TimestampTzLiteral shifted = new TimestampTzLiteral("9999-03-14 03:30:00.123456-04:00");
+            // The ordinary ceil is in year 10000, but the shifted gap boundary is valid.
+            Assertions.assertEquals(shifted, TimeRoundSeries.yearCeil(
+                    new TimestampTzLiteral("9999-03-14 03:15:00.123456-04:00"), new IntegerLiteral(1), origin));
+            Assertions.assertEquals(shifted, TimeRoundSeries.yearCeil(shifted, new IntegerLiteral(1), origin));
+            // One microsecond after the last boundary has no in-range ceil.
+            Assertions.assertThrows(AnalysisException.class, () -> TimeRoundSeries.yearCeil(
+                    new TimestampTzLiteral("9999-03-14 03:30:00.123457-04:00"), new IntegerLiteral(1), origin));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
 }
