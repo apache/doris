@@ -564,6 +564,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PAGE_CACHE = "enable_page_cache";
     public static final String ENABLE_PARQUET_FILE_PAGE_CACHE = "enable_parquet_file_page_cache";
+    public static final String ENABLE_PARQUET_WRITE_PAGE_INDEX = "enable_parquet_write_page_index";
+    public static final String PARQUET_WRITE_DATA_PAGE_SIZE = "parquet_write_data_page_size";
 
     public static final String DUMP_NEREIDS_MEMO = "dump_nereids_memo";
 
@@ -2567,6 +2569,19 @@ public class SessionVariable implements Serializable, Writable {
             description = "Controls whether to use Parquet file page cache. The default is true.",
             needForward = true)
     public boolean enableParquetFilePageCache = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_PARQUET_WRITE_PAGE_INDEX, needForward = true,
+            description = "Write ColumnIndex and OffsetIndex metadata to new Parquet files. Default is true.")
+    public boolean enableParquetWritePageIndex = true;
+
+    @VarAttrDef.VarAttr(name = PARQUET_WRITE_DATA_PAGE_SIZE, needForward = true,
+            checker = "checkParquetWriteDataPageSize",
+            description = "Target uncompressed Parquet data-page size in bytes. Must be positive; default is 1048576.")
+    public int parquetWriteDataPageSize = 1048576;
+
+    public void checkParquetWriteDataPageSize(String value) throws Exception {
+        checkFieldValue(PARQUET_WRITE_DATA_PAGE_SIZE, 1, value);
+    }
 
     @VarAttrDef.VarAttr(name = ENABLE_FOLD_NONDETERMINISTIC_FN)
     public boolean enableFoldNondeterministicFn = false;
@@ -5845,6 +5860,9 @@ public class SessionVariable implements Serializable, Writable {
         }
 
         tResult.setEnableParquetLazyMat(enableParquetLazyMat);
+        // Query options carry the same write policy to OUTFILE and catalog sinks.
+        tResult.setEnableParquetWritePageIndex(enableParquetWritePageIndex);
+        tResult.setParquetWriteDataPageSize(parquetWriteDataPageSize);
         tResult.setEnableOrcLazyMat(enableOrcLazyMat);
         tResult.setEnableParquetFilterByMinMax(enableParquetFilterByMinMax);
         tResult.setEnableParquetFilterByBloomFilter(enableParquetFilterByBloomFilter);
