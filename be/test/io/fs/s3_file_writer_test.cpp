@@ -1414,6 +1414,74 @@ std::string get_s3_path(std::string_view path) {
     return std::string("s3://") + s3_fs->bucket() + "/" + s3_fs->prefix() + "/" + std::string(path);
 };
 
+class S3FileWriterInvalidationTest : public S3FileWriterTest {
+protected:
+    void SetUp() override {
+        _enable_file_cache = config::enable_file_cache;
+        config::enable_file_cache = false;
+        auto* sp = SyncPoint::get_instance();
+        sp->enable_processing();
+        sp->clear_all_call_backs();
+    }
+
+    void TearDown() override {
+        auto* sp = SyncPoint::get_instance();
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+        config::enable_file_cache = _enable_file_cache;
+    }
+
+    static void invalidate_at(const std::string& point,
+                              const std::shared_ptr<ObjStorageFileWriter>& writer) {
+        std::shared_ptr<ObjClientHolder> holder = writer->_obj_client;
+        SyncPoint::get_instance()->set_call_back(point, [holder](auto&&) {
+            holder->invalidate(Status::InvalidArgument<false>("backend changed"));
+        });
+    }
+
+private:
+    bool _enable_file_cache = false;
+};
+
+// The holder is invalidated before the upload task takes the client: the upload fails, and close
+// returns the error after waiting for the task.
+TEST_F(S3FileWriterInvalidationTest, upload_that_has_not_taken_the_client_fails) {
+    auto [mock_client, writer] = create_s3_client("invalidate_before_put_object");
+    invalidate_at("S3FileWriter::_put_object:before_get_client", writer);
+
+    EXPECT_EQ(writer->append(generate_test_string('a', 1024)), Status::OK());
+    EXPECT_FALSE(writer->close().ok());
+    EXPECT_EQ(mock_client->put_object_count, 0);
+}
+
+// The holder is invalidated while close waits for the parts: it sees that after the wait, and
+// never completes the upload.
+TEST_F(S3FileWriterInvalidationTest, multipart_invalidated_during_the_wait_is_not_completed) {
+    auto [mock_client, writer] = create_s3_client("invalidate_during_complete_wait");
+    invalidate_at("S3FileWriter::_complete:1", writer);
+
+    EXPECT_EQ(writer->append(generate_test_string('b', config::s3_write_buffer_size * 2)),
+              Status::OK());
+    auto st = writer->close();
+    EXPECT_FALSE(st.ok());
+    EXPECT_NE(st.to_string().find("invalid obj storage client"), std::string::npos) << st;
+    EXPECT_GT(mock_client->upload_part_count, 0);
+    EXPECT_EQ(mock_client->complete_multipart_count, 0);
+}
+
+// A client taken before the holder was invalidated is an accepted boundary: a call in flight
+// cannot be recalled, so this PutObject still reaches the store and close may succeed. Only what
+// comes after it is out of service.
+TEST_F(S3FileWriterInvalidationTest, put_object_that_took_the_client_may_still_finish) {
+    auto [mock_client, writer] = create_s3_client("invalidate_after_get_client");
+    invalidate_at("S3FileWriter::_put_object", writer);
+
+    EXPECT_EQ(writer->append(generate_test_string('c', 1024)), Status::OK());
+    std::ignore = writer->close();
+    EXPECT_EQ(mock_client->put_object_count, 1);
+    EXPECT_EQ(writer->_obj_client->get(), nullptr);
+}
+
 // put object
 // create_multi_parts_upload + upload_part + complete_parts
 TEST_F(S3FileWriterTest, write_buffer_boundary) {

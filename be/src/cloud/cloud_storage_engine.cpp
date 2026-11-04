@@ -200,8 +200,7 @@ struct RefreshFSVaultVisitor {
         const auto& s3_conf = resolved.value();
         DCHECK_EQ(fs->type(), io::FileSystemType::OBJECT_STORAGE) << id;
         auto s3_fs = std::static_pointer_cast<io::ObjStorageFileSystem>(fs);
-        auto client_holder = s3_fs->client_holder();
-        auto st = client_holder->reset(s3_conf.client);
+        auto st = s3_fs->refresh_vault(s3_conf.client);
         if (!st.ok()) {
             LOG(WARNING) << "failed to update s3 fs, resource_id=" << id << ": " << st;
         }

@@ -17,14 +17,17 @@
 
 #include "io/obj_storage/obj_client_factory.h"
 
+#include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/cloud.pb.h>
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <functional>
 #include <map>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <variant>
 
@@ -34,6 +37,7 @@
 #include "cpp/obj-client/rate_limited_obj_storage_client.h"
 #include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/obj_storage_file_system.h"
 #include "io/obj_storage/obj_client_holder.h"
 #include "io/obj_storage/obj_storage_config.h"
@@ -108,6 +112,14 @@ protected:
                     result->second = true;
                 },
                 &_create_client_callback);
+    }
+
+    // The provider cache is process-wide and outlives a test, and nothing clears it. A test that
+    // counts builds or hooks one takes an endpoint nothing has built yet, so that it still sees a
+    // cache miss when repeated in one process (GTEST_REPEAT).
+    static std::string unique_endpoint(std::string_view name) {
+        static std::atomic<int> next {0};
+        return fmt::format("{}-{}.example.com", name, next++);
     }
 
     ObjClientSyncPointGuard _sync_point_guard;
@@ -323,7 +335,7 @@ TEST_F(ObjClientFactoryTest, ToStringMasksCredentials) {
 
 TEST_F(ObjClientFactoryTest, S3ProviderCachesByFullConfig) {
     auto& factory = ObjClientFactory::instance();
-    auto param = make_s3_param("s3-provider-cache.example.com");
+    auto param = make_s3_param(unique_endpoint("s3-provider-cache"));
 
     auto first = factory.get_or_create(resolve(param));
     ASSERT_TRUE(first.has_value()) << first.error();
@@ -476,7 +488,7 @@ TEST_F(ObjClientFactoryTest, HolderPublishesConfigAndClientTogether) {
 }
 
 TEST_F(ObjClientFactoryTest, HolderRejectsResetMergedOntoStaleState) {
-    auto param = make_s3_param("holder-conflict.example.com");
+    auto param = make_s3_param(unique_endpoint("holder-conflict"));
     ObjClientHolder holder(resolve(param));
     ASSERT_TRUE(holder.init().ok());
 
@@ -539,7 +551,156 @@ TEST_F(ObjClientFactoryTest, ResetMergeKeepsTheStorageTarget) {
     EXPECT_TRUE(as_azure.error().is<ErrorCode::INVALID_ARGUMENT>()) << as_azure.error();
 }
 
-TEST_F(ObjClientFactoryTest, RefreshResetsTheSameBackendAndRebuildsAnotherOne) {
+TEST_F(ObjClientFactoryTest, InvalidatedHolderStaysOutOfService) {
+    auto param = make_s3_param("invalidate.example.com");
+    auto config = resolve(param);
+    ObjClientHolder holder(config);
+    ASSERT_TRUE(holder.init().ok());
+    // Another holder of the same configuration shares its client through the provider cache.
+    ObjClientHolder other(config);
+    ASSERT_TRUE(other.init().ok());
+    auto client = holder.get();
+    ASSERT_EQ(other.get(), client);
+    auto generation = holder.state()->generation;
+
+    holder.invalidate(Status::InvalidArgument<false>("first reason"));
+    EXPECT_EQ(holder.get(), nullptr);
+    EXPECT_EQ(holder.state()->generation, generation + 1);
+    EXPECT_EQ(holder.state()->config, config);
+    EXPECT_EQ(other.get(), client);
+
+    // The first reason stays, and nothing brings the client back: not the same configuration,
+    // which reset() would otherwise answer with OK before merging, and not a new one either.
+    holder.invalidate(Status::InvalidArgument<false>("second reason"));
+    auto expect_first_reason = [](const Status& st) {
+        EXPECT_NE(st.to_string().find("first reason"), std::string::npos) << st;
+    };
+    expect_first_reason(holder.reset(config));
+    auto rotated = param;
+    rotated.__set_sk("rotated-sk");
+    expect_first_reason(holder.reset(resolve(rotated)));
+    expect_first_reason(holder.rebind(config));
+    expect_first_reason(holder.init());
+    EXPECT_EQ(holder.get(), nullptr);
+    EXPECT_EQ(holder.state()->generation, generation + 1);
+}
+
+TEST_F(ObjClientFactoryTest, InvalidateWinsOverAResetBuildingItsClient) {
+    auto param = make_s3_param(unique_endpoint("invalidate-race"));
+    ObjClientHolder holder(resolve(param));
+    ASSERT_TRUE(holder.init().ok());
+
+    auto rotated = param;
+    rotated.__set_sk("racing-sk");
+    _on_s3_build = [&] { holder.invalidate(Status::InvalidArgument<false>("backend changed")); };
+    auto st = holder.reset(resolve(rotated));
+
+    // The publish reports the reason rather than Aborted, which callers treat as retryable.
+    EXPECT_FALSE(st.is<ErrorCode::ABORTED>()) << st;
+    EXPECT_NE(st.to_string().find("backend changed"), std::string::npos) << st;
+    EXPECT_EQ(holder.get(), nullptr);
+}
+
+TEST_F(ObjClientFactoryTest, RefreshVaultDisablesAFileSystemWhoseBackendChanged) {
+    auto param = make_s3_param("vault-refresh-a.example.com");
+    auto storage = TEST_TRY(ObjStorageConfigResolver::from_storage_param(param));
+    auto fs = TEST_TRY(ObjStorageFileSystem::create(storage, "vault-refresh"));
+
+    // A key rotation is an ordinary reset, on the same holder.
+    auto rotated = param;
+    rotated.__set_sk("rotated-vault-sk");
+    ASSERT_TRUE(fs->refresh_vault(resolve(rotated)).ok());
+    EXPECT_EQ(secret_key_of(fs->client_holder()->state()->config), "rotated-vault-sk");
+    ASSERT_NE(fs->client_holder()->get(), nullptr);
+
+    // The id came back for an Azure vault: no client is built for it, and everything that keeps
+    // this file system stops, including what writes through it.
+    int builds = _s3_builds;
+    auto changed = fs->refresh_vault(resolve(make_azure_param("vault-refresh-b.example.com")));
+    EXPECT_TRUE(changed.is<ErrorCode::INVALID_ARGUMENT>()) << changed;
+    EXPECT_EQ(changed.to_string().find("rotated-vault-sk"), std::string::npos);
+    EXPECT_EQ(fs->client_holder()->get(), nullptr);
+    FileWriterPtr writer;
+    EXPECT_FALSE(fs->create_file("key", &writer).ok());
+
+    // A later sync, even one that carries the old backend again, does not bring it back.
+    EXPECT_FALSE(fs->refresh_vault(resolve(rotated)).ok());
+    EXPECT_EQ(fs->client_holder()->get(), nullptr);
+    EXPECT_EQ(_s3_builds, builds);
+}
+
+TEST_F(ObjClientFactoryTest, InvalidatedFileSystemGivesNoPresignedUrl) {
+    // Both the private OSS endpoint, whose branch builds another client, and any other endpoint.
+    for (const std::string endpoint :
+         {"bucket-a-internal.aliyuncs.com", "presigned-invalid.example.com"}) {
+        auto param = make_s3_param(endpoint);
+        param.__set_provider(TObjStorageType::OSS);
+        auto storage = TEST_TRY(ObjStorageConfigResolver::from_storage_param(param));
+        auto fs = TEST_TRY(ObjStorageFileSystem::create(storage, "presigned-invalid"));
+        fs->client_holder()->invalidate(Status::InvalidArgument<false>("backend changed"));
+
+        int builds = _s3_builds;
+        EXPECT_TRUE(fs->generate_presigned_url("key", 60, true).empty());
+        EXPECT_TRUE(fs->generate_presigned_url("key", 60, false).empty());
+        EXPECT_EQ(_s3_builds, builds);
+    }
+}
+
+TEST_F(ObjClientFactoryTest, RefreshKeepsTheHolderWhileTheTargetStays) {
+    // A rowset resolves its file system once and keeps it, so what it holds must follow every
+    // later change. FE freezes the bucket and root path of a resource under a storage policy.
+    auto param = make_s3_param("rebind.example.com");
+    param.__set_bucket("frozen-bucket");
+    param.__set_root_path("/frozen-root/");
+    auto storage = TEST_TRY(ObjStorageConfigResolver::from_storage_param(param));
+    auto fs = TEST_TRY(ObjStorageFileSystem::create(storage, "rebind-resource"));
+    auto reader = fs->client_holder();
+
+    // A vendor change inside the S3 family is an ordinary reset: the endpoint stays.
+    auto as_oss = param;
+    as_oss.__set_provider(TObjStorageType::OSS);
+    as_oss.__set_endpoint("other-endpoint.example.com");
+    auto oss_storage = TEST_TRY(ObjStorageConfigResolver::from_storage_param(as_oss));
+    auto after_oss = TEST_TRY(ObjStorageFileSystem::refresh(fs, oss_storage));
+    EXPECT_EQ(after_oss, fs);
+    EXPECT_EQ(reader->state()->config.provider(), ObjStorageProvider::OSS);
+    EXPECT_EQ(reader->state()->config.endpoint(), "rebind.example.com");
+
+    auto as_azure = make_azure_param("rebind.example.com");
+    as_azure.__set_bucket("frozen-bucket");
+    as_azure.__set_root_path("frozen-root");
+    auto azure_storage = TEST_TRY(ObjStorageConfigResolver::from_storage_param(as_azure));
+    auto azure_refresh = ObjStorageFileSystem::refresh(fs, azure_storage);
+#ifdef USE_AZURE
+    ASSERT_TRUE(azure_refresh.has_value()) << azure_refresh.error();
+    EXPECT_EQ(azure_refresh.value(), fs);
+    EXPECT_EQ(fs->client_holder(), reader);
+    EXPECT_EQ(reader->state()->config.provider(), ObjStorageProvider::AZURE);
+    auto azure_client = reader->get();
+    ASSERT_NE(azure_client, nullptr);
+
+    // Reverting reaches the holder that readers kept.
+    auto reverted = TEST_TRY(ObjStorageFileSystem::refresh(fs, storage));
+    EXPECT_EQ(reverted, fs);
+    EXPECT_EQ(reader->state()->config.provider(), ObjStorageProvider::AWS);
+    EXPECT_NE(reader->get(), azure_client);
+
+    // So does a later key rotation.
+    auto rotated = param;
+    rotated.__set_sk("rotated-after-revert");
+    auto rotated_storage = TEST_TRY(ObjStorageConfigResolver::from_storage_param(rotated));
+    auto after_rotation = TEST_TRY(ObjStorageFileSystem::refresh(fs, rotated_storage));
+    EXPECT_EQ(after_rotation, fs);
+    EXPECT_EQ(secret_key_of(reader->state()->config), "rotated-after-revert");
+#else
+    ASSERT_FALSE(azure_refresh.has_value());
+    EXPECT_TRUE(azure_refresh.error().is<ErrorCode::NOT_IMPLEMENTED_ERROR>())
+            << azure_refresh.error();
+    EXPECT_EQ(reader->state()->config.provider(), ObjStorageProvider::OSS);
+#endif
+}
+
+TEST_F(ObjClientFactoryTest, RefreshResetsTheSameBackendAndRebuildsAMovedTarget) {
     auto param = make_s3_param("refresh-s3.example.com");
     auto storage = TEST_TRY(ObjStorageConfigResolver::from_storage_param(param));
     auto fs = TEST_TRY(ObjStorageFileSystem::create(storage, "refresh-resource"));
@@ -552,8 +713,9 @@ TEST_F(ObjClientFactoryTest, RefreshResetsTheSameBackendAndRebuildsAnotherOne) {
     EXPECT_EQ(same, fs);
     EXPECT_EQ(secret_key_of(fs->client_holder()->state()->config), "rotated-sk");
 
-    // FE allows an ALTER RESOURCE from S3 to Azure. A reset would keep the S3 target, so a new
-    // file system with the same id is built for the Azure target, as a BE restart would build.
+    // Another backend with another bucket and root path is a moved target, which FE only allows
+    // without a storage policy: a new file system with the same id is built for it, as a BE
+    // restart would build.
     auto azure_param = make_azure_param("refresh-azure.example.com");
     azure_param.__set_root_path("azure-root");
     auto azure_storage = TEST_TRY(ObjStorageConfigResolver::from_storage_param(azure_param));
@@ -570,16 +732,17 @@ TEST_F(ObjClientFactoryTest, RefreshResetsTheSameBackendAndRebuildsAnotherOne) {
     ASSERT_FALSE(rebuilt.has_value());
     EXPECT_TRUE(rebuilt.error().is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << rebuilt.error();
 #endif
-    // Requests that still hold the old file system keep its S3 target.
+    // The old file system is left as it was.
     EXPECT_EQ(fs->client_holder()->state()->config.provider(), ObjStorageProvider::AWS);
 }
 
 TEST_F(ObjClientFactoryTest, FactoryValidatesBeforeBuilding) {
     auto& factory = ObjClientFactory::instance();
-    auto no_region = make_s3_param("validate-s3.example.com");
+    const auto endpoint = unique_endpoint("validate-s3");
+    auto no_region = make_s3_param(endpoint);
     no_region.__set_region("");
     EXPECT_FALSE(factory.get_or_create(resolve(no_region)).has_value());
-    auto ak_without_sk = make_s3_param("validate-s3.example.com");
+    auto ak_without_sk = make_s3_param(endpoint);
     ak_without_sk.__set_sk("");
     EXPECT_FALSE(factory.get_or_create(resolve(ak_without_sk)).has_value());
     // An assumed role needs no static keys.
