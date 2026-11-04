@@ -17,6 +17,7 @@
 
 #include "util/jni_scan_heap_gate.h"
 
+#include <fmt/format.h>
 #include <gtest/gtest.h>
 
 #include <atomic>
@@ -41,10 +42,17 @@ protected:
 
     void SetUp() override {
         _saved_max_wait_ms = config::get_jni_scanner_heap_max_wait_ms();
+        _saved_budget_ratio = config::get_jni_scanner_heap_budget_ratio();
         set_max_wait_ms(60000);
     }
 
-    void TearDown() override { set_max_wait_ms(_saved_max_wait_ms); }
+    void TearDown() override {
+        set_max_wait_ms(_saved_max_wait_ms);
+        // "{}" writes the shortest text that parses back to the same double.
+        auto st = config::set_config("jni_scanner_heap_budget_ratio",
+                                     fmt::format("{}", _saved_budget_ratio));
+        ASSERT_TRUE(st.ok()) << st;
+    }
 
     // Through set_config(), which publishes the value the gate reads.
     static void set_max_wait_ms(int64_t ms) {
@@ -73,6 +81,7 @@ protected:
 
 private:
     int64_t _saved_max_wait_ms = 0;
+    double _saved_budget_ratio = 0;
 };
 
 TEST_F(JniScanHeapGateTest, AdmitsWhileWhatTheReadersDeclaredFitsTheBudget) {
@@ -293,6 +302,31 @@ TEST_F(JniScanHeapGateTest, DestroyingAnAdmissionGivesItsShareBackOrLeavesTheLin
     EXPECT_EQ(_gate.holders(), 2);
     EXPECT_EQ(_gate.admitted_bytes(), 500 * MB);
     EXPECT_EQ(_gate.waiters(), 0);
+}
+
+TEST_F(JniScanHeapGateTest, SettingsTheGateCannotUseAreRefused) {
+    // Both ends of each range are taken. The longest wait is the most milliseconds the gate can
+    // count in nanoseconds: INT64_MAX / 10^6.
+    for (const char* ratio : {"0", "1"}) {
+        EXPECT_TRUE(config::set_config("jni_scanner_heap_budget_ratio", ratio).ok()) << ratio;
+    }
+    for (const char* ms : {"0", "9223372036854"}) {
+        EXPECT_TRUE(config::set_config("jni_scanner_heap_max_wait_ms", ms).ok()) << ms;
+    }
+
+    // A NaN ratio would reach an undefined conversion to int64, an infinite one or one above 1
+    // would let the declarations add up to more than the heap, and a negative one is no share of it
+    // at all. A negative wait would admit every waiter at the next poll, and one longer than the
+    // above would overflow in nanoseconds. Each is refused, and the gate keeps reading the last
+    // value taken.
+    for (const char* ratio : {"nan", "inf", "-0.1", "1.5"}) {
+        EXPECT_FALSE(config::set_config("jni_scanner_heap_budget_ratio", ratio).ok()) << ratio;
+    }
+    for (const char* ms : {"-1", "9223372036855"}) {
+        EXPECT_FALSE(config::set_config("jni_scanner_heap_max_wait_ms", ms).ok()) << ms;
+    }
+    EXPECT_EQ(config::get_jni_scanner_heap_budget_ratio(), 1.0);
+    EXPECT_EQ(config::get_jni_scanner_heap_max_wait_ms(), 9223372036854);
 }
 
 } // namespace doris
