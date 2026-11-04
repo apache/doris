@@ -1230,6 +1230,9 @@ DEFINE_Int64(lance_index_cache_size_bytes, "10737418240");   // 10 GiB
 DEFINE_Int64(lance_metadata_cache_size_bytes, "1073741824"); // 1GB
 // Use the host executor for Lance reads; the switch remains available for rollback.
 DEFINE_Bool(enable_lance_host_executor, "true");
+// BE-wide background CPU concurrency; the pool is created once and requires a restart to resize.
+DEFINE_Int32(lance_background_thread_pool_size, "2");
+DEFINE_Validator(lance_background_thread_pool_size, [](int32_t value) { return value > 0; });
 DEFINE_Bool(enable_lance_scalar_index_auto_selection, "true");
 DEFINE_Bool(enable_lance_data_cache, "true");
 DEFINE_String(lance_data_cache_path, "${DORIS_HOME}/lance_data_cache");

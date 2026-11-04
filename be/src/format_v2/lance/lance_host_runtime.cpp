@@ -73,7 +73,7 @@ Status LanceHostRuntime::start() {
                             .build(&_reactor));
     RETURN_IF_ERROR(ThreadPoolBuilder("LanceBackground")
                             .set_min_threads(0)
-                            .set_max_threads(2)
+                            .set_max_threads(config::lance_background_thread_pool_size)
                             .build(&_background));
     auto* io_pool = ExecEnv::GetInstance()->s3_file_system_thread_pool();
     if (io_pool == nullptr) {

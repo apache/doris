@@ -23,6 +23,20 @@ for dependencies that otherwise construct another runtime.
 | Network readiness, timers and Tokio join/cancel notifications | One Doris `LanceReactor` service thread driving the threadless reactor |
 | Shared background/cache CPU work without a query | A bounded Doris `LanceBackground` pool |
 
+`lance_background_thread_pool_size` sets the maximum number of workers in the
+BE-wide `LanceBackground` pool. It defaults to `2` and must be greater than zero.
+Workers are created on demand, with a minimum of zero. Set it in `be.conf` and
+restart the BE to apply a different limit, for example:
+
+```properties
+lance_background_thread_pool_size = 4
+```
+
+The limit applies to background CPU work, including CPU submissions whose query
+has no scan scheduler. Query scan concurrency still belongs to `ScannerScheduler`,
+and blocking I/O uses the shared I/O pool. `LanceReactor` retains one worker to
+drive the single current-thread Tokio runtime.
+
 The query CPU path uses the existing scheduler and its workload-group limits.
 Host jobs attach the query's `ResourceContext`. Jobs without a query, including
 shared cache services, use the process services. Focused tests that do not
