@@ -28,6 +28,32 @@ import java.util.Map;
 
 class EsRestClientVersionTest {
     @Test
+    void mappingRequestIncludesIndexDefaults() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        java.util.concurrent.atomic.AtomicReference<String> query = new java.util.concurrent.atomic.AtomicReference<>();
+        String response = "{\"sample\":{\"mappings\":{\"properties\":{\"a\":{\"type\":\"integer\"}}},"
+                + "\"settings\":{\"index\":{\"mapping\":{\"ignore_malformed\":\"true\"}}}}}";
+        server.createContext("/sample", exchange -> {
+            query.set(exchange.getRequestURI().getQuery());
+            byte[] body = response.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        try {
+            EsRestClient client = new EsRestClient(new String[]{"http://127.0.0.1:"
+                    + server.getAddress().getPort()}, null, null, false);
+            Assertions.assertEquals(response, client.getMapping("sample"));
+            Assertions.assertEquals("filter_path=*.mappings,*.settings.index.mapping.*", query.get());
+            Assertions.assertTrue(EsMappingUtils.resolveFieldContext(java.util.Collections.singletonList("a"),
+                    "sample", response, null).getSourceValueUnsafeFields().contains("a"));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     void mixedEightAndNineNodesAreDiscoveredDuringUpgrade() throws Exception {
         String nodes = "{\"nodes\":{"
                 + "\"eight\":{\"version\":\"8.19.0\",\"name\":\"eight\",\"roles\":[\"data\",\"ingest\"],"
