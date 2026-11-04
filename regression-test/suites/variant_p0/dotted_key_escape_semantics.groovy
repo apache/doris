@@ -50,7 +50,10 @@ suite("dotted_key_escape_semantics", "p0") {
     def lazyQuery = """select /*+SET_VAR(topn_lazy_materialization_threshold=1024,
         topn_lazy_materialization_using_index=false,enable_segment_limit_pushdown=false)*/ id,v,v['a.b'],v['a']['b'],v['a%2Eb']
         from dotted_key_escape_values where abs(id % 3) in (0,1) order by id desc limit 3"""
-    logger.info("Escaped lazy fetch plan: ${sql('explain ' + lazyQuery)}")
+    explain {
+        sql lazyQuery
+        contains("MaterializeNode")
+    }
     order_qt_lazy_fetch lazyQuery
     sql "set enable_condition_cache=false"
     sql "set enable_inverted_index_query=true"
