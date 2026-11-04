@@ -535,12 +535,23 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 tableAlias);
     }
 
+    /** Return a scan with the specified partition pruning state. */
+    public LogicalOlapScan withPartitionPruned(boolean partitionPruned) {
+        return new LogicalOlapScan(relationId, (Table) table, qualifier,
+                Optional.empty(), Optional.of(getLogicalProperties()),
+                selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
+                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
+                hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
+                colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
+                scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, partitionPrunablePredicates,
+                tableAlias);
+    }
+
     @Override
     public LogicalOlapScan withRelationId(RelationId relationId) {
-        // we have to set partitionPruned to false, so that mtmv rewrite can prevent deadlock when rewriting union
         return new LogicalOlapScan(relationId, (Table) table, qualifier,
                 Optional.empty(), Optional.empty(),
-                selectedPartitionIds, false, false, selectedTabletIds,
+                selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                 hints, Maps.newHashMap(), Optional.empty(), tableSample, directMvScan,
                 colToSubPathsMap, selectedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys,

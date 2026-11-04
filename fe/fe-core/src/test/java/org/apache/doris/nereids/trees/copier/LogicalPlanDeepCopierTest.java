@@ -172,4 +172,35 @@ public class LogicalPlanDeepCopierTest {
         Assertions.assertEquals(aggregate.getGroupByExpressions().size(),
                 copiedAggregate.getGroupByExpressions().size());
     }
+
+    @Test
+    public void testDeepCopyOlapScanPreservesPartitionPruningState() {
+        LogicalOlapScan relationPlan = PlanConstructor.newLogicalOlapScan(0, "a", 0);
+        relationPlan = relationPlan.withSelectedPartitionIds(relationPlan.getSelectedPartitionIds(), true);
+
+        LogicalOlapScan copiedPlan =
+                (LogicalOlapScan) relationPlan.accept(LogicalPlanDeepCopier.INSTANCE, new DeepCopierContext());
+
+        Assertions.assertTrue(relationPlan.isPartitionPruned());
+        Assertions.assertTrue(relationPlan.hasPartitionPredicate());
+        Assertions.assertTrue(copiedPlan.isPartitionPruned());
+        Assertions.assertTrue(copiedPlan.hasPartitionPredicate());
+    }
+
+    @Test
+    public void testDeepCopyOlapScanInvalidatesPartitionPruning() {
+        LogicalOlapScan relationPlan = PlanConstructor.newLogicalOlapScan(0, "a", 0);
+        relationPlan = relationPlan.withSelectedPartitionIds(relationPlan.getSelectedPartitionIds(), true);
+        DeepCopierContext context = new DeepCopierContext();
+        context.setInvalidatePartitionPruning(true);
+
+        LogicalOlapScan copiedPlan =
+                (LogicalOlapScan) relationPlan.accept(LogicalPlanDeepCopier.INSTANCE, context);
+
+        Assertions.assertTrue(relationPlan.isPartitionPruned());
+        Assertions.assertTrue(relationPlan.hasPartitionPredicate());
+        Assertions.assertFalse(copiedPlan.isPartitionPruned());
+        Assertions.assertTrue(copiedPlan.hasPartitionPredicate());
+    }
+
 }

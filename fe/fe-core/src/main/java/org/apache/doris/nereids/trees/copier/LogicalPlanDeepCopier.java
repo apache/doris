@@ -107,6 +107,9 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         }
         LogicalCatalogRelation newRelation =
                 catalogRelation.withRelationId(StatementScopeIdGenerator.newRelationId());
+        if (context.shouldInvalidatePartitionPruning() && newRelation instanceof LogicalOlapScan) {
+            newRelation = ((LogicalOlapScan) newRelation).withPartitionPruned(false);
+        }
         updateReplaceMapWithOutput(catalogRelation, newRelation, context.exprIdReplaceMap);
         if (!catalogRelation.getVirtualColumns().isEmpty()) {
             // A virtual column can refer to the others, so each one gets its new id before any is copied.
