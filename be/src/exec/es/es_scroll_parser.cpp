@@ -713,7 +713,8 @@ Status handle_value(const rapidjson::Value& col, PrimitiveType sub_type, bool pu
             return Status::OK();
         }
 
-        if (col.IsNumber()) {
+        // ignore_malformed can retain 1.25 or wide integers in source; GetInt requires IsInt.
+        if (col.IsInt()) {
             val = static_cast<typename PrimitiveTypeTraits<T>::CppType>(col.GetInt());
             return Status::OK();
         }
@@ -729,6 +730,8 @@ Status handle_value(const rapidjson::Value& col, PrimitiveType sub_type, bool pu
         }
 
         const rapidjson::Value& str_col = is_nested_str ? col[0] : col;
+        // Disabled mappings can preserve objects instead of Boolean strings in source.
+        RETURN_ERROR_IF_COL_IS_NOT_STRING(str_col, sub_type);
         const std::string& str_val = str_col.GetString();
         size_t val_size = str_col.GetStringLength();
         StringParser::ParseResult result;
@@ -1080,8 +1083,9 @@ Status ScrollParser::fill_columns(const std::vector<SlotDescriptor*>& slots,
                 break;
             }
 
-            if (col.IsNumber()) {
-                int8_t val = static_cast<int8_t>(col.GetInt());
+            // ignore_malformed can retain 1.25 or wide integers in source; GetInt requires IsInt.
+            if (col.IsInt()) {
+                auto val = static_cast<int8_t>(col.GetInt());
                 col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&val)), 0);
                 break;
             }
@@ -1101,6 +1105,8 @@ Status ScrollParser::fill_columns(const std::vector<SlotDescriptor*>& slots,
 
             RETURN_ERROR_IF_COL_IS_ARRAY(col, type, true);
 
+            // Disabled mappings can preserve objects instead of Boolean strings in source.
+            RETURN_ERROR_IF_COL_IS_NOT_STRING(str_col, type);
             const std::string& val = str_col.GetString();
             size_t val_size = str_col.GetStringLength();
             StringParser::ParseResult result;

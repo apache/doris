@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.es;
 
 import org.apache.doris.catalog.EsResource;
+import org.apache.doris.catalog.EsTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -92,6 +93,17 @@ public class EsExternalCatalog extends ExternalCatalog {
     public boolean enableDocValueScan() {
         return Boolean.parseBoolean(catalogProperty.getOrDefault(EsResource.DOC_VALUE_SCAN,
                 EsResource.DOC_VALUE_SCAN_DEFAULT_VALUE));
+    }
+
+    public int getMaxDocValueFields() {
+        int defaultLimit = EsTable.getDEFAULT_MAX_DOCVALUE_FIELDS();
+        String value = catalogProperty.getOrDefault(EsResource.MAX_DOCVALUE_FIELDS, String.valueOf(defaultLimit));
+        // Preserve legacy ES table parsing for stored catalogs with negative or malformed limits.
+        try {
+            return Math.max(0, Integer.parseInt(value.trim()));
+        } catch (NumberFormatException e) {
+            return defaultLimit;
+        }
     }
 
     public boolean enableKeywordSniff() {

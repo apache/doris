@@ -56,8 +56,10 @@ suite("test_es_numeric_source_semantics", "p2,external") {
             analysis: [normalizer: [lowercase_value: [type: "custom", filter: ["lowercase"]]]]],
         mappings: [properties: [row_id: [type: "long"],
             a: [type: "keyword", normalizer: "lowercase_value"],
-            b: [type: "scaled_float", scaling_factor: 4], c: [type: "half_float"]]]])
-    [[row_id: 1, a: "ok", b: 2.34, c: 2.34], [row_id: 2, a: "empty", b: null, c: null],
+            b: [type: "scaled_float", scaling_factor: 4], c: [type: "half_float"],
+            d: [type: "date", format: "yyyy-MM-dd||epoch_millis"]]]])
+    [[row_id: 1, a: "ok", b: 2.34, c: 2.34, d: 1704139200000L],
+     [row_id: 2, a: "empty", b: null, c: null],
      [row_id: 3, a: "other", b: -2.34, c: -2.34]].each { row ->
         request("PUT", "${index}/_doc/${row.row_id}", row)
     }
@@ -78,7 +80,9 @@ suite("test_es_numeric_source_semantics", "p2,external") {
     // SHOW prefixes deprecated variable names; scalar access keeps the compatibility name stable.
     def originalV2 = sql("SELECT @@enable_file_scanner_v2")[0][0]
     def originalParallel = sql("show variables like 'enable_es_parallel_scroll'")[0][1]
+    def originalTimeZone = sql("select @@time_zone")[0][0]
     try {
+        sql "set time_zone = '+08:00'"
         ["enabled", "disabled", "limited"].each { mode ->
             def catalog = "es_numeric_source_${mode}"
             sql "drop catalog if exists ${catalog}"
@@ -93,6 +97,14 @@ suite("test_es_numeric_source_semantics", "p2,external") {
                 [false, true].each { parallel ->
                     sql "set enable_es_parallel_scroll = ${parallel}"
                     def tag = "${mode}_v2_${scannerV2}_parallel_${parallel}"
+                    // The epoch is January 1 in ES's UTC index, but January 2 when source is
+                    // decoded in this session. Both predicates must compare the returned date.
+                    assertEquals([], sql("select row_id, a, d from ${index} "
+                            + "where d = cast('2024-01-01' as date)"))
+                    assertEquals([["1", "ok", "2024-01-02"]],
+                            sql("select row_id, a, d from ${index} "
+                                    + "where d = cast('2024-01-02' as date)")
+                                    .collect { row -> row.collect { it.toString() } })
                     // The normalizer forces the whole projection to source. Numeric predicates must
                     // compare the original values, even when the indexed representation is rounded.
                     predicates.eachWithIndex { predicate, i ->
@@ -138,5 +150,6 @@ suite("test_es_numeric_source_semantics", "p2,external") {
     } finally {
         sql "set enable_file_scanner_v2 = ${originalV2}"
         sql "set enable_es_parallel_scroll = ${originalParallel}"
+        sql "set time_zone = '${originalTimeZone}'"
     }
 }

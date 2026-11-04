@@ -278,9 +278,10 @@ public final class EsMappingUtils {
 
     private static boolean requiresSourcePredicateEvaluation(JsonNode field) {
         String type = field.path("type").asText();
-        // A default date may be a date-only source string read as local midnight, unlike its UTC index value.
+        // Source dates use the session time zone, including epoch_millis in explicit formats,
+        // so their local value can differ from the UTC value used by an ES predicate.
         return "scaled_float".equals(type) || "half_float".equals(type) || "alias".equals(type)
-                || field.hasNonNull("script") || ("date".equals(type) && !field.has("format"));
+                || field.hasNonNull("script") || "date".equals(type);
     }
 
     private static boolean isSearchable(JsonNode field) {
