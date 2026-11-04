@@ -17,6 +17,7 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.ChangelogConfig;
@@ -47,6 +48,8 @@ import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingTaskTxnCommitAttachment;
 import org.apache.doris.job.offset.jdbc.JdbcOffset;
 import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
+import org.apache.doris.load.DeleteJob;
+import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.mtmv.ivm.IvmInfo;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
@@ -88,6 +91,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class DatabaseTransactionMgrTest {
@@ -514,6 +518,205 @@ public class DatabaseTransactionMgrTest {
         });
         Assertions.assertTrue(e.getMessage().contains("transaction not found"),
                 "unexpected message: " + e.getMessage());
+    }
+
+    private long beginAbortTestTransaction(String label, LoadJobSourceType sourceType, boolean commit)
+            throws UserException {
+        Table table = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
+                .getTableOrMetaException(CatalogTestUtil.testTableId1);
+        long txnId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(table.getId()),
+                label, transactionSource, sourceType, Config.stream_load_default_timeout_second);
+        if (commit) {
+            masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table), txnId,
+                    GlobalTransactionMgrTest.generateTabletCommitInfos(CatalogTestUtil.testTabletId1, allBackends),
+                    null);
+        }
+        return txnId;
+    }
+
+    private static void abortForTest(String mode, long txnId) throws UserException {
+        DatabaseTransactionMgr dbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
+        if (mode.equals("2pc")) {
+            dbTransMgr.abortTransaction2PC(txnId);
+        } else {
+            dbTransMgr.abortTransaction(txnId, "abort for test", null);
+        }
+    }
+
+    // Registers a real routine load job as the callback of the transaction, whose beforeAborted() takes the job's
+    // write lock and whose afterAborted() releases it. Records whether afterAborted() ran under the txn monitor.
+    private static KafkaRoutineLoadJob addRoutineLoadJobCallback(TransactionState state,
+            AtomicBoolean afterAbortedHoldsMonitor) throws UserException {
+        KafkaRoutineLoadJob job = Mockito.spy(new KafkaRoutineLoadJob(state.getTransactionId(), "abort_test_job",
+                CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1, "host:port", "topic", UserIdentity.ADMIN));
+        Mockito.doAnswer(invocation -> {
+            afterAbortedHoldsMonitor.set(Thread.holdsLock(state));
+            return invocation.callRealMethod();
+        }).when(job).afterAborted(Mockito.any(), Mockito.anyBoolean(), Mockito.any());
+        masterTransMgr.getCallbackFactory().addCallback(job);
+        state.setCallbackId(job.getId());
+        return job;
+    }
+
+    @ParameterizedTest
+    @CsvSource({"normal,false", "normal,true", "2pc,false", "2pc,true"})
+    public void testRejectedAbortReleasesRoutineLoadJobLock(String mode, boolean logOutsideLock) throws Exception {
+        boolean originalLogOutsideLock = Config.enable_txn_log_outside_lock;
+        ReentrantReadWriteLock jobLock = null;
+        try {
+            Config.enable_txn_log_outside_lock = logOutsideLock;
+            FakeEnv.setEnv(masterEnv);
+            long txnId = beginAbortTestTransaction("rejected_abort_" + mode + "_" + logOutsideLock,
+                    LoadJobSourceType.ROUTINE_LOAD_TASK, true);
+            TransactionState state = masterTransMgr.getTransactionState(CatalogTestUtil.testDbId1, txnId);
+            Assertions.assertEquals(TransactionStatus.COMMITTED, state.getTransactionStatus());
+            AtomicBoolean afterAbortedHoldsMonitor = new AtomicBoolean(true);
+            KafkaRoutineLoadJob job = addRoutineLoadJobCallback(state, afterAbortedHoldsMonitor);
+            jobLock = Deencapsulation.getField(job, "lock");
+            Mockito.clearInvocations(masterEnv.getEditLog());
+
+            // A late abort, such as a BE rollback after its commit RPC timed out, is rejected.
+            UserException e = Assertions.assertThrows(UserException.class, () -> abortForTest(mode, txnId));
+            Assertions.assertTrue(e.getMessage().contains("is already COMMITTED, could not abort"), e.getMessage());
+            Assertions.assertEquals(TransactionStatus.COMMITTED, state.getTransactionStatus());
+            Mockito.verifyNoInteractions(masterEnv.getEditLog());
+
+            // The publish thread must still finish the transaction: afterVisible() takes the job's write lock.
+            Map<String, Map<Long, Long>> successTablets = new HashMap<>();
+            setSuccessTablet(successTablets, allBackends, txnId, CatalogTestUtil.testTabletId1,
+                    CatalogTestUtil.testStartVersion + 2);
+            setTransactionFinishPublish(state, allBackends, successTablets);
+            FutureTask<Void> publishTask = new FutureTask<>(() -> {
+                try (FakeEnv threadEnv = new FakeEnv()) {
+                    masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, txnId, Maps.newHashMap(),
+                            Maps.newHashMap());
+                    return null;
+                }
+            });
+            new Thread(publishTask, "publish-after-rejected-abort").start();
+            Assertions.assertDoesNotThrow(() -> publishTask.get(10, TimeUnit.SECONDS),
+                    "publishing the committed transaction waits for the routine load job lock");
+            Assertions.assertEquals(TransactionStatus.VISIBLE, state.getTransactionStatus());
+
+            Mockito.verify(job).beforeAborted(state);
+            Mockito.verify(job).afterAborted(Mockito.eq(state), Mockito.eq(false), Mockito.any());
+            Assertions.assertFalse(afterAbortedHoldsMonitor.get(), "afterAborted() ran under the transaction monitor");
+            Mockito.verify(job).afterVisible(state, true);
+            Assertions.assertFalse(jobLock.isWriteLocked(), "the routine load job lock is still held");
+        } finally {
+            Config.enable_txn_log_outside_lock = originalLogOutsideLock;
+            // Release a lock leaked on this thread so that a blocked publish thread can exit.
+            while (jobLock != null && jobLock.isWriteLockedByCurrentThread()) {
+                jobLock.writeLock().unlock();
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"normal,false,false", "normal,true,false", "2pc,false,false", "2pc,true,false",
+            "normal,false,true", "normal,true,true", "2pc,false,true", "2pc,true,true"})
+    public void testAbortReleasesRoutineLoadJobLock(String mode, boolean logOutsideLock, boolean failEditLog)
+            throws Exception {
+        boolean originalLogOutsideLock = Config.enable_txn_log_outside_lock;
+        ReentrantReadWriteLock jobLock = null;
+        try {
+            Config.enable_txn_log_outside_lock = logOutsideLock;
+            FakeEnv.setEnv(masterEnv);
+            long txnId = beginAbortTestTransaction("abort_" + mode + "_" + logOutsideLock + "_" + failEditLog,
+                    LoadJobSourceType.ROUTINE_LOAD_TASK, false);
+            TransactionState state = masterTransMgr.getTransactionState(CatalogTestUtil.testDbId1, txnId);
+            AtomicBoolean afterAbortedHoldsMonitor = new AtomicBoolean(true);
+            KafkaRoutineLoadJob job = addRoutineLoadJobCallback(state, afterAbortedHoldsMonitor);
+            jobLock = Deencapsulation.getField(job, "lock");
+
+            if (failEditLog) {
+                // What EditLog throws when it has no edit log stream; the abort is already done in memory.
+                Error editLogFailure = new Error("Fatal Error : no editLog stream");
+                Mockito.doThrow(editLogFailure).when(masterEnv.getEditLog())
+                        .logInsertTransactionState(Mockito.any(TransactionState.class));
+                Mockito.doThrow(editLogFailure).when(masterEnv.getEditLog())
+                        .submitEdit(Mockito.anyShort(), Mockito.any());
+                Error thrown = Assertions.assertThrows(Error.class, () -> abortForTest(mode, txnId));
+                Assertions.assertSame(editLogFailure, thrown);
+            } else {
+                abortForTest(mode, txnId);
+            }
+
+            Assertions.assertFalse(jobLock.isWriteLocked(), "the routine load job lock is still held");
+            Assertions.assertEquals(TransactionStatus.ABORTED, state.getTransactionStatus());
+            Mockito.verify(job).beforeAborted(state);
+            // The transaction is aborted in memory before the edit log write, so txnOperated is true either way.
+            Mockito.verify(job).afterAborted(Mockito.eq(state), Mockito.eq(true), Mockito.any());
+            Assertions.assertFalse(afterAbortedHoldsMonitor.get(), "afterAborted() ran under the transaction monitor");
+        } finally {
+            Config.enable_txn_log_outside_lock = originalLogOutsideLock;
+            while (jobLock != null && jobLock.isWriteLockedByCurrentThread()) {
+                jobLock.writeLock().unlock();
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"normal", "2pc"})
+    public void testAbortSkipsAfterCallbackWhenBeforeCallbackFails(String mode) throws Exception {
+        FakeEnv.setEnv(masterEnv);
+        long txnId = beginAbortTestTransaction("before_callback_fails_" + mode, LoadJobSourceType.FRONTEND, false);
+        TransactionState state = masterTransMgr.getTransactionState(CatalogTestUtil.testDbId1, txnId);
+        TxnStateChangeCallback callback = Mockito.mock(TxnStateChangeCallback.class);
+        Mockito.when(callback.getId()).thenReturn(txnId);
+        TransactionException beforeFailure = new TransactionException("before callback failed");
+        Mockito.doThrow(beforeFailure).when(callback).beforeAborted(state);
+        masterTransMgr.getCallbackFactory().addCallback(callback);
+        state.setCallbackId(txnId);
+
+        TransactionException thrown = Assertions.assertThrows(TransactionException.class,
+                () -> abortForTest(mode, txnId));
+        Assertions.assertSame(beforeFailure, thrown);
+        Assertions.assertEquals(TransactionStatus.PREPARE, state.getTransactionStatus());
+        Mockito.verify(callback, Mockito.never()).afterAborted(Mockito.any(), Mockito.anyBoolean(), Mockito.any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"normal", "2pc"})
+    public void testRejectedAbortKeepsAbortFailureWhenAfterCallbackFails(String mode) throws Exception {
+        FakeEnv.setEnv(masterEnv);
+        long txnId = beginAbortTestTransaction("after_callback_fails_" + mode, LoadJobSourceType.FRONTEND, true);
+        TransactionState state = masterTransMgr.getTransactionState(CatalogTestUtil.testDbId1, txnId);
+        TxnStateChangeCallback callback = Mockito.mock(TxnStateChangeCallback.class);
+        Mockito.when(callback.getId()).thenReturn(txnId);
+        Mockito.doThrow(new RuntimeException("after callback failed")).when(callback)
+                .afterAborted(Mockito.any(), Mockito.anyBoolean(), Mockito.any());
+        masterTransMgr.getCallbackFactory().addCallback(callback);
+        state.setCallbackId(txnId);
+
+        UserException e = Assertions.assertThrows(UserException.class, () -> abortForTest(mode, txnId));
+        Assertions.assertTrue(e.getMessage().contains("is already COMMITTED, could not abort"), e.getMessage());
+        Assertions.assertEquals(TransactionStatus.COMMITTED, state.getTransactionStatus());
+        Mockito.verify(callback).afterAborted(Mockito.eq(state), Mockito.eq(false), Mockito.any());
+    }
+
+    @Test
+    public void testRejectedAbortKeepsDeleteJobCallback() throws Exception {
+        FakeEnv.setEnv(masterEnv);
+        TxnStateCallbackFactory callbackFactory = masterTransMgr.getCallbackFactory();
+        // DeleteJob.cancel() aborts the transaction; a committed delete still needs afterVisible() to finish.
+        long committedTxnId = beginAbortTestTransaction("delete_committed", LoadJobSourceType.FRONTEND, true);
+        DeleteJob committedJob = new DeleteJob(committedTxnId, committedTxnId, "delete_committed",
+                Maps.newHashMap(), null);
+        callbackFactory.addCallback(committedJob);
+        masterTransMgr.getTransactionState(CatalogTestUtil.testDbId1, committedTxnId)
+                .setCallbackId(committedJob.getId());
+        Assertions.assertThrows(UserException.class, () -> abortForTest("normal", committedTxnId));
+        Assertions.assertSame(committedJob, callbackFactory.getCallback(committedJob.getId()));
+
+        long preparedTxnId = beginAbortTestTransaction("delete_prepared", LoadJobSourceType.FRONTEND, false);
+        DeleteJob abortedJob = new DeleteJob(preparedTxnId, preparedTxnId, "delete_prepared", Maps.newHashMap(),
+                null);
+        callbackFactory.addCallback(abortedJob);
+        masterTransMgr.getTransactionState(CatalogTestUtil.testDbId1, preparedTxnId)
+                .setCallbackId(abortedJob.getId());
+        abortForTest("normal", preparedTxnId);
+        Assertions.assertNull(callbackFactory.getCallback(abortedJob.getId()));
     }
 
     @Test
