@@ -655,8 +655,6 @@ CLUCENE_INCLUDING_FILES = {
     "storage/index/index_file_writer.h",
     "storage/index/index_fs_directory.h",
     "storage/index/inverted/clucene/inverted_index_searcher.h",
-    # The analysis layer (T3, T4, T8, T9).
-    "storage/index/inverted/analysis/analyzer/analyzer.cpp",
     # SNII (T3, T12, T13).
     "storage/index/inverted/snii/snii_blob_directory.h",
     "storage/index/inverted/snii/snii_blob_staging_directory.h",
@@ -671,8 +669,6 @@ CLUCENE_SYMBOL_FILES = {
     "storage/index/ann/ann_index_writer.h",
     "storage/index/ann/faiss_ann_index.cpp",
     "storage/index/ann/faiss_ann_index.h",
-    # The analysis layer (T3, T4, T8, T9).
-    "storage/index/inverted/analysis/analyzer/analyzer.cpp",
     # SNII (T3, T12, T13).
     "storage/index/inverted/snii/snii_blob_directory.cpp",
     "storage/index/inverted/snii/snii_blob_directory.h",

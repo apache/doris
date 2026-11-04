@@ -50,6 +50,7 @@
 #include "storage/index/inverted/analysis/tokenizer/basic/basic_tokenizer.h"
 #include "storage/index/inverted/analysis/tokenizer/english/english_tokenizer.h"
 #include "storage/index/inverted/analysis/tokenizer/icu/icu_tokenizer.h"
+#include "storage/index/inverted/analysis/tokenizer/jieba/jieba_tokenizer.h"
 #include "storage/index/inverted/analysis/tokenizer/ngram/gram_tokenizer.h"
 #include "storage/index/inverted/analysis/tokenizer/ngram/ngram_tokenizer.h"
 #include "storage/index/inverted/analysis/tokenizer/pinyin/pinyin_tokenizer.h"
@@ -260,6 +261,17 @@ TEST(ComponentStreamTest, EnglishTokenizerReleasesItsLoweredCopy) {
         expect_released_at_next_row(english, repeat_to("Ab ", kLongRowBytes), "short", lowercase,
                                     [&] { return lowercase ? english._lowered.capacity() : 0; });
     }
+}
+
+TEST(ComponentStreamTest, JiebaTokenizerReleasesItsCopyAndWordList) {
+    const JiebaTokenizerFactory factory(
+            false, true, "./contrib/clucene/src/contribs-lib/CLucene/analysis/jieba/dict");
+    expect_text_stream_contract([&] { return factory.create(); }, contract_texts());
+    auto tokenizer = factory.create();
+    auto& jieba = as<JiebaTokenizer>(*tokenizer);
+    expect_released_at_next_row(*tokenizer, repeat_to("我们 ", kLongRowBytes), "short", true, [&] {
+        return jieba._value.capacity() + jieba._words.capacity() * sizeof(std::string_view);
+    });
 }
 
 TEST(ComponentStreamTest, Uax29TokenizerReleasesItsLoweredCopy) {

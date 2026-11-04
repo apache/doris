@@ -19,21 +19,6 @@
 
 #include <glog/logging.h>
 
-#include "CLucene.h"
-#include "CLucene/analysis/LanguageBasedAnalyzer.h"
-
-#ifdef __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wshadow-field"
-#endif
-// clang-format off
-#include "common/compile_check_avoid_begin.h"
-#include "CLucene/analysis/standard95/StandardAnalyzer.h"
-#include "common/compile_check_avoid_end.h"
-// clang-format on
-#ifdef __clang__
-#pragma clang diagnostic pop
-#endif
 #include "runtime/exec_env.h"
 #include "runtime/index_policy/index_policy_mgr.h"
 #include "storage/index/inverted/analysis/analyzer/chain_analyzer.h"
@@ -51,9 +36,9 @@
 #include "storage/index/inverted/analysis/tokenizer/english/english_tokenizer.h"
 #include "storage/index/inverted/analysis/tokenizer/icu/icu_tokenizer_factory.h"
 #include "storage/index/inverted/analysis/tokenizer/ik/ik_tokenizer_factory.h"
+#include "storage/index/inverted/analysis/tokenizer/jieba/jieba_tokenizer.h"
 #include "storage/index/inverted/analysis/tokenizer/kuromoji/kuromoji_tokenizer_factory.h"
 #include "storage/index/inverted/analysis/tokenizer/standard/uax29_tokenizer.h"
-#include "storage/index/inverted/clucene/lucene_backed_text_analyzer.h"
 
 namespace doris::segment_v2::inverted_index {
 namespace {
@@ -188,23 +173,6 @@ bool builtin_lowercase(const std::string& lower_case, bool parser_default) {
     return parser_default;
 }
 
-// A builtin parser whose analyzer is still CLucene's, with lower_case and stop_words applied.
-TextAnalyzerPtr lucene_builtin_analyzer(std::shared_ptr<lucene::analysis::Analyzer> analyzer,
-                                        const std::string& lower_case,
-                                        const std::string& stop_words) {
-    if (lower_case == INVERTED_INDEX_PARSER_TRUE) {
-        analyzer->set_lowercase(true);
-    } else if (lower_case == INVERTED_INDEX_PARSER_FALSE) {
-        analyzer->set_lowercase(false);
-    }
-    if (stop_words == "none") {
-        analyzer->set_stopwords(nullptr);
-    } else {
-        analyzer->set_stopwords(&lucene::analysis::standard95::stop_words);
-    }
-    return std::make_shared<LuceneBackedTextAnalyzer>(std::move(analyzer));
-}
-
 // `tokenizer`, followed by the lowercase filter when `lowercase`.
 TextAnalyzerPtr tokenizer_chain(TokenizerFactoryPtr tokenizer, bool lowercase) {
     std::vector<TokenFilterFactoryPtr> token_filters;
@@ -230,15 +198,13 @@ TextAnalyzerPtr build_builtin_analyzer(InvertedIndexParserType parser_type,
                 std::vector<TokenFilterFactoryPtr> {});
     }
     if (parser_type == InvertedIndexParserType::PARSER_CHINESE) {
-        auto chinese_analyzer =
-                std::make_shared<lucene::analysis::LanguageBasedAnalyzer>(L"chinese", false);
-        chinese_analyzer->initDict(config::inverted_index_dict_path);
-        if (parser_mode == INVERTED_INDEX_PARSER_COARSE_GRANULARITY) {
-            chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::Default);
-        } else {
-            chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::All);
-        }
-        return lucene_builtin_analyzer(std::move(chinese_analyzer), lower_case, stop_words);
+        // The fine mode cuts every dictionary word; coarse_grained mixes the dictionary and the HMM.
+        return std::make_shared<ChainAnalyzer>(
+                std::vector<CharFilterFactoryPtr> {},
+                std::make_shared<JiebaTokenizerFactory>(
+                        parser_mode != INVERTED_INDEX_PARSER_COARSE_GRANULARITY,
+                        builtin_lowercase(lower_case, false), config::inverted_index_dict_path),
+                std::vector<TokenFilterFactoryPtr> {});
     }
     if (parser_type == InvertedIndexParserType::PARSER_ICU) {
         return tokenizer_chain(std::make_shared<ICUTokenizerFactory>(),
@@ -300,13 +266,7 @@ TextAnalyzerPtr InvertedIndexAnalyzer::create_builtin_analyzer(InvertedIndexPars
                                                                const std::string& parser_mode,
                                                                const std::string& lower_case,
                                                                const std::string& stop_words) {
-    try {
-        return build_builtin_analyzer(parser_type, parser_mode, lower_case, stop_words);
-    } catch (const CLuceneError& e) {
-        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
-                        "building the {} analyzer failed: {}",
-                        inverted_index_parser_type_to_string(parser_type), e.what());
-    }
+    return build_builtin_analyzer(parser_type, parser_mode, lower_case, stop_words);
 }
 
 TextAnalyzerPtr InvertedIndexAnalyzer::create_analyzer(const InvertedIndexAnalyzerConfig* config) {
