@@ -703,8 +703,8 @@ struct TRLTaskTxnCommitAttachment {
     9: optional i64 loadCostMs
     10: optional TKafkaRLTaskProgress kafkaRLTaskProgress
     11: optional string errorLogUrl
-    12: optional TKinesisRLTaskProgress kinesisRLTaskProgress
-    13: optional string firstErrorMsg
+    12: optional string firstErrorMsg
+    13: optional TKinesisRLTaskProgress kinesisRLTaskProgress
 }
 
 struct TTxnCommitAttachment {
