@@ -42,12 +42,12 @@ public class DayMicrosecondAdd extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature,
         ComputeSignatureForDateArithmetic, PropagateNullable, DateAddSubMonotonic {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DateTimeV2Type.MAX)
-                    .args(DateTimeV2Type.MAX, VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(DateTimeV2Type.WILDCARD)
+                    .args(DateTimeV2Type.WILDCARD, VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(TimeStampNsType.INSTANCE)
                     .args(TimeStampNsType.INSTANCE, VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(TimeStampTzType.MAX)
-                    .args(TimeStampTzType.MAX, VarcharType.SYSTEM_DEFAULT)
+            FunctionSignature.ret(TimeStampTzType.WILDCARD)
+                    .args(TimeStampTzType.WILDCARD, VarcharType.SYSTEM_DEFAULT)
     );
 
     public DayMicrosecondAdd(Expression arg0, Expression arg1) {
@@ -85,6 +85,9 @@ public class DayMicrosecondAdd extends ScalarFunction
         signature = super.computeSignature(signature);
         if (signature.returnType instanceof TimeStampNsType) {
             return signature;
+        }
+        if (signature.argumentsTypes.get(0) instanceof TimeStampTzType) {
+            return signature.withArgumentType(0, TimeStampTzType.MAX).withReturnType(TimeStampTzType.MAX);
         }
         return signature.withArgumentType(0, DateTimeV2Type.MAX).withReturnType(DateTimeV2Type.MAX);
     }

@@ -286,6 +286,32 @@ class TimestampNsFunctionSignatureTest {
     }
 
     @Test
+    void testMicrosecondArithmeticPreservesTimestampTzAndPromotesPrecision() {
+        for (int scale = 0; scale <= TimeStampTzType.MAX_SCALE; scale++) {
+            Expression timestampTz = SlotReference.of(
+                    "timestamp_tz_" + scale, TimeStampTzType.of(scale));
+            VarcharLiteral interval = new VarcharLiteral("1:02:03.123456");
+            for (ScalarFunction function : new ScalarFunction[] {
+                    new DayMicrosecondAdd(timestampTz, interval),
+                    new DayMicrosecondSub(timestampTz, interval),
+                    new HourMicrosecondAdd(timestampTz, interval),
+                    new HourMicrosecondSub(timestampTz, interval),
+                    new MinuteMicrosecondAdd(timestampTz, interval),
+                    new MinuteMicrosecondSub(timestampTz, interval),
+                    new SecondMicrosecondAdd(timestampTz, interval),
+                    new SecondMicrosecondSub(timestampTz, interval),
+                    new MicroSecondsAdd(timestampTz, new BigIntLiteral(1)),
+                    new MicroSecondsSub(timestampTz, new BigIntLiteral(1)),
+                    new MilliSecondsAdd(timestampTz, new BigIntLiteral(1)),
+                    new MilliSecondsSub(timestampTz, new BigIntLiteral(1))}) {
+                assertSignature(function, TimeStampTzType.MAX,
+                        TimeStampTzType.MAX, function.child(1) instanceof VarcharLiteral
+                                ? VarcharType.SYSTEM_DEFAULT : BigIntType.INSTANCE);
+            }
+        }
+    }
+
+    @Test
     void testNanosecondFunctionsAreRegistered() {
         String timestamp = "cast('1970-01-01 00:00:00.000000001' as timestamp_ns)";
         assertAnalyzedType("nanosecond(" + timestamp + ")", IntegerType.INSTANCE);
