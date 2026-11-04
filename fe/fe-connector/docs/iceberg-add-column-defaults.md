@@ -1,7 +1,7 @@
 # Adding Iceberg columns with defaults
 
 On format-version 3 tables, `ALTER TABLE ... ADD COLUMN` can add a required
-field when its default is a non-NULL value supported by the column type.
+field with a supported non-NULL literal default.
 This applies to top-level fields, fields inside a STRUCT, and STRUCT fields
 inside ARRAY elements or MAP values:
 
@@ -47,3 +47,5 @@ SHOW CREATE TABLE preserves source requiredness.
 Coverage: IcebergAddColumnDefaultsTest exercises metadata conversion and SDK
 commits. test_iceberg_add_column_defaults covers the SQL path with Parquet and
 ORC, old and new files, NULL parents, required-field failures and older formats.
+For local validation, `icebergAddColumnDefaultsWarehouse` can point to a
+`file://` warehouse; otherwise the suite uses the standard REST/MinIO fixture.
