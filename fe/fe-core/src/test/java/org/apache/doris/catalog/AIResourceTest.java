@@ -17,6 +17,10 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.PasswordOptions;
+import org.apache.doris.analysis.ResourcePattern;
+import org.apache.doris.analysis.ResourceTypeEnum;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
@@ -24,9 +28,21 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.constants.AIProperties;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.Privilege;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AIAgg;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AIGenerate;
+import org.apache.doris.nereids.trees.expressions.functions.ai.Embed;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
+import org.apache.doris.persist.DropResourceOperationLog;
+import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableMap;
@@ -38,6 +54,9 @@ import org.apache.logging.log4j.Logger;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -82,6 +101,105 @@ public class AIResourceTest {
         aiProperties.put("ai.api_key", apiKey);
         aiProperties.put("ai.model_name", modelName);
         aiProperties.put("ai.validity_check", "false");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"generate", "aggregate", "embed", "default_generate",
+            "default_aggregate", "default_embed", "null_input"})
+    public void testAIResourceUsagePrivilege(String kind) throws Exception {
+        String resourceName = "ai_resource_privilege_test";
+        UserIdentity user = UserIdentity.createAnalyzedUserIdentWithIp("ai_resource_privilege_user", "%");
+        AIResource resource = new AIResource(resourceName);
+        resource.setProperties(ImmutableMap.of(
+                "ai.provider_type", "LOCAL",
+                "ai.endpoint", "http://localhost:8000",
+                "ai.model_name", "chat",
+                "ai.validity_check", "false"));
+        Auth auth = Env.getCurrentEnv().getAuth();
+        ResourceMgr resourceMgr = Env.getCurrentEnv().getResourceMgr();
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setCurrentUserIdentity(user);
+        context.setRemoteIP("127.0.0.1");
+        context.getSessionVariable().defaultAIResource = resourceName;
+        context.setThreadLocalInfo();
+        try {
+            auth.replayCreateUser(new PrivInfo(user, null, new byte[0], null, PasswordOptions.UNSET_OPTION));
+            Assertions.assertTrue(auth.doesUserExist(user));
+            resourceMgr.replayCreateResource(resource);
+            BoundFunction function = aiFunctionForPrivilegeCheck(kind, resourceName);
+            assertResourceAccessDenied(function, resourceName);
+
+            auth.replayGrant(usagePrivilege(user, "another_ai_resource"));
+            assertResourceAccessDenied(function, resourceName);
+
+            auth.replayGrant(usagePrivilege(user, resourceName));
+            Assertions.assertTrue(Env.getCurrentEnv().getAccessManager()
+                    .checkResourcePriv(context, resourceName, PrivPredicate.USAGE));
+            function.checkLegalityBeforeTypeCoercion();
+            function.checkLegalityAfterRewrite();
+
+            auth.replayRevoke(usagePrivilege(user, resourceName));
+            Assertions.assertFalse(Env.getCurrentEnv().getAccessManager()
+                    .checkResourcePriv(context, resourceName, PrivPredicate.USAGE));
+            assertResourceAccessDenied(function, resourceName);
+
+            auth.replayGrant(usagePrivilege(user, "*"));
+            function.checkLegalityBeforeTypeCoercion();
+            function.checkLegalityAfterRewrite();
+            auth.replayRevoke(usagePrivilege(user, "*"));
+            assertResourceAccessDenied(function, resourceName);
+        } finally {
+            auth.replayDropUser(user);
+            resourceMgr.replayDropResource(new DropResourceOperationLog(resourceName));
+            if (previousContext == null) {
+                ConnectContext.remove();
+            } else {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
+
+    private void assertResourceAccessDenied(BoundFunction function, String resourceName) {
+        AnalysisException before = Assertions.assertThrows(AnalysisException.class,
+                function::checkLegalityBeforeTypeCoercion);
+        AnalysisException after = Assertions.assertThrows(AnalysisException.class,
+                function::checkLegalityAfterRewrite);
+        for (AnalysisException exception : new AnalysisException[] {before, after}) {
+            Assertions.assertTrue(exception.getMessage().contains("Access denied"), exception.getMessage());
+            Assertions.assertTrue(exception.getMessage().contains("Usage_priv"), exception.getMessage());
+            Assertions.assertTrue(exception.getMessage().contains(resourceName), exception.getMessage());
+        }
+    }
+
+    private PrivInfo usagePrivilege(UserIdentity user, String resourceName) throws Exception {
+        ResourcePattern pattern = new ResourcePattern(resourceName, ResourceTypeEnum.GENERAL);
+        pattern.analyze();
+        return new PrivInfo(user, pattern, PrivBitSet.of(Privilege.USAGE_PRIV), null, null);
+    }
+
+    private BoundFunction aiFunctionForPrivilegeCheck(String kind, String resourceName) {
+        StringLiteral resource = new StringLiteral(resourceName);
+        StringLiteral input = new StringLiteral("input");
+        StringLiteral task = new StringLiteral("summarize");
+        switch (kind) {
+            case "generate":
+                return new AIGenerate(resource, input);
+            case "aggregate":
+                return new AIAgg(resource, input, task);
+            case "embed":
+                return new Embed(resource, input);
+            case "default_generate":
+                return new AIGenerate(input);
+            case "default_aggregate":
+                return new AIAgg(input, task);
+            case "default_embed":
+                return new Embed(input);
+            case "null_input":
+                return new AIGenerate(resource, NullLiteral.INSTANCE);
+            default:
+                throw new IllegalArgumentException(kind);
+        }
     }
 
     @Test
