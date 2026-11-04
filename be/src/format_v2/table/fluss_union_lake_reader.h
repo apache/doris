@@ -17,15 +17,19 @@
 
 #pragma once
 
+#include <parallel_hashmap/phmap.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "common/status.h"
 #include "core/block/block.h"
+#include "core/data_type/define_primitive_type.h"
 #include "exprs/vexpr_fwd.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
@@ -81,8 +85,26 @@ public:
     };
 
     /**
-     * The DISTINCT keys of one bucket's log tail, one column per key column. Held by the scan node's
-     * split cache so every split of that bucket shares one read.
+     * Keys of any shape the integer set does not cover, each packed into one byte string
+     * (see the .cpp), so a lake row is one hash lookup rather than the generic predicate's binary
+     * search over every key the tail holds. The set points into this object's own storage, so it is
+     * built in place and never copied or moved.
+     */
+    struct PackedKeys {
+        PackedKeys() = default;
+        PackedKeys(const PackedKeys&) = delete;
+        PackedKeys& operator=(const PackedKeys&) = delete;
+
+        /** The type of each key column as packed; a lake block of other types takes the generic path. */
+        std::vector<PrimitiveType> types;
+        /** Every packed key back to back; `keys` holds views into it. */
+        std::string bytes;
+        phmap::flat_hash_set<std::string_view> keys;
+    };
+
+    /**
+     * The DISTINCT keys of one bucket's log tail, one column per key column. Versioned tails share
+     * the bounded BE cache; older FE requests use the scan node's split cache.
      *
      * <p>Distinct rather than one row per change-log record, which is what the tail is read as: a tail
      * names each key it touched once for every record it wrote about it, an update alone writes two,
@@ -96,9 +118,25 @@ public:
         std::shared_ptr<const EqualityDeleteHashIndex> hash_index;
         /** Change-log records those keys came from, for the profile: kept so the ratio is visible. */
         int64_t records = 0;
+        /** The same keys as a hash set, when the key is a single BIGINT or INT column. */
+        std::shared_ptr<const phmap::flat_hash_set<int64_t>> int_keys;
+        /** Those integer keys ascending, walked alongside lake blocks whose keys ascend too. */
+        std::shared_ptr<const std::vector<int64_t>> sorted_int_keys;
+        /** The same keys packed into bytes, when they are not a single integer column. */
+        std::shared_ptr<const PackedKeys> packed_keys;
     };
 
-    ~FlussUnionLakeReader() override = default;
+    /** The keys of a single BIGINT or INT key column as a hash set; null for any other key. */
+    static std::shared_ptr<const phmap::flat_hash_set<int64_t>> build_int_keys(const Block& keys);
+
+    /** The keys packed into bytes; null when a key column has a type packing does not cover. */
+    static std::shared_ptr<const PackedKeys> build_packed_keys(const Block& keys);
+
+    ~FlussUnionLakeReader() override {
+        // Release the predicate's column references before the cache lease can free its tracked buffers.
+        _suppression.reset();
+        _current_keys.reset();
+    }
 
     Status init(format::TableReadOptions&& options) override;
     Status prepare_split(const format::SplitReadOptions& options) override;
@@ -127,11 +165,18 @@ private:
 
     Status _resolve_union_properties();
     Status _prepare_suppression(const format::SplitReadOptions& options);
+    Status _prepare_suppression_keys(const Tail& tail, SuppressionKeys* loaded);
     Status _load_suppression_keys(const format::SplitReadOptions& options, const Tail& tail);
     Status _accumulate_tail_keys(const Tail& tail, const NextBatch& next_batch,
                                  SuppressionKeys* keys);
     Status _read_tail_keys(const Tail& tail, SuppressionKeys* keys);
     Status _build_suppression_predicate(const SuppressionKeys& keys);
+    /** What identifies a tail across every scan on this BE. */
+    std::string _tail_cache_key(const Tail& tail) const;
+    /** The single integer key probed against _fast_keys; *handled is false when the column is not one. */
+    Status _suppress_fast(Block* block, bool* handled);
+    /** Any other key packed and probed against _packed_keys; *handled as above. */
+    Status _suppress_packed(Block* block, bool* handled);
     Status _clone_conjuncts(VExprContextSPtrs* conjuncts) const;
     Status _suppress(Block* block);
     Block _empty_key_block() const;
@@ -148,6 +193,11 @@ private:
     /** The tail the current predicate was built from; a split of the same bucket reuses it. */
     std::string _suppression_tail_spec;
     VExprContextSPtr _suppression;
+    // The tail the predicate was built from, held while splits use it, and its integer keys.
+    std::shared_ptr<const SuppressionKeys> _current_keys;
+    const phmap::flat_hash_set<int64_t>* _fast_keys = nullptr;
+    const std::vector<int64_t>* _sorted_keys = nullptr;
+    const PackedKeys* _packed_keys = nullptr;
     // Whether the split being read is a LAKE_SUPPRESS one. A plain LAKE split passes through with
     // no suppression at all, and must not be filtered by a predicate a neighbouring bucket's split
     // left behind - the predicate itself is kept, so a later split of that bucket can reuse it.
