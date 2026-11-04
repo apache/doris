@@ -26,9 +26,6 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
 
-import java.lang.reflect.Field;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
-
 public class RangerHiveAccessControllerTest {
     @Test
     public void testRangerAccessTypeMapping() {
@@ -39,12 +36,9 @@ public class RangerHiveAccessControllerTest {
     }
 
     @Test
-    public void testPolicyRequestsUseLowerCaseSelect() throws Exception {
+    public void testPolicyRequestsUseLowerCaseSelect() {
         RangerHiveAccessController controller = Mockito.mock(
                 RangerHiveAccessController.class, Mockito.CALLS_REAL_METHODS);
-        Field lifecycleLock = RangerHiveAccessController.class.getDeclaredField("lifecycleLock");
-        lifecycleLock.setAccessible(true);
-        lifecycleLock.set(controller, new ReentrantReadWriteLock());
         RangerBasePlugin plugin = Mockito.mock(RangerBasePlugin.class);
         UserIdentity currentUser = UserIdentity.createAnalyzedUserIdentWithIp("user", "%");
         RangerAccessRequestImpl rowFilterRequest = new RangerAccessRequestImpl();
