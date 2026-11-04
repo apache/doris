@@ -37,6 +37,7 @@ import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.UuidType;
 import org.apache.doris.proto.OlapFile;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TColumn;
 
 import com.google.common.collect.ImmutableList;
@@ -64,15 +65,42 @@ public class ColumnDefinitionTest {
 
     @Test
     public void testCivilTemporalDefaultsAreNormalizedForExternalDdl() {
-        DataType[] types = {DateV2Type.INSTANCE, DateTimeV2Type.of(6), DateTimeV2Type.of(6)};
-        String[] inputs = {"20240102", "20240102030405", "2024-01-02 03:04:05.123456"};
-        String[] expected = {"2024-01-02", "2024-01-02 03:04:05.000000", "2024-01-02 03:04:05.123456"};
+        DataType[] types = {DateV2Type.INSTANCE, DateTimeV2Type.of(6), DateTimeV2Type.of(6), DateTimeV2Type.of(3)};
+        String[] inputs = {"20240102", "20240102030405", "2024-01-02 03:04:05.123456",
+                "2024-01-02 03:04:05.123999"};
+        String[] expected = {"2024-01-02", "2024-01-02 03:04:05.000000", "2024-01-02 03:04:05.123456",
+                "2024-01-02 03:04:05.124"};
         for (int i = 0; i < types.length; i++) {
             ColumnDefinition column = new ColumnDefinition("added", types[i],
                     false, null, false, Optional.of(new DefaultValue(inputs[i])), "");
             column.validate(false, ImmutableSet.of(), ImmutableSet.of(), false, KeysType.DUP_KEYS);
             Assertions.assertEquals(expected[i], column.translateToCatalogStyle().getDefaultValue());
             Assertions.assertEquals(expected[i], column.translateToCatalogStyleForSchemaChange().getDefaultValue());
+        }
+    }
+
+    @Test
+    public void testZonedExternalDefaultsUseSessionTimeZone() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            String[] zones = {"Asia/Shanghai", "UTC"};
+            String[] expected = {"2024-01-01 19:04:05.123456+00:00", "2024-01-02 03:04:05.123456+00:00"};
+            for (int i = 0; i < zones.length; i++) {
+                context.getSessionVariable().setTimeZone(zones[i]);
+                ColumnDefinition column = new ColumnDefinition("added", TimeStampTzType.of(6),
+                        false, null, false, Optional.of(new DefaultValue("2024-01-02 03:04:05.123456")), "");
+                column.validate(false, ImmutableSet.of(), ImmutableSet.of(), false, KeysType.DUP_KEYS);
+                Assertions.assertEquals(expected[i], column.translateToCatalogStyle().getDefaultValue());
+                Assertions.assertEquals(expected[i],
+                        column.translateToCatalogStyleForSchemaChange().getDefaultValue());
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
         }
     }
 

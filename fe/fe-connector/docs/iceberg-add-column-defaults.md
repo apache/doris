@@ -22,9 +22,11 @@ are still rejected by the existing commit checks.
 Boolean defaults accept `0`/`1` and `false`/`true`. DATE and DATETIME defaults
 accept validated SQL date and timestamp strings, preserving fractional
 seconds. External SQL defaults, including compact forms such as `20240102`,
-are normalized with the validation parser before connector conversion.
+are normalized before connector conversion using the target type's precision.
 The conversion also retains the existing numeric epoch forms used by
-connector callers.
+connector callers. TIMESTAMPTZ literals without an offset use the DDL
+session's time zone, and the persisted default retains that instant when
+read or written in another time zone.
 
 An optional parent STRUCT, ARRAY element, or MAP value can remain NULL even
 when a child field is required. A child default does not create a non-NULL

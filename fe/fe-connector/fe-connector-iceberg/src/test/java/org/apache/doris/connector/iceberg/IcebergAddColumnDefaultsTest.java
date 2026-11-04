@@ -149,9 +149,10 @@ public class IcebergAddColumnDefaultsTest {
         createTable(3);
         ConnectorType[] types = {ConnectorType.of("BOOLEAN"), ConnectorType.of("DATEV2"),
                 ConnectorType.of("DATETIMEV2", 6, 0), ConnectorType.of("STRING"),
-                ConnectorType.of("DECIMALV3", 10, 2)};
-        String[] defaults = {"1", "2024-01-02", "2024-01-02 03:04:05.123456", "hello", "1.50"};
-        Object[] expected = {true, 19724, 1704164645123456L, "hello", new BigDecimal("1.50")};
+                ConnectorType.of("DECIMALV3", 10, 2), ConnectorType.of("TIMESTAMPTZ", 6, 0)};
+        String[] defaults = {"1", "2024-01-02", "2024-01-02 03:04:05.123456", "hello", "1.50",
+                "2024-01-01 19:04:05.123456+00:00"};
+        Object[] expected = {true, 19724, 1704164645123456L, "hello", new BigDecimal("1.50"), 1704135845123456L};
         for (int i = 0; i < types.length; i++) {
             String name = "typed_" + i;
             ConnectorColumn column = new ConnectorColumn(name, types[i], "", false, defaults[i], false);
