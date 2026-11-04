@@ -215,7 +215,7 @@ protected:
         std::map<std::string, std::string> hadoop_conf;
         auto writer = make_writer(make_table_sink(false), output_exprs, schema, &json, hadoop_conf,
                                   TFileFormatType::FORMAT_PARQUET);
-        writer->_write_info.write_path = ".";
+        writer->_write_info.location = IcebergOutputLocation(".", ".");
         writer->_file_name = "iceberg_rejected_crs_" + UniqueId::gen_uid().to_string();
         writer->_compress_type = TFileCompressType::ZSTD;
 

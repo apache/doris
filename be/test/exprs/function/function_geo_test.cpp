@@ -2360,6 +2360,23 @@ TEST(VGeoFunctionsTest, GeographyNonpointDistanceKeepsCertifiedContactsAndSepara
     }
 }
 
+TEST(VGeoFunctionsTest, GeographyNonpointNearZeroDistanceRequiresRawContact) {
+    const std::vector<std::pair<std::string, std::string>> cases {
+            {"LINESTRING (2 58,2 59)",
+             "LINESTRING (1.9999999999999998 58.9,2.0000000000000004 58.9)"},
+            {"LINESTRING (0 0,1 0)", "LINESTRING (0 1e-15,1 1e-15)"},
+            {"POLYGON ((0 0,1 0,1 1,0 1,0 0))", "LINESTRING (0.25 -1e-15,0.75 -1e-15)"},
+            {"POLYGON ((0 0,1 0,1 1,0 1,0 0))",
+             "POLYGON ((0.25 -1,0.75 -1,0.75 -1e-15,0.25 -1e-15,0.25 -1))"}};
+    // The first pair crosses in raw coordinates but S2 reports a tiny positive distance.
+    // The other pairs are genuinely disjoint: proximity alone must not turn them into contact.
+    // Reuse the relation admission and reject uncertainty for both distance APIs and orders.
+    for (const auto& [left, right] : cases) {
+        expect_rounded_zero_distance_error(left, right);
+        expect_rounded_zero_distance_error(right, left);
+    }
+}
+
 TEST(VGeoFunctionsTest, GeographyDWithinHasNoLegacyMetreClamp) {
     const Strings shapes {"POINT (1 0)", "LINESTRING (0 0,2 0)", "POLYGON ((0 0,2 0,2 2,0 2,0 0))"};
     for (const auto& left : shapes) {

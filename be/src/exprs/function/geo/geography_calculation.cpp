@@ -1777,19 +1777,13 @@ double geography_distance(const GeoShape& left_shape, const GeoShape& right_shap
     S2ClosestEdgeQuery::ShapeIndexTarget target(&right);
     const double distance = S2Earth::ToMeters(query.GetDistance(&target).ToAngle());
     // LINESTRING(57 0,58 0) and (58+ulp 0,59 0) share only a rounded endpoint.
-    // Require the existing Intersects certificate before accepting a zero as raw contact.
+    // A tiny arc straddling longitude 2 at latitude 58.9 crosses (2,58)->(2,59), but
+    // S2 can report a positive near-zero distance. Require the existing Intersects
+    // certificate within the conversion bound for nonpoint pairs as well as point/shape pairs.
     // Coordinate indices are shared, while shape emission for the certificate can repeat.
-    const bool point_polygon = (left_shape.type() == GeoShapeType::GEO_SHAPE_POINT &&
-                                right_shape.type() == GeoShapeType::GEO_SHAPE_POLYGON) ||
-                               (left_shape.type() == GeoShapeType::GEO_SHAPE_POLYGON &&
-                                right_shape.type() == GeoShapeType::GEO_SHAPE_POINT);
-    const bool point_line = (left_shape.type() == GeoShapeType::GEO_SHAPE_POINT &&
-                             right_shape.type() == GeoShapeType::GEO_SHAPE_LINE_STRING) ||
-                            (left_shape.type() == GeoShapeType::GEO_SHAPE_LINE_STRING &&
-                             right_shape.type() == GeoShapeType::GEO_SHAPE_POINT);
     const double conversion_error_meters =
             S2Earth::ToMeters(geography_conversion_error().ToAngle());
-    if (distance == 0 || ((point_polygon || point_line) && distance <= conversion_error_meters)) {
+    if (distance <= conversion_error_meters) {
         bool intersects = false;
         const auto status = geography_relation_impl("st_intersects", left_shape, right_shape, nodes,
                                                     &intersects);
