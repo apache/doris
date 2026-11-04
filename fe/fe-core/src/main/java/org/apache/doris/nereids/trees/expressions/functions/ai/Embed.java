@@ -125,6 +125,7 @@ public class Embed extends AIFunction {
     }
 
     private static void validateAIResource(String resourceName, boolean isMultimodal) {
+        checkResourceUsagePrivilege(resourceName);
         Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
         if (!(resource instanceof AIResource)) {
             throw new AnalysisException("AI resource '" + resourceName + "' does not exist");
