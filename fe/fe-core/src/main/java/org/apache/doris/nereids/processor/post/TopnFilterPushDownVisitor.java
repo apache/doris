@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
@@ -164,6 +165,16 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
             return topn.child().accept(this, ctx);
         }
         return false;
+    }
+
+    @Override
+    public Boolean visitPhysicalRepeat(PhysicalRepeat<? extends Plan> repeat, PushDownContext ctx) {
+        // Repeat erases grouping keys absent from a grouping set to NULL. Filtering those
+        // keys before Repeat can discard rows that still contribute to the NULL group.
+        if (!repeat.getCommonGroupingSetExpressions().containsAll(ctx.probeExpr.getInputSlots())) {
+            return false;
+        }
+        return repeat.child().accept(this, ctx);
     }
 
     @Override
