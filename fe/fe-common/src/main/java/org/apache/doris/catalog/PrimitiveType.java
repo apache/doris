@@ -66,6 +66,8 @@ public enum PrimitiveType {
     AGG_STATE("AGG_STATE", 16, TPrimitiveType.AGG_STATE, true),
     DATEV2("DATEV2", 4, TPrimitiveType.DATEV2, true),
     DATETIMEV2("DATETIMEV2", 8, TPrimitiveType.DATETIMEV2, true),
+    // Legacy view schemas persisted TIME before the v1 type was removed.
+    @SerializedName(value = "TIMEV2", alternate = {"TIME"})
     TIMEV2("TIMEV2", 8, TPrimitiveType.TIMEV2, false),
     TIMESTAMPTZ("TIMESTAMPTZ", 8, TPrimitiveType.TIMESTAMPTZ, false),
     LAMBDA_FUNCTION("LAMBDA_FUNCTION", 16, TPrimitiveType.LAMBDA_FUNCTION, false),
