@@ -86,6 +86,54 @@ public class EsQueryDslBuilderTest {
     }
 
     @Test
+    void retainedRangeNotComplementsTheOriginalExistentialQuery() {
+        ConnectorColumnRef column = new ConnectorColumnRef("value", ConnectorType.of("BIGINT"));
+        for (ConnectorComparison.Operator op : Arrays.asList(ConnectorComparison.Operator.LT,
+                ConnectorComparison.Operator.LE, ConnectorComparison.Operator.GT, ConnectorComparison.Operator.GE)) {
+            ConnectorExpression comparison = new ConnectorComparison(op, column, ConnectorLiteral.ofLong(2));
+            EsQueryDslResult result = buildWithTracking(new ConnectorNot(comparison));
+            Assertions.assertTrue(result.getNotPushedIndices().isEmpty());
+            Assertions.assertTrue(result.getQueryDsl().contains("\"must_not\":"
+                    + buildWithTracking(comparison).getQueryDsl()), result.getQueryDsl());
+            Assertions.assertTrue(result.getQueryDsl().contains("\"must\":{\"exists\":{\"field\":\"value\"}}"));
+        }
+    }
+
+    @Test
+    void retainedNotComparisonsPreserveNullRejection() {
+        ConnectorColumnRef column = new ConnectorColumnRef("value", ConnectorType.of("BIGINT"));
+        ConnectorComparison.Operator[] operators = {ConnectorComparison.Operator.EQ, ConnectorComparison.Operator.NE};
+        ConnectorComparison.Operator[] inverses = {ConnectorComparison.Operator.NE, ConnectorComparison.Operator.EQ};
+        for (int i = 0; i < operators.length; i++) {
+            ConnectorExpression expression = new ConnectorComparison(operators[i], column, ConnectorLiteral.ofLong(1));
+            ConnectorExpression inverse = new ConnectorComparison(inverses[i], column, ConnectorLiteral.ofLong(1));
+            Assertions.assertEquals(buildWithTracking(inverse).getQueryDsl(),
+                    buildWithTracking(new ConnectorNot(expression)).getQueryDsl());
+            Assertions.assertEquals(buildWithTracking(expression).getQueryDsl(),
+                    buildWithTracking(new ConnectorNot(new ConnectorNot(expression))).getQueryDsl());
+        }
+        ConnectorExpression eq = new ConnectorComparison(ConnectorComparison.Operator.EQ, column,
+                ConnectorLiteral.ofLong(1));
+        ConnectorExpression ne = new ConnectorComparison(ConnectorComparison.Operator.NE, column,
+                ConnectorLiteral.ofLong(1));
+        Assertions.assertEquals(buildWithTracking(new ConnectorAnd(Arrays.asList(ne, eq))).getQueryDsl(),
+                buildWithTracking(new ConnectorNot(new ConnectorOr(Arrays.asList(eq, ne)))).getQueryDsl());
+    }
+
+    @Test
+    void notEqualExcludesMissingValuesForEveryNonNullLiteral() {
+        for (ConnectorLiteral literal : Arrays.asList(ConnectorLiteral.ofLong(1),
+                ConnectorLiteral.ofString("one"), ConnectorLiteral.ofString(""), ConnectorLiteral.ofBoolean(true))) {
+            ConnectorExpression comparison = new ConnectorComparison(ConnectorComparison.Operator.NE,
+                    new ConnectorColumnRef("value", literal.getType()), literal);
+            EsQueryDslResult result = EsQueryDslBuilder.buildQueryDslWithResult(comparison,
+                    Collections.emptyMap(), Collections.emptyMap(), true, Collections.emptyList());
+            Assertions.assertTrue(result.getNotPushedIndices().isEmpty());
+            Assertions.assertTrue(result.getQueryDsl().contains("\"must\":{\"exists\":{\"field\":\"value\"}}"));
+        }
+    }
+
+    @Test
     public void testRegexpProducesRegexpQuery() {
         // SQL: WHERE name REGEXP '^test.*'
         ConnectorColumnRef col = new ConnectorColumnRef("name", ConnectorType.of("VARCHAR"));

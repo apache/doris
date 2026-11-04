@@ -31,6 +31,7 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TimeStampNsLiteral;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
+import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter.PreparedQuery;
 import org.apache.doris.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.authentication.Principal;
@@ -874,11 +875,11 @@ public class ConnectContext {
     }
 
     // Arrow Flight SQL only.
-    public void addPreparedQuery(String preparedStatementId, String preparedQuery) {
+    public void addPreparedQuery(String preparedStatementId, PreparedQuery preparedQuery) {
         FlightProtocolAdapter.of(this).addPreparedQuery(preparedStatementId, preparedQuery);
     }
 
-    public String getPreparedQuery(String preparedStatementId) {
+    public PreparedQuery getPreparedQuery(String preparedStatementId) {
         return FlightProtocolAdapter.of(this).getPreparedQuery(preparedStatementId);
     }
 

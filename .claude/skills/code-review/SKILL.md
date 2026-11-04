@@ -87,7 +87,7 @@ The following checkpoints must be **individually confirmed with conclusions** du
     - Can affected processes detect the change promptly without restart?
 - Does it involve incompatible changes like function symbols or storage formats? If yes:
   - Is compatibility code added? Can it correctly handle requests during rolling upgrades?
-- Does it change `gensrc/thrift` or `gensrc/proto`? If yes: read every touched definition on HEAD and on each release branch and compare. An id or enum value that means something else on another branch, a reused id, or a new required field is a finding. (See `gensrc/AGENTS.md`)
+- Does it change `gensrc/thrift` or `gensrc/proto`? If yes: read every touched definition on HEAD and on each release branch and compare. An id or enum value that means something else on another branch, a reused id, or a new required field is a finding. On a release-branch PR, an added id or enum value that is not already on master is a blocking finding. (See `gensrc/AGENTS.md`)
 - Are there functionally parallel code paths to the modified one? If yes:
   - Should this modification be applied to other paths, and has it been?
 - Are there special conditional checks? If yes:
@@ -210,7 +210,7 @@ Detailed module review guides live in `AGENTS.md` files in each source directory
 
 | Directory | Coverage |
 |-----------|----------|
-| `gensrc/AGENTS.md` | Thrift / protobuf ids and enum values: same meaning on every branch, never reused, new fields optional |
+| `gensrc/AGENTS.md` | Thrift / protobuf ids and enum values: same meaning on every branch, never reused, new fields optional, added on master first |
 
 ---
 

@@ -40,6 +40,12 @@ from submit_review import RUN_FILE, RESULT_FILE, SUBMISSION_FILE, verify_complet
 RETRY_DELAYS = (300,) * 6
 CAPACITY_FALLBACK_AFTER = 5
 CAPACITY_MESSAGE = "Selected model is at capacity. Please try a different model."
+# Codex 0.166 distinguishes policy capacity from ordinary overloads. Both
+# retain the same bounded recovery; other policy/safety failures must not retry.
+CAPACITY_MESSAGES = (
+    CAPACITY_MESSAGE,
+    "Policy-restricted capacity is unavailable. Please try again later.",
+)
 UNSUPPORTED_CHATGPT_MODEL = "model is not supported when using Codex with a ChatGPT account."
 PROCESS_EXIT_GRACE_SECONDS = 5
 HEAD_POLL_SECONDS = 60
@@ -547,7 +553,7 @@ def run_review(args, reaper=None):
                 )
                 model = fallback_model
                 continue
-            if message is not None and message != CAPACITY_MESSAGE:
+            if message is not None and message not in CAPACITY_MESSAGES:
                 return fail(message)
             current_id = session_id(events)
             if thread_id and current_id != thread_id:
@@ -565,7 +571,7 @@ def run_review(args, reaper=None):
                     # The head can move between the exit check and readback.
                     watchdog.check(force=True)
                     raise
-                result["recovered_after_capacity"] = message == CAPACITY_MESSAGE
+                result["recovered_after_capacity"] = message in CAPACITY_MESSAGES
                 write_json(context / RESULT_FILE, result)
                 with aggregate.open("a") as handle:
                     handle.write(json.dumps({"type": "review.completed", **result}) + "\n")

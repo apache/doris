@@ -18,9 +18,11 @@
 package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.hms.HmsClient;
+import org.apache.doris.connector.hms.HmsClientException;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
+import org.apache.doris.connector.spi.ConnectorTableNotFoundException;
 import org.apache.doris.connector.spi.scan.ConnectorScanContext;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileIterator;
@@ -115,6 +117,31 @@ public class HiveConnectorMetadataFileListStatsTest {
                     throw new RuntimeException("boom");
                 }));
         Assertions.assertEquals(-1L, size);
+    }
+
+    @Test
+    public void tableAbsenceEscapesFileEstimateAndRestoresClassLoader() {
+        PartitionFakeHmsClient client = new PartitionFakeHmsClient(Collections.emptyList());
+        ConnectorTableNotFoundException missing = new ConnectorTableNotFoundException("db", "t", null);
+        client.listingFailure = new HmsClientException("native partition listing failed", missing);
+        HiveConnectorMetadata metadata = metadata(client);
+        ClassLoader original = Thread.currentThread().getContextClassLoader();
+        ClassLoader marker = new URLClassLoader(new URL[0], original);
+        Thread.currentThread().setContextClassLoader(marker);
+        try {
+            Assertions.assertSame(missing, Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                    () -> metadata.estimateDataSizeByListingFiles(null, partitioned())));
+            Assertions.assertSame(marker, Thread.currentThread().getContextClassLoader());
+        } finally {
+            Thread.currentThread().setContextClassLoader(original);
+        }
+    }
+
+    @Test
+    public void ordinaryPartitionListingFailureStillDegradesEstimate() {
+        PartitionFakeHmsClient client = new PartitionFakeHmsClient(Collections.emptyList());
+        client.listingFailure = new HmsClientException("permission denied");
+        Assertions.assertEquals(-1L, metadata(client).estimateDataSizeByListingFiles(null, partitioned()));
     }
 
     @Test
@@ -272,6 +299,7 @@ public class HiveConnectorMetadataFileListStatsTest {
      */
     private static final class PartitionFakeHmsClient implements HmsClient {
         private final List<String> partitionNames;
+        private RuntimeException listingFailure;
         private final java.util.Set<String> withoutLocation = new java.util.HashSet<>();
 
         PartitionFakeHmsClient(List<String> partitionNames) {
@@ -284,6 +312,9 @@ public class HiveConnectorMetadataFileListStatsTest {
 
         @Override
         public List<String> listPartitionNames(String dbName, String tableName, int maxParts) {
+            if (listingFailure != null) {
+                throw listingFailure;
+            }
             return partitionNames;
         }
 

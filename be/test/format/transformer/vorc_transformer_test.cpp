@@ -17,6 +17,7 @@
 
 #include "format/transformer/vorc_transformer.h"
 
+#include <fmt/format.h>
 #include <gtest/gtest.h>
 
 #include <orc/OrcFile.hh>
@@ -31,6 +32,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
@@ -48,6 +50,7 @@
 #include "io/fs/local_file_system.h"
 #include "runtime/runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
+#include "util/slice.h"
 #include "util/timezone_utils.h"
 #include "util/uid_util.h"
 
@@ -241,6 +244,153 @@ TEST_F(VOrcTransformerTest, CollectsBoundsForTopLevelFieldAfterStruct) {
     ASSERT_EQ(1, stats.upper_bounds.count(3));
     EXPECT_EQ("hello", stats.lower_bounds.at(3));
     EXPECT_EQ("hello", stats.upper_bounds.at(3));
+}
+
+TEST_F(VOrcTransformerTest, DecimalBoundsUseMinimalTwosComplement) {
+    struct TestCase {
+        const char* value;
+        int32_t footer_scale;
+        int32_t column_scale;
+        std::string expected;
+    };
+    const std::vector<TestCase> cases = {
+            {"-99999999999999999999999999999999999999", 0, 0,
+             std::string("\xb4\xc4\xb3\x57\xa5\x79\x3b\x85\xf6\x75\xdd\xc0\x00\x00\x00\x01", 16)},
+            {"-18446744073709551616", 0, 0, std::string("\xff\x00\x00\x00\x00\x00\x00\x00\x00", 9)},
+            {"-9223372036854775808", 0, 0, std::string("\x80\x00\x00\x00\x00\x00\x00\x00", 8)},
+            {"-32769", 0, 0, std::string("\xff\x7f\xff", 3)},
+            {"-32768", 0, 0, std::string("\x80\x00", 2)},
+            {"-256", 0, 0, std::string("\xff\x00", 2)},
+            {"-255", 0, 0, std::string("\xff\x01", 2)},
+            {"-129", 0, 0, std::string("\xff\x7f", 2)},
+            {"-128", 0, 0, std::string("\x80", 1)},
+            {"-100", 0, 0, std::string("\x9c", 1)},
+            {"-1", 0, 0, std::string("\xff", 1)},
+            {"0", 0, 0, std::string("\x00", 1)},
+            {"1", 0, 0, std::string("\x01", 1)},
+            {"127", 0, 0, std::string("\x7f", 1)},
+            {"128", 0, 0, std::string("\x00\x80", 2)},
+            {"255", 0, 0, std::string("\x00\xff", 2)},
+            {"256", 0, 0, std::string("\x01\x00", 2)},
+            {"9223372036854775807", 0, 0, std::string("\x7f\xff\xff\xff\xff\xff\xff\xff", 8)},
+            {"18446744073709551616", 0, 0, std::string("\x01\x00\x00\x00\x00\x00\x00\x00\x00", 9)},
+            {"99999999999999999999999999999999999999", 0, 0,
+             std::string("\x4b\x3b\x4c\xa8\x5a\x86\xc4\x7a\x09\x8a\x22\x3f\xff\xff\xff\xff", 16)},
+            {"-1", 0, 1, std::string("\xf6", 1)},
+            {"-1", 0, 2, std::string("\x9c", 1)},
+            {"-10", 1, 2, std::string("\x9c", 1)},
+            {"1", 0, 2, std::string("\x64", 1)},
+            {"128", 0, 2, std::string("\x32\x00", 2)},
+            {"0", 0, 38, std::string("\x00", 1)},
+            {"-1", 1, 38,
+             std::string("\xf8\x7a\x11\xef\x2a\x25\xb9\x26\xff\x0b\xc9\x60\x00\x00\x00\x00", 16)},
+            {"1", 38, 38, std::string("\x01", 1)},
+            {"-1", 38, 38, std::string("\xff", 1)},
+    };
+    for (const auto& test : cases) {
+        SCOPED_TRACE(test.value);
+        SCOPED_TRACE(test.footer_scale);
+        SCOPED_TRACE(test.column_scale);
+        const orc::Decimal decimal(orc::Int128(test.value), test.footer_scale);
+        EXPECT_EQ(test.expected, VOrcTransformer::_decimal_to_bytes(decimal, test.column_scale));
+    }
+}
+
+TEST_F(VOrcTransformerTest, CollectsDecimalBoundsAtColumnScale) {
+    struct TestCase {
+        int precision;
+        int scale;
+        std::vector<std::string> values;
+        std::string lower;
+        std::string upper;
+    };
+    const std::vector<TestCase> cases = {
+            {1, 0, {"-9", "9"}, std::string("\xf7", 1), std::string("\x09", 1)},
+            {9, 0, {"-100", "-1"}, std::string("\x9c", 1), std::string("\xff", 1)},
+            {9, 0, {"-100", "128"}, std::string("\x9c", 1), std::string("\x00\x80", 2)},
+            {9, 2, {"-100.00", "-1.00"}, std::string("\xd8\xf0", 2), std::string("\x9c", 1)},
+            {18, 2, {"-100.00", "1.28"}, std::string("\xd8\xf0", 2), std::string("\x00\x80", 2)},
+            {18, 2, {"1.00", "128.00"}, std::string("\x64", 1), std::string("\x32\x00", 2)},
+            {38,
+             0,
+             {"-99999999999999999999999999999999999999", "99999999999999999999999999999999999999"},
+             std::string("\xb4\xc4\xb3\x57\xa5\x79\x3b\x85\xf6\x75\xdd\xc0\x00\x00\x00\x01", 16),
+             std::string("\x4b\x3b\x4c\xa8\x5a\x86\xc4\x7a\x09\x8a\x22\x3f\xff\xff\xff\xff", 16)},
+            {38,
+             38,
+             {"-0.10000000000000000000000000000000000000",
+              "0.00000000000000000000000000000000000001"},
+             std::string("\xf8\x7a\x11\xef\x2a\x25\xb9\x26\xff\x0b\xc9\x60\x00\x00\x00\x00", 16),
+             std::string("\x01", 1)},
+            {38,
+             38,
+             {"0.00000000000000000000000000000000000000"},
+             std::string("\x00", 1),
+             std::string("\x00", 1)},
+    };
+    for (const auto& test : cases) {
+        for (bool nullable : {false, true}) {
+            SCOPED_TRACE(test.precision);
+            SCOPED_TRACE(test.scale);
+            SCOPED_TRACE(nullable);
+            auto decimal_type = create_decimal(test.precision, test.scale, false);
+            auto type = nullable ? make_nullable(decimal_type) : decimal_type;
+            auto column = type->create_column();
+            auto serde = type->get_serde();
+            DataTypeSerDe::FormatOptions options;
+            for (const auto& value : test.values) {
+                Slice slice(value);
+                ASSERT_TRUE(serde->deserialize_one_cell_from_json(*column, slice, options).ok());
+            }
+            // A null beside the extrema must not change either decimal bound.
+            if (nullable) {
+                column->insert_default();
+            }
+            auto exprs = MockSlotRef::create_mock_contexts(DataTypes {type});
+            const auto json = fmt::format(
+                    R"json({{"type":"struct","fields":[{{"id":1,"name":"d","required":false,"type":"decimal({},{})"}}]}})json",
+                    test.precision, test.scale);
+            auto schema = iceberg::SchemaParser::from_json(json);
+            io::FileWriterPtr file_writer;
+            ASSERT_TRUE(_fs->create_file(_file_path, &file_writer).ok());
+            RuntimeState state;
+            VOrcTransformer transformer(&state, file_writer.get(), exprs, "", {"d"}, false,
+                                        TFileCompressType::PLAIN, schema.get(), _fs);
+            ASSERT_TRUE(transformer.open().ok());
+            ASSERT_TRUE(transformer.write(Block({{std::move(column), type, "d"}})).ok());
+            ASSERT_TRUE(transformer.close().ok());
+            TIcebergColumnStats stats;
+            ASSERT_TRUE(transformer.collect_file_statistics_after_close(&stats).ok());
+            ASSERT_TRUE(stats.lower_bounds.contains(1));
+            ASSERT_TRUE(stats.upper_bounds.contains(1));
+            EXPECT_EQ(test.lower, stats.lower_bounds.at(1));
+            EXPECT_EQ(test.upper, stats.upper_bounds.at(1));
+        }
+    }
+}
+
+TEST_F(VOrcTransformerTest, AllNullDecimalsHaveNoBounds) {
+    auto type = make_nullable(create_decimal(38, 2, false));
+    auto column = type->create_column();
+    column->insert_default();
+    column->insert_default();
+    auto exprs = MockSlotRef::create_mock_contexts(DataTypes {type});
+    const std::string json =
+            R"json({"type":"struct","fields":[{"id":1,"name":"d","required":false,"type":"decimal(38,2)"}]})json";
+    auto schema = iceberg::SchemaParser::from_json(json);
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(_fs->create_file(_file_path, &file_writer).ok());
+    RuntimeState state;
+    VOrcTransformer transformer(&state, file_writer.get(), exprs, "", {"d"}, false,
+                                TFileCompressType::PLAIN, schema.get(), _fs);
+    ASSERT_TRUE(transformer.open().ok());
+    ASSERT_TRUE(transformer.write(Block({{std::move(column), type, "d"}})).ok());
+    ASSERT_TRUE(transformer.close().ok());
+    TIcebergColumnStats stats;
+    ASSERT_TRUE(transformer.collect_file_statistics_after_close(&stats).ok());
+    EXPECT_FALSE(stats.lower_bounds.contains(1));
+    EXPECT_FALSE(stats.upper_bounds.contains(1));
+    EXPECT_EQ(2, stats.null_value_counts.at(1));
 }
 
 TEST_F(VOrcTransformerTest, IcebergBinaryTypesOverrideLegacyStringCarrier) {

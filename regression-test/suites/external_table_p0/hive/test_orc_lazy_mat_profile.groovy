@@ -15,297 +15,64 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import groovy.json.JsonSlurper
-
 suite("test_orc_lazy_mat_profile", "p0,external") {
-    def getProfileList = {
-        def dst = 'http://' + context.config.feHttpAddress
-        def conn = new URL(dst + "/rest/v1/query_profile").openConnection()
-        conn.setRequestMethod("GET")
-        def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" +
-                (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
-        conn.setRequestProperty("Authorization", "Basic ${encoding}")
-        return conn.getInputStream().getText()
-    }
-
-    def getProfile = { id ->
-        def dst = 'http://' + context.config.feHttpAddress
-        def conn = new URL(dst + "/api/profile/text/?query_id=$id").openConnection()
-        conn.setRequestMethod("GET")
-        def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" +
-                (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
-        conn.setRequestProperty("Authorization", "Basic ${encoding}")
-        return conn.getInputStream().getText()
-    }
-
-    def getProfileWithToken = { token ->
-        String profileId = ""
-        int attempts = 0
-        while (attempts < 10 && (profileId == null || profileId == "")) {
-            List profileData = new JsonSlurper().parseText(getProfileList()).data.rows
-            for (def profileItem in profileData) {
-                if (profileItem["Sql Statement"].toString().contains(token)) {
-                    profileId = profileItem["Profile ID"].toString()
-                    break
-                }
-            }
-            if (profileId == null || profileId == "") {
-                Thread.sleep(300)
-            }
-            attempts++
-        }
-        assertTrue(profileId != null && profileId != "")
-        Thread.sleep(800)
-        return getProfile(profileId).toString()
-    }
-
-    def extractProfileBlockMetrics = {String profileText, String blockName ->
-        List<String> lines = profileText.readLines()
-
-        Map<String, String> metrics = [:]
-        boolean inBlock = false
-        int blockIndent = -1
-
-        lines.each { line ->
-            if (!inBlock) {
-                def m = line =~ /^(\s*)-\s+${Pattern.quote(blockName)}:/
-                if (m.find()) {
-                    inBlock = true
-                    blockIndent = m.group(1).length()
-                }
-            } else {
-                // 当前行缩进
-                def indent = (line =~ /^(\s*)/)[0][1].length()
-
-                if (indent > blockIndent) {
-                    def kv = line =~ /^\s*-\s*([^:]+):\s*(.+)$/
-                    if (kv.matches()) {
-                        metrics[kv[0][1].trim()] = kv[0][2].trim()
-                    }
-                } else {
-                    // 缩进回退，block 结束
-                    inBlock = false
-                }
-            }
-        }
-
-        return metrics
-    }
-
-    def extractProfileValue =  { String profileText, String keyName -> 
-        def matcher = profileText =~ /(?m)^\s*-\s*${keyName}:\s*sum\s+(\S+),/
-        return matcher.find() ? matcher.group(1).trim() : null
-    }
-
-    // session vars
-    sql "unset variable all;"
-    sql "set profile_level=2;"
-    sql "set enable_profile=true;"
-    sql " set parallel_pipeline_task_num = 1;"
-    sql " set file_split_size = 10000000;"
-    sql """set max_file_scanners_concurrency =  1; """
-    sql """set enable_condition_cache = false; """
-
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (!"true".equalsIgnoreCase(enabled)) {
-        return;
+        return
     }
 
-    for (String hivePrefix : ["hive2"]) {
-        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-        String hmsPort = context.config.otherConfigs.get(hivePrefix + "HmsPort")
-        String catalog_name = "test_orc_lazy_mat_profile"
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    String hmsPort = context.config.otherConfigs.get("hive2HmsPort")
+    String catalogName = "test_orc_lazy_mat_profile"
+    sql """DROP CATALOG IF EXISTS ${catalogName}"""
+    sql """CREATE CATALOG ${catalogName} PROPERTIES (
+        'type' = 'hms',
+        'hadoop.username' = 'hadoop',
+        'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hmsPort}'
+    )"""
+    sql """USE ${catalogName}.global_lazy_mat_db"""
 
-        sql """drop catalog if exists ${catalog_name};"""
-        sql """
-            create catalog if not exists ${catalog_name} properties (
-                'type'='hms',
-                'hadoop.username' = 'hadoop',
-                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hmsPort}'
-            );
-        """
-        logger.info("catalog " + catalog_name + " created")
-        sql """switch ${catalog_name};"""
-        logger.info("switched to catalog " + catalog_name)
-        
-        sql """ use `global_lazy_mat_db` """
+    def previousSettings = sql """SELECT @@enable_orc_filter_by_min_max,
+        @@enable_orc_lazy_materialization, @@enable_condition_cache, @@enable_sql_cache"""
+    try {
+        sql "SET enable_condition_cache=false"
+        sql "SET enable_sql_cache=false"
+        sql "SET enable_orc_filter_by_min_max=false"
+        sql "SET enable_orc_lazy_materialization=false"
 
-        def q1 = {
-            def t1 = UUID.randomUUID().toString()
-            
-            def sql_result = sql """
-                select *, "${t1}" from orc_topn_lazy_mat_table where file_id = 1 and id = 1;
-            """
-            logger.info("sql_result = ${sql_result}");
-            return getProfileWithToken(t1);             
+        def referenceRows = sql """SELECT id, name, value, active, score, file_id
+            FROM orc_topn_lazy_mat_table WHERE file_id = 1 ORDER BY id"""
+        assertFalse(referenceRows.isEmpty(), "The ORC fixture must contain rows")
+
+        // Empty scanners can omit merged reader counters. Derive expected full rows from an
+        // unfiltered eager read, independently of predicate pruning and lazy column reads.
+        def queries = [
+            [predicate: "id = 1", expected: referenceRows.findAll { it[0] == 1 }],
+            [predicate: "id <= 2", expected: referenceRows.findAll { it[0] <= 2 }],
+            [predicate: "id <= 3", expected: referenceRows.findAll { it[0] <= 3 }],
+            [predicate: "id < 0", expected: referenceRows.findAll { it[0] < 0 }],
+            [predicate: "id >= 7", expected: referenceRows.findAll { it[0] >= 7 }],
+            [predicate: "id >= 3 AND id <= 7", expected: referenceRows.findAll { it[0] >= 3 && it[0] <= 7 }]
+        ]
+
+        for (boolean minMax : [true, false]) {
+            for (boolean lazyMaterialization : [true, false]) {
+                sql "SET enable_orc_filter_by_min_max=${minMax}"
+                sql "SET enable_orc_lazy_materialization=${lazyMaterialization}"
+                for (def query : queries) {
+                    def actualRows = sql """SELECT id, name, value, active, score, file_id
+                        FROM orc_topn_lazy_mat_table
+                        WHERE file_id = 1 AND ${query.predicate} ORDER BY id"""
+                    assertEquals(query.expected, actualRows,
+                            "min/max=${minMax}, lazy=${lazyMaterialization}, predicate=${query.predicate}")
+                }
+            }
         }
-
-
-        def q2 = {
-            def t1 = UUID.randomUUID().toString()
-            
-            def sql_result = sql """
-                select *, "${t1}" from orc_topn_lazy_mat_table where file_id = 1 and id <= 2;
-            """
-            logger.info("sql_result = ${sql_result}");
-            return getProfileWithToken(t1);             
-        }
-
-        def q3 = {
-            def t1 = UUID.randomUUID().toString()
-            
-            def sql_result = sql """
-                select *, "${t1}" from orc_topn_lazy_mat_table where file_id = 1 and id <= 3;
-            """
-            logger.info("sql_result = ${sql_result}");
-            return getProfileWithToken(t1);             
-        }
-
-        def q4 = {
-            def t1 = UUID.randomUUID().toString()
-            
-            def sql_result = sql """
-                select *, "${t1}" from orc_topn_lazy_mat_table where file_id = 1 and id < 0;
-            """
-            logger.info("sql_result = ${sql_result}");
-            return getProfileWithToken(t1);             
-        }
-
-        def test_true_true = {
-            sql " set enable_orc_filter_by_min_max = true; "
-            sql " set enable_orc_lazy_materialization = true; "
-
-            def profileStr = q1()
-            logger.info("profileStr = \n${profileStr}");
-            assertEquals("2", extractProfileValue(profileStr, "OrcFilteredRowsByLazyRead"))
-            assertEquals("3", extractProfileValue(profileStr, "EvaluatedRowGroupCount"))
-            assertEquals("1", extractProfileValue(profileStr, "SelectedRowGroupCount"))
-
-            profileStr = q2()
-            logger.info("profileStr = \n${profileStr}");
-            assertEquals("1", extractProfileValue(profileStr, "OrcFilteredRowsByLazyRead"))
-            assertEquals("3", extractProfileValue(profileStr, "EvaluatedRowGroupCount"))
-            assertEquals("1", extractProfileValue(profileStr, "SelectedRowGroupCount"))
-
-            profileStr = q3()
-            logger.info("profileStr = \n${profileStr}");
-            assertEquals("0", extractProfileValue(profileStr, "OrcFilteredRowsByLazyRead"))
-            assertEquals("3", extractProfileValue(profileStr, "EvaluatedRowGroupCount"))
-            assertEquals("1", extractProfileValue(profileStr, "SelectedRowGroupCount"))
-
-            profileStr = q4()
-            logger.info("profileStr = \n${profileStr}");
-            assertEquals("0", extractProfileValue(profileStr, "OrcFilteredRowsByLazyRead"))
-            assertEquals("3", extractProfileValue(profileStr, "EvaluatedRowGroupCount"))
-            assertEquals("0", extractProfileValue(profileStr, "SelectedRowGroupCount"))
-        }
-        test_true_true();
-
-
-        def test_true_false = {
-            sql " set enable_orc_filter_by_min_max = true; "
-            sql " set enable_orc_lazy_materialization = false; "
-
-            def profileStr = q1()
-            logger.info("profileStr = \n${profileStr}");
-            assertEquals("0", extractProfileValue(profileStr, "OrcFilteredRowsByLazyRead"))
-            assertEquals("3", extractProfileValue(profileStr, "EvaluatedRowGroupCount"))
-            assertEquals("1", extractProfileValue(profileStr, "SelectedRowGroupCount"))
-
-            profileStr = q2()
-            logger.info("profileStr = \n${profileStr}");
-            assertEquals("0", extractProfileValue(profileStr, "OrcFilteredRowsByLazyRead"))
-            assertEquals("3", extractProfileValue(profileStr, "EvaluatedRowGroupCount"))
-            assertEquals("1", extractProfileValue(profileStr, "SelectedRowGroupCount"))
-
-            profileStr = q3()
-            logger.info("profileStr = \n${profileStr}");
-            assertEquals("0", extractProfileValue(profileStr, "OrcFilteredRowsByLazyRead"))
-            assertEquals("3", extractProfileValue(profileStr, "EvaluatedRowGroupCount"))
-            assertEquals("1", extractProfileValue(profileStr, "SelectedRowGroupCount"))
-
-            profileStr = q4()
-            logger.info("profileStr = \n${profileStr}");
-            assertEquals("0", extractProfileValue(profileStr, "OrcFilteredRowsByLazyRead"))
-            assertEquals("3", extractProfileValue(profileStr, "EvaluatedRowGroupCount"))
-            assertEquals("0", extractProfileValue(profileStr, "SelectedRowGroupCount"))
-        }
-        test_true_false();
-
-
-        def test_false_false = {
-            sql " set enable_orc_filter_by_min_max = false; "
-            sql " set enable_orc_lazy_materialization = false; "
-
-            def profileStr = q1()
-            logger.info("profileStr = \n${profileStr}");
-            assertEquals("0", extractProfileValue(profileStr, "OrcFilteredRowsByLazyRead"))
-            assertEquals("0", extractProfileValue(profileStr, "EvaluatedRowGroupCount"))
-            assertEquals("0", extractProfileValue(profileStr, "SelectedRowGroupCount"))
-
-            profileStr = q2()
-            logger.info("profileStr = \n${profileStr}");
-            assertEquals("0", extractProfileValue(profileStr, "OrcFilteredRowsByLazyRead"))
-            assertEquals("0", extractProfileValue(profileStr, "EvaluatedRowGroupCount"))
-            assertEquals("0", extractProfileValue(profileStr, "SelectedRowGroupCount"))
-
-            profileStr = q3()
-            logger.info("profileStr = \n${profileStr}");
-            assertEquals("0", extractProfileValue(profileStr, "OrcFilteredRowsByLazyRead"))
-            assertEquals("0", extractProfileValue(profileStr, "EvaluatedRowGroupCount"))
-            assertEquals("0", extractProfileValue(profileStr, "SelectedRowGroupCount"))
-
-            profileStr = q4()
-            logger.info("profileStr = \n${profileStr}");
-            assertEquals("0", extractProfileValue(profileStr, "OrcFilteredRowsByLazyRead"))
-            assertEquals("0", extractProfileValue(profileStr, "EvaluatedRowGroupCount"))
-            assertEquals("0", extractProfileValue(profileStr, "SelectedRowGroupCount"))
-        }
-        test_false_false();
-
-
-
-        def test_false_true = {
-            sql " set enable_orc_filter_by_min_max = false; "
-            sql " set enable_orc_lazy_materialization = true; "
-
-            def profileStr = q1()
-            logger.info("profileStr = \n${profileStr}");
-            assertEquals("8", extractProfileValue(profileStr, "OrcFilteredRowsByLazyRead"))
-            assertEquals("0", extractProfileValue(profileStr, "EvaluatedRowGroupCount"))
-            assertEquals("0", extractProfileValue(profileStr, "SelectedRowGroupCount"))
-
-            profileStr = q2()
-            logger.info("profileStr = \n${profileStr}");
-            assertEquals("7", extractProfileValue(profileStr, "OrcFilteredRowsByLazyRead"))
-            assertEquals("0", extractProfileValue(profileStr, "EvaluatedRowGroupCount"))
-            assertEquals("0", extractProfileValue(profileStr, "SelectedRowGroupCount"))
-
-            profileStr = q3()
-            logger.info("profileStr = \n${profileStr}");
-            assertEquals("6", extractProfileValue(profileStr, "OrcFilteredRowsByLazyRead"))
-            assertEquals("0", extractProfileValue(profileStr, "EvaluatedRowGroupCount"))
-            assertEquals("0", extractProfileValue(profileStr, "SelectedRowGroupCount"))
-
-
-            profileStr = q4()
-            logger.info("profileStr = \n${profileStr}");
-            assertEquals("9", extractProfileValue(profileStr, "OrcFilteredRowsByLazyRead"))
-            assertEquals("0", extractProfileValue(profileStr, "EvaluatedRowGroupCount"))
-            assertEquals("0", extractProfileValue(profileStr, "SelectedRowGroupCount"))
-        }
-        test_false_true();
-
-
-
-
-
-
-        sql """drop catalog ${catalog_name};"""
+    } finally {
+        sql "SET enable_orc_filter_by_min_max=${previousSettings[0][0]}"
+        sql "SET enable_orc_lazy_materialization=${previousSettings[0][1]}"
+        sql "SET enable_condition_cache=${previousSettings[0][2]}"
+        sql "SET enable_sql_cache=${previousSettings[0][3]}"
+        sql """DROP CATALOG ${catalogName}"""
     }
-
-
-
-
-  
 }

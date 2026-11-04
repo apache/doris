@@ -42,6 +42,7 @@ import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScopes;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
+import org.apache.doris.connector.spi.ConnectorTableNotFoundException;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorTableStatistics;
 import org.apache.doris.connector.spi.ConnectorViewDefinition;
@@ -557,12 +558,8 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             // delegated schema as a per-table marker so it survives delegation (mirrors Trino table-redirection,
             // where the redirected-to connector's capabilities govern the table). Only the subset fe-core
             // actually resolves per-table is reflected; a catalog-wide capability (view / show-create / mvcc)
-            // would be discarded by the reader, so emitting it would only record an unhonoured intent. Resolve
-            // the owner ONCE (getMetadata is not free) and reuse it for the schema build and the capability read.
-            SiblingOwner owner = siblingOwnerResolver.apply(handle);
-            ConnectorTableSchema siblingSchema = memoizedSiblingMetadata(session, owner.connector(), owner.label())
-                    .getTableSchema(session, handle);
-            return reflectSiblingCapabilities(owner.connector(), siblingSchema);
+            // would be discarded by the reader, so emitting it would only record an unhonoured intent.
+            return delegatedTableSchema(session, handle, sibling -> sibling.getTableSchema(session, handle));
         }
         HiveTableHandle hiveHandle = (HiveTableHandle) handle;
         String dbName = hiveHandle.getDbName();
@@ -651,6 +648,24 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
                     ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING,
                     ConnectorCapability.SUPPORTS_NESTED_COLUMN_SCHEMA_CHANGE,
                     ConnectorCapability.SUPPORTS_WRITE_ONLY_DEFAULTS));
+
+    /**
+     * A delegated (iceberg/hudi-on-HMS) table's schema as {@code buildSchema} asks its owning sibling for it,
+     * with the capabilities the table inherits from that sibling reflected onto it
+     * ({@link #reflectSiblingCapabilities}). Both {@code getTableSchema} overloads go through here because
+     * fe-core reads a table's per-table capabilities from whichever of the two schemas the statement uses: a
+     * statement that pins the table (explicit time travel, and every read of an iceberg table, whose
+     * latest-snapshot pin retains its schema) uses the snapshot overload's, so the two must carry the same
+     * capabilities. The owner is resolved ONCE (getMetadata is not free) and reused for the schema build and the
+     * capability read.
+     */
+    private ConnectorTableSchema delegatedTableSchema(ConnectorSession session, ConnectorTableHandle handle,
+            Function<ConnectorMetadata, ConnectorTableSchema> buildSchema) {
+        SiblingOwner owner = siblingOwnerResolver.apply(handle);
+        ConnectorTableSchema siblingSchema = buildSchema.apply(
+                memoizedSiblingMetadata(session, owner.connector(), owner.label()));
+        return reflectSiblingCapabilities(owner.connector(), siblingSchema);
+    }
 
     /**
      * Reflects the {@link #SIBLING_INHERITABLE_CAPABILITIES} subset of the owning sibling connector's
@@ -814,6 +829,14 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             String comment = tableInfo.getParameters().get(HMS_TABLE_COMMENT_PARAM);
             return comment == null ? "" : comment;
         } catch (HmsClientException e) {
+            // The engine owns lookup cleanup and still degrades this display failure to an empty comment.
+            Optional<ConnectorTableNotFoundException> missing =
+                    org.apache.commons.lang3.exception.ExceptionUtils.getThrowableList(e).stream()
+                            .filter(ConnectorTableNotFoundException.class::isInstance)
+                            .map(ConnectorTableNotFoundException.class::cast).findFirst();
+            if (missing.isPresent()) {
+                throw missing.get();
+            }
             LOG.debug("Table comment lookup: '{}.{}' not readable: {}", dbName, tableName, e.getMessage());
             return "";
         }
@@ -990,7 +1013,8 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      * Estimates data size from complete cached file listings, returning unknown for a cold sample. This keeps
      * synchronous row-count estimation from fully listing a directory before a streaming scan starts. Sampled
      * partition sizes are scaled to the whole table. Explicit ANALYZE uses {@link #listFileSizes} and can still
-     * enumerate storage. Errors and missing samples return -1 rather than becoming empty partitions.
+     * enumerate storage. Ordinary errors and missing samples return -1 rather than becoming empty partitions.
+     * Confirmed table absence propagates so the engine can repair its lookup before returning an unknown estimate.
      */
     @Override
     public long estimateDataSizeByListingFiles(ConnectorSession session, ConnectorTableHandle handle) {
@@ -1060,7 +1084,8 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     /**
      * Sampling + summing + scale-up core of {@link #estimateDataSizeByListingFiles}, isolated from the
      * {@code FileSystem} I/O (injected as {@code sizeOf}) so the estimation math is unit-testable. Returns -1
-     * when the size cannot be estimated (no listable location, a zero/negative sum, or any error).
+     * when the size cannot be estimated (no listable location, a zero/negative sum, or ordinary errors).
+     * Confirmed table absence propagates for guarded engine cleanup.
      */
     long estimateDataSize(HiveTableHandle handle, int sampleSize, ToLongBiFunction<String, List<String>> sizeOf) {
         try {
@@ -1093,6 +1118,14 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             }
             return totalSize;
         } catch (RuntimeException e) {
+            // Let the engine retire the stale lookup before degrading this estimate to UNKNOWN.
+            Optional<ConnectorTableNotFoundException> missing =
+                    org.apache.commons.lang3.exception.ExceptionUtils.getThrowableList(e).stream()
+                            .filter(ConnectorTableNotFoundException.class::isInstance)
+                            .map(ConnectorTableNotFoundException.class::cast).findFirst();
+            if (missing.isPresent()) {
+                throw missing.get();
+            }
             LOG.warn("Failed to estimate hive data size for {}.{} from file list",
                     handle.getDbName(), handle.getTableName(), e);
             return -1;
@@ -1580,7 +1613,10 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     public ConnectorTableSchema getTableSchema(ConnectorSession session, ConnectorTableHandle handle,
             ConnectorMvccSnapshot snapshot) {
         if (!(handle instanceof HiveTableHandle)) {
-            return siblingMetadata(session, handle).getTableSchema(session, handle, snapshot);
+            // The schema a pinned statement reads its per-table capabilities from, so it inherits exactly what
+            // the latest-schema overload above does.
+            return delegatedTableSchema(session, handle,
+                    sibling -> sibling.getTableSchema(session, handle, snapshot));
         }
         // Hive has no schema-at-snapshot; the SPI default ignores the snapshot and returns the latest schema.
         return getTableSchema(session, handle);

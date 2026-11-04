@@ -6692,6 +6692,22 @@ public class Env {
         this.analysisManager.createAnalyze(command, isProxy);
     }
 
+    /**
+     * The database a session lands in when it switches to {@code catalog}, if the catalog names one: a data
+     * source whose metadata model has no database layer can name the single database Doris presents for it;
+     * the connector owns that name. Asked of the provider, not the connector, because switching to a catalog
+     * must not force it to initialize.
+     */
+    public static Optional<String> defaultDatabaseOnUse(CatalogIf catalog) {
+        Map<String, String> catalogProps = catalog.getProperties();
+        String catalogType = catalogProps.get(CatalogMgr.CATALOG_TYPE_PROP);
+        if (catalogType == null) {
+            return Optional.empty();
+        }
+        return ConnectorFactory.findProvider(catalogType, catalogProps)
+                .flatMap(ConnectorProvider::defaultDatabaseOnUse);
+    }
+
     // Switch catalog of this session
     public void changeCatalog(ConnectContext ctx, String catalogName) throws DdlException {
         CatalogIf catalogIf = catalogMgr.getCatalogOrDdlException(catalogName);
@@ -6709,17 +6725,9 @@ public class Env {
             if (StringUtils.isNotEmpty(lastDb)) {
                 ctx.setDatabase(lastDb);
             }
-            // A data source whose metadata model has no database layer can name the single database Doris
-            // presents for it; the connector owns that name. Asked of the provider, not the connector, because
-            // switching to a catalog must not force it to initialize. Applied after the remembered database on
-            // purpose: such a catalog has exactly one database, so there is nothing else to return to.
-            Map<String, String> catalogProps = catalogIf.getProperties();
-            String catalogType = catalogProps.get(CatalogMgr.CATALOG_TYPE_PROP);
-            if (catalogType != null) {
-                ConnectorFactory.findProvider(catalogType, catalogProps)
-                        .flatMap(ConnectorProvider::defaultDatabaseOnUse)
-                        .ifPresent(ctx::setDatabase);
-            }
+            // Applied after the remembered database on purpose: such a catalog has exactly one database, so
+            // there is nothing else to return to.
+            defaultDatabaseOnUse(catalogIf).ifPresent(ctx::setDatabase);
         } catch (RuntimeException | Error e) {
             // A failed remembered/default database lookup must not leave a partially switched session.
             ctx.restoreNameSpaceContext(previousNamespace);
