@@ -39,6 +39,7 @@ namespace {
 struct TestCase {
     const char* zone;
     const char* function;
+    int period = 1;
     TimestampTzValue input;
     TimestampTzValue origin;
     TimestampTzValue expected;
@@ -53,7 +54,7 @@ void check_floor(const TestCase& c) {
     auto origin = ColumnTimeStampTz::create();
     origin->insert_value(c.origin);
     auto period = ColumnInt32::create();
-    period->insert_value(1);
+    period->insert_value(c.period);
     Block block({{std::move(input), type, "input"},
                  {std::move(period), int_type, "period"},
                  {std::move(origin), type, "origin"},
@@ -72,18 +73,47 @@ void check_floor(const TestCase& c) {
     ASSERT_TRUE(function->close(context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     const auto& result = assert_cast<const ColumnTimeStampTz&>(*block.get_by_position(3).column);
     EXPECT_EQ(result.get_element(0), c.expected);
-    EXPECT_LE(result.get_element(0), c.input);
 }
 
 } // namespace
 
-TEST(TimestampTzFloorTest, GapCandidatesStayBeforeInput) {
+TEST(TimestampTzFloorTest, SelectNearestGapBoundary) {
     const TestCase cases[] = {
             {.zone = "Australia/Lord_Howe",
              .function = "hour_floor",
              .input = make_timestamptz(2024, 10, 5, 15, 35, 0, 123456),
              .origin = make_timestamptz(2024, 10, 4, 15, 45, 0, 123456),
              .expected = make_timestamptz(2024, 10, 5, 14, 45, 0, 123456)},
+            {.zone = "Australia/Lord_Howe",
+             .function = "hour_ceil",
+             .period = 1,
+             .input = make_timestamptz(2024, 10, 5, 15, 35, 0, 123456),
+             .origin = make_timestamptz(2024, 10, 4, 15, 45, 0, 123456),
+             .expected = make_timestamptz(2024, 10, 5, 15, 45, 0, 123456)},
+            {.zone = "Australia/Lord_Howe",
+             .function = "minute_floor",
+             .period = 20,
+             .input = make_timestamptz(2024, 10, 5, 15, 50, 0, 123456),
+             .origin = make_timestamptz(2024, 10, 4, 15, 45, 0, 123456),
+             .expected = make_timestamptz(2024, 10, 5, 15, 45, 0, 123456)},
+            {.zone = "Australia/Lord_Howe",
+             .function = "minute_ceil",
+             .period = 20,
+             .input = make_timestamptz(2024, 10, 5, 15, 29, 0, 123456),
+             .origin = make_timestamptz(2024, 10, 4, 15, 45, 0, 123456),
+             .expected = make_timestamptz(2024, 10, 5, 15, 35, 0, 123456)},
+            {.zone = "Australia/Lord_Howe",
+             .function = "hour_ceil",
+             .period = 1,
+             .input = make_timestamptz(2024, 10, 5, 15, 45, 0, 123456),
+             .origin = make_timestamptz(2024, 10, 4, 15, 45, 0, 123456),
+             .expected = make_timestamptz(2024, 10, 5, 15, 45, 0, 123456)},
+            {.zone = "Australia/Lord_Howe",
+             .function = "minute_floor",
+             .period = 20,
+             .input = make_timestamptz(2024, 10, 5, 15, 45, 0, 123456),
+             .origin = make_timestamptz(2024, 10, 4, 15, 45, 0, 123456),
+             .expected = make_timestamptz(2024, 10, 5, 15, 45, 0, 123456)},
             {.zone = "Africa/Monrovia",
              .function = "minute_floor",
              .input = make_timestamptz(1972, 1, 7, 0, 44, 40, 123456),

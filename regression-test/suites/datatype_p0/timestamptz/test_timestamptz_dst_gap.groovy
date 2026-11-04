@@ -100,6 +100,15 @@ suite("test_timestamptz_dst_gap") {
                 FROM (SELECT CAST('2024-10-06 02:35:00.123456+11:00' AS TIMESTAMPTZ(6)) AS t,
                              CAST('2024-10-05 02:15:00.123456+10:30' AS TIMESTAMPTZ(6)) AS o) s
             """
+            // The 20-minute grid has 02:15 and 02:35. They resolve to 02:45 and 02:35.
+            order_qt_gap_nearest_boundary """
+                SELECT minute_floor(t, 20, o), minute_ceil(earlier, 20, o),
+                       hour_ceil(boundary, 1, o), minute_floor(boundary, 20, o)
+                FROM (SELECT CAST('2024-10-06 02:50:00.123456+11:00' AS TIMESTAMPTZ(6)) AS t,
+                             CAST('2024-10-06 01:59:00.123456+10:30' AS TIMESTAMPTZ(6)) AS earlier,
+                             CAST('2024-10-06 02:45:00.123456+11:00' AS TIMESTAMPTZ(6)) AS boundary,
+                             CAST('2024-10-05 02:15:00.123456+10:30' AS TIMESTAMPTZ(6)) AS o) s
+            """
             sql "SET time_zone = 'Africa/Monrovia'"
             // Floor selects an earlier boundary. Truncation still resets local fields, then shifts the gap.
             order_qt_gap_minute_floor """

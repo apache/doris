@@ -30,10 +30,13 @@ import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.qe.ConnectContext;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
+import java.time.zone.ZoneOffsetTransition;
+import java.time.zone.ZoneRules;
 
 /**
  * executable functions:
@@ -204,7 +207,62 @@ public class TimeRoundSeries {
             utcResult = LocalDateTime.ofInstant(
                     DateUtils.convertLocalToInstant(localResult, zoneId, preferredOffset), ZoneOffset.UTC);
         }
-        return utcResult;
+        Instant input = utcDate.toInstant(ZoneOffset.UTC);
+        Instant selected = utcResult.toInstant(ZoneOffset.UTC);
+        Instant lower = input.isBefore(selected) ? input : selected;
+        Instant cursor = (input.isAfter(selected) ? input : selected).plusNanos(1);
+        ZoneRules rules = zoneId.getRules();
+        ZoneOffsetTransition transition = rules.previousTransition(cursor);
+        // Include the preceding transition. Its gap can move a boundary into the interval.
+        while (transition != null) {
+            // Skip gaps whose shifted times are all before the search interval.
+            if (transition.isGap() && transition.getInstant().plus(transition.getDuration()).isAfter(lower)) {
+                selected = selectGapBoundary(tag, input, period, localOrigin, getCeil, zoneId,
+                        preferredOffset, transition, selected);
+            }
+            if (!transition.getInstant().isAfter(lower)) {
+                break;
+            }
+            transition = rules.previousTransition(transition.getInstant());
+        }
+        return LocalDateTime.ofInstant(selected, ZoneOffset.UTC);
+    }
+
+    private static Instant selectGapBoundary(DATE tag, Instant input, int period, LocalDateTime origin,
+            boolean getCeil, ZoneId zone, ZoneOffset preferredOffset, ZoneOffsetTransition transition,
+            Instant selected) {
+        LocalDateTime start = transition.getDateTimeBefore();
+        LocalDateTime end = transition.getDateTimeAfter();
+        LocalDateTime reference = LocalDateTime.ofInstant(input, transition.getOffsetBefore());
+        if (getCeil) {
+            reference = reference.isBefore(start) ? start : reference;
+        } else if (!reference.isBefore(end)) {
+            reference = end.minusNanos(1000);
+        }
+        // On Lord Howe, local grid boundaries 02:15 and 02:35 resolve to 02:45 and 02:35.
+        // Their instant order differs from their local order. Keep the closest instant.
+        LocalDateTime local = getDateCeilOrFloor(tag, reference, period, origin, getCeil);
+        if (local != null && !local.isBefore(start) && local.isBefore(end)) {
+            selected = selectCloserBoundary(input,
+                    DateUtils.convertLocalToInstant(local, zone, preferredOffset), selected, getCeil);
+        }
+        if (getCeil) {
+            local = getDateCeilOrFloor(tag, end, period, origin, true);
+            // A yearly boundary after a gap in year 9999 can exceed the supported range.
+            if (local != null) {
+                selected = selectCloserBoundary(input,
+                        DateUtils.convertLocalToInstant(local, zone, preferredOffset), selected, true);
+            }
+        }
+        return selected;
+    }
+
+    private static Instant selectCloserBoundary(Instant input, Instant candidate, Instant selected, boolean getCeil) {
+        if (getCeil ? !candidate.isBefore(input) && candidate.isBefore(selected)
+                : !candidate.isAfter(input) && candidate.isAfter(selected)) {
+            return candidate;
+        }
+        return selected;
     }
 
     /**

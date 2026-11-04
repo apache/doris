@@ -36,8 +36,17 @@ class TimeRoundSeriesTest {
             TimestampTzLiteral origin = new TimestampTzLiteral("2024-10-05 02:15:00.123456+10:30");
             Assertions.assertEquals(new TimestampTzLiteral("2024-10-06 01:15:00.123456+10:30"),
                     TimeRoundSeries.hourFloor(date, new IntegerLiteral(1), origin));
-            Assertions.assertEquals(new TimestampTzLiteral("2024-10-06 03:15:00.123456+11:00"),
+            Assertions.assertEquals(new TimestampTzLiteral("2024-10-06 02:45:00.123456+11:00"),
                     TimeRoundSeries.hourCeil(date, new IntegerLiteral(1), origin));
+
+            TimestampTzLiteral shifted = new TimestampTzLiteral("2024-10-06 02:45:00.123456+11:00");
+            Assertions.assertEquals(shifted, TimeRoundSeries.minuteFloor(
+                    new TimestampTzLiteral("2024-10-06 02:50:00.123456+11:00"), new IntegerLiteral(20), origin));
+            Assertions.assertEquals(new TimestampTzLiteral("2024-10-06 02:35:00.123456+11:00"),
+                    TimeRoundSeries.minuteCeil(new TimestampTzLiteral("2024-10-06 01:59:00.123456+10:30"),
+                            new IntegerLiteral(20), origin));
+            Assertions.assertEquals(shifted, TimeRoundSeries.hourCeil(shifted, new IntegerLiteral(1), origin));
+            Assertions.assertEquals(shifted, TimeRoundSeries.minuteFloor(shifted, new IntegerLiteral(20), origin));
 
             // Several minute candidates are in the 44-minute, 30-second gap.
             context.getSessionVariable().setTimeZone("Africa/Monrovia");

@@ -566,6 +566,97 @@ struct DateTimeFloorCeilCore {
         return time_round_two_args(ts2, period, res, context);
     }
 
+    // Check the grid inside a gap and the first grid boundary after it.
+    // On Lord Howe, a 20-minute grid can contain 02:15 and 02:35.
+    // They resolve to 02:45 and 02:35. Compare instants, not local fields.
+    static void select_gap_boundary(const TimestampTzValue& input, Int32 period,
+                                    const DateV2Value<DateTimeV2ValueType>& origin,
+                                    const cctz::time_zone::civil_transition& transition,
+                                    TimestampTzValue& selected, FunctionContext* context) {
+        using LocalDateTime = DateV2Value<DateTimeV2ValueType>;
+        const auto& tz = context->state()->timezone_obj();
+        const auto utc = cctz::utc_time_zone();
+        const auto end_seconds = cctz::convert(transition.to, utc).time_since_epoch().count();
+        const auto start_seconds = cctz::convert(transition.from, utc).time_since_epoch().count();
+        LocalDateTime start;
+        LocalDateTime end;
+        start.from_unixtime(start_seconds, utc);
+        end.from_unixtime(end_seconds, utc);
+        const auto instant = tz.lookup(transition.from).trans;
+        const auto before_offset = tz.lookup(instant - cctz::seconds(1)).offset;
+        int64_t input_seconds;
+        input.unix_timestamp(&input_seconds, utc);
+        LocalDateTime reference;
+        reference.from_unixtime(input_seconds + before_offset, utc);
+        reference.set_microsecond(input.microsecond());
+        const auto consider = [&](const LocalDateTime& point, bool inside_gap) {
+            auto local = origin;
+            // An optional boundary can exceed year 9999, for example the next yearly
+            // boundary after a gap in year 9999. Keep the existing valid result.
+            if (!DateTimeFloorCeilCore<Flag, TYPE_DATETIMEV2>::time_round_two_args(
+                        point, period, local, context)) {
+                return;
+            }
+            if (inside_gap && (local < start || local >= end)) {
+                return;
+            }
+            TimestampTzValue candidate;
+            if constexpr (Flag::Unit == HOUR || Flag::Unit == MINUTE) {
+                candidate.convert_local_to_utc(tz, local, input.utc_offset(tz));
+            } else {
+                candidate.convert_local_to_utc(tz, local);
+            }
+            if constexpr (Flag::Type == FLOOR) {
+                if (candidate <= input && candidate > selected) {
+                    selected = candidate;
+                }
+            } else if (candidate >= input && candidate < selected) {
+                selected = candidate;
+            }
+        };
+        if constexpr (Flag::Type == FLOOR) {
+            if (reference >= end) {
+                reference.from_unixtime(end_seconds - 1, utc);
+                reference.set_microsecond(999999);
+            }
+        } else {
+            reference = std::max(reference, start);
+        }
+        consider(reference, true);
+        if constexpr (Flag::Type == CEIL) {
+            consider(end, false);
+        }
+    }
+
+    static void select_nearest_gap_boundary(const TimestampTzValue& input, Int32 period,
+                                            const DateV2Value<DateTimeV2ValueType>& origin,
+                                            TimestampTzValue& selected, FunctionContext* context) {
+        const auto& tz = context->state()->timezone_obj();
+        const auto utc = cctz::utc_time_zone();
+        int64_t input_seconds;
+        int64_t selected_seconds;
+        input.unix_timestamp(&input_seconds, utc);
+        selected.unix_timestamp(&selected_seconds, utc);
+        const auto lower = std::min(input_seconds, selected_seconds);
+        auto cursor = cctz::time_point<cctz::seconds>(
+                cctz::seconds(std::max(input_seconds, selected_seconds) + 1));
+        cctz::time_zone::civil_transition transition;
+        // A gap before the interval can move a grid boundary into the interval.
+        // Include the preceding transition, and keep the original calendar origin.
+        while (tz.prev_transition(cursor, &transition)) {
+            const auto instant = tz.lookup(transition.to).trans;
+            const auto gap_seconds = transition.to - transition.from;
+            // Only shifted gap times inside the search interval can improve the result.
+            if (gap_seconds > 0 && instant.time_since_epoch().count() + gap_seconds > lower) {
+                select_gap_boundary(input, period, origin, transition, selected, context);
+            }
+            if (instant.time_since_epoch().count() <= lower) {
+                break;
+            }
+            cursor = instant - cctz::seconds(1);
+        }
+    }
+
     // ts_res should be initialized with the ts_origin.
     template <Int32 const_period = 0>
     static bool time_round_two_args(const DateValueType& ts_arg, const Int32 period,
@@ -918,6 +1009,7 @@ struct DateTimeFloorCeilCore {
                     }
                 }
             }
+            select_nearest_gap_boundary(ts_arg, period, round_origin, ts_origin, context);
             return true;
         } else {
             TimeInterval interval(Flag::Unit, std::abs(step), step < 0);
