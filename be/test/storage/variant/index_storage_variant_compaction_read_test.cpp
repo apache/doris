@@ -19,6 +19,13 @@
 
 #include <fstream>
 
+#include "core/column/column_nullable.h"
+#include "core/column/variant_v2/column_variant_v2.h"
+#include "core/data_type/data_type_variant_v2.h"
+#include "exprs/function/parse/variant_string_parse.h"
+#include "exprs/vcompound_pred.h"
+#include "exprs/vliteral.h"
+#include "exprs/vmatch_predicate.h"
 #include "storage/compaction/full_compaction.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
@@ -26,6 +33,7 @@
 #include "storage/rowset/rowset_writer.h"
 #include "storage/segment/variant/nested_group_provider.h"
 #include "storage/variant/index_storage_variant_test_base.h"
+#include "testutil/mock/mock_slot_ref.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
 
@@ -531,4 +539,257 @@ TEST_F(IndexStorageVariantCompactionReadTest, UnreadableValuesIndexRebuildsFromW
     ASSERT_TRUE(hello.has_value()) << hello.error();
     EXPECT_EQ(*hello, (std::vector<uint32_t> {0}));
 }
+
+// The second segment has a valid SNII container (root B), but lacks root A's logical index.
+// Injecting the final schema models a historical segment without corrupting unrelated indexes.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): keep the missing-index fixture, scan checks and selective rebuild assertions together.
+TEST_F(IndexStorageVariantCompactionReadTest,
+       MissingLogicalValuesIndexFallsBackAndRebuildsOneRoot) {
+    IndexTabletOptions options;
+    options.tablet_id = 120303;
+    options.index_storage_format = InvertedIndexStorageFormatPB::SNII;
+    for (int32_t uid : {2, 3}) {
+        VariantColumnSpec column;
+        column.unique_id = uid;
+        column.name = "v" + std::to_string(uid);
+        column.nullable = true;
+        options.variant_columns.push_back(column);
+    }
+    const std::map<std::string, std::string> properties = {
+            {"parser", "english"}, {"variant_index_scope", "values"}, {"support_phrase", "false"}};
+    options.inverted_indexes = {IndexSpec::column_index(73, "root_b", 3, properties)};
+    ASSERT_TRUE(create_tablet(options).ok());
+    IndexRowsetSpec historical;
+    historical.version = 0;
+    IndexBatch missing_batch;
+    missing_batch.keys = {3, 4, 5};
+    missing_batch.variant_jsons_by_column = {
+            {R"(["hello",{"b":"world"}])", "null", R"({"a":"other"})"},
+            {R"({"b":"retained"})", R"({"b":"retained"})", R"({"b":"retained"})"}};
+    // The middle row is SQL NULL, not a JSON null leaf.
+    for (size_t column = 0; column < missing_batch.variant_jsons_by_column.size(); ++column) {
+        JsonStringToVariantEncoder encoder;
+        for (const auto& json : missing_batch.variant_jsons_by_column[column]) {
+            encoder.add_json({json.data(), json.size()});
+        }
+        auto values = ColumnVariantV2::create();
+        values->insert_encoded_batch(encoder.finish_batch());
+        auto nulls = ColumnUInt8::create();
+        nulls->insert_many_defaults(3);
+        if (column == 0) {
+            nulls->get_data()[1] = 1;
+        }
+        missing_batch.variant_columns_by_column.emplace_back(
+                ColumnNullable::create(std::move(values), std::move(nulls)));
+    }
+    missing_batch.variant_jsons_by_column.clear();
+    historical.batches.push_back(std::move(missing_batch));
+    auto missing_source = write_rowset(historical);
+    ASSERT_TRUE(missing_source.has_value()) << missing_source.error();
+    options.inverted_indexes.insert(options.inverted_indexes.begin(),
+                                    IndexSpec::column_index(72, "root_a", 2, properties));
+    auto injected =
+            inject_reader_schema_for_rowsets({*missing_source}, build_tablet_schema(options));
+    ASSERT_TRUE(injected.has_value()) << injected.error();
+    IndexRowsetSpec complete;
+    complete.version = 1;
+    IndexBatch complete_batch;
+    complete_batch.keys = {1, 2};
+    complete_batch.variant_jsons_by_column = {{R"({"a":"hello"})", R"({"a":"other"})"},
+                                              {R"({"b":"retained"})", R"({"b":"retained"})"}};
+    complete.batches.push_back(std::move(complete_batch));
+    auto complete_source = write_rowset(complete);
+    ASSERT_TRUE(complete_source.has_value()) << complete_source.error();
+    const std::vector<RowsetSharedPtr> sources {*complete_source, injected->front()};
+    auto make_read = [](const std::string& term, bool all = false, bool negate = false) {
+        TMatchPredicate match;
+        match.__set_parser_type("english");
+        match.__set_parser_lowercase(true);
+        TFunction fn;
+        TFunctionName name;
+        name.__set_function_name(all ? "match_all" : "match_any");
+        fn.__set_name(name);
+        fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+        fn.__set_arg_types({create_type_desc(TYPE_VARIANT), create_type_desc(TYPE_STRING)});
+        fn.__set_ret_type(create_type_desc(TYPE_BOOLEAN));
+        TExprNode node;
+        node.__set_node_type(TExprNodeType::MATCH_PRED);
+        node.__set_type(create_type_desc(TYPE_BOOLEAN));
+        node.__set_is_nullable(true);
+        node.__set_num_children(2);
+        node.__set_fn(fn);
+        node.__set_match_predicate(match);
+        auto expression = VMatchPredicate::create_shared(node);
+        auto slot = std::make_shared<MockSlotRef>(
+                1, make_nullable(std::make_shared<DataTypeVariantV2>()));
+        slot->set_expr_name("v2");
+        expression->add_child(slot);
+        TExprNode literal;
+        literal.__set_node_type(TExprNodeType::STRING_LITERAL);
+        literal.__set_type(create_type_desc(TYPE_STRING));
+        TStringLiteral text;
+        text.__set_value(term);
+        literal.__set_string_literal(text);
+        expression->add_child(VLiteral::create_shared(literal));
+        IndexReadOptions read;
+        read.return_columns = {0, 1, 2};
+        read.collect_variant_values = true;
+        // This fixture returns the root for value assertions, rather than only counting matches.
+        read.enable_no_need_read_data_opt = false;
+        read.enable_match_without_inverted_index = true;
+        VExprSPtr root = expression;
+        if (negate) {
+            TExprNode not_node;
+            not_node.__set_node_type(TExprNodeType::COMPOUND_PRED);
+            not_node.__set_opcode(TExprOpcode::COMPOUND_NOT);
+            not_node.__set_type(create_type_desc(TYPE_BOOLEAN));
+            not_node.__set_is_nullable(true);
+            not_node.__set_num_children(1);
+            root = VCompoundPred::create_shared(not_node);
+            root->add_child(expression);
+        }
+        read.common_expr_ctxs_push_down = {VExprContext::create_shared(root)};
+        return read;
+    };
+    for (const bool all : {false, true}) {
+        auto read = read_rowsets(sources, make_read(all ? "hello world" : "hello", all));
+        ASSERT_TRUE(read.has_value()) << read.error();
+        EXPECT_EQ(read->rows_read, all ? 1 : 2);
+        EXPECT_GT(read->stats.inverted_index_downgrade_count, 0);
+        EXPECT_EQ(
+                canonical_variant_values(read->variant_values_by_uid.at(2)),
+                canonical_variant_values(
+                        all ? std::vector<std::optional<std::string>> {R"(["hello",{"b":"world"}])"}
+                            : std::vector<std::optional<std::string>> {
+                                      R"({"a":"hello"})", R"(["hello",{"b":"world"}])"}));
+    }
+    auto negated = read_rowsets(sources, make_read("hello", false, true));
+    ASSERT_TRUE(negated.has_value()) << negated.error();
+    EXPECT_EQ(negated->rows_read, 2);
+    EXPECT_EQ(canonical_variant_values(negated->variant_values_by_uid.at(2)),
+              canonical_variant_values({R"({"a":"other"})", R"({"a":"other"})"}));
+    auto no_fallback = make_read("hello");
+    no_fallback.enable_fallback_on_missing_inverted_index = false;
+    auto refused = read_rowsets(sources, no_fallback);
+    ASSERT_FALSE(refused.has_value());
+    EXPECT_TRUE(refused.error().is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>());
+    auto no_residual = make_read("hello");
+    no_residual.enable_match_without_inverted_index = false;
+    EXPECT_FALSE(read_rowsets(sources, no_residual).has_value());
+
+    const bool old_native = config::inverted_index_compaction_enable;
+    config::inverted_index_compaction_enable = true;
+    DEFER({ config::inverted_index_compaction_enable = old_native; });
+    FullCompaction compaction(*storage_engine(), tablet());
+    compaction._input_rowsets = {injected->front(), *complete_source};
+    ASSERT_TRUE(compaction.build_basic_info().ok());
+    Compaction::MergeInputRowsetsContext context;
+    ASSERT_TRUE(compaction.prepare_merge_input_rowsets_execution(&context).ok());
+    EXPECT_FALSE(compaction._output_rs_writer->context().snii_indexes_to_do_compaction.contains(
+            {2, 72}));
+    EXPECT_TRUE(compaction._output_rs_writer->context().snii_indexes_to_do_compaction.contains(
+            {3, 73}));
+    ASSERT_TRUE(compaction.execute_merge_input_rowsets(&context).ok());
+    ASSERT_TRUE(compaction.finish_merge_input_rowsets_execution(&context).ok());
+    auto hello = values_term_postings(compaction._output_rowset, 2, "hello");
+    auto world = values_term_postings(compaction._output_rowset, 2, "world");
+    auto retained = values_term_postings(compaction._output_rowset, 3, "retained");
+    ASSERT_TRUE(hello.has_value()) << hello.error();
+    ASSERT_TRUE(world.has_value()) << world.error();
+    ASSERT_TRUE(retained.has_value()) << retained.error();
+    EXPECT_EQ(*hello, (std::vector<uint32_t> {0, 2}));
+    EXPECT_EQ(*world, (std::vector<uint32_t> {2}));
+    EXPECT_EQ(*retained, (std::vector<uint32_t> {0, 1, 2, 3, 4}));
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): GTest assertions inside the mode matrix inflate complexity.
+TEST_F(IndexStorageVariantCompactionReadTest, ValuesMergeChecksActualHorizontalAndVerticalModes) {
+    const bool old_vertical = config::enable_vertical_compaction;
+    const bool old_ordered = config::enable_ordered_data_compaction;
+    const bool old_native = config::inverted_index_compaction_enable;
+    config::enable_ordered_data_compaction = false;
+    DEFER({
+        config::enable_vertical_compaction = old_vertical;
+        config::enable_ordered_data_compaction = old_ordered;
+        config::inverted_index_compaction_enable = old_native;
+    });
+    int64_t tablet_id = 120310;
+    for (bool mow : {false, true}) {
+        for (bool doc : {false, true}) {
+            for (bool vertical : {false, true}) {
+                for (bool native : {false, true}) {
+                    SCOPED_TRACE(testing::Message()
+                                 << "mow=" << mow << " doc=" << doc << " vertical=" << vertical
+                                 << " native=" << native);
+                    IndexTabletOptions options;
+                    options.tablet_id = tablet_id++;
+                    options.enable_unique_key_merge_on_write = mow;
+                    options.index_storage_format = InvertedIndexStorageFormatPB::SNII;
+                    VariantColumnSpec column;
+                    column.enable_doc_mode = doc;
+                    column.doc_hash_shard_count = 3;
+                    options.variant_columns = {column};
+                    options.inverted_indexes = {
+                            IndexSpec::column_index(72, "values", 2,
+                                                    {{"variant_index_scope", "values"},
+                                                     {"parser", "english"},
+                                                     {"support_phrase", "false"}})};
+                    ASSERT_TRUE(create_tablet(options).ok());
+                    if (mow) {
+                        // Real MOW schemas always include this hidden column; horizontal readers
+                        // apply its visibility filter even when every row is live.
+                        ColumnPB delete_sign;
+                        delete_sign.set_unique_id(3);
+                        delete_sign.set_name(DELETE_SIGN);
+                        delete_sign.set_type("TINYINT");
+                        delete_sign.set_aggregation("REPLACE");
+                        delete_sign.set_is_nullable(false);
+                        delete_sign.set_default_value("0");
+                        TabletColumn column;
+                        column.init_from_pb(delete_sign);
+                        tablet_schema()->append_column(column);
+                    }
+                    std::vector<IndexRowsetSpec> specs;
+                    for (int version = 0; version < 2; ++version) {
+                        IndexRowsetSpec spec;
+                        spec.version = version;
+                        spec.batches.push_back(IndexBatch::single_variant(
+                                {R"({"n":7,"s":"hello"})", R"({"n":9,"s":"world"})"}, version * 2));
+                        specs.push_back(std::move(spec));
+                    }
+                    auto sources = write_rowsets(specs);
+                    ASSERT_TRUE(sources.has_value()) << sources.error();
+                    config::enable_vertical_compaction = vertical;
+                    config::inverted_index_compaction_enable = native;
+                    FullCompaction compaction(*storage_engine(), tablet());
+                    compaction._input_rowsets = *sources;
+                    ASSERT_TRUE(compaction.build_basic_info().ok());
+                    Compaction::MergeInputRowsetsContext context;
+                    ASSERT_TRUE(compaction.prepare_merge_input_rowsets_execution(&context).ok());
+                    EXPECT_EQ(compaction._is_vertical, vertical);
+                    EXPECT_EQ(compaction._output_rs_writer->context()
+                                      .snii_indexes_to_do_compaction.contains({2, 72}),
+                              native);
+                    ASSERT_TRUE(compaction.execute_merge_input_rowsets(&context).ok());
+                    ASSERT_TRUE(compaction.finish_merge_input_rowsets_execution(&context).ok());
+                    auto hello = values_term_postings(compaction._output_rowset, 2, "hello");
+                    auto number = values_term_postings(compaction._output_rowset, 2, "7");
+                    ASSERT_TRUE(hello.has_value()) << hello.error();
+                    ASSERT_TRUE(number.has_value()) << number.error();
+                    EXPECT_EQ(*hello, (std::vector<uint32_t> {0, 2}));
+                    EXPECT_EQ(*number, (std::vector<uint32_t> {0, 2}));
+                    IndexReadOptions read;
+                    read.collect_variant_values = true;
+                    auto result = read_rowsets({compaction._output_rowset}, read);
+                    ASSERT_TRUE(result.has_value()) << result.error();
+                    EXPECT_EQ(canonical_variant_values(result->variant_values_by_uid.at(2)),
+                              canonical_variant_values(
+                                      {R"({"n":7,"s":"hello"})", R"({"n":9,"s":"world"})",
+                                       R"({"n":7,"s":"hello"})", R"({"n":9,"s":"world"})"}));
+                }
+            }
+        }
+    }
+}
+
 } // namespace doris::index_storage_test

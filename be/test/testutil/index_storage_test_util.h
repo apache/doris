@@ -165,6 +165,7 @@ struct IndexReadOptions {
     bool collect_variant_values = false;
     bool enable_inverted_index_query = true;
     bool enable_fallback_on_missing_inverted_index = true;
+    bool enable_match_without_inverted_index = false;
     bool enable_no_need_read_data_opt = true;
     bool enable_common_expr_pushdown = true;
     bool enable_inverted_index_query_cache = false;

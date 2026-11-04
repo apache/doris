@@ -32,13 +32,13 @@ suite("test_variant_values_index_compaction", "p0,nonConcurrent") {
     sql "SET default_variant_max_subcolumns_count=1"
     def baseline = null
     for (boolean nativeMerge : [true, false]) {
-        for (boolean vertical : [true, false]) {
+        for (String mode : ["horizontal", "vertical_root", "vertical_paths"]) {
             // The helper restores each BE's original values in finally, including assertion failures.
             setBeConfigTemporary([
-                enable_vertical_compaction: true,
+                enable_vertical_compaction: mode != "horizontal",
                 enable_ordered_data_compaction: false,
                 inverted_index_compaction_enable: nativeMerge,
-                enable_vertical_compact_variant_subcolumns: vertical
+                enable_vertical_compact_variant_subcolumns: mode == "vertical_paths"
             ]) {
                 sql "DROP TABLE IF EXISTS vvi_compaction"
                 sql """CREATE TABLE vvi_compaction (id INT, v VARIANT, plain VARIANT,
@@ -71,13 +71,20 @@ suite("test_variant_values_index_compaction", "p0,nonConcurrent") {
                        ORDER BY kind,id""",
                     // Stable leaves in both roots survive sparse/materialized layout changes.
                     "SELECT id,CAST(v['stable'] AS STRING),CAST(plain['stable'] AS STRING),CAST(v['rare1'] AS STRING),CAST(v['rare2'] AS STRING),CAST(v['rare3'] AS STRING),CAST(plain['rare1'] AS STRING),CAST(plain['rare2'] AS STRING),CAST(plain['rare3'] AS STRING) FROM vvi_compaction ORDER BY id",
-                    "SELECT count(*) FROM vvi_compaction WHERE v MATCH_ANY 'hello'"
+                    "SELECT count(*) FROM vvi_compaction WHERE v MATCH_ANY 'hello'",
+                    "SELECT id,CAST(v['n'] AS STRING),CAST(plain['n'] AS STRING) FROM vvi_compaction ORDER BY id",
+                    "SELECT id FROM vvi_compaction WHERE v MATCH_ALL '7' ORDER BY id",
+                    "SELECT id FROM vvi_compaction WHERE v MATCH_ALL '7.5' ORDER BY id",
+                    "SELECT id FROM vvi_compaction WHERE v MATCH_ALL '9.5' ORDER BY id",
+                    "SELECT id FROM vvi_compaction WHERE v MATCH_ANY 'ten' ORDER BY id"
                 ]
                 def check = { String phase, List before ->
                     def rows = []
                     queries.eachWithIndex { query, i ->
                         sql "SET enable_inverted_index_query=true"
+                        sql "SET enable_match_without_inverted_index=${!query.contains('WHERE v MATCH')}"
                         def indexed = sql(query)
+                        sql "SET enable_match_without_inverted_index=true"
                         sql "SET enable_inverted_index_query=false"
                         assertEquals(indexed, sql(query))
                         if (phase == "after") {

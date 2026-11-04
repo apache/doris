@@ -41,7 +41,10 @@ suite("test_variant_values_index_mow", "p0,nonConcurrent") {
         def results = []
         queries.eachWithIndex { query, i ->
             sql "SET enable_inverted_index_query=true"
+            // WHERE MATCH must succeed using postings, including after compaction.
+            sql "SET enable_match_without_inverted_index=${!query.contains('WHERE v MATCH')}"
             def indexed = sql(query)
+            sql "SET enable_match_without_inverted_index=true"
             sql "SET enable_inverted_index_query=false"
             assertEquals(indexed, sql(query))
             if (emit) {
@@ -63,7 +66,8 @@ suite("test_variant_values_index_mow", "p0,nonConcurrent") {
     sql """INSERT INTO vvi_mow VALUES (1,parse_to_variant('{"s":"new","a":["hello","world"]}'),'upsert')"""
     check("upsert", [
         "SELECT id,v MATCH_ANY 'old',v MATCH_ANY 'new',note FROM vvi_mow WHERE id=1",
-        "SELECT count(*) FROM vvi_mow WHERE v MATCH_ANY 'old new'"])
+        "SELECT id FROM vvi_mow WHERE v MATCH_ANY 'old' ORDER BY id",
+        "SELECT id FROM vvi_mow WHERE v MATCH_ANY 'new' ORDER BY id"])
     sql "DELETE FROM vvi_mow WHERE id=2"
     check("delete", [
         "SELECT id FROM vvi_mow WHERE v MATCH_ANY 'deleted' ORDER BY id",
@@ -78,14 +82,18 @@ suite("test_variant_values_index_mow", "p0,nonConcurrent") {
         sql """INSERT INTO vvi_mow(id,v) VALUES (1,parse_to_variant('{"s":"replacement"}'))"""
         check("partial_variant", [
             "SELECT id,note,v MATCH_ANY 'replacement',v MATCH_ALL 'hello world' FROM vvi_mow WHERE id=1",
-            "SELECT count(*) FROM vvi_mow WHERE v MATCH_ANY 'new replacement'"])
+            "SELECT id FROM vvi_mow WHERE v MATCH_ANY 'new' ORDER BY id",
+            "SELECT id FROM vvi_mow WHERE v MATCH_ANY 'replacement' ORDER BY id"])
     } finally {
         sql "SET enable_unique_key_partial_update=false"
         sql "SET enable_insert_strict=true"
     }
     def finalQueries = [
         "SELECT id,v MATCH_ANY 'replacement retained',note FROM vvi_mow ORDER BY id",
-        "SELECT count(*) FROM vvi_mow WHERE v MATCH_ANY 'old new deleted'"]
+        "SELECT count(*) FROM vvi_mow WHERE v MATCH_ANY 'old new deleted'",
+        "SELECT id FROM vvi_mow WHERE v MATCH_ANY 'replacement' ORDER BY id",
+        "SELECT id FROM vvi_mow WHERE v MATCH_ANY 'retained' ORDER BY id",
+        "SELECT id FROM vvi_mow WHERE v MATCH_ALL 'hello world' ORDER BY id"]
     def before = check("before_compaction", finalQueries)
     trigger_and_wait_compaction("vvi_mow", "full", 1800)
     assertEquals(before, check("after_compaction", finalQueries, false))

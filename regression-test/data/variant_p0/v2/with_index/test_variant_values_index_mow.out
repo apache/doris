@@ -12,6 +12,8 @@
 1	false	true	upsert
 
 -- !upsert_1 --
+
+-- !upsert_2 --
 1
 
 -- !delete_0 --
@@ -29,6 +31,8 @@
 1	upsert	true	false
 
 -- !partial_variant_1 --
+
+-- !partial_variant_2 --
 1
 
 -- !before_compaction_0 --
@@ -38,4 +42,13 @@
 
 -- !before_compaction_1 --
 0
+
+-- !before_compaction_2 --
+1
+
+-- !before_compaction_3 --
+3
+
+-- !before_compaction_4 --
+3
 
