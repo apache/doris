@@ -73,11 +73,12 @@ public class KafkaPropertyValidationTest {
     }
 
     @Test
-    public void testCreateAndAlterRejectExecutableAndUnknownProperties() {
+    public void testCreateAndAlterRejectDeniedProperties() {
         for (boolean alter : new boolean[] {false, true}) {
             for (String key : List.of("sasl.kerberos.kinit.cmd", "sasl.kerberos.keytab",
                     "sasl.kerberos.min.time.before.relogin", "plugin.library.paths", "ssl.engine.location",
-                    "ssl.engine.id", "ssl.providers", "unknown.future.property", "sasl.jaas.config",
+                    "ssl.engine.id", "ssl.providers", "internal.termination.signal", "topic.offset.store.path",
+                    "ut_handle_ProduceResponse", "test.mock.num.brokers", "sasl.oauthbearer.assertion.file",
                     "security.protocol\0suffix")) {
                 AnalysisException error = Assertions.assertThrows(AnalysisException.class,
                         () -> properties(key, "sensitive-value", alter).analyze());
@@ -117,6 +118,7 @@ public class KafkaPropertyValidationTest {
     public void testNormalConsumerPropertiesAndDefaultOffsets() throws Exception {
         Map<String, String> accepted = Map.of(
                 "group.id", "routine-load-group",
+                "client.rack", "rack-a",
                 "client.id", "routine-load-client",
                 "security.protocol", "SASL_SSL",
                 "sasl.mechanisms", "SCRAM-SHA-256",
@@ -130,6 +132,27 @@ public class KafkaPropertyValidationTest {
                 properties(property.getKey(), property.getValue(), alter).analyze();
             }
         }
+    }
+
+    @Test
+    public void testJwtBearerProperties() throws Exception {
+        Map<String, String> custom = Map.of(
+                "sasl.oauthbearer.grant.type", "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                "sasl.oauthbearer.assertion.claim.aud", "issuer",
+                "sasl.oauthbearer.assertion.private.key.pem", "test-private-key",
+                "sasl.oauthbearer.assertion.private.key.passphrase", "test-passphrase");
+        for (boolean alter : new boolean[] {false, true}) {
+            for (Map.Entry<String, String> entry : custom.entrySet()) {
+                properties(entry.getKey(), entry.getValue(), alter).analyze();
+            }
+        }
+        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "test_job", 1L, 1L,
+                "127.0.0.1:9092", "test_topic", UserIdentity.ADMIN);
+        Deencapsulation.setField(job, "customProperties", custom);
+        Deencapsulation.invoke(job, "convertCustomProperties", true);
+        custom.forEach((key, value) -> Assertions.assertEquals(value, job.getConvertedCustomProperties().get(key)));
+        Assertions.assertFalse(job.customPropertiesJsonToString().contains("test-private-key"));
+        Assertions.assertFalse(job.customPropertiesJsonToString().contains("test-passphrase"));
     }
 
     @Test

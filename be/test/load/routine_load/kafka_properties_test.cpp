@@ -28,17 +28,26 @@
 
 namespace doris {
 
-TEST(KafkaPropertiesTest, RejectExecutableAndUnknownProperties) {
+TEST(KafkaPropertiesTest, RejectDeniedProperties) {
     std::unique_ptr<RdKafka::Conf> conf(RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL));
     for (const auto* key :
          {"sasl.kerberos.kinit.cmd", "sasl.kerberos.keytab",
           "sasl.kerberos.min.time.before.relogin", "plugin.library.paths", "ssl.engine.location",
-          "ssl.engine.id", "ssl.providers", "unknown.future.property", "sasl.jaas.config"}) {
+          "ssl.engine.id", "ssl.providers", "internal.termination.signal",
+          "topic.offset.store.method", "ut_handle_ProduceResponse", "test.mock.num.brokers",
+          "sasl.oauthbearer.assertion.file"}) {
         auto status = configure_kafka_security(*conf, {{key, "sensitive-value"}});
         EXPECT_FALSE(status.ok()) << key;
         EXPECT_NE(status.to_string().find("is not allowed in Routine Load"), std::string::npos);
         EXPECT_EQ(status.to_string().find("sensitive-value"), std::string::npos);
     }
+}
+
+TEST(KafkaPropertiesTest, RejectNulInPropertyName) {
+    std::unique_ptr<RdKafka::Conf> conf(RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL));
+    std::string key = "plugin.library.paths";
+    key.append(1, '\0').append("suffix");
+    EXPECT_FALSE(configure_kafka_security(*conf, {{key, "unused.so"}}).ok());
 }
 
 TEST(KafkaPropertiesTest, RejectKerberosRefreshReenable) {
@@ -82,6 +91,8 @@ TEST(KafkaPropertiesTest, AcceptConsumerAndAwsProperties) {
                                                  {"sasl.kerberos.min.time.before.relogin", "0"},
                                                  {"isolation.level", "read_committed"},
                                                  {"fetch.max.bytes", "1048576"},
+                                                 {"client.rack", "rack-a"},
+                                                 {"sasl.oauthbearer.assertion.claim.aud", "issuer"},
                                                  {"security.protocol", "SASL_SSL"},
                                                  {"sasl.mechanism", "OAUTHBEARER"},
                                                  {"aws.region", "us-east-1"}})

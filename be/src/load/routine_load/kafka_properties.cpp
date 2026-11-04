@@ -25,6 +25,9 @@
 
 namespace doris {
 
+static_assert(RD_KAFKA_VERSION == 0x021000ff,
+              "Review the Routine Load Kafka property denylist when upgrading librdkafka");
+
 Status configure_kafka_security(RdKafka::Conf& conf,
                                 const std::map<std::string, std::string>& properties) {
     for (const auto& [key, value] : properties) {
@@ -37,7 +40,7 @@ Status configure_kafka_security(RdKafka::Conf& conf,
                     "Kerberos tickets must be managed externally",
                     key);
         }
-        // Certificate paths supplied by SQL users must be Doris-managed files.
+        // Input file paths supplied by SQL users must be Doris-managed files.
         if (g_BackendService_constants.KAFKA_FILE_PROPERTIES.contains(key)) {
             if (!starts_with(value, "FILE:") || value.size() == 5) {
                 return Status::InvalidArgument(
@@ -45,10 +48,10 @@ Status configure_kafka_security(RdKafka::Conf& conf,
                         "FILE",
                         key);
             }
-        } else if (!g_BackendService_constants.KAFKA_ALLOWED_PROPERTIES.contains(key) &&
-                   !g_BackendService_constants.KAFKA_DORIS_PROPERTIES.contains(key)) {
+        } else if (key.find('\0') != std::string::npos ||
+                   g_BackendService_constants.KAFKA_DENIED_PROPERTIES.contains(key)) {
             // For example, plugin.library.paths can load code during Conf::set(),
-            // before a consumer is even created. Unknown properties fail closed.
+            // before a consumer is even created. The C API truncates names at NUL.
             return Status::InvalidArgument(
                     "PAUSE: Kafka property '{}' is not allowed in Routine Load", key);
         }

@@ -27,7 +27,9 @@ suite("test_kafka_property_validation", "p0") {
     // All failures must happen during analysis, without contacting a Kafka broker.
     def rejected = ["sasl.kerberos.kinit.cmd", "sasl.kerberos.keytab",
                     "sasl.kerberos.min.time.before.relogin", "plugin.library.paths",
-                    "ssl.engine.location", "ssl.engine.id", "ssl.providers", "unknown.future.property"]
+                    "ssl.engine.location", "ssl.engine.id", "ssl.providers", "topic.offset.store.path",
+                    "internal.termination.signal", "ut_handle_ProduceResponse",
+                    "sasl.oauthbearer.assertion.file", "sasl.oauthbearer.assertion.private.key.file"]
     rejected.each { key ->
         test {
             sql """

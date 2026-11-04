@@ -48,84 +48,45 @@ struct TTabletStatResult {
 }
 
 // Custom Routine Load properties cross the SQL-user to BE-process trust boundary.
-// Keep this allowlist shared by FE analysis and BE consumer initialization. New
-// librdkafka options must be reviewed before being exposed to SQL users. Never
-// allow shell commands, loadable modules/providers, or arbitrary local paths.
-const set<string> KAFKA_ALLOWED_PROPERTIES = [
-    "allow.auto.create.topics",
-    "api.version.fallback.ms",
-    "api.version.request",
-    "api.version.request.timeout.ms",
-    "auto.offset.reset",
-    "broker.address.family",
-    "broker.address.ttl",
-    "broker.version.fallback",
-    "check.crcs",
-    "client.dns.lookup",
-    "client.id",
-    "connections.max.idle.ms",
-    "enable.partition.eof",
-    "enable.sasl.oauthbearer.unsecure.jwt",
-    "enable.ssl.certificate.verification",
-    "fetch.error.backoff.ms",
-    "fetch.max.bytes",
-    "fetch.message.max.bytes",
-    "fetch.min.bytes",
-    "fetch.wait.max.ms",
-    "group.id",
-    "group.instance.id",
-    "heartbeat.interval.ms",
-    "isolation.level",
-    "max.partition.fetch.bytes",
-    "max.poll.interval.ms",
-    "metadata.max.age.ms",
-    "partition.assignment.strategy",
-    "queued.max.messages.kbytes",
-    "queued.min.messages",
-    "receive.message.max.bytes",
-    "reconnect.backoff.max.ms",
-    "reconnect.backoff.ms",
-    "retry.backoff.max.ms",
-    "retry.backoff.ms",
-    // Only the value "0" is accepted; ticket management is external.
-    "sasl.kerberos.min.time.before.relogin",
-    "sasl.kerberos.principal",
-    "sasl.kerberos.service.name",
-    "sasl.mechanism",
-    "sasl.mechanisms",
-    "sasl.oauthbearer.client.credentials.client.id",
-    "sasl.oauthbearer.client.credentials.client.secret",
-    "sasl.oauthbearer.client.id",
-    "sasl.oauthbearer.client.secret",
-    "sasl.oauthbearer.config",
-    "sasl.oauthbearer.extensions",
-    "sasl.oauthbearer.method",
-    "sasl.oauthbearer.scope",
-    "sasl.oauthbearer.token.endpoint.url",
-    "sasl.password",
-    "sasl.username",
-    "security.protocol",
-    "session.timeout.ms",
-    "socket.connection.setup.timeout.ms",
-    "socket.keepalive.enable",
-    "socket.max.fails",
-    "socket.nagle.disable",
-    "socket.receive.buffer.bytes",
-    "socket.send.buffer.bytes",
-    "socket.timeout.ms",
-    "ssl.ca.pem",
-    "ssl.certificate.pem",
-    "ssl.cipher.suites",
-    "ssl.curves.list",
-    "ssl.endpoint.identification.algorithm",
-    "ssl.key.password",
-    "ssl.key.pem",
-    "ssl.keystore.password",
-    "ssl.sigalgs.list",
-    "topic.metadata.propagation.max.ms",
-    "topic.metadata.refresh.fast.interval.ms",
-    "topic.metadata.refresh.interval.ms",
-    "topic.metadata.refresh.sparse",
+// Audited against the global and topic configuration tables in librdkafka 2.16.0.
+// rd_kafka_topic_conf_set also accepts "topic." followed by a topic property name.
+const set<string> KAFKA_DENIED_PROPERTIES = [
+    // Shell execution, native module loading and process-wide signal handlers.
+    "sasl.kerberos.kinit.cmd",
+    "sasl.kerberos.keytab",
+    "plugin.library.paths",
+    "ssl.engine.id",
+    "ssl.engine.location",
+    "ssl.providers",
+    "internal.termination.signal",
+
+    // Offset files can be written by the BE. Doris owns offset storage and broker selection.
+    "offset.store.path",
+    "topic.offset.store.path",
+    "offset.store.method",
+    "topic.offset.store.method",
+    "enable.auto.offset.store",
+    "bootstrap.servers",
+    "metadata.broker.list",
+
+    // File-backed JWT assertions read BE files and can send their contents to the issuer.
+    "sasl.oauthbearer.assertion.file",
+    "sasl.oauthbearer.assertion.jwt.template.file",
+    "sasl.oauthbearer.assertion.private.key.file",
+
+    // Access to the BE host's cloud identity or certificate store.
+    "sasl.oauthbearer.metadata.authentication.type",
+    "ssl.ca.certificate.stores",
+
+    // Native test hooks, callback delivery and process diagnostics.
+    "ut_handle_ProduceResponse",
+    "test.mock.num.brokers",
+    "test.mock.broker.rtt",
+    "enable_sasl_queue",
+    "debug",
+    "log.queue",
+    "enabled_events",
+    "statistics.interval.ms",
 ]
 
 // These data files must be registered through CREATE FILE, never raw BE paths.

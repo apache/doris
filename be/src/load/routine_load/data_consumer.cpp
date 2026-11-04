@@ -95,12 +95,12 @@ Status KafkaDataConsumer::init(std::shared_ptr<StreamLoadContext> ctx) {
             return Status::OK();
         } else if (res != RdKafka::Conf::CONF_OK) {
             std::stringstream ss;
-            ss << "PAUSE: failed to set '" << conf_key << "', value: '" << conf_val
-               << "', err: " << errstr;
+            // librdkafka errors may echo a credential supplied by the job.
+            ss << "PAUSE: failed to set Kafka property '" << conf_key << "'";
             LOG(WARNING) << ss.str();
             return Status::InternalError(ss.str());
         }
-        VLOG_NOTICE << "set " << conf_key << ": " << conf_val;
+        VLOG_NOTICE << "set Kafka property " << conf_key;
         return Status::OK();
     };
 

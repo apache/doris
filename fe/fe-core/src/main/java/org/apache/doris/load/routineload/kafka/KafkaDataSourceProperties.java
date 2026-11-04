@@ -274,8 +274,7 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
                     throw new AnalysisException("Kafka property '" + key
                             + "' must reference a file registered with CREATE FILE using FILE:<name>");
                 }
-            } else if (!BackendServiceConstants.KAFKA_ALLOWED_PROPERTIES.contains(key)
-                    && !BackendServiceConstants.KAFKA_DORIS_PROPERTIES.contains(key)) {
+            } else if (key.indexOf('\0') >= 0 || BackendServiceConstants.KAFKA_DENIED_PROPERTIES.contains(key)) {
                 throw new AnalysisException("Kafka property '" + key + "' is not allowed in Routine Load");
             }
         }
