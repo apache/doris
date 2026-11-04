@@ -1499,7 +1499,7 @@ VariantPathSelection select_variant_paths(std::span<const VariantPathSelectionCa
     for (size_t index = 0; index < candidates.size(); ++index) {
         const VariantPathSelectionCandidate& candidate = candidates[index];
         DORIS_CHECK(candidate.builder != nullptr);
-        if (candidate.is_typed_path && !typed_paths_to_sparse) {
+        if ((candidate.is_typed_path || candidate.is_template_carrier) && !typed_paths_to_sparse) {
             result.materialized.push_back(index);
         } else if (candidate.builder->non_null_rows() == 0) {
             continue;

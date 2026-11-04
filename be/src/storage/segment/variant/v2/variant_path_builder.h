@@ -117,6 +117,9 @@ private:
 struct VariantPathSelectionCandidate {
     const VariantPathBuilder* builder = nullptr;
     bool is_typed_path = false;
+    // A copied value that does not fit its template stays untyped, but the template still owns
+    // the path: it must be materialized like a typed path so compaction finds it in the footer.
+    bool is_template_carrier = false;
 };
 
 struct VariantPathSelection {

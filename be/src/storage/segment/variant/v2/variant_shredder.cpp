@@ -292,8 +292,10 @@ struct VariantShredder::Impl {
                 continue;
             }
             candidate_builders->push_back(builder);
-            candidates->push_back(VariantPathSelectionCandidate {.builder = builder,
-                                                                 .is_typed_path = is_typed_path});
+            candidates->push_back(VariantPathSelectionCandidate {
+                    .builder = builder,
+                    .is_typed_path = is_typed_path,
+                    .is_template_carrier = template_carriers.contains(builder)});
             storage_types->push_back(std::move(storage_type));
         }
         return Status::OK();

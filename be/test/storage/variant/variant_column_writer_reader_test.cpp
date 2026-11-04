@@ -900,7 +900,7 @@ TEST(VariantPathBuilderTest, SelectsMaterializedAndSparsePathsInStableOrder) {
     };
     const std::vector<CandidateSpec> specs {
             {"typed", 0, true}, {"z", 2, false},   {"b.c", 2, false},
-            {"a", 3, false},    {"a.c", 2, false},
+            {"a", 3, false},    {"a.c", 2, false}, {"carrier", 1, false},
     };
     std::vector<segment_v2::VariantPathBuilder> builders;
     builders.reserve(specs.size());
@@ -914,8 +914,9 @@ TEST(VariantPathBuilderTest, SelectsMaterializedAndSparsePathsInStableOrder) {
     std::vector<segment_v2::VariantPathSelectionCandidate> candidates;
     candidates.reserve(specs.size());
     for (size_t index = 0; index < specs.size(); ++index) {
-        candidates.push_back(
-                {.builder = &builders[index], .is_typed_path = specs[index].is_typed_path});
+        candidates.push_back({.builder = &builders[index],
+                              .is_typed_path = specs[index].is_typed_path,
+                              .is_template_carrier = specs[index].path == "carrier"});
     }
     const auto selected_paths = [&](const auto& indices) {
         std::vector<std::string> paths;
@@ -932,8 +933,9 @@ TEST(VariantPathBuilderTest, SelectsMaterializedAndSparsePathsInStableOrder) {
         std::vector<std::string> sparse;
     };
     const std::vector<SelectionCase> cases {
-            {false, {"a", "b.c", "typed"}, {"a.c", "z"}},
-            {true, {"a", "b.c"}, {"a.c", "z"}},
+            // The carrier is the coldest path but consumes no dynamic budget slot.
+            {false, {"a", "b.c", "carrier", "typed"}, {"a.c", "z"}},
+            {true, {"a", "b.c"}, {"a.c", "carrier", "z"}},
     };
     for (const auto& test_case : cases) {
         SCOPED_TRACE(testing::Message()
