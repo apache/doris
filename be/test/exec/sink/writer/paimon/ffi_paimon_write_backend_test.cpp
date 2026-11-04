@@ -30,12 +30,14 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "exec/common/endian.h"
 #include "exec/sink/writer/paimon/jni_paimon_write_backend.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "util/debug_points.h"
 #include "util/defer_op.h"
 
 namespace doris {
@@ -69,7 +71,7 @@ protected:
             "fields":[{"id":0,"name":"id","type":"INT"}],
             "highestFieldId":0,"partitionKeys":[],"primaryKeys":[],
             "options":{"bucket":"-1","file.format":"parquet",
-                       "target-file-size":"1 b","write-buffer-size":"8 mb"},
+                       "target-file-size":"1 b","write.parquet-buffer-size":"8 mb"},
             "timeMillis":0
         })");
         desc.__set_database_name("default");
@@ -158,23 +160,70 @@ TEST_F(FfiPaimonWriteBackendTest, WritesDpcmAndReleasesFixedBudget) {
     const auto& payload = messages.front().payload;
     ASSERT_GE(payload.size(), 16);
     EXPECT_EQ(payload.substr(0, 4), "DPCM");
-    EXPECT_EQ(static_cast<unsigned char>(payload[7]), 14);
+    EXPECT_EQ(BigEndian::Load32(payload.data() + 4), 14);
+    EXPECT_EQ(BigEndian::Load32(payload.data() + 8), payload.size() - 12);
+    EXPECT_EQ(BigEndian::Load32(payload.data() + 12), 1);
     EXPECT_EQ(file_count(), 1);
     _writer.reset();
     ASSERT_TRUE(_backend.close().ok());
     EXPECT_GT(_state->query_mem_tracker()->consumption(), before);
+    auto* entity = DorisMetrics::instance()->server_entity();
+    auto* metadata_credit =
+            static_cast<IntGauge*>(entity->get_metric("paimon_rust_commit_metadata_credit_bytes"));
+    EXPECT_GT(metadata_credit->value(), 0);
     _state->finalize_external_file_report_cleanup(ExternalFileReportOutcome::ACKNOWLEDGED);
     EXPECT_EQ(_state->query_mem_tracker()->consumption(), before);
+    EXPECT_EQ(metadata_credit->value(), 0);
     EXPECT_EQ(counter("QueryReservedBytes"), 0);
     EXPECT_EQ(counter("ReservedMemoryBytes"), 0);
     EXPECT_EQ(counter("ArrowBufferBytes"), 0);
     EXPECT_EQ(counter("PreparedCommitMessages"), 1);
-    auto* entity = DorisMetrics::instance()->server_entity();
     EXPECT_EQ(static_cast<IntGauge*>(entity->get_metric("paimon_rust_active_writers"))->value(), 0);
     EXPECT_EQ(static_cast<IntGauge*>(entity->get_metric("paimon_rust_fixed_memory_bytes"))->value(),
               0);
     // Once prepared, normal shutdown must preserve files for the FE transaction.
     EXPECT_EQ(file_count(), 1);
+}
+
+TEST_F(FfiPaimonWriteBackendTest, EmptyWriterReleasesBudgetWithoutReportMetadata) {
+    ASSERT_TRUE(open().ok());
+    std::vector<TPaimonCommitMessage> messages;
+    ASSERT_TRUE(_writer->prepare_commit(messages).ok());
+    EXPECT_TRUE(messages.empty());
+    _writer.reset();
+    ASSERT_TRUE(_backend.close().ok());
+    EXPECT_EQ(file_count(), 0);
+    EXPECT_EQ(counter("ReservedMemoryBytes"), 0);
+    EXPECT_EQ(counter("ArrowBufferBytes"), 0);
+    EXPECT_EQ(counter("QueryReservedBytes"), 0);
+    EXPECT_EQ(_state->query_mem_tracker()->consumption(), _initial_query_memory);
+}
+
+TEST_F(FfiPaimonWriteBackendTest, FailedPrepareAbortsRolledFilesAndReleasesBudget) {
+    const bool previous = config::enable_debug_points;
+    Defer restore([&] {
+        DebugPoints::instance()->remove("FfiPaimonWriteBackend.prepare.fail");
+        config::enable_debug_points = previous;
+    });
+    config::enable_debug_points = true;
+    ASSERT_TRUE(open().ok());
+    auto block = input();
+    ASSERT_TRUE(write(block).ok());
+    ASSERT_EQ(file_count(), 1);
+    DebugPoints::instance()->add("FfiPaimonWriteBackend.prepare.fail");
+    std::vector<TPaimonCommitMessage> messages;
+    const auto status = _writer->prepare_commit(messages);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Injected Paimon Rust prepare failure"), std::string::npos);
+    EXPECT_TRUE(messages.empty());
+    ASSERT_TRUE(_writer->abort().ok());
+    _writer.reset();
+    ASSERT_TRUE(_backend.close().ok());
+    EXPECT_EQ(file_count(), 0);
+    EXPECT_EQ(_state->query_mem_tracker()->consumption(), _initial_query_memory);
+    EXPECT_EQ(counter("QueryReservedBytes"), 0);
+    EXPECT_EQ(counter("ReservedMemoryBytes"), 0);
+    EXPECT_EQ(counter("ArrowBufferBytes"), 0);
 }
 
 TEST_F(FfiPaimonWriteBackendTest, RejectedReportRemovesPreparedFilesAfterClosingWriter) {
@@ -362,7 +411,42 @@ TEST_F(FfiPaimonWriteBackendTest, AbortBeforePublicationRemovesPreparedFiles) {
     EXPECT_EQ(file_count(), 0);
 }
 
-TEST_F(FfiPaimonWriteBackendTest, ResourceExhaustionFailsAndReleasesBudget) {
+TEST_F(FfiPaimonWriteBackendTest, DictionaryEncodedInputFlushesBeforeExhaustingBudget) {
+    const auto previous = config::paimon_rust_writer_memory_limit_bytes;
+    Defer restore([&] { config::paimon_rust_writer_memory_limit_bytes = previous; });
+    config::paimon_rust_writer_memory_limit_bytes = 16 * 1024 * 1024;
+    auto json = _sink.table_desc.schema_json;
+    json.replace(json.find("\"INT\""), 5, "\"STRING\"");
+    json.replace(json.find("\"1 b\""), 5, "\"128 mb\"");
+    _sink.table_desc.__set_schema_json(json);
+    ASSERT_TRUE(open().ok());
+    auto values = ColumnString::create();
+    std::string value(4096, 'x');
+    for (int row = 0; row < 1024; ++row) {
+        values->insert_data(value.data(), value.size());
+    }
+    Block block({{std::move(values), std::make_shared<DataTypeString>(), "id"}});
+    // The encoded dictionary stays small, but 32 MiB of input exceeds the 16 MiB budget.
+    // Flushing retained input must release reservations without waiting for a file roll.
+    for (int batch = 0; batch < 8; ++batch) {
+        ASSERT_TRUE(write(block).ok());
+    }
+    EXPECT_EQ(counter("InputRows"), 8192);
+    EXPECT_LE(counter("PeakReservedMemoryBytes"), config::paimon_rust_writer_memory_limit_bytes);
+    std::vector<TPaimonCommitMessage> messages;
+    ASSERT_TRUE(_writer->prepare_commit(messages).ok());
+    ASSERT_EQ(messages.size(), 1);
+    EXPECT_EQ(file_count(), 1);
+    ASSERT_TRUE(_writer->abort().ok());
+    _writer.reset();
+    ASSERT_TRUE(_backend.close().ok());
+    EXPECT_EQ(file_count(), 0);
+    EXPECT_EQ(counter("ReservedMemoryBytes"), 0);
+    EXPECT_EQ(counter("ArrowBufferBytes"), 0);
+    EXPECT_EQ(_state->query_mem_tracker()->consumption(), _initial_query_memory);
+}
+
+TEST_F(FfiPaimonWriteBackendTest, ResourceExhaustionReleasesBudgetAndAllowsRetryAfterOnlineUpdate) {
     const auto previous = config::paimon_rust_writer_memory_limit_bytes;
     Defer restore([&] { config::paimon_rust_writer_memory_limit_bytes = previous; });
     config::paimon_rust_writer_memory_limit_bytes = 128 * 1024;
@@ -383,6 +467,32 @@ TEST_F(FfiPaimonWriteBackendTest, ResourceExhaustionFailsAndReleasesBudget) {
     ASSERT_TRUE(_writer->abort().ok());
     _writer.reset();
     ASSERT_TRUE(_backend.close().ok());
+    EXPECT_EQ(file_count(), 0);
+    EXPECT_EQ(_state->query_mem_tracker()->consumption(), before);
+
+    // New writers must observe the updated limit without restarting the BE.
+    config::paimon_rust_writer_memory_limit_bytes = 4 * 1024 * 1024;
+    RuntimeProfile retry_profile {"retry-after-memory-update"};
+    FfiPaimonWriteBackend retry;
+    ASSERT_TRUE(retry.open(_sink, _state.get(), &retry_profile).ok());
+    std::unique_ptr<IPaimonWriter> retry_writer;
+    ASSERT_TRUE(retry.create_writer(&retry_writer).ok());
+    EXPECT_EQ(retry_profile.get_child("RustPaimonWriteBackend")
+                      ->get_counter("FixedBudgetBytes")
+                      ->value(),
+              config::paimon_rust_writer_memory_limit_bytes);
+    {
+        SCOPED_ATTACH_TASK(_state.get());
+        ASSERT_TRUE(retry_writer->write(_state.get(), over_budget).ok());
+    }
+    std::vector<TPaimonCommitMessage> messages;
+    ASSERT_TRUE(retry_writer->prepare_commit(messages).ok());
+    ASSERT_FALSE(messages.empty());
+    ASSERT_GE(messages.front().payload.size(), 16);
+    EXPECT_EQ(BigEndian::Load32(messages.front().payload.data() + 4), 14);
+    ASSERT_TRUE(retry_writer->abort().ok());
+    retry_writer.reset();
+    ASSERT_TRUE(retry.close().ok());
     EXPECT_EQ(file_count(), 0);
     EXPECT_EQ(_state->query_mem_tracker()->consumption(), before);
 }
