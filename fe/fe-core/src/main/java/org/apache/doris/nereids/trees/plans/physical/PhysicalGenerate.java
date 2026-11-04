@@ -160,9 +160,9 @@ public class PhysicalGenerate<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
 
     @Override
     public PhysicalGenerate<CHILD_TYPE> resetLogicalProperties() {
-        return new PhysicalGenerate<>(generators, generatorOutput, conjuncts,
+        return rebuildKeepingStates(this, new PhysicalGenerate<>(generators, generatorOutput, conjuncts,
                 Optional.empty(), null, physicalProperties,
-                statistics, child());
+                statistics, child()));
     }
 
     @Override

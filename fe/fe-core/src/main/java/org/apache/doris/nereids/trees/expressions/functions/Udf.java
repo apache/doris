@@ -48,6 +48,15 @@ public interface Udf extends ComputeNullable, VolatileExpression {
 
     NullableMode getNullableMode();
 
+    /** The name the udf is called by, without its arguments. */
+    String getName();
+
+    /** The database which holds the udf; the name alone is not the identity of a catalog function. */
+    String getDbName();
+
+    /** The catalog id of this udf overload: two overloads of one name differ by it. */
+    long getFunctionId();
+
     FunctionVolatility getVolatility();
 
     List<Expression> children();

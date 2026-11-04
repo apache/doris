@@ -206,8 +206,9 @@ public class PhysicalRecursiveUnion<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TY
 
     @Override
     public PhysicalRecursiveUnion<Plan, Plan> resetLogicalProperties() {
-        return new PhysicalRecursiveUnion<>(cteName, qualifier, outputs, regularChildrenOutputs,
-                Optional.empty(), null, physicalProperties, statistics, left(), right());
+        return rebuildKeepingStates(this,
+                new PhysicalRecursiveUnion<>(cteName, qualifier, outputs, regularChildrenOutputs,
+                Optional.empty(), null, physicalProperties, statistics, left(), right()));
     }
 
     @Override

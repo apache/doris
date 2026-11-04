@@ -220,8 +220,8 @@ public class PhysicalNestedLoopJoin<
 
     @Override
     public PhysicalNestedLoopJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> resetLogicalProperties() {
-        return new PhysicalNestedLoopJoin<>(joinType,
+        return rebuildKeepingStates(this, new PhysicalNestedLoopJoin<>(joinType,
                 hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts, markJoinSlotReference, groupExpression,
-                null, physicalProperties, statistics, left(), right());
+                null, physicalProperties, statistics, left(), right()));
     }
 }

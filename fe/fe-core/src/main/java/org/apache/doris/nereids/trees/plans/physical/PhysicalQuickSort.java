@@ -136,7 +136,8 @@ public class PhysicalQuickSort<CHILD_TYPE extends Plan> extends AbstractPhysical
 
     @Override
     public PhysicalQuickSort<CHILD_TYPE> resetLogicalProperties() {
-        return new PhysicalQuickSort<>(orderKeys, phase, groupExpression, null, physicalProperties,
-                statistics, child());
+        return rebuildKeepingStates(this,
+                new PhysicalQuickSort<>(orderKeys, phase, groupExpression, null, physicalProperties,
+                statistics, child()));
     }
 }

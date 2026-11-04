@@ -1,0 +1,259 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+# HBO struct info golden corpus - CLUSTER section (captured data).
+#
+# Captured on 2026-10-16 from a local FE built from this branch at commit b8954fe98620c91392ed76645e090d9ede468f9d
+# (FE 127.0.0.1:9030, user root, no password, database hbo_test).
+# The FE binary's baked version string is doris-0.0.0-9792f67a57f: its jar was built
+# shortly before the last three commits of the branch. The annotations below include
+# the behaviour of the last FE change of the branch (89bc5a60b06, the local (partial)
+# aggregation stage skip reason), which is what this capture needs.
+#
+# Capture command, one query per case:
+#   mysql -h127.0.0.1 -P9030 -uroot -N -r \
+#     -e "set show_hbo_fingerprint=true; [set <case setting>;] explain <sql>" \
+#     | sed -n '/HBO fingerprint annotations (join\/aggregation\/filter):/,$p'
+# The recorded wl = / nl = / fp = lines are taken verbatim from those annotation
+# lines; the fingerprint is the sha256 the FE printed, and the struct is the
+# canonical string EXPLAIN printed next to it (quotes unescaped).
+#
+# Line syntax:
+#   [CLUSTER <name>]  a case
+#   set = <var>       a session setting the query was planned with (before the explain)
+#   sql = <sql>       the query; its annotation lines follow in `# node ...` comments
+#   wl = <struct>     a with_literal canonical string
+#   nl = <struct>     a no_literal (constant agnostic) canonical string
+#   fp = <mode>:<sha256>  the fingerprint printed next to that struct
+#   skip = <reason>   a node whose struct info is refused (no key by design)
+#   note = <text>     a case with no annotation line at all
+#
+# Every wl = / nl = line is immediately followed by its own fp = line. A node which
+# prints both modes prints the two pairs; a case whose literal mode does not change the
+# string prints one pair only (the FE prints the literal carrying line only when it
+# differs). The node ids in the comments are informational: they move with any plan
+# change and are not asserted.
+#
+# Tables: hbo_test.hbo_sg_t1(a,b), hbo_sg_t2(a,c), hbo_sg_t3(b,d), hbo_tb(a,b),
+# hbo_pt(a,b) and hbo_golden_pt(a,b) - the last one was created for the partition
+# selection case:
+#   create table hbo_golden_pt (a int, b int) partition by range(a)
+#     (partition p1 values less than (10), partition p2 values less than (20))
+#     distributed by hash(a) buckets 1 properties('replication_num'='1');
+#   insert into hbo_golden_pt values (1,1),(2,2),(11,11);
+#   analyze table hbo_golden_pt with sync;
+#
+# The capture also records that two shapes are not annotated at all on the capture
+# date (see the note = lines): their plan is answered from the table metadata, so the
+# physical plan holds no join / aggregation / filter node. Whether a small table's
+# count is answered that way moves with the cluster state (the metadata row counts the
+# backends report), which is exactly why this file is captured data and not generated:
+# re-capturing it in another state is expected to be a deliberate, reviewed change.
+#
+# THIS FILE IS CAPTURED DATA; regenerate only deliberately (see the javadoc of
+# GroupStructInfoGoldenTest). The data state in a scan token (v3,r1010) is the state
+# of the cluster on the capture date; the fingerprint it is stripped from is stable.
+#
+# case count: 21
+
+[CLUSTER filter_literal]
+sql = select * from hbo_test.hbo_sg_t1 where a = 1
+# node 21 filter-on-scan(table=internal.hbo_test.hbo_sg_t1) type=exact
+wl = F{EqualTo(col(internal.hbo_test.hbo_sg_t1.a),lit(1:INT))}(S{internal.hbo_test.hbo_sg_t1,v3,r1010})
+fp = with_literal:06ef0ba6140a0c397673ca35184add6a71e50d3054cb657a5b2e031448776df7
+# node 21 filter-on-scan(table=internal.hbo_test.hbo_sg_t1) type=exact
+nl = F{EqualTo(col(internal.hbo_test.hbo_sg_t1.a),lit(*))}(S{internal.hbo_test.hbo_sg_t1,v3,r1010})
+fp = no_literal:6d810920483dd7dd74c885d0de9d32e5f203b683d57432ad71a794310988466b
+
+[CLUSTER filter_two_conjuncts]
+sql = select * from hbo_test.hbo_sg_t1 where a = 1 and b = 2
+# node 22 filter-on-scan(table=internal.hbo_test.hbo_sg_t1) type=exact
+wl = F{EqualTo(col(internal.hbo_test.hbo_sg_t1.a),lit(1:INT));EqualTo(col(internal.hbo_test.hbo_sg_t1.b),lit(2:INT))}(S{internal.hbo_test.hbo_sg_t1,v3,r1010})
+fp = with_literal:b83fa3773232e87b886a542e45b7a5ddb2857ce406a3fdc8e80ad45944481d1d
+# node 22 filter-on-scan(table=internal.hbo_test.hbo_sg_t1) type=exact
+nl = F{EqualTo(col(internal.hbo_test.hbo_sg_t1.a),lit(*));EqualTo(col(internal.hbo_test.hbo_sg_t1.b),lit(*))}(S{internal.hbo_test.hbo_sg_t1,v3,r1010})
+fp = no_literal:dc8057fde6d115867995b6726e163d0349ff933f99990c3622f32e9caaf3777f
+
+[CLUSTER join_inner_two_scans]
+sql = select * from hbo_test.hbo_sg_t1 t1 join hbo_test.hbo_sg_t2 t2 on t1.a = t2.a
+# node 56 join type=exact
+nl = J{inner,c:[EqualTo(col(internal.hbo_test.t1.a),col(internal.hbo_test.t2.a))]}(S{internal.hbo_test.hbo_sg_t1,v3,r1010};S{internal.hbo_test.hbo_sg_t2,v2,r1000})
+fp = no_literal:b32fded1ab2018b568a40c4e918274ec5c62668778a22a224211c97bbbfec486
+# node 56 join type=join_expansion
+nl = JE{INNER_JOIN;EqualTo(col(internal.hbo_test.t1.a),col(internal.hbo_test.t2.a))}
+fp = no_literal:c1bdbc7e6222e83e59e2cd137c2f420d0cadef56e3dff18863aa892f3b9a8828
+
+[CLUSTER join_inner_chain_three]
+sql = select * from hbo_test.hbo_sg_t1 t1 join hbo_test.hbo_sg_t2 t2 on t1.a = t2.a join hbo_test.hbo_sg_t3 t3 on t1.b = t3.b
+# node 139 join type=exact
+nl = J{inner,c:[EqualTo(col(internal.hbo_test.t1.b),col(internal.hbo_test.t3.b))]}(S{internal.hbo_test.hbo_sg_t1,v3,r1010};S{internal.hbo_test.hbo_sg_t3,v2,r1000})
+fp = no_literal:48baa985b23762e49a2987475c9dd669bb818bc5c8afb496b6f832f639084765
+# node 139 join type=join_expansion
+nl = JE{INNER_JOIN;EqualTo(col(internal.hbo_test.t1.b),col(internal.hbo_test.t3.b))}
+fp = no_literal:f1a29bdc56190ff3c161ac52f576db78f8fac73a8114281b1058a86e53f9cedb
+# node 141 join type=exact
+nl = J{inner,c:[EqualTo(col(internal.hbo_test.t1.a),col(internal.hbo_test.t2.a));EqualTo(col(internal.hbo_test.t1.b),col(internal.hbo_test.t3.b))]}(S{internal.hbo_test.hbo_sg_t1,v3,r1010};S{internal.hbo_test.hbo_sg_t2,v2,r1000};S{internal.hbo_test.hbo_sg_t3,v2,r1000})
+fp = no_literal:8a163da85b09fc2ba60135ec165b3c0e4c8306638855317225b97da1cf67c287
+# node 141 join type=join_expansion
+nl = JE{INNER_JOIN;EqualTo(col(internal.hbo_test.t1.a),col(internal.hbo_test.t2.a))}
+fp = no_literal:c1bdbc7e6222e83e59e2cd137c2f420d0cadef56e3dff18863aa892f3b9a8828
+
+[CLUSTER join_left_outer]
+sql = select * from hbo_test.hbo_sg_t1 t1 left join hbo_test.hbo_sg_t2 t2 on t1.a = t2.a
+# node 48 join type=exact
+nl = J{LEFT_OUTER_JOIN,c:[EqualTo(col(internal.hbo_test.t1.a),col(internal.hbo_test.t2.a))]}(S{internal.hbo_test.hbo_sg_t1,v3,r1010};S{internal.hbo_test.hbo_sg_t2,v2,r1000})
+fp = no_literal:85fd7656759959b2c2902922afe95f5653aa9e7a667821577e97417a0e1606f4
+# node 48 join type=join_expansion
+nl = JE{LEFT_OUTER_JOIN;EqualTo(col(internal.hbo_test.t1.a),col(internal.hbo_test.t2.a));sides:[internal.hbo_test.hbo_sg_t1|internal.hbo_test.hbo_sg_t2]}
+fp = no_literal:a5789be48a431c9787c103cacd83af7a570c03e665838b164d59e8ee6b9a5f12
+
+[CLUSTER topn]
+sql = select * from (select * from hbo_test.hbo_sg_t1 order by a limit 3) t where a > 1
+# node 43 filter type=exact
+wl = F{GreaterThan(col(internal.hbo_test.t.a),lit(1:INT))}(T{3,0;ord:[col(internal.hbo_test.hbo_sg_t1.a):asc:nulls_first]}S{internal.hbo_test.hbo_sg_t1,v3,r1010})
+fp = with_literal:46ab4fa9a4f51601bf00525f07640b3c5cca95bcdbf58643ef3dbe6a4c853c07
+# node 43 filter type=exact
+nl = F{GreaterThan(col(internal.hbo_test.t.a),lit(*))}(T{3,0;ord:[col(internal.hbo_test.hbo_sg_t1.a):asc:nulls_first]}S{internal.hbo_test.hbo_sg_t1,v3,r1010})
+fp = no_literal:15c79715b3fd274878219222c27e97ba75929e6324d9bedf785e2a2b3a9d4bda
+
+[CLUSTER limit]
+sql = select * from (select * from hbo_test.hbo_sg_t1 limit 3) t where a > 1
+# node 39 filter type=exact
+wl = F{GreaterThan(col(internal.hbo_test.t.a),lit(1:INT))}(L{3,0}L{3,0}S{internal.hbo_test.hbo_sg_t1,v3,r1010})
+fp = with_literal:8846357ece0d72161894a0aef516c9359050fe321a5c1d08a1ec58d3e4e5bd44
+# node 39 filter type=exact
+nl = F{GreaterThan(col(internal.hbo_test.t.a),lit(*))}(L{3,0}L{3,0}S{internal.hbo_test.hbo_sg_t1,v3,r1010})
+fp = no_literal:78b89aa6e7dfd33cd54e6cbbfdb64f59a1ba894ba5ac516e0616dabe80923175
+
+[CLUSTER window_partition_no_order]
+sql = select * from (select row_number() over (partition by a) rn from hbo_test.hbo_sg_t1) t where rn > 1
+# node 47 filter type=exact
+wl = F{GreaterThan(col(t.rn),lit(1:BIGINT))}(W{RowNumber;part:[col(internal.hbo_test.hbo_sg_t1.a)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}}(S{internal.hbo_test.hbo_sg_t1,v3,r1010}))
+fp = with_literal:e4b837330f6123716e5a34f3a6767472e2ab4111f274e8460ed1c7b3f184429d
+# node 47 filter type=exact
+nl = F{GreaterThan(col(t.rn),lit(*))}(W{RowNumber;part:[col(internal.hbo_test.hbo_sg_t1.a)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}}(S{internal.hbo_test.hbo_sg_t1,v3,r1010}))
+fp = no_literal:f9ef844f50a034daf6945bd3c2639adb97fb675eccc2de22b071acf237665001
+
+[CLUSTER window_partition_order_partition_topn]
+set = enable_partition_topn=true
+sql = select * from (select row_number() over (partition by a order by b) rn from hbo_test.hbo_sg_t1) t where rn <= 100
+# node 46 filter skipped
+skip = unsupported=LogicalPartitionTopN
+
+[CLUSTER generate_comma]
+sql = select * from (select a, x from hbo_test.hbo_sg_t1 lateral view explode_split(cast(a as varchar), ',') tmp as x) t where x = '1'
+# node 41 filter type=exact
+wl = F{EqualTo(col(tmp.$c$1),lit(1:VARCHAR(1)))}(G{tf:[Explode(SplitByString(Cast(col(internal.hbo_test.hbo_sg_t1.a)),lit(%2C:VARCHAR(1))))]}S{internal.hbo_test.hbo_sg_t1,v3,r1010})
+fp = with_literal:4b1411852c18020accdd733e2ab1be2f5a95d0d3561b2f3e1523f3ccba9ea577
+# node 41 filter type=exact
+nl = F{EqualTo(col(tmp.$c$1),lit(*))}(G{tf:[Explode(SplitByString(Cast(col(internal.hbo_test.hbo_sg_t1.a)),lit(%2C:VARCHAR(1))))]}S{internal.hbo_test.hbo_sg_t1,v3,r1010})
+fp = no_literal:ae7c39212917f6af7ac8daed560524954f6186cca45774bb958a141e81fb7c40
+
+[CLUSTER generate_semicolon]
+sql = select * from (select a, x from hbo_test.hbo_sg_t1 lateral view explode_split(cast(a as varchar), ';') tmp as x) t where x = '1'
+# node 41 filter type=exact
+wl = F{EqualTo(col(tmp.$c$1),lit(1:VARCHAR(1)))}(G{tf:[Explode(SplitByString(Cast(col(internal.hbo_test.hbo_sg_t1.a)),lit(%3B:VARCHAR(1))))]}S{internal.hbo_test.hbo_sg_t1,v3,r1010})
+fp = with_literal:e52708042c643dd3d4ec23f0dc55417e8c8254aebc977755f7029f6785baa38e
+# node 41 filter type=exact
+nl = F{EqualTo(col(tmp.$c$1),lit(*))}(G{tf:[Explode(SplitByString(Cast(col(internal.hbo_test.hbo_sg_t1.a)),lit(%3B:VARCHAR(1))))]}S{internal.hbo_test.hbo_sg_t1,v3,r1010})
+fp = no_literal:9fe0572ce2dd1ac67729f5718b4720cd7ae1d9d69f5fde5b2347d02b3239e0e1
+
+[CLUSTER repeat_grouping_sets]
+sql = select a, count(*) from hbo_test.hbo_sg_t1 group by grouping sets ((a),())
+# node 40 aggregation skipped
+skip = local (partial) aggregation stage: the read side applies the row count of the final aggregation above it
+# node 42 aggregation type=exact
+nl = A{gb:col(GROUPING_ID);col(internal.hbo_test.hbo_sg_t1.a)}(R{gs:[[col(internal.hbo_test.hbo_sg_t1.a)];[]]}S{internal.hbo_test.hbo_sg_t1,v3,r1010})
+fp = no_literal:0bc0229dc1924d4e127ff835763053bba9e6c307425fe4cff49f2439b5ccda90
+
+[CLUSTER union_constant]
+sql = select a from hbo_test.hbo_sg_t1 union select 2
+# node 45 aggregation skipped
+skip = local (partial) aggregation stage: the read side applies the row count of the final aggregation above it
+# node 47 aggregation type=exact
+nl = A{gb:col(a)}(U{all,cols:[col(a)],const:[Alias(lit(2:INT))]}(S{internal.hbo_test.hbo_sg_t1,v3,r1010}))
+fp = no_literal:0b33cfcd4947eb075ed92ab4c7837112516474ec54ee1b2962aa70b0a1d528a7
+
+[CLUSTER intersect]
+sql = select count(*) from (select a from hbo_test.hbo_sg_t1 intersect select a from hbo_test.hbo_sg_t2) t
+# node 66 aggregation skipped
+skip = local (partial) aggregation stage: the read side applies the row count of the final aggregation above it
+# node 68 aggregation type=exact
+nl = A{gb:}(I{distinct,cols:[col(t.a)]}(S{internal.hbo_test.hbo_sg_t1,v3,r1010};S{internal.hbo_test.hbo_sg_t2,v2,r1000}))
+fp = no_literal:564ab5a08dc5dee41ee2e4c40996b4275f169df65239e61e1b14b41a5eaec07a
+
+[CLUSTER except]
+sql = select count(*) from (select a from hbo_test.hbo_sg_t1 except select a from hbo_test.hbo_sg_t2) t
+# node 63 aggregation skipped
+skip = local (partial) aggregation stage: the read side applies the row count of the final aggregation above it
+# node 65 aggregation type=exact
+nl = A{gb:}(E{distinct,cols:[col(t.a)]}(S{internal.hbo_test.hbo_sg_t1,v3,r1010};S{internal.hbo_test.hbo_sg_t2,v2,r1000}))
+fp = no_literal:44c24bc5199aaed131be0b1e4faf9d52dac047b110bcbc9f8157c77fbab204be
+
+[CLUSTER partition_selection]
+sql = select * from hbo_test.hbo_golden_pt partition(p1) where b > 1
+# node 21 filter-on-scan(table=internal.hbo_test.hbo_golden_pt) type=exact
+wl = F{GreaterThan(col(internal.hbo_test.hbo_golden_pt.b),lit(1:INT))}(S{internal.hbo_test.hbo_golden_pt#pt:1792063057551,v2,r2,p1/2})
+fp = with_literal:b75ff877a41350c48b2bfc8c8c6c5c5076d41f55543bba3fc85d06794e94002a
+# node 21 filter-on-scan(table=internal.hbo_test.hbo_golden_pt) type=exact
+nl = F{GreaterThan(col(internal.hbo_test.hbo_golden_pt.b),lit(*))}(S{internal.hbo_test.hbo_golden_pt#pt:1792063057551,v2,r2,p1/2})
+fp = no_literal:8764b9b7bf82d163dcbbe2c27205a5dbf3cc5a04c0d1d59019a0389e9a75c6e6
+
+[CLUSTER tablet_selection]
+sql = select * from hbo_test.hbo_sg_t1 tablet(1792063056083, 1792063056085) where a > 1
+# node 21 filter-on-scan(table=internal.hbo_test.hbo_sg_t1) type=exact
+wl = F{GreaterThan(col(internal.hbo_test.hbo_sg_t1.a),lit(1:INT))}(S{internal.hbo_test.hbo_sg_t1#tb:1792063056083:1792063056085,v3,r1010})
+fp = with_literal:280b8582055d75a5cd27826d53e281674b68b999cbcf2499f7c9ab974c7559f0
+# node 21 filter-on-scan(table=internal.hbo_test.hbo_sg_t1) type=exact
+nl = F{GreaterThan(col(internal.hbo_test.hbo_sg_t1.a),lit(*))}(S{internal.hbo_test.hbo_sg_t1#tb:1792063056083:1792063056085,v3,r1010})
+fp = no_literal:d2227d0b079bab4116a14fbd942296db398910fa9edf4f2a11a6933300360427
+
+[CLUSTER storage_layer_aggregate_skip]
+sql = select 1 from hbo_test.hbo_sg_t1
+# node 23 aggregation skipped
+skip = storage layer aggregate: the read side applies the row count of the aggregation above it
+
+[CLUSTER sum_hbo_tb]
+sql = select sum(b) from hbo_test.hbo_tb
+# node 34 aggregation skipped
+skip = local (partial) aggregation stage: the read side applies the row count of the final aggregation above it
+# node 36 aggregation type=exact
+nl = A{gb:}(S{internal.hbo_test.hbo_tb,v2,r8})
+fp = no_literal:7b1ed4d5caec07e41e437e75fbbe27ddb871ed628cf5f92251e6684ce87a58c8
+
+[CLUSTER count_star_hbo_sg_t1]
+sql = select count(*) from hbo_test.hbo_sg_t1
+note = count(*) is answered from the table row count as a one row constant plan, so the physical plan holds no join / aggregation / filter node and nothing is annotated
+
+[CLUSTER cte_consumed_twice]
+note = the CTE is consumed twice: the description of the consumer sub tree is composed twice and its scans are read once (the plan below the anchor is shared by the two consumers)
+sql = with c as (select a from hbo_test.hbo_sg_t1 where b = 1) select count(*) from c x join c y on x.a = y.a
+# node 104 filter-on-scan(table=internal.hbo_test.hbo_sg_t1) type=exact
+wl = F{EqualTo(col(internal.hbo_test.hbo_sg_t1.b),lit(1:INT))}(S{internal.hbo_test.hbo_sg_t1,v3,r1010})
+fp = with_literal:ad8c83f0d8febc9e337bc615ab37aa6181ee6ebce638528ff6de637dbd4b7449
+# node 104 filter-on-scan(table=internal.hbo_test.hbo_sg_t1) type=exact
+nl = F{EqualTo(col(internal.hbo_test.hbo_sg_t1.b),lit(*))}(S{internal.hbo_test.hbo_sg_t1,v3,r1010})
+fp = no_literal:e48ea852ce81f79d3981cd3230a43380966e6714791b6b8b60f19e9ca075ca82
+# node 109 join skipped
+skip = arity=0 of LogicalCTEConsumer
+# node 109 join type=join_expansion
+nl = JE{INNER_JOIN;EqualTo(col(x.a),col(y.a))}
+fp = no_literal:f18e4bd5ee936e2241da0ad156d26f6ef4f185ecfa6d4a2bd08c1c0f99d9db6a
+# node 111 aggregation skipped
+skip = local (partial) aggregation stage: the read side applies the row count of the final aggregation above it
+# node 113 aggregation skipped
+skip = arity=0 of LogicalCTEConsumer

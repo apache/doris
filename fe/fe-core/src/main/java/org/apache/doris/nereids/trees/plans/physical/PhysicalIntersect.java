@@ -121,8 +121,8 @@ public class PhysicalIntersect extends PhysicalSetOperation implements Intersect
 
     @Override
     public PhysicalIntersect resetLogicalProperties() {
-        return new PhysicalIntersect(qualifier, outputs, regularChildrenOutputs,
-                Optional.empty(), null, physicalProperties, statistics, children);
+        return rebuildKeepingStates(this, new PhysicalIntersect(qualifier, outputs, regularChildrenOutputs,
+                Optional.empty(), null, physicalProperties, statistics, children));
     }
 
     Map<Slot, Slot> constructReplaceMap() {

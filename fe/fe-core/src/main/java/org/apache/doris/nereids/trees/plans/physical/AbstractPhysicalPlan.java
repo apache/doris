@@ -39,6 +39,7 @@ import javax.annotation.Nullable;
  * Abstract class for all concrete physical plan.
  */
 public abstract class AbstractPhysicalPlan extends AbstractPlan implements PhysicalPlan, Explainable {
+
     protected final PhysicalProperties physicalProperties;
     protected final List<RuntimeFilter> runtimeFilters = Lists.newArrayList();
     private final List<RuntimeFilter> appliedRuntimeFilters = Lists.newArrayList();
@@ -71,10 +72,21 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
         return this;
     }
 
+    /**
+     * Give a rebuilt node the physical properties, the statistics and the group id of the node it
+     * replaces: a post processor or a rewriter which builds a new node keeps it addressable, so that
+     * the struct info of the group it belongs to can still be looked up (see
+     * {@link org.apache.doris.nereids.util.MutableState#KEY_GROUP}).
+     */
     public <T extends AbstractPhysicalPlan> AbstractPhysicalPlan copyStatsAndGroupIdFrom(T from) {
         T newPlan = (T) withPhysicalPropertiesAndStats(
                 from.getPhysicalProperties(), from.getStats());
-        newPlan.setMutableState(MutableState.KEY_GROUP, from.getGroupIdAsString());
+        String groupId = from.getGroupIdAsString();
+        if (!groupId.isEmpty()) {
+            // a node which itself has neither a group expression nor a group id state would otherwise
+            // pass on an empty, unresolvable id
+            newPlan.setMutableState(MutableState.KEY_GROUP, groupId);
+        }
         return newPlan;
     }
 
@@ -97,4 +109,5 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
     public void removeAppliedRuntimeFilter(org.apache.doris.nereids.trees.plans.physical.RuntimeFilter filter) {
         appliedRuntimeFilters.remove(filter);
     }
+
 }

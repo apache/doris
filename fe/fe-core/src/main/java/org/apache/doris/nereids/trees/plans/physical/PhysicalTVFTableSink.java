@@ -154,7 +154,7 @@ public class PhysicalTVFTableSink<CHILD_TYPE extends Plan> extends PhysicalSink<
 
     @Override
     public PhysicalTVFTableSink<CHILD_TYPE> resetLogicalProperties() {
-        return new PhysicalTVFTableSink<>(tvfName, properties, cols, outputExprs,
-                groupExpression, null, physicalProperties, statistics, child());
+        return rebuildKeepingStates(this, new PhysicalTVFTableSink<>(tvfName, properties, cols, outputExprs,
+                groupExpression, null, physicalProperties, statistics, child()));
     }
 }

@@ -195,8 +195,9 @@ public class PhysicalLimit<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_
 
     @Override
     public PhysicalLimit<CHILD_TYPE> resetLogicalProperties() {
-        return new PhysicalLimit<>(limit, offset, phase, groupExpression, null, physicalProperties,
-                statistics, child());
+        return rebuildKeepingStates(this,
+                new PhysicalLimit<>(limit, offset, phase, groupExpression, null, physicalProperties,
+                statistics, child()));
     }
 
     @Override

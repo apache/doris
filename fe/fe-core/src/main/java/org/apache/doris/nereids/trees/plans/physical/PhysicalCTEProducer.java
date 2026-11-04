@@ -141,7 +141,7 @@ public class PhysicalCTEProducer<CHILD_TYPE extends Plan> extends PhysicalUnary<
 
     @Override
     public PhysicalCTEProducer<CHILD_TYPE> resetLogicalProperties() {
-        return new PhysicalCTEProducer<>(cteId, groupExpression, null, physicalProperties,
-                statistics, child());
+        return rebuildKeepingStates(this, new PhysicalCTEProducer<>(cteId, groupExpression, null, physicalProperties,
+                statistics, child()));
     }
 }

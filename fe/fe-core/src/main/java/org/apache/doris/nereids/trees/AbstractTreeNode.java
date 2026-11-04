@@ -105,6 +105,16 @@ public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
         return mutableState;
     }
 
+    /**
+     * Copy the mutable states of another node onto this one: a node which is rebuilt (see
+     * {@code resetLogicalProperties}) keeps the states it was given, e.g. the group it was chosen for.
+     */
+    public void copyMutableStatesFrom(AbstractTreeNode<?> from) {
+        // a copy, not the holder itself: MutableState.set mutates the holder it is called on, so two
+        // plans sharing one would observe each other's later writes
+        this.mutableState = from.mutableState.copy();
+    }
+
     @Override
     public BitSet getAllChildrenTypes() {
         return containsTypes;
