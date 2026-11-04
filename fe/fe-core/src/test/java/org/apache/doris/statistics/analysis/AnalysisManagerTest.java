@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.LocalTabletInvertedIndex;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndexMeta;
@@ -756,10 +757,15 @@ public class AnalysisManagerTest {
         Mockito.doReturn(changelogMeta).when(table).getChangelogIndexMeta();
         Mockito.when(partitionInfo.getReplicaAllocation(10L)).thenReturn(new ReplicaAllocation((short) 1));
         Mockito.when(partitionInfo.getReplicaAllocation(20L)).thenReturn(new ReplicaAllocation((short) 3));
-        Partition partitionOne = new Partition(10L, "p_one", new MaterializedIndex(
-                table.getBaseIndexId(), MaterializedIndex.IndexState.NORMAL), null);
-        Partition partitionThree = new Partition(20L, "p_three", new MaterializedIndex(
-                table.getBaseIndexId(), MaterializedIndex.IndexState.NORMAL), null);
+        MaterializedIndex baseOne = Mockito.spy(new MaterializedIndex(
+                table.getBaseIndexId(), MaterializedIndex.IndexState.NORMAL));
+        MaterializedIndex baseThree = Mockito.spy(new MaterializedIndex(
+                table.getBaseIndexId(), MaterializedIndex.IndexState.NORMAL));
+        baseThree.appendTablets(ImmutableList.of(new LocalTablet(1L)));
+        Partition partitionOne = new Partition(10L, "p_one", baseOne, null);
+        Partition partitionThree = new Partition(20L, "p_three", baseThree, null);
+        partitionOne.updateVisibleVersionAndTime(2L, 100L);
+        partitionThree.updateVisibleVersionAndTime(2L, 200L);
         MaterializedIndex indexOne = new MaterializedIndex(changelogIndexId, MaterializedIndex.IndexState.NORMAL);
         MaterializedIndex indexThree = new MaterializedIndex(changelogIndexId, MaterializedIndex.IndexState.NORMAL);
         indexOne.setIsChangelog(true);
@@ -784,9 +790,18 @@ public class AnalysisManagerTest {
         try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
             envMockedStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
             envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
-            manager.replayUpdateRowsRecord(new UpdateRowsEvent(tabletRecords, db.getId()));
+            try (MockedStatic<StatisticsUtil> suStatic = Mockito.mockStatic(StatisticsUtil.class)) {
+                suStatic.when(StatisticsUtil::enablePartitionAnalyze).thenReturn(true);
+                manager.replayUpdateRowsRecord(new UpdateRowsEvent(tabletRecords, db.getId()));
+            }
             TableStatsMeta record = manager.findTableStatsStatus(table.getId());
             Assertions.assertEquals(4, record.updatedRows.get());
+            Assertions.assertEquals(ImmutableMap.of(20L, 4L), record.partitionUpdateRows);
+            // The loaded base tablet is in the newest partition. Once it is matched, changelog
+            // IDs must not keep the pending map nonempty and probe the older partition.
+            Mockito.verify(baseThree).getTablet(1L);
+            Mockito.verify(baseOne, Mockito.never()).getTablet(Mockito.anyLong());
+            Assertions.assertEquals(ImmutableMap.of(1L, 12L, 2L, 9L, 3L, 18L), tabletRecords.get(table.getId()));
             Assertions.assertEquals(9, indexOne.getRowCount());
             Assertions.assertEquals(106, indexThree.getRowCount());
             Assertions.assertEquals(9, table.getRowCountForPartitionIndex(10L, changelogIndexId, false));

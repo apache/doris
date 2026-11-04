@@ -133,10 +133,9 @@ Status EnginePublishVersionTask::execute() {
             ThreadPool::ExecutionMode::CONCURRENT);
     std::unordered_map<int64_t, int64_t> tablet_id_to_num_delta_rows;
     // The changelog rowsets the transaction wrote, their rows reported once they are published.
-    // They are collected across the retries of this call. A retry is a new call when the publish
-    // request itself is retried, and a report whose task carries an error tablet is discarded as a
-    // whole by the frontend (for the delta rows of the base tablets as well), so a tablet which
-    // published in an earlier attempt contributes its rows with the next periodic report.
+    // They are retained until this execute attempt finishes; each retry creates a new collection.
+    // The frontend discards a report containing an error tablet (for base delta rows as well).
+    // A later periodic tablet report refreshes the row count of tablets published in a failed attempt.
     std::vector<RowsetSharedPtr> attached_changelog_rowsets;
 
 #ifndef NDEBUG
