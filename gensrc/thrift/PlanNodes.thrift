@@ -24,6 +24,7 @@ include "Opcodes.thrift"
 include "Partitions.thrift"
 include "Descriptors.thrift"
 include "ExternalTableSchema.thrift"
+include "FileEncryption.thrift"
 
 enum TPlanNodeType {
   OLAP_SCAN_NODE = 0,
@@ -339,6 +340,8 @@ struct TIcebergDeleteFileDesc {
     // Referenced data file path. Required to materialize rows from deletion vectors.
     10: optional string referenced_data_file_path;
     11: optional i64 file_size;
+    // Independent of the data file key. Absence retains plaintext semantics.
+    12: optional FileEncryption.TFileEncryptionInfo encryption_info;
 }
 
 struct TIcebergFileDesc {
@@ -365,6 +368,8 @@ struct TIcebergFileDesc {
     // Reserved for branch-4.1 / branch-4.2 field `13: optional ExternalTableSchema.TSchema
     // equality_delete_schema` (the split-local schema of dropped equality-delete keys). Master
     // carries those schemas in TFileScanRangeParams.history_schema_info. Do not reuse this id.
+    // Absence retains plaintext semantics; an empty or unsupported payload must never do so.
+    14: optional FileEncryption.TFileEncryptionInfo encryption_info;
 }
 
 struct TPaimonDeletionFileDesc {

@@ -83,6 +83,11 @@ Until those protocol and reader changes land together, the connector deliberatel
 reports `BACKEND_CAPABILITY_UNAVAILABLE` rather than manufacturing a successful
 capability result. No SPI or wire-format capability is added by this first stage.
 
+The subsequent [scan wire contract](iceberg-encryption-wire.md) adds optional
+per-file payloads, separate protocol/reader capabilities and diagnostic redaction.
+It keeps encrypted dispatch blocked until protected internal transport and native
+readers are available.
+
 See the upstream [Iceberg encryption documentation](https://iceberg.apache.org/docs/nightly/encryption/)
 and [table specification](https://iceberg.apache.org/spec/#encryption-keys) for
 the SDK encryption scheme and retained table keys.

@@ -32,6 +32,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.rpc.FileScanEncryption;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TDisk;
@@ -54,6 +55,7 @@ import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -152,6 +154,21 @@ public class Backend implements Writable {
     private long beMemory = 0;
     @SerializedName("supportsPaimonRustReader")
     private volatile boolean supportsPaimonRustReader;
+    @SerializedName("fileEncryptionCapabilities")
+    private volatile FileEncryptionCapabilities fileEncryptionCapabilities;
+
+    private static final class FileEncryptionCapabilities {
+        @SerializedName("version")
+        private final int version;
+        @SerializedName("readerSupported")
+        private final boolean readerSupported;
+
+        private FileEncryptionCapabilities(int version, boolean readerSupported) {
+            this.version = version;
+            this.readerSupported = readerSupported;
+        }
+    }
+
     // from config::pipeline_executor_size , default equal cpuCores
     @SerializedName("pipelineExecutorSize")
     private int pipelineExecutorSize = 1;
@@ -270,8 +287,20 @@ public class Backend implements Writable {
 
     /** Connector-facing capabilities reported by this backend. */
     public Set<String> getConnectorCapabilities() {
-        return supportsPaimonRustReader
-                ? Collections.singleton("paimon-rust-reader") : Collections.emptySet();
+        FileEncryptionCapabilities encryption = fileEncryptionCapabilities;
+        if (encryption == null || encryption.version != FileScanEncryption.VERSION) {
+            return supportsPaimonRustReader
+                    ? Collections.singleton("paimon-rust-reader") : Collections.emptySet();
+        }
+        Set<String> capabilities = new HashSet<>();
+        capabilities.add(FileScanEncryption.PROTOCOL_CAPABILITY);
+        if (supportsPaimonRustReader) {
+            capabilities.add("paimon-rust-reader");
+        }
+        if (encryption.readerSupported) {
+            capabilities.add(FileScanEncryption.ICEBERG_READER_CAPABILITY);
+        }
+        return Collections.unmodifiableSet(capabilities);
     }
 
     public int getBePort() {
@@ -892,6 +921,16 @@ public class Backend implements Writable {
             if (supportsPaimonRustReader != hbResponse.isPaimonRustReaderSupported()) {
                 isChanged = true;
                 supportsPaimonRustReader = hbResponse.isPaimonRustReaderSupported();
+            }
+            // A legacy heartbeat after downgrade must revoke both encryption capabilities.
+            FileEncryptionCapabilities encryption = fileEncryptionCapabilities;
+            int encryptionVersion = hbResponse.getFileEncryptionProtocolVersion();
+            boolean encryptionReader = hbResponse.isIcebergPmeReaderSupported();
+            if (encryption == null || encryption.version != encryptionVersion
+                    || encryption.readerSupported != encryptionReader) {
+                // Publish the version and reader bit together: a downgrade must not expose a mixed pair.
+                fileEncryptionCapabilities = new FileEncryptionCapabilities(encryptionVersion, encryptionReader);
+                isChanged = true;
             }
             if (!this.version.equals(hbResponse.getVersion())) {
                 isChanged = true;

@@ -18,6 +18,7 @@
 #pragma once
 
 #include "common/status.h"
+#include "format/table/file_encryption_info.h"
 #include "gen_cpp/PlanNodes_types.h"
 
 namespace doris {
@@ -32,6 +33,32 @@ inline Status validate_file_scan_support(const TFileScanRangeParams& params,
         }
         if (table.table_format_type == "lakesoul") {
             return Status::NotSupported("LakeSoul reads are no longer supported");
+        }
+        if (table.__isset.iceberg_params) {
+            const auto& iceberg = table.iceberg_params;
+            bool encrypted = iceberg.__isset.encryption_info;
+            if (encrypted) {
+                if (const auto* error =
+                            format::file_encryption_validation_error(iceberg.encryption_info)) {
+                    return Status::InvalidArgument(error);
+                }
+            }
+            if (iceberg.__isset.delete_files) {
+                for (const auto& file : iceberg.delete_files) {
+                    if (file.__isset.encryption_info) {
+                        if (const auto* error = format::file_encryption_validation_error(
+                                    file.encryption_info)) {
+                            return Status::InvalidArgument(error);
+                        }
+                        encrypted = true;
+                    }
+                }
+            }
+            // A plain data file can still have encrypted deletes. Reject before reader selection,
+            // caches or metadata COUNT shortcuts; protocol recognition does not implement decryption.
+            if (encrypted) {
+                return Status::NotSupported("File encryption [BACKEND_CAPABILITY_UNAVAILABLE]");
+            }
         }
         return Status::OK();
     };

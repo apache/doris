@@ -105,6 +105,9 @@ void HeartbeatServer::heartbeat(THeartbeatResult& heartbeat_result,
         heartbeat_result.backend_info.__set_be_mem(MemInfo::physical_mem());
         // Reader enum support cannot be inferred from a release version during rolling upgrades.
         heartbeat_result.backend_info.__set_supports_paimon_rust_reader(true);
+        // Recognizing the secret carrier does not make native encrypted readers executable.
+        heartbeat_result.backend_info.__set_file_encryption_protocol_version(1);
+        heartbeat_result.backend_info.__set_supports_iceberg_pme_reader(false);
     }
     watch.stop();
     if (watch.elapsed_time() > 1000L * 1000L * 1000L) {

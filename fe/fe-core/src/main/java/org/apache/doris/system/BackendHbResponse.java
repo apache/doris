@@ -53,6 +53,10 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
     private long beMemory = 0;
     @SerializedName("supportsPaimonRustReader")
     private boolean supportsPaimonRustReader;
+    @SerializedName("fileEncryptionProtocolVersion")
+    private int fileEncryptionProtocolVersion;
+    @SerializedName("supportsIcebergPmeReader")
+    private boolean supportsIcebergPmeReader;
 
     public BackendHbResponse() {
         super(HeartbeatResponse.Type.BACKEND);
@@ -156,6 +160,22 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
 
     public boolean isPaimonRustReaderSupported() {
         return supportsPaimonRustReader;
+    }
+
+    public int getFileEncryptionProtocolVersion() {
+        return fileEncryptionProtocolVersion;
+    }
+
+    public void setFileEncryptionProtocolVersion(int version) {
+        this.fileEncryptionProtocolVersion = version;
+    }
+
+    public boolean isIcebergPmeReaderSupported() {
+        return supportsIcebergPmeReader;
+    }
+
+    public void setIcebergPmeReaderSupported(boolean supported) {
+        this.supportsIcebergPmeReader = supported;
     }
 
     public void setPaimonRustReaderSupported(boolean supported) {
