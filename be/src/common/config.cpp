@@ -2168,7 +2168,7 @@ DEFINE_mInt32(concurrency_stats_dump_interval_ms, "100");
 DEFINE_Validator(concurrency_stats_dump_interval_ms,
                  [](const int32_t config) -> bool { return config >= 10; });
 
-DEFINE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin, "true");
+DEFINE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin, "false");
 
 DEFINE_mBool(enable_cloud_make_rs_visible_on_be, "true");
 DEFINE_mBool(enable_cloud_random_segment_id, "false");
