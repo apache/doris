@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnNullableType;
+import org.apache.doris.analysis.DateLiteralUtils;
 import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
@@ -28,7 +29,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
@@ -564,12 +564,12 @@ public class ColumnDefinition {
             try {
                 ColumnDef.validateDefaultValue(type.toCatalogDataType(),
                         defaultValue.get().getValue(), defaultValue.get().getDefaultValueExprDef());
-                if (!isOlap && type.isTimeStampNsType()
+                if (!isOlap && type.isDateLikeType() && !type.isTimeStampTzType()
                         && defaultValue.get().getDefaultValueExprDef() == null) {
                     // Connectors receive civil SQL defaults, not numeric epoch carriers. Normalize
-                    // with the same parser as validation so compact dates cannot become epoch nanos.
-                    defaultValue = Optional.of(new DefaultValue(
-                            new TimeStampNsLiteral(defaultValue.get().getValue()).getStringValue()));
+                    // with the same parser as validation so compact dates cannot become epoch values.
+                    defaultValue = Optional.of(new DefaultValue(DateLiteralUtils.createLiteral(
+                            defaultValue.get().getValue(), type.toCatalogDataType()).getStringValue()));
                 }
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage(), e);

@@ -137,11 +137,16 @@ suite("test_iceberg_add_column_defaults", "p0,external") {
         sql """ALTER TABLE typed_defaults_${format} ADD COLUMN (
             truth BOOLEAN NOT NULL DEFAULT '1', day DATE NOT NULL DEFAULT '2024-01-02',
             ts DATETIME(6) NOT NULL DEFAULT '2024-01-02 03:04:05.123456',
+            compact_day DATE NOT NULL DEFAULT '20240102',
+            compact_ts DATETIME(6) NOT NULL DEFAULT '20240102030405',
             amount DECIMAL(10,2) NOT NULL DEFAULT '1.50', label STRING NOT NULL DEFAULT 'hello')"""
         sql "ALTER TABLE typed_defaults_${format} ADD COLUMN s.truth BOOLEAN NOT NULL DEFAULT '1'"
         sql "ALTER TABLE typed_defaults_${format} ADD COLUMN s.day DATE NOT NULL DEFAULT '2024-01-02'"
         sql """ALTER TABLE typed_defaults_${format}
             ADD COLUMN s.ts DATETIME(6) NOT NULL DEFAULT '2024-01-02 03:04:05.123456'"""
+        sql "ALTER TABLE typed_defaults_${format} ADD COLUMN s.compact_day DATE NOT NULL DEFAULT '20240102'"
+        sql """ALTER TABLE typed_defaults_${format}
+            ADD COLUMN s.compact_ts DATETIME(6) NOT NULL DEFAULT '20240102030405'"""
         "order_qt_${format}_typed_old_files" "SELECT * FROM typed_defaults_${format} ORDER BY id"
         sql "INSERT INTO typed_defaults_${format} (id) VALUES (3)"
         "order_qt_${format}_typed_write_defaults" "SELECT * FROM typed_defaults_${format} ORDER BY id"
