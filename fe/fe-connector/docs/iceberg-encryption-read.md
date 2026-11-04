@@ -116,3 +116,51 @@ to cover both switch states, unsupported catalogs and table formats, retained
 v3 keys, custom managers and unavailable backend capabilities. The SQL suite
 and these unit tests validate admission; they do not exercise native decryption
 or grant encrypted-write support.
+
+## HMS/KMS metadata validation
+
+The HMS catalog forwards `encryption.kms-type`, `encryption.kms-impl` and the
+SDK KMS client properties without reimplementing the Iceberg encryption chain.
+The existing Iceberg plugin closure includes the AWS KMS client and AWS SDK KMS
+module. A connector test exercises binary-key wrap/unwrap through the SDK HTTP
+client. Other KMS implementations require their corresponding operator-installed
+local dependencies and are not validated by this fixture.
+
+The authentication FileIO decorator preserves the SDK's typed data, delete,
+manifest and manifest-list descriptors. Replacing them with path-only reads, or
+inheriting FileIO's typed defaults, loses encryption metadata and rejects encrypted
+files before the delegate can decrypt them. All four typed factory calls stay
+inside the same authentication scope. Key metadata is parsed by the SDK; v1
+`StandardKeyMetadata` in 1.12.0 also carries the physical length required for
+AES-GCM metadata streams.
+
+`test_iceberg_encrypted_hms_metadata` uses the mandatory encryption services in
+the standard Iceberg Compose stack. Run it with `enableIcebergTest=true`:
+
+```sh
+bash docker/thirdparties/run-thirdparties-docker.sh -c iceberg
+bash run-regression-test.sh --run -d external_table_p0/iceberg \
+    -s test_iceberg_encrypted_hms_metadata
+```
+
+The isolated reference process uses checksum-pinned Iceberg 1.12.0 artifacts;
+it does not replace the existing Spark fixture's SDK. It generates two v3 tables
+in a dedicated bucket: one plaintext and one encrypted, each with two appended
+files and two snapshots. Both the SDK generic reader and Spark SQL verify the
+historical rows `[1, 2]` and `[1, 2, 3, 4]`. The fixture also verifies native
+Parquet encrypted-footer magic, independent file key metadata, encrypted
+manifests, encrypted manifest lists and the retained table key chain.
+
+The test KMS is a disposable Moto service, with no production credentials or
+keys. Missing KMS configuration fails actual HMS metadata planning. Injected AWS
+protocol errors verify propagation of invalid-credential and access-denied
+failures through that same path; this is not a live AWS IAM policy test. Replacing
+the wrapping key material with a different KMS-wrapped key must fail the SDK's
+AES-GCM authentication check before the manifest list can be read.
+
+Doris SQL verifies plaintext rows/counts and exactly `READ_DISABLED` for the real
+encrypted table, including SELECT, COUNT pushdown on/off, DESC and system tables,
+with table caching on/off and repeated reads. No additional test-mode setting is
+needed. The fixture fails rather than skipping when a required service or check
+is unavailable. It prepares input for the subsequent file-key and native-reader
+work; it does not admit encrypted SQL execution.

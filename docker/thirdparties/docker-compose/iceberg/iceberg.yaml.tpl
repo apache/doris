@@ -210,6 +210,81 @@ services:
       /usr/bin/mc cp -r /mnt/preinstalled_data/paimon/ minio/warehouse/wh/;
       "
 
+  encryption-hms:
+    image: apache/hive:4.0.0@sha256:c0b241c544d341c16a6d8cafcb801a071be9b02054a5add255e9a0e826095e88
+    container_name: doris--iceberg-encryption-hms
+    environment:
+      SERVICE_NAME: metastore
+      DB_DRIVER: derby
+      HIVE_CUSTOM_CONF_DIR: /fixtures/hms
+      HADOOP_CLASSPATH: /opt/hadoop/share/hadoop/tools/lib/hadoop-aws-3.3.6.jar:/opt/hadoop/share/hadoop/tools/lib/aws-java-sdk-bundle-1.12.367.jar
+    volumes:
+      - ./encryption/hms:/fixtures/hms:ro
+    ports:
+      - ${ICEBERG_ENCRYPTION_HMS_PORT:-18383}:9083
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/127.0.0.1/9083"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+    networks:
+      - doris--iceberg
+
+  encryption-kms:
+    image: motoserver/moto:5.1.11@sha256:8ca337023ebaa5c0b8b33503b178d4db3326fca184551d6f47b07b8dd8532644
+    container_name: doris--iceberg-encryption-kms
+    ports:
+      - ${ICEBERG_ENCRYPTION_KMS_PORT:-18384}:5000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/moto-api/').read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    networks:
+      - doris--iceberg
+
+  encryption-kms-init:
+    image: motoserver/moto:5.1.11@sha256:8ca337023ebaa5c0b8b33503b178d4db3326fca184551d6f47b07b8dd8532644
+    container_name: doris--iceberg-encryption-kms-init
+    depends_on:
+      encryption-kms:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    volumes:
+      - ./encryption:/fixtures:ro
+      - encryption-state:/state
+    entrypoint: ["python", "/fixtures/init-kms.py"]
+    networks:
+      - doris--iceberg
+
+  encryption-fixture:
+    image: apache/spark:4.0.0
+    container_name: doris--iceberg-encryption-fixture
+    depends_on:
+      encryption-hms:
+        condition: service_healthy
+      encryption-kms-init:
+        condition: service_completed_successfully
+      minio:
+        condition: service_healthy
+    volumes:
+      - ./encryption:/fixtures:ro
+      - encryption-state:/state:ro
+    entrypoint: ["bash", "/fixtures/start.sh"]
+    ports:
+      - ${ICEBERG_ENCRYPTION_FIXTURE_PORT:-18385}:8181
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8181/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+    networks:
+      - doris--iceberg
+
+volumes:
+  encryption-state:
+
 networks:
   doris--iceberg:
     ipam:
