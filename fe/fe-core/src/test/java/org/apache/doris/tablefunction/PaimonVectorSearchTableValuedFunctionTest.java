@@ -211,7 +211,7 @@ public class PaimonVectorSearchTableValuedFunctionTest {
                 fullOptions.put("vector-index.search-mode", "full");
                 FileStoreTable fullTable = Mockito.mock(FileStoreTable.class);
                 Mockito.when(fullTable.options()).thenReturn(fullOptions);
-                Mockito.when(fullTable.rowType()).thenReturn(fixture.table.rowType());
+                Mockito.doReturn(fixture.table.rowType()).when(fullTable).rowType();
                 Mockito.when(fullTable.copyWithoutTimeTravel(Mockito.anyMap())).thenReturn(fullTable);
                 Mockito.when(fixture.table.copyWithoutTimeTravel(
                         Collections.singletonMap("vector-index.search-mode", "full"))).thenReturn(fullTable);

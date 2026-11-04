@@ -67,8 +67,8 @@ class PaimonMergePlannerTest {
             Map<Expression, Expression> nullRow = new HashMap<>();
             child.getOutput().forEach(slot -> nullRow.put(slot, new NullLiteral(slot.getDataType())));
 
-            Assertions.assertEquals(new IntegerLiteral(0), FoldConstantRuleOnFE.evaluateWithoutContext(
-                    ExpressionUtils.replace(branchLabel(result), nullRow)));
+            Assertions.assertEquals(new IntegerLiteral(0), FoldConstantRuleOnFE.evaluate(
+                    ExpressionUtils.replace(branchLabel(result), nullRow), null));
         }
     }
 
@@ -96,11 +96,11 @@ class PaimonMergePlannerTest {
         join.getOutput().forEach(slot -> nullRow.put(slot, new NullLiteral(slot.getDataType())));
         Expression label = branchLabel(result);
 
-        Assertions.assertEquals(new IntegerLiteral(1), FoldConstantRuleOnFE.evaluateWithoutContext(
-                ExpressionUtils.replace(label, nullRow)));
+        Assertions.assertEquals(new IntegerLiteral(1), FoldConstantRuleOnFE.evaluate(
+                ExpressionUtils.replace(label, nullRow), null));
         nullRow.put(marker, new TinyIntLiteral((byte) 1));
-        Assertions.assertEquals(new IntegerLiteral(0), FoldConstantRuleOnFE.evaluateWithoutContext(
-                ExpressionUtils.replace(label, nullRow)));
+        Assertions.assertEquals(new IntegerLiteral(0), FoldConstantRuleOnFE.evaluate(
+                ExpressionUtils.replace(label, nullRow), null));
         // A user column sharing the marker name still supplies the UPDATE value.
         nullRow.put(source.getOutput().get(1), new IntegerLiteral(555));
         Expression value = result.<LogicalProject<?>>collectToList(LogicalProject.class::isInstance).stream()
@@ -109,8 +109,8 @@ class PaimonMergePlannerTest {
                 .findFirst().get().child(0);
         value.getInputSlots().stream().filter(slot -> slot.getName().equals("__DORIS_PAIMON_MERGE_BRANCH__"))
                 .forEach(slot -> nullRow.put(slot, new IntegerLiteral(0)));
-        Assertions.assertEquals(new IntegerLiteral(555), FoldConstantRuleOnFE.evaluateWithoutContext(
-                ExpressionUtils.replace(value, nullRow)));
+        Assertions.assertEquals(new IntegerLiteral(555), FoldConstantRuleOnFE.evaluate(
+                ExpressionUtils.replace(value, nullRow), null));
     }
 
     private Expression branchLabel(LogicalPlan plan) {

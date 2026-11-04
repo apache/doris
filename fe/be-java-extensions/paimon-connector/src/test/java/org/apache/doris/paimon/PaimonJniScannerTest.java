@@ -233,7 +233,7 @@ public class PaimonJniScannerTest {
 
     @Test
     public void testSerializedFileIndexesSourceKeepsSnapshotDuringJniRebuild() throws Exception {
-        org.apache.doris.jni.spi.utils.OffHeap.setTesting();
+        org.apache.doris.common.jni.utils.OffHeap.setTesting();
         try (org.apache.paimon.catalog.Catalog catalog = new org.apache.paimon.catalog.FileSystemCatalog(
                 LocalFileIO.create(), new org.apache.paimon.fs.Path(temporaryFolder.getRoot().toURI()))) {
             catalog.createDatabase("db", false);
