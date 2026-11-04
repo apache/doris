@@ -67,7 +67,8 @@ public class FlightSqlQueryCancellationTest {
     @Test
     public void cancelReachesAllBackendsWithoutLiveCoordinatorOrResultFragment() throws Exception {
         FlightSqlQueryCancellation routes =
-                new FlightSqlQueryCancellation(() -> 0L, FlightSqlQueryCancellation.MAX_ROUTED_RESULTS);
+                new FlightSqlQueryCancellation(() -> 0L, FlightSqlQueryCancellation.MAX_ROUTED_RESULTS,
+                        FlightSqlQueryCancellation.MAX_ROUTED_BACKENDS);
         // The selected endpoint and its coordinator have finished; only routing metadata survives.
         routes.register(QUERY, ImmutableList.of(FIRST, SECOND), ImmutableList.of(FINISHED_BE, ACTIVE_BE), 120);
         BackendServiceProxy proxy = cancellingProxy(QUERY);
@@ -86,7 +87,8 @@ public class FlightSqlQueryCancellationTest {
     @Test
     public void applicationErrorKeepsRouteForRetry() throws Exception {
         FlightSqlQueryCancellation routes =
-                new FlightSqlQueryCancellation(() -> 0L, FlightSqlQueryCancellation.MAX_ROUTED_RESULTS);
+                new FlightSqlQueryCancellation(() -> 0L, FlightSqlQueryCancellation.MAX_ROUTED_RESULTS,
+                        FlightSqlQueryCancellation.MAX_ROUTED_BACKENDS);
         routes.register(QUERY, ImmutableList.of(FIRST), ImmutableList.of(ACTIVE_BE), 120);
         BackendServiceProxy proxy = Mockito.mock(BackendServiceProxy.class);
         Mockito.when(proxy.cancelPipelineXPlanFragmentAsync(Mockito.any(), Mockito.eq(QUERY), Mockito.any()))
@@ -103,7 +105,8 @@ public class FlightSqlQueryCancellationTest {
     public void routesExpireAfterExecutionTimeout() {
         AtomicLong clock = new AtomicLong();
         FlightSqlQueryCancellation routes =
-                new FlightSqlQueryCancellation(clock::get, FlightSqlQueryCancellation.MAX_ROUTED_RESULTS);
+                new FlightSqlQueryCancellation(clock::get, FlightSqlQueryCancellation.MAX_ROUTED_RESULTS,
+                        FlightSqlQueryCancellation.MAX_ROUTED_BACKENDS);
         routes.register(QUERY, ImmutableList.of(FIRST, SECOND), ImmutableList.of(ACTIVE_BE), 120);
         clock.set(TimeUnit.SECONDS.toNanos(126));
         Assertions.assertEquals(TStatusCode.NOT_FOUND, routes.cancel(FIRST).getStatusCode());
@@ -151,7 +154,8 @@ public class FlightSqlQueryCancellationTest {
     // rate. The oldest routes, the likeliest to belong to streams that ended, give way first, and as a whole.
     @Test
     public void boundDropsWholeRoutesOldestFirst() throws Exception {
-        FlightSqlQueryCancellation routes = new FlightSqlQueryCancellation(() -> 0L, 3);
+        FlightSqlQueryCancellation routes =
+                new FlightSqlQueryCancellation(() -> 0L, 3, FlightSqlQueryCancellation.MAX_ROUTED_BACKENDS);
         TUniqueId oldQuery = new TUniqueId(50L, 1L);
         TUniqueId newQuery = new TUniqueId(51L, 1L);
         TUniqueId oldSecond = new TUniqueId(50L, 3L);
@@ -167,5 +171,49 @@ public class FlightSqlQueryCancellationTest {
             mocked.when(BackendServiceProxy::getInstance).thenReturn(proxy);
             Assertions.assertEquals(TStatusCode.OK, routes.cancel(newFirst).getStatusCode());
         }
+    }
+
+    // A route keeps the addresses of all BEs of its query, so the registry bounds those as well, whatever the
+    // size of the cluster: a registration that takes them past the bound pushes out the oldest routes as a whole.
+    @Test
+    public void boundCountsRetainedBackends() throws Exception {
+        FlightSqlQueryCancellation routes = new FlightSqlQueryCancellation(() -> 0L, 100, 4);
+        TUniqueId oldQuery = new TUniqueId(60L, 1L);
+        TUniqueId newQuery = new TUniqueId(61L, 1L);
+        TUniqueId oldFirst = new TUniqueId(60L, 2L);
+        TUniqueId oldSecond = new TUniqueId(60L, 3L);
+        TUniqueId newFirst = new TUniqueId(61L, 2L);
+        routes.register(oldQuery, ImmutableList.of(oldFirst, oldSecond),
+                ImmutableList.of(FINISHED_BE, ACTIVE_BE, new TNetworkAddress("127.0.0.1", 8003)), 120);
+        Assertions.assertEquals(3, routes.routedBackends());
+        routes.register(newQuery, ImmutableList.of(newFirst), ImmutableList.of(FINISHED_BE, ACTIVE_BE), 120);
+        Assertions.assertEquals(1, routes.routedResults());
+        Assertions.assertEquals(2, routes.routedBackends());
+        Assertions.assertEquals(TStatusCode.NOT_FOUND, routes.cancel(oldFirst).getStatusCode());
+        Assertions.assertEquals(TStatusCode.NOT_FOUND, routes.cancel(oldSecond).getStatusCode());
+        BackendServiceProxy proxy = cancellingProxy(newQuery);
+        try (MockedStatic<BackendServiceProxy> mocked = Mockito.mockStatic(BackendServiceProxy.class)) {
+            mocked.when(BackendServiceProxy::getInstance).thenReturn(proxy);
+            Assertions.assertEquals(TStatusCode.OK, routes.cancel(newFirst).getStatusCode());
+        }
+        Assertions.assertEquals(0, routes.routedBackends());
+    }
+
+    // A newer registration that takes a result id over releases the addresses of the route the id left.
+    @Test
+    public void reregisteredResultReleasesOldRouteBackends() throws Exception {
+        FlightSqlQueryCancellation routes =
+                new FlightSqlQueryCancellation(() -> 0L, FlightSqlQueryCancellation.MAX_ROUTED_RESULTS,
+                        FlightSqlQueryCancellation.MAX_ROUTED_BACKENDS);
+        routes.register(QUERY, ImmutableList.of(FIRST), ImmutableList.of(FINISHED_BE, ACTIVE_BE), 120);
+        routes.register(QUERY, ImmutableList.of(FIRST), ImmutableList.of(ACTIVE_BE), 120);
+        Assertions.assertEquals(1, routes.routedResults());
+        Assertions.assertEquals(1, routes.routedBackends());
+        BackendServiceProxy proxy = cancellingProxy(QUERY);
+        try (MockedStatic<BackendServiceProxy> mocked = Mockito.mockStatic(BackendServiceProxy.class)) {
+            mocked.when(BackendServiceProxy::getInstance).thenReturn(proxy);
+            Assertions.assertEquals(TStatusCode.OK, routes.cancel(FIRST).getStatusCode());
+        }
+        Assertions.assertEquals(0, routes.routedBackends());
     }
 }

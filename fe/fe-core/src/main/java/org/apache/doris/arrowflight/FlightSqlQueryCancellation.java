@@ -44,25 +44,32 @@ import java.util.stream.Collectors;
  * the stream's query. A route outlives the request and the session that registered it: the client reads the
  * results from the BEs, so it can still hold a stream of the query open after its session has started another
  * request or has been torn down, and close that stream early then. A route goes when its cancellation succeeds,
- * when its query's execution timeout (plus 5 s) has passed, and when {@link #MAX_ROUTED_RESULTS} newer result ids
- * push it out. Those go oldest first, as the oldest routes are the likeliest to belong to streams that have
- * ended; a query whose route was pushed out ends at its timeout, as every Flight query did before routes existed.
+ * when its query's execution timeout (plus 5 s) has passed, and when newer routes push it out of the bounds:
+ * {@link #MAX_ROUTED_RESULTS} result ids and {@link #MAX_ROUTED_BACKENDS} BE addresses. Those go oldest first, as
+ * the oldest routes are the likeliest to belong to streams that have ended; a query whose route was pushed out
+ * ends at its timeout, as every Flight query did before routes existed.
  */
 public final class FlightSqlQueryCancellation {
     private static final Logger LOG = LogManager.getLogger(FlightSqlQueryCancellation.class);
-    // Counted in result ids, which cost a few hundred bytes each, so the registry stays within some tens of MB
-    // however many Flight queries are registered within one execution timeout.
+    // A route costs about 270 bytes plus about 30 bytes per address of its query's BEs, and the result ids of a
+    // query share one. Bounding both the result ids and the addresses keeps the registry within about 55 MB however
+    // many Flight queries are registered within one execution timeout, and however many BEs each of them runs on.
     static final int MAX_ROUTED_RESULTS = 100_000;
+    static final int MAX_ROUTED_BACKENDS = 1_000_000;
     public static final FlightSqlQueryCancellation INSTANCE =
-            new FlightSqlQueryCancellation(System::nanoTime, MAX_ROUTED_RESULTS);
+            new FlightSqlQueryCancellation(System::nanoTime, MAX_ROUTED_RESULTS, MAX_ROUTED_BACKENDS);
     private final LongSupplier nanoClock;
-    private final int capacity;
+    private final int resultCapacity;
+    private final int backendCapacity;
     // In registration order, so the eldest entry belongs to the oldest route. Guarded by this.
     private final LinkedHashMap<TUniqueId, Route> results = new LinkedHashMap<>();
+    // The addresses of the routes that some result id still maps to. Guarded by this.
+    private long routedBackends;
 
-    FlightSqlQueryCancellation(LongSupplier nanoClock, int capacity) {
+    FlightSqlQueryCancellation(LongSupplier nanoClock, int resultCapacity, int backendCapacity) {
         this.nanoClock = nanoClock;
-        this.capacity = capacity;
+        this.resultCapacity = resultCapacity;
+        this.backendCapacity = backendCapacity;
     }
 
     /**
@@ -81,6 +88,10 @@ public final class FlightSqlQueryCancellation {
         if (backends.isEmpty()) {
             throw new IllegalArgumentException("Flight query has no cancellation backends");
         }
+        // A route leaves the registry, and releases its addresses, with its result ids.
+        if (resultIds.isEmpty()) {
+            throw new IllegalArgumentException("Flight query has no result ids");
+        }
         // Keep only cancellation addresses, not the coordinator, scan state, or query queue slot.
         // Ordinary Flight coordinators are unregistered when GetFlightInfo returns.
         Route route = new Route(queryId.deepCopy(),
@@ -89,13 +100,19 @@ public final class FlightSqlQueryCancellation {
                 nanoClock.getAsLong() + TimeUnit.SECONDS.toNanos(Math.max(0L, timeoutSeconds) + 5));
         synchronized (this) {
             for (TUniqueId resultId : route.resultIds) {
-                results.put(resultId, route);
+                Route previous = results.put(resultId, route);
+                if (previous != null) {
+                    unrouteOne(previous);
+                }
             }
-            // Whole routes leave from the eldest end: the expired ones there, then as many as the bound requires.
+            route.routedIds = route.resultIds.size();
+            routedBackends += route.backends.size();
+            // Whole routes leave from the eldest end: the expired ones there, then as many as the bounds require.
             long now = nanoClock.getAsLong();
             while (!results.isEmpty()) {
                 Route eldest = results.values().iterator().next();
-                if (results.size() <= capacity && !eldest.isExpired(now)) {
+                if (results.size() <= resultCapacity && routedBackends <= backendCapacity
+                        && !eldest.isExpired(now)) {
                     break;
                 }
                 remove(eldest);
@@ -159,10 +176,23 @@ public final class FlightSqlQueryCancellation {
         return results.size();
     }
 
+    synchronized long routedBackends() {
+        return routedBackends;
+    }
+
     // Removes the route's result ids that still map to it. Guarded by this.
     private void remove(Route route) {
         for (TUniqueId id : route.resultIds) {
-            results.remove(id, route);
+            if (results.remove(id, route)) {
+                unrouteOne(route);
+            }
+        }
+    }
+
+    // One result id no longer maps to the route: its addresses leave with its last one. Guarded by this.
+    private void unrouteOne(Route route) {
+        if (--route.routedIds == 0) {
+            routedBackends -= route.backends.size();
         }
     }
 
@@ -171,6 +201,8 @@ public final class FlightSqlQueryCancellation {
         private final List<TUniqueId> resultIds;
         private final List<TNetworkAddress> backends;
         private final long deadlineNanos;
+        // The result ids that still map to this route. Guarded by the registry.
+        private int routedIds;
 
         private Route(TUniqueId queryId, List<TUniqueId> resultIds,
                 List<TNetworkAddress> backends, long deadlineNanos) {
