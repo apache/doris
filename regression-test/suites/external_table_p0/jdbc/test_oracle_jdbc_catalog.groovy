@@ -212,7 +212,7 @@ suite("test_oracle_jdbc_catalog", "p0,external") {
         // test nvl
         explain {
             sql("SELECT * FROM STUDENT WHERE nvl(score, 0) < score;")
-            contains """SELECT "ID", "NAME", "AGE", "SCORE" FROM "DORIS_TEST"."STUDENT" WHERE ((nvl("SCORE", 0.0D)) < "SCORE")"""
+            contains """SELECT "ID", "NAME", "AGE", "SCORE" FROM "DORIS_TEST"."STUDENT" WHERE ((nvl("SCORE", 0.0)) < "SCORE")"""
         }
 
         order_qt_raw  """ select * from TEST_RAW order by ID; """

@@ -177,7 +177,7 @@ suite("test_clickhouse_jdbc_catalog", "p0,external") {
         // The connector emits one predicate wrapper; timezone-sensitive predicates stay on Doris.
         explain {
             sql("select k6, k4 from type where abs(k6) > 0 and unix_timestamp(k4) > 0")
-            contains """WHERE ((abs("k6")) > 0)"""
+            contains """WHERE ((abs("k6")) > 0.0)"""
             notContains "toUnixTimestamp("
             contains "PREDICATES:"
             contains "unix_timestamp"
@@ -194,7 +194,7 @@ suite("test_clickhouse_jdbc_catalog", "p0,external") {
         sql """alter catalog clickhouse_7_catalog set properties("function_rules" = '{"pushdown" : {"supported": ["abs"]}}')"""         
         explain {
             sql("select k6, k4 from type where abs(k6) > 0 and unix_timestamp(k4) > 0")
-            contains """WHERE ((abs("k6")) > 0)"""
+            contains """WHERE ((abs("k6")) > 0.0)"""
             notContains "toUnixTimestamp("
             contains "PREDICATES:"
             contains "unix_timestamp"
@@ -204,7 +204,7 @@ suite("test_clickhouse_jdbc_catalog", "p0,external") {
         sql """alter catalog clickhouse_7_catalog set properties("function_rules" = '{"pushdown" : {"supported": ["abs"]}, "rewrite" : {"abs" : "rewrite_func"}}')"""
         explain {
             sql("select k6, k4 from type where abs(k6) > 0 and unix_timestamp(k4) > 0")
-            contains """WHERE ((rewrite_func("k6")) > 0)"""
+            contains """WHERE ((rewrite_func("k6")) > 0.0)"""
             notContains "toUnixTimestamp("
             contains "PREDICATES:"
             contains "unix_timestamp"
