@@ -28,6 +28,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <random>
@@ -216,6 +217,199 @@ static void drop_cluster(MetaServiceProxy* ms, const std::string& instance_id,
     ms->alter_cluster(&cntl, &req, &res, brpc::DoNothing());
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 }
+
+class NodeStatusResourceManager : public ResourceManager {
+public:
+    using ResourceManager::ResourceManager;
+
+    void refresh_instance(const std::string& instance_id, const InstanceInfoPB& instance) override {
+        ResourceManager::refresh_instance(instance_id, instance);
+        after_refresh();
+    }
+
+    std::function<void()> after_refresh = [] {};
+};
+
+class NodeStatusTest : public testing::TestWithParam<bool> {
+protected:
+    void SetUp() override {
+        txn_kv = create_txn_kv();
+        resource_mgr = std::make_shared<NodeStatusResourceManager>(txn_kv);
+        ASSERT_EQ(resource_mgr->init(), 0);
+        auto rate_limiter = std::make_shared<RateLimiter>();
+        auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+        meta_service = std::make_unique<MetaServiceProxy>(
+                std::make_unique<MetaServiceImpl>(txn_kv, resource_mgr, rate_limiter, snapshot));
+
+        instance.set_instance_id("node_status_instance");
+        for (int cluster_idx = 0; cluster_idx < 2; ++cluster_idx) {
+            auto* cluster = instance.add_clusters();
+            cluster->set_cluster_id("cluster_" + std::to_string(cluster_idx));
+            cluster->set_cluster_name("cluster_" + std::to_string(cluster_idx));
+            cluster->set_type(ClusterPB::COMPUTE);
+            for (int node_idx = 0; node_idx < 3; ++node_idx) {
+                auto* node = cluster->add_nodes();
+                node->set_cloud_unique_id(node_idx == 0
+                                                  ? "unique_node_" + std::to_string(cluster_idx)
+                                                  : "shared_node");
+                GetParam() ? node->set_host("host_" + std::to_string(cluster_idx))
+                           : node->set_ip("127.0.0." + std::to_string(cluster_idx + 1));
+                node->set_heartbeat_port(10000 + node_idx);
+                node->set_status(NodeStatusPB::NODE_STATUS_RUNNING);
+                node->set_ctime(100);
+                node->set_mtime(200);
+            }
+        }
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(instance_key({instance.instance_id()}), instance.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        resource_mgr->refresh_instance(instance.instance_id(), instance);
+    }
+
+    AlterClusterRequest request_for_node(int node_idx) {
+        AlterClusterRequest req;
+        req.set_instance_id(instance.instance_id());
+        req.mutable_cluster()->CopyFrom(instance.clusters(0));
+        req.mutable_cluster()->clear_nodes();
+        req.mutable_cluster()->add_nodes()->CopyFrom(instance.clusters(0).nodes(node_idx));
+        return req;
+    }
+
+    void alter_node(const AlterClusterRequest& req, MetaServiceCode expected_code) {
+        brpc::Controller cntl;
+        AlterClusterResponse resp;
+        meta_service->alter_cluster(&cntl, &req, &resp, brpc::DoNothing());
+        ASSERT_FALSE(cntl.Failed());
+        ASSERT_EQ(resp.status().code(), expected_code) << resp.status().msg();
+    }
+
+    void check_nodes(const InstanceInfoPB& expected) {
+        InstanceInfoPB persisted;
+        get_instance_info(meta_service.get(), &persisted, instance.instance_id());
+        ASSERT_EQ(persisted.clusters_size(), expected.clusters_size());
+        for (int i = 0; i < expected.clusters_size(); ++i) {
+            ASSERT_EQ(persisted.clusters(i).nodes_size(), expected.clusters(i).nodes_size());
+            for (int j = 0; j < expected.clusters(i).nodes_size(); ++j) {
+                const auto& expected_node = expected.clusters(i).nodes(j);
+                EXPECT_EQ(persisted.clusters(i).nodes(j).SerializeAsString(),
+                          expected_node.SerializeAsString());
+                EXPECT_EQ(get_instance_id(resource_mgr, expected_node.cloud_unique_id()),
+                          instance.instance_id());
+            }
+        }
+    }
+
+    std::shared_ptr<TxnKv> txn_kv;
+    InstanceInfoPB instance;
+    std::shared_ptr<NodeStatusResourceManager> resource_mgr;
+    std::unique_ptr<MetaServiceProxy> meta_service;
+};
+
+TEST_P(NodeStatusTest, KeepsNodesResolvableAtEveryPublishedUpdate) {
+    int refreshes = 0;
+    // Observe a reader immediately after each committed metadata/cache update.
+    resource_mgr->after_refresh = [&] {
+        ++refreshes;
+        EXPECT_EQ(get_instance_id(resource_mgr, "unique_node_0"), instance.instance_id());
+        check_nodes(instance);
+    };
+    for (int node_idx : {0, 1}) {
+        for (auto op :
+             {AlterClusterRequest::DECOMMISSION_NODE, AlterClusterRequest::NOTIFY_DECOMMISSIONED}) {
+            auto req = request_for_node(node_idx);
+            req.set_op(op);
+            instance.mutable_clusters(0)->mutable_nodes(node_idx)->set_status(
+                    op == AlterClusterRequest::DECOMMISSION_NODE
+                            ? NodeStatusPB::NODE_STATUS_DECOMMISSIONING
+                            : NodeStatusPB::NODE_STATUS_DECOMMISSIONED);
+            int before_refreshes = refreshes;
+            alter_node(req, MetaServiceCode::OK);
+            EXPECT_EQ(refreshes, before_refreshes + 1);
+            check_nodes(instance);
+            // Preserve HTTP requests that identify a cluster by the node rather than its ID.
+            req.mutable_cluster()->clear_cluster_id();
+            alter_node(req, MetaServiceCode::OK);
+            check_nodes(instance);
+        }
+    }
+    resource_mgr->after_refresh = [] {};
+}
+
+TEST_P(NodeStatusTest, UpdatesNodesWithoutStoredClusterIdAtomically) {
+    for (bool explicit_empty_id : {false, true}) {
+        SCOPED_TRACE(explicit_empty_id);
+        auto* cluster = instance.mutable_clusters(0);
+        cluster->clear_cluster_id();
+        if (explicit_empty_id) {
+            cluster->set_cluster_id("");
+        }
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(instance_key({instance.instance_id()}), instance.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        resource_mgr->refresh_instance(instance.instance_id(), instance);
+
+        int refreshes = 0;
+        resource_mgr->after_refresh = [&] {
+            ++refreshes;
+            check_nodes(instance);
+        };
+        for (auto op :
+             {AlterClusterRequest::DECOMMISSION_NODE, AlterClusterRequest::NOTIFY_DECOMMISSIONED}) {
+            SCOPED_TRACE(op);
+            // A shared UID must resolve this named cluster without changing the other cluster.
+            auto req = request_for_node(1);
+            req.mutable_cluster()->clear_cluster_name();
+            req.set_op(op);
+            instance.mutable_clusters(0)->mutable_nodes(1)->set_status(
+                    op == AlterClusterRequest::DECOMMISSION_NODE
+                            ? NodeStatusPB::NODE_STATUS_DECOMMISSIONING
+                            : NodeStatusPB::NODE_STATUS_DECOMMISSIONED);
+            int before_refreshes = refreshes;
+            alter_node(req, MetaServiceCode::OK);
+            EXPECT_EQ(refreshes, before_refreshes + 1);
+            check_nodes(instance);
+            InstanceInfoPB persisted;
+            get_instance_info(meta_service.get(), &persisted, instance.instance_id());
+            EXPECT_EQ(persisted.clusters(0).SerializeAsString(),
+                      instance.clusters(0).SerializeAsString());
+        }
+        resource_mgr->after_refresh = [] {};
+    }
+}
+
+TEST_P(NodeStatusTest, RejectsMissingNodesWithoutPublishingPartialUpdates) {
+    int refreshes = 0;
+    resource_mgr->after_refresh = [&] { ++refreshes; };
+    for (auto op :
+         {AlterClusterRequest::DECOMMISSION_NODE, AlterClusterRequest::NOTIFY_DECOMMISSIONED}) {
+        auto req = request_for_node(0);
+        req.set_op(op);
+        req.mutable_cluster()->add_nodes()->CopyFrom(instance.clusters(0).nodes(1));
+        req.mutable_cluster()->mutable_nodes(1)->set_heartbeat_port(12345);
+        alter_node(req, MetaServiceCode::INVALID_ARGUMENT);
+        EXPECT_EQ(refreshes, 0);
+        check_nodes(instance);
+
+        req = request_for_node(0);
+        req.set_op(op);
+        req.mutable_cluster()->mutable_nodes(0)->set_cloud_unique_id("missing_uid");
+        alter_node(req, MetaServiceCode::INVALID_ARGUMENT);
+        EXPECT_EQ(refreshes, 0);
+        check_nodes(instance);
+
+        req = request_for_node(0);
+        req.set_op(op);
+        req.mutable_cluster()->set_cluster_id("missing_cluster");
+        alter_node(req, MetaServiceCode::INVALID_ARGUMENT);
+        EXPECT_EQ(refreshes, 0);
+        check_nodes(instance);
+    }
+    resource_mgr->after_refresh = [] {};
+}
+
+INSTANTIATE_TEST_SUITE_P(NodeAddress, NodeStatusTest, testing::Bool());
 
 // test cluster's node addr use ip
 TEST(ResourceTest, ModifyNodesIpTest) {
