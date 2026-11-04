@@ -270,7 +270,8 @@ TEST(ComponentStreamTest, JiebaTokenizerReleasesItsCopyAndWordList) {
     auto tokenizer = factory.create();
     auto& jieba = as<JiebaTokenizer>(*tokenizer);
     expect_released_at_next_row(*tokenizer, repeat_to("我们 ", kLongRowBytes), "short", true, [&] {
-        return jieba._value.capacity() + jieba._words.capacity() * sizeof(std::string_view);
+        return jieba._value.capacity() + jieba._words.capacity() * sizeof(std::string_view) +
+               jieba._scratch.reserved_bytes();
     });
 }
 

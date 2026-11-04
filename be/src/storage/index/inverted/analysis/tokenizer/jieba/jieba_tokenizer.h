@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "storage/index/inverted/analysis/text_token_stream.h"
+#include "storage/index/inverted/analysis/tokenizer/jieba/jieba_scratch.h"
 #include "storage/index/inverted/analysis/tokenizer/tokenizer_factory.h"
 
 namespace doris::segment_v2::inverted_index {
@@ -61,9 +62,10 @@ public:
 
     void reset(std::string_view text) override;
     bool next_batch(TokenBatch& batch) override;
-    // The copy of the value and the list of its words.
+    // The copy of the value, the list of its words and what jieba cut them with.
     size_t reserved_bytes() const override {
-        return _value.capacity() + _words.capacity() * sizeof(std::string_view);
+        return _value.capacity() + _words.capacity() * sizeof(std::string_view) +
+               _scratch.reserved_bytes();
     }
 
 private:
@@ -73,6 +75,8 @@ private:
     // The value, which jieba cuts and lowercasing rewrites; the words are views of it.
     std::string _value;
     std::vector<std::string_view> _words;
+    // The runes of the value and the arrays of the cut, kept for the next value.
+    jieba::JiebaScratch _scratch;
     size_t _next = 0;
 };
 

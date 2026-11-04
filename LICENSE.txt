@@ -379,15 +379,8 @@ be/src/storage/index/inverted/analysis/analyzer/kuromoji/dict/darts.h : 2-Clause
 --------------------------------------------------------------------------------
 
 be/src/storage/index/inverted/analysis/tokenizer/jieba/dict_trie.h
-be/src/storage/index/inverted/analysis/tokenizer/jieba/full_segment.h
 be/src/storage/index/inverted/analysis/tokenizer/jieba/hmm_model.h
-be/src/storage/index/inverted/analysis/tokenizer/jieba/hmm_segment.h
-be/src/storage/index/inverted/analysis/tokenizer/jieba/jieba.h
-be/src/storage/index/inverted/analysis/tokenizer/jieba/mix_segment.h
-be/src/storage/index/inverted/analysis/tokenizer/jieba/mp_segment.h
-be/src/storage/index/inverted/analysis/tokenizer/jieba/pre_filter.h
-be/src/storage/index/inverted/analysis/tokenizer/jieba/segment_base.h
-be/src/storage/index/inverted/analysis/tokenizer/jieba/trie.h
+be/src/storage/index/inverted/analysis/tokenizer/jieba/segmenter.h
 be/src/storage/index/inverted/analysis/tokenizer/jieba/unicode.h : MIT license (cppjieba)
 
   Copyright (c) 2013

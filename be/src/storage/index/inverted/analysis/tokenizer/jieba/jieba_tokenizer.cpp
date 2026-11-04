@@ -76,11 +76,12 @@ void JiebaTokenizer::reset(std::string_view text) {
     _next = 0;
     release_oversized_scratch(_value);
     release_oversized_scratch(_words);
+    _scratch.release_oversized();
     _value.assign(text);
     if (_fine) {
-        _jieba->cut_all(_value, _words);
+        _jieba->cut_all(_value, _scratch, _words);
     } else {
-        _jieba->cut(_value, _words);
+        _jieba->cut(_value, _scratch, _words);
     }
 }
 
