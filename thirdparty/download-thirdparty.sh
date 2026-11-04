@@ -83,15 +83,13 @@ if [[ "${SPEC_LIB}" != "" ]]; then
         done
     fi
 
-    # The C bindings use a patched, checkout-local copy of their pinned Rust SDK.
-    if [[ " ${SPEC_ARCHIVES[*]} " == *' LANCE_C '* ]] &&
-        [[ " ${SPEC_ARCHIVES[*]} " != *' LANCE_RUST '* ]]; then
-        SPEC_ARCHIVES+=("LANCE_RUST")
-    fi
-
-    if [[ " ${SPEC_ARCHIVES[*]} " == *' LANCE_C '* ]] &&
-        [[ " ${SPEC_ARCHIVES[*]} " != *' LANCE_TOKIO '* ]]; then
-        SPEC_ARCHIVES+=("LANCE_TOKIO")
+    # The C bindings and their runtime dependencies use checkout-local patched sources.
+    if [[ " ${SPEC_ARCHIVES[*]} " == *' LANCE_C '* ]]; then
+        for lance_dependency in LANCE_RUST LANCE_TOKIO LANCE_XET_RUNTIME LANCE_GOOSEFS_SDK; do
+            if [[ " ${SPEC_ARCHIVES[*]} " != *" ${lance_dependency} "* ]]; then
+                SPEC_ARCHIVES+=("${lance_dependency}")
+            fi
+        done
     fi
 
     TP_ARCHIVES=("${SPEC_ARCHIVES[@]}")
@@ -795,6 +793,33 @@ if [[ " ${TP_ARCHIVES[*]} " == *' LANCE_TOKIO '* ]]; then
     cd -
     echo "Finished patching ${LANCE_TOKIO_SOURCE}"
 fi
+
+# Standalone crate archives keep their upstream top-level names. Refresh each complete
+# patch set independently so a cached unpatched runtime cannot start SDK-owned workers.
+for lance_dependency in LANCE_XET_RUNTIME LANCE_GOOSEFS_SDK; do
+    if [[ " ${TP_ARCHIVES[*]} " != *" ${lance_dependency} "* ]]; then
+        continue
+    fi
+    lance_source_key="${lance_dependency}_SOURCE"
+    lance_archive_key="${lance_dependency}_NAME"
+    lance_source="${TP_SOURCE_DIR}/${!lance_source_key}"
+    case "${lance_dependency}" in
+        LANCE_XET_RUNTIME) lance_dependency_patch=xet-runtime-host-executor.patch ;;
+        LANCE_GOOSEFS_SDK) lance_dependency_patch=goosefs-host-executor.patch ;;
+    esac
+    lance_checksum="$(cksum < "${TP_PATCH_DIR}/${lance_dependency_patch}")"
+    lance_marker="${lance_source}/${PATCHED_MARK}_host_executor"
+    if [[ -f "${lance_marker}" ]] && [[ "$(cat "${lance_marker}")" != "${lance_checksum}" ]]; then
+        rm -rf "${lance_source}"
+        "${TAR_CMD}" xzf "${TP_SOURCE_DIR}/${!lance_archive_key}" -C "${TP_SOURCE_DIR}/"
+    fi
+    if [[ ! -f "${lance_marker}" ]]; then
+        patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
+            -p1 -d "${lance_source}" < "${TP_PATCH_DIR}/${lance_dependency_patch}"
+        printf '%s\n' "${lance_checksum}" > "${lance_marker}"
+    fi
+    echo "Finished patching ${!lance_source_key}"
+done
 
 if [[ " ${TP_ARCHIVES[*]} " =~ " CCTZ " ]] ; then
     cd $TP_SOURCE_DIR/$CCTZ_SOURCE

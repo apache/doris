@@ -1,4 +1,16 @@
 # Optional host dispatch for blocking tasks. Base: tokio 1.53.1.
+diff --git a/Cargo.toml b/Cargo.toml
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -993,3 +993,8 @@
+     "cfg(tokio_unstable)",
+     'cfg(target_os, values("cygwin"))',
+ ]
++
++[[test]]
++name = "rt_host_executor"
++path = "tests/rt_host_executor.rs"
++required-features = ["rt", "time", "net"]
 diff --git a/src/runtime/blocking/pool.rs b/src/runtime/blocking/pool.rs
 --- a/src/runtime/blocking/pool.rs
 +++ b/src/runtime/blocking/pool.rs
@@ -47,7 +59,18 @@ diff --git a/src/runtime/blocking/pool.rs b/src/runtime/blocking/pool.rs
                      thread_cap,
                      keep_alive,
                      metrics: SpawnerMetrics::default(),
-@@ -401,6 +416,23 @@
+@@ -294,6 +309,10 @@
+ // ===== impl Spawner =====
+
+ impl Spawner {
++    pub(crate) fn has_host_executor(&self) -> bool {
++        self.inner.host_executor.is_some()
++    }
++
+     #[track_caller]
+     pub(crate) fn spawn_blocking<F, R>(&self, rt: &Handle, func: F) -> JoinHandle<R>
+     where
+@@ -401,6 +420,23 @@
 
              // no need to even push this task; it would never get picked up
              return Err(SpawnError::ShuttingDown);
@@ -122,13 +145,38 @@ diff --git a/src/runtime/builder.rs b/src/runtime/builder.rs
          self
      }
 
+diff --git a/src/runtime/handle.rs b/src/runtime/handle.rs
+--- a/src/runtime/handle.rs
++++ b/src/runtime/handle.rs
+@@ -91,6 +91,14 @@
+             },
+             _handle_lifetime: PhantomData,
+         }
++    }
++
++    /// Returns whether blocking work is delegated to an explicitly installed host executor.
++    ///
++    /// This does not imply that a current-thread runtime is being driven. An embedding host
++    /// that exposes this handle to dependencies must keep its I/O and timer driver running.
++    pub fn has_host_blocking_executor(&self) -> bool {
++        self.inner.blocking_spawner().has_host_executor()
+     }
+
+     /// Returns a `Handle` view over the currently running `Runtime`.
 diff --git a/tests/rt_host_executor.rs b/tests/rt_host_executor.rs
 --- /dev/null
 +++ b/tests/rt_host_executor.rs
-@@ -0,0 +1,40 @@
+@@ -0,0 +1,48 @@
 +#![cfg(feature = "rt")]
 +mod tests {
 +    use std::sync::{Arc, Mutex};
++    #[test]
++    fn ordinary_runtime_does_not_advertise_host_execution() {
++        let runtime = tokio::runtime::Builder::new_current_thread()
++            .build()
++            .unwrap();
++        assert!(!runtime.handle().has_host_blocking_executor());
++    }
 +    #[test]
 +    fn blocking_work_uses_host_without_creating_threads() {
 +        let queue = Arc::new(Mutex::new(Vec::new()));
@@ -143,6 +191,7 @@ diff --git a/tests/rt_host_executor.rs b/tests/rt_host_executor.rs
 +            .blocking_task_executor(move |task| queued.lock().unwrap().push(task))
 +            .build()
 +            .unwrap();
++        assert!(runtime.handle().has_host_blocking_executor());
 +        let handle = runtime
 +            .handle()
 +            .spawn_blocking(|| std::thread::current().id());

@@ -1,0 +1,20 @@
+# Host execution integration. Base: goosefs-sdk-0.2.2.
+diff --git a/src/cache/manager.rs b/src/cache/manager.rs
+--- a/src/cache/manager.rs
++++ b/src/cache/manager.rs
+@@ -290,9 +290,13 @@
+
+         // Detect io_uring availability. On non-Linux or when disabled by
+         // config, falls back transparently to LocalPageStore (tokio::fs).
+-        let use_uring = options.uring_enabled && is_uring_available();
++        // A native uring pool outlives an individual cache and escapes host shutdown.
++        // Keep the page cache, but let its portable store dispatch file work to the host.
++        let host_io = tokio::runtime::Handle::try_current()
++            .is_ok_and(|handle| handle.has_host_blocking_executor());
++        let use_uring = options.uring_enabled && !host_io && is_uring_available();
+         if options.uring_enabled && !use_uring {
+-            warn!("io_uring requested but unavailable; falling back to tokio::fs backend");
++            warn!("io_uring unavailable or host-dispatched I/O required; using tokio::fs page store");
+         }
+
+         // Initialise the io_uring thread pool configuration before any store

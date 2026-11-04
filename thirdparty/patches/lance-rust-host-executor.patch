@@ -751,6 +751,74 @@ diff --git a/rust/lance-encoding/src/decoder.rs b/rust/lance-encoding/src/decode
          Ok(check_scheduler_on_drop(decode_stream, scheduler_handle))
      }
  }
+diff --git a/rust/lance-io/src/object_store.rs b/rust/lance-io/src/object_store.rs
+--- a/rust/lance-io/src/object_store.rs
++++ b/rust/lance-io/src/object_store.rs
+@@ -873,6 +873,17 @@
+             }
+             #[cfg(target_os = "linux")]
+             "file+uring" => {
++                // A host reader must not start the SDK's process-global uring workers.
++                // The local reader keeps each blocking operation on the host I/O executor.
++                if lance_core::utils::task_executor::current_executor().is_some() {
++                    return LocalObjectReader::open_with_tracker(
++                        path,
++                        self.block_size,
++                        None,
++                        Arc::new(self.io_tracker.clone()),
++                    )
++                    .await;
++                }
+                 // Check if current-thread mode enabled
+                 let use_current_thread = std::env::var("LANCE_URING_CURRENT_THREAD")
+                     .map(|v| str_is_truthy(&v))
+@@ -938,6 +949,17 @@
+             }
+             #[cfg(target_os = "linux")]
+             "file+uring" => {
++                // A host reader must not start the SDK's process-global uring workers.
++                // The local reader keeps each blocking operation on the host I/O executor.
++                if lance_core::utils::task_executor::current_executor().is_some() {
++                    return LocalObjectReader::open_with_tracker(
++                        path,
++                        self.block_size,
++                        Some(known_size),
++                        Arc::new(self.io_tracker.clone()),
++                    )
++                    .await;
++                }
+                 // Check if current-thread mode enabled
+                 let use_current_thread = std::env::var("LANCE_URING_CURRENT_THREAD")
+                     .map(|v| str_is_truthy(&v))
+diff --git a/rust/lance-linalg/src/distance/hamming.rs b/rust/lance-linalg/src/distance/hamming.rs
+--- a/rust/lance-linalg/src/distance/hamming.rs
++++ b/rust/lance-linalg/src/distance/hamming.rs
+@@ -630,6 +630,12 @@
+     row_ids: Option<&[u64]>,
+     threshold: Option<u32>,
+ ) -> PairwiseResult {
++    // Outer query parallelism belongs to the host. A nested Rayon pool would
++    // bypass its CPU budget and lose the calling query's resource context.
++    if lance_core::utils::task_executor::current_executor().is_some() {
++        return pairwise_hamming_distance(hashes, row_ids, threshold);
++    }
++
+     let n = hashes.len();
+     if n < 2 {
+         return PairwiseResult::new();
+@@ -709,6 +715,12 @@
+     row_ids: Option<&[u64]>,
+     threshold: Option<u32>,
+ ) -> PairwiseResult {
++    // Outer query parallelism belongs to the host. A nested Rayon pool would
++    // bypass its CPU budget and lose the calling query's resource context.
++    if lance_core::utils::task_executor::current_executor().is_some() {
++        return pairwise_hamming_distance_binary(hashes, row_ids, threshold);
++    }
++
+     let n = hashes.len();
+     if n < 2 {
+         return PairwiseResult::new();
 diff --git a/rust/lance/src/io/exec/filtered_read.rs b/rust/lance/src/io/exec/filtered_read.rs
 --- a/rust/lance/src/io/exec/filtered_read.rs
 +++ b/rust/lance/src/io/exec/filtered_read.rs

@@ -51,7 +51,8 @@ prepare() {
     mkdir -p "${dest}/src"
     cp "${ROOT}/vars.sh" "${dest}/vars.sh"
     ln -s "${ROOT}/patches" "${dest}/patches"
-    cp "${ARCHIVE_DIR}/${LANCE_C_NAME}" "${ARCHIVE_DIR}/${LANCE_RUST_NAME}" "${ARCHIVE_DIR}/${LANCE_TOKIO_NAME}" "${dest}/src/"
+    cp "${ARCHIVE_DIR}/${LANCE_C_NAME}" "${ARCHIVE_DIR}/${LANCE_RUST_NAME}" "${ARCHIVE_DIR}/${LANCE_TOKIO_NAME}" \
+        "${ARCHIVE_DIR}/${LANCE_XET_RUNTIME_NAME}" "${ARCHIVE_DIR}/${LANCE_GOOSEFS_SDK_NAME}" "${dest}/src/"
 }
 
 run_download() {
@@ -74,6 +75,12 @@ check_sources() {
         || fail "missing Rust executor injection API"
     grep -q 'pub fn blocking_task_executor' "$1/src/${LANCE_TOKIO_SOURCE}/src/runtime/builder.rs" \
         || fail "missing Tokio blocking executor hook"
+    grep -q 'has_host_blocking_executor' "$1/src/${LANCE_XET_RUNTIME_SOURCE}/src/core/runtime/native.rs" \
+        || fail "Xet must reuse a host-driven runtime"
+    grep -q 'has_host_blocking_executor' "$1/src/${LANCE_GOOSEFS_SDK_SOURCE}/src/cache/manager.rs" \
+        || fail "GooseFS cache must route disk operations through the host"
+    grep -q 'xet-runtime = { path' "${source}/Cargo.toml" || fail "missing local Xet patch"
+    grep -q 'goosefs-sdk = { path' "${source}/Cargo.toml" || fail "missing local GooseFS patch"
     # Refreshing the Foyer patch must preserve the upstream prewarm binding and tests.
     grep -q 'lance_dataset_prewarm_index' "${source}/include/lance/lance.h" \
         || fail "missing upstream C prewarm API"
@@ -161,3 +168,13 @@ check_sources "${tmpdir}/cached"
 cmp "${tmpdir}/fresh/src/${LANCE_TOKIO_SOURCE}/src/runtime/builder.rs" \
     "${tokio_source}/src/runtime/builder.rs"
 echo "PASS: mismatched Tokio patch marker refreshes cached sources"
+
+for dependency in "${LANCE_XET_RUNTIME_SOURCE}" "${LANCE_GOOSEFS_SDK_SOURCE}"; do
+    runtime_source="${tmpdir}/cached/src/${dependency}"
+    printf '%s\n' stale > "${runtime_source}/patched_mark_host_executor"
+    printf '%s\n' stale > "${runtime_source}/Cargo.toml"
+    run_download "${tmpdir}/cached"
+    check_sources "${tmpdir}/cached"
+    cmp "${tmpdir}/fresh/src/${dependency}/Cargo.toml" "${runtime_source}/Cargo.toml"
+done
+echo "PASS: mismatched storage runtime patch markers refresh cached sources"

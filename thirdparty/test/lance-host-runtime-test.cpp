@@ -19,6 +19,8 @@
 #include <lance/lance.h>
 #include <unistd.h>
 
+#include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <filesystem>
 #include <functional>
@@ -137,6 +139,29 @@ int main(int argc, char** argv) {
             }
             stream.release(&stream);
         }
+        lance_scanner_close(scanner);
+        struct Completion {
+            std::atomic<bool> done {false};
+            int32_t status = -1;
+            void* result = nullptr;
+        } completion;
+        scanner = lance_scanner_new(dataset, nullptr, nullptr);
+        lance_scanner_scan_async(
+                scanner,
+                [](void* context, int32_t status, void* result) {
+                    auto* completion = static_cast<Completion*>(context);
+                    completion->status = status;
+                    completion->result = result;
+                    completion->done.store(true, std::memory_order_release);
+                },
+                &completion);
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+        while (!completion.done.load(std::memory_order_acquire)) {
+            if (std::chrono::steady_clock::now() >= deadline) std::abort();
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        if (completion.status != 0) std::abort();
+        lance_scanner_async_stream_free(static_cast<ArrowArrayStream*>(completion.result));
         lance_scanner_close(scanner);
         lance_dataset_close(dataset);
     } else {

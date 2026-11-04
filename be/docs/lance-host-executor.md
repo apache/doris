@@ -4,11 +4,15 @@
 before opening the shared Lance session or any query reader. Setting this
 startup option to `false` provides a rollback path after restarting the BE.
 
-In the Doris read path, Lance-C creates no Tokio worker or blocking-I/O threads, and
-`spawn_cpu` does not use the SDK CPU pool. Tokio remains a library dependency:
-a single `new_current_thread` reactor is driven on a Doris-owned service
-thread. The execution resources belong to Doris; this is not a removal of
-Tokio APIs from the Lance ecosystem.
+The host mode covers the BE Lance-C read path and its compiled storage backends.
+A single `new_current_thread` Tokio reactor is driven on a Doris-owned service
+thread. Tokio remains a dependency; its workers and blocking pool are not the
+execution resources for a Doris reader.
+
+This boundary follows ClickHouse's Vortex integration: the embedded library queues
+work for execution on the host's threads. Lance's
+storage adapters additionally need an explicit policy for native I/O engines and
+for dependencies that otherwise construct another runtime.
 
 ## Execution resources
 
@@ -29,6 +33,39 @@ nodes. Each plan stream has a bounded handoff to a host-driven pump, so a
 DataFusion control task does not execute a long filter or decode poll on the
 reactor. The local Tokio patch redirects blocking submissions, including those
 inside dependent libraries, instead of starting Tokio blocking workers.
+
+## Storage and callback thread ownership
+
+| Entry point | Host-mode execution |
+| --- | --- |
+| Lance-C async scan completions | A serial queue drained on host I/O workers; no `lance-c-dispatcher` thread |
+| Local `file+uring` reads | The ordinary local reader, whose blocking operations use host I/O workers; no SDK uring pool |
+| Hugging Face HTTP and Xet reads | Xet wraps the already driven host reactor, including its host blocking executor; no `hf-xet` worker runtime |
+| GooseFS local page cache | The portable local page store uses host-dispatched file operations, retaining the cache even when uring was requested |
+| Pairwise Hamming calculations | The sequential SIMD implementation on the calling host task; no nested Rayon pool |
+| Foyer disk cache | The existing Psync engine and host-dispatched blocking operations |
+
+The runtime checks are specific to host mode. Standalone Lance-C users that do
+not register host services retain the upstream execution choices. The local I/O
+fallbacks preserve read and cache behavior but do not retain native io_uring
+execution. A CPU task's outer parallelism belongs to the Doris scanner scheduler;
+a synchronous Hamming calculation does not start nested parallel workers.
+
+Xet normally rejects a current-thread Tokio runtime. The local dependency patch
+allows one only when it has an explicitly installed host blocking executor and
+both the network and timer drivers. Ordinary current-thread runtimes retain the
+upstream rejection. Xet's automatic external-runtime path does not initialize its
+standalone system monitor or logging service.
+
+Async callback delivery remains serial and installs each completion's error in
+the delivery thread's TLS. Rejected host jobs must still deliver accepted
+completions exactly once, outside SDK wake locks. Runtime stop waits for callback
+delivery before stopping the control reactor.
+
+This boundary does not cover FE JNI metadata runtimes or SDK-only write/index
+maintenance APIs. In particular, index training, mem-WAL FTS merge and optional
+Foyer resize/uring engines are not invoked by the BE reader. They must be audited
+again before exposing them through this read path.
 
 ## Reader flow
 
@@ -92,9 +129,12 @@ The normal build entry point refreshes an older installed ABI. Patch-cache
 regressions cover the C bindings, Rust SDK and Tokio source archives. The native
 `thirdparty/test/lance-host-runtime-test.cpp` checks a real Arrow-stream scan
 with Foyer enabled against a fixed host-thread count. The isolated SDK test
-checks scans, filters, take, vector/full-text search and HTTP/DNS reads without
-additional SDK threads. Tokio hook tests verify external execution and rejected
-task cancellation. The BE test compares rows across splits and early aborts.
+checks scans, filters, take, vector/full-text search and HTTP/DNS reads.
+Storage regressions separately exercise HF backend initialization, a local Xet
+streaming round trip, local uring URI reads, a real GooseFS page-cache round trip
+and Hamming calculations against a fixed set of host threads. Callback tests cover
+serial delivery, rejection and shutdown. Tokio hook tests verify external execution
+and rejected task cancellation. The BE test compares rows across splits and early aborts.
 
 This change does not add Rust allocation accounting or enforce a Doris query
 memory limit. Host execution and allocator integration are separate work.

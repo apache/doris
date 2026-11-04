@@ -593,6 +593,17 @@ LANCE_TOKIO_NAME="tokio-1.53.1.tar.gz"
 LANCE_TOKIO_SOURCE="tokio-1.53.1"
 LANCE_TOKIO_MD5SUM="5352e5cfaf666d5068d860908e19c082"
 
+# Runtime dependencies are patched locally; Cargo's shared registry cache stays immutable.
+LANCE_XET_RUNTIME_DOWNLOAD="https://static.crates.io/crates/xet-runtime/xet-runtime-1.6.0.crate"
+LANCE_XET_RUNTIME_NAME="xet-runtime-1.6.0.tar.gz"
+LANCE_XET_RUNTIME_SOURCE="xet-runtime-1.6.0"
+LANCE_XET_RUNTIME_MD5SUM="e9b551fe2b386ced84db436225091616"
+
+LANCE_GOOSEFS_SDK_DOWNLOAD="https://static.crates.io/crates/goosefs-sdk/goosefs-sdk-0.2.2.crate"
+LANCE_GOOSEFS_SDK_NAME="goosefs-sdk-0.2.2.tar.gz"
+LANCE_GOOSEFS_SDK_SOURCE="goosefs-sdk-0.2.2"
+LANCE_GOOSEFS_SDK_MD5SUM="cd9909f177eb44477aa1485de244d7e3"
+
 # lance-c
 # Includes lance-c #98: bounded runtime BTree segment selection with decoded-memory guards.
 LANCE_C_DOWNLOAD="https://codeload.github.com/lance-format/lance-c/tar.gz/a51ab47a9c814a746cb1714c99fad93dd3a188b8"
@@ -695,6 +706,8 @@ export TP_ARCHIVES=(
     'LANCE_C'
     'LANCE_RUST'
     'LANCE_TOKIO'
+    'LANCE_XET_RUNTIME'
+    'LANCE_GOOSEFS_SDK'
     'PAIMON_RUST'
 )
 
