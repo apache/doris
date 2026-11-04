@@ -100,6 +100,10 @@ public class AgentTaskQueue {
     public static synchronized void removeTask(long backendId, Consumer<AgentTask> onTaskRemoved) {
         Map<TTaskType, Map<Long, AgentTask>> tasks = AgentTaskQueue.tasks.row(backendId);
         tasks.forEach((type, taskSet) -> {
+            if (type == TTaskType.PUBLISH_VERSION) {
+                // Keep publish tasks for task-report retries until their transactions become visible.
+                return;
+            }
             Iterator<Map.Entry<Long, AgentTask>> it = taskSet.entrySet().iterator();
             while (it.hasNext()) {
                 Map.Entry<Long, AgentTask> entry = it.next();
