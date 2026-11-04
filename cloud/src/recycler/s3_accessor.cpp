@@ -25,7 +25,6 @@
 #include <gen_cpp/cloud.pb.h>
 
 #include <algorithm>
-#include <atomic>
 #include <cstdlib>
 
 #ifdef USE_AZURE
@@ -36,7 +35,6 @@
 #include <execution>
 #include <memory>
 #include <mutex>
-#include <thread>
 #include <utility>
 #include <vector>
 
@@ -132,127 +130,44 @@ public:
 
 class RecyclerObjStorageDeleteExecutor final : public ObjStorageDeleteExecutor {
 public:
-    RecyclerObjStorageDeleteExecutor(std::shared_ptr<SimpleThreadPool> pool,
-                                     std::shared_ptr<ObjDeleteGroup> group)
-            : pool_(std::move(pool)), group_(std::move(group)) {
+    explicit RecyclerObjStorageDeleteExecutor(std::shared_ptr<SimpleThreadPool> pool)
+            : pool_(std::move(pool)) {
         reset();
     }
 
-    ObjStorageResponse submit(ObjStorageDeleteTask task, size_t num_keys) override {
-        if (group_ == nullptr) {
-            executor_->add(std::move(task));
-            return ObjStorageResponse::OK();
-        }
-        return submit_to_group({
-                .task = std::make_shared<const ObjStorageDeleteTask>(std::move(task)),
-                .num_keys = num_keys,
-        });
-    }
-
-    ObjStorageResponse wait() override {
-        for (;;) {
-            bool finished = false;
-            auto responses = executor_->when_all(&finished);
-            std::vector<GroupDeleteTask> throttled_tasks;
-            {
-                std::lock_guard lock(batch_->mtx);
-                throttled_tasks = std::move(batch_->throttled_tasks);
-            }
-            reset();
-            if (!finished) {
-                return {
-                        .status = {TStatusCode::INTERNAL_ERROR,
-                                   "object storage batch deletion did not finish"},
-                        .http_code = 0,
-                };
-            }
-            for (auto& response : responses) {
-                if (!response.ok()) {
-                    return response;
-                }
-            }
-            if (throttled_tasks.empty()) {
-                return ObjStorageResponse::OK();
-            }
-            // Back off and retry the throttled tasks in this thread, then wait for the retries.
-            for (auto& throttled_task : throttled_tasks) {
-                std::this_thread::sleep_until(throttled_task.retry_at);
-                if (!submit_to_group(std::move(throttled_task)).ok()) {
-                    break; // the failure is returned by the next round
-                }
-            }
-        }
-    }
-
-private:
-    // A delete task paced by the group
-    struct GroupDeleteTask {
-        std::shared_ptr<const ObjStorageDeleteTask> task;
-        size_t num_keys = 0;
-        int64_t retries = 0;                        // the number of throttling retries done
-        ObjDeleteGroup::Clock::time_point retry_at; // the end of the backoff of a retry
-    };
-
-    // The state of the tasks submitted since the last `wait()`, shared with the tasks
-    struct Batch {
-        std::atomic_bool failed {false};
-        std::mutex mtx;
-        std::vector<GroupDeleteTask> throttled_tasks; // to be retried by the submitter
-    };
-
-    ObjStorageResponse submit_to_group(GroupDeleteTask task) {
-        // Once a task fails, the remaining tasks of the batch are skipped by SyncExecutor, so stop
-        // submitting instead of letting them take the rate of the group.
-        if (batch_->failed.load(std::memory_order_acquire)) {
-            return batch_failed_response();
-        }
-        // Acquire the permit in the submitter thread, so a throttled group blocks its own
-        // submitter instead of the pool threads shared by all groups. The permit is returned once
-        // the task is run or skipped, since SyncExecutor destroys the callback then.
-        std::shared_ptr<ObjDeleteGroup::DeleteRequestPermit> delete_permit =
-                group_->acquire_delete_permit(task.num_keys);
-        if (batch_->failed.load(std::memory_order_acquire)) {
-            return batch_failed_response();
-        }
-        executor_->add([batch = batch_, delete_permit = std::move(delete_permit),
-                        task = std::move(task)]() mutable {
-            auto response = delete_permit->execute_without_retry(ObjStorageDeleteTask(*task.task));
-            if (auto backoff = delete_permit->retry_backoff_if_throttled(response, task.retries)) {
-                // Not retried here: the backoff and the admission of the retry would hold a pool
-                // thread shared by all groups. The submitter retries it in `wait()`.
-                ++task.retries;
-                task.retry_at = ObjDeleteGroup::Clock::now() + *backoff;
-                std::lock_guard lock(batch->mtx);
-                batch->throttled_tasks.push_back(std::move(task));
-                return ObjStorageResponse::OK();
-            }
-            if (!response.ok()) {
-                batch->failed.store(true, std::memory_order_release);
-            }
-            return response;
-        });
+    ObjStorageResponse submit(ObjStorageDeleteTask task) override {
+        executor_->add(std::move(task));
         return ObjStorageResponse::OK();
     }
 
-    static ObjStorageResponse batch_failed_response() {
-        return {
-                .status = {TStatusCode::INTERNAL_ERROR,
-                           "a previous object storage delete task of the batch failed"},
-                .http_code = 0,
-        };
+    ObjStorageResponse wait() override {
+        bool finished = false;
+        auto responses = executor_->when_all(&finished);
+        reset();
+        if (!finished) {
+            return {
+                    .status = {TStatusCode::INTERNAL_ERROR,
+                               "object storage batch deletion did not finish"},
+                    .http_code = 0,
+            };
+        }
+        for (auto& response : responses) {
+            if (!response.ok()) {
+                return response;
+            }
+        }
+        return ObjStorageResponse::OK();
     }
 
+private:
     void reset() {
         executor_ = std::make_unique<SyncExecutor<ObjStorageResponse>>(
                 pool_, "delete object storage batches",
                 [](const ObjStorageResponse& response) { return !response.ok(); });
-        batch_ = std::make_shared<Batch>();
     }
 
     std::shared_ptr<SimpleThreadPool> pool_;
-    std::shared_ptr<ObjDeleteGroup> group_;
     std::unique_ptr<SyncExecutor<ObjStorageResponse>> executor_;
-    std::shared_ptr<Batch> batch_;
 };
 
 // Max number of keys per delete request of ObjDeleteGroup
@@ -443,9 +358,9 @@ ObjStorageRecursiveDeleteOptions S3Accessor::make_recursive_delete_options(
     ObjStorageRecursiveDeleteOptions options {
             .expiration_time = expiration_time,
             .max_tasks_per_batch = max_tasks_per_batch,
-            .executor = std::make_shared<RecyclerObjStorageDeleteExecutor>(std::move(pool),
-                                                                           std::move(group)),
+            .executor = std::make_shared<RecyclerObjStorageDeleteExecutor>(std::move(pool)),
             .max_delete_batch = max_delete_batch,
+            .group = std::move(group),
     };
     return options;
 }

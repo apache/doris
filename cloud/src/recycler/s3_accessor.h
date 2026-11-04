@@ -151,7 +151,7 @@ public:
     int check_versioning();
 
 protected:
-    // If `group` is not null, each delete batch acquires a permit of it before being submitted.
+    // If `group` is not null, each delete task executes through it in the worker pool.
     static ObjStorageRecursiveDeleteOptions make_recursive_delete_options(
             int64_t expiration_time, std::shared_ptr<SimpleThreadPool> pool,
             std::shared_ptr<ObjDeleteGroup> group = nullptr);

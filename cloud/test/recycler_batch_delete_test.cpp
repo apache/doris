@@ -149,8 +149,8 @@ public:
     CountingDeleteExecutor(std::shared_ptr<ObjStorageDeleteExecutor> inner, size_t* wait_calls)
             : inner_(std::move(inner)), wait_calls_(wait_calls) {}
 
-    ObjStorageResponse submit(ObjStorageDeleteTask task, size_t num_keys) override {
-        return inner_->submit(std::move(task), num_keys);
+    ObjStorageResponse submit(ObjStorageDeleteTask task) override {
+        return inner_->submit(std::move(task));
     }
 
     ObjStorageResponse wait() override {
@@ -169,7 +169,7 @@ public:
                             std::vector<int>* list_calls_at_submit)
             : client_(std::move(client)), list_calls_at_submit_(list_calls_at_submit) {}
 
-    ObjStorageResponse submit(ObjStorageDeleteTask task, size_t /*num_keys*/) override {
+    ObjStorageResponse submit(ObjStorageDeleteTask task) override {
         list_calls_at_submit_->push_back(client_->list_calls());
         return task();
     }
@@ -466,8 +466,8 @@ TEST(RecyclerBatchDeleteTest, PropagatesListAndDeleteFailures) {
     EXPECT_TRUE(logs.contains("total_batches=1, num_deleted=3, error_count=1"));
 }
 
-TEST(RecyclerBatchDeleteTest, DeleteGroupStopsSubmittingAfterTaskFailure) {
-    ScopedMaxTasksPerBatch max_tasks_per_batch(100);
+TEST(RecyclerBatchDeleteTest, DeleteGroupStopsListingAfterTaskBatchFailure) {
+    ScopedMaxTasksPerBatch max_tasks_per_batch(3);
     auto pool = std::make_shared<cloud::SimpleThreadPool>(1, "group_delete_failure_test");
     ASSERT_EQ(pool->start(), 0);
 
@@ -479,16 +479,14 @@ TEST(RecyclerBatchDeleteTest, DeleteGroupStopsSubmittingAfterTaskFailure) {
             TestS3Accessor::make_recursive_delete_options(0, pool, group));
 
     EXPECT_FALSE(response.ok());
-    EXPECT_EQ(response.status.msg, "a previous object storage delete task of the batch failed");
+    EXPECT_EQ(response.status.msg, "object storage batch deletion did not finish");
     EXPECT_EQ(provider_client->delete_calls(), 1);
-    // The tasks after the failure would be skipped. Without stopping, all 100 objects would be
-    // listed and each of their tasks would wait for the rate of the group before the batch is
-    // waited.
-    EXPECT_LT(provider_client->list_calls(), 10);
+    // Queued tasks are skipped after the failure, and the next task batch is not listed.
+    EXPECT_EQ(provider_client->list_calls(), 3);
     EXPECT_EQ(pool->stop(), 0);
 }
 
-TEST(RecyclerBatchDeleteTest, ThrottledDeleteGroupDoesNotHoldPoolThreads) {
+TEST(RecyclerBatchDeleteTest, ThrottledDeleteGroupRetriesInWorkerThread) {
     ScopedThrottlingRetryBackoff retry_backoff(std::chrono::milliseconds(1000));
     // Both groups share the only thread of the pool
     auto pool = std::make_shared<cloud::SimpleThreadPool>(1, "throttled_group_delete_test");
@@ -512,14 +510,13 @@ TEST(RecyclerBatchDeleteTest, ThrottledDeleteGroupDoesNotHoldPoolThreads) {
     auto other_response = delete_objects_recursively(
             other_client, {.bucket = "bucket", .prefix = "test_key_"},
             TestS3Accessor::make_recursive_delete_options(0, pool, other_group));
-    // The throttled task backs off in its submitter thread instead of the pool thread, so the
-    // other group finishes before the retry of the throttled one. The pool thread would run the
-    // retry first if it were held by the backoff.
+    // The throttled task completes its backoff and retry on the only worker before the other
+    // group's task can run.
     const int throttled_delete_calls = throttled_client->delete_calls();
     throttled_deleter.join();
 
     EXPECT_TRUE(other_response.ok());
-    EXPECT_EQ(throttled_delete_calls, 1);
+    EXPECT_EQ(throttled_delete_calls, 2);
     EXPECT_TRUE(throttled_response.ok());
     EXPECT_EQ(throttled_client->delete_calls(), 2);
     EXPECT_EQ(throttled_client->deleted_keys().size(), 1);
@@ -532,7 +529,7 @@ TEST(RecyclerBatchDeleteTest, ThrottledDeleteGroupTaskIsRetriedAtMostOnce) {
     ASSERT_EQ(pool->start(), 0);
 
     auto provider_client = std::make_shared<MockObjStorageClient>(make_objects(3), 1);
-    // The first request is throttled, and its retry succeeds after the other requests.
+    // The first request is throttled, and its retry succeeds.
     provider_client->throttle_delete(1);
     auto response = delete_objects_recursively(
             provider_client, {.bucket = "bucket", .prefix = "test_key_"},

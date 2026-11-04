@@ -84,9 +84,10 @@ private:
 //     the keys the rate allows in one second, at once, so they are not spread while the object
 //     storage is idle;
 //   - the concurrency: at most `obj_delete_group_max_inflight_requests` requests are admitted and
-//     not finished, including the ones queued in a thread pool, so slow requests do not pile up.
+//     not finished. Tasks queued in a thread pool have not been admitted yet.
 // A group holds no thread, the callers wait in their own threads.
-class ObjDeleteGroup : public std::enable_shared_from_this<ObjDeleteGroup> {
+class ObjDeleteGroup : public ObjStorageDeleteGroup,
+                       public std::enable_shared_from_this<ObjDeleteGroup> {
 public:
     using Clock = ObjDeleteRateController::Clock;
     using DeleteRequestCallback = std::function<ObjStorageResponse()>;
@@ -112,9 +113,7 @@ public:
 
         // Sends `delete_request_callback`. A throttled request is retried in the current thread
         // after a backoff with the permit held, and each retry is admitted by the rate again.
-        // Returns the response of the last request. A thread shared by the groups should not run
-        // it, use `execute_without_retry` and retry the throttled request in the submitter
-        // thread instead.
+        // Returns the response of the last request.
         ObjStorageResponse execute_with_throttling_retries(
                 const DeleteRequestCallback& delete_request_callback);
 
@@ -142,10 +141,9 @@ public:
     std::unique_ptr<DeleteRequestPermit> acquire_delete_permit(size_t num_keys);
 
     // Acquires a permit for `delete_request_callback`, which deletes `num_keys` keys, and executes
-    // it, retrying a throttled request in the caller thread. A thread shared by the groups should
-    // use `acquire_delete_permit` and `execute_without_retry` instead.
+    // it, retrying a throttled request in the caller thread.
     ObjStorageResponse execute(size_t num_keys,
-                               const DeleteRequestCallback& delete_request_callback);
+                               const DeleteRequestCallback& delete_request_callback) override;
 
     const std::string& name() const { return _name; }
 

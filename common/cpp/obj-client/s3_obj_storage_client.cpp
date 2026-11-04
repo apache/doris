@@ -489,12 +489,12 @@ ObjStorageResponse S3ObjStorageClient::delete_object(const ObjStoragePath& opts)
         return ObjStorageResponse::OK();
     }
     const int http_code = static_cast<int>(outcome.GetError().GetResponseCode());
-    ObjStorageResponse response {.status = s3fs_error(outcome.GetError(),
-                                                      fmt::format("failed to delete object {}",
-                                                                  opts.key)),
-                                 .http_code = http_code,
-                                 .request_id = outcome.GetError().GetRequestId(),
-                                 .throttled = obj_storage_throttled_http_code(http_code)};
+    ObjStorageResponse response {
+            .status = s3fs_error(outcome.GetError(),
+                                 fmt::format("failed to delete object {}", opts.key)),
+            .http_code = http_code,
+            .request_id = outcome.GetError().GetRequestId(),
+            .throttled = obj_storage_throttled_http_code(http_code)};
     if (response.status.code == ObjStorageStatus::NOT_FOUND) {
         return response;
     }

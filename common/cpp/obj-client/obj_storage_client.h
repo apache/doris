@@ -159,14 +159,18 @@ struct ObjStorageCapabilities {
 
 using ObjStorageDeleteTask = std::function<ObjStorageResponse()>;
 
+class ObjStorageDeleteGroup {
+public:
+    virtual ~ObjStorageDeleteGroup() = default;
+    virtual ObjStorageResponse execute(size_t num_keys, const ObjStorageDeleteTask& task) = 0;
+};
+
 // Implementations must enqueue tasks immediately and remain reusable after wait() completes.
 // Recycler implements this in cloud/src/recycler/s3_accessor.cpp; BE uses the synchronous fallback.
 class ObjStorageDeleteExecutor {
 public:
     virtual ~ObjStorageDeleteExecutor() = default;
-    // `task` deletes `num_keys` keys. It moves the keys into its request, so it runs at most once,
-    // an executor retrying it (e.g. after throttled) runs a copy of it for each attempt.
-    virtual ObjStorageResponse submit(ObjStorageDeleteTask task, size_t num_keys) = 0;
+    virtual ObjStorageResponse submit(ObjStorageDeleteTask task) = 0;
     virtual ObjStorageResponse wait() = 0;
 };
 
@@ -176,6 +180,7 @@ struct ObjStorageRecursiveDeleteOptions {
     std::shared_ptr<ObjStorageDeleteExecutor> executor {};
     // Max number of keys per delete request, 0 means the max delete batch of the client.
     size_t max_delete_batch = 0;
+    std::shared_ptr<ObjStorageDeleteGroup> group {};
 };
 
 class ObjStorageListIterator;

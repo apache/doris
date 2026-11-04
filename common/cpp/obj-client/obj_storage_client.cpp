@@ -166,18 +166,20 @@ ObjStorageResponse delete_objects_recursively(
         return response;
     };
     auto submit_delete_task = [&]() -> bool {
-        const size_t num_keys = keys.size();
-        ObjStorageDeleteTask task = [client, bucket = path.bucket,
-                                     batch = std::move(keys)]() mutable {
-            return client->delete_objects(ObjStoragePath {.bucket = std::move(bucket)},
-                                          std::move(batch));
+        ObjStorageDeleteTask task = [client, bucket = path.bucket, batch = std::move(keys),
+                                     group = delete_options.group]() {
+            auto delete_objects = [&]() {
+                // Keep the keys and bucket intact for throttling retries.
+                return client->delete_objects(ObjStoragePath {.bucket = bucket}, batch);
+            };
+            return group ? group->execute(batch.size(), delete_objects) : delete_objects();
         };
         keys.clear();
         keys.reserve(delete_batch_size);
 
         ObjStorageResponse response;
         if (delete_options.executor) {
-            response = delete_options.executor->submit(std::move(task), num_keys);
+            response = delete_options.executor->submit(std::move(task));
         } else {
             response = task();
         }
