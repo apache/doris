@@ -176,6 +176,19 @@ public class RoutineLoadJobReplayTest extends TestWithFeService {
         Assertions.assertEquals(0, replayed.getEscape());
     }
 
+    // So that U+FFFD in the metadata only ever is such a lost byte, CREATE does not take U+FFFD itself. A statement
+    // whose bytes were not UTF-8 decodes to it, so it does not stand for the byte the statement meant either.
+    @Test
+    public void testCreateRejectsTheReplacementCharacter() {
+        for (String key : new String[] {CsvFileFormatProperties.PROP_ENCLOSE, CsvFileFormatProperties.PROP_ESCAPE}) {
+            String sql = "CREATE ROUTINE LOAD rl_replay_db.job_replacement ON dup_tbl\n"
+                    + "PROPERTIES ('" + key + "' = '" + (char) 0xFFFD + "')\n"
+                    + "FROM KAFKA ('kafka_broker_list' = '127.0.0.1:9092', 'kafka_topic' = 'topic_replacement')";
+            Exception e = Assertions.assertThrows(Exception.class, () -> createJob(sql));
+            Assertions.assertTrue(e.getMessage().contains(key + " must not be U+FFFD"), e.getMessage());
+        }
+    }
+
     // ALTER ROUTINE LOAD installs the analyzed properties through modifyPropertiesInternal, as the replay of its
     // edit log does.
     @Test

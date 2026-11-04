@@ -2233,7 +2233,9 @@ public abstract class RoutineLoadJob
 
     // csvControlByte for a value CREATE or ALTER recorded. CREATE of an older version recorded the byte, so a byte
     // from 0x80 up came back as U+FFFD, which would now parse to 0xFD for enclose and 0xEF for escape. That byte is
-    // lost: the job keeps the default, which is what it has run with after every restart.
+    // lost: the job keeps the default, which is what it has run with after every restart. CREATE and ALTER reject
+    // U+FFFD (CreateRoutineLoadInfo#checkCsvControlValue), so the metadata holds it only from an older version: a
+    // byte its CREATE lost, or a value its ALTER stored unchecked, which never reached the job either.
     private byte recordedCsvControlByte(String key, String value, byte current) {
         if (value.equals(String.valueOf((char) 0xFFFD))) {
             LOG.warn("routine load job {} keeps its {}: an older version recorded the value as U+FFFD;"

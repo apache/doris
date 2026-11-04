@@ -93,6 +93,21 @@ suite("test_routine_load_property","p0") {
         PROPERTIES ("replication_allocation" = "tag.location.default: 1");
     """
 
+    // U+FFFD, the Unicode replacement character, is what a statement whose bytes were not UTF-8 decodes to, and
+    // the replay takes it in a job's metadata for a byte an older version lost, so CREATE does not take it as
+    // enclose or escape. CREATE checks them before it connects to Kafka.
+    for (String key : ["enclose", "escape"]) {
+        test {
+            sql """
+                CREATE ROUTINE LOAD test_${key}_replacement_character ON ${tableName}
+                COLUMNS TERMINATED BY ","
+                PROPERTIES ("${key}" = "\uFFFD")
+                FROM KAFKA ("kafka_broker_list" = "127.0.0.1:9092", "kafka_topic" = "test_${key}_replacement_character")
+            """
+            exception "${key} must not be U+FFFD"
+        }
+    }
+
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         def jobName = "test_enclose_and_escape"
         try {

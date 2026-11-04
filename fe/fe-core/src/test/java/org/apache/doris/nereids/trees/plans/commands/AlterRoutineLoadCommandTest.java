@@ -142,4 +142,18 @@ public class AlterRoutineLoadCommandTest {
         Assertions.assertEquals("'", command.getAnalyzedJobProperties().get(CsvFileFormatProperties.PROP_ENCLOSE));
         Assertions.assertEquals("|", command.getAnalyzedJobProperties().get(CsvFileFormatProperties.PROP_ESCAPE));
     }
+
+    // The replay takes U+FFFD in the metadata for a byte an older CREATE lost, so ALTER, like CREATE, does not take it.
+    @Test
+    public void testValidateRejectsTheReplacementCharacter() {
+        runBefore();
+        LabelNameInfo labelNameInfo = new LabelNameInfo("testDb", "label1");
+        for (String key : new String[] {CsvFileFormatProperties.PROP_ENCLOSE, CsvFileFormatProperties.PROP_ESCAPE}) {
+            Map<String, String> properties = Maps.newHashMap();
+            properties.put(key, String.valueOf((char) 0xFFFD));
+            AlterRoutineLoadCommand command = new AlterRoutineLoadCommand(labelNameInfo, properties, Maps.newHashMap());
+            Exception e = Assertions.assertThrows(Exception.class, () -> command.validate(connectContext));
+            Assertions.assertTrue(e.getMessage().contains(key + " must not be U+FFFD"), e.getMessage());
+        }
+    }
 }

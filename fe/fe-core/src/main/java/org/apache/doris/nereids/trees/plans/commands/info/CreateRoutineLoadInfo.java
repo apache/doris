@@ -285,6 +285,19 @@ public class CreateRoutineLoadInfo {
     }
 
     /**
+     * Rejects U+FFFD, the Unicode replacement character, as enclose or escape. A statement whose bytes were not
+     * UTF-8 decodes to it, so it does not stand for the byte the statement meant, and an older version recorded it
+     * for an enclose or escape byte it lost, which the replay ignores (RoutineLoadJob#recordedCsvControlByte).
+     * CREATE and ALTER check with this, so that a job never records it.
+     */
+    public static void checkCsvControlValue(String key, String value) throws AnalysisException {
+        if (String.valueOf((char) 0xFFFD).equals(value)) {
+            throw new AnalysisException(key + " must not be U+FFFD, the Unicode replacement character;"
+                    + " check that the client sends the statement as UTF-8");
+        }
+    }
+
+    /**
      * Checks a routine load job's workload group the way its tasks resolve it ({@code KafkaTaskInfo#rePlan}):
      * as {@code user}, and in cloud mode in the namespace of {@code computeGroup}, the group the job runs in. A
      * workload group lives in the namespace of a compute group: the same name under a different compute group
@@ -707,6 +720,10 @@ public class CreateRoutineLoadInfo {
             }
         }
 
+        checkCsvControlValue(CsvFileFormatProperties.PROP_ENCLOSE,
+                jobProperties.get(CsvFileFormatProperties.PROP_ENCLOSE));
+        checkCsvControlValue(CsvFileFormatProperties.PROP_ESCAPE,
+                jobProperties.get(CsvFileFormatProperties.PROP_ESCAPE));
         String format = jobProperties.getOrDefault(FileFormatProperties.PROP_FORMAT, "csv");
         fileFormatProperties = FileFormatProperties.createFileFormatProperties(format);
         fileFormatProperties.analyzeFileFormatProperties(jobProperties, false);
