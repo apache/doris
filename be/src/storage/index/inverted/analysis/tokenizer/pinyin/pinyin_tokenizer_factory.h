@@ -30,7 +30,9 @@ public:
 
     void initialize(const Settings& settings) override;
 
-    TokenizerPtr create() override { return std::make_shared<PinyinTokenizer>(config_); }
+    std::unique_ptr<TextTokenizer> create() const override {
+        return std::make_unique<PinyinTokenizer>(config_);
+    }
 
 private:
     std::shared_ptr<PinyinConfig> config_;

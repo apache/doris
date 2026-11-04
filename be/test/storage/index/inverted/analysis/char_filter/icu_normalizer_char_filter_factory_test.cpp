@@ -23,26 +23,15 @@
 
 #include <memory>
 #include <string>
-
-using namespace lucene::analysis;
+#include <string_view>
 
 namespace doris::segment_v2::inverted_index {
 
 namespace {
 
-ReaderPtr make_reader(const std::string& text) {
-    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
-    reader->init(text.data(), static_cast<int32_t>(text.size()), false);
-    return reader;
-}
-
-std::string read_all(const ReaderPtr& reader) {
-    const void* data = nullptr;
-    int32_t len = reader->read(&data, 0, static_cast<int32_t>(reader->size()));
-    if (len <= 0 || data == nullptr) {
-        return {};
-    }
-    return std::string(static_cast<const char*>(data), len);
+std::string apply_all(TextCharFilter& filter, const std::string& text) {
+    std::string scratch;
+    return std::string(filter.apply(text, scratch));
 }
 
 std::string normalize_with_nfkc_cf(const std::string& text) {
@@ -71,17 +60,15 @@ std::string normalize_with_nfkc_cf(const std::string& text) {
 class ICUNormalizerCharFilterFactoryTest : public ::testing::Test {};
 
 TEST_F(ICUNormalizerCharFilterFactoryTest, DefaultNormalizationMatchesICU) {
-    std::string input = "Cafe\u0301 and co\uFB03ee";
+    std::string input = "Café and coﬃee";
     Settings settings;
 
     ICUNormalizerCharFilterFactory factory;
     factory.initialize(settings);
 
-    auto reader = make_reader(input);
-    auto filter = factory.create(reader);
-    filter->init(input.data(), static_cast<int32_t>(input.size()), false);
+    auto filter = factory.create();
 
-    std::string result = read_all(filter);
+    std::string result = apply_all(*filter, input);
     std::string expected = normalize_with_nfkc_cf(input);
 
     EXPECT_EQ(result, expected);
@@ -94,16 +81,14 @@ TEST_F(ICUNormalizerCharFilterFactoryTest, AlreadyNormalizedQuickCheck) {
     ICUNormalizerCharFilterFactory factory;
     factory.initialize(settings);
 
-    auto reader = make_reader(input);
-    auto filter = factory.create(reader);
-    filter->init(input.data(), static_cast<int32_t>(input.size()), false);
+    auto filter = factory.create();
 
-    std::string result = read_all(filter);
+    std::string result = apply_all(*filter, input);
     EXPECT_EQ(result, input);
 }
 
 TEST_F(ICUNormalizerCharFilterFactoryTest, ComposeAndDecomposeModes) {
-    std::string input = "Cafe\u0301";
+    std::string input = "Café";
 
     {
         Settings settings;
@@ -113,10 +98,8 @@ TEST_F(ICUNormalizerCharFilterFactoryTest, ComposeAndDecomposeModes) {
         ICUNormalizerCharFilterFactory factory;
         EXPECT_NO_THROW(factory.initialize(settings));
 
-        auto reader = make_reader(input);
-        auto filter = factory.create(reader);
-        filter->init(input.data(), static_cast<int32_t>(input.size()), false);
-        std::string result = read_all(filter);
+        auto filter = factory.create();
+        std::string result = apply_all(*filter, input);
         EXPECT_FALSE(result.empty());
     }
 
@@ -128,10 +111,8 @@ TEST_F(ICUNormalizerCharFilterFactoryTest, ComposeAndDecomposeModes) {
         ICUNormalizerCharFilterFactory factory;
         EXPECT_NO_THROW(factory.initialize(settings));
 
-        auto reader = make_reader(input);
-        auto filter = factory.create(reader);
-        filter->init(input.data(), static_cast<int32_t>(input.size()), false);
-        std::string result = read_all(filter);
+        auto filter = factory.create();
+        std::string result = apply_all(*filter, input);
         EXPECT_FALSE(result.empty());
     }
 }
@@ -153,7 +134,7 @@ TEST_F(ICUNormalizerCharFilterFactoryTest, InvalidNameThrows) {
 }
 
 TEST_F(ICUNormalizerCharFilterFactoryTest, EmptyUnicodeSetFilterUsesBaseNormalizer) {
-    std::string input = "Cafe\u0301";
+    std::string input = "Café";
 
     Settings settings;
     settings.set("name", "nfkc_cf");
@@ -163,11 +144,9 @@ TEST_F(ICUNormalizerCharFilterFactoryTest, EmptyUnicodeSetFilterUsesBaseNormaliz
     ICUNormalizerCharFilterFactory factory;
     factory.initialize(settings);
 
-    auto reader = make_reader(input);
-    auto filter = factory.create(reader);
-    filter->init(input.data(), static_cast<int32_t>(input.size()), false);
+    auto filter = factory.create();
 
-    std::string result = read_all(filter);
+    std::string result = apply_all(*filter, input);
     std::string expected = normalize_with_nfkc_cf(input);
     EXPECT_EQ(result, expected);
 }
@@ -181,7 +160,7 @@ TEST_F(ICUNormalizerCharFilterFactoryTest, InvalidUnicodeSetFilterThrows) {
 }
 
 TEST_F(ICUNormalizerCharFilterFactoryTest, EmptyUnicodeSetFallsBackToBase) {
-    std::string input = "Cafe\u0301";
+    std::string input = "Café";
 
     Settings settings;
     settings.set("unicode_set_filter", "[]");
@@ -189,17 +168,15 @@ TEST_F(ICUNormalizerCharFilterFactoryTest, EmptyUnicodeSetFallsBackToBase) {
     ICUNormalizerCharFilterFactory factory;
     factory.initialize(settings);
 
-    auto reader = make_reader(input);
-    auto filter = factory.create(reader);
-    filter->init(input.data(), static_cast<int32_t>(input.size()), false);
+    auto filter = factory.create();
 
-    std::string result = read_all(filter);
+    std::string result = apply_all(*filter, input);
     std::string expected = normalize_with_nfkc_cf(input);
     EXPECT_EQ(result, expected);
 }
 
 TEST_F(ICUNormalizerCharFilterFactoryTest, NonEmptyUnicodeSetFilterCreatesFilteredNormalizer) {
-    std::string input = "Cafe\u0301 123";
+    std::string input = "Café 123";
 
     Settings settings;
     settings.set("unicode_set_filter", "[A-Za-z]");
@@ -207,19 +184,16 @@ TEST_F(ICUNormalizerCharFilterFactoryTest, NonEmptyUnicodeSetFilterCreatesFilter
     ICUNormalizerCharFilterFactory factory;
     factory.initialize(settings);
 
-    auto reader = make_reader(input);
-    auto filter = factory.create(reader);
-    filter->init(input.data(), static_cast<int32_t>(input.size()), false);
+    auto filter = factory.create();
 
-    std::string result = read_all(filter);
+    std::string result = apply_all(*filter, input);
     EXPECT_FALSE(result.empty());
 }
 
 TEST_F(ICUNormalizerCharFilterFactoryTest, CreateWithoutInitializeThrows) {
     ICUNormalizerCharFilterFactory factory;
 
-    auto reader = make_reader("test");
-    EXPECT_THROW(factory.create(reader), Exception);
+    EXPECT_THROW(factory.create(), Exception);
 }
 
 TEST_F(ICUNormalizerCharFilterFactoryTest, EmptyInput) {
@@ -229,43 +203,37 @@ TEST_F(ICUNormalizerCharFilterFactoryTest, EmptyInput) {
     ICUNormalizerCharFilterFactory factory;
     factory.initialize(settings);
 
-    auto reader = make_reader(input);
-    auto filter = factory.create(reader);
+    auto filter = factory.create();
 
-    filter->init(input.data(), static_cast<int32_t>(input.size()), false);
-
-    const void* data = nullptr;
-    int32_t len = filter->read(&data, 0, static_cast<int32_t>(filter->size()));
-    EXPECT_EQ(len, -1);
-    EXPECT_TRUE(data == nullptr || filter->size() == 0);
+    std::string scratch;
+    const std::string_view result = filter->apply(input, scratch);
+    EXPECT_TRUE(result.empty());
+    EXPECT_TRUE(scratch.empty());
 }
 
 TEST_F(ICUNormalizerCharFilterFactoryTest, NullNormalizerInFilterThrows) {
-    auto reader = make_reader("test");
     std::shared_ptr<const icu::Normalizer2> normalizer = nullptr;
-    EXPECT_THROW(ICUNormalizerCharFilter(reader, normalizer), Exception);
+    EXPECT_THROW(ICUNormalizerCharFilter {normalizer}, Exception);
 }
 
-TEST_F(ICUNormalizerCharFilterFactoryTest, InitializeOnlyFillsOnce) {
-    std::string input = "Cafe\u0301";
+TEST_F(ICUNormalizerCharFilterFactoryTest, ReusedFilterNormalizesEveryValue) {
+    std::string input = "Café";
 
     Settings settings;
     ICUNormalizerCharFilterFactory factory;
     factory.initialize(settings);
 
-    auto reader = make_reader(input);
-    auto filter = std::dynamic_pointer_cast<ICUNormalizerCharFilter>(factory.create(reader));
-    ASSERT_NE(filter, nullptr);
+    auto filter = factory.create();
+    ASSERT_NE(dynamic_cast<ICUNormalizerCharFilter*>(filter.get()), nullptr);
 
-    filter->initialize();
-    std::string first = read_all(filter);
+    std::string first = apply_all(*filter, input);
     EXPECT_FALSE(first.empty());
     EXPECT_EQ(first, "café");
 
-    filter->initialize();
+    EXPECT_EQ(apply_all(*filter, input), first);
 }
 
-TEST_F(ICUNormalizerCharFilterFactoryTest, SparseOffsetCorrectionsRemainCompact) {
+TEST_F(ICUNormalizerCharFilterFactoryTest, SparseEditInALongValue) {
     constexpr size_t unchanged_bytes = 4 * 1024 * 1024;
     std::string input(unchanged_bytes, 'a');
     input += "Ｌ";
@@ -275,21 +243,18 @@ TEST_F(ICUNormalizerCharFilterFactoryTest, SparseOffsetCorrectionsRemainCompact)
     ICUNormalizerCharFilterFactory factory;
     factory.initialize(settings);
 
-    auto reader = make_reader(input);
-    auto filter = std::dynamic_pointer_cast<ICUNormalizerCharFilter>(factory.create(reader));
-    ASSERT_NE(filter, nullptr);
-    filter->init(input.data(), static_cast<int32_t>(input.size()), false);
+    auto filter = factory.create();
+    ASSERT_NE(dynamic_cast<ICUNormalizerCharFilter*>(filter.get()), nullptr);
 
-    EXPECT_EQ(filter->correct_offset(static_cast<int32_t>(unchanged_bytes)), unchanged_bytes);
-    EXPECT_EQ(filter->correct_offset(static_cast<int32_t>(unchanged_bytes + 1)),
-              unchanged_bytes + 3);
-    EXPECT_EQ(filter->correct_offset(static_cast<int32_t>(unchanged_bytes + 2)),
-              unchanged_bytes + 4);
+    std::string expected(unchanged_bytes, 'a');
+    expected += "l";
+    expected.append(unchanged_bytes, 'a');
+    EXPECT_EQ(apply_all(*filter, input), expected);
 }
 
-TEST_F(ICUNormalizerCharFilterFactoryTest, DenseAlternatingEditsMapOffsetsWithoutSideTable) {
+TEST_F(ICUNormalizerCharFilterFactoryTest, DenseAlternatingEditsInALongValue) {
     // Every second rune is folded 3 -> 1 with one unchanged byte in between, so nothing
-    // coalesces; the correction state must stay bounded by ICU's own edit encoding.
+    // coalesces.
     constexpr int32_t pairs = 100000;
     std::string input;
     input.reserve(static_cast<size_t>(pairs) * 4);
@@ -301,24 +266,11 @@ TEST_F(ICUNormalizerCharFilterFactoryTest, DenseAlternatingEditsMapOffsetsWithou
     ICUNormalizerCharFilterFactory factory;
     factory.initialize(settings);
 
-    auto reader = make_reader(input);
-    auto filter = std::dynamic_pointer_cast<ICUNormalizerCharFilter>(factory.create(reader));
-    ASSERT_NE(filter, nullptr);
-    filter->init(input.data(), static_cast<int32_t>(input.size()), false);
-    ASSERT_EQ(filter->size(), static_cast<size_t>(pairs) * 2);
-
-    auto expect_pair = [&filter](int32_t k) {
-        EXPECT_EQ(filter->correct_offset(2 * k), 4 * k);
-        EXPECT_EQ(filter->correct_offset(2 * k + 1), 4 * k + 1);
-        EXPECT_EQ(filter->correct_offset(2 * k + 2), 4 * k + 4);
-    };
-    for (int32_t k = 0; k < pairs; k += 997) {
-        expect_pair(k);
-    }
-    for (int32_t k = pairs - 1; k >= 0; k -= 991) {
-        expect_pair(k);
-    }
-    EXPECT_EQ(filter->correct_offset(2 * pairs), 4 * pairs);
+    auto filter = factory.create();
+    ASSERT_NE(dynamic_cast<ICUNormalizerCharFilter*>(filter.get()), nullptr);
+    const std::string result = apply_all(*filter, input);
+    ASSERT_EQ(result.size(), static_cast<size_t>(pairs) * 2);
+    EXPECT_EQ(result, std::string(static_cast<size_t>(pairs) * 2, 'a'));
 }
 
 } // namespace doris::segment_v2::inverted_index

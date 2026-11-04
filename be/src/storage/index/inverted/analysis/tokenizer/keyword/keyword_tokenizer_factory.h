@@ -32,10 +32,10 @@ public:
         _buffer_size = settings.get_int("buffer_size", KeywordTokenizer::DEFAULT_BUFFER_SIZE);
     }
 
-    TokenizerPtr create() override {
-        auto tokenzier = std::make_shared<KeywordTokenizer>();
-        tokenzier->initialize(_buffer_size);
-        return tokenzier;
+    std::unique_ptr<TextTokenizer> create() const override {
+        auto tokenizer = std::make_unique<KeywordTokenizer>();
+        tokenizer->initialize(_buffer_size);
+        return tokenizer;
     }
 
 private:

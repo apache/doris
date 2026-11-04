@@ -20,20 +20,15 @@
 #include <string>
 #include <vector>
 
-#include "CLucene.h"
 #include "storage/index/inverted/analysis/analyzer/kuromoji/KuromojiTokenizer.h"
-
-using namespace lucene::analysis;
 
 namespace doris::segment_v2 {
 
 // The kuromoji tokenizer requires a dictionary.
 TEST(KuromojiTokenizerTest, RequiresDictionary) {
-    KuromojiTokenizer tk(KuromojiMode::Search, true, false); // no dictionary
+    KuromojiTokenizer tk(KuromojiMode::Search, true); // no dictionary
     std::string s = "東京都";
-    lucene::util::SStringReader<char> reader;
-    reader.init(s.data(), s.size(), false);
-    EXPECT_ANY_THROW(tk.reset(&reader));
+    EXPECT_ANY_THROW(tk.reset(s));
 }
 
 } // namespace doris::segment_v2

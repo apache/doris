@@ -17,8 +17,10 @@
 
 #pragma once
 
+#include <memory>
+
 #include "storage/index/inverted/analysis/abstract_analysis_factory.h"
-#include "storage/index/inverted/analysis/reader.h"
+#include "storage/index/inverted/analysis/char_filter/char_filter.h"
 
 namespace doris::segment_v2::inverted_index {
 
@@ -27,7 +29,8 @@ public:
     CharFilterFactory() = default;
     ~CharFilterFactory() override = default;
 
-    virtual ReaderPtr create(const ReaderPtr& in) = 0;
+    // A char filter of its own for one stream; callable from several threads once initialized.
+    virtual std::unique_ptr<TextCharFilter> create() const = 0;
 };
 using CharFilterFactoryPtr = std::shared_ptr<CharFilterFactory>;
 

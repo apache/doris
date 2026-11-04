@@ -17,30 +17,36 @@
 
 #pragma once
 
-#include "storage/index/inverted/analysis/tokenizer/tokenizer.h"
+#include <array>
+#include <string>
+#include <string_view>
+#include <vector>
 
-using namespace lucene::analysis;
+#include "storage/index/inverted/analysis/per_token_stream.h"
 
 namespace doris::segment_v2::inverted_index {
 
-class BasicTokenizer : public DorisTokenizer {
+// Runs of ASCII letters and digits, each Chinese char, and each extra char as tokens.
+class BasicTokenizer final : public PerTokenTokenizer {
 public:
-    BasicTokenizer() = default;
-    BasicTokenizer(bool own_reader);
-    ~BasicTokenizer() override = default;
+    BasicTokenizer() : PerTokenTokenizer(TermLifetime::kUntilReset) {}
 
     void initialize(const std::string& extra_chars = "");
 
-    Token* next(Token* token) override;
-    void reset() override;
+    // The tokens are views of the value; the list of them is kept.
+    size_t reserved_bytes() const override {
+        return _tokens_text.capacity() * sizeof(std::string_view);
+    }
+
+protected:
+    void on_reset(std::string_view text) override;
+    bool next_token(TokenRef& token) override;
 
 private:
     template <bool HasExtraChars>
-    void cut();
+    void cut(std::string_view text);
 
-    int32_t _buffer_index = 0;
-    int32_t _data_len = 0;
-    std::string _buffer;
+    size_t _buffer_index = 0;
     std::vector<std::string_view> _tokens_text;
 
     std::array<bool, 128> _extra_char_set {};

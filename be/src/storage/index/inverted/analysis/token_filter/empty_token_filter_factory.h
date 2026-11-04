@@ -17,23 +17,11 @@
 
 #pragma once
 
-#include "storage/index/inverted/analysis/token_filter/token_filter.h"
 #include "storage/index/inverted/analysis/token_filter/token_filter_factory.h"
 
 namespace doris::segment_v2::inverted_index {
 
-class EmptyTokenFilter : public DorisTokenFilter {
-public:
-    EmptyTokenFilter(const TokenStreamPtr& in) : DorisTokenFilter(in) {}
-    ~EmptyTokenFilter() override = default;
-
-    void initialize() {}
-
-    Token* next(Token* t) override { return _in->next(t); }
-
-    void reset() override { DorisTokenFilter::reset(); }
-};
-
+// The filter that changes nothing: the stream is its input itself.
 class EmptyTokenFilterFactory : public TokenFilterFactory {
 public:
     EmptyTokenFilterFactory() = default;
@@ -41,14 +29,8 @@ public:
 
     void initialize(const Settings& settings) override {}
 
-    TokenFilterPtr create(const TokenStreamPtr& in) override {
-        auto token_filter = std::make_shared<EmptyTokenFilter>(in);
-        token_filter->initialize();
-        return token_filter;
-    }
-
-    PositionCapability position_capability() const override {
-        return PositionCapability::kAlwaysUnitIncrement;
+    std::unique_ptr<TextTokenStream> create(std::unique_ptr<TextTokenStream> in) const override {
+        return in;
     }
 };
 

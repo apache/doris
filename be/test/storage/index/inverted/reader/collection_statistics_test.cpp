@@ -147,18 +147,18 @@ private:
 
 class FixedAnalyzerProvider final : public segment_v2::inverted_index::AnalyzerProvider {
 public:
-    explicit FixedAnalyzerProvider(std::shared_ptr<lucene::analysis::Analyzer> analyzer)
+    explicit FixedAnalyzerProvider(segment_v2::inverted_index::TextAnalyzerPtr analyzer)
             : _analyzer(std::move(analyzer)) {}
 
-    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const override { return _analyzer; }
+    segment_v2::inverted_index::TextAnalyzerPtr get_analyzer() const override { return _analyzer; }
 
 private:
-    std::shared_ptr<lucene::analysis::Analyzer> _analyzer;
+    segment_v2::inverted_index::TextAnalyzerPtr _analyzer;
 };
 
 class FailingAnalyzerProvider final : public segment_v2::inverted_index::AnalyzerProvider {
 public:
-    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const override {
+    segment_v2::inverted_index::TextAnalyzerPtr get_analyzer() const override {
         throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
                         "forced missing dictionary failure");
     }
@@ -2853,8 +2853,10 @@ TEST_F(CollectionStatisticsTest, CollectPreservesLogicalClauseShapesForSameField
 TEST_F(CollectionStatisticsTest, CollectUsesMatchRequestAnalyzerProvider) {
     auto tablet_schema = create_tablet_schema_with_inverted_index();
 
-    auto analyzer = segment_v2::inverted_index::InvertedIndexAnalyzer::create_builtin_analyzer(
-            InvertedIndexParserType::PARSER_ENGLISH, "", INVERTED_INDEX_PARSER_FALSE, "none");
+    segment_v2::inverted_index::TextAnalyzerPtr analyzer =
+            segment_v2::inverted_index::InvertedIndexAnalyzer::create_builtin_analyzer(
+                    InvertedIndexParserType::PARSER_ENGLISH, "", INVERTED_INDEX_PARSER_FALSE,
+                    "none");
     auto provider =
             std::make_shared<collection_statistics::FixedAnalyzerProvider>(std::move(analyzer));
     auto analyzer_ctx = std::make_shared<InvertedIndexAnalyzerCtx>();

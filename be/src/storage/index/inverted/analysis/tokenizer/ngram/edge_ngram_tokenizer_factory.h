@@ -21,7 +21,6 @@
 #include "storage/index/inverted/analysis/tokenizer/ngram/char_matcher.h"
 #include "storage/index/inverted/analysis/tokenizer/ngram/edge_ngram_tokenizer.h"
 #include "storage/index/inverted/analysis/tokenizer/ngram/ngram_tokenizer_factory.h"
-#include "storage/index/inverted/analysis/tokenizer/tokenizer.h"
 #include "storage/index/inverted/analysis/tokenizer/tokenizer_factory.h"
 
 namespace doris::segment_v2::inverted_index {
@@ -37,27 +36,21 @@ public:
         _matcher = NGramTokenizerFactory::parse_token_chars(settings);
     }
 
-    TokenizerPtr create() override {
+    std::unique_ptr<TextTokenizer> create() const override {
         if (_matcher == nullptr) {
-            return std::make_shared<EdgeNGramTokenizer>(_min_gram, _max_gram);
-        } else {
-            class EdgeNGramTokenizerWithMatcher : public EdgeNGramTokenizer {
-            public:
-                EdgeNGramTokenizerWithMatcher(int32_t min_gram, int32_t max_gram,
-                                              CharMatcherPtr matcher)
-                        : EdgeNGramTokenizer(min_gram, max_gram), _matcher(std::move(matcher)) {}
-
-                bool is_token_char(UChar32 chr) override { return _matcher->is_token_char(chr); }
-
-            private:
-                CharMatcherPtr _matcher;
-            };
-            return std::make_shared<EdgeNGramTokenizerWithMatcher>(_min_gram, _max_gram, _matcher);
+            return std::make_unique<EdgeNGramTokenizer>(_min_gram, _max_gram);
         }
-    }
+        class EdgeNGramTokenizerWithMatcher : public EdgeNGramTokenizer {
+        public:
+            EdgeNGramTokenizerWithMatcher(int32_t min_gram, int32_t max_gram,
+                                          CharMatcherPtr matcher)
+                    : EdgeNGramTokenizer(min_gram, max_gram), _matcher(std::move(matcher)) {}
+            bool is_token_char(UChar32 chr) override { return _matcher->is_token_char(chr); }
 
-    PositionCapability position_capability() const override {
-        return PositionCapability::kAlwaysUnitIncrement;
+        private:
+            CharMatcherPtr _matcher;
+        };
+        return std::make_unique<EdgeNGramTokenizerWithMatcher>(_min_gram, _max_gram, _matcher);
     }
 
 private:

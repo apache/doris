@@ -141,10 +141,8 @@ protected:
         const std::string text = "one two";
         const auto indexed_terms = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
                 text, reader->get_index_properties());
-        auto query_reader = inverted_index::InvertedIndexAnalyzer::create_reader({});
-        query_reader->init(text.data(), static_cast<int32_t>(text.size()), false);
         const auto query_terms = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                query_reader, predicate.query_analyzer_ctx()->get_analyzer().get());
+                text, *predicate.query_analyzer_ctx()->get_analyzer());
         EXPECT_EQ(indexed_terms.size(), expected_count);
         EXPECT_EQ(query_terms.size(), indexed_terms.size());
     }

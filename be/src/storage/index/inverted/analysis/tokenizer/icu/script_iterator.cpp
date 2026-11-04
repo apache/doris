@@ -37,7 +37,7 @@ void ScriptIterator::initialize() {
             if (U_FAILURE(status)) {
                 std::string error_msg = "Get script failed: ";
                 error_msg += u_errorName(status);
-                _CLTHROWT(CL_ERR_IllegalArgument, error_msg.c_str());
+                throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR, error_msg);
             }
         }
         return k_basic_latin;
@@ -90,7 +90,7 @@ int32_t ScriptIterator::get_script(UChar32 codepoint) const {
             std::string error_msg = "Get Script error: ";
             error_msg += u_errorName(err);
             error_msg += ", script: " + std::to_string(script);
-            _CLTHROWT(CL_ERR_Runtime, error_msg.c_str());
+            throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR, error_msg);
         }
         if (combine_cj_) {
             if (script == USCRIPT_HAN || script == USCRIPT_HIRAGANA || script == USCRIPT_KATAKANA) {

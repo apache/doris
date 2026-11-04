@@ -20,6 +20,7 @@
 #include <unordered_map>
 
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
+#include "storage/index/inverted/analysis/text_stream_contract.h"
 #include "storage/index/inverted/analysis/tokenizer/keyword/keyword_tokenizer_factory.h"
 
 namespace doris::segment_v2 {
@@ -29,21 +30,8 @@ using namespace inverted_index;
 class KeywordTokenizerTest : public ::testing::Test {};
 
 std::vector<std::string> tokenize(KeywordTokenizerFactory& factory, const std::string& text) {
-    std::vector<std::string> tokens;
     auto tokenizer = factory.create();
-    {
-        ReaderPtr reader = std::make_shared<lucene::util::SStringReader<char>>();
-        reader->init(text.data(), text.size(), false);
-        tokenizer->set_reader(reader);
-        tokenizer->reset();
-
-        Token t;
-        while (tokenizer->next(&t)) {
-            std::string term(t.termBuffer<char>(), t.termLength<char>());
-            tokens.emplace_back(term);
-        }
-    }
-    return tokens;
+    return collect_terms(*tokenizer, text);
 }
 
 TEST(KeywordTokenizerTest, BasicTokenization) {
@@ -148,31 +136,16 @@ TEST(KeywordTokenizerTest, LongInputStopsBeforeMultibyteRune) {
     KeywordTokenizerFactory factory;
     factory.initialize({});
     auto tokenizer = factory.create();
-    tokenizer->set_source_byte_offsets_enabled(true);
 
     const std::string text = std::string(8191, 'a') + "\xE5\x88\x98";
-    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
-    reader->init(text.data(), static_cast<int32_t>(text.size()), false);
-    tokenizer->set_reader(reader);
-    tokenizer->reset();
-
-    Token token;
-    ASSERT_NE(tokenizer->next(&token), nullptr);
-    EXPECT_EQ(std::string(token.termBuffer<char>(), token.termLength<char>()),
-              std::string(8191, 'a'));
-    EXPECT_EQ(token.startOffset(), 0);
-    EXPECT_EQ(token.endOffset(), 8191);
-    ASSERT_FALSE(tokenizer->get_source_byte_offsets().empty());
-    EXPECT_EQ(tokenizer->get_source_byte_offsets().back(), 8191);
+    const std::vector<std::string> tokens = collect_terms(*tokenizer, text);
+    ASSERT_FALSE(tokens.empty());
+    EXPECT_EQ(tokens[0], std::string(8191, 'a'));
 
     const std::string reset_text = "\xE5\x88\x98";
-    reader->init(reset_text.data(), static_cast<int32_t>(reset_text.size()), false);
-    tokenizer->set_reader(reader);
-    tokenizer->reset();
-    ASSERT_NE(tokenizer->next(&token), nullptr);
-    EXPECT_EQ(std::string(token.termBuffer<char>(), token.termLength<char>()), reset_text);
-    EXPECT_EQ(token.startOffset(), 0);
-    EXPECT_EQ(token.endOffset(), 3);
+    const std::vector<std::string> reset_tokens = collect_terms(*tokenizer, reset_text);
+    ASSERT_FALSE(reset_tokens.empty());
+    EXPECT_EQ(reset_tokens[0], reset_text);
 }
 
 } // namespace doris::segment_v2

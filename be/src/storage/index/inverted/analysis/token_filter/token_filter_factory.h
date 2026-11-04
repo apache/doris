@@ -17,8 +17,10 @@
 
 #pragma once
 
+#include <memory>
+
 #include "storage/index/inverted/analysis/abstract_analysis_factory.h"
-#include "storage/index/inverted/analysis/token_filter/token_filter.h"
+#include "storage/index/inverted/analysis/text_token_stream.h"
 
 namespace doris::segment_v2::inverted_index {
 
@@ -27,8 +29,9 @@ public:
     TokenFilterFactory() = default;
     ~TokenFilterFactory() override = default;
 
-    virtual TokenFilterPtr create(const TokenStreamPtr& in) = 0;
-    virtual PositionCapability position_capability() const { return PositionCapability::kUnknown; }
+    // The filter over `in`, which it takes over; callable from several threads once initialized.
+    // A filter that changes nothing may hand back `in` itself.
+    virtual std::unique_ptr<TextTokenStream> create(std::unique_ptr<TextTokenStream> in) const = 0;
 };
 using TokenFilterFactoryPtr = std::shared_ptr<TokenFilterFactory>;
 

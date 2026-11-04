@@ -25,18 +25,20 @@
 #include <utility>
 
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
+#include "storage/index/inverted/analysis/analyzer/custom_analyzer.h"
+#include "storage/index/inverted/analysis/normalizer/custom_normalizer.h"
 
 namespace doris {
 namespace {
 
 class SingleAnalyzerProvider final : public segment_v2::inverted_index::AnalyzerProvider {
 public:
-    explicit SingleAnalyzerProvider(AnalyzerPtr analyzer) : _analyzer(std::move(analyzer)) {}
+    explicit SingleAnalyzerProvider(TextAnalyzerPtr analyzer) : _analyzer(std::move(analyzer)) {}
 
-    AnalyzerPtr get_analyzer() const override { return _analyzer; }
+    TextAnalyzerPtr get_analyzer() const override { return _analyzer; }
 
 private:
-    const AnalyzerPtr _analyzer;
+    const TextAnalyzerPtr _analyzer;
 };
 
 } // namespace
@@ -182,7 +184,7 @@ const TIndexPolicy* IndexPolicyMgr::find_top_level_policy_locked(const std::stri
 
 // Hold the lock throughout nested policy resolution so an analyzer observes a consistent
 // policy-name mapping and policy set.
-AnalyzerPtr IndexPolicyMgr::get_policy_by_name(const std::string& name) {
+TextAnalyzerPtr IndexPolicyMgr::get_policy_by_name(const std::string& name) {
     std::shared_lock lock(_mutex);
 
     std::string normalized_name = normalize_name(name);
@@ -204,7 +206,7 @@ AnalyzerPtr IndexPolicyMgr::get_policy_by_name(const std::string& name) {
     throw Exception(ErrorCode::INVALID_ARGUMENT, "Policy not found with type: " + name);
 }
 
-AnalyzerPtr IndexPolicyMgr::get_analyzer_by_name(const std::string& name) {
+TextAnalyzerPtr IndexPolicyMgr::get_analyzer_by_name(const std::string& name) {
     std::shared_lock lock(_mutex);
     const std::string normalized_name = normalize_name(name);
     bool builtin_normalizer = false;
@@ -216,8 +218,7 @@ AnalyzerPtr IndexPolicyMgr::get_analyzer_by_name(const std::string& name) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Policy not found with name: " + name);
     }
     if (index_policy->type == TIndexPolicyType::ANALYZER) {
-        return build_analyzer_provider_from_config(build_analyzer_config_from_policy(*index_policy),
-                                                   {})
+        return build_analyzer_provider_from_config(build_analyzer_config_from_policy(*index_policy))
                 ->get_analyzer();
     }
     if (index_policy->type == TIndexPolicyType::NORMALIZER) {
@@ -226,9 +227,9 @@ AnalyzerPtr IndexPolicyMgr::get_analyzer_by_name(const std::string& name) {
     throw Exception(ErrorCode::INVALID_ARGUMENT, "Analyzer policy not found: " + name);
 }
 
-AnalyzerProviderPtr IndexPolicyMgr::get_analyzer_provider_by_name(
-        const std::string& name, const std::map<std::string, std::string>& outer_char_filter_map,
-        std::string* resolved_name, std::string* legacy_name) {
+AnalyzerProviderPtr IndexPolicyMgr::get_analyzer_provider_by_name(const std::string& name,
+                                                                  std::string* resolved_name,
+                                                                  std::string* legacy_name) {
     std::shared_lock lock(_mutex);
     if (resolved_name != nullptr) {
         *resolved_name = name;
@@ -257,8 +258,8 @@ AnalyzerProviderPtr IndexPolicyMgr::get_analyzer_provider_by_name(
         *legacy_name = normalized_name;
     }
     if (index_policy->type == TIndexPolicyType::ANALYZER) {
-        return build_analyzer_provider_from_config(build_analyzer_config_from_policy(*index_policy),
-                                                   outer_char_filter_map);
+        return build_analyzer_provider_from_config(
+                build_analyzer_config_from_policy(*index_policy));
     }
     if (index_policy->type == TIndexPolicyType::NORMALIZER) {
         return std::make_shared<SingleAnalyzerProvider>(
@@ -267,7 +268,7 @@ AnalyzerProviderPtr IndexPolicyMgr::get_analyzer_provider_by_name(
     throw Exception(ErrorCode::INVALID_ARGUMENT, "Analyzer policy not found: " + name);
 }
 
-AnalyzerPtr IndexPolicyMgr::get_normalizer_by_name(const std::string& name) {
+TextAnalyzerPtr IndexPolicyMgr::get_normalizer_by_name(const std::string& name) {
     std::shared_lock lock(_mutex);
     bool builtin_normalizer = false;
     const auto* index_policy = find_top_level_policy_locked(name, &builtin_normalizer);
@@ -338,19 +339,18 @@ IndexPolicyMgr::build_analyzer_config_from_policy(const TIndexPolicy& index_poli
 }
 
 AnalyzerProviderPtr IndexPolicyMgr::build_analyzer_provider_from_config(
-        segment_v2::inverted_index::CustomAnalyzerConfigPtr config,
-        const std::map<std::string, std::string>& outer_char_filter_map) {
-    return std::make_shared<segment_v2::inverted_index::CustomAnalyzerProvider>(
-            std::move(config), outer_char_filter_map);
+        segment_v2::inverted_index::CustomAnalyzerConfigPtr config) {
+    return std::make_shared<segment_v2::inverted_index::CustomAnalyzerProvider>(std::move(config));
 }
 
-AnalyzerPtr IndexPolicyMgr::build_analyzer_from_policy(const TIndexPolicy& index_policy_analyzer) {
+TextAnalyzerPtr IndexPolicyMgr::build_analyzer_from_policy(
+        const TIndexPolicy& index_policy_analyzer) {
     return build_analyzer_provider_from_config(
-                   build_analyzer_config_from_policy(index_policy_analyzer), {})
+                   build_analyzer_config_from_policy(index_policy_analyzer))
             ->get_analyzer();
 }
 
-AnalyzerPtr IndexPolicyMgr::build_normalizer_from_policy(
+TextAnalyzerPtr IndexPolicyMgr::build_normalizer_from_policy(
         const TIndexPolicy& index_policy_normalizer) {
     segment_v2::inverted_index::CustomNormalizerConfig::Builder builder;
 
@@ -437,7 +437,7 @@ bool IndexPolicyMgr::is_builtin_normalizer(const std::string& name) {
     return BUILTIN_NORMALIZERS.contains(name);
 }
 
-AnalyzerPtr IndexPolicyMgr::build_builtin_normalizer(const std::string& name) {
+TextAnalyzerPtr IndexPolicyMgr::build_builtin_normalizer(const std::string& name) {
     using namespace segment_v2::inverted_index;
 
     if (name == "lowercase") {

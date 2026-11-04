@@ -15,42 +15,45 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/index/inverted/analysis/analyzer/icu/icu_analyzer.h"
-
 #include <gtest/gtest.h>
 
 #include <memory>
 #include <string>
 #include <vector>
 
-using namespace lucene::analysis;
+#include "common/config.h"
+#include "common/exception.h"
+#include "storage/index/inverted/analysis/analyzer/analyzer.h"
+#include "storage/index/inverted/analysis/inverted_index_parser.h"
+#include "storage/index/inverted/analysis/text_stream_contract.h"
+#include "storage/index/inverted/clucene/lucene_analyzer_bridge.h"
 
 namespace doris::segment_v2 {
 
 class ICUTokenizerTest : public ::testing::Test {
 protected:
-    void tokenize(const std::string& s, std::vector<std::string>& datas) {
-        try {
-            ICUAnalyzer analyzer;
-            analyzer.initDict("./be/dict/icu");
-            analyzer.set_lowercase(false);
-
-            auto reader = std::make_shared<lucene::util::SStringReader<char>>();
-            reader->init(s.data(), s.size(), false);
-
-            std::unique_ptr<inverted_index::ICUTokenizer> tokenizer;
-            tokenizer.reset((inverted_index::ICUTokenizer*)analyzer.tokenStream(L"", reader));
-
-            Token t;
-            while (tokenizer->next(&t)) {
-                std::string term(t.termBuffer<char>(), t.termLength<char>());
-                datas.emplace_back(term);
-            }
-        } catch (CLuceneError& e) {
-            std::cout << e.what() << std::endl;
-            throw e;
-        }
+    void SetUp() override {
+        _saved_dict_path = config::inverted_index_dict_path;
+        config::inverted_index_dict_path = "./be/dict";
     }
+
+    void TearDown() override { config::inverted_index_dict_path = _saved_dict_path; }
+
+    // The builtin icu parser.
+    static inverted_index::TextAnalyzerPtr icu_analyzer(bool lowercase) {
+        return inverted_index::InvertedIndexAnalyzer::create_builtin_analyzer(
+                InvertedIndexParserType::PARSER_ICU, "",
+                lowercase ? INVERTED_INDEX_PARSER_TRUE : INVERTED_INDEX_PARSER_FALSE, "");
+    }
+
+    void tokenize(const std::string& s, std::vector<std::string>& datas) {
+        const std::vector<std::string> terms =
+                inverted_index::collect_terms(*icu_analyzer(false), s);
+        datas.insert(datas.end(), terms.begin(), terms.end());
+    }
+
+private:
+    std::string _saved_dict_path;
 };
 
 TEST_F(ICUTokenizerTest, TestICUTokenizer) {
@@ -573,37 +576,22 @@ TEST_F(ICUTokenizerTest, TestICUScriptExtensions) {
 }
 
 TEST_F(ICUTokenizerTest, TestICUAnalyzerCreateComponentsWithLowercase) {
-    std::vector<std::string> datas;
-
-    ICUAnalyzer analyzer;
-    analyzer.initDict("./be/dict/icu");
-    analyzer.set_lowercase(true);
-
     std::string text = "Mixed Case TEXT with Numbers 123.";
-    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
-    reader->init(text.data(), text.size(), false);
-
-    auto token_stream = analyzer.tokenStream(L"", reader);
+    auto token_stream = icu_analyzer(true)->create_stream();
     ASSERT_NE(token_stream, nullptr);
-
-    Token t;
-    while (token_stream->next(&t)) {
-        std::string term(t.termBuffer<char>(), t.termLength<char>());
-        datas.emplace_back(term);
-    }
+    std::vector<std::string> datas = inverted_index::collect_terms(*token_stream, text);
 
     std::vector<std::string> expected = {"mixed", "case", "text", "with", "numbers", "123"};
     ASSERT_EQ(datas.size(), expected.size());
     for (size_t i = 0; i < datas.size(); i++) {
         ASSERT_EQ(datas[i], expected[i]);
     }
-
-    delete token_stream;
 }
 
+// The V1/V2 writer reaches the icu analyzer through the bridge, which takes the value as a shared
+// reader only.
 TEST_F(ICUTokenizerTest, TestICUAnalyzerTokenStreamThrowsException) {
-    ICUAnalyzer analyzer;
-    analyzer.initDict("./be/dict/icu");
+    inverted_index::LuceneAnalyzerBridge analyzer(icu_analyzer(true));
 
     std::string text = "Hello World!";
     auto reader = std::make_shared<lucene::util::SStringReader<char>>();
@@ -613,8 +601,7 @@ TEST_F(ICUTokenizerTest, TestICUAnalyzerTokenStreamThrowsException) {
 }
 
 TEST_F(ICUTokenizerTest, TestICUAnalyzerReusableTokenStreamThrowsException) {
-    ICUAnalyzer analyzer;
-    analyzer.initDict("./be/dict/icu");
+    inverted_index::LuceneAnalyzerBridge analyzer(icu_analyzer(true));
 
     std::string text = "Hello World!";
     auto reader = std::make_shared<lucene::util::SStringReader<char>>();

@@ -17,7 +17,13 @@
 
 #include "storage/index/inverted/analysis/tokenizer/basic/basic_tokenizer.h"
 
-#include <unicode/unistr.h>
+#include <unicode/uchar.h>
+#include <unicode/utf8.h>
+
+#include <algorithm>
+
+#include "storage/index/inverted/analysis/common/rune.h"
+#include "storage/index/inverted/analysis/scratch.h"
 
 namespace doris::segment_v2::inverted_index {
 
@@ -28,9 +34,13 @@ namespace doris::segment_v2::inverted_index {
      IS_IN_RANGE(c, 0x20000, 0x2A6DF) || IS_IN_RANGE(c, 0x2A700, 0x2EBEF) || \
      IS_IN_RANGE(c, 0x30000, 0x3134A))
 
-BasicTokenizer::BasicTokenizer(bool own_reader) {
-    this->ownReader = own_reader;
+namespace {
+
+bool is_ascii_alnum(uint8_t c) {
+    return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
 }
+
+} // namespace
 
 void BasicTokenizer::initialize(const std::string& extra_chars) {
     _extra_char_set.fill(false);
@@ -43,67 +53,43 @@ void BasicTokenizer::initialize(const std::string& extra_chars) {
     }
 }
 
-Token* BasicTokenizer::next(Token* token) {
-    if (_buffer_index >= _data_len) {
-        return nullptr;
+bool BasicTokenizer::next_token(TokenRef& token) {
+    if (_buffer_index >= _tokens_text.size()) {
+        return false;
     }
-
-    std::string_view& token_text = _tokens_text[_buffer_index++];
-    size_t size = std::min(token_text.size(), static_cast<size_t>(LUCENE_MAX_WORD_LEN));
-    token->setNoCopy(token_text.data(), 0, static_cast<int32_t>(size));
-    const auto source_start = static_cast<int32_t>(token_text.data() - _buffer.data());
-    std::string_view term(token_text.data(), size);
-    set_source_byte_offsets(term, source_start);
-    token->setStartOffset(correct_source_start_offset(source_start));
-    token->setEndOffset(correct_source_offset(source_start + static_cast<int32_t>(size)));
-    return token;
+    const std::string_view token_text = _tokens_text[_buffer_index++];
+    token = {.data = token_text.data(),
+             .size = static_cast<uint32_t>(
+                     std::min(token_text.size(), static_cast<size_t>(MAX_WORD_LEN))),
+             .position_increment = 1};
+    return true;
 }
 
-void BasicTokenizer::reset() {
-    DorisTokenizer::reset();
-
+void BasicTokenizer::on_reset(std::string_view text) {
     _buffer_index = 0;
-    _data_len = 0;
     _tokens_text.clear();
-
-    _buffer.resize(_in->size());
-    size_t numRead = _in->readCopy(_buffer.data(), 0, static_cast<int32_t>(_buffer.size()));
-    (void)numRead;
-    assert(_buffer.size() == numRead);
-
+    release_oversized_scratch(_tokens_text);
     if (_has_extra_chars) {
-        cut<true>();
+        cut<true>(text);
     } else {
-        cut<false>();
+        cut<false>(text);
     }
-
-    _data_len = static_cast<int32_t>(_tokens_text.size());
 }
 
 template <bool HasExtraChars>
-void BasicTokenizer::cut() {
-    auto* s = (uint8_t*)_buffer.data();
-    auto length = static_cast<int32_t>(_buffer.size());
+void BasicTokenizer::cut(std::string_view text) {
+    const auto* s = reinterpret_cast<const uint8_t*>(text.data());
+    const auto length = static_cast<int32_t>(text.size());
 
     for (int32_t i = 0; i < length;) {
         uint8_t firstByte = s[i];
 
-        if (is_alnum(firstByte)) {
+        if (is_ascii_alnum(firstByte)) {
             int32_t start = i;
-            while (i < length) {
-                uint8_t nextByte = s[i];
-                if (!is_alnum(nextByte)) {
-                    break;
-                }
-                if (this->lowercase) {
-                    s[i] = to_lower(nextByte);
-                } else {
-                    s[i] = nextByte;
-                }
+            while (i < length && is_ascii_alnum(s[i])) {
                 i++;
             }
-            std::string_view token((const char*)(s + start), i - start);
-            _tokens_text.emplace_back(token);
+            _tokens_text.emplace_back(reinterpret_cast<const char*>(s + start), i - start);
         } else {
             UChar32 c = U_UNASSIGNED;
             const int32_t prev_i = i;

@@ -34,8 +34,8 @@ public:
                 settings.get_int("max_token_length", StandardTokenizer::DEFAULT_MAX_TOKEN_LENGTH);
     }
 
-    TokenizerPtr create() override {
-        auto tokenizer = std::make_shared<StandardTokenizer>();
+    std::unique_ptr<TextTokenizer> create() const override {
+        auto tokenizer = std::make_unique<StandardTokenizer>();
         tokenizer->set_max_token_length(_max_token_length);
         return tokenizer;
     }

@@ -17,26 +17,36 @@
 
 #pragma once
 
+#include <unicode/umachine.h>
+
 #include <array>
 #include <cstdint>
+#include <string_view>
 
-#include "storage/index/inverted/analysis/tokenizer/tokenizer.h"
+#include "storage/index/inverted/analysis/per_token_stream.h"
 
 namespace doris::segment_v2::inverted_index {
 
-class CharTokenizer : public DorisTokenizer {
+// Splits the value into runs of token chars, at most max_token_len bytes each; a CJK char is a
+// token of its own.
+class CharTokenizer : public PerTokenTokenizer {
 public:
-    CharTokenizer() = default;
+    CharTokenizer() : PerTokenTokenizer(TermLifetime::kUntilReset) {}
     ~CharTokenizer() override = default;
 
     void initialize(int32_t max_token_len);
-    Token* next(Token* token) override;
-    void reset() override;
+
+    // The tokens are views of the value.
+    size_t reserved_bytes() const override { return 0; }
 
     virtual bool is_cjk_char(UChar32 c) = 0;
     virtual bool is_token_char(UChar32 c) = 0;
 
     static constexpr int32_t DEFAULT_MAX_WORD_LEN = 255;
+
+protected:
+    void on_reset(std::string_view text) override;
+    bool next_token(TokenRef& token) override;
 
 private:
     enum class AsciiCharClass : uint8_t { kDelimiter, kToken, kCjk, kInvalid };

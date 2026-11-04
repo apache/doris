@@ -20,8 +20,6 @@
 #include <memory>
 #include <optional>
 
-#include "CLucene/_ApiHeader.h"
-#include "CLucene/util/Misc.h"
 #include "core/arena.h"
 #include "storage/index/inverted/analysis/analyzer/ik/core/Lexeme.h"
 namespace doris::segment_v2 {

@@ -5090,7 +5090,7 @@ namespace {
 // Throws when asked for its analyzer and counts the requests.
 class FailingAnalyzerProvider final : public inverted_index::AnalyzerProvider {
 public:
-    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const override {
+    inverted_index::TextAnalyzerPtr get_analyzer() const override {
         ++calls;
         throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR, "this test has no analyzer");
     }

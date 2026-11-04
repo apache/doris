@@ -19,14 +19,18 @@
 
 #include <unicode/ucasemap.h>
 
+#include <memory>
+#include <string>
+#include <string_view>
+
 #ifdef BE_TEST
 #include <atomic>
-#include <string>
 #endif
 
 #include "common/cast_set.h"
 #include "common/exception.h"
-#include "storage/index/inverted/analysis/token_filter/token_filter.h"
+#include "storage/index/inverted/analysis/per_token_stream.h"
+#include "storage/index/inverted/analysis/scratch.h"
 #include "util/utf8_check.h"
 
 namespace doris::segment_v2::inverted_index {
@@ -91,55 +95,12 @@ inline void unicode_lower(std::string& value) {
     }
 }
 
-/**
- * @brief A token filter that converts Unicode text to lowercase using ICU library.
- * 
- * This filter handles full Unicode case conversion, not just ASCII characters.
- * It uses ICU's ucasemap functionality to properly handle case folding for all Unicode characters.
- */
-class LowerCaseFilter : public DorisTokenFilter {
+// Lowercases every token: ASCII byte by byte, anything else with the root-locale case mapping.
+// A token that is not ASCII must be valid UTF-8.
+class LowerCaseFilter final : public PerTokenFilter {
 public:
-    LowerCaseFilter(const TokenStreamPtr& in)
-            : DorisTokenFilter(in), _ucsm(nullptr, &ucasemap_close) {}
-
-    ~LowerCaseFilter() override = default;
-
-    void reset() override {
-        DorisTokenFilter::reset();
-        _rune_count_changed = false;
-        _has_source_span = false;
-    }
-
-    std::span<const int32_t> get_source_byte_offsets() const override {
-        return _rune_count_changed ? std::span<const int32_t> {}
-                                   : DorisTokenFilter::get_source_byte_offsets();
-    }
-
-    std::span<const int32_t> get_source_byte_end_offsets() const override {
-        return _rune_count_changed ? std::span<const int32_t> {}
-                                   : DorisTokenFilter::get_source_byte_end_offsets();
-    }
-
-    bool get_conservative_source_byte_span(int32_t& start, int32_t& end) const override {
-        if (!_rune_count_changed) {
-            return DorisTokenFilter::get_conservative_source_byte_span(start, end);
-        }
-        if (!_has_source_span) {
-            return false;
-        }
-        start = _source_start;
-        end = _source_end;
-        return true;
-    }
-
-#ifdef BE_TEST
-    bool rune_count_changed_for_test() const { return _rune_count_changed; }
-#endif
-
-    void set_source_byte_offsets_enabled(bool enabled) override {
-        _source_byte_offsets_enabled = enabled;
-        DorisTokenFilter::set_source_byte_offsets_enabled(enabled);
-    }
+    explicit LowerCaseFilter(std::unique_ptr<TextTokenStream> in)
+            : PerTokenFilter(std::move(in)), _ucsm(nullptr, &ucasemap_close) {}
 
     void initialize() {
         UErrorCode status = U_ZERO_ERROR;
@@ -152,13 +113,19 @@ public:
         _ucsm.reset(ucsm);
     }
 
-    Token* next(Token* t) override {
-        _rune_count_changed = false;
-        _has_source_span = false;
-        if (_in->next(t) == nullptr) {
-            return nullptr;
+    // The scratch of one lowercased token, and the input.
+    size_t reserved_bytes() const override {
+        return PerTokenFilter::reserved_bytes() + _lower_term.capacity();
+    }
+
+protected:
+    void on_reset() override { release_oversized_scratch(_lower_term); }
+
+    bool next_token(TokenRef& token) override {
+        if (!input_token(token)) {
+            return false;
         }
-        std::string_view term(t->termBuffer<char>(), t->termLength<char>());
+        const std::string_view term = token.term();
         bool has_ascii_upper = false;
         bool all_ascii = true;
         for (const char value : term) {
@@ -171,7 +138,7 @@ public:
         }
         if (all_ascii) {
             if (!has_ascii_upper) {
-                return t;
+                return true;
             }
             _lower_term.resize(term.size());
             for (size_t i = 0; i < term.size(); ++i) {
@@ -179,8 +146,8 @@ public:
                 _lower_term[i] =
                         static_cast<char>(byte >= 'A' && byte <= 'Z' ? byte + ('a' - 'A') : byte);
             }
-            set_text(t, _lower_term);
-            return t;
+            token.data = _lower_term.data();
+            return true;
         }
 #ifdef BE_TEST
         lower_case_testing::note_unicode_path();
@@ -207,43 +174,14 @@ public:
                             "Failed to convert token to lowercase. ICU Error: {} - {}",
                             static_cast<int32_t>(status), u_errorName(status));
         }
-
-        // Rune counts only matter to a downstream provenance consumer.
-        _rune_count_changed = _source_byte_offsets_enabled &&
-                              count_utf8_runes(term) != count_utf8_runes(std::string_view(
-                                                                _lower_term.data(), result_len));
-        if (_rune_count_changed) {
-            _has_source_span = get_delegated_source_byte_span(*t, _source_start, _source_end);
-        }
-        set_text(t, std::string_view(_lower_term.data(), result_len));
-        return t;
+        token.data = _lower_term.data();
+        token.size = cast_set<uint32_t>(result_len);
+        return true;
     }
 
 private:
-    static int32_t count_utf8_runes(std::string_view text) {
-        const auto length = cast_set<int32_t>(text.size());
-        const char* data = text.data();
-        int32_t offset = 0;
-        int32_t count = 0;
-        while (offset < length) {
-            UChar32 codepoint = U_UNASSIGNED;
-            U8_NEXT(data, offset, length, codepoint);
-            if (codepoint < 0) {
-                return -1;
-            }
-            ++count;
-        }
-        return count;
-    }
-
     std::unique_ptr<UCaseMap, decltype(&ucasemap_close)> _ucsm;
     std::string _lower_term;
-    int32_t _source_start = 0;
-    int32_t _source_end = 0;
-    bool _rune_count_changed = false;
-    bool _has_source_span = false;
-    bool _source_byte_offsets_enabled = false;
 };
-using LowerCaseFilterPtr = std::shared_ptr<LowerCaseFilter>;
 
 } // namespace doris::segment_v2::inverted_index

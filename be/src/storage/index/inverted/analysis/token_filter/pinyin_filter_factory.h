@@ -30,7 +30,8 @@ public:
 
     void initialize(const Settings& settings) override;
 
-    TokenFilterPtr create(const TokenStreamPtr& in) override;
+    // With ignore_pinyin_offset false the chain upstream handles invalid UTF-8 strictly.
+    std::unique_ptr<TextTokenStream> create(std::unique_ptr<TextTokenStream> in) const override;
 
 private:
     std::shared_ptr<PinyinConfig> config_;

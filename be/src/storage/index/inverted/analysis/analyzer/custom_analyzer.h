@@ -17,74 +17,35 @@
 
 #pragma once
 
-#include <array>
-#include <map>
 #include <optional>
+#include <vector>
 
 #include "storage/index/inverted/analysis/analyzer/analyzer_provider.h"
 #include "storage/index/inverted/analysis/analyzer/custom_analyzer_config.h"
-#include "storage/index/inverted/analysis/char_filter/char_filter_factory.h"
 #include "storage/index/inverted/analysis/gram/gram_scheme.h"
-#include "storage/index/inverted/analysis/setting.h"
-#include "storage/index/inverted/analysis/token_filter/token_filter_factory.h"
-#include "storage/index/inverted/analysis/tokenizer/tokenizer_factory.h"
+#include "storage/index/inverted/analysis/text_analyzer.h"
 
 namespace doris::segment_v2::inverted_index {
 
-class CustomAnalyzer;
-using CustomAnalyzerPtr = std::shared_ptr<CustomAnalyzer>;
-
-class CustomAnalyzer : public Analyzer {
+class CustomAnalyzer {
 public:
-    class Builder {
-    public:
-        Builder() = default;
-        ~Builder() = default;
+    // The chain of a custom analyzer configuration: its char filters, its tokenizer and its token
+    // filters. Throws when a component is unknown or its settings are invalid.
+    static TextAnalyzerPtr build_custom_analyzer(const ImmutableCustomAnalyzerConfigPtr& config);
 
-        void with_tokenizer(const std::string& name, const Settings& params);
-        void add_char_filter(const std::string& name, const Settings& params);
-        void add_token_filter(const std::string& name, const Settings& params);
-
-        CustomAnalyzerPtr build();
-
-    private:
-        TokenizerFactoryPtr _tokenizer;
-        std::vector<CharFilterFactoryPtr> _char_filters;
-        std::vector<TokenFilterFactoryPtr> _token_filters;
-
-        friend class CustomAnalyzer;
-    };
-
-    CustomAnalyzer(Builder* builder);
-    ~CustomAnalyzer() override = default;
-
-    bool isSDocOpt() override { return true; }
-
-    TokenStream* tokenStream(const TCHAR* fieldName, lucene::util::Reader* reader) override;
-    TokenStream* reusableTokenStream(const TCHAR* fieldName, lucene::util::Reader* reader) override;
-
-    TokenStream* tokenStream(const TCHAR* fieldName, const ReaderPtr& reader) override;
-    TokenStream* reusableTokenStream(const TCHAR* fieldName, const ReaderPtr& reader) override;
-
-    static CustomAnalyzerPtr build_custom_analyzer(const ImmutableCustomAnalyzerConfigPtr& config);
-
-private:
-    ReaderPtr init_reader(ReaderPtr reader);
-    TokenStreamComponentsPtr create_components();
-
-    TokenizerFactoryPtr _tokenizer;
-    std::vector<CharFilterFactoryPtr> _char_filters;
-    std::vector<TokenFilterFactoryPtr> _token_filters;
-
-    TokenStreamComponentsPtr _reuse_token_stream;
+    // The chain of the components these configurations name, each made by AnalysisFactoryMgr.
+    // Throws when a component is unknown or its settings are invalid.
+    static TextAnalyzerPtr build_chain(const std::vector<ComponentConfigPtr>& char_filters,
+                                       const ComponentConfig& tokenizer,
+                                       const std::vector<ComponentConfigPtr>& token_filters);
 };
 
 class CustomAnalyzerProvider final : public AnalyzerProvider {
 public:
-    explicit CustomAnalyzerProvider(ImmutableCustomAnalyzerConfigPtr config,
-                                    std::map<std::string, std::string> outer_char_filter_map = {});
+    explicit CustomAnalyzerProvider(ImmutableCustomAnalyzerConfigPtr config);
 
-    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const override { return _analyzer; }
+    // A GramTextAnalyzer for the gram family, and otherwise the chain of the configuration.
+    TextAnalyzerPtr get_analyzer() const override { return _analyzer; }
     // Computed once by the constructor from the analyzer configuration and cached: it holds a
     // value when the tokenizer is "ngram" with a non-empty "mode" property and the analyzer
     // carries no char filter or token filter, and is nullopt otherwise (R22 fail-safe: any
@@ -95,8 +56,8 @@ public:
 
 private:
     ImmutableCustomAnalyzerConfigPtr _config;
-    std::shared_ptr<lucene::analysis::Analyzer> _analyzer;
     std::optional<gram::GramScheme> _gram_scheme;
+    TextAnalyzerPtr _analyzer;
 };
 
 } // namespace doris::segment_v2::inverted_index

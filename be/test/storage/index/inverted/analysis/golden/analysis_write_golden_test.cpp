@@ -18,7 +18,8 @@
 // Frozen index files. The analysis goldens freeze the tokens; these freeze what the production
 // writers make of them, so the paths from the analyzers into the writers are covered too: the SNII
 // file bytes, and for V1 and V2, whose files carry timestamps, the terms with their documents and
-// positions read back. The digests are in analysis_golden.txt under "write/".
+// positions read back, for a string column and, on V2, for an array column, whose elements reach
+// the analyzer another way. The digests are in analysis_golden.txt under "write/".
 
 #include <CLucene.h>
 #include <CLucene/config/repl_wchar.h>
@@ -27,7 +28,9 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <climits>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -45,6 +48,7 @@
 #include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/tablet/tablet_schema.h"
 #include "testutil/golden_file.h"
+#include "testutil/tmp_file_dirs_util.h"
 #include "util/hash_util.hpp"
 #include "util/slice.h"
 
@@ -115,6 +119,21 @@ TabletColumn text_column() {
     return column;
 }
 
+TabletColumn array_column() {
+    TabletColumn element;
+    element.set_name("text");
+    element.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    element.set_length(INT_MAX);
+    element.set_is_nullable(true);
+    TabletColumn column;
+    column.set_unique_id(0);
+    column.set_name("texts");
+    column.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+    column.set_is_nullable(true);
+    column.add_sub_column(element);
+    return column;
+}
+
 // What every index gets: the first lines of four families, one batch each, nulls after each.
 std::vector<std::vector<std::string>> row_batches(const std::vector<CorpusFamily>& families) {
     std::vector<std::vector<std::string>> batches;
@@ -160,6 +179,58 @@ std::string write_index(const std::string& name, InvertedIndexStorageFormatPB fo
                         .ok());
         EXPECT_TRUE(writer->add_nulls(2).ok());
     }
+    EXPECT_TRUE(writer->finish().ok());
+    EXPECT_TRUE(index_file_writer.begin_close().ok());
+    EXPECT_TRUE(index_file_writer.finish_close().ok());
+    return prefix;
+}
+
+// The lines of the batches as array rows of 0 to 3 elements, with a null element now and then.
+struct ArrayRows {
+    std::vector<Slice> elements;
+    std::vector<uint8_t> null_map;
+    std::vector<uint64_t> offsets; // one more than the rows
+};
+
+ArrayRows array_rows(const std::vector<std::vector<std::string>>& batches) {
+    ArrayRows rows;
+    rows.offsets.push_back(0);
+    for (const std::vector<std::string>& batch : batches) {
+        for (size_t i = 0; i < batch.size();) {
+            const size_t size = std::min((rows.offsets.size() - 1) % 4, batch.size() - i);
+            for (size_t end = i + size; i < end; ++i) {
+                rows.null_map.push_back(rows.elements.size() % 7 == 3 ? 1 : 0);
+                rows.elements.emplace_back(batch[i]);
+            }
+            rows.offsets.push_back(rows.elements.size());
+        }
+    }
+    return rows;
+}
+
+// Writes the rows into the V2 index of an array column; returns the index path prefix.
+std::string write_array_index(const std::string& name, const TabletIndex& meta,
+                              const ArrayRows& rows) {
+    const std::string prefix = std::string(kTestDir) + "/" + name;
+    const auto fs = io::global_local_filesystem();
+    io::FileWriterPtr file_writer;
+    EXPECT_TRUE(
+            fs->create_file(InvertedIndexDescriptor::get_index_file_path_v2(prefix), &file_writer)
+                    .ok());
+    IndexFileWriter index_file_writer(fs, prefix, "write_golden_rowset", /*seg_id=*/0,
+                                      InvertedIndexStorageFormatPB::V2, std::move(file_writer),
+                                      /*can_use_ram_dir=*/true, /*tablet_id=*/7700);
+    const TabletColumn column = array_column();
+    std::unique_ptr<IndexColumnWriter> writer;
+    const Status created = IndexColumnWriter::create(&column, &writer, &index_file_writer, &meta);
+    EXPECT_TRUE(created.ok()) << created.to_string();
+    if (!created.ok()) {
+        return prefix;
+    }
+    const Status added = writer->add_array_values(
+            sizeof(Slice), reinterpret_cast<const uint8_t*>(rows.elements.data()),
+            rows.null_map.data(), rows.offsets.data(), rows.offsets.size() - 1);
+    EXPECT_TRUE(added.ok()) << added.to_string();
     EXPECT_TRUE(writer->finish().ok());
     EXPECT_TRUE(index_file_writer.begin_close().ok());
     EXPECT_TRUE(index_file_writer.finish_close().ok());
@@ -232,6 +303,7 @@ protected:
     void SetUp() override {
         const Status status = _environment.init(_configs);
         ASSERT_TRUE(status.ok()) << status.to_string();
+        test::ensure_tmp_file_dirs();
         assert_ok(io::global_local_filesystem()->delete_directory(kTestDir));
         assert_ok(io::global_local_filesystem()->create_directory(kTestDir));
         // Pin what the SNII writer reads from the configuration, as SniiWriterGoldenBytes does,
@@ -261,6 +333,7 @@ protected:
 TEST_F(AnalysisWriteGolden, MatchesTheFrozenDigests) {
     const std::vector<std::vector<std::string>> batches =
             row_batches(default_families(_environment.corpus_sources()));
+    const ArrayRows arrays = array_rows(batches);
     test::GoldenFile file(kGoldenFile);
     for (const char* name : kConfigs) {
         const auto config = std::ranges::find_if(
@@ -279,6 +352,13 @@ TEST_F(AnalysisWriteGolden, MatchesTheFrozenDigests) {
             EXPECT_GT(digest.count, 0) << key;
             file.check(key, "rows", digest.count, digest.digest, describe(*config));
         }
+        const std::string key = std::string(kWritePrefix) + "v2-array/" + config->name;
+        const WriteDigest digest = clucene_digest(
+                write_array_index("array_" + std::to_string(config - _configs.begin()), meta,
+                                  arrays),
+                InvertedIndexStorageFormatPB::V2, meta);
+        EXPECT_GT(digest.count, 0) << key;
+        file.check(key, "rows", digest.count, digest.digest, describe(*config));
     }
     file.finish([](const std::string& name) { return name.starts_with(kWritePrefix); }, true);
 }

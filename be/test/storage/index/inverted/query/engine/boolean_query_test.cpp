@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <CLucene.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -27,6 +28,8 @@
 #include "io/fs/local_file_system.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analysis/analyzer/custom_analyzer.h"
+#include "storage/index/inverted/analysis/text_stream_contract.h"
+#include "storage/index/inverted/clucene/lucene_analyzer_bridge.h"
 #include "storage/index/inverted/clucene/spi/clucene_index_source.h"
 #include "storage/index/inverted/common/inverted_index_query_type.h"
 #include "storage/index/inverted/common/string_helper.h"
@@ -105,7 +108,8 @@ private:
         CustomAnalyzerConfig::Builder builder;
         builder.with_tokenizer_config("standard", {});
         auto custom_analyzer_config = builder.build();
-        auto custom_analyzer = CustomAnalyzer::build_custom_analyzer(custom_analyzer_config);
+        auto custom_analyzer = std::make_shared<LuceneAnalyzerBridge>(
+                CustomAnalyzer::build_custom_analyzer(custom_analyzer_config));
 
         auto* indexwriter =
                 _CLNEW lucene::index::IndexWriter(dir.c_str(), custom_analyzer.get(), true);
@@ -203,18 +207,8 @@ static std::shared_ptr<lucene::index::IndexReader> make_shared_reader(
             }};
 }
 
-std::vector<std::string> tokenize(const CustomAnalyzerPtr& custom_analyzer,
-                                  const std::string line) {
-    std::vector<std::string> results;
-    lucene::util::SStringReader<char> reader;
-    reader.init(line.data(), line.size(), false);
-    auto* token_stream = custom_analyzer->reusableTokenStream(L"", &reader);
-    token_stream->reset();
-    Token t;
-    while (token_stream->next(&t)) {
-        results.emplace_back(t.termBuffer<char>(), t.termLength<char>());
-    }
-    return results;
+std::vector<std::string> tokenize(const TextAnalyzerPtr& custom_analyzer, const std::string line) {
+    return collect_terms(*custom_analyzer, line);
 }
 
 TEST_F(BooleanQueryTest, test_boolean_query) {
