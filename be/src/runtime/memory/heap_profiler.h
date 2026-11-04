@@ -36,6 +36,7 @@ public:
     std::string dump_heap_profile_to_dot();
 
 private:
+    static std::string jeprof_profile_to_dot(const std::string& profile_file_name);
     void set_prof_active(bool prof);
     bool get_prof_dump(const std::string& profile_file_name);
 

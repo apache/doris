@@ -186,8 +186,9 @@ TEST_F(PythonEnvTest, ScanFromVenvRootPathNonExistentInterpreter) {
 }
 
 TEST_F(PythonEnvTest, ScanFromVenvRootPathCreatesAndValidatesEnvironment) {
-    const std::string root_path = test_dir_ + "/venv_root";
-    const std::string interpreter_path = test_dir_ + "/python3.11";
+    // One environment is sufficient to test version discovery and creation with literal paths.
+    const std::string root_path = test_dir_ + "/venv 'root' $(printf injected)";
+    const std::string interpreter_path = test_dir_ + "/python '3.11' $(printf injected)";
     fs::create_directories(root_path);
 
     // Model the two interpreter operations used by the production VENV path: version discovery
@@ -578,6 +579,15 @@ TEST_F(PythonEnvTest, PythonVersionManagerInitCondaSuccess) {
 // ============================================================================
 // list_installed_packages tests
 // ============================================================================
+
+TEST_F(PythonEnvTest, ListInstalledPackagesKeepsPathLiteral) {
+    const auto version = create_fake_python_version_for_pip_list(
+            test_dir_ + "/python 'path' $(printf injected)", "printf '[]'\n", "3.11.9");
+    std::vector<std::pair<std::string, std::string>> packages;
+    const auto status = list_installed_packages(version, &packages);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(packages.empty());
+}
 
 TEST_F(PythonEnvTest, ListInstalledPackagesInvalidPythonVersion) {
     PythonVersion invalid_version;
