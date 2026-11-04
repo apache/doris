@@ -1337,7 +1337,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                 return Optional.empty();
             }
 
-            List<String> partitionValues = extractPartitionValues(data);
+            List<String> partitionValues = IcebergWriterHelper.extractPartitionValues(data);
             if (partitionValues.isEmpty() || partitionValues.size() != spec.fields().size()) {
                 return Optional.empty();
             }
@@ -1372,9 +1372,6 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                 return null;
             }
             String valueStr = partitionValues.get(i);
-            if ("null".equals(valueStr)) {
-                valueStr = null;
-            }
             Object value = IcebergPartitionUtils.parsePartitionValueFromString(valueStr, sourceField.type(), zone);
             // Conflict detection may widen, but must never miss files with retained DATE metrics.
             if (value != null && unsafeNanosFields.contains(sourceField.fieldId())) {
@@ -1384,19 +1381,6 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             expression = expression == null ? predicate : Expressions.and(expression, predicate);
         }
         return expression;
-    }
-
-    private List<String> extractPartitionValues(TIcebergCommitData commitData) {
-        if (commitData == null) {
-            return Collections.emptyList();
-        }
-        if (commitData.getPartitionValues() != null && !commitData.getPartitionValues().isEmpty()) {
-            return commitData.getPartitionValues();
-        }
-        if (commitData.getPartitionDataJson() != null && !commitData.getPartitionDataJson().isEmpty()) {
-            return IcebergPartitionUtils.parsePartitionValuesFromJson(commitData.getPartitionDataJson());
-        }
-        return Collections.emptyList();
     }
 
     IsolationLevel resolveIsolationLevel(Table icebergTable, WriteOperation operation) {
