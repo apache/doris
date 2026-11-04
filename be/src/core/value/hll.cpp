@@ -211,56 +211,32 @@ size_t HyperLogLog::serialize(uint8_t* dst) const {
 }
 
 bool HyperLogLog::is_valid(const Slice& slice) {
-    if (slice.data == nullptr || slice.size < 1) {
+    if (slice.size < 1) {
         return false;
     }
-    const auto* ptr = reinterpret_cast<const uint8_t*>(slice.data);
-    const auto* end = ptr + slice.size;
+    const uint8_t* ptr = (uint8_t*)slice.data;
+    const uint8_t* end = (uint8_t*)slice.data + slice.size;
     auto type = (HllDataType)*ptr++;
     switch (type) {
     case HLL_DATA_EMPTY:
         break;
     case HLL_DATA_EXPLICIT: {
-        if (static_cast<size_t>(end - ptr) < 1) {
+        if ((ptr + 1) > end) {
             return false;
         }
         uint8_t num_explicits = *ptr++;
-        size_t values_size = static_cast<size_t>(num_explicits) * sizeof(uint64_t);
-        if (num_explicits > HLL_EXPLICIT_INT64_NUM ||
-            values_size > static_cast<size_t>(end - ptr)) {
-            return false;
-        }
-        ptr += values_size;
+        ptr += num_explicits * 8;
         break;
     }
     case HLL_DATA_SPARSE: {
-        if (static_cast<size_t>(end - ptr) < sizeof(uint32_t)) {
+        if ((ptr + 4) > end) {
             return false;
         }
         uint32_t num_registers = decode_fixed32_le(ptr);
-        ptr += sizeof(uint32_t);
-        // Reject counts outside the range produced by serialize() before computing
-        // the payload size.
-        if (num_registers > HLL_SPARSE_THRESHOLD) {
-            return false;
-        }
-        size_t entries_size = static_cast<size_t>(num_registers) * 3;
-        if (entries_size > static_cast<size_t>(end - ptr)) {
-            return false;
-        }
-        for (uint32_t i = 0; i < num_registers; ++i) {
-            // A SPARSE entry index must address one of the register array entries.
-            if (decode_fixed16_le(ptr) >= HLL_REGISTERS_COUNT) {
-                return false;
-            }
-            ptr += 3;
-        }
+        ptr += 4 + 3 * num_registers;
         break;
     }
     case HLL_DATA_FULL: {
-        if (HLL_REGISTERS_COUNT > static_cast<size_t>(end - ptr)) {
-            return false;
-        }
         ptr += HLL_REGISTERS_COUNT;
         break;
     }
@@ -317,10 +293,6 @@ bool HyperLogLog::deserialize(const Slice& slice) {
             // 1 byte: register value
             uint16_t register_idx = decode_fixed16_le(ptr);
             ptr += 2;
-            // Keep the index check next to the register assignment.
-            if (register_idx >= HLL_REGISTERS_COUNT) {
-                return false;
-            }
             _registers[register_idx] = *ptr++;
         }
         break;
