@@ -105,6 +105,17 @@ public class AnalyzeTest extends TestWithFeService {
             Database database,
             @Mocked OlapTable olapTable)
             throws Exception {
+        new Expectations() {
+            {
+                catalog.getName();
+                result = "internal";
+                database.getFullName();
+                result = "analysis_job_test";
+                olapTable.getName();
+                result = "t1";
+            }
+        };
+
         new MockUp<OlapTable>() {
 
             @Mock
