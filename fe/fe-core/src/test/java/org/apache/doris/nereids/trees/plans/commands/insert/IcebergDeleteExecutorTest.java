@@ -112,6 +112,8 @@ public class IcebergDeleteExecutorTest {
         executor.txnId = 10L;
         executor.beforeExec();
 
+        Mockito.verify(transaction).addCommitLocations(tDataSink);
+
         Mockito.verify(transaction).beginDelete(table, targetIcebergTable);
         ArgumentCaptor<Map<String, List<DeleteFile>>> deleteFilesCaptor = ArgumentCaptor.forClass(Map.class);
         Mockito.verify(transaction).setRewrittenDeleteFilesByReferencedDataFile(deleteFilesCaptor.capture());
