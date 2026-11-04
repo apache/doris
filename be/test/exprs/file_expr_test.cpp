@@ -38,7 +38,6 @@
 #include "exprs/mock_vexpr.h"
 #include "exprs/table_function/table_function_factory.h"
 #include "exprs/table_function/vexplode_file.h"
-#include "exprs/vcast_expr.h"
 #include "exprs/vexpr_context.h"
 #include "runtime/runtime_state.h"
 #include "util/jsonb_document.h"
@@ -85,42 +84,6 @@ protected:
         RETURN_IF_ERROR(wrapper(&context, input, result, input.column->size(), nullptr));
         output = result.column;
         return Status::OK();
-    }
-
-    static Status try_cast(const ColumnWithTypeAndName& input, const DataTypePtr& target,
-                           bool strict, ColumnPtr& output) {
-        TryCastExpr expression;
-        expression._data_type = target;
-        expression._open_finished = true;
-        expression._original_cast_return_is_nullable = true;
-        expression._fn_context_index = 0;
-        auto child = std::make_shared<MockVExpr>();
-        child->_data_type = input.type;
-        EXPECT_CALL(*child, expr_name()).WillRepeatedly(testing::ReturnRef(input.name));
-        EXPECT_CALL(*child,
-                    execute_column_impl(testing::_, testing::_, testing::_, testing::_, testing::_))
-                .WillRepeatedly(testing::Invoke([](VExprContext*, const Block* block,
-                                                   const Selector*, size_t, ColumnPtr& result) {
-                    result = block->get_by_position(0).column;
-                    return Status::OK();
-                }));
-        expression.add_child(child);
-        auto context = std::make_shared<VExprContext>(child);
-        context->_fn_contexts.push_back(
-                FunctionContext::create_context(nullptr, target, {input.type, target}));
-        context->fn_context(0)->set_enable_strict_mode(strict);
-        const auto* function_context = context->fn_context(0);
-        const CastOptions options {
-                .strict_mode = function_context->enable_strict_mode(),
-                .check_overflow_for_decimal = function_context->check_overflow_for_decimal(),
-                .string_as_jsonb_string = function_context->string_as_jsonb_string(),
-                .jsonb_string_as_string = function_context->jsonb_string_as_string()};
-        expression._cast_executor = CastWrapper::bind_cast_executor(options, input.type, target);
-        Block block {input};
-        auto status = expression.execute_column(context.get(), &block, nullptr,
-                                                input.column->size(), output);
-        EXPECT_EQ(context->fn_context(0)->enable_strict_mode(), strict);
-        return status;
     }
 
     static ColumnPtr selector(const std::string& name, size_t rows = 1) {
@@ -184,25 +147,15 @@ protected:
     }
 };
 
-TEST_F(FileExprTest, InlineGetterAndStructToFileCastPreserveBinary) {
+TEST_F(FileExprTest, InlineGetterPreservesBinary) {
     const std::string bytes("\0\xff\x80", 3);
-    auto value = public_value("urn:binary");
-    value.get<TYPE_STRUCT>()[5] = Field::create_field<TYPE_VARBINARY>(StringView(bytes));
-    auto empty = public_value("urn:empty");
-    empty.get<TYPE_STRUCT>()[5] = Field::create_field<TYPE_VARBINARY>(StringView());
+    auto value = file_value("urn:binary");
+    value.get<TYPE_FILE>()[5] = Field::create_field<TYPE_VARBINARY>(StringView(bytes));
+    auto empty = file_value("urn:empty");
+    empty.get<TYPE_FILE>()[5] = Field::create_field<TYPE_VARBINARY>(StringView());
     const auto& schema = assert_cast<const DataTypeFile&>(*file_type);
-    const auto structure_type = make_nullable(
-            std::make_shared<DataTypeStruct>(schema.get_elements(), schema.get_element_names()));
-    const auto source =
-            column(structure_type, {value, empty, public_value("urn:missing"), Field()});
-    ColumnPtr restored;
-    ASSERT_TRUE(cast(source, make_nullable(file_type), true, restored).ok());
-    EXPECT_EQ((*restored)[0].get<TYPE_FILE>()[5].get<TYPE_VARBINARY>().str(), bytes);
-    EXPECT_FALSE((*restored)[1].get<TYPE_FILE>()[5].is_null());
-    EXPECT_EQ((*restored)[1].get<TYPE_FILE>()[5].get<TYPE_VARBINARY>().size(), 0);
-    EXPECT_TRUE((*restored)[2].get<TYPE_FILE>()[5].is_null());
-    EXPECT_TRUE(restored->is_null_at(3));
-    ColumnsWithTypeAndName args {{restored, make_nullable(file_type), "file"}};
+    ColumnsWithTypeAndName args {
+            column(make_nullable(file_type), {value, empty, file_value("urn:missing"), Field()})};
     auto function = SimpleFunctionFactory::instance().get_function("fl_get_binary", args,
                                                                    schema.get_element(5));
     ASSERT_NE(function, nullptr);
@@ -284,133 +237,6 @@ TEST_F(FileExprTest, BinaryGetterHandlesEmptyColumns) {
     EXPECT_EQ(block.get_by_position(1).column->size(), 0);
 }
 
-TEST_F(FileExprTest, StructCastMatchesReorderedPublicNamesAndStringFamily) {
-    auto source_type = std::make_shared<DataTypeStruct>(
-            DataTypes {bigint, std::make_shared<DataTypeString>(65533, TYPE_VARCHAR), bigint,
-                       make_nullable(std::make_shared<DataTypeString>(1024, TYPE_CHAR)),
-                       make_nullable(text), make_nullable(binary)},
-            Strings {"SIZE", "UrI", "offset", "Content_Type", "checksum", "inline"});
-    auto input = column(source_type, {structure({integer(12), string("s3://b/key"), integer(3),
-                                                 string("text/plain"), Field(), Field()})});
-    for (bool strict : {false, true}) {
-        ColumnPtr output;
-        ASSERT_TRUE(cast(input, make_nullable(file_type), strict, output).ok());
-        ASSERT_FALSE(output->is_null_at(0));
-        const auto value = (*output)[0];
-        ASSERT_EQ(value.get_type(), TYPE_FILE);
-        const auto& fields = value.get<TYPE_FILE>();
-        ASSERT_EQ(fields.size(), 6);
-        EXPECT_EQ(fields[0].get<TYPE_STRING>(), "s3://b/key");
-        EXPECT_EQ(fields[1].get<TYPE_BIGINT>(), 3);
-        EXPECT_EQ(fields[2].get<TYPE_BIGINT>(), 12);
-        EXPECT_EQ(fields[3].get<TYPE_STRING>(), "text/plain");
-        EXPECT_TRUE(fields[4].is_null());
-        EXPECT_TRUE(fields[5].is_null());
-    }
-}
-
-TEST_F(FileExprTest, InvalidFileCastReportsErrorsInBothModes) {
-    const auto invalid = public_value("s3://b/bad", integer(-1));
-    for (bool strict : {false, true}) {
-        ColumnPtr output;
-        EXPECT_FALSE(cast(column(public_struct(), {invalid}), file_type, strict, output).ok());
-        ASSERT_TRUE(try_cast(column(public_struct(), {invalid}), make_nullable(file_type), strict,
-                             output)
-                            .ok());
-        EXPECT_TRUE(output->is_null_at(0));
-    }
-}
-
-TEST_F(FileExprTest, StructCastValidationIsAtomicAndSkipsParentNull) {
-    auto source_type = make_nullable(public_struct());
-    auto input = column(
-            source_type,
-            {public_value("s3://b/good", integer(3)), public_value("s3://b/bad", integer(-1)),
-             Field(), structure({Field(), Field(), integer(3), Field(), Field(), Field()})});
-    ColumnPtr output;
-    EXPECT_FALSE(cast(input, make_nullable(file_type), false, output).ok());
-    ASSERT_TRUE(try_cast(input, make_nullable(file_type), false, output).ok());
-    ASSERT_EQ(output->size(), 4);
-    EXPECT_FALSE(output->is_null_at(0));
-    for (size_t row : {1, 2, 3}) EXPECT_TRUE(output->is_null_at(row));
-    const auto& nested = assert_cast<const ColumnNullable&>(*output).get_nested_column();
-    const auto invalid = nested[1];
-    for (const auto& field : invalid.get<TYPE_FILE>()) EXPECT_TRUE(field.is_null());
-    EXPECT_FALSE(cast(input, make_nullable(file_type), true, output).ok());
-    // The all-NULL child placeholders behind a SQL NULL STRUCT are not FILE values.
-    ASSERT_TRUE(cast(column(source_type, {Field()}), make_nullable(file_type), true, output).ok());
-    EXPECT_TRUE(output->is_null_at(0));
-    const auto value = public_value("s3://b/key", integer(3));
-    ASSERT_TRUE(cast({source_type->create_column_const(4, value), source_type, "input"},
-                     make_nullable(file_type), true, output)
-                        .ok());
-    ASSERT_EQ(output->size(), 4);
-    for (size_t row = 0; row < 4; ++row) EXPECT_FALSE(output->is_null_at(row));
-    ASSERT_TRUE(try_cast({source_type->create_column_const(4, value), source_type, "input"},
-                         make_nullable(file_type), true, output)
-                        .ok());
-    ASSERT_EQ(output->size(), 4);
-    for (size_t row = 0; row < 4; ++row) EXPECT_FALSE(output->is_null_at(row));
-}
-
-TEST_F(FileExprTest, StructCastRejectsMissingExtraDuplicateAndWrongTypedChildren) {
-    const Strings names {"uri", "offset", "size", "content_type", "checksum", "inline"};
-    const DataTypes types {make_nullable(text), make_nullable(bigint), make_nullable(bigint),
-                           make_nullable(text), make_nullable(text),   make_nullable(binary)};
-    std::vector<std::pair<DataTypePtr, Field>> cases {
-            {std::make_shared<DataTypeStruct>(DataTypes {text}, Strings {"uri"}),
-             structure({string("s3://b/key")})}};
-    cases.emplace_back(std::make_shared<DataTypeStruct>(DataTypes(types.begin(), types.begin() + 5),
-                                                        Strings(names.begin(), names.begin() + 5)),
-                       structure({string("s3://b/key"), Field(), Field(), Field(), Field()}));
-    auto wrong_inline_types = types;
-    wrong_inline_types[5] = make_nullable(text);
-    cases.emplace_back(
-            std::make_shared<DataTypeStruct>(wrong_inline_types, names),
-            structure({string("s3://b/key"), Field(), Field(), Field(), Field(), string("AA==")}));
-    auto extra_types = types;
-    auto extra_names = names;
-    extra_types.push_back(make_nullable(text));
-    extra_names.push_back("extra");
-    cases.emplace_back(std::make_shared<DataTypeStruct>(extra_types, extra_names),
-                       structure({string("s3://b/key"), Field(), Field(), Field(), Field(), Field(),
-                                  string("bytes")}));
-    for (const auto& bad_names :
-         {Strings {"uri", "offset", "size", "content_type", "other", "inline"},
-          Strings {"uri", "offset", "size", "content_type", "uri", "inline"}}) {
-        cases.emplace_back(std::make_shared<DataTypeStruct>(types, bad_names),
-                           public_value("s3://b/key"));
-    }
-    const std::vector<std::pair<DataTypePtr, Field>> wrong_sizes {
-            {text, string("12")},
-            {std::make_shared<DataTypeInt16>(), Field::create_field<TYPE_SMALLINT>(12)},
-            {std::make_shared<DataTypeInt32>(), Field::create_field<TYPE_INT>(12)},
-            {std::make_shared<DataTypeInt128>(), Field::create_field<TYPE_LARGEINT>(12)}};
-    for (const auto& [type, value] : wrong_sizes) {
-        auto wrong_types = types;
-        wrong_types[2] = make_nullable(type);
-        cases.emplace_back(std::make_shared<DataTypeStruct>(wrong_types, names),
-                           public_value("s3://b/key", value));
-    }
-    auto wrong_uri_types = types;
-    wrong_uri_types[0] = make_nullable(bigint);
-    cases.emplace_back(std::make_shared<DataTypeStruct>(wrong_uri_types, names),
-                       structure({integer(1), Field(), Field(), Field(), Field(), Field()}));
-    auto wrong_offset_types = types;
-    wrong_offset_types[1] = make_nullable(std::make_shared<DataTypeInt32>());
-    cases.emplace_back(std::make_shared<DataTypeStruct>(wrong_offset_types, names),
-                       structure({string("s3://b/key"), Field::create_field<TYPE_INT>(0),
-                                  integer(12), Field(), Field(), Field()}));
-    for (const auto& [type, value] : cases) {
-        SCOPED_TRACE(type->get_name());
-        for (bool strict : {false, true}) {
-            ColumnPtr output;
-            EXPECT_FALSE(
-                    cast(column(type, {value}), make_nullable(file_type), strict, output).ok());
-        }
-    }
-}
-
 TEST_F(FileExprTest, CastRejectsScalarInputsAndFileToString) {
     for (const auto& input : {column(text, {string("s3://b/key")}), column(bigint, {integer(1)})}) {
         for (bool strict : {false, true}) {
@@ -428,22 +254,6 @@ TEST_F(FileExprTest, CastRejectsScalarInputsAndFileToString) {
                      make_nullable(text), strict, output)
                         .ok());
     }
-}
-
-TEST_F(FileExprTest, StructCastAcceptsUntypedNullPublicChildren) {
-    auto null_type = std::make_shared<DataTypeUInt8>();
-    null_type->set_null_literal(true);
-    auto source = std::make_shared<DataTypeStruct>(
-            DataTypes {text, make_nullable(null_type), make_nullable(null_type),
-                       make_nullable(null_type), make_nullable(null_type),
-                       make_nullable(null_type)},
-            Strings {"uri", "offset", "size", "content_type", "checksum", "inline"});
-    ColumnPtr output;
-    ASSERT_TRUE(cast(column(source, {public_value("urn:null-children")}), file_type, true, output)
-                        .ok());
-    const auto value = (*output)[0];
-    EXPECT_EQ(value.get<TYPE_FILE>()[0].get<TYPE_STRING>(), "urn:null-children");
-    for (size_t i = 1; i < 6; ++i) EXPECT_TRUE(value.get<TYPE_FILE>()[i].is_null());
 }
 
 TEST_F(FileExprTest, VariantCastsAreUnsupported) {
@@ -563,35 +373,28 @@ TEST_F(FileExprTest, FileToStructCastIsUnsupported) {
     EXPECT_FALSE(cast(input, nonnullable, true, output).ok());
 }
 
-TEST_F(FileExprTest, CastRecursesThroughArrayStructAndMapValues) {
+TEST_F(FileExprTest, CastRejectsStructInputsAndNestedFileTypes) {
     auto source_file = make_nullable(public_struct());
     auto target_file = make_nullable(file_type);
     auto good = public_value("s3://b/key");
-    auto bad = public_value("relative/path", integer(-1));
     ColumnPtr output;
+    EXPECT_FALSE(cast(column(source_file, {good}), target_file, true, output).ok());
     auto array_source = std::make_shared<DataTypeArray>(source_file);
     auto array_target = std::make_shared<DataTypeArray>(target_file);
-    auto array_value = Field::create_field<TYPE_ARRAY>(Array {good, bad, Field()});
-    EXPECT_FALSE(cast(column(array_source, {array_value}), array_target, false, output).ok());
     const auto valid_array = Field::create_field<TYPE_ARRAY>(Array {good, Field()});
-    ASSERT_TRUE(cast(column(array_source, {valid_array}), array_target, false, output).ok());
-    const auto result_array = (*output)[0];
-    ASSERT_EQ(result_array.get<TYPE_ARRAY>().size(), 2);
-    EXPECT_EQ(result_array.get<TYPE_ARRAY>()[0].get_type(), TYPE_FILE);
-    EXPECT_TRUE(result_array.get<TYPE_ARRAY>()[1].is_null());
+    EXPECT_FALSE(cast(column(array_source, {valid_array}), array_target, false, output).ok());
 
     auto struct_source = std::make_shared<DataTypeStruct>(DataTypes {source_file}, Strings {"f"});
     auto struct_target = std::make_shared<DataTypeStruct>(DataTypes {target_file}, Strings {"f"});
-    ASSERT_TRUE(cast(column(struct_source, {structure({good})}), struct_target, true, output).ok());
-    EXPECT_EQ((*output)[0].get<TYPE_STRUCT>()[0].get_type(), TYPE_FILE);
+    EXPECT_FALSE(
+            cast(column(struct_source, {structure({good})}), struct_target, true, output).ok());
 
     auto map_source = std::make_shared<DataTypeMap>(make_nullable(bigint), source_file);
     auto map_target = std::make_shared<DataTypeMap>(make_nullable(bigint), target_file);
     auto map_value =
             Field::create_field<TYPE_MAP>(Map {Field::create_field<TYPE_ARRAY>(Array {integer(1)}),
                                                Field::create_field<TYPE_ARRAY>(Array {good})});
-    ASSERT_TRUE(cast(column(map_source, {map_value}), map_target, true, output).ok());
-    EXPECT_EQ((*output)[0].get<TYPE_MAP>()[1].get<TYPE_ARRAY>()[0].get_type(), TYPE_FILE);
+    EXPECT_FALSE(cast(column(map_source, {map_value}), map_target, true, output).ok());
 }
 
 TEST_F(FileExprTest, GetterUsesConstantPublicNamesAndMergesNullsWithoutMutation) {
@@ -809,24 +612,6 @@ TEST_F(FileExprTest, ConstantArrayAndMapStillAcceptDynamicSelectors) {
     }
 }
 
-TEST_F(FileExprTest, StructCastSharesPayloadAndDetachesBeforeMutation) {
-    const std::string bytes(128 * 1024, '\xff');
-    auto value = public_value("urn:shared");
-    value.get<TYPE_STRUCT>()[5] = Field::create_field<TYPE_VARBINARY>(StringView(bytes));
-    const auto input = column(public_struct(), {value, public_value("urn:null-inline")});
-    const auto& source = assert_cast<const ColumnStruct&>(*input.column);
-    ColumnPtr output;
-    ASSERT_TRUE(cast(input, file_type, true, output).ok());
-    const auto& file = assert_cast<const ColumnFile&>(*output);
-    EXPECT_EQ(file.get_column_ptr(5).get(), source.get_column_ptr(5).get());
-    EXPECT_EQ((*output)[0].get<TYPE_FILE>()[5].get<TYPE_VARBINARY>().str(), bytes);
-    EXPECT_TRUE((*output)[1].get<TYPE_FILE>()[5].is_null());
-    auto changed = IColumn::mutate(output);
-    changed->clear();
-    EXPECT_EQ(source.size(), 2);
-    EXPECT_EQ(source.get_column(5)[0].get<TYPE_VARBINARY>().str(), bytes);
-}
-
 TEST_F(FileExprTest, NestedFileToStructCastIsUnsupportedAndIdentityPreservesInline) {
     auto value = file_value("s3://b/key");
     const std::string bytes("a\0b", 3);
@@ -899,87 +684,6 @@ TEST_F(FileExprTest, ExplodeFilePublicFieldsNullAndOuterRows) {
     }
 }
 
-TEST_F(FileExprTest, TryCastMakesInvalidFileNullInBothSessionModes) {
-    const auto input_type = make_nullable(public_struct());
-    const auto target = make_nullable(file_type);
-    auto input = column(input_type, {public_value("s3://b/good", integer(4)),
-                                     public_value("s3://b/bad", integer(-1)), Field()});
-    for (bool strict : {false, true}) {
-        ColumnPtr output;
-        ASSERT_TRUE(try_cast(input, target, strict, output).ok());
-        ASSERT_EQ(output->size(), 3);
-        EXPECT_FALSE(output->is_null_at(0));
-        EXPECT_EQ((*output)[0].get<TYPE_FILE>()[2].get<TYPE_BIGINT>(), 4);
-        EXPECT_TRUE(output->is_null_at(1));
-        EXPECT_TRUE(output->is_null_at(2));
-    }
-}
-
-TEST_F(FileExprTest, NestedTryCastUsesGenericFailureHandling) {
-    {
-        DataTypePtr leaf = public_struct();
-        leaf = make_nullable(leaf);
-        const auto target_leaf = make_nullable(file_type);
-        const auto good = public_value("s3://b/good", integer(4));
-        const auto bad = public_value("s3://b/bad", integer(-1));
-        const auto array_source = make_nullable(std::make_shared<DataTypeArray>(leaf));
-        const auto array_target = make_nullable(std::make_shared<DataTypeArray>(target_leaf));
-        const auto mixed_array = Field::create_field<TYPE_ARRAY>(Array {good, bad, Field()});
-        const auto arrays = column(
-                array_source, {mixed_array, Field::create_field<TYPE_ARRAY>(Array {}), Field()});
-        const auto struct_source = make_nullable(std::make_shared<DataTypeStruct>(
-                DataTypes {leaf, leaf, text}, Strings {"valid", "invalid", "label"}));
-        const auto struct_target = make_nullable(std::make_shared<DataTypeStruct>(
-                DataTypes {target_leaf, target_leaf, text}, Strings {"valid", "invalid", "label"}));
-        const auto structs =
-                column(struct_source, {structure({good, bad, string("kept")}), Field()});
-        const auto map_source =
-                make_nullable(std::make_shared<DataTypeMap>(make_nullable(bigint), leaf));
-        const auto map_target =
-                make_nullable(std::make_shared<DataTypeMap>(make_nullable(bigint), target_leaf));
-        const auto keys =
-                Field::create_field<TYPE_ARRAY>(Array {integer(1), integer(2), integer(3)});
-        const auto maps = column(
-                map_source,
-                {Field::create_field<TYPE_MAP>(Map {keys, mixed_array}),
-                 Field::create_field<TYPE_MAP>(Map {Field::create_field<TYPE_ARRAY>(Array {}),
-                                                    Field::create_field<TYPE_ARRAY>(Array {})}),
-                 Field()});
-        for (bool strict : {false, true}) {
-            ColumnPtr output;
-            ASSERT_TRUE(try_cast(arrays, array_target, strict, output).ok());
-
-            EXPECT_TRUE(output->is_null_at(0));
-            EXPECT_TRUE((*output)[1].get<TYPE_ARRAY>().empty());
-            EXPECT_TRUE(output->is_null_at(2));
-
-            ASSERT_TRUE(try_cast(structs, struct_target, strict, output).ok());
-
-            EXPECT_TRUE(output->is_null_at(0));
-            EXPECT_TRUE(output->is_null_at(1));
-
-            ASSERT_TRUE(try_cast(maps, map_target, strict, output).ok());
-
-            EXPECT_TRUE(output->is_null_at(0));
-            EXPECT_TRUE((*output)[1].get<TYPE_MAP>()[0].get<TYPE_ARRAY>().empty());
-            EXPECT_TRUE(output->is_null_at(2));
-
-            const auto deep_source = make_nullable(std::make_shared<DataTypeStruct>(
-                    DataTypes {array_source, text}, Strings {"files", "label"}));
-            const auto deep_target = make_nullable(std::make_shared<DataTypeStruct>(
-                    DataTypes {array_target, text}, Strings {"files", "label"}));
-            const auto deep_input = column(deep_source, {structure({mixed_array, string("kept")})});
-            ASSERT_TRUE(try_cast(deep_input, deep_target, strict, output).ok());
-
-            EXPECT_TRUE(output->is_null_at(0));
-        }
-        ColumnPtr output;
-        EXPECT_FALSE(cast(arrays, array_target, true, output).ok());
-        EXPECT_FALSE(cast(structs, struct_target, true, output).ok());
-        EXPECT_FALSE(cast(maps, map_target, true, output).ok());
-    }
-}
-
 TEST_F(FileExprTest, JsonCastsRejectNestedFileTypes) {
     const auto source = std::make_shared<DataTypeJsonb>();
     const auto arrays = column(
@@ -1020,22 +724,6 @@ TEST_F(FileExprTest, JsonCastsKeepExistingNonFileBehavior) {
     EXPECT_EQ((*output)[1].get<TYPE_STRUCT>()[1].get<TYPE_BIGINT>(), 8);
 }
 
-TEST_F(FileExprTest, NestedTryCastKeepsExistingNonFileFailureBehavior) {
-    const auto source_file = make_nullable(public_struct());
-    const auto source = make_nullable(std::make_shared<DataTypeStruct>(
-            DataTypes {source_file, make_nullable(text)}, Strings {"file", "number"}));
-    const auto target = make_nullable(std::make_shared<DataTypeStruct>(
-            DataTypes {make_nullable(file_type), make_nullable(bigint)},
-            Strings {"file", "number"}));
-    const auto input =
-            column(source, {structure({public_value("s3://b/bad", integer(-1)), string("7")}),
-                            structure({public_value("s3://b/good", integer(4)), string("bad")})});
-    ColumnPtr output;
-    ASSERT_TRUE(try_cast(input, target, true, output).ok());
-    EXPECT_TRUE(output->is_null_at(0));
-    EXPECT_TRUE(output->is_null_at(1));
-}
-
 TEST_F(FileExprTest, ElementAtStillSupportsDynamicArraySelectors) {
     const auto array_type = std::make_shared<DataTypeArray>(make_nullable(bigint));
     auto array =
@@ -1065,48 +753,6 @@ TEST_F(FileExprTest, ReverseStructRejectsIntegerWideningAndNarrowing) {
             ColumnPtr output;
             EXPECT_FALSE(cast(column(file_type, {value}), target, strict, output).ok());
         }
-    }
-}
-
-TEST_F(FileExprTest, StrictStructCastSupportsNonNullableFileChildren) {
-    const auto source_file = public_struct();
-    const auto good = public_value("s3://b/key");
-    ColumnPtr output;
-    ASSERT_TRUE(cast(column(source_file, {good}), file_type, true, output).ok());
-    EXPECT_TRUE(file_type->check_column(*output).ok());
-    const auto source = std::make_shared<DataTypeStruct>(DataTypes {source_file}, Strings {"f"});
-    const auto target = std::make_shared<DataTypeStruct>(DataTypes {file_type}, Strings {"f"});
-    ASSERT_TRUE(cast(column(source, {structure({good})}), target, true, output).ok());
-    EXPECT_TRUE(target->check_column(*output).ok());
-    ASSERT_TRUE(cast(column(make_nullable(source), {Field()}), make_nullable(target), true, output)
-                        .ok());
-    EXPECT_TRUE(output->is_null_at(0));
-    EXPECT_TRUE(make_nullable(target)->check_column(*output).ok());
-}
-
-TEST_F(FileExprTest, NullableFileChildCastSkipsHiddenParentPayload) {
-    const auto source = make_nullable(
-            std::make_shared<DataTypeStruct>(DataTypes {public_struct()}, Strings {"f"}));
-    const auto target = make_nullable(
-            std::make_shared<DataTypeStruct>(DataTypes {make_nullable(file_type)}, Strings {"f"}));
-    for (const bool strict : {false, true}) {
-        SCOPED_TRACE(strict);
-        ColumnPtr output;
-        const auto input = column(source, {Field(), structure({public_value("s3://b/key")})});
-        const auto status = cast(input, target, strict, output);
-        ASSERT_TRUE(status.ok()) << status;
-        ASSERT_EQ(output->size(), 2);
-        EXPECT_TRUE(output->is_null_at(0));
-        EXPECT_FALSE(output->is_null_at(1));
-        const auto& parent = assert_cast<const ColumnNullable&>(*output);
-        const auto& fields = assert_cast<const ColumnStruct&>(parent.get_nested_column());
-        EXPECT_FALSE(fields.get_column(0).is_null_at(1));
-        EXPECT_EQ(fields.get_column(0)[1].get<TYPE_FILE>()[0].get<TYPE_STRING>(), "s3://b/key");
-        EXPECT_TRUE(target->check_column(*output).ok());
-        EXPECT_FALSE(cast(column(source, {structure({Field::create_field<TYPE_STRUCT>(
-                                                 Struct(DataTypeFile::FIELD_COUNT))})}),
-                          target, strict, output)
-                             .ok());
     }
 }
 

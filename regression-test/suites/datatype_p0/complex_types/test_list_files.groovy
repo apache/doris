@@ -68,6 +68,48 @@ suite("test_list_files", "p0,external") {
             ELEMENT_AT(TO_FILE('list_files_s3', path), 'size') = size,
             ELEMENT_AT(file, 'checksum') = ELEMENT_AT(TO_FILE('list_files_s3', path), 'checksum')
             FROM ${recursive} ORDER BY path"""
+        for (def fold in [false, true]) {
+            quickTest("file_json_${fold}", """
+                SELECT /*+ SET_VAR(enable_fold_constant_by_be=${fold}) */
+                    substring(path, ${root.length() + 1}),
+                    JSON_EXTRACT_STRING(TO_JSON(file), '\$.uri') = path,
+                    JSON_EXTRACT_BIGINT(TO_JSON(file), '\$.size') = size,
+                    JSON_EXTRACT_STRING(TO_JSON(ARRAY(file)), '\$[0].uri') = path,
+                    JSON_EXTRACT_STRING(TO_JSON(NAMED_STRUCT('f', file)), '\$.f.uri') = path,
+                    JSON_EXTRACT_STRING(TO_JSON(MAP('f', file)), '\$.f.uri') = path,
+                    FL_GET_BINARY(file) IS NULL
+                FROM ${direct} ORDER BY path
+            """)
+        }
+        def fileRows = """
+            WITH file_scan AS (
+                SELECT number AS id, number % 4 AS category, file AS f,
+                       ARRAY(file, NULL) AS files
+                FROM NUMBERS('number'='512') CROSS JOIN ${recursive}
+                WHERE path = '${root}a.json'
+            )
+        """
+        for (def query in [
+                "id, f, files FROM file_scan ORDER BY id DESC LIMIT 8 OFFSET 500",
+                "a.id, a.f, b.files FROM file_scan a JOIN [shuffle] file_scan b ON a.id=b.id " +
+                        "ORDER BY a.id LIMIT 8 OFFSET 500",
+                "category, COUNT(f), MIN(id), MAX(id) FROM file_scan GROUP BY category ORDER BY category",
+                "id, f, files, ROW_NUMBER() OVER (PARTITION BY category ORDER BY id) " +
+                        "FROM file_scan WHERE id >= 504 ORDER BY id"]) {
+            check_sqls_result_equal(
+                    "${fileRows} SELECT /*+ SET_VAR(enable_spill=false) */ ${query}",
+                    """${fileRows} SELECT /*+ SET_VAR(enable_spill=true, enable_force_spill=true,
+                        spill_min_revocable_mem=1, force_sort_algorithm='full',
+                        topn_lazy_materialization_threshold=-1) */ ${query}""")
+        }
+        test {
+            sql "${fileRows} SELECT (SELECT i.f FROM file_scan i WHERE i.id=o.id) FROM file_scan o"
+            exception "Agg Function any_value(FILE) is not implemented"
+        }
+        for (def value in ["ARRAY(i.f)", "NAMED_STRUCT('f', i.f)", "MAP('f', i.f)",
+                          "ELEMENT_AT(i.f, 'uri')"]) {
+            sql "${fileRows} SELECT (SELECT ${value} FROM file_scan i WHERE i.id=o.id) FROM file_scan o"
+        }
         qt_no_trailing_slash """SELECT count(*), count(file), sum(size)
             FROM ${listing(root.substring(0, root.length() - 1), ', "recursive"="false"')}"""
         qt_empty_direct """SELECT substring(path, ${root.length() + 1}), size, file IS NULL
