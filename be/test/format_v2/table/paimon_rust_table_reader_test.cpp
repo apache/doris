@@ -113,6 +113,9 @@ protected:
 
 TEST_F(PaimonRustTableReaderTest, ValidatesRustSplit) {
     PaimonRustTableReader reader;
+    // This helper bypasses TableReader::init, which normally assigns _scan_params.
+    // Explicitly supply the missing-descriptor case instead of reading an uninitialized pointer.
+    reader.TEST_set_scan_params(nullptr);
 
     // Missing paimon_split.
     auto range = make_rust_range();

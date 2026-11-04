@@ -72,8 +72,8 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
 
     private static final String LEGACY_BE_REJECTION_MARKER = "Paimon table descriptor required: upgrade the BE";
     static final String ENABLE_RUST_WRITER = "enable_paimon_rust_writer";
-    // SDK 2.1 writes v14 but can decode the v11 append transport emitted by Rust.
-    static final int RUST_COMMIT_VERSION = 11;
+    // Must match paimon-rust's upstream CommitMessage serializer.
+    static final int RUST_COMMIT_VERSION = 14;
 
     static final String ROW_KIND_COLUMN = "__DORIS_PAIMON_ROW_KIND__";
     static final byte INSERT_OPERATION = 0;

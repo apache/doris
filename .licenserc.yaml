@@ -54,7 +54,7 @@ header:
     - "fe/fe-connector/fe-connector-spi/src/test/resources/connector-metadata-methods.txt"
     # Rust-generated Java commit-protocol fixture; every byte is base64 data consumed by the test.
     # A license header would alter the decoded protocol bytes.
-    - "fe/fe-connector/fe-connector-paimon/src/test/resources/paimon/rust-append-v11.base64"
+    - "fe/fe-connector/fe-connector-paimon/src/test/resources/paimon/rust-append-v14.base64"
     # Recorded plugin API surface baselines, one per plugin family. Same reason as
     # above: each *PluginSurfaceTest.readBaseline() adds every non-blank line to the
     # expected signature set, so a header would be read back as phantom signatures.
