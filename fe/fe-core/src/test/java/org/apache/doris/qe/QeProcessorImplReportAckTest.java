@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.common.Status;
 import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.system.Backend;
@@ -34,6 +35,7 @@ import com.google.common.cache.Cache;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
@@ -82,17 +84,34 @@ class QeProcessorImplReportAckTest {
 
         Assertions.assertEquals(TStatusCode.INTERNAL_ERROR, result.getStatus().getStatusCode());
         Assertions.assertFalse(result.isExternalFileCommitDataAccepted());
+        // BE drops the files of a rejected final report, so the statement must fail instead of waiting.
+        Status cancelReason = verifyCancelled(coordinator);
+        Assertions.assertEquals(TStatusCode.INTERNAL_ERROR, cancelReason.getErrorCode());
+        Assertions.assertTrue(cancelReason.getErrorMsg().contains("injected acceptance failure"));
     }
 
     @Test
     void rejectsExternalReportWhenHandlerDoesNotAcceptIt() throws Exception {
         TUniqueId queryId = new TUniqueId(12345, 4);
-        register(queryId);
+        Coordinator coordinator = register(queryId);
 
         TReportExecStatusResult result = report(params(queryId));
 
         Assertions.assertEquals(TStatusCode.INTERNAL_ERROR, result.getStatus().getStatusCode());
         Assertions.assertFalse(result.isExternalFileCommitDataAccepted());
+        Assertions.assertEquals(TStatusCode.INTERNAL_ERROR, verifyCancelled(coordinator).getErrorCode());
+    }
+
+    @Test
+    void acceptedExternalReportDoesNotCancelCoordinator() throws Exception {
+        TUniqueId queryId = new TUniqueId(12345, 8);
+        Coordinator coordinator = register(queryId);
+        Mockito.when(coordinator.updateFragmentExecStatus(Mockito.any())).thenReturn(true);
+
+        TReportExecStatusResult result = report(params(queryId));
+
+        Assertions.assertTrue(result.isExternalFileCommitDataAccepted());
+        Mockito.verify(coordinator, Mockito.never()).cancel(Mockito.any());
     }
 
     @Test
@@ -184,6 +203,12 @@ class QeProcessorImplReportAckTest {
         QeProcessorImpl.INSTANCE.registerQuery(queryId, new QeProcessorImpl.QueryInfo(coordinator));
         registeredQueryId = queryId;
         return coordinator;
+    }
+
+    private static Status verifyCancelled(Coordinator coordinator) {
+        ArgumentCaptor<Status> reason = ArgumentCaptor.forClass(Status.class);
+        Mockito.verify(coordinator, Mockito.times(1)).cancel(reason.capture());
+        return reason.getValue();
     }
 
     private static TReportExecStatusParams params(TUniqueId queryId) {

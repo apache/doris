@@ -236,21 +236,32 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         Map<String, List<TIcebergDeleteFileDesc>> rewritableDeletes =
                 IcebergStatementScope.rewritableDeleteSupply(session);
 
+        TDataSink dataSink = buildDataSink(writeContext.getWriteOperation(), table, tableHandle, handle,
+                rewritableDeletes, schemaContext);
+        // BE reports every file of the sink under the raw location the sink carries, whichever writer
+        // produced it; the transaction rejects a reported file anywhere else.
+        commitLocationsOf(dataSink).forEach(transaction::addCommitLocation);
+        return new ConnectorSinkPlan(dataSink);
+    }
+
+    private TDataSink buildDataSink(WriteOperation writeOperation, Table table, IcebergTableHandle tableHandle,
+            ConnectorWriteHandle handle, Map<String, List<TIcebergDeleteFileDesc>> rewritableDeletes,
+            IcebergWriteSchemaContext schemaContext) {
         // Dispatch on the write operation to the matching BE sink dialect (each is a distinct TDataSinkType,
         // byte-identical to the legacy fe-core planner sink). OVERWRITE shares TIcebergTableSink with INSERT
         // (the overwrite flag is read from the handle); UPDATE shares TIcebergMergeSink with MERGE.
-        switch (writeContext.getWriteOperation()) {
+        switch (writeOperation) {
             case INSERT:
             case OVERWRITE: {
                 TDataSink dataSink = new TDataSink(TDataSinkType.ICEBERG_TABLE_SINK);
                 dataSink.setIcebergTableSink(buildSink(table, tableHandle, handle, schemaContext));
-                return new ConnectorSinkPlan(dataSink);
+                return dataSink;
             }
             case DELETE: {
                 TDataSink dataSink = new TDataSink(TDataSinkType.ICEBERG_DELETE_SINK);
                 dataSink.setIcebergDeleteSink(
                         buildDeleteSink(table, tableHandle, rewritableDeletes, schemaContext));
-                return new ConnectorSinkPlan(dataSink);
+                return dataSink;
             }
             case UPDATE:
             case MERGE: {
@@ -260,7 +271,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
                         handle.getBoundTargetColumns().stream()
                                 .anyMatch(column -> containsVariant(column.getType())),
                         schemaContext));
-                return new ConnectorSinkPlan(dataSink);
+                return dataSink;
             }
             case REWRITE: {
                 // Compaction rewrite (ALTER TABLE ... EXECUTE rewrite_data_files): same TIcebergTableSink
@@ -269,11 +280,29 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
                 // is already evicted above.
                 TDataSink dataSink = new TDataSink(TDataSinkType.ICEBERG_TABLE_SINK);
                 dataSink.setIcebergTableSink(buildRewriteSink(table, tableHandle, handle));
-                return new ConnectorSinkPlan(dataSink);
+                return dataSink;
             }
             default:
-                throw new DorisConnectorException(
-                        "Unsupported iceberg write operation: " + writeContext.getWriteOperation());
+                throw new DorisConnectorException("Unsupported iceberg write operation: " + writeOperation);
+        }
+    }
+
+    /**
+     * The raw data locations BE commits the files of {@code sink} under, read from the field each dialect
+     * carries them in: data files under {@code original_output_path}, delete files and deletion vectors under
+     * {@code table_location}. The merge sink writes both kinds and carries both fields.
+     */
+    private static List<String> commitLocationsOf(TDataSink sink) {
+        switch (sink.getType()) {
+            case ICEBERG_TABLE_SINK:
+                return Collections.singletonList(sink.getIcebergTableSink().getOriginalOutputPath());
+            case ICEBERG_DELETE_SINK:
+                return Collections.singletonList(sink.getIcebergDeleteSink().getTableLocation());
+            case ICEBERG_MERGE_SINK:
+                return Arrays.asList(sink.getIcebergMergeSink().getOriginalOutputPath(),
+                        sink.getIcebergMergeSink().getTableLocation());
+            default:
+                throw new DorisConnectorException("Unsupported iceberg sink type: " + sink.getType());
         }
     }
 

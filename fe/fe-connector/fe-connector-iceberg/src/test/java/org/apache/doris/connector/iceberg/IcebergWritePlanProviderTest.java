@@ -44,6 +44,7 @@ import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TIcebergCommitData;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TIcebergDeleteSink;
 import org.apache.doris.thrift.TIcebergMergeSink;
@@ -83,6 +84,9 @@ import org.apache.iceberg.io.OutputFile;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.DateTimeUtil;
+import org.apache.thrift.TException;
+import org.apache.thrift.TSerializer;
+import org.apache.thrift.protocol.TBinaryProtocol;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -2489,6 +2493,68 @@ public class IcebergWritePlanProviderTest {
                         .writeOperation(WriteOperation.UPDATE));
         Assertions.assertTrue(update.isSetWritesDataFiles());
         Assertions.assertTrue(update.isWritesDataFiles());
+    }
+
+    // BE writes position-delete and deletion-vector files under output_path and commits them under
+    // table_location (VIcebergDeleteSink::_commit_path_of), so both must name the same directory, the
+    // data location, differing only in its normalized vs raw form. If table_location became the table
+    // root, BE would record delete files without the data directory, i.e. files that do not exist,
+    // and nothing would fail. See TIcebergDeleteSink.table_location in DataSinks.thrift.
+    @Test
+    public void planWriteDeleteAndMergeSinksKeepTableLocationInTheOutputDirectory() {
+        Table table = partitionedSortedTable(freshCatalog());
+        TIcebergDeleteSink deleteSink = planDeleteSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "t1")).writeOperation(WriteOperation.DELETE));
+        TIcebergMergeSink mergeSink = planMergeSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "t1")).writeOperation(WriteOperation.UPDATE));
+
+        Assertions.assertEquals(pathAfterScheme(deleteSink.getOutputPath()),
+                pathAfterScheme(deleteSink.getTableLocation()),
+                "delete table_location must be the raw form of output_path's directory");
+        Assertions.assertEquals(pathAfterScheme(mergeSink.getOutputPath()),
+                pathAfterScheme(mergeSink.getTableLocation()),
+                "merge table_location must be the raw form of output_path's directory");
+    }
+
+    // "s3://bucket/wh/db1/t1/data" and "oss://bucket/wh/db1/t1/data" -> "bucket/wh/db1/t1/data".
+    private static String pathAfterScheme(String location) {
+        return location.substring(location.indexOf("://") + 3);
+    }
+
+    // planWrite registers the raw location each sink dialect carries with the transaction, so a file BE
+    // reports under the normalized address it wrote (the s3:// form of this oss:// table, as delete files once
+    // were) fails the statement instead of being recorded where other engines cannot resolve it.
+    @Test
+    public void planWriteRegistersTheCommitLocationOfEverySinkDialect() {
+        for (WriteOperation operation : Arrays.asList(WriteOperation.INSERT, WriteOperation.REWRITE,
+                WriteOperation.DELETE, WriteOperation.UPDATE)) {
+            Table table = partitionedSortedTable(freshCatalog());
+            RecordingConnectorContext ctx = contextWithStorage();
+            RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+            ops.table = table;
+            IcebergConnectorTransaction txn = new IcebergConnectorTransaction(42L, ops, ctx);
+            providerFor(table, ctx).planWrite(new WriteSession(txn),
+                    new WriteHandle(new IcebergTableHandle("db1", "t1")).writeOperation(operation));
+
+            txn.addCommitData(commitFragment("oss://bucket/wh/db1/t1/data/id=1/f.parquet"));
+            DorisConnectorException rejected = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> txn.addCommitData(commitFragment("s3://bucket/wh/db1/t1/data/id=1/f.parquet")),
+                    operation + " must reject a file reported under the normalized location");
+            Assertions.assertTrue(rejected.getMessage().contains("s3://bucket/wh/db1/t1/data/id=1/f.parquet"),
+                    rejected.getMessage());
+            Assertions.assertEquals(1, txn.getCommitDataList().size(), operation.toString());
+        }
+    }
+
+    private static byte[] commitFragment(String filePath) {
+        TIcebergCommitData data = new TIcebergCommitData();
+        data.setFilePath(filePath);
+        data.setFileContent(TFileContent.DATA);
+        try {
+            return new TSerializer(new TBinaryProtocol.Factory()).serialize(data);
+        } catch (TException e) {
+            throw new AssertionError(e);
+        }
     }
 
     @Test
