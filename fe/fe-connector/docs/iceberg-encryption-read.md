@@ -86,3 +86,29 @@ capability result. No SPI or wire-format capability is added by this first stage
 See the upstream [Iceberg encryption documentation](https://iceberg.apache.org/docs/nightly/encryption/)
 and [table specification](https://iceberg.apache.org/spec/#encryption-keys) for
 the SDK encryption scheme and retained table keys.
+
+## SQL regression
+
+`test_iceberg_encryption_read_guard` uses the standard external Iceberg REST and
+MinIO fixture. With `enableIcebergTest=true`, run:
+
+```sh
+bash run-regression-test.sh --run -d external_table_p0/iceberg \
+    -s test_iceberg_encryption_read_guard
+```
+
+The suite writes ordinary v3 tables, then uses the REST fixture to add an
+encryption declaration to a populated table and an empty table. These are
+metadata admission fixtures, not encrypted payloads: the expected failure must
+precede file decryption and requires no KMS. It checks ordinary SELECT, COUNT
+with pushdown enabled/disabled, DESC and system tables, with the table cache
+enabled/disabled and repeated reads. Plaintext row/count results are checked
+before and after rejection. Missing fixture services fail the enabled suite.
+
+The default run expects `READ_DISABLED`. To also test an enabled deployment,
+set `enable_encryption_read=true` in every FE's plugin configuration, restart the
+FE, and set the regression option `icebergEncryptionReadEnabled=true`. That run
+expects `UNSUPPORTED_CATALOG` for the REST fixture; it must still reject every
+declared encrypted table. HMS backend-capability classification and retained v3
+keys also have connector unit coverage. Neither regression mode exercises native
+decryption or grants encrypted-write support.
