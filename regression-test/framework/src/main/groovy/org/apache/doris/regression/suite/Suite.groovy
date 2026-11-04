@@ -58,6 +58,7 @@ import org.apache.doris.regression.util.JdbcUtils
 import org.apache.doris.regression.util.Hdfs
 import org.apache.doris.regression.util.Http
 import org.apache.doris.regression.util.ResultUtils
+import org.apache.doris.regression.util.TrinoConnectorInstaller
 import org.apache.doris.regression.util.SuiteUtils
 import org.apache.doris.regression.util.DebugPoint
 import org.apache.doris.regression.RunMode
@@ -108,7 +109,7 @@ class Suite implements GroovyInterceptable {
     final List<Closure> finishCallbacks = new Vector<>()
     final List<Throwable> lazyCheckExceptions = new Vector<>()
     final List<Future> lazyCheckFutures = new Vector<>()
-    static Boolean isTrinoConnectorDownloaded = false
+    private static final TrinoConnectorInstaller trinoConnectorInstaller = new TrinoConnectorInstaller()
 
     static final String FORCE_IN_RBO = "FORCE_IN_RBO";
     static final String TRY_IN_RBO = "TRY_IN_RBO";
@@ -1465,70 +1466,32 @@ class Suite implements GroovyInterceptable {
         Assert.assertEquals(0, code)
     }
 
-    void dispatchTrinoConnectors(ArrayList host_ips)
-    {
+    void dispatchTrinoConnectors() {
+        // Standalone MongoDB suites may use operator-installed plugins without SSH/S3 fixtures.
+        if (!Boolean.parseBoolean(context.config.otherConfigs.get("enableTrinoConnectorTest"))) {
+            return
+        }
+        def hosts = new ArrayList()
+        sql("SHOW BACKENDS").each { hosts.add(it[1]) }
+        sql("SHOW FRONTENDS").each { hosts.add(it[1]) }
+        dispatchTrinoConnectors(hosts.unique())
+    }
+
+    void dispatchTrinoConnectors(ArrayList host_ips) {
         def dir_download = context.config.otherConfigs.get("trinoPluginsPath")
-        def s3_url = getS3Url()
-        def url = "${s3_url}/regression/trino-connectors.tar.gz"
-        dispatchTrinoConnectors_impl(host_ips, dir_download, url)
+        def url = "${getS3Url()}/regression/trino-connectors.tar.gz"
+        boolean includeMongoDb = Boolean.parseBoolean(context.config.otherConfigs.get("enableMongoDBTest"))
+        dispatchTrinoConnectors_impl(host_ips, dir_download, url, includeMongoDb)
     }
 
     /*
-     * download trino connectors, and sends to every fe and be.
-     * There are 3 configures to support this: trino_connectors in regression-conf.groovy, and trino_connector_plugin_dir in be and fe.
-     * fe and be's config must satisfy regression-conf.groovy's config.
-     * e.g. in regression-conf.groovy, trino_connectors = "/tmp/trino_connector", then in be.conf and fe.conf, must set trino_connector_plugin_dir="/tmp/trino_connector/connectors"
-     *
-     * this function must be not reentrant.
-     *
-     * If failed, will call assertTrue(false).
+     * Build one complete fixture bundle and distribute it to every FE and BE before catalog creation.
+     * trino_connector_plugin_dir on FE and BE must point to the connectors child of trinoPluginsPath.
      */
-    static synchronized void dispatchTrinoConnectors_impl(ArrayList host_ips, String dir_download, String url) {
-        if (isTrinoConnectorDownloaded == true) {
-            staticLogger.info("trino connector downloaded")
-            return
-        }
-
+    static void dispatchTrinoConnectors_impl(ArrayList host_ips, String dir_download, String url,
+            boolean includeMongoDb = false) {
         Assert.assertTrue(!dir_download.isEmpty())
-        def path_tar = "${dir_download}/trino-connectors.tar.gz"
-        // extract to a tmp direcotry, and then scp to every host_ips, including self.
-        def dir_connector_tmp = "${dir_download}/connectors_tmp"
-        def path_connector_tmp = "${dir_connector_tmp}/connectors"
-        def path_connector = "${dir_download}/connectors"
-
-        def executeCommand = { String cmd, Boolean mustSuc ->
-            try {
-                staticLogger.info("execute ${cmd}")
-                def proc = new ProcessBuilder("/bin/bash", "-c", cmd).redirectErrorStream(true).start()
-                int exitcode = proc.waitFor()
-                if (exitcode != 0) {
-                    staticLogger.info("exit code: ${exitcode}, output\n: ${proc.text}")
-                    if (mustSuc == true) {
-                        Assert.assertEquals(0, exitcode)
-                    }
-                }
-            } catch (IOException e) {
-                Assert.assertTrue(false, "execute timeout")
-            }
-        }
-
-        executeCommand("mkdir -p ${dir_download}", false)
-        executeCommand("rm -rf ${path_tar}", false)
-        executeCommand("rm -rf ${dir_connector_tmp}", false)
-        executeCommand("mkdir -p ${dir_connector_tmp}", false)
-        executeCommand("/usr/bin/curl --max-time 600 ${url} --output ${path_tar}", true)
-        executeCommand("tar -zxvf ${path_tar} -C ${dir_connector_tmp}", true)
-
-        host_ips = host_ips.unique()
-        for (def ip in host_ips) {
-            staticLogger.info("scp to ${ip}")
-            executeCommand("ssh -o StrictHostKeyChecking=no root@${ip} \"mkdir -p ${dir_download}\"", false)
-            executeCommand("ssh -o StrictHostKeyChecking=no root@${ip} \"rm -rf ${path_connector}\"", false)
-            scpFiles("root", ip, path_connector_tmp, path_connector, false) // if failed, assertTrue(false) is executed.
-        }
-
-        isTrinoConnectorDownloaded = true
-        staticLogger.info("dispatch trino connector to ${dir_download} succeed")
+        trinoConnectorInstaller.dispatch(host_ips, new File(dir_download), url, includeMongoDb)
     }
 
     void mkdirRemote(String username, String host, String path) {
