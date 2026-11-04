@@ -550,7 +550,10 @@ sub Init() {
 
   # Parse profile file/location arguments
   foreach my $farg (@ARGV) {
-    if ($farg =~ m/(.*)\@([0-9]+)(|\/.*)$/ ) {
+    # A local directory can contain @1. Do not treat its files as remote groups.
+    if (-f $farg) {
+      unshift(@main::pfile_args, $farg);
+    } elsif ($farg =~ m/(.*)\@([0-9]+)(|\/.*)$/ ) {
       my $machine = $1;
       my $num_machines = $2;
       my $path = $3;
@@ -5305,7 +5308,8 @@ sub ShellEscape {
   foreach my $word (@_) {
     my $escaped_word = $word;
     if ($word =~ m![^a-zA-Z0-9/.,_=-]!) {  # check for anything not in whitelist
-      $escaped_word =~ s/'/'\\''/;
+      # Escape each quote. For example, a'b'c contains two quotes.
+      $escaped_word =~ s/'/'\\''/g;
       $escaped_word = "'$escaped_word'";
     }
     push(@escaped_words, $escaped_word);
@@ -5672,8 +5676,20 @@ sub AddressIncUnitTest {
 }
 
 
+# Check that the shell returns a path with two quotes unchanged.
+sub ShellEscapeUnitTest {
+  my $word = q{a'b'c};
+  my $command = "printf '%s' " . ShellEscape($word);
+  my $result = `$command`;
+  if ($? != 0 || $result ne $word) {
+    print STDERR "ShellEscape round trip failed\n";
+    return 1;
+  }
+  print STDERR "ShellEscape round trip passed\n";
+  return 0;
+}
+
 # Driver for unit tests.
-# Currently just the address add/subtract/increment routines for 64-bit.
 sub RunUnitTests {
   my $error_count = 0;
 
@@ -5714,6 +5730,7 @@ sub RunUnitTests {
   $error_count += AddressAddUnitTest($unit_test_data_8, $unit_test_data_16);
   $error_count += AddressSubUnitTest($unit_test_data_8, $unit_test_data_16);
   $error_count += AddressIncUnitTest($unit_test_data_8, $unit_test_data_16);
+  $error_count += ShellEscapeUnitTest();
   if ($error_count > 0) {
     print STDERR $error_count, " errors: FAILED\n";
   } else {

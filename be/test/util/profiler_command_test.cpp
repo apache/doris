@@ -23,13 +23,14 @@
 #include <sstream>
 #include <string>
 
+#include "agent/utils.h"
 #include "common/config.h"
 #include "runtime/memory/heap_profiler.h"
 #include "util/pprof_utils.h"
 
 namespace doris {
 
-// These scripts replace the profiling tools. They test the real shell boundary without sampling.
+// Scripts check the shell boundary. The jeprof integration test uses the bundled tool.
 class ProfilerCommandTest : public testing::Test {
 protected:
     void SetUp() override {
@@ -96,6 +97,34 @@ TEST_F(ProfilerCommandTest, JeprofKeepsPathsLiteral) {
     const std::string profile = (_profile_dir / "jeheap_dump.heap").string();
     EXPECT_EQ("--dot\n--\n" + (_home / "lib/doris_be").string() + "\n" + profile + "\n",
               HeapProfiler::jeprof_profile_to_dot(profile));
+}
+
+TEST_F(ProfilerCommandTest, BundledJeprofKeepsLocalProfile) {
+    const auto jeprof = std::filesystem::current_path() / "tools/jeprof";
+    // Keep failure output in this fixture. The curl stub prevents remote requests.
+    write_tool(_home / "bin/jeprof",
+               "export JEPROF_TMPDIR=" + AgentUtils::shell_quote(_root.string()) + "\nexec " +
+                       AgentUtils::shell_quote(jeprof.string()) + " \"$@\"\n");
+    write_tool(_home / "bin/curl", "echo 'Unexpected remote profile' >&2\nexit 1\n");
+    std::filesystem::create_directories(_home / "lib");
+    std::filesystem::create_symlink("/bin/true", _home / "lib/doris_be");
+    const auto profile_dir = _profile_dir / "safe@1";
+    std::filesystem::create_directories(profile_dir);
+    const std::string profile = (profile_dir / "jeheap_dump.heap").string();
+    // Two lines describe a valid profile with no samples. No process sampling is needed.
+    std::ofstream(profile) << "heap_v2/1\n  t*: 0: 0 [0: 0]\n";
+    EXPECT_EQ("Using local file " + (_home / "lib/doris_be").string() + ".\nUsing local file " +
+                      profile + ".\nNo nodes to print\n",
+              HeapProfiler::jeprof_profile_to_dot(profile));
+}
+
+TEST_F(ProfilerCommandTest, BundledJeprofUnitTests) {
+    const auto jeprof = std::filesystem::current_path() / "tools/jeprof";
+    std::string output;
+    AgentUtils util;
+    ASSERT_TRUE(util.exec_cmd(AgentUtils::shell_quote(jeprof.string()) + " --test", &output))
+            << output;
+    EXPECT_NE(output.find("ShellEscape round trip passed\n"), std::string::npos);
 }
 
 TEST_F(ProfilerCommandTest, PprofKeepsFilePathLiteral) {
