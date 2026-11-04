@@ -21,7 +21,6 @@
 #include <absl/strings/str_split.h>
 
 #include <ranges>
-#include <unordered_set>
 #include <utility>
 
 #include "agent/be_exec_version_manager.h"
@@ -89,14 +88,12 @@ Status parse_wal_column_ids(const std::string& encoded, std::vector<int32_t>* co
         return Status::Corruption("WAL header contains no column ids");
     }
 
-    std::unordered_set<int32_t> seen;
+    // Schema change appends shadow columns with the original column ids. Preserve all physical
+    // positions: the field-id mapper selects the first (base) column, like the legacy WAL reader.
     for (const absl::string_view token : absl::StrSplit(encoded, ',')) {
         int32_t column_id = 0;
         if (token.empty() || !absl::SimpleAtoi(token, &column_id)) {
             return Status::Corruption("invalid WAL column id '{}'", std::string(token));
-        }
-        if (!seen.emplace(column_id).second) {
-            return Status::Corruption("duplicate WAL column id {}", column_id);
         }
         column_ids->push_back(column_id);
     }
