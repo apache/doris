@@ -17,24 +17,31 @@
 
 package org.apache.doris.regression.suite
 
+import org.apache.doris.regression.Config
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 
 import java.util.concurrent.Executors
 
 import static org.junit.jupiter.api.Assertions.*
 
 class SuiteTrinoInstallModeTest {
+    @TempDir
+    File temporaryDir
+
+    private TestSuite suite(Map<String, String> settings) {
+        def config = new Config(suitePath: temporaryDir.path, dataPath: temporaryDir.path,
+                realDataPath: temporaryDir.path, defaultDb: "regression_test")
+        config.otherConfigs.putAll(settings)
+        File file = new File(temporaryDir, "fixture.groovy")
+        def script = new ScriptContext(file, null, null, config, [], { true })
+        def context = new SuiteContext(file, "fixture", "external", script, null, null, null, config)
+        return new TestSuite(context)
+    }
+
     private static class TestSuite extends Suite {
-        final Map<String, String> settings
-
-        TestSuite(Map<String, String> settings) {
-            super("trino_install_mode", "external", null, null)
-            this.settings = settings
-        }
-
-        @Override
-        String getConf(String key, String defaultValue) {
-            return settings.getOrDefault(key, defaultValue)
+        TestSuite(SuiteContext context) {
+            super("trino_install_mode", "external", context, null)
         }
 
         @Override
@@ -47,8 +54,8 @@ class SuiteTrinoInstallModeTest {
     void preinstalledLeavesTestsEnabledAndContinuesAfterDispatch() {
         def settings = [trinoConnectorInstallMode: "preinstalled",
                         enableTrinoConnectorTest: "true", enableMongoDBTest: "true"]
-        def suite = new TestSuite(settings)
-        // No context, download path, S3 or SSH configuration: installation must not be entered.
+        def suite = suite(settings)
+        // No download path, S3 or SSH configuration: installation must not be entered.
         suite.dispatchTrinoConnectors(["unreachable.example"] as ArrayList)
         assertEquals("true", settings.enableTrinoConnectorTest)
         assertEquals("true", settings.enableMongoDBTest)
@@ -60,7 +67,7 @@ class SuiteTrinoInstallModeTest {
         try {
             def tasks = (1..12).collect {
                 executor.submit({
-                    new TestSuite([trinoConnectorInstallMode: "preinstalled"])
+                    suite([trinoConnectorInstallMode: "preinstalled"])
                             .dispatchTrinoConnectors([] as ArrayList)
                     return "query assertions continue"
                 } as java.util.concurrent.Callable<String>)
@@ -75,7 +82,7 @@ class SuiteTrinoInstallModeTest {
     void defaultAndExplicitFrameworkModesStillEnterInstaller() {
         [[:], [trinoConnectorInstallMode: "framework"]].each { settings ->
             def error = assertThrows(AssertionError) {
-                new TestSuite(settings).dispatchTrinoConnectors([] as ArrayList)
+                suite(settings).dispatchTrinoConnectors([] as ArrayList)
             }
             assertEquals("Installer requested S3", error.message)
         }
@@ -84,7 +91,7 @@ class SuiteTrinoInstallModeTest {
     @Test
     void invalidModeFailsBeforeAccessingInstallationConfiguration() {
         def error = assertThrows(IllegalArgumentException) {
-            new TestSuite([trinoConnectorInstallMode: "preinstaled"])
+            suite([trinoConnectorInstallMode: "preinstaled"])
                     .dispatchTrinoConnectors([] as ArrayList)
         }
         assertTrue(error.message.contains("preinstaled"))
