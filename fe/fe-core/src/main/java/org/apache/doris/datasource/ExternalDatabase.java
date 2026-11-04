@@ -698,14 +698,19 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     /** A missing result is authorized only against the retained DB, names and object generations. */
     @SuppressWarnings("unchecked")
     public Optional<Runnable> observeTableLookup(ExternalTable table) {
-        OptionalLong refreshGeneration = extCatalog.observeTableLookupRefreshGeneration();
         MetaCache<T> cache = metaCache;
-        if (!refreshGeneration.isPresent() || !initialized || cache == null) {
+        if (!initialized || cache == null) {
             return Optional.empty();
         }
         // Observation must not initialize a retired catalog before a pinned local schema read.
         TableMetadataLoadEpoch retainedEpoch = metadataLoadEpoch.get();
         if (!extCatalog.isMetadataLoadEpochCurrent(retainedEpoch.catalogEpoch)) {
+            return Optional.empty();
+        }
+        // A retired pinned read must not wait for replacement catalog initialization merely
+        // to discover it cannot repair lookup state. Only eligible reads need this monitor.
+        OptionalLong refreshGeneration = extCatalog.observeTableLookupRefreshGeneration();
+        if (!refreshGeneration.isPresent()) {
             return Optional.empty();
         }
         long epoch = retainedEpoch.value;

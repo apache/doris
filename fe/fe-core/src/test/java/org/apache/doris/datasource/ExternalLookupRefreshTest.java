@@ -42,6 +42,61 @@ import java.util.concurrent.atomic.AtomicReference;
 
 class ExternalLookupRefreshTest {
     @Test
+    void uninitializedPinnedReadDoesNotWaitForCatalogInitialization() throws Exception {
+        verifyIneligiblePinnedReadDoesNotWait(0);
+    }
+
+    @Test
+    void uncachedPinnedReadDoesNotWaitForCatalogInitialization() throws Exception {
+        verifyIneligiblePinnedReadDoesNotWait(1);
+    }
+
+    @Test
+    void retiredEpochPinnedReadDoesNotWaitForCatalogInitialization() throws Exception {
+        verifyIneligiblePinnedReadDoesNotWait(2);
+    }
+
+    private void verifyIneligiblePinnedReadDoesNotWait(int state) throws Exception {
+        ExternalCatalog catalog = lookupRefreshCatalog();
+        ExternalDatabase<?> database = lookupDatabase(catalog);
+        if (state == 0) {
+            Deencapsulation.setField(database, "initialized", false);
+        } else if (state == 1) {
+            Deencapsulation.setField(database, "metaCache", null);
+        } else {
+            Mockito.when(catalog.isMetadataLoadEpochCurrent(Mockito.anyLong())).thenReturn(false);
+        }
+        ExternalTable table = new ExternalTable();
+        table.setDb(database);
+        java.util.concurrent.CountDownLatch initializing = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch finishInitialization = new java.util.concurrent.CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        java.util.concurrent.Future<?> initializer = executor.submit(() -> {
+            synchronized (catalog) {
+                initializing.countDown();
+                Assertions.assertTrue(finishInitialization.await(10, java.util.concurrent.TimeUnit.SECONDS));
+            }
+            return null;
+        });
+        try {
+            Assertions.assertTrue(initializing.await(10, java.util.concurrent.TimeUnit.SECONDS));
+            // Pinned schema projection needs neither the replacement runtime nor a cleanup
+            // observation on this retired DB. It must finish while initialization is still blocked.
+            java.util.concurrent.Future<String> read = executor.submit(
+                    () -> table.withMissingTableRepair(() -> "pinned schema"));
+            Assertions.assertEquals("pinned schema", read.get(2, java.util.concurrent.TimeUnit.SECONDS));
+        } finally {
+            finishInitialization.countDown();
+            try {
+                initializer.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            } finally {
+                executor.shutdownNow();
+            }
+        }
+        Mockito.verify(catalog, Mockito.never()).observeTableLookupRefreshGeneration();
+    }
+
+    @Test
     void missingReadStartedDuringRefreshCannotRetireReplacementAfterRefreshFinishes() {
         ExternalCatalog catalog = lookupRefreshCatalog();
         Runnable finished = lookupDatabase(catalog).beginTableMetadataRefresh().get();
