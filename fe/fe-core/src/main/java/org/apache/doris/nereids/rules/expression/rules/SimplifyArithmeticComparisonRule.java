@@ -113,8 +113,18 @@ public class SimplifyArithmeticComparisonRule implements ExpressionPatternRuleFa
             return false;
         }
 
-        // Calendar-day addition across DST is not order-preserving or invertible:
-        // 01:50-04 + 1 day < next-day 01:30-05 is false, but moving the day to the RHS is true.
+        // The rule can move a date interval only if the date function keeps the order of input values.
+        // It calls isMonotonic(null, null) because it has no input range bounds.
+        // Calendar day addition can change UTC time order for TIMESTAMPTZ values when the UTC offset changes.
+        //
+        // Example in America/New_York:
+        // ts = 2024-11-03 01:50:00-04:00
+        // cutoff = 2024-11-04 01:30:00-05:00
+        // days_add(ts, 1) < cutoff is false.
+        // ts < days_sub(cutoff, 1) is true.
+        // The subtraction selects the second 01:30 on November 3, with UTC offset -05:00.
+        //
+        // The check keeps the original comparison if isMonotonic returns false.
         if (cmp.left() instanceof DateAddSubMonotonic
                 && !((DateAddSubMonotonic) cmp.left()).isMonotonic(null, null)) {
             return false;
