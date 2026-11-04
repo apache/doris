@@ -27,6 +27,7 @@ import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnsOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
@@ -43,6 +44,7 @@ import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -232,14 +234,29 @@ public class AlterTableCommandTest {
     }
 
     @Test
-    void testRejectRequiredNestedColumnForIcebergTable() {
+    void testAllowRequiredColumnDefaultsForIcebergTable() throws AnalysisException {
         PluginDrivenMvccExternalTable table = Mockito.mock(PluginDrivenMvccExternalTable.class);
         Mockito.when(table.supportsNestedColumnSchemaChange()).thenReturn(true);
-        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
-                () -> AlterTableCommand.checkColumnOperationsSupported(table,
-                        parseAlter("ALTER TABLE t ADD COLUMN s.required_field INT NOT NULL").getOps()));
-        Assertions.assertTrue(exception.getMessage()
-                .contains("New nested field 's.required_field' must be nullable"));
+        for (String sql : Arrays.asList(
+                "ALTER TABLE t ADD COLUMN required_field INT NOT NULL DEFAULT 7",
+                "ALTER TABLE t ADD COLUMN s.required_field INT NOT NULL DEFAULT 7",
+                "ALTER TABLE t ADD COLUMN arr.element.required_field INT NOT NULL DEFAULT 7",
+                "ALTER TABLE t ADD COLUMN m.value.required_field INT NOT NULL DEFAULT 7",
+                "ALTER TABLE t ADD COLUMN (required_field INT NOT NULL DEFAULT 7, optional_field INT)")) {
+            AlterTableCommand.checkColumnOperationsSupported(table, parseAlter(sql).getOps());
+        }
+    }
+
+    @Test
+    void testRequiredNestedColumnStillNeedsDefault() throws AnalysisException {
+        PluginDrivenMvccExternalTable table = Mockito.mock(PluginDrivenMvccExternalTable.class);
+        Mockito.when(table.supportsNestedColumnSchemaChange()).thenReturn(true);
+        AddColumnOp op = (AddColumnOp) parseAlter(
+                "ALTER TABLE t ADD COLUMN s.required_field INT NOT NULL").getOps().get(0);
+        AlterTableCommand.checkColumnOperationsSupported(table, Collections.singletonList(op));
+        AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                () -> AddColumnOp.validateColumnDef(null, op.getColumnDef(), null, null));
+        Assertions.assertTrue(error.getMessage().contains("doesn't have a default value"));
     }
 
     @Test
@@ -338,6 +355,8 @@ public class AlterTableCommandTest {
         for (String sql : Arrays.asList(
                 "ALTER TABLE t MODIFY COLUMN c BIGINT DEFAULT 7",
                 "ALTER TABLE t MODIFY COLUMN c BIGINT DEFAULT NULL",
+                "ALTER TABLE t MODIFY COLUMN s.c BIGINT DEFAULT 7",
+                "ALTER TABLE t MODIFY COLUMN s.c BIGINT DEFAULT NULL",
                 "ALTER TABLE t MODIFY COLUMN ts DATETIME DEFAULT CURRENT_TIMESTAMP "
                         + "ON UPDATE CURRENT_TIMESTAMP")) {
             AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
@@ -353,12 +372,14 @@ public class AlterTableCommandTest {
         Assertions.assertTrue(complexDefaultException.getMessage()
                 .contains("Struct type column default value just support null"));
 
-        AnalysisException onUpdateException = Assertions.assertThrows(AnalysisException.class,
-                () -> AlterTableCommand.checkColumnOperationsSupported(table, parseAlter(
-                        "ALTER TABLE t ADD COLUMN ts DATETIME NULL DEFAULT CURRENT_TIMESTAMP "
-                                + "ON UPDATE CURRENT_TIMESTAMP").getOps()));
-        Assertions.assertTrue(onUpdateException.getMessage()
-                .contains("ON UPDATE is not supported for Iceberg ADD COLUMN"));
+        for (String name : Arrays.asList("ts", "s.ts")) {
+            AnalysisException onUpdateException = Assertions.assertThrows(AnalysisException.class,
+                    () -> AlterTableCommand.checkColumnOperationsSupported(table, parseAlter(
+                            "ALTER TABLE t ADD COLUMN " + name + " DATETIME NULL DEFAULT CURRENT_TIMESTAMP "
+                                    + "ON UPDATE CURRENT_TIMESTAMP").getOps()));
+            Assertions.assertTrue(onUpdateException.getMessage()
+                    .contains("ON UPDATE is not supported for Iceberg ADD COLUMN"));
+        }
 
         AlterTableCommand.checkColumnOperationsSupported(table,
                 parseAlter("ALTER TABLE t ADD COLUMN c BIGINT NULL DEFAULT 7").getOps());

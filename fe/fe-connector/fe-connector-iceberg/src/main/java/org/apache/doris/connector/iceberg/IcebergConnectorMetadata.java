@@ -96,6 +96,7 @@ import org.apache.iceberg.expressions.Evaluator;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.ExpressionUtil;
 import org.apache.iceberg.expressions.Expressions;
+import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.expressions.Projections;
 import org.apache.iceberg.expressions.StrictMetricsEvaluator;
 import org.apache.iceberg.io.CloseableIterable;
@@ -1386,8 +1387,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     /**
      * Adds a column, mirroring legacy {@code IcebergMetadataOps.addColumn}/{@code addOneColumn}: the neutral
      * column is turned into an iceberg type + parsed DEFAULT literal PURELY (outside auth), then committed
-     * through the seam at {@code position} ({@code null} = append at the end). A non-nullable column cannot be
-     * added to an existing iceberg table (legacy parity).
+     * through the seam at {@code position} ({@code null} = append at the end). A required addition needs a
+     * non-null default and a format-version 3 table, checked against the table loaded by the seam.
      */
     @Override
     public void addColumn(ConnectorSession session, ConnectorTableHandle handle,
@@ -1594,8 +1595,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
 
     /**
      * Adds a nested field at {@code path}, mirroring legacy {@code IcebergMetadataOps.addColumn(ColumnPath,...)}:
-     * a new nested field must be nullable; the parent must resolve to a struct and the leaf must not collide with
-     * an existing sibling (checked in the seam against the loaded schema). A single-part path degrades to the flat
+     * the parent must resolve to a struct and the leaf must not collide with an existing sibling (checked in the
+     * seam against the loaded schema). Required fields need a non-null default on a v3 table, just like top-level
+     * additions. A single-part path degrades to the flat
      * {@link #addColumn(ConnectorSession, ConnectorTableHandle, ConnectorColumn, ConnectorColumnPosition)}.
      */
     @Override
@@ -1607,16 +1609,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         }
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         validateCommonColumnInfo(column);
-        if (column.getDefaultValue() != null) {
-            throw new DorisConnectorException(
-                    "DEFAULT and ON UPDATE are not supported for Iceberg nested ADD COLUMN: " + path.getFullPath());
-        }
-        if (!column.isNullable()) {
-            throw new DorisConnectorException("New nested field '" + path.getFullPath() + "' must be nullable");
-        }
         Type icebergType = IcebergSchemaBuilder.buildNestedFieldType(column.getType());
         IcebergColumnChange change = new IcebergColumnChange(path.getLeafName(), icebergType,
-                column.getComment(), null, column.isNullable());
+                column.getComment(), parseAddColumnDefault(column, icebergType), column.isNullable());
         try {
             executeAuthenticated(() -> {
                 catalogOps.addNestedColumn(iceHandle.getDbName(), iceHandle.getTableName(), path, change, position);
@@ -1879,19 +1874,23 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
 
     /**
      * Builds the iceberg {@code ADD COLUMN} artifacts from a neutral column, mirroring legacy
-     * {@code addOneColumn}: reject aggregated / auto-inc columns and a non-nullable add, build the iceberg
+     * {@code addOneColumn}: reject aggregated / auto-inc columns, build the iceberg
      * type, parse the DEFAULT literal. Pure (no remote call); runs outside the auth context.
      */
     private IcebergColumnChange toAddColumnChange(ConnectorColumn column) {
         validateCommonColumnInfo(column);
-        if (!column.isNullable()) {
-            throw new DorisConnectorException("can't add a non-nullable column to an Iceberg table: "
-                    + column.getName());
-        }
         Type icebergType = IcebergSchemaBuilder.buildColumnType(column.getType());
         return new IcebergColumnChange(column.getName(), icebergType, column.getComment(),
-                IcebergSchemaBuilder.parseDefaultLiteral(column.getDefaultValue(), icebergType),
-                column.isNullable());
+                parseAddColumnDefault(column, icebergType), column.isNullable());
+    }
+
+    private static Literal<?> parseAddColumnDefault(ConnectorColumn column, Type icebergType) {
+        Literal<?> defaultValue = IcebergSchemaBuilder.parseDefaultLiteral(column.getDefaultValue(), icebergType);
+        if (!column.isNullable() && defaultValue == null) {
+            throw new DorisConnectorException("can't add a non-nullable column to an Iceberg table: "
+                    + column.getName() + " without a non-null default");
+        }
+        return defaultValue;
     }
 
     /** Rejects aggregated / auto-increment columns on iceberg, mirroring legacy {@code validateCommonColumnInfo}. */

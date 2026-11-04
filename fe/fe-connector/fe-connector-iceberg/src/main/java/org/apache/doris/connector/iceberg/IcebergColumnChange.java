@@ -18,7 +18,9 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
 
+import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.types.Type;
 
@@ -82,6 +84,28 @@ public final class IcebergColumnChange {
 
     public boolean isNullable() {
         return nullable;
+    }
+
+    /** Stages a top-level or nested addition, preserving requiredness and both Iceberg defaults. */
+    void addTo(UpdateSchema updateSchema, String parent, int formatVersion) {
+        if (defaultValue != null && formatVersion < 3) {
+            throw new DorisConnectorException("Iceberg column defaults require format-version 3: "
+                    + (parent == null ? name : parent + "." + name));
+        }
+        if (nullable) {
+            if (parent == null) {
+                updateSchema.addColumn(name, type, comment, defaultValue);
+            } else {
+                updateSchema.addColumn(parent, name, type, comment, defaultValue);
+            }
+        } else {
+            // The SDK rejects required additions without a default and sets initial- and write-default together.
+            if (parent == null) {
+                updateSchema.addRequiredColumn(name, type, comment, defaultValue);
+            } else {
+                updateSchema.addRequiredColumn(parent, name, type, comment, defaultValue);
+            }
+        }
     }
 
     /** The neutral source type (for a complex MODIFY diff), or null for ADD / scalar MODIFY. */

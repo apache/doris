@@ -84,7 +84,7 @@ suite("iceberg_schema_change_ddl", "p0,external") {
     // Test 2: ADD COLUMN - basic type
     test {
         sql """ ALTER TABLE iceberg_ddl_test ADD COLUMN email STRING not null DEFAULT 'N/A'; """
-        exception "can't add a non-nullable column to an Iceberg table"
+        exception "format-version 3"
     }
     sql """ ALTER TABLE ${table_name} ADD COLUMN email STRING """
     // not support initial default value for new column

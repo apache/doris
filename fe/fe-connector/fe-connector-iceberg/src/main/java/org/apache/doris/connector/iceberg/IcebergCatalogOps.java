@@ -544,8 +544,7 @@ public interface IcebergCatalogOps {
                 IcebergNestedColumnEvolution.validateNoCaseInsensitiveSiblingCollision(
                         table.schema().asStruct(), "", column.getName(), null, "add");
                 UpdateSchema updateSchema = table.updateSchema();
-                updateSchema.addColumn(column.getName(), column.getType(), column.getComment(),
-                        column.getDefaultValue());
+                column.addTo(updateSchema, null, IcebergWriterHelper.getFormatVersion(table));
                 applyPosition(updateSchema, position, column.getName());
                 updateSchema.commit();
                 return null;
@@ -563,9 +562,9 @@ public interface IcebergCatalogOps {
                 }
                 IcebergNestedColumnEvolution.validateNoCaseInsensitiveTopLevelCollisions(table.schema(), columns);
                 UpdateSchema updateSchema = table.updateSchema();
+                int formatVersion = IcebergWriterHelper.getFormatVersion(table);
                 for (IcebergColumnChange column : columns) {
-                    updateSchema.addColumn(column.getName(), column.getType(), column.getComment(),
-                            column.getDefaultValue());
+                    column.addTo(updateSchema, null, formatVersion);
                 }
                 updateSchema.commit();
                 return null;

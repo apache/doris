@@ -1,0 +1,176 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+suite("test_iceberg_add_column_defaults", "p0,external") {
+    if (!context.config.otherConfigs.get("enableIcebergTest")?.equalsIgnoreCase("true")) {
+        return
+    }
+    String warehouse = context.config.otherConfigs.get("icebergAddColumnDefaultsWarehouse")
+    sql "DROP CATALOG IF EXISTS iceberg_add_column_defaults"
+    if (warehouse) {
+        sql """CREATE CATALOG iceberg_add_column_defaults PROPERTIES (
+            'type' = 'iceberg', 'iceberg.catalog.type' = 'hadoop', 'warehouse' = '${warehouse}')"""
+    } else {
+        String host = context.config.otherConfigs.get("externalEnvIp")
+        String restPort = context.config.otherConfigs.get("iceberg_rest_uri_port")
+        String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
+        sql """CREATE CATALOG iceberg_add_column_defaults PROPERTIES (
+            'type' = 'iceberg', 'iceberg.catalog.type' = 'rest',
+            'uri' = 'http://${host}:${restPort}',
+            's3.access_key' = 'admin', 's3.secret_key' = 'password',
+            's3.endpoint' = 'http://${host}:${minioPort}', 's3.region' = 'us-east-1')"""
+    }
+    sql "SWITCH iceberg_add_column_defaults"
+    sql "CREATE DATABASE IF NOT EXISTS add_column_defaults_db"
+    sql "USE add_column_defaults_db"
+
+    for (String format : ["parquet", "orc"]) {
+        sql "DROP TABLE IF EXISTS required_defaults_${format}"
+        sql """CREATE TABLE required_defaults_${format} (
+            id INT, s STRUCT<a:INT>, arr ARRAY<STRUCT<a:INT>>, m MAP<STRING,STRUCT<a:INT>>
+        ) PROPERTIES ('format-version' = '3', 'write.format.default' = '${format}')"""
+        sql """INSERT INTO required_defaults_${format} VALUES
+            (1, STRUCT(10), ARRAY(STRUCT(100), NULL), MAP('k', STRUCT(1000), 'n', NULL)),
+            (2, NULL, NULL, NULL), (3, STRUCT(30), ARRAY(), MAP())"""
+        sql """ALTER TABLE required_defaults_${format}
+            ADD COLUMN added INT NOT NULL DEFAULT 7 AFTER id"""
+        sql """ALTER TABLE required_defaults_${format}
+            ADD COLUMN (batch_required INT NOT NULL DEFAULT 8, batch_optional INT)"""
+        sql """ALTER TABLE required_defaults_${format}
+            ADD COLUMN s.b INT NOT NULL DEFAULT 9 AFTER a"""
+        sql """ALTER TABLE required_defaults_${format}
+            ADD COLUMN s.c INT DEFAULT 10"""
+        sql """ALTER TABLE required_defaults_${format}
+            ADD COLUMN arr.element.b INT NOT NULL DEFAULT 11"""
+        sql """ALTER TABLE required_defaults_${format}
+            ADD COLUMN m.value.b INT NOT NULL DEFAULT 13"""
+
+        // Old files have no new field IDs. NULL parents and NULL collection values remain NULL.
+        "order_qt_${format}_old_files" "SELECT * FROM required_defaults_${format} ORDER BY id"
+        "order_qt_${format}_nested_filter" """SELECT id FROM required_defaults_${format}
+            WHERE s.b = 9 ORDER BY id"""
+        "order_qt_${format}_collection_filter" """SELECT id FROM required_defaults_${format}
+            WHERE arr[1].b = 11 AND m['k'].b = 13 ORDER BY id"""
+
+        sql "INSERT INTO required_defaults_${format} (id) VALUES (4)"
+        sql """INSERT INTO required_defaults_${format}
+            (id, added, s, arr, m, batch_required) VALUES
+            (5, DEFAULT, STRUCT(20, 21, 22), ARRAY(STRUCT(200, 201), NULL),
+                MAP('k', STRUCT(2000, 2001), 'n', NULL), DEFAULT),
+            (6, 60, NULL, NULL, NULL, 61)"""
+        "order_qt_${format}_new_files" "SELECT * FROM required_defaults_${format} ORDER BY id"
+        "order_qt_${format}_source_nullability" """SELECT COLUMN_NAME, IS_NULLABLE, COLUMN_DEFAULT
+            FROM iceberg_add_column_defaults.information_schema.columns
+            WHERE TABLE_SCHEMA = 'add_column_defaults_db' AND TABLE_NAME = 'required_defaults_${format}'
+                AND COLUMN_NAME IN ('added', 'batch_required') ORDER BY ORDINAL_POSITION"""
+        String ddl = sql("SHOW CREATE TABLE required_defaults_${format}")[0][1].toString()
+        "qt_${format}_show_required" "SELECT ${ddl.contains('`added` int NOT NULL') || ddl.contains('`added` int(11) NOT NULL')}"
+
+        test {
+            sql "INSERT INTO required_defaults_${format} (id, added) VALUES (7, NULL)"
+            exception "NULL"
+        }
+        test {
+            sql """INSERT INTO required_defaults_${format} (id, s)
+                VALUES (7, STRUCT(1, NULL, 2))"""
+            exception "required field"
+        }
+        test {
+            sql """INSERT INTO required_defaults_${format} (id, arr)
+                VALUES (7, ARRAY(STRUCT(1, NULL)))"""
+            exception "required field"
+        }
+        test {
+            sql """INSERT INTO required_defaults_${format} (id, m)
+                VALUES (7, MAP('k', STRUCT(1, NULL)))"""
+            exception "required field"
+        }
+        test {
+            sql "ALTER TABLE required_defaults_${format} ADD COLUMN no_default INT NOT NULL"
+            exception "doesn't have a default value"
+        }
+        test {
+            sql "ALTER TABLE required_defaults_${format} ADD COLUMN s.no_default INT NOT NULL"
+            exception "doesn't have a default value"
+        }
+        test {
+            sql "ALTER TABLE required_defaults_${format} ADD COLUMN null_default INT NOT NULL DEFAULT NULL"
+            exception "Can not set null default value to non nullable column"
+        }
+        test {
+            sql "ALTER TABLE required_defaults_${format} ADD COLUMN s.null_default INT NOT NULL DEFAULT NULL"
+            exception "Can not set null default value to non nullable column"
+        }
+        test {
+            sql "ALTER TABLE required_defaults_${format} ADD COLUMN m.`key`.x INT DEFAULT 1"
+            exception "MAP key"
+        }
+        test {
+            sql """ALTER TABLE required_defaults_${format}
+                ADD COLUMN (not_committed INT NOT NULL DEFAULT 17, ADDED INT NOT NULL DEFAULT 18)"""
+            exception "conflicts with existing Iceberg field"
+        }
+        "order_qt_${format}_failed_writes_leave_rows" "SELECT id FROM required_defaults_${format} ORDER BY id"
+        "qt_${format}_failed_batch_leaves_schema" """SELECT COUNT(*)
+            FROM iceberg_add_column_defaults.information_schema.columns
+            WHERE TABLE_SCHEMA = 'add_column_defaults_db' AND TABLE_NAME = 'required_defaults_${format}'
+                AND COLUMN_NAME = 'not_committed'"""
+
+        sql "DROP TABLE IF EXISTS typed_defaults_${format}"
+        sql """CREATE TABLE typed_defaults_${format} (id INT, s STRUCT<a:INT>)
+            PROPERTIES ('format-version' = '3', 'write.format.default' = '${format}')"""
+        sql "INSERT INTO typed_defaults_${format} VALUES (1, STRUCT(10)), (2, NULL)"
+        sql """ALTER TABLE typed_defaults_${format} ADD COLUMN (
+            truth BOOLEAN NOT NULL DEFAULT '1', day DATE NOT NULL DEFAULT '2024-01-02',
+            ts DATETIME(6) NOT NULL DEFAULT '2024-01-02 03:04:05.123456',
+            amount DECIMAL(10,2) NOT NULL DEFAULT '1.50', label STRING NOT NULL DEFAULT 'hello')"""
+        sql "ALTER TABLE typed_defaults_${format} ADD COLUMN s.truth BOOLEAN NOT NULL DEFAULT '1'"
+        sql "ALTER TABLE typed_defaults_${format} ADD COLUMN s.day DATE NOT NULL DEFAULT '2024-01-02'"
+        sql """ALTER TABLE typed_defaults_${format}
+            ADD COLUMN s.ts DATETIME(6) NOT NULL DEFAULT '2024-01-02 03:04:05.123456'"""
+        "order_qt_${format}_typed_old_files" "SELECT * FROM typed_defaults_${format} ORDER BY id"
+        sql "INSERT INTO typed_defaults_${format} (id) VALUES (3)"
+        "order_qt_${format}_typed_write_defaults" "SELECT * FROM typed_defaults_${format} ORDER BY id"
+    }
+
+    for (int version : [1, 2]) {
+        sql "DROP TABLE IF EXISTS old_format_${version}"
+        sql """CREATE TABLE old_format_${version} (id INT, s STRUCT<a:INT>)
+            PROPERTIES ('format-version' = '${version}')"""
+        for (String required : ["NULL", "NOT NULL"]) {
+            test {
+                sql "ALTER TABLE old_format_${version} ADD COLUMN added INT ${required} DEFAULT 7"
+                exception "format-version 3"
+            }
+            test {
+                sql "ALTER TABLE old_format_${version} ADD COLUMN s.added INT ${required} DEFAULT 7"
+                exception "format-version 3"
+            }
+            test {
+                sql """ALTER TABLE old_format_${version}
+                    ADD COLUMN (not_committed INT, added INT ${required} DEFAULT 7)"""
+                exception "format-version 3"
+            }
+        }
+        "qt_v${version}_failed_batch_leaves_schema" """SELECT COUNT(*)
+            FROM iceberg_add_column_defaults.information_schema.columns
+            WHERE TABLE_SCHEMA = 'add_column_defaults_db' AND TABLE_NAME = 'old_format_${version}'
+                AND COLUMN_NAME IN ('not_committed', 'added')"""
+        sql "ALTER TABLE old_format_${version} ADD COLUMN s.plain INT"
+        "qt_v${version}_optional_add" "DESC old_format_${version}"
+    }
+}

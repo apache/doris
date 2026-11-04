@@ -156,6 +156,9 @@ tests and embedded use.
 
 ## Reading the API
 
+For Iceberg required-field additions and default semantics, see
+[Adding Iceberg columns with defaults](docs/iceberg-add-column-defaults.md).
+
 For the scan task scheduler SPI, admission, cancellation and configuration, see
 [Cooperative external scan scheduling](docs/scan-task-scheduling.md).
 
