@@ -1451,16 +1451,16 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_DISTINCT_STREAMING_AGGREGATION, needForward = true, fuzzy = true)
     public boolean enableDistinctStreamingAggregation = true;
 
-    @VarAttrDef.VarAttr(name = ENABLE_STREAMING_AGG_HASH_JOIN_FORCE_PASSTHROUGH, fuzzy = true)
+    @VarAttrDef.VarAttr(name = ENABLE_STREAMING_AGG_HASH_JOIN_FORCE_PASSTHROUGH, needForward = true, fuzzy = true)
     public boolean enableStreamingAggHashJoinForcePassthrough = true;
 
     @VarAttrDef.VarAttr(name = ENABLE_LOCAL_EXCHANGE_BEFORE_AGG, needForward = true, fuzzy = true)
     public boolean enableLocalExchangeBeforeAgg = true;
 
-    @VarAttrDef.VarAttr(name = ENABLE_LOCAL_EXCHANGE_BEFORE_STREAMING_AGG, fuzzy = true)
+    @VarAttrDef.VarAttr(name = ENABLE_LOCAL_EXCHANGE_BEFORE_STREAMING_AGG, needForward = true, fuzzy = true)
     public boolean enableLocalExchangeBeforeStreamingAgg = false;
 
-    @VarAttrDef.VarAttr(name = ENABLE_DISTINCT_STREAMING_AGG_FORCE_PASSTHROUGH, fuzzy = true)
+    @VarAttrDef.VarAttr(name = ENABLE_DISTINCT_STREAMING_AGG_FORCE_PASSTHROUGH, needForward = true, fuzzy = true)
     public boolean enableDistinctStreamingAggForcePassthrough = true;
 
     @VarAttrDef.VarAttr(name = ENABLE_BROADCAST_JOIN_FORCE_PASSTHROUGH, needForward = true, fuzzy = true)
@@ -1777,7 +1777,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(
                 name = FORCE_TO_LOCAL_SHUFFLE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
-                description = "Whether to force to local shuffle on pipelineX engine.")
+                description = "Whether to force to local shuffle on pipelineX engine.", needForward = true)
     private boolean forceToLocalShuffle = false;
 
     @VarAttrDef.VarAttr(
