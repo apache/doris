@@ -231,6 +231,8 @@ TQueryOptions make_read_query_options(const IndexReadOptions& options) {
     query_options.__set_enable_inverted_index_query(options.enable_inverted_index_query);
     query_options.__set_enable_fallback_on_missing_inverted_index(
             options.enable_fallback_on_missing_inverted_index);
+    query_options.__set_enable_match_without_inverted_index(
+            options.enable_match_without_inverted_index);
     query_options.__set_enable_no_need_read_data_opt(options.enable_no_need_read_data_opt);
     query_options.__set_enable_common_expr_pushdown(options.enable_common_expr_pushdown);
     query_options.__set_enable_inverted_index_query_cache(
@@ -512,6 +514,10 @@ Status fill_block(const TabletSchema& schema, const IndexTabletOptions& tablet_o
         columns[column_pos] = std::move(variant_column);
     }
 
+    if (schema.delete_sign_idx() >= 0) {
+        CHECK_EQ(column_pos, schema.delete_sign_idx());
+        columns[column_pos++]->insert_many_defaults(rows);
+    }
     CHECK_EQ(column_pos, schema.num_columns());
     block->set_columns(std::move(columns));
     return Status::OK();

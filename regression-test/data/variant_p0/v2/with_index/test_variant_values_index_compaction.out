@@ -20,3 +20,25 @@ rare	5
 -- !before_2 --
 3
 
+-- !before_3 --
+1	7	7
+2	\N	\N
+3	7.5	7.5
+4	9.5	\N
+5	ten	ten
+6	\N	\N
+7	\N	\N
+
+-- !before_4 --
+1
+3
+
+-- !before_5 --
+3
+
+-- !before_6 --
+4
+
+-- !before_7 --
+5
+
