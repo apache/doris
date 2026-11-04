@@ -289,6 +289,8 @@ struct TFileScanSlotInfo {
     // Populated by FE from Column.getDefaultValue() or NULL literal.
     // This replaces the separate default_value_of_src_slot map in TFileScanRangeParams.
     4: optional Exprs.TExpr default_value_expr;
+    // The slot is used only by scan filters, never by the scan's output projections.
+    5: optional bool is_filter_only;
 }
 
 // descirbe how to read file
@@ -668,6 +670,9 @@ struct TFileRangeDesc {
     // whether the value of columns_from_path is null
     15: optional list<bool> columns_from_path_is_null;
     16: optional bool file_cache_admission;
+    // Field 17 is target_split_size on release branches; keep its id reserved.
+    // Original static conjunct ids proven TRUE for every row in this file by its partition spec.
+    18: optional list<i32> partition_enforced_conjunct_ids;
 }
 
 struct TSplitSource {

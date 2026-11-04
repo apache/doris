@@ -1810,6 +1810,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * source each own ONE instance, never shared across scans. {@code file == null} = fresh / unused.
      */
     private static final class PerFileScratch {
+        private IcebergPartitionFilterEvaluator partitionFilterEvaluator;
         private DataFile file;
         private Integer partitionSpecId;
         private String partitionDataJson;
@@ -1861,6 +1862,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
         return new IcebergScanRange.Builder()
+                .partitionFilterEvaluator(file.partitionFilterEvaluator)
                 .path(file.normalizedPath)
                 .originalPath(file.rawDataPath)
                 .start(task.start())
@@ -1964,6 +1966,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         file.rawDataPath = rawDataPath;
         file.normalizedPath = uriNormalizer.apply(rawDataPath);
         file.deleteCarriers = buildDeleteFiles(task, uriNormalizer);
+        // Use this file's spec, including historical specs after partition evolution. The helper
+        // is shared by its byte-slices so strict residual evaluation is performed once per file.
+        file.partitionFilterEvaluator = dataFile.partition() instanceof PartitionData
+                ? new IcebergPartitionFilterEvaluator(scanSchema, task.spec(),
+                        (PartitionData) dataFile.partition(), zone) : null;
         return file;
     }
 
