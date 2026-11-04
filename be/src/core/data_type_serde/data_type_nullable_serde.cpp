@@ -428,9 +428,15 @@ Status DataTypeNullableSerDe::read_column_from_arrow(IColumn& column,
     }
     auto& col = reinterpret_cast<ColumnNullable&>(column);
     NullMap& map_data = col.get_null_map_data();
-    for (auto i = start; i < end; ++i) {
-        auto is_null = arrow_array->IsNull(i);
-        map_data.emplace_back(is_null);
+    const auto old_size = map_data.size();
+    map_data.resize(old_size + (end - start));
+    auto* null_flags = map_data.data() + old_size;
+    if (arrow_array->null_count() == 0) {
+        memset(null_flags, 0, end - start);
+    } else {
+        for (auto i = start; i < end; ++i) {
+            null_flags[i - start] = arrow_array->IsNull(i);
+        }
     }
     return nested_serde->read_column_from_arrow(col.get_nested_column(), arrow_array, start, end,
                                                 ctz);
