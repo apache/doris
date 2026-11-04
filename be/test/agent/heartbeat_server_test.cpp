@@ -151,4 +151,40 @@ TEST(HeartbeatServerTest, PublishesCompleteAuthQueueToNewBackend) {
     EXPECT_EQ("legacy-token", cluster.current_auth_token());
 }
 
+TEST(ClusterInfoTest, SigningTokenHandlesEmptyAndLegacyQueues) {
+    ClusterInfo cluster;
+    EXPECT_TRUE(cluster.get_sign_token().empty());
+
+    cluster.update_auth_token("first-token", 7);
+    EXPECT_EQ("first-token", cluster.get_sign_token());
+    EXPECT_EQ("first-token", cluster.current_auth_token());
+
+    cluster.update_auth_token("second-token", 7);
+    EXPECT_EQ("first-token", cluster.get_sign_token());
+    EXPECT_EQ("second-token", cluster.current_auth_token());
+    EXPECT_TRUE(cluster.check_auth_token(cluster.get_sign_token()));
+}
+
+TEST(ClusterInfoTest, SigningTokenToleratesAdjacentHeartbeatGenerations) {
+    ClusterInfo sender;
+    ClusterInfo receiver;
+    sender.update_auth_tokens({"B", "C", "D", "E"}, 7);
+    receiver.update_auth_tokens({"A", "B", "C", "D"}, 7);
+
+    // Either side can send requests while the receiver has not received the rotation.
+    EXPECT_EQ("D", sender.get_sign_token());
+    EXPECT_EQ("E", sender.current_auth_token());
+    EXPECT_TRUE(receiver.check_auth_token(sender.get_sign_token()));
+    EXPECT_TRUE(sender.check_auth_token(receiver.get_sign_token()));
+    EXPECT_FALSE(receiver.check_auth_token(sender.current_auth_token()));
+
+    receiver.update_auth_tokens({"B", "C", "D", "E"}, 7);
+    EXPECT_FALSE(receiver.check_auth_token("A"));
+    const auto request_token = sender.get_sign_token();
+    // A timed-out heartbeat can finish after its retry has published the newer queue.
+    receiver.update_auth_tokens({"A", "B", "C", "D"}, 7);
+    EXPECT_TRUE(receiver.check_auth_token(request_token));
+    EXPECT_TRUE(sender.check_auth_token(receiver.get_sign_token()));
+}
+
 } // namespace doris

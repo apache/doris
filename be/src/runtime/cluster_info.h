@@ -70,6 +70,16 @@ public:
         return _auth_tokens.empty() ? std::string() : _auth_tokens.back();
     }
 
+    std::string get_sign_token() const {
+        std::lock_guard lock(_auth_token_mutex);
+        // A peer with [A, B, C, D] still accepts D after this BE receives [B, C, D, E].
+        // Before the first heartbeat there is no token; an old FE may supply only one.
+        if (_auth_tokens.size() < 2) {
+            return _auth_tokens.empty() ? std::string() : _auth_tokens.back();
+        }
+        return _auth_tokens[_auth_tokens.size() - 2];
+    }
+
     int64_t changelog_ttl_reference_tso() const {
         return _changelog_ttl_reference_tso.load(std::memory_order_acquire);
     }
