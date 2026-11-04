@@ -97,7 +97,7 @@ diff --git a/rust/lance-core/src/utils.rs b/rust/lance-core/src/utils.rs
 diff --git a/rust/lance-core/src/utils/task_executor.rs b/rust/lance-core/src/utils/task_executor.rs
 --- /dev/null
 +++ b/rust/lance-core/src/utils/task_executor.rs
-@@ -0,0 +1,387 @@
+@@ -0,0 +1,399 @@
 +// SPDX-License-Identifier: Apache-2.0
 +// SPDX-FileCopyrightText: Copyright The Lance Authors
 +
@@ -220,12 +220,24 @@ diff --git a/rust/lance-core/src/utils/task_executor.rs b/rust/lance-core/src/ut
 +    runnable.schedule();
 +    // Preserve Tokio JoinHandle's panic, abort, and detach semantics. This task only waits;
 +    // the user future's polls execute on the host, including nested task submissions.
-+    reactor.spawn(async move {
-+        match task.await {
-+            Ok(value) => value,
-+            Err(payload) => resume_unwind(payload),
++    let (abort_sender, abort_receiver) = tokio::sync::oneshot::channel();
++    let join = reactor.spawn(async move {
++        let abort: tokio::task::AbortHandle = abort_receiver
++            .await
++            .expect("spawn_host always supplies its abort handle");
++        match task.fallible().await {
++            Some(Ok(value)) => value,
++            Some(Err(payload)) => resume_unwind(payload),
++            None => {
++                // Dropping a queued Runnable cancels async-task. Its infallible await would
++                // panic, so cancel the Tokio bridge and yield for a normal cancelled JoinError.
++                abort.abort();
++                std::future::pending().await
++            }
 +        }
-+    })
++    });
++    let _ = abort_sender.send(join.abort_handle());
++    join
 +}
 +
 +/// Spawn an operation-owned future, using Tokio when no host executor is installed.
@@ -754,7 +766,37 @@ diff --git a/rust/lance-encoding/src/decoder.rs b/rust/lance-encoding/src/decode
 diff --git a/rust/lance-io/src/object_store.rs b/rust/lance-io/src/object_store.rs
 --- a/rust/lance-io/src/object_store.rs
 +++ b/rust/lance-io/src/object_store.rs
-@@ -873,6 +873,17 @@
+@@ -618,6 +618,29 @@
+ }
+
+ impl ObjectStore {
++    /// Build a store whose reads are implemented by an embedding application's provider.
++    pub fn with_host_store(
++        inner: Arc<dyn OSObjectStore>,
++        store_prefix: String,
++        params: &ObjectStoreParams,
++    ) -> Result<Self> {
++        Ok(Self {
++            inner,
++            local_dir_operations: None,
++            // Native local/uring fast paths must never bypass a host file-reader callback.
++            scheme: "host".into(),
++            block_size: params.resolved_block_size()?.unwrap_or(64 * 1024),
++            max_iop_size: *DEFAULT_MAX_IOP_SIZE,
++            use_constant_size_upload_parts: false,
++            list_is_lexically_ordered: true,
++            io_parallelism: DEFAULT_CLOUD_IO_PARALLELISM,
++            download_retry_count: 0,
++            io_tracker: Default::default(),
++            store_prefix,
++            paginated_lister: None,
++        })
++    }
++
+     /// Parse from a string URI.
+     ///
+     /// Returns the ObjectStore instance and the absolute path to the object.
+@@ -873,6 +896,17 @@
              }
              #[cfg(target_os = "linux")]
              "file+uring" => {
@@ -772,7 +814,7 @@ diff --git a/rust/lance-io/src/object_store.rs b/rust/lance-io/src/object_store.
                  // Check if current-thread mode enabled
                  let use_current_thread = std::env::var("LANCE_URING_CURRENT_THREAD")
                      .map(|v| str_is_truthy(&v))
-@@ -938,6 +949,17 @@
+@@ -938,6 +972,17 @@
              }
              #[cfg(target_os = "linux")]
              "file+uring" => {
@@ -865,6 +907,19 @@ diff --git a/rust/lance/src/io/exec/filtered_read.rs b/rust/lance/src/io/exec/fi
      builder.build()
  }
 
+@@ -664,7 +673,11 @@
+                         )
+                         .in_current_span(),
+                     )
+-                    .map(|thread_result| thread_result.unwrap())
++                    // A retired host queue can cancel a fragment task during early stream close.
++                    // Propagate its join error instead of panicking on normal cancellation.
++                    .map(|thread_result| {
++                        thread_result.map_err(Error::from).and_then(|result| result)
++                    })
+                 }
+             })
+             .buffered(fragment_readahead);
 diff --git a/rust/lance/src/io/exec/knn.rs b/rust/lance/src/io/exec/knn.rs
 --- a/rust/lance/src/io/exec/knn.rs
 +++ b/rust/lance/src/io/exec/knn.rs
@@ -976,3 +1031,24 @@ diff --git a/rust/lance/src/io/exec/utils.rs b/rust/lance/src/io/exec/utils.rs
              materialization.clone(),
              shared_source(&shared_sources[0]),
              false,
+diff --git a/rust/lance/src/session.rs b/rust/lance/src/session.rs
+--- a/rust/lance/src/session.rs
++++ b/rust/lance/src/session.rs
+@@ -302,6 +302,17 @@
+         self.store_registry.clone()
+     }
+
++    /// Share cache capacity while isolating an embedded storage origin and its providers.
++    pub fn with_host_storage(&self, registry: Arc<ObjectStoreRegistry>, namespace: &str) -> Self {
++        let mut session = self.clone();
++        session.store_registry = registry;
++        // A URI alone cannot distinguish identically named buckets on different endpoints.
++        session.index_cache = GlobalIndexCache(self.index_cache.0.with_key_prefix(namespace));
++        session.metadata_cache =
++            GlobalMetadataCache(self.metadata_cache.0.with_key_prefix(namespace));
++        session
++    }
++
+     /// Get a reference to the raw metadata cache (for use in index reconstruction).
+     pub fn file_metadata_cache(&self) -> &LanceCache {
+         &self.metadata_cache.0

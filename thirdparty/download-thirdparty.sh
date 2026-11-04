@@ -736,8 +736,7 @@ fi
 # Rebuild cached sources when any part of a dependency's local patch set changes.
 # Mark only the complete set: a partial application must never be reused by a later build.
 if [[ " ${TP_ARCHIVES[*]} " == *' LANCE_C '* ]]; then
-    lance_c_patch_checksum="$(cat "${TP_PATCH_DIR}/lance-c-foyer.patch" \
-        "${TP_PATCH_DIR}/lance-c-host-executor.patch" | cksum)"
+    lance_c_patch_checksum="$(cksum < "${TP_PATCH_DIR}/lance-c-host-executor.patch")"
     lance_c_patch_marker="${TP_SOURCE_DIR}/${LANCE_C_SOURCE}/${PATCHED_MARK}_host_executor"
     if { [[ -f "${lance_c_patch_marker}" ]] &&
         [[ "$(cat "${lance_c_patch_marker}")" != "${lance_c_patch_checksum}" ]]; } ||
@@ -748,7 +747,7 @@ if [[ " ${TP_ARCHIVES[*]} " == *' LANCE_C '* ]]; then
     fi
     cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
     if [[ ! -f "${PATCHED_MARK}_host_executor" ]]; then
-        for lance_patch in lance-c-foyer.patch lance-c-host-executor.patch; do
+        for lance_patch in lance-c-host-executor.patch; do
             patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
                 -p1 <"${TP_PATCH_DIR}/${lance_patch}"
         done

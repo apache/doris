@@ -1,125 +1,9 @@
-# Scoped C ABI for optional host execution. Applied after lance-c-foyer.patch.
+# Host execution and read-only host storage C ABI.
 # Base: lance-format/lance-c a51ab47a9c814a746cb1714c99fad93dd3a188b8.
 diff --git a/Cargo.lock b/Cargo.lock
 --- a/Cargo.lock
 +++ b/Cargo.lock
-@@ -1403,9 +1403,9 @@
- source = "registry+https://github.com/rust-lang/crates.io-index"
- checksum = "a034b3a7b624016c6e13f5df875747cc25f884156aad2abd12b6c46797971342"
- dependencies = [
-- "libc 0.2.189",
-- "num_cpus 1.17.0",
-- "winapi 0.3.9",
-+ "libc",
-+ "num_cpus",
-+ "winapi",
- ]
-
-
-@@ -2613,8 +2613,8 @@
- source = "registry+https://github.com/rust-lang/crates.io-index"
- checksum = "2e825441bfb2d831c47c97d05821552db8832479f44c571b97fededbf0099c07"
- dependencies = [
-- "small_ctor 0.1.2",
-- "web-time 1.1.0",
-+ "small_ctor",
-+ "web-time",
- ]
-
-
-@@ -2716,18 +2716,18 @@
- source = "registry+https://github.com/rust-lang/crates.io-index"
- checksum = "6a59f42276891c0a4ce683fcda1aa1b4fd1065d68116c264e4bf49b9d318a0ed"
- dependencies = [
-- "anyhow 1.0.102",
-- "asyncband 0.7.2",
-- "equivalent 1.0.2",
-- "foyer-common 0.22.6",
-- "foyer-memory 0.22.6",
-- "foyer-storage 0.22.6",
-- "foyer-tokio 0.22.6",
-- "futures-util 0.3.32",
-- "mixtrics 0.2.5",
-- "pin-project 1.1.11",
-- "serde 1.0.228",
-- "tracing 0.1.44",
-+ "anyhow",
-+ "asyncband",
-+ "equivalent",
-+ "foyer-common",
-+ "foyer-memory",
-+ "foyer-storage",
-+ "foyer-tokio",
-+ "futures-util",
-+ "mixtrics",
-+ "pin-project",
-+ "serde",
-+ "tracing",
- ]
-
-
-@@ -2793,30 +2793,30 @@
- source = "registry+https://github.com/rust-lang/crates.io-index"
- checksum = "118192f532ba013f0cdc607efc22324b9ed855baed185608af0daa986e835c6b"
- dependencies = [
-- "allocator-api2 0.2.21",
-- "anyhow 1.0.102",
-- "asyncband 0.7.2",
-- "bytes 1.11.1",
-- "core_affinity 0.8.3",
-- "equivalent 1.0.2",
-- "fastant 0.1.11",
-- "foyer-common 0.22.6",
-- "foyer-memory 0.22.6",
-- "foyer-tokio 0.22.6",
-- "fs4 0.13.1",
-- "futures-core 0.3.32",
-- "futures-util 0.3.32",
-+ "allocator-api2",
-+ "anyhow",
-+ "asyncband",
-+ "bytes",
-+ "core_affinity",
-+ "equivalent",
-+ "fastant",
-+ "foyer-common",
-+ "foyer-memory",
-+ "foyer-tokio",
-+ "fs4",
-+ "futures-core",
-+ "futures-util",
-  "hashbrown 0.17.1",
-- "io-uring 0.7.12",
-+ "io-uring",
-  "itertools 0.15.0",
-- "libc 0.2.189",
-- "lz4 1.28.1",
-- "parking_lot 0.12.5",
-- "pin-project 1.1.11",
-+ "libc",
-+ "lz4",
-+ "parking_lot",
-+ "pin-project",
-  "rand 0.10.1",
-- "tracing 0.1.44",
-- "twox-hash 2.1.2",
-- "zstd 0.13.3",
-+ "tracing",
-+ "twox-hash",
-+ "zstd",
- ]
-
-
-@@ -2846,7 +2846,7 @@
- source = "registry+https://github.com/rust-lang/crates.io-index"
- checksum = "8640e34b88f7652208ce9e88b1a37a2ae95227d84abec377ccd3c5cfeb141ed4"
- dependencies = [
-- "rustix 1.1.4",
-+ "rustix",
-  "windows-sys 0.59.0",
- ]
-
-@@ -2863,7 +2863,6 @@
+@@ -2386,7 +2386,6 @@
  [[package]]
  name = "fsst"
  version = "13.0.0-beta.18"
@@ -127,7 +11,7 @@ diff --git a/Cargo.lock b/Cargo.lock
  dependencies = [
   "arrow-array",
   "rand 0.9.2",
-@@ -3275,8 +3274,6 @@
+@@ -2736,8 +2735,6 @@
  [[package]]
  name = "goosefs-sdk"
  version = "0.2.2"
@@ -136,7 +20,7 @@ diff --git a/Cargo.lock b/Cargo.lock
  dependencies = [
   "arc-swap",
   "async-trait",
-@@ -4276,7 +4273,6 @@
+@@ -3585,7 +3582,6 @@
  [[package]]
  name = "lance"
  version = "13.0.0-beta.18"
@@ -144,7 +28,7 @@ diff --git a/Cargo.lock b/Cargo.lock
  dependencies = [
   "arc-swap",
   "arrow",
-@@ -4351,7 +4347,6 @@
+@@ -3658,7 +3654,6 @@
  [[package]]
  name = "lance-arrow"
  version = "13.0.0-beta.18"
@@ -152,7 +36,7 @@ diff --git a/Cargo.lock b/Cargo.lock
  dependencies = [
   "arrow-array",
   "arrow-buffer",
-@@ -4375,7 +4370,6 @@
+@@ -3680,7 +3675,6 @@
  [[package]]
  name = "lance-arrow-scalar"
  version = "58.0.0"
@@ -160,7 +44,7 @@ diff --git a/Cargo.lock b/Cargo.lock
  dependencies = [
   "arrow-array",
   "arrow-buffer",
-@@ -4391,7 +4385,6 @@
+@@ -3694,7 +3688,6 @@
  [[package]]
  name = "lance-arrow-stats"
  version = "58.0.0"
@@ -168,7 +52,7 @@ diff --git a/Cargo.lock b/Cargo.lock
  dependencies = [
   "arrow-array",
   "arrow-schema",
-@@ -4403,7 +4396,6 @@
+@@ -3704,7 +3697,6 @@
  [[package]]
  name = "lance-bitpacking"
  version = "13.0.0-beta.18"
@@ -176,9 +60,13 @@ diff --git a/Cargo.lock b/Cargo.lock
  dependencies = [
   "arrayref",
   "crunchy",
-@@ -4426,7 +4418,9 @@
+@@ -3720,10 +3712,13 @@
+  "arrow-array",
+  "arrow-schema",
+  "async-trait",
++ "bytes",
+  "chrono",
   "datafusion",
-  "foyer",
   "futures",
 + "goosefs-sdk",
   "half",
@@ -186,7 +74,21 @@ diff --git a/Cargo.lock b/Cargo.lock
   "lance",
   "lance-core",
   "lance-datafusion",
-@@ -4453,12 +4447,12 @@
+@@ -3735,24 +3730,26 @@
+  "lance-table",
+  "libc",
+  "log",
++ "object_store 0.14.2",
+  "opendal",
+  "pin-project",
+  "prost",
+  "snafu",
+  "tempfile",
+  "tokio",
++ "url",
+  "uuid",
+ ]
+
  [[package]]
  name = "lance-core"
  version = "13.0.0-beta.18"
@@ -200,7 +102,7 @@ diff --git a/Cargo.lock b/Cargo.lock
   "async-trait",
   "blake3",
   "bytes",
-@@ -4493,7 +4487,6 @@
+@@ -3785,7 +3782,6 @@
  [[package]]
  name = "lance-datafusion"
  version = "13.0.0-beta.18"
@@ -208,7 +110,7 @@ diff --git a/Cargo.lock b/Cargo.lock
  dependencies = [
   "arrow",
   "arrow-array",
-@@ -4528,7 +4521,6 @@
+@@ -3818,7 +3814,6 @@
  [[package]]
  name = "lance-datagen"
  version = "13.0.0-beta.18"
@@ -216,7 +118,7 @@ diff --git a/Cargo.lock b/Cargo.lock
  dependencies = [
   "arrow",
   "arrow-array",
-@@ -4548,7 +4540,6 @@
+@@ -3836,7 +3831,6 @@
  [[package]]
  name = "lance-derive"
  version = "13.0.0-beta.18"
@@ -224,7 +126,7 @@ diff --git a/Cargo.lock b/Cargo.lock
  dependencies = [
   "proc-macro2",
   "quote",
-@@ -4560,7 +4551,6 @@
+@@ -3846,7 +3840,6 @@
  [[package]]
  name = "lance-encoding"
  version = "13.0.0-beta.18"
@@ -232,7 +134,7 @@ diff --git a/Cargo.lock b/Cargo.lock
  dependencies = [
   "arrow-arith",
   "arrow-array",
-@@ -4596,7 +4586,6 @@
+@@ -3880,7 +3873,6 @@
  [[package]]
  name = "lance-file"
  version = "13.0.0-beta.18"
@@ -240,7 +142,7 @@ diff --git a/Cargo.lock b/Cargo.lock
  dependencies = [
   "arrow-arith",
   "arrow-array",
-@@ -4631,7 +4620,6 @@
+@@ -3913,7 +3905,6 @@
  [[package]]
  name = "lance-geo"
  version = "13.0.0-beta.18"
@@ -248,7 +150,7 @@ diff --git a/Cargo.lock b/Cargo.lock
  dependencies = [
   "datafusion",
   "geo-traits",
-@@ -4648,7 +4636,6 @@
+@@ -3928,7 +3919,6 @@
  [[package]]
  name = "lance-index"
  version = "13.0.0-beta.18"
@@ -256,7 +158,7 @@ diff --git a/Cargo.lock b/Cargo.lock
  dependencies = [
   "arc-swap",
   "arrow",
-@@ -4720,7 +4707,6 @@
+@@ -3998,7 +3988,6 @@
  [[package]]
  name = "lance-index-core"
  version = "13.0.0-beta.18"
@@ -264,7 +166,7 @@ diff --git a/Cargo.lock b/Cargo.lock
  dependencies = [
   "arrow-array",
   "arrow-schema",
-@@ -4746,7 +4732,6 @@
+@@ -4022,7 +4011,6 @@
  [[package]]
  name = "lance-io"
  version = "13.0.0-beta.18"
@@ -272,7 +174,7 @@ diff --git a/Cargo.lock b/Cargo.lock
  dependencies = [
   "arrow",
   "arrow-array",
-@@ -4790,7 +4775,6 @@
+@@ -4064,7 +4052,6 @@
  [[package]]
  name = "lance-linalg"
  version = "13.0.0-beta.18"
@@ -280,7 +182,7 @@ diff --git a/Cargo.lock b/Cargo.lock
  dependencies = [
   "arrow-array",
   "arrow-schema",
-@@ -4807,7 +4791,6 @@
+@@ -4079,7 +4066,6 @@
  [[package]]
  name = "lance-namespace"
  version = "13.0.0-beta.18"
@@ -288,7 +190,7 @@ diff --git a/Cargo.lock b/Cargo.lock
  dependencies = [
   "arrow",
   "async-trait",
-@@ -4840,7 +4823,6 @@
+@@ -4108,7 +4094,6 @@
  [[package]]
  name = "lance-select"
  version = "13.0.0-beta.18"
@@ -296,7 +198,7 @@ diff --git a/Cargo.lock b/Cargo.lock
  dependencies = [
   "arrow-array",
   "arrow-buffer",
-@@ -4857,7 +4839,6 @@
+@@ -4123,7 +4108,6 @@
  [[package]]
  name = "lance-table"
  version = "13.0.0-beta.18"
@@ -304,7 +206,7 @@ diff --git a/Cargo.lock b/Cargo.lock
  dependencies = [
   "arrow",
   "arrow-array",
-@@ -4898,7 +4879,6 @@
+@@ -4162,7 +4146,6 @@
  [[package]]
  name = "lance-tokenizer"
  version = "13.0.0-beta.18"
@@ -312,7 +214,7 @@ diff --git a/Cargo.lock b/Cargo.lock
  dependencies = [
   "frostem",
   "icu_segmenter",
-@@ -8303,8 +8283,6 @@
+@@ -7036,8 +7019,6 @@
  [[package]]
  name = "tokio"
  version = "1.53.1"
@@ -321,16 +223,7 @@ diff --git a/Cargo.lock b/Cargo.lock
  dependencies = [
   "bytes",
   "libc",
-@@ -9358,7 +9336,7 @@
- source = "registry+https://github.com/rust-lang/crates.io-index"
- checksum = "ae137229bcbd6cdf0f7b80a31df61766145077ddf49416a728b02cb3921ff3fc"
- dependencies = [
-- "windows-link 0.2.1",
-+ "windows-link",
- ]
-
-
-@@ -9808,8 +9786,6 @@
+@@ -8294,8 +8275,6 @@
  [[package]]
  name = "xet-runtime"
  version = "1.6.0"
@@ -339,7 +232,7 @@ diff --git a/Cargo.lock b/Cargo.lock
  dependencies = [
   "anyhow",
   "async-trait",
-@@ -10027,3 +10003,11 @@
+@@ -8481,3 +8460,11 @@
   "cc",
   "pkg-config",
  ]
@@ -354,7 +247,7 @@ diff --git a/Cargo.lock b/Cargo.lock
 diff --git a/Cargo.toml b/Cargo.toml
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -23,14 +23,14 @@
+@@ -23,18 +23,19 @@
  # transitively via lance-index.
  async-trait = "0.1"
  # Keep the dependency on the segment-prefilter fix and its float-consistent PQ prerequisite.
@@ -377,7 +270,20 @@ diff --git a/Cargo.toml b/Cargo.toml
  datafusion = { version = "54.0.0", default-features = false }
  arrow = { version = "58.0.0", features = ["prettyprint", "ffi"] }
  arrow-array = "58.0.0"
-@@ -55,9 +55,11 @@
+ arrow-schema = "58.0.0"
++bytes = "1"
+ # Direct to name `chrono::TimeDelta` (the field type of lance's public
+ # `AutoCleanupParams`) and `chrono::DateTime`/`Utc` (index metadata
+ # timestamps); already in the graph transitively via lance.
+@@ -46,15 +47,19 @@
+ libc = "0.2"
+ # Explicitly install the HTTP transport when embedded in a static C/C++ executable.
+ opendal = { version = "=0.59.2", default-features = false, features = ["http-transport-reqwest"] }
++object_store = "0.14.2"
++url = "2"
+ pin-project = "1.0"
+ prost = "0.14"
+ snafu = "0.9"
  uuid = { version = "1", features = ["v4"] }
 
  [dev-dependencies]
@@ -392,7 +298,7 @@ diff --git a/Cargo.toml b/Cargo.toml
  tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
  arrow-array = "58.0.0"
  arrow-schema = "58.0.0"
-@@ -78,3 +80,9 @@
+@@ -75,3 +80,9 @@
  [package.metadata.capi.library]
  name = "lance_c"
  versioning = false  # 0.x ABI is unstable; revisit at 1.0
@@ -460,16 +366,15 @@ diff --git a/include/lance/host_executor.hpp b/include/lance/host_executor.hpp
 diff --git a/include/lance/lance.h b/include/lance/lance.h
 --- a/include/lance/lance.h
 +++ b/include/lance/lance.h
-@@ -187,6 +187,74 @@
+@@ -187,8 +187,115 @@
 
  typedef struct LanceDataset  LanceDataset;
  typedef struct LanceScanner  LanceScanner;
-+
 +/** Host-driven task queues. These handles do not create worker threads.
 + * Tokio remains responsible for network readiness, timers, join notifications and shared I/O services.
 + * Operation-owned scan/decoder tasks and spawn_cpu use the injected executor.
 + */
-+#define LANCE_DORIS_HOST_RUNTIME_ABI 3
++#define LANCE_DORIS_HOST_RUNTIME_ABI 4
 +typedef struct LanceHostExecutor LanceHostExecutor;
 +typedef struct LanceHostExecutorScope LanceHostExecutorScope;
 +
@@ -534,7 +439,74 @@ diff --git a/include/lance/lance.h b/include/lance/lance.h
 +uint64_t lance_host_executor_completed_tasks(const LanceHostExecutor* executor);
  typedef struct LanceBatch    LanceBatch;
  typedef struct LanceSession  LanceSession;
++
++/** Read-only host storage. Descriptors and cache_namespace are copied by open.
++ * Every callback must be thread-safe and must not throw across the C boundary.
++ * Return 0 on success, 1 for not-found, or 2 for other failures. Error strings
++ * must remain valid on the calling thread until the callback's caller copies them.
++ * The library retains context until all datasets, streams and files release it.
++ */
++typedef struct LanceHostFileMeta {
++    uint64_t size;
++    int64_t modified_seconds;
++} LanceHostFileMeta;
++typedef int32_t (*LanceHostListEntry)(void* context, const char* uri,
++                                    const LanceHostFileMeta* metadata);
++typedef struct LanceHostStorageOptionsV1 {
++    uint32_t abi_version;
++    uint32_t struct_size;
++    void* context;
++    void (*retain_context)(void* context);
++    void (*release_context)(void* context);
++    const char* cache_namespace;
++    /* A successful open returns one handle, eventually closed exactly once. */
++    int32_t (*open)(void* context, const char* uri, void** file,
++                    LanceHostFileMeta* metadata, const char** error);
++    int32_t (*read_at)(void* file, uint64_t offset, uint8_t* buffer,
++                       size_t length, size_t* bytes_read, const char** error);
++    void (*close)(void* file);
++    /* Emit all files recursively under uri, sequentially on this calling thread.
++     * Do not retain emit/emit_context; stop immediately if emit returns nonzero. */
++    int32_t (*list)(void* context, const char* uri, LanceHostListEntry emit,
++                    void* emit_context, const char** error);
++} LanceHostStorageOptionsV1;
++
++/** All reads, including manifest discovery, use the supplied host storage.
++ * Native storage is never used as a fallback. session may be NULL.
++ * cache_namespace must identify the storage origin and read policy, not an individual query.
++ * Dataset URI query/fragment/user-info parameters are unsupported; use storage_options.
++ */
++LanceDataset* lance_dataset_open_with_storage_v1(
++        const char* uri, const char* const* storage_options, uint64_t version,
++        const LanceSession* session, const LanceHostStorageOptionsV1* options);
  typedef struct LanceVersions LanceVersions;
+ typedef struct LanceDataStatistics LanceDataStatistics;
+ typedef struct LanceIndexSegmentBuilder LanceIndexSegmentBuilder;
+diff --git a/include/lance/lance.hpp b/include/lance/lance.hpp
+--- a/include/lance/lance.hpp
++++ b/include/lance/lance.hpp
+@@ -346,6 +346,21 @@
+
+         auto* ds = lance_dataset_open_with_session(
+             uri.c_str(), opts_ptr, version, session.c_handle());
++        if (!ds) check_error();
++        return Dataset(ds);
++    }
++
++    /// Read-only dataset using host file callbacks, including manifest discovery.
++    /// The host context is retained by every dataset/reader that uses it.
++    static Dataset open_with_storage(
++        const Session& session, const std::string& uri,
++        const LanceHostStorageOptionsV1& storage,
++        const std::vector<std::pair<std::string, std::string>>& storage_opts = {},
++        uint64_t version = 0) {
++        auto kv = to_c_storage_options(storage_opts);
++        auto* ds = lance_dataset_open_with_storage_v1(
++            uri.c_str(), storage_opts.empty() ? nullptr : kv.data(),
++            version, session.c_handle(), &storage);
+         if (!ds) check_error();
+         return Dataset(ds);
+     }
 diff --git a/src/async_dispatcher.rs b/src/async_dispatcher.rs
 --- a/src/async_dispatcher.rs
 +++ b/src/async_dispatcher.rs
@@ -678,7 +650,7 @@ diff --git a/src/async_dispatcher.rs b/src/async_dispatcher.rs
 diff --git a/src/host_executor.rs b/src/host_executor.rs
 --- /dev/null
 +++ b/src/host_executor.rs
-@@ -0,0 +1,627 @@
+@@ -0,0 +1,658 @@
 +// SPDX-License-Identifier: Apache-2.0
 +// SPDX-FileCopyrightText: Copyright The Lance Authors
 +
@@ -1126,6 +1098,37 @@ diff --git a/src/host_executor.rs b/src/host_executor.rs
 +    use std::sync::atomic::{AtomicUsize, Ordering};
 +
 +    #[test]
++    fn retiring_queued_host_tasks_reports_cancellation_without_a_panic() {
++        let runtime = HostRuntime::new(LanceHostExecutorOptionsV1::default());
++        let handle = {
++            let _reactor = RT.enter();
++            let executor: Arc<dyn Executor> = runtime.clone();
++            let _guard = ExecutorGuard::enter(executor);
++            task_executor::spawn(std::future::pending::<()>())
++        };
++        runtime.retire();
++        let error = RT.block_on(handle).unwrap_err();
++        assert!(
++            error.is_cancelled(),
++            "queued cancellation was misreported: {error}"
++        );
++    }
++
++    #[test]
++    fn user_future_panics_remain_panics_in_the_tokio_join_result() {
++        let runtime = HostRuntime::new(LanceHostExecutorOptionsV1::default());
++        let handle = {
++            let _reactor = RT.enter();
++            let executor: Arc<dyn Executor> = runtime.clone();
++            let _guard = ExecutorGuard::enter(executor);
++            task_executor::spawn(async { panic!("user task failure") })
++        };
++        runtime.run(0, 1);
++        let error = RT.block_on(handle).unwrap_err();
++        assert!(error.is_panic());
++    }
++
++    #[test]
 +    fn cooperative_host_executes_nested_tasks_without_worker_threads() {
 +        let runtime = HostRuntime::new(LanceHostExecutorOptionsV1::default());
 +        let host_thread = std::thread::current().id();
@@ -1466,24 +1469,690 @@ diff --git a/src/host_services.rs b/src/host_services.rs
 +    STOPPED.store(true, Ordering::Release);
 +    STOP.notify_one();
 +}
+diff --git a/src/host_storage.rs b/src/host_storage.rs
+--- /dev/null
++++ b/src/host_storage.rs
+@@ -0,0 +1,660 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: Copyright The Lance Authors
++
++//! Read-only storage implemented by the embedding application's file readers.
++
++use std::ffi::{CStr, CString, c_char, c_void};
++use std::fmt::{Debug, Display, Formatter};
++use std::sync::Arc;
++
++use async_trait::async_trait;
++use bytes::Bytes;
++use chrono::{DateTime, Utc};
++use futures::stream::{self, BoxStream};
++use futures::{StreamExt, TryStreamExt};
++use lance::dataset::builder::DatasetBuilder;
++use lance::session::Session;
++use lance_core::utils::task_executor::{self, TaskKind};
++use lance_io::object_store::{
++    ObjectStore as LanceObjectStore, ObjectStoreParams, ObjectStoreProvider, ObjectStoreRegistry,
++    uri_to_url,
++};
++use object_store::path::Path;
++use object_store::{
++    CopyOptions, GetOptions, GetResult, GetResultPayload, ListResult, MultipartUpload, ObjectMeta,
++    ObjectStore, PutMultipartOptions, PutOptions, PutPayload, PutResult,
++};
++use url::Url;
++
++use crate::dataset::LanceDataset;
++use crate::error::ffi_try;
++use crate::helpers;
++use crate::runtime::block_on;
++use crate::session::LanceSession;
++
++#[repr(C)]
++#[derive(Clone, Copy)]
++pub struct LanceHostFileMeta {
++    pub size: u64,
++    pub modified_seconds: i64,
++}
++
++pub type LanceHostListEntry =
++    unsafe extern "C" fn(*mut c_void, *const c_char, *const LanceHostFileMeta) -> i32;
++
++/// Callbacks must be thread-safe. A successful open transfers one handle to close.
++/// Errors are 1 for not-found and 2 for other failures. Error text is copied before return.
++#[repr(C)]
++#[derive(Clone, Copy)]
++pub struct LanceHostStorageOptionsV1 {
++    pub abi_version: u32,
++    pub struct_size: u32,
++    pub context: *mut c_void,
++    pub retain_context: Option<unsafe extern "C" fn(*mut c_void)>,
++    pub release_context: Option<unsafe extern "C" fn(*mut c_void)>,
++    pub cache_namespace: *const c_char,
++    pub open: Option<
++        unsafe extern "C" fn(
++            *mut c_void,
++            *const c_char,
++            *mut *mut c_void,
++            *mut LanceHostFileMeta,
++            *mut *const c_char,
++        ) -> i32,
++    >,
++    pub read_at: Option<
++        unsafe extern "C" fn(
++            *mut c_void,
++            u64,
++            *mut u8,
++            usize,
++            *mut usize,
++            *mut *const c_char,
++        ) -> i32,
++    >,
++    pub close: Option<unsafe extern "C" fn(*mut c_void)>,
++    pub list: Option<
++        unsafe extern "C" fn(
++            *mut c_void,
++            *const c_char,
++            Option<LanceHostListEntry>,
++            *mut c_void,
++            *mut *const c_char,
++        ) -> i32,
++    >,
++}
++
++struct HostStorage {
++    callbacks: LanceHostStorageOptionsV1,
++    namespace: String,
++}
++
++// The C contract requires all callbacks and retained context to support concurrent calls.
++unsafe impl Send for HostStorage {}
++unsafe impl Sync for HostStorage {}
++
++impl Debug for HostStorage {
++    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
++        f.write_str("HostStorage")
++    }
++}
++
++impl Drop for HostStorage {
++    fn drop(&mut self) {
++        unsafe { self.callbacks.release_context.unwrap()(self.callbacks.context) };
++    }
++}
++
++fn io_error(code: i32, path: &str, error: *const c_char) -> object_store::Error {
++    let message = if error.is_null() {
++        "host storage operation failed".into()
++    } else {
++        unsafe { CStr::from_ptr(error) }
++            .to_string_lossy()
++            .into_owned()
++    };
++    let source = Box::new(std::io::Error::other(message));
++    if code == 1 {
++        object_store::Error::NotFound {
++            path: path.into(),
++            source,
++        }
++    } else {
++        object_store::Error::Generic {
++            store: "host",
++            source,
++        }
++    }
++}
++
++fn read_only() -> object_store::Error {
++    object_store::Error::NotSupported {
++        source: Box::new(std::io::Error::other("host storage is read-only")),
++    }
++}
++
++async fn on_io<F, T>(function: F) -> object_store::Result<T>
++where
++    F: FnOnce() -> object_store::Result<T> + Send + 'static,
++    T: Send + 'static,
++{
++    task_executor::spawn_blocking(TaskKind::Io, function)
++        .await
++        .map_err(|error| object_store::Error::Generic {
++            store: "host",
++            source: Box::new(error),
++        })?
++}
++
++struct HostFile {
++    storage: Arc<HostStorage>,
++    handle: usize,
++    meta: LanceHostFileMeta,
++}
++
++impl Drop for HostFile {
++    fn drop(&mut self) {
++        unsafe { self.storage.callbacks.close.unwrap()(self.handle as *mut c_void) };
++    }
++}
++
++impl HostFile {
++    async fn open(storage: Arc<HostStorage>, uri: String) -> object_store::Result<Arc<Self>> {
++        on_io(move || {
++            let path = CString::new(uri.clone()).map_err(|error| object_store::Error::Generic {
++                store: "host",
++                source: Box::new(error),
++            })?;
++            let mut handle = std::ptr::null_mut();
++            let mut meta = LanceHostFileMeta {
++                size: 0,
++                modified_seconds: 0,
++            };
++            let mut error = std::ptr::null();
++            let code = unsafe {
++                storage.callbacks.open.unwrap()(
++                    storage.callbacks.context,
++                    path.as_ptr(),
++                    &mut handle,
++                    &mut meta,
++                    &mut error,
++                )
++            };
++            if code != 0 {
++                return Err(io_error(code, &uri, error));
++            }
++            if handle.is_null() {
++                return Err(io_error(2, &uri, std::ptr::null()));
++            }
++            Ok(Arc::new(Self {
++                storage,
++                handle: handle as usize,
++                meta,
++            }))
++        })
++        .await
++    }
++
++    async fn read(self: Arc<Self>, offset: u64, length: usize) -> object_store::Result<Bytes> {
++        on_io(move || {
++            let mut bytes = vec![0; length];
++            let mut count = 0;
++            let mut error = std::ptr::null();
++            let code = unsafe {
++                self.storage.callbacks.read_at.unwrap()(
++                    self.handle as *mut c_void,
++                    offset,
++                    bytes.as_mut_ptr(),
++                    length,
++                    &mut count,
++                    &mut error,
++                )
++            };
++            if code != 0 {
++                return Err(io_error(code, "read_at", error));
++            }
++            if count != length {
++                return Err(object_store::Error::Generic {
++                    store: "host",
++                    source: Box::new(std::io::Error::new(
++                        std::io::ErrorKind::UnexpectedEof,
++                        "host read returned fewer bytes than requested",
++                    )),
++                });
++            }
++            Ok(Bytes::from(bytes))
++        })
++        .await
++    }
++}
++
++#[derive(Debug)]
++struct HostProvider {
++    storage: Arc<HostStorage>,
++}
++
++#[async_trait]
++impl ObjectStoreProvider for HostProvider {
++    async fn new_store(
++        &self,
++        base: Url,
++        params: &ObjectStoreParams,
++    ) -> lance_core::Result<LanceObjectStore> {
++        let prefix = self.calculate_object_store_prefix(&base, None)?;
++        LanceObjectStore::with_host_store(
++            Arc::new(HostObjectStore {
++                storage: self.storage.clone(),
++                base,
++            }),
++            prefix,
++            params,
++        )
++    }
++
++    fn calculate_object_store_prefix(
++        &self,
++        url: &Url,
++        _: Option<&std::collections::HashMap<String, String>>,
++    ) -> lance_core::Result<String> {
++        Ok(format!(
++            "host${}${}${}",
++            self.storage.namespace,
++            url.scheme(),
++            url.authority()
++        ))
++    }
++}
++
++#[derive(Debug, Clone)]
++struct HostObjectStore {
++    storage: Arc<HostStorage>,
++    base: Url,
++}
++
++impl Display for HostObjectStore {
++    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
++        f.write_str("HostObjectStore")
++    }
++}
++
++impl HostObjectStore {
++    fn uri(&self, path: &Path) -> String {
++        let mut url = self.base.clone();
++        // Segment encoding also escapes literal percent signs and backslashes in object keys.
++        url.path_segments_mut()
++            .expect("host stores have hierarchical URLs")
++            .clear()
++            .extend(path.as_ref().split('/'));
++        url.set_query(None);
++        url.set_fragment(None);
++        url.to_string()
++    }
++
++    fn metadata(path: Path, meta: LanceHostFileMeta) -> ObjectMeta {
++        ObjectMeta {
++            location: path,
++            size: meta.size,
++            last_modified: DateTime::<Utc>::from_timestamp(meta.modified_seconds, 0)
++                .unwrap_or_default(),
++            e_tag: None,
++            version: None,
++        }
++    }
++
++    async fn list_files(&self, prefix: Option<&Path>) -> object_store::Result<Vec<ObjectMeta>> {
++        struct Entries {
++            files: Vec<ObjectMeta>,
++            error: Option<object_store::Error>,
++        }
++        unsafe extern "C" fn entry(
++            context: *mut c_void,
++            uri: *const c_char,
++            meta: *const LanceHostFileMeta,
++        ) -> i32 {
++            let entries = unsafe { &mut *context.cast::<Entries>() };
++            let result = (|| {
++                let uri = unsafe { CStr::from_ptr(uri) }.to_str().map_err(|error| {
++                    object_store::Error::Generic {
++                        store: "host",
++                        source: Box::new(error),
++                    }
++                })?;
++                let url = Url::parse(uri).map_err(|error| object_store::Error::Generic {
++                    store: "host",
++                    source: Box::new(error),
++                })?;
++                let path = Path::from_url_path(url.path())?;
++                Ok(HostObjectStore::metadata(path, unsafe { *meta }))
++            })();
++            match result {
++                Ok(meta) => {
++                    entries.files.push(meta);
++                    0
++                }
++                Err(error) => {
++                    entries.error = Some(error);
++                    2
++                }
++            }
++        }
++        let this = self.clone();
++        let uri = this.uri(prefix.unwrap_or(&Path::default()));
++        on_io(move || {
++            let path = CString::new(uri.clone()).map_err(|error| object_store::Error::Generic {
++                store: "host",
++                source: Box::new(error),
++            })?;
++            let mut entries = Entries {
++                files: Vec::new(),
++                error: None,
++            };
++            let mut error = std::ptr::null();
++            let code = unsafe {
++                this.storage.callbacks.list.unwrap()(
++                    this.storage.callbacks.context,
++                    path.as_ptr(),
++                    Some(entry),
++                    (&mut entries as *mut Entries).cast(),
++                    &mut error,
++                )
++            };
++            if let Some(error) = entries.error {
++                return Err(error);
++            }
++            if code != 0 {
++                return Err(io_error(code, &uri, error));
++            }
++            entries.files.sort_by(|a, b| a.location.cmp(&b.location));
++            Ok(entries.files)
++        })
++        .await
++    }
++}
++
++#[async_trait]
++impl ObjectStore for HostObjectStore {
++    async fn put_opts(
++        &self,
++        _: &Path,
++        _: PutPayload,
++        _: PutOptions,
++    ) -> object_store::Result<PutResult> {
++        Err(read_only())
++    }
++    async fn put_multipart_opts(
++        &self,
++        _: &Path,
++        _: PutMultipartOptions,
++    ) -> object_store::Result<Box<dyn MultipartUpload>> {
++        Err(read_only())
++    }
++
++    async fn get_opts(
++        &self,
++        location: &Path,
++        options: GetOptions,
++    ) -> object_store::Result<GetResult> {
++        if options.version.is_some() {
++            return Err(read_only());
++        }
++        let file = HostFile::open(self.storage.clone(), self.uri(location)).await?;
++        let meta = Self::metadata(location.clone(), file.meta);
++        options.check_preconditions(&meta)?;
++        let range = match options.range {
++            Some(range) => {
++                range
++                    .as_range(meta.size)
++                    .map_err(|error| object_store::Error::Generic {
++                        store: "host",
++                        source: Box::new(error),
++                    })?
++            }
++            None => 0..meta.size,
++        };
++        let payload = if options.head {
++            stream::empty().boxed()
++        } else {
++            // Whole-object metadata reads remain streaming; never allocate the whole file here.
++            stream::try_unfold((file, range.clone()), |(file, range)| async move {
++                if range.is_empty() {
++                    return Ok(None);
++                }
++                let length = (range.end - range.start).min(1024 * 1024) as usize;
++                let bytes = file.clone().read(range.start, length).await?;
++                let next = range.start + length as u64..range.end;
++                Ok(Some((bytes, (file, next))))
++            })
++            .boxed()
++        };
++        Ok(GetResult {
++            payload: GetResultPayload::Stream(payload),
++            meta,
++            range,
++            attributes: Default::default(),
++            extensions: Default::default(),
++        })
++    }
++
++    fn delete_stream(
++        &self,
++        locations: BoxStream<'static, object_store::Result<Path>>,
++    ) -> BoxStream<'static, object_store::Result<Path>> {
++        locations.map(|_| Err(read_only())).boxed()
++    }
++
++    fn list(&self, prefix: Option<&Path>) -> BoxStream<'static, object_store::Result<ObjectMeta>> {
++        let this = self.clone();
++        let prefix = prefix.cloned();
++        stream::once(async move { this.list_files(prefix.as_ref()).await })
++            .map_ok(|files| stream::iter(files.into_iter().map(Ok)))
++            .try_flatten()
++            .boxed()
++    }
++
++    async fn list_with_delimiter(&self, prefix: Option<&Path>) -> object_store::Result<ListResult> {
++        let files = self.list_files(prefix).await?;
++        let prefix = prefix.map_or("", Path::as_ref).trim_end_matches('/');
++        let mut result = ListResult {
++            common_prefixes: Vec::new(),
++            objects: Vec::new(),
++            extensions: Default::default(),
++        };
++        let mut directories = std::collections::BTreeSet::new();
++        for meta in files {
++            let relative = meta
++                .location
++                .as_ref()
++                .strip_prefix(prefix)
++                .unwrap_or(meta.location.as_ref())
++                .trim_start_matches('/');
++            if let Some((directory, _)) = relative.split_once('/') {
++                directories.insert(Path::from(if prefix.is_empty() {
++                    directory.into()
++                } else {
++                    format!("{prefix}/{directory}")
++                }));
++            } else {
++                result.objects.push(meta);
++            }
++        }
++        result.common_prefixes.extend(directories);
++        Ok(result)
++    }
++
++    async fn copy_opts(&self, _: &Path, _: &Path, _: CopyOptions) -> object_store::Result<()> {
++        Err(read_only())
++    }
++}
++
++/// Open through host callbacks from the first manifest read; native storage is never a fallback.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_dataset_open_with_storage_v1(
++    uri: *const c_char,
++    storage_options: *const *const c_char,
++    version: u64,
++    session: *const LanceSession,
++    options: *const LanceHostStorageOptionsV1,
++) -> *mut LanceDataset {
++    ffi_try!(
++        unsafe { open_inner(uri, storage_options, version, session, options) },
++        null
++    )
++}
++
++unsafe fn open_inner(
++    uri: *const c_char,
++    storage_options: *const *const c_char,
++    version: u64,
++    session: *const LanceSession,
++    options: *const LanceHostStorageOptionsV1,
++) -> lance_core::Result<*mut LanceDataset> {
++    let invalid = || lance_core::Error::invalid_input("invalid host storage descriptor");
++    if options.is_null() {
++        return Err(invalid());
++    }
++    let header = options.cast::<u32>();
++    if unsafe { header.read() } != 1
++        || unsafe { header.add(1).read() } < std::mem::size_of::<LanceHostStorageOptionsV1>() as u32
++    {
++        return Err(invalid());
++    }
++    let mut callbacks = unsafe { *options };
++    if callbacks.context.is_null()
++        || callbacks.retain_context.is_none()
++        || callbacks.release_context.is_none()
++        || callbacks.open.is_none()
++        || callbacks.read_at.is_none()
++        || callbacks.close.is_none()
++        || callbacks.list.is_none()
++    {
++        return Err(invalid());
++    }
++    let namespace = unsafe { helpers::parse_c_string(callbacks.cache_namespace)? }
++        .filter(|s| !s.is_empty())
++        .ok_or_else(invalid)?
++        .to_owned();
++    let uri = unsafe { helpers::parse_c_string(uri)? }.ok_or_else(invalid)?;
++    let uri = uri_to_url(uri)?;
++    if uri.query().is_some()
++        || uri.fragment().is_some()
++        || !uri.username().is_empty()
++        || uri.password().is_some()
++    {
++        return Err(lance_core::Error::invalid_input(
++            "host storage does not support credentials or parameters embedded in the dataset URI",
++        ));
++    }
++    let uri = uri.to_string();
++    let settings = unsafe { helpers::parse_storage_options(storage_options)? };
++    // The descriptor and its strings may disappear immediately after this call returns.
++    callbacks.cache_namespace = std::ptr::null();
++    unsafe { callbacks.retain_context.unwrap()(callbacks.context) };
++    let storage = Arc::new(HostStorage {
++        callbacks,
++        namespace,
++    });
++    let registry = Arc::new(ObjectStoreRegistry::empty());
++    let provider = Arc::new(HostProvider {
++        storage: storage.clone(),
++    });
++    for scheme in [
++        "file",
++        "file+uring",
++        "s3",
++        "s3a",
++        "oss",
++        "hdfs",
++        "http",
++        "https",
++        "az",
++        "gs",
++        "hf",
++        "goosefs",
++        "tos",
++        "cos",
++        "memory",
++    ] {
++        registry.insert(scheme, provider.clone());
++    }
++    let base = if session.is_null() {
++        Arc::new(Session::new(0, 0, registry.clone()))
++    } else {
++        unsafe { &*session }.inner.clone()
++    };
++    let scoped = Arc::new(base.with_host_storage(registry, &storage.namespace));
++    let mut builder = DatasetBuilder::from_uri(&uri).with_session(scoped);
++    if !settings.is_empty() {
++        builder = builder.with_storage_options(settings);
++    }
++    if version != 0 {
++        builder = builder.with_version(version);
++    }
++    let dataset = block_on(builder.load())?;
++    Ok(Box::into_raw(Box::new(LanceDataset {
++        inner: std::sync::RwLock::new(Arc::new(dataset)),
++    })))
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    unsafe extern "C" fn retain(_: *mut c_void) {}
++    unsafe extern "C" fn release(_: *mut c_void) {}
++    unsafe extern "C" fn read(
++        _: *mut c_void,
++        _: u64,
++        _: *mut u8,
++        _: usize,
++        count: *mut usize,
++        _: *mut *const c_char,
++    ) -> i32 {
++        unsafe { *count = 0 };
++        0
++    }
++    unsafe extern "C" fn close(_: *mut c_void) {}
++
++    fn storage() -> Arc<HostStorage> {
++        Arc::new(HostStorage {
++            namespace: "unit-storage".into(),
++            callbacks: LanceHostStorageOptionsV1 {
++                abi_version: 1,
++                struct_size: std::mem::size_of::<LanceHostStorageOptionsV1>() as u32,
++                context: std::ptr::null_mut(),
++                retain_context: Some(retain),
++                release_context: Some(release),
++                cache_namespace: std::ptr::null(),
++                open: None,
++                read_at: Some(read),
++                close: Some(close),
++                list: None,
++            },
++        })
++    }
++
++    #[test]
++    fn object_names_round_trip_reserved_characters() {
++        let store = HostObjectStore {
++            storage: storage(),
++            base: Url::parse("s3://example-bucket/dataset").unwrap(),
++        };
++        let path = Path::parse("dataset/data/a +%2F?#\\.lance").unwrap();
++        let uri = Url::parse(&store.uri(&path)).unwrap();
++        assert_eq!(Path::from_url_path(uri.path()).unwrap(), path);
++        assert!(uri.query().is_none() && uri.fragment().is_none());
++    }
++
++    #[test]
++    fn short_reads_are_errors_instead_of_zero_filled_data() {
++        let file = Arc::new(HostFile {
++            storage: storage(),
++            handle: 0,
++            meta: LanceHostFileMeta {
++                size: 10,
++                modified_seconds: 0,
++            },
++        });
++        let error = block_on(file.read(0, 5)).unwrap_err();
++        assert!(error.to_string().contains("fewer bytes"));
++    }
++}
 diff --git a/src/lib.rs b/src/lib.rs
 --- a/src/lib.rs
 +++ b/src/lib.rs
-@@ -36,6 +36,8 @@
+@@ -34,6 +34,9 @@
  mod fragment_writer;
  mod fts_query;
  mod helpers;
 +mod host_executor;
 +mod host_services;
++mod host_storage;
  mod index;
  mod index_model;
  mod index_segment;
-@@ -43,6 +45,8 @@
+@@ -41,6 +44,9 @@
  mod multivector;
  mod restore;
  pub mod runtime;
 +pub use host_executor::*;
 +pub use host_services::*;
++pub use host_storage::*;
  mod scalar_index_selection;
  mod scalar_segment;
  mod scanner;
@@ -1608,7 +2277,7 @@ diff --git a/src/stream_guard.rs b/src/stream_guard.rs
 diff --git a/tests/c_api_test.rs b/tests/c_api_test.rs
 --- a/tests/c_api_test.rs
 +++ b/tests/c_api_test.rs
-@@ -18723,3 +18723,175 @@
+@@ -18502,3 +18502,175 @@
          lance_dataset_close(reopened);
      }
  }
@@ -1932,6 +2601,297 @@ diff --git a/tests/host_callback_test.rs b/tests/host_callback_test.rs
 +        worker.join().unwrap();
 +    }
 +    drop(sender);
++}
+diff --git a/tests/host_file_reader_test.rs b/tests/host_file_reader_test.rs
+--- /dev/null
++++ b/tests/host_file_reader_test.rs
+@@ -0,0 +1,287 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: Copyright The Lance Authors
++
++#![cfg(unix)]
++
++use std::ffi::{CStr, CString, c_char, c_void};
++use std::fs::File;
++use std::os::unix::fs::FileExt;
++use std::path::PathBuf;
++use std::ptr;
++use std::sync::Arc;
++use std::sync::atomic::{AtomicUsize, Ordering};
++
++use arrow_array::{Int64Array, RecordBatch, RecordBatchIterator};
++use arrow_schema::{DataType, Field, Schema};
++use lance_c::*;
++
++struct Storage {
++    root: PathBuf,
++    opens: AtomicUsize,
++    reads: AtomicUsize,
++    closes: AtomicUsize,
++}
++
++impl Storage {
++    unsafe fn path(&self, uri: *const c_char) -> PathBuf {
++        let uri = unsafe { CStr::from_ptr(uri) }.to_str().unwrap();
++        self.root
++            .join(uri.strip_prefix("s3://example-bucket/dataset/").unwrap())
++    }
++}
++
++unsafe extern "C" fn retain(context: *mut c_void) {
++    unsafe { Arc::increment_strong_count(context.cast::<Storage>()) };
++}
++
++unsafe extern "C" fn release(context: *mut c_void) {
++    unsafe { Arc::decrement_strong_count(context.cast::<Storage>()) };
++}
++
++struct OpenFile {
++    file: File,
++    storage: Arc<Storage>,
++}
++
++unsafe extern "C" fn open(
++    context: *mut c_void,
++    uri: *const c_char,
++    out: *mut *mut c_void,
++    meta: *mut LanceHostFileMeta,
++    error: *mut *const c_char,
++) -> i32 {
++    let storage = unsafe { &*context.cast::<Storage>() };
++    let path = unsafe { storage.path(uri) };
++    match File::open(&path) {
++        Ok(file) => {
++            let metadata = file.metadata().unwrap();
++            unsafe { retain(context) };
++            let storage = unsafe { Arc::from_raw(context.cast::<Storage>()) };
++            storage.opens.fetch_add(1, Ordering::SeqCst);
++            unsafe {
++                *meta = LanceHostFileMeta {
++                    size: metadata.len(),
++                    modified_seconds: 0,
++                };
++                *out = Box::into_raw(Box::new(OpenFile { file, storage })).cast();
++            }
++            0
++        }
++        Err(err) => {
++            unsafe { *error = c"host open failed".as_ptr() };
++            if err.kind() == std::io::ErrorKind::NotFound {
++                1
++            } else {
++                2
++            }
++        }
++    }
++}
++
++unsafe extern "C" fn read_at(
++    file: *mut c_void,
++    offset: u64,
++    out: *mut u8,
++    len: usize,
++    bytes_read: *mut usize,
++    error: *mut *const c_char,
++) -> i32 {
++    let file = unsafe { &*file.cast::<OpenFile>() };
++    let buffer = unsafe { std::slice::from_raw_parts_mut(out, len) };
++    match file.file.read_at(buffer, offset) {
++        Ok(n) => {
++            file.storage.reads.fetch_add(1, Ordering::SeqCst);
++            unsafe { *bytes_read = n };
++            0
++        }
++        Err(_) => {
++            unsafe { *error = c"host read failed".as_ptr() };
++            2
++        }
++    }
++}
++
++unsafe extern "C" fn close(file: *mut c_void) {
++    let file = unsafe { Box::from_raw(file.cast::<OpenFile>()) };
++    file.storage.closes.fetch_add(1, Ordering::SeqCst);
++}
++
++unsafe extern "C" fn list(
++    context: *mut c_void,
++    uri: *const c_char,
++    emit: Option<LanceHostListEntry>,
++    emit_context: *mut c_void,
++    _: *mut *const c_char,
++) -> i32 {
++    let storage = unsafe { &*context.cast::<Storage>() };
++    let root = unsafe { storage.path(uri) };
++    if !root.exists() {
++        return 0;
++    }
++    let mut pending = vec![root];
++    while let Some(directory) = pending.pop() {
++        for entry in std::fs::read_dir(directory).unwrap() {
++            let entry = entry.unwrap();
++            if entry.file_type().unwrap().is_dir() {
++                pending.push(entry.path());
++                continue;
++            }
++            let name = entry.path();
++            let relative = name.strip_prefix(&storage.root).unwrap();
++            let uri = CString::new(format!(
++                "s3://example-bucket/dataset/{}",
++                relative.display()
++            ))
++            .unwrap();
++            let meta = LanceHostFileMeta {
++                size: entry.metadata().unwrap().len(),
++                modified_seconds: 0,
++            };
++            if unsafe { emit.unwrap()(emit_context, uri.as_ptr(), &meta) } != 0 {
++                return 2;
++            }
++        }
++    }
++    0
++}
++
++#[test]
++fn all_dataset_bytes_come_from_the_host_and_handles_outlive_open_options() {
++    let temp = tempfile::tempdir().unwrap();
++    let schema = Arc::new(Schema::new(vec![Field::new(
++        "value",
++        DataType::Int64,
++        false,
++    )]));
++    let batch = RecordBatch::try_new(
++        schema.clone(),
++        vec![Arc::new(Int64Array::from_iter_values(0..128))],
++    )
++    .unwrap();
++    let batches = RecordBatchIterator::new(vec![Ok(batch)], schema);
++    lance_c::runtime::block_on(async {
++        lance::Dataset::write(Box::new(batches), temp.path().to_str().unwrap(), None)
++            .await
++            .unwrap();
++    });
++    for version in [0, 1] {
++        let storage = Arc::new(Storage {
++            root: temp.path().to_path_buf(),
++            opens: AtomicUsize::new(0),
++            reads: AtomicUsize::new(0),
++            closes: AtomicUsize::new(0),
++        });
++        let namespace = CString::new("host-fixture").unwrap();
++        let options = LanceHostStorageOptionsV1 {
++            abi_version: 1,
++            struct_size: std::mem::size_of::<LanceHostStorageOptionsV1>() as u32,
++            context: Arc::as_ptr(&storage) as *mut c_void,
++            retain_context: Some(retain),
++            release_context: Some(release),
++            cache_namespace: namespace.as_ptr(),
++            open: Some(open),
++            read_at: Some(read_at),
++            close: Some(close),
++            list: Some(list),
++        };
++        let uri = CString::new("s3://example-bucket/dataset").unwrap();
++        let session = lance_session_new(0, 0);
++        let dataset = unsafe {
++            lance_dataset_open_with_storage_v1(
++                uri.as_ptr(),
++                ptr::null(),
++                version,
++                session,
++                &options,
++            )
++        };
++        if dataset.is_null() {
++            let error = lance_last_error_message();
++            let message = unsafe { CStr::from_ptr(error) }
++                .to_string_lossy()
++                .into_owned();
++            unsafe { lance_free_string(error) };
++            panic!("{message}");
++        }
++        drop(namespace);
++        unsafe { lance_session_close(session) };
++        let scanner = unsafe { lance_scanner_new(dataset, ptr::null(), ptr::null()) };
++        assert!(!scanner.is_null());
++        let mut rows = 0;
++        loop {
++            let mut batch = ptr::null_mut();
++            let status = unsafe { lance_scanner_next(scanner, &mut batch) };
++            if status == 1 {
++                break;
++            }
++            assert_eq!(status, 0);
++            let mut array = arrow::ffi::FFI_ArrowArray::empty();
++            let mut schema = arrow::ffi::FFI_ArrowSchema::empty();
++            assert_eq!(
++                unsafe { lance_batch_to_arrow(batch, &mut array, &mut schema) },
++                0
++            );
++            rows += unsafe { arrow::ffi::from_ffi(array, &schema) }
++                .unwrap()
++                .len();
++            unsafe { lance_batch_free(batch) };
++        }
++        assert_eq!(rows, 128);
++        unsafe {
++            lance_scanner_close(scanner);
++            lance_dataset_close(dataset);
++        }
++        assert!(storage.reads.load(Ordering::SeqCst) > 0);
++        assert_eq!(
++            storage.opens.load(Ordering::SeqCst),
++            storage.closes.load(Ordering::SeqCst)
++        );
++        assert_eq!(Arc::strong_count(&storage), 1);
++    }
++}
++
++#[test]
++fn invalid_storage_descriptors_fail_without_retaining_context() {
++    let uri = c"s3://example-bucket/dataset";
++    assert!(
++        unsafe {
++            lance_dataset_open_with_storage_v1(
++                uri.as_ptr(),
++                ptr::null(),
++                0,
++                ptr::null(),
++                ptr::null(),
++            )
++        }
++        .is_null()
++    );
++    let options = LanceHostStorageOptionsV1 {
++        abi_version: 2,
++        struct_size: std::mem::size_of::<LanceHostStorageOptionsV1>() as u32,
++        context: ptr::null_mut(),
++        retain_context: Some(retain),
++        release_context: Some(release),
++        cache_namespace: c"invalid".as_ptr(),
++        open: Some(open),
++        read_at: Some(read_at),
++        close: Some(close),
++        list: Some(list),
++    };
++    assert!(
++        unsafe {
++            lance_dataset_open_with_storage_v1(uri.as_ptr(), ptr::null(), 0, ptr::null(), &options)
++        }
++        .is_null()
++    );
++    let options = LanceHostStorageOptionsV1 {
++        abi_version: 1,
++        struct_size: 8,
++        ..options
++    };
++    assert!(
++        unsafe {
++            lance_dataset_open_with_storage_v1(uri.as_ptr(), ptr::null(), 0, ptr::null(), &options)
++        }
++        .is_null()
++    );
 +}
 diff --git a/tests/host_storage_test.rs b/tests/host_storage_test.rs
 --- /dev/null

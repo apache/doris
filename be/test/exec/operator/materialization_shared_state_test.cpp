@@ -46,8 +46,8 @@ void set_lance_fetch_profile(PMultiGetBlockV2* response_block, int64_t scale) {
     profile.add_info_string("LanceRowIdFetchTotalTime", std::to_string(4 * scale) + "ns");
     profile.add_info_string("LanceRowIdFetchRows", std::to_string(5 * scale));
     profile.add_info_string("LanceRowIdFetchCalls", "1");
-    profile.add_info_string("LanceDataCacheBytesReadFromCache", "64.00 KB");
-    profile.add_info_string("LanceDataCacheBytesReadFromRemote", "32.00 KB");
+    profile.add_info_string("LanceFileCacheBytesReadFromCache", "64.00 KB");
+    profile.add_info_string("LanceFileCacheBytesReadFromRemote", "32.00 KB");
     profile.add_info_string("ScannersRunningTime", "0ms");
     profile.add_info_string("InitReaderAvgTime", "0ms");
     profile.add_info_string("GetBlockAvgTime", "0ms");
@@ -363,8 +363,8 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
     EXPECT_EQ("40ns, ", fmt::to_string(backend1_info.at("LanceRowIdFetchTotalTime")));
     EXPECT_EQ("50, ", fmt::to_string(backend1_info.at("LanceRowIdFetchRows")));
     EXPECT_EQ("1, ", fmt::to_string(backend1_info.at("LanceRowIdFetchCalls")));
-    EXPECT_EQ("64.00 KB, ", fmt::to_string(backend1_info.at("LanceDataCacheBytesReadFromCache")));
-    EXPECT_EQ("32.00 KB, ", fmt::to_string(backend1_info.at("LanceDataCacheBytesReadFromRemote")));
+    EXPECT_EQ("64.00 KB, ", fmt::to_string(backend1_info.at("LanceFileCacheBytesReadFromCache")));
+    EXPECT_EQ("32.00 KB, ", fmt::to_string(backend1_info.at("LanceFileCacheBytesReadFromRemote")));
     const auto& backend2_info = _shared_state->backend_profile_info_string.at(_backend_id2);
     EXPECT_EQ("1ns, ", fmt::to_string(backend2_info.at("LanceDatasetOpenTime")));
     EXPECT_EQ("2ns, ", fmt::to_string(backend2_info.at("LanceRowIdTakeReadTime")));

@@ -23,11 +23,13 @@
 #include <chrono>
 #include <condition_variable>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <iostream>
 #include <memory>
 #include <mutex>
 #include <queue>
+#include <string>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -91,6 +93,61 @@ private:
     bool stopping = false;
 };
 
+struct HostStorage {
+    std::atomic<uint64_t> reads {0};
+    std::atomic<uint64_t> files {0};
+    std::atomic<uint64_t> refs {1};
+    struct File {
+        HostStorage* owner;
+        std::ifstream input;
+    };
+    static std::string path(const char* uri) {
+        std::string value(uri);
+        return value.starts_with("file://") ? value.substr(7) : value;
+    }
+    static int32_t open(void* context, const char* uri, void** out, LanceHostFileMeta* meta,
+                        const char**) {
+        auto* storage = static_cast<HostStorage*>(context);
+        const auto name = path(uri);
+        if (!std::filesystem::exists(name)) return 1;
+        auto file = std::make_unique<File>();
+        file->owner = storage;
+        file->input.open(name, std::ios::binary);
+        if (!file->input) return 2;
+        meta->size = std::filesystem::file_size(name);
+        meta->modified_seconds = 0;
+        storage->files++;
+        *out = file.release();
+        return 0;
+    }
+    static int32_t read(void* context, uint64_t offset, uint8_t* buffer, size_t length,
+                        size_t* count, const char**) {
+        auto* file = static_cast<File*>(context);
+        file->input.clear();
+        file->input.seekg(offset);
+        file->input.read(reinterpret_cast<char*>(buffer), length);
+        *count = file->input.gcount();
+        file->owner->reads++;
+        return file->input.bad() ? 2 : 0;
+    }
+    static void close(void* context) {
+        std::unique_ptr<File> file(static_cast<File*>(context));
+        file->owner->files--;
+    }
+    static int32_t list(void*, const char* uri, LanceHostListEntry emit, void* context,
+                        const char**) {
+        const auto root = path(uri);
+        if (!std::filesystem::exists(root)) return 0;
+        for (const auto& file : std::filesystem::recursive_directory_iterator(root)) {
+            if (!file.is_regular_file()) continue;
+            const auto name = "file://" + file.path().string();
+            LanceHostFileMeta meta {file.file_size(), 0};
+            if (emit(context, name.c_str(), &meta) != 0) return 2;
+        }
+        return 0;
+    }
+};
+
 int main(int argc, char** argv) {
     if (argc != 2) return 2;
     HostPool pool;
@@ -114,18 +171,22 @@ int main(int argc, char** argv) {
     options.max_io_drivers = 8;
     auto* executor = lance_host_executor_new_v1(&options);
     auto* scope = lance_host_executor_enter(executor);
-    const auto cache_path = std::filesystem::temp_directory_path() /
-                            ("lance-host-runtime-" + std::to_string(getpid()));
-    std::filesystem::create_directories(cache_path);
-    LanceDataCacheOptions cache {};
-    const auto cache_directory = cache_path.string();
-    cache.directory = cache_directory.c_str();
-    cache.memory_capacity_bytes = 8 << 20;
-    cache.disk_capacity_bytes = 128 << 20;
-    cache.read_block_size_bytes = 1 << 20;
-    auto* session = lance_session_new_with_data_cache(16 << 20, 16 << 20, &cache);
-    auto* dataset =
-            session ? lance_dataset_open_with_session(argv[1], nullptr, 0, session) : nullptr;
+    HostStorage storage;
+    LanceHostStorageOptionsV1 storage_options {};
+    storage_options.abi_version = 1;
+    storage_options.struct_size = sizeof(storage_options);
+    storage_options.context = &storage;
+    storage_options.retain_context = [](void* p) { static_cast<HostStorage*>(p)->refs++; };
+    storage_options.release_context = [](void* p) { static_cast<HostStorage*>(p)->refs--; };
+    storage_options.cache_namespace = "native-host-fixture";
+    storage_options.open = HostStorage::open;
+    storage_options.read_at = HostStorage::read;
+    storage_options.close = HostStorage::close;
+    storage_options.list = HostStorage::list;
+    auto* session = lance_session_new(16 << 20, 16 << 20);
+    auto* dataset = session ? lance_dataset_open_with_storage_v1(argv[1], nullptr, 0, session,
+                                                                 &storage_options)
+                            : nullptr;
     uint64_t rows = 0;
     if (dataset) {
         auto* scanner = lance_scanner_new(dataset, nullptr, nullptr);
@@ -171,12 +232,23 @@ int main(int argc, char** argv) {
     lance_host_executor_leave(scope);
     const auto polls = lance_host_executor_completed_tasks(executor);
     lance_host_executor_free(executor);
+    // Closing an unconsumed async stream cancels host pumps asynchronously. Keep services
+    // running until those jobs release their retained storage context.
+    const auto cleanup_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while ((storage.refs != 1 || storage.files != 0) &&
+           std::chrono::steady_clock::now() < cleanup_deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
     const auto after = std::distance(std::filesystem::directory_iterator("/proc/self/task"),
                                      std::filesystem::directory_iterator());
     lance_runtime_stop();
     reactor.join();
-    std::filesystem::remove_all(cache_path);
+
     std::cout << "rows=" << rows << ", host polls=" << polls << ", threads=" << before << "->"
-              << after << '\n';
-    return rows > 0 && polls > 0 && before == after ? 0 : 1;
+              << after << ", host reads=" << storage.reads << ", open files=" << storage.files
+              << ", refs=" << storage.refs << '\n';
+    return rows > 0 && polls > 0 && before == after && storage.reads > 0 && storage.files == 0 &&
+                           storage.refs == 1
+                   ? 0
+                   : 1;
 }

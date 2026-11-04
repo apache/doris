@@ -823,8 +823,8 @@ const std::string RowIdStorageReader::LanceRowIdFetchTotalTimeProfile = "LanceRo
 const std::map<std::string, TUnit::type> RowIdStorageReader::LanceFetchCountersProfile = {
         {"LanceRowIdFetchRows", TUnit::UNIT},
         {"LanceRowIdFetchCalls", TUnit::UNIT},
-        {"LanceDataCacheBytesReadFromCache", TUnit::BYTES},
-        {"LanceDataCacheBytesReadFromRemote", TUnit::BYTES},
+        {"LanceFileCacheBytesReadFromCache", TUnit::BYTES},
+        {"LanceFileCacheBytesReadFromRemote", TUnit::BYTES},
 };
 const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseLocalIOCount =
         "TopNLazyMaterializationSecondPhaseLocalIOCount";

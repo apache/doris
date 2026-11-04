@@ -42,6 +42,8 @@ class ShardedKVCache;
 
 namespace doris::format::lance {
 
+class LanceFileSystem;
+
 // A FORMAT_LANCE table reader. Unlike file formats such as Parquet, a Lance split is not a
 // physical-file range. It either selects fragments from a fixed snapshot or scans the whole
 // latest snapshot, so the dataset is owned by this table reader and each split owns its scanner.
@@ -108,6 +110,7 @@ private:
     std::unique_ptr<::LanceHostExecutor, HostExecutorDeleter> _host_executor;
     RuntimeProfile::Counter* _host_executor_tasks = nullptr;
     LanceDataset* _dataset = nullptr;
+    std::shared_ptr<LanceFileSystem> _file_system;
     std::unique_ptr<LanceSessionCacheProfile> _session_cache_profile;
     std::shared_ptr<arrow::Schema> _dataset_schema;
     LanceScanner* _scanner = nullptr;

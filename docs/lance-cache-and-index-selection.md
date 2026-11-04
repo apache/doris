@@ -83,20 +83,29 @@ The native selection implementation and decoded-memory guards are supplied by
 upstream lance-c, pinned to an immutable commit in `thirdparty/vars.sh`. Doris
 does not carry a local runtime-selection patch.
 
-## Foyer memory capacity
+## Data-file cache
 
-`lance_data_cache_memory_capacity_bytes` is a startup BE configuration, independent
-of `lance_data_cache_read_block_size_bytes` and the disk capacity. Restart the BE
-after changing it.
+BE reads use Lance-C's read-only host storage callbacks from dataset opening onward.
+Manifest discovery, metadata, indices, deletion files, and data reads use Doris
+FileSystem/FileReader. Immutable `data/*.lance` objects on remote storage use the
+Doris File Cache when both BE `enable_file_cache` and the query's `enable_file_cache`
+are enabled. The query's `file_cache_base_path` selects the cache disk. Mutable
+manifest/control files bypass the byte cache. Local files use LocalFileReader.
 
-| Value | Behavior |
-| --- | --- |
-| `0` (default) | Use one configured read block, preserving the previous behavior. With the default block size this is 1 MiB. |
-| Positive | Set the Foyer memory tier's capacity in bytes. It must be at least one read block. |
-| Negative | Invalid when the Lance data cache is enabled. |
+The Lance-C Foyer integration and its `enable_lance_data_cache` / `lance_data_cache_*`
+configuration options have been removed. Remove these obsolete options from BE
+configuration files when upgrading. There is no separate Lance raw-byte cache to size.
+The shared Session index and metadata object caches remain independently configurable.
 
-For example, `lance_data_cache_memory_capacity_bytes=10737418240` allows a 10 GiB
-memory tier while retaining 1 MiB read blocks. This capacity is shared by Lance
-readers in one BE and is separate from index and metadata cache capacities. Cache
-bookkeeping and in-flight reads can consume additional memory. When
-`enable_lance_data_cache=false`, the Foyer configuration is ignored.
+File-cache identities include dataset URI and the storage configuration, including
+endpoint and credential scope, without exposing credentials in cache names. SDK
+object-cache namespaces also include the effective read-cache policy. Retained
+readers use the executing task's query context for cancellation and I/O attribution.
+
+This BE path supports local files, S3-compatible storage (including OSS), HDFS, and
+HTTP range reads through Doris readers. HTTP latest-version discovery requires a
+version or a directly readable manifest; directory listing is unsupported. Schemes
+without a Doris reader return an explicit error rather than using SDK-native I/O.
+Dataset URI query/fragment/user-info parameters are rejected; pass credentials in
+storage options. FE JNI metadata access and SDK-only write/training APIs retain their
+own storage path.

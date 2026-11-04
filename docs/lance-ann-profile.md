@@ -92,15 +92,17 @@ Each `RowIDFetcher: BackendId:...` profile also reports:
 | --- | --- |
 | `LanceRowIdFetchCalls` | Non-empty dataset `take_rows` calls. |
 | `LanceRowIdFetchRows` | Rows converted from successful returned batches, including duplicate requested row IDs. |
-| `LanceDataCacheBytesReadFromCache` | Logical data-file bytes served by Foyer for the dataset handles used by this fetch. |
-| `LanceDataCacheBytesReadFromRemote` | Logical data-file bytes served through the Foyer origin path for those handles. |
+| `LanceFileCacheBytesReadFromCache` | Data-file bytes served from Doris File Cache by these dataset handles. |
+| `LanceFileCacheBytesReadFromRemote` | Bytes read by remote Doris FileReaders, including uncached metadata/index reads. |
 
-Byte counts are collected after closing the reader and summed across dataset
-handles in the fetch RPC. They exclude block-alignment amplification, metadata,
-and index reads. With Foyer disabled or for paths outside its data-file wrapper,
-zero values do not imply zero physical IO. The current take API does not expose
-physical request counts or a separate decode timer; scanner-plan IO counters
-must not be substituted for them.
+Counters come from the host adapter and Doris FileCacheStatistics. They describe
+requested file bytes by source, including uncached metadata/index reads, rather than
+physical cache-block amplification or projected-column sizes. Local uncached reads
+do not count as remote bytes. SDK
+index/metadata object-cache hits may avoid FileReader calls entirely. These counters
+are observations of adapter handles, not query-exclusive totals when cached SDK
+indices retain readers across queries. Request counts and decode time remain
+separate scanner statistics.
 
 `MATERIALIZATION_OPERATOR.ExecTime` includes its synchronous fetch wait once.
 `MaxRpcTime` is nested within that execution time, not an additional duration.

@@ -143,8 +143,9 @@ void CachedRemoteFileReader::_init_doris_table_cache() {
 }
 
 void CachedRemoteFileReader::_init_external_table_cache(const FileReaderOptions& opts) {
-    // Use path and modification time to build cache key.
-    std::string unique_path = fmt::format("{}:{}", path().native(), opts.mtime);
+    // Use the storage-qualified identity (or path) and modification time to build cache key.
+    std::string unique_path = fmt::format(
+            "{}:{}", opts.cache_key.empty() ? path().native() : opts.cache_key, opts.mtime);
     _cache_hash = BlockFileCache::hash(unique_path);
     if (opts.cache_base_path.empty()) {
         // If cache path is not specified by session variable, choose randomly.

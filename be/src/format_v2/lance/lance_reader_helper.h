@@ -55,7 +55,7 @@ inline constexpr const char* LANCE_SCALAR_INDEX_PROFILE = "LanceScalarIndex";
 inline constexpr const char* LANCE_EXECUTION_PLAN_PROFILE = "LanceExecutionPlan";
 inline constexpr const char* LANCE_SCAN_PROFILE = "LanceScan";
 inline constexpr const char* LANCE_SEARCH_PLAN_PROFILE = "LanceSearchPlan";
-inline constexpr const char* LANCE_DATA_CACHE_PROFILE = "LanceDataCache";
+inline constexpr const char* LANCE_DATA_CACHE_PROFILE = "LanceFileCache";
 
 struct LanceProfileMetric {
     std::string_view native_name;

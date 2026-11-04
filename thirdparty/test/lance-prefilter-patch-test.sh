@@ -63,10 +63,13 @@ check_sources() {
     local source="$1/src/${LANCE_C_SOURCE}"
     grep -q 'fn test_scanner_nearest_segment_prefilter_statistics' "${source}/tests/c_api_test.rs" \
         || fail "missing upstream segment-prefilter regression"
-    grep -q 'lance_session_new_with_data_cache' "${source}/src/foyer_data_cache.rs" \
-        || fail "missing retained Foyer API"
-    grep -q 'lance_dataset_get_data_cache_statistics' "${source}/src/data_cache.rs" \
-        || fail "missing retained cache statistics API"
+    [[ ! -f "${source}/src/foyer_data_cache.rs" && ! -f "${source}/src/data_cache.rs" ]] \
+        || fail "obsolete Foyer cache source remains"
+    ! grep -q '^foyer[[:space:]]*=' "${source}/Cargo.toml" || fail "direct Foyer dependency remains"
+    grep -q 'lance_dataset_open_with_storage_v1' "${source}/include/lance/lance.h" \
+        || fail "missing host storage C API"
+    grep -q 'fn all_dataset_bytes_come_from_the_host' "${source}/tests/host_file_reader_test.rs" \
+        || fail "missing host storage integration regression"
     grep -q 'path = "../lance-' "${source}/Cargo.toml" \
         || fail "Lance must use the pinned, locally patched SDK"
     grep -q lance_host_executor_new_v1 "${source}/include/lance/lance.h" \
@@ -81,7 +84,7 @@ check_sources() {
         || fail "GooseFS cache must route disk operations through the host"
     grep -q 'xet-runtime = { path' "${source}/Cargo.toml" || fail "missing local Xet patch"
     grep -q 'goosefs-sdk = { path' "${source}/Cargo.toml" || fail "missing local GooseFS patch"
-    # Refreshing the Foyer patch must preserve the upstream prewarm binding and tests.
+    # Refreshing the host storage patch must preserve the upstream prewarm binding and tests.
     grep -q 'lance_dataset_prewarm_index' "${source}/include/lance/lance.h" \
         || fail "missing upstream C prewarm API"
     grep -q 'void prewarm_index(' "${source}/include/lance/lance.hpp" \
@@ -114,7 +117,7 @@ echo "PASS: re-extracted archive"
 
 prepare "${tmpdir}/cached"
 tar xzf "${ARCHIVE_DIR}/${LANCE_C_NAME}" -C "${tmpdir}/cached/src"
-# A generic marker from an earlier build must not suppress the Foyer patch.
+# A generic marker from an earlier build must not suppress the host patch.
 touch "${tmpdir}/cached/src/${LANCE_C_SOURCE}/patched_mark"
 run_download "${tmpdir}/cached"
 check_sources "${tmpdir}/cached"
@@ -129,8 +132,7 @@ for stale_marker in '' '0 0'; do
     printf '%s\n' "${stale_marker}" > "${cached_source}/patched_mark_host_executor"
     run_download "${tmpdir}/cached"
     check_sources "${tmpdir}/cached"
-    cmp "${tmpdir}/fresh/src/${LANCE_C_SOURCE}/src/foyer_data_cache.rs" \
-        "${cached_source}/src/foyer_data_cache.rs"
+    [[ ! -f "${cached_source}/src/foyer_data_cache.rs" ]] || fail "stale Foyer source survived refresh"
 done
 echo "PASS: old and mismatched C patch markers refresh cached sources"
 
