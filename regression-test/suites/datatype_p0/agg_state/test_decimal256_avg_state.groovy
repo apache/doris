@@ -27,7 +27,7 @@ suite("test_decimal256_avg_state") {
     order_qt_direct "select avg(v),avg_merge(avg_state(v)) from decimal256_avg_state_input"
     order_qt_rollup_original """select a,b,c,avg(v) from
         (select k a,k%2 b,k%3 c,v from decimal256_avg_state_input) t group by rollup(a,b,c)"""
-    // Master does not rewrite AVG ROLLUP yet. Execute its equivalent state plan explicitly.
+    // Exercise the equivalent ROLLUP state plan independently of optimizer rewrites.
     order_qt_rollup_state_path """with preagg as (
         select k a,k%2 b,k%3 c,avg_combine(v) s from decimal256_avg_state_input
         group by k,k%2,k%3)

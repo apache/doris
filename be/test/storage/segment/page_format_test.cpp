@@ -773,7 +773,6 @@ void init_column_meta(ColumnMetaPB* meta, const TabletColumn& column) {
     meta->set_result_is_nullable(column.get_result_is_nullable());
     meta->set_function_name(column.get_aggregation_name());
     meta->set_be_exec_version(column.get_be_exec_version());
-    // Aggregate state pages retain the result signature supplied by their schema.
     if (column.type() == FieldType::OLAP_FIELD_TYPE_AGG_STATE) {
         column.get_agg_state_result_type()->to_protobuf(meta->mutable_agg_state_result_type());
     }

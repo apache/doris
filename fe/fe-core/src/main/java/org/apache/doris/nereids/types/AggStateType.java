@@ -203,28 +203,10 @@ public class AggStateType extends DataType {
         }
 
         AggStateType rhs = (AggStateType) o;
-        if (!Objects.equals(resultType, rhs.resultType) || !Objects.equals(functionName, rhs.functionName)) {
-            return false;
-        }
-        if ((subTypes == null) != (rhs.subTypes == null)) {
-            return false;
-        }
-        if (subTypes == null) {
-            return true;
-        }
-        if (subTypes.size() != rhs.subTypes.size()) {
-            return false;
-        }
-
-        for (int i = 0; i < subTypes.size(); i++) {
-            if (!subTypes.get(i).equals(rhs.subTypes.get(i))) {
-                return false;
-            }
-            if (!subTypeNullables.get(i).equals(rhs.subTypeNullables.get(i))) {
-                return false;
-            }
-        }
-        return true;
+        return Objects.equals(resultType, rhs.resultType)
+                && functionName.equals(rhs.functionName)
+                && subTypes.equals(rhs.subTypes)
+                && subTypeNullables.equals(rhs.subTypeNullables);
     }
 
     @Override

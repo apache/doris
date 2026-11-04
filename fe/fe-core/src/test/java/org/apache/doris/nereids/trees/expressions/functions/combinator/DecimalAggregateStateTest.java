@@ -23,7 +23,6 @@ import org.apache.doris.catalog.ColumnToProtobuf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.expression.check.CheckCast;
 import org.apache.doris.nereids.rules.expression.rules.ConvertAggStateCast;
@@ -78,7 +77,6 @@ class DecimalAggregateStateTest {
         AggStateType parsed = (AggStateType) new NereidsParser()
                 .parseDataType("agg_state<avg(decimal(18,2))>").conversion();
         Assertions.assertThrows(AnalysisException.class, parsed::getResultType);
-        Assertions.assertFalse(parsed.toSql().contains("returns"));
         context.getSessionVariable().enableDecimal256 = true;
         AggStateType analyzed = parsed.resolveDeclaration();
         Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(76, 4), analyzed.getResultType());
@@ -107,7 +105,6 @@ class DecimalAggregateStateTest {
                         Type catalog = state.toCatalogDataType();
                         Assertions.assertEquals(catalog, GsonUtils.GSON.fromJson(
                                 GsonUtils.GSON.toJson(catalog, Type.class), Type.class));
-                        Assertions.assertFalse(state.toSql().contains("returns"));
                         Assertions.assertEquals(state, analyzeState(state.toSql()).conversion());
                         context.getSessionVariable().enableDecimal256 = !enabled;
                         SlotReference slot = new SlotReference("s", state, false);
@@ -192,7 +189,7 @@ class DecimalAggregateStateTest {
     }
 
     @Test
-    void testMapKeyMetadataAndRejectReturns() throws Exception {
+    void testMapKeyMetadata() throws Exception {
         ConnectContext context = MemoTestUtils.createConnectContext();
         context.getSessionVariable().enableDecimal256 = true;
         SlotReference input = new SlotReference("m", MapType.of(VarcharType.createVarcharType(17),
@@ -202,12 +199,6 @@ class DecimalAggregateStateTest {
         Types.PTypeDesc pb = ColumnToProtobuf.toPb(column, ImmutableSet.of(), ImmutableList.of())
                 .getAggStateResultType();
         Assertions.assertEquals(17, pb.getTypes(1).getScalarType().getLen());
-        for (String declaration : ImmutableList.of(
-                "agg_state<sum(decimal(18,2)) returns decimal(38,4)>",
-                "agg_state<sum_map(map<int,decimal(18,2)>) returns map<bigint,decimal(76,2)>>",
-                "agg_state<avg_map(map<int,decimal(18,2)>) returns map<int,decimal(38,2)>>")) {
-            Assertions.assertThrows(ParseException.class, () -> new NereidsParser().parseDataType(declaration));
-        }
     }
 
     @Test

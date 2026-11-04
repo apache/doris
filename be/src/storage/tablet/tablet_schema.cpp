@@ -513,7 +513,6 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     if (_type == FieldType::OLAP_FIELD_TYPE_AGG_STATE) {
         _result_is_nullable = column.result_is_nullable();
         _be_exec_version = column.be_exec_version();
-        // New states retain their result signature; absent metadata denotes a legacy layout.
         if (column.has_agg_state_result_type()) {
             _agg_state_result_type = DataTypeFactory::instance().create_data_type(
                     column.agg_state_result_type(), false);

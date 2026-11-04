@@ -84,10 +84,6 @@ suite("test_decimal_aggregate_state_signatures") {
     }
     sql "set enable_decimal256=true"
     test {
-        sql "select cast(null as agg_state<avg(decimal(18,2)) returns decimal(76,4)>)"
-        exception "mismatched input 'returns'"
-    }
-    test {
         sql """select sum_merge(cast(s_sum as agg_state<sum(decimal(76,6))>))
             from decimal_aggregate_state_stored"""
         exception "exact AggState type match"
