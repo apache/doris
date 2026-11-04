@@ -34,7 +34,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * ScalarFunction 'st_geometryfromwkbtyped' preserves raw XY WKB for Iceberg spatial columns.
+ * ScalarFunction 'st_geometryfromwkbtyped' preserves raw ISO WKB for Iceberg spatial columns.
  */
 public class StGeometryFromWKBTyped extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNullable, PropagateNullLiteral {

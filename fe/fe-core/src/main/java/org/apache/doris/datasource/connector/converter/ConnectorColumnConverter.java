@@ -310,7 +310,7 @@ public final class ConnectorColumnConverter {
         if (children.isEmpty()) {
             return ArrayType.create(Type.NULL, true);
         }
-        return ArrayType.create(convertType(children.get(0)), ct.isChildNullable(0));
+        return ArrayType.create(convertType(children.get(0)));
     }
 
     private static Type convertMapType(ConnectorType ct) {
