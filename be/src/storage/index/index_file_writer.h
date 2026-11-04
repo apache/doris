@@ -65,6 +65,7 @@ class AnnIndexSink;
 class DorisFSDirectory;
 namespace snii_doris {
 class DorisSniiFileWriter;
+class SniiAnnStaging;
 } // namespace snii_doris
 
 using InvertedIndexDirectoryMap =
@@ -84,10 +85,10 @@ public:
     MOCK_FUNCTION Result<std::shared_ptr<DorisFSDirectory>> open(const TabletIndex* index_meta);
     // The storage an ANN index is built into. Separate from open() because the
     // two formats stage ANN output in different places: V1/V2 hand faiss the same
-    // CLucene filesystem directory every other index gets, while SNII hands it a
-    // staging directory of self-cleaning files whose bytes begin_close() seals
-    // into a blob logical index. Either is wrapped in the CLucene ANN adapter, so
-    // the ANN writer sees neither the directory nor CLucene.
+    // CLucene filesystem directory every other index gets, wrapped in the CLucene
+    // ANN adapter, while SNII hands it a staging of self-cleaning files whose
+    // bytes begin_close() seals into a blob logical index. The ANN writer sees
+    // neither the directory nor CLucene.
     Result<std::shared_ptr<AnnIndexSink>> open_ann_sink(const TabletIndex* index_meta);
     // SNII only: drops the staging of one ANN index whose serialization failed.
     // Its sub-files unlink themselves once their last owner is gone, and the
@@ -194,32 +195,38 @@ public:
     io::FileWriter* get_file_writer() const { return _idx_v2_writer.get(); }
 
 private:
+    // SNII only: the staging of one ANN index, and the metadata begin_close()
+    // needs to seal it. The metadata is a copy rather than a borrow, because the
+    // harvest happens in begin_close(), long after open_ann_sink() returned, and
+    // is held by shared_ptr so this header keeps TabletIndex incomplete -- it is
+    // included nearly everywhere.
+    struct SniiAnnStagingEntry {
+        std::shared_ptr<snii_doris::SniiAnnStaging> staging;
+        std::shared_ptr<TabletIndex> meta;
+    };
+
     Status _insert_directory_into_map(int64_t index_id, const std::string& index_suffix,
                                       std::shared_ptr<lucene::store::Directory> dir);
-    // SNII only: registers a memory-backed staging directory for one ANN index,
-    // together with the metadata begin_close() needs to seal it.
-    Result<std::shared_ptr<lucene::store::Directory>> _open_snii_ann_staging_directory(
-            const TabletIndex* index_meta);
+    // SNII only: registers the staging of one ANN index, together with the
+    // metadata begin_close() needs to seal it.
+    Result<std::shared_ptr<AnnIndexSink>> _open_snii_ann_staging(const TabletIndex* index_meta);
     virtual Result<std::unique_ptr<IndexSearcherBuilder>> _construct_index_searcher_builder(
             const DorisCompoundReader* dir);
-    // SNII only: turns every ANN staging directory into a blob logical index in
-    // the container. Runs once, from begin_close(), before the compound writer is
-    // sealed. Registration copies no byte -- the staged buffers are pulled by
+    // SNII only: turns every ANN staging into a blob logical index in the
+    // container. Runs once, from begin_close(), before the compound writer is
+    // sealed. Registration copies no byte -- the staged files are pulled by
     // finish() through the blob sources.
-    Status _seal_snii_blob_directories();
-    // Drops the staging directories once the container owns their bytes, or once
-    // sealing has failed and they are dead either way. Only the SNII path needs
-    // this: the V1/V2 branch of begin_close() releases its own directories
-    // inline.
-    void _release_snii_blob_directories();
+    Status _seal_snii_ann_staging();
+    // Drops the ANN staging once the container owns its bytes, or once sealing
+    // has failed and it is dead either way.
+    void _release_snii_ann_staging();
 
     // Member variables...
+    // The CLucene directories of V1 and V2, one per index. SNII opens none.
     InvertedIndexDirectoryMap _indices_dirs;
-    // SNII only: the index metadata behind each entry of _indices_dirs. Owned a
-    // copy rather than borrowed, because the harvest happens in begin_close(),
-    // long after open() returned. Held by shared_ptr so this header keeps
-    // TabletIndex incomplete -- it is included nearly everywhere.
-    std::map<std::pair<int64_t, std::string>, std::shared_ptr<TabletIndex>> _snii_blob_dir_metas;
+    // SNII only: the staging of each ANN index open_ann_sink() opened, under the
+    // same key as _indices_dirs. Empty under V1 and V2.
+    std::map<std::pair<int64_t, std::string>, SniiAnnStagingEntry> _snii_ann_staging;
     const io::FileSystemSPtr _fs;
     std::string _index_path_prefix;
     std::string _rowset_id;

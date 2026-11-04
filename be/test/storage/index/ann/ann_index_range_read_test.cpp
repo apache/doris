@@ -15,12 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// The I/O an ANN index costs on V1 and V2: how many range reads, and how many bytes, one load and
-// three searches send to the index file. A range read is one read FSIndexInput::readInternal hands
-// to the file reader, counted in inverted_index_range_read_count of the IOContext's
-// FileCacheStatistics. ANN reads its files through CLucene's buffered inputs, and the numbers below
-// were recorded on that code: whatever ANN reads through, V1 and V2 must keep issuing exactly these
-// reads, or a cold query on remote storage changes cost.
+// The I/O an ANN index costs on V1, V2 and SNII: how many range reads, and how many bytes, one
+// load and three searches send to the index file. A range read is one read handed to the file
+// reader -- by FSIndexInput::readInternal for V1 and V2, by DorisSniiFileReader for SNII -- counted
+// in inverted_index_range_read_count of the IOContext's FileCacheStatistics. V1 and V2 read their
+// files through CLucene's buffered inputs, and the numbers below were recorded on that code:
+// whatever ANN reads through, they must keep issuing exactly these reads, or a cold query on
+// remote storage changes cost. The reads are cold and bypass the file cache: every reader opens
+// with NO_CACHE, and these local files never reach the file cache anyway.
 //
 // The sizes are chosen so that every file of these indexes is over the 128 KiB V1 keeps in its
 // header, except the small ann.faiss of IVF_ON_DISK: V1 then loads that one from memory, and
@@ -99,6 +101,7 @@ struct Format {
 constexpr Format kFormats[] = {
         {.name = "v1", .format = InvertedIndexStorageFormatPB::V1},
         {.name = "v2", .format = InvertedIndexStorageFormatPB::V2},
+        {.name = "snii", .format = InvertedIndexStorageFormatPB::SNII},
 };
 
 struct Reads {
@@ -137,6 +140,15 @@ std::ostream& operator<<(std::ostream& os, const CaseReads& reads) {
 // first 4 KiB of the file already hold, and reads its lists at search time, two borrows per list
 // through the list cache: about 16 KiB of codes in one direct read, then the ids from one refill.
 // The narrow search reads 4 lists (8 reads), the range search the other 12 (24 reads).
+//
+// SNII reads its ANN blob through the container's own reader and a buffer of the same 4 KiB, and
+// its loads include the 2 reads IndexFileReader::init makes of the container's tail pointer and
+// directory. Recorded on the CLucene-directory code (00da6453bb6), which read the blob through a
+// compound input over a second stream of the container, the same files cost: HNSW load {10,
+// 557182}, IVF load {35, 280979}, IVF_ON_DISK load {3, 4191}, narrow top-N {8, 81495}, range
+// search {24, 240248}. The native reads are as many, and where they read less, it is the stream's
+// own refill running past the end of a sub-file that is gone: the 2602-byte ann.faiss of
+// IVF_ON_DISK cost a 4096-byte read, now a read of its 2602 bytes.
 const std::map<std::string, CaseReads>& expected_reads() {
     constexpr Reads kNone {.count = 0, .bytes = 0};
     static const std::map<std::string, CaseReads> expected = {
@@ -167,6 +179,21 @@ const std::map<std::string, CaseReads>& expected_reads() {
               .wide_topn = kNone}},
             {"v2/ivf_on_disk",
              {.load = {.count = 1, .bytes = 4096},
+              .narrow_topn = {.count = 8, .bytes = 81400},
+              .wide_range = {.count = 24, .bytes = 240248},
+              .wide_topn = kNone}},
+            {"snii/hnsw",
+             {.load = {.count = 10, .bytes = 557182},
+              .narrow_topn = kNone,
+              .wide_range = kNone,
+              .wide_topn = kNone}},
+            {"snii/ivf",
+             {.load = {.count = 35, .bytes = 280911},
+              .narrow_topn = kNone,
+              .wide_range = kNone,
+              .wide_topn = kNone}},
+            {"snii/ivf_on_disk",
+             {.load = {.count = 3, .bytes = 2697},
               .narrow_topn = {.count = 8, .bytes = 81400},
               .wide_range = {.count = 24, .bytes = 240248},
               .wide_topn = kNone}},
@@ -205,8 +232,8 @@ std::string write_ann_index(const std::string& prefix, InvertedIndexStorageForma
                             const TabletIndex& meta) {
     const auto fs = io::global_local_filesystem();
     io::FileWriterPtr file_writer;
-    // V1 writes one file per index from begin_close(); only V2 writes through this writer.
-    if (format == InvertedIndexStorageFormatPB::V2) {
+    // V1 writes one file per index from begin_close(); V2 and SNII write through this writer.
+    if (format != InvertedIndexStorageFormatPB::V1) {
         EXPECT_TRUE(fs->create_file(InvertedIndexDescriptor::get_index_file_path_v2(prefix),
                                     &file_writer)
                             .ok());
@@ -315,6 +342,10 @@ protected:
         // so do the lists IVF_ON_DISK reads.
         _saved_omp_threads_limit = config::omp_threads_limit;
         config::omp_threads_limit = 1;
+        // Cold reads with the file cache bypassed: every reader then opens with NO_CACHE. These
+        // are local files, which never go through the file cache in any case.
+        _saved_enable_file_cache = config::enable_file_cache;
+        config::enable_file_cache = false;
         ASSERT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
         ASSERT_TRUE(io::global_local_filesystem()->create_directory(kTestDir).ok());
         // IVF_ON_DISK searches read through this cache in production (exec_env_init installs it).
@@ -330,6 +361,7 @@ protected:
             AnnIndexIVFListCache::destroy_global_cache();
         }
         config::omp_threads_limit = _saved_omp_threads_limit;
+        config::enable_file_cache = _saved_enable_file_cache;
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
     }
 
@@ -342,6 +374,7 @@ protected:
 
 private:
     int32_t _saved_omp_threads_limit = -1;
+    bool _saved_enable_file_cache = true;
     bool _owns_ivf_list_cache = false;
 };
 

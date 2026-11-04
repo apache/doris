@@ -158,9 +158,9 @@ public:
     io::FileReader* reader() const { return reader_; }
 
     // Exclusive upper bound of the container's data area: physical sections,
-    // metadata groups and blob files all live strictly before it. Pass this to
-    // SniiBlobDirectory::open so the shim bounds blob files against the same
-    // limit open() validated them with, not against the whole file size.
+    // metadata groups and blob files all live strictly before it. open() bounds
+    // every blob file by it, so a reader of blob files bounds them against this
+    // same limit, not against the whole file size.
     uint64_t directory_offset() const { return directory_offset_; }
 
 private:

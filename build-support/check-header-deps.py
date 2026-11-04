@@ -668,10 +668,8 @@ CLUCENE_INCLUDING_FILES = {
     "storage/index/inverted/analysis/tokenizer/icu/icu_common.h",
     "storage/index/inverted/analysis/tokenizer/pinyin/pinyin_alphabet_tokenizer.h",
     "storage/index/inverted/analysis/tokenizer/pinyin/pinyin_tokenizer.cpp",
-    # SNII (T3, T12, T13).
+    # SNII (T3, T13).
     "storage/index/inverted/snii/compaction/eligibility.cpp",
-    "storage/index/inverted/snii/snii_blob_directory.h",
-    "storage/index/inverted/snii/snii_blob_staging_directory.h",
     "storage/index/inverted/snii/snii_index_reader.cpp",
     "storage/index/inverted/snii/snii_index_writer.cpp",
 }
@@ -715,12 +713,8 @@ CLUCENE_SYMBOL_FILES = {
     "storage/index/inverted/analysis/tokenizer/ngram/ngram_tokenizer.h",
     "storage/index/inverted/analysis/tokenizer/pinyin/pinyin_alphabet_tokenizer.cpp",
     "storage/index/inverted/analysis/tokenizer/pinyin/pinyin_tokenizer.cpp",
-    # SNII (T3, T12, T13).
+    # SNII (T3, T13).
     "storage/index/inverted/snii/compaction/eligibility.cpp",
-    "storage/index/inverted/snii/snii_blob_directory.cpp",
-    "storage/index/inverted/snii/snii_blob_directory.h",
-    "storage/index/inverted/snii/snii_blob_staging_directory.cpp",
-    "storage/index/inverted/snii/snii_blob_staging_directory.h",
     "storage/index/inverted/snii/snii_index_reader.cpp",
     "storage/index/inverted/snii/snii_index_writer.cpp",
     "storage/index/inverted/snii/snii_index_writer.h",
