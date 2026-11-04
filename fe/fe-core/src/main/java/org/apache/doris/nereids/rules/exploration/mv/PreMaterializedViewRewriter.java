@@ -24,7 +24,10 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.executor.Optimizer;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProductApproximate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.L2DistanceApproximate;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 
 import org.apache.commons.lang3.EnumUtils;
@@ -170,7 +173,12 @@ public class PreMaterializedViewRewriter {
         PreRewriteStrategy preRewriteStrategy = PreRewriteStrategy.getEnum(
                 statementContext.getConnectContext().getSessionVariable().getPreMaterializedViewRewriteStrategy());
         boolean shouldPreRewrite = !needPreRewriteRuleSet.isEmpty()
-                || PreRewriteStrategy.FORCE_IN_RBO.equals(preRewriteStrategy);
+                || PreRewriteStrategy.FORCE_IN_RBO.equals(preRewriteStrategy)
+                // ANN pushdown runs in RBO, so discover an MV's index before that stage finishes.
+                || cascadesContext.getRewritePlan().anyMatch(node -> node instanceof LogicalTopN
+                        && ((LogicalTopN<?>) node).getOrderKeys().size() == 1
+                        && ((LogicalTopN<?>) node).child().getExpressions().stream().anyMatch(expression ->
+                                expression.containsType(L2DistanceApproximate.class, InnerProductApproximate.class)));
         if (!shouldPreRewrite && LOG.isDebugEnabled()) {
             LOG.debug("does not need pre rewrite, because needPreRewriteRuleSet is empty or "
                             + "preRewriteStrategy is not FORCE_IN_RBO, query id is {}",
