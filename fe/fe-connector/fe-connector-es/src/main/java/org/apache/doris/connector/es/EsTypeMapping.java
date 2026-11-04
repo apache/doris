@@ -51,9 +51,15 @@ public final class EsTypeMapping {
      */
     public static List<ConnectorColumn> parseMapping(String indexName, String mappingJson,
             boolean mappingEsId) {
-        ObjectNode mappings = EsMappingUtils.getMapping(mappingJson);
+        return parseMapping(indexName, mappingJson, mappingEsId, null);
+    }
+
+    public static List<ConnectorColumn> parseMapping(String indexName, String mappingJson,
+            boolean mappingEsId, String mappingType) {
+        // Inference and scans must select the same legacy type across alias backings.
+        ObjectNode mappings = EsMappingUtils.getMapping(mappingJson, mappingType);
         List<String> arrayFields = new ArrayList<>();
-        ObjectNode rootSchema = EsMappingUtils.getRootSchema(mappings, null, arrayFields);
+        ObjectNode rootSchema = EsMappingUtils.getRootSchema(mappings, mappingType, arrayFields);
         return buildColumns(indexName, rootSchema, mappingEsId, arrayFields);
     }
 

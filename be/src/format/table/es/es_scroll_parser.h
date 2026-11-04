@@ -22,6 +22,7 @@
 #include <map>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "core/data_type/data_type.h"
@@ -51,16 +52,23 @@ public:
                         const cctz::time_zone& time_zone,
                         std::span<const size_t> column_positions = {});
 
+    Status set_date_format_context(const std::string& context);
+
     const std::string& get_scroll_id();
     int get_size() const;
 
 private:
     Status parse_column(const rapidjson::Value& col, PrimitiveType sub_type, bool pure_doc_value,
-                        Array& array, const cctz::time_zone& time_zone);
+                        Array& array, const cctz::time_zone& time_zone,
+                        std::string_view date_format);
+    std::string_view _date_format(const rapidjson::Value& hit, const std::string& column) const;
     std::string _scroll_id;
     int _size;
     rapidjson::SizeType _line_index;
 
+    // Ordered maps keep per-row format probes logarithmic for wide mappings.
+    std::map<std::string, std::map<std::string, std::string, std::less<>>, std::less<>>
+            _date_format_context;
     rapidjson::Document _document_node;
     rapidjson::Value _inner_hits_node;
 
