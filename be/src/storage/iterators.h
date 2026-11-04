@@ -201,7 +201,8 @@ struct MergeDecision {
     // Among the rows of one key and sequence value, the older one goes first; by default the
     // newer one does.
     bool older_first = false;
-    // Hand out only the newest row of a key (merge-on-read UNIQUE_KEYS without a sequence map).
+    // Keep only the newest row of a key (merge-on-read UNIQUE_KEYS without a sequence map). The
+    // merge itself only sorts; the SameKeyIterator above it drops the older rows.
     // Never set without `compare_whole_key`: rows equal on a prefix are not versions of one key.
     bool drop_older_versions = false;
 };
@@ -241,23 +242,13 @@ public:
     // next_batch(Block*), and `same_key` gets one flag per row of `block`: 1 when the row's key
     // equals the key of the row before it (the first row of a batch is compared with the last
     // row of the previous batch), 0 otherwise. Example: batches k1 k1 k2 | k2 k3 give the flags
-    // 0 1 0 | 1 0. An iterator whose rows never repeat a key sets every flag to 0.
+    // 0 1 0 | 1 0. SameKeyIterator compares the rows of a merge; a union, whose rows never
+    // repeat a key, sets every flag to 0.
     virtual Status next_batch(Block* block, std::vector<uint8_t>* same_key) {
         return Status::InternalError("should not reach here, current class: " +
                                      demangle(typeid(*this).name()));
     }
 
-    // Hand out the next row as a reference into one of this iterator's Blocks, in the same
-    // order next_batch() would copy the rows. Return OK, or EndOfFile once every row has
-    // been handed out; a caller never calls next_row() again after EndOfFile.
-    // The reference stays valid until the next next_row() call, so a caller copies the row
-    // it needs before asking for the next one. `ref->is_same` is set when the row's key
-    // equals the key of the row handed out before it (see VHeapMergeIterator); an iterator
-    // without a notion of key leaves it false.
-    virtual Status next_row(IteratorRowRef* ref) {
-        return Status::InternalError("should not reach here, current class: " +
-                                     demangle(typeid(*this).name()));
-    }
     virtual Status unique_key_next_row(IteratorRowRef* ref) {
         return Status::InternalError("should not reach here, current class: " +
                                      demangle(typeid(*this).name()));

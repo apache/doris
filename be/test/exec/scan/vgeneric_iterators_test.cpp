@@ -36,6 +36,7 @@
 #include "io/fs/local_file_system.h"
 #include "runtime/runtime_state.h"
 #include "storage/iterator/heap_merge_iterator.h"
+#include "storage/iterator/same_key_iterator.h"
 #include "storage/iterator/statistics_iterator.h"
 #include "storage/iterator/union_iterator.h"
 #include "storage/olap_common.h"
@@ -166,6 +167,14 @@ static MergeDecision merge_decision(const ReadSchema& schema, int sequence_ordin
     decision.reverse = reverse;
     decision.drop_older_versions = drop_older_versions;
     return decision;
+}
+
+// The rows of a read the way BlockReader merges them: a VHeapMergeIterator that sorts the
+// children, under a SameKeyIterator that tells the rows of one key apart.
+static RowwiseIteratorUPtr new_read_merge(std::vector<RowwiseIteratorUPtr> inputs,
+                                          ReadSchemaSPtr schema, const MergeDecision& decision) {
+    return new_same_key_iterator(
+            new_heap_merge_iterator(std::move(inputs), std::move(schema), decision), decision);
 }
 
 static void create_block(ReadSchema& schema, Block& block) {
@@ -584,8 +593,8 @@ TEST(VGenericIteratorsTest, MergeAgg) {
     inputs.push_back(new_auto_increment_iterator(schema, 200));
     inputs.push_back(new_auto_increment_iterator(schema, 300));
 
-    auto iter = new_heap_merge_iterator(std::move(inputs), output_schema,
-                                        merge_decision(*output_schema, -1, false, false, false));
+    auto iter = new_read_merge(std::move(inputs), output_schema,
+                               merge_decision(*output_schema, -1, false, false, false));
     OlapReaderStatistics stats;
     StorageReadOptions opts(stats);
     auto st = iter->init(opts);
@@ -634,9 +643,9 @@ TEST(VGenericIteratorsTest, MergeUnique) {
     inputs.push_back(new_auto_increment_iterator(schema, 200));
     inputs.push_back(new_auto_increment_iterator(schema, 300));
 
-    auto iter = new_heap_merge_iterator(
-            std::move(inputs), output_schema,
-            merge_decision(*output_schema, -1, false, false, /*skip_same=*/true));
+    auto iter =
+            new_read_merge(std::move(inputs), output_schema,
+                           merge_decision(*output_schema, -1, false, false, /*skip_same=*/true));
     OlapReaderStatistics stats;
     StorageReadOptions opts(stats);
     auto st = iter->init(opts);
@@ -763,7 +772,7 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
                 schema, num_rows, rows_begin, seq_column_id, seq_id_in_every_file));
     }
 
-    auto iter = new_heap_merge_iterator(
+    auto iter = new_read_merge(
             std::move(inputs), output_schema,
             merge_decision(*output_schema, seq_column_id, false, false, /*skip_same=*/true));
     OlapReaderStatistics stats;
@@ -813,7 +822,7 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumnSmallSeqFirst) {
     }
 
     // small_seq_first = true => smaller seq value sorts first / wins on tie.
-    auto iter = new_heap_merge_iterator(
+    auto iter = new_read_merge(
             std::move(inputs), output_schema,
             merge_decision(*output_schema, seq_column_id, /*small_sequence_first=*/true,
                            /*is_reverse=*/false, /*skip_same=*/true));
@@ -867,7 +876,7 @@ TEST(VGenericIteratorsTest, MergeKeepsAllChangelogEventsOrderedByTso) {
 
     // is_unique=false keeps every same-key event; small_seq_first=true orders by
     // ascending TSO. This mirrors beta_rowset_reader's changelog merge setup.
-    auto iter = new_heap_merge_iterator(
+    auto iter = new_read_merge(
             std::move(inputs), output_schema,
             merge_decision(*output_schema, seq_column_id, /*small_sequence_first=*/true,
                            /*is_reverse=*/false, /*skip_same=*/false));
@@ -965,8 +974,8 @@ TEST(VGenericIteratorsTest, MergeRejectsProjectionMissingKeyPrefix) {
     inputs.push_back(std::make_unique<ProjectedColumnsUtIterator>(projected, 10));
     inputs.push_back(std::make_unique<ProjectedColumnsUtIterator>(projected, 10));
 
-    auto iter = new_heap_merge_iterator(std::move(inputs), output_schema,
-                                        merge_decision(*output_schema, -1, false, false, false));
+    auto iter = new_read_merge(std::move(inputs), output_schema,
+                               merge_decision(*output_schema, -1, false, false, false));
     OlapReaderStatistics stats;
     StorageReadOptions opts(stats);
     auto st = iter->init(opts);
@@ -988,8 +997,8 @@ TEST(VGenericIteratorsTest, MergeRejectsProjectionWithoutLeadingKey) {
     inputs.push_back(std::make_unique<ProjectedColumnsUtIterator>(projected, 10));
     inputs.push_back(std::make_unique<ProjectedColumnsUtIterator>(projected, 10));
 
-    auto iter = new_heap_merge_iterator(std::move(inputs), output_schema,
-                                        merge_decision(*output_schema, -1, false, false, false));
+    auto iter = new_read_merge(std::move(inputs), output_schema,
+                               merge_decision(*output_schema, -1, false, false, false));
     OlapReaderStatistics stats;
     StorageReadOptions opts(stats);
     auto st = iter->init(opts);
@@ -998,72 +1007,48 @@ TEST(VGenericIteratorsTest, MergeRejectsProjectionWithoutLeadingKey) {
             << st.to_string();
 }
 
-// next_row() hands the merged rows out one at a time, flagging every row whose key repeats
-// the key of the row before it. Three children with the keys 0..99, 0..199 and 0..299: key 0
-// comes three times (is_same false, true, true), key 150 twice, key 250 once.
-TEST(VGenericIteratorsTest, MergeNextRowFlagsRepeatedKeys) {
+// With drop_older_versions the rows that repeat the key before them are dropped above the
+// merge: with 7-row Blocks the three copies of a key straddle Block boundaries, yet one row per
+// key comes out, and merged_rows() counts the dropped ones.
+TEST(VGenericIteratorsTest, MergeDropOlderVersionsKeepsOneRowPerKey) {
     auto schema = create_schema();
     auto output_schema = std::make_shared<ReadSchema>(schema);
     std::vector<RowwiseIteratorUPtr> inputs;
     inputs.push_back(new_auto_increment_iterator(schema, 100));
     inputs.push_back(new_auto_increment_iterator(schema, 200));
     inputs.push_back(new_auto_increment_iterator(schema, 300));
-    auto iter = new_heap_merge_iterator(std::move(inputs), output_schema,
-                                        merge_decision(*output_schema, -1, false, false, false));
+    auto iter = new_read_merge(std::move(inputs), output_schema,
+                               merge_decision(*output_schema, -1, false, false, true));
     OlapReaderStatistics stats;
     StorageReadOptions opts(stats);
+    opts.block_row_max = 7;
     ASSERT_TRUE(iter->init(opts).ok());
 
-    std::vector<std::pair<int64_t, bool>> rows;
-    IteratorRowRef ref;
+    std::vector<int64_t> keys;
+    Block block;
+    create_block(schema, block);
     Status st;
-    while ((st = iter->next_row(&ref)).ok()) {
-        rows.emplace_back(key_at(*ref.block, ref.row_pos), ref.is_same);
-    }
-    EXPECT_TRUE(st.is<END_OF_FILE>());
-    ASSERT_EQ(rows.size(), 600);
-    size_t i = 0;
-    for (int64_t key = 0; key < 300; ++key) {
-        const int copies = (key < 100 ? 1 : 0) + (key < 200 ? 1 : 0) + 1;
-        for (int copy = 0; copy < copies; ++copy, ++i) {
-            EXPECT_EQ(rows[i].first, key) << "row " << i;
-            EXPECT_EQ(rows[i].second, copy > 0) << "row " << i;
+    while (true) {
+        block.clear_column_data();
+        st = iter->next_batch(&block);
+        if (!st.ok()) {
+            break;
+        }
+        EXPECT_GT(block.rows(), 0);
+        for (size_t i = 0; i < block.rows(); ++i) {
+            keys.push_back(key_at(block, i));
         }
     }
-    EXPECT_EQ(iter->merged_rows(), 0);
-}
-
-// With skip_same the repeated keys are dropped before they are handed out: one row per key,
-// none flagged, and merged_rows() counts the dropped ones.
-TEST(VGenericIteratorsTest, MergeNextRowSkipSameKeepsOneRowPerKey) {
-    auto schema = create_schema();
-    auto output_schema = std::make_shared<ReadSchema>(schema);
-    std::vector<RowwiseIteratorUPtr> inputs;
-    inputs.push_back(new_auto_increment_iterator(schema, 100));
-    inputs.push_back(new_auto_increment_iterator(schema, 200));
-    inputs.push_back(new_auto_increment_iterator(schema, 300));
-    auto iter = new_heap_merge_iterator(
-            std::move(inputs), output_schema,
-            merge_decision(*output_schema, -1, false, false, /*skip_same=*/true));
-    OlapReaderStatistics stats;
-    StorageReadOptions opts(stats);
-    ASSERT_TRUE(iter->init(opts).ok());
-
-    int64_t expected_key = 0;
-    IteratorRowRef ref;
-    Status st;
-    while ((st = iter->next_row(&ref)).ok()) {
-        EXPECT_EQ(key_at(*ref.block, ref.row_pos), expected_key);
-        EXPECT_FALSE(ref.is_same);
-        expected_key++;
-    }
     EXPECT_TRUE(st.is<END_OF_FILE>());
-    EXPECT_EQ(expected_key, 300);
+    ASSERT_EQ(keys.size(), 300);
+    for (int64_t key = 0; key < 300; ++key) {
+        EXPECT_EQ(keys[key], key);
+    }
     EXPECT_EQ(iter->merged_rows(), 300);
 }
 
-// The merge copies runs of rows: with the Block limited to 7 rows, every batch holds exactly
-// 7 rows until the last one, and the rows come out in the same order as next_row() yields them.
+// With the Block limited to 7 rows, every batch of the merge holds exactly 7 rows until the
+// last one, and the rows come out in key order.
 TEST(VGenericIteratorsTest, MergeNextBatchHonorsTheRowLimit) {
     auto schema = create_schema();
     auto output_schema = std::make_shared<ReadSchema>(schema);
@@ -1071,8 +1056,8 @@ TEST(VGenericIteratorsTest, MergeNextBatchHonorsTheRowLimit) {
     inputs.push_back(new_auto_increment_iterator(schema, 100));
     inputs.push_back(new_auto_increment_iterator(schema, 200));
     inputs.push_back(new_auto_increment_iterator(schema, 300));
-    auto iter = new_heap_merge_iterator(std::move(inputs), output_schema,
-                                        merge_decision(*output_schema, -1, false, false, false));
+    auto iter = new_read_merge(std::move(inputs), output_schema,
+                               merge_decision(*output_schema, -1, false, false, false));
     OlapReaderStatistics stats;
     StorageReadOptions opts(stats);
     opts.block_row_max = 7;
@@ -1146,8 +1131,8 @@ TEST(VGenericIteratorsTest, MergeNextBatchFlagsRepeatedKeysAcrossBlocks) {
     inputs.push_back(new_auto_increment_iterator(schema, 100));
     inputs.push_back(new_auto_increment_iterator(schema, 200));
     inputs.push_back(new_auto_increment_iterator(schema, 300));
-    auto iter = new_heap_merge_iterator(std::move(inputs), output_schema,
-                                        merge_decision(*output_schema, -1, false, false, false));
+    auto iter = new_read_merge(std::move(inputs), output_schema,
+                               merge_decision(*output_schema, -1, false, false, false));
     OlapReaderStatistics stats;
     StorageReadOptions opts(stats);
     opts.block_row_max = 7;
@@ -1167,81 +1152,87 @@ TEST(VGenericIteratorsTest, MergeNextBatchFlagsRepeatedKeysAcrossBlocks) {
     }
 }
 
-// Read every row of `iter` through next_batch(Block*, runs) and expand the runs into `taken`:
-// per row taken, its child and whether its key repeats the key of the row taken before it.
-// `copied_keys` gets the keys of the rows copied into the Blocks, which are all the rows taken
-// but the dropped ones. Returns the status that ended the read, EndOfFile when every row was read.
-static Status read_taken_rows(VHeapMergeIterator* iter, ReadSchema& schema, bool drop,
-                              std::vector<std::pair<uint32_t, bool>>* taken,
-                              std::vector<int64_t>* copied_keys) {
-    Block block;
-    create_block(schema, block);
-    std::vector<VHeapMergeIterator::MergedRun> runs;
-    while (true) {
-        block.clear_column_data();
-        Status st = iter->next_batch(&block, &runs);
-        if (!st.ok() && !st.is<END_OF_FILE>()) {
-            return st;
-        }
-        size_t copied = 0;
-        for (const auto& run : runs) {
-            for (uint32_t row = 0; row < run.rows; ++row) {
-                const bool same = row == 0 && run.first_same;
-                taken->emplace_back(run.child, same);
-                copied += drop && same ? 0 : 1;
-            }
-        }
-        if (copied != block.rows()) {
-            return Status::InternalError("{} rows copied, the runs say {}", block.rows(), copied);
-        }
-        for (size_t i = 0; i < block.rows(); ++i) {
-            copied_keys->push_back(key_at(block, i));
-        }
-        if (!st.ok()) {
-            return st;
-        }
-    }
-}
-
-// next_batch(Block*, runs) reports the child of every row taken, a row dropped by
-// drop_older_versions included, so that the runs replay the merge row by row. Children 0, 1 and
-// 2 hold keys [0, 100), [0, 200) and [0, 300); a later child goes first, so key 0 is taken from
-// children 2, 1 and 0, and with drop_older_versions only the row of child 2 is copied.
+// next_batch_with_children() reports the child of every row, so that the value groups of
+// a vertical compaction can replay the merge row by row. Children 0, 1 and 2 hold keys
+// [0, 100), [0, 200) and [0, 300); a later child goes first, so key 0 comes from children 2, 1
+// and 0, and the 7-row Blocks cut the copies of a key apart.
 TEST(VGenericIteratorsTest, MergeNextBatchReportsTheChildOfEveryRow) {
-    std::vector<std::pair<uint32_t, bool>> expected_taken;
+    std::vector<std::pair<int64_t, uint32_t>> expected;
     for (int64_t key = 0; key < 300; ++key) {
-        expected_taken.emplace_back(2, false);
+        expected.emplace_back(key, 2);
         if (key < 200) {
-            expected_taken.emplace_back(1, true);
+            expected.emplace_back(key, 1);
         }
         if (key < 100) {
-            expected_taken.emplace_back(0, true);
+            expected.emplace_back(key, 0);
         }
     }
-    for (const bool drop : {false, true}) {
-        SCOPED_TRACE(drop ? "drop_older_versions" : "every row");
-        auto schema = create_schema();
-        auto output_schema = std::make_shared<ReadSchema>(schema);
-        std::vector<RowwiseIteratorUPtr> inputs;
-        inputs.push_back(new_auto_increment_iterator(schema, 100));
-        inputs.push_back(new_auto_increment_iterator(schema, 200));
-        inputs.push_back(new_auto_increment_iterator(schema, 300));
-        VHeapMergeIterator iter(std::move(inputs), output_schema,
-                                merge_decision(*output_schema, -1, false, false, drop));
-        OlapReaderStatistics stats;
-        StorageReadOptions opts(stats);
-        opts.block_row_max = 7;
-        ASSERT_TRUE(iter.init(opts).ok());
+    auto schema = create_schema();
+    auto output_schema = std::make_shared<ReadSchema>(schema);
+    std::vector<RowwiseIteratorUPtr> inputs;
+    inputs.push_back(new_auto_increment_iterator(schema, 100));
+    inputs.push_back(new_auto_increment_iterator(schema, 200));
+    inputs.push_back(new_auto_increment_iterator(schema, 300));
+    VHeapMergeIterator iter(std::move(inputs), output_schema,
+                            merge_decision(*output_schema, -1, false, false, false));
+    OlapReaderStatistics stats;
+    StorageReadOptions opts(stats);
+    opts.block_row_max = 7;
+    ASSERT_TRUE(iter.init(opts).ok());
 
-        std::vector<std::pair<uint32_t, bool>> taken;
-        std::vector<int64_t> copied_keys;
-        Status st = read_taken_rows(&iter, schema, drop, &taken, &copied_keys);
-        EXPECT_TRUE(st.is<END_OF_FILE>()) << st;
-        EXPECT_EQ(taken, expected_taken);
-        EXPECT_EQ(copied_keys.size(), drop ? 300 : 600);
-        EXPECT_TRUE(std::ranges::is_sorted(copied_keys));
-        EXPECT_EQ(iter.merged_rows(), drop ? 300 : 0);
+    std::vector<std::pair<int64_t, uint32_t>> rows;
+    Block block;
+    create_block(schema, block);
+    std::vector<uint32_t> row_children;
+    Status st;
+    while (true) {
+        block.clear_column_data();
+        st = iter.next_batch_with_children(&block, &row_children);
+        if (!st.ok()) {
+            break;
+        }
+        ASSERT_EQ(row_children.size(), block.rows());
+        for (size_t i = 0; i < block.rows(); ++i) {
+            rows.emplace_back(key_at(block, i), row_children[i]);
+        }
     }
+    EXPECT_TRUE(st.is<END_OF_FILE>()) << st;
+    EXPECT_EQ(rows, expected);
+}
+
+// The same-key flags come from the rows, not from where they came from: one child that holds
+// the same key in every row has every row but the first flagged.
+TEST(VGenericIteratorsTest, MergeFlagsRepeatedKeysWithinOneChild) {
+    auto schema = create_schema();
+    auto output_schema = std::make_shared<ReadSchema>(schema);
+    std::vector<RowwiseIteratorUPtr> inputs;
+    // Every row has key columns (1, 1); the third column counts the rows.
+    inputs.push_back(std::make_unique<SeqColumnUtIterator>(schema, 10, 0, 2, 0));
+    auto iter = new_read_merge(std::move(inputs), output_schema,
+                               merge_decision(*output_schema, -1, false, false, false));
+    OlapReaderStatistics stats;
+    StorageReadOptions opts(stats);
+    opts.block_row_max = 3;
+    ASSERT_TRUE(iter->init(opts).ok());
+
+    std::vector<uint8_t> flags;
+    Block block;
+    create_block(schema, block);
+    std::vector<uint8_t> same_key;
+    Status st;
+    while (true) {
+        block.clear_column_data();
+        st = iter->next_batch(&block, &same_key);
+        if (!st.ok()) {
+            break;
+        }
+        ASSERT_EQ(same_key.size(), block.rows());
+        flags.insert(flags.end(), same_key.begin(), same_key.end());
+    }
+    EXPECT_TRUE(st.is<END_OF_FILE>()) << st;
+    std::vector<uint8_t> expected(10, 1);
+    expected[0] = 0;
+    EXPECT_EQ(flags, expected);
 }
 
 // A union does not compare keys: next_batch(Block*, same_key) flags no row.
@@ -1261,31 +1252,6 @@ TEST(VGenericIteratorsTest, UnionNextBatchFlagsNoRow) {
     EXPECT_TRUE(st.is<END_OF_FILE>()) << st;
     EXPECT_EQ(rows.size(), 300);
     EXPECT_TRUE(std::ranges::none_of(rows, [](const FlaggedRow& row) { return row.same; }));
-}
-
-// A union hands its rows out through next_row() too, child after child, never flagged.
-TEST(VGenericIteratorsTest, UnionNextRowWalksEveryRow) {
-    auto schema = create_schema();
-    auto output_schema = std::make_shared<ReadSchema>(schema);
-    std::vector<RowwiseIteratorUPtr> inputs;
-    inputs.push_back(new_auto_increment_iterator(schema, 100));
-    inputs.push_back(new_auto_increment_iterator(schema, 200));
-    auto iter = new_union_iterator(std::move(inputs), output_schema);
-    OlapReaderStatistics stats;
-    StorageReadOptions opts(stats);
-    ASSERT_TRUE(iter->init(opts).ok());
-
-    size_t rows = 0;
-    IteratorRowRef ref;
-    Status st;
-    while ((st = iter->next_row(&ref)).ok()) {
-        const int64_t expected = rows < 100 ? rows : rows - 100;
-        EXPECT_EQ(key_at(*ref.block, ref.row_pos), expected);
-        EXPECT_FALSE(ref.is_same);
-        rows++;
-    }
-    EXPECT_TRUE(st.is<END_OF_FILE>());
-    EXPECT_EQ(rows, 300);
 }
 
 } // namespace doris

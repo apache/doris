@@ -17,45 +17,19 @@
 
 #include "storage/iterator/unique_key_block_iterator.h"
 
-#include "common/exception.h"
 #include "core/block/block.h"
 #include "storage/iterators.h"
 
 namespace doris {
-
-UniqueKeyBlockIterator::UniqueKeyBlockIterator(RowwiseIterator* rows, OutputBlockLimits limits)
-        : _cursor(rows), _limits(limits) {}
+using namespace ErrorCode;
 
 Status UniqueKeyBlockIterator::next_block(Block* block, bool* eof) {
-    if (UNLIKELY(_cursor.eof())) {
-        *eof = true;
-        return Status::OK();
+    auto res = _rows->next_batch(block);
+    if (UNLIKELY(!res.ok() && !res.is<END_OF_FILE>())) {
+        return res;
     }
-    *eof = false;
-
-    size_t rows = 0;
-    {
-        auto target_columns_guard = block->mutate_columns_scoped();
-        auto& target_columns = target_columns_guard.mutable_columns();
-        do {
-            const IteratorRowRef& row = _cursor.row();
-            RETURN_IF_CATCH_EXCEPTION({
-                for (size_t ordinal = 0; ordinal < target_columns.size(); ++ordinal) {
-                    target_columns[ordinal]->insert_from(
-                            *row.block->get_by_position(ordinal).column, row.row_pos);
-                }
-            });
-            rows++;
-
-            // The copied row is consumed: advance before any stop so the next call starts
-            // with an unread row.
-            RETURN_IF_ERROR(_cursor.advance());
-            if (_cursor.eof()) {
-                break;
-            }
-        } while (rows < _limits.max_rows && !_limits.reached_byte_budget_at(rows, target_columns));
-    }
-
+    *eof = res.is<END_OF_FILE>();
+    DCHECK(!*eof || block->rows() == 0);
     return Status::OK();
 }
 

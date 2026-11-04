@@ -291,9 +291,9 @@ std::shared_ptr<Block> make_unsupported_compare_source_block(
     return block;
 }
 
-// Fake rows of the read: hands out the rows of `source` one at a time through next_row().
-// `is_same` is derived from primary-key equality with the previous emitted row, matching the
-// merge iterator's contract that consecutive same-key rows are flagged.
+// Fake rows of the read: hands out the rows of `source` one per Block through
+// next_batch(Block*, same_key), so that every row starts a new Block. A row's same-key flag is
+// primary-key equality with the previous row, the way SameKeyIterator flags the merged rows.
 class FakeRowsIterator : public RowwiseIterator {
 public:
     FakeRowsIterator(std::shared_ptr<Block> source, ReadSchemaSPtr read_schema)
@@ -301,14 +301,21 @@ public:
 
     Status init(const StorageReadOptions& /*opts*/) override { return Status::OK(); }
 
-    Status next_row(IteratorRowRef* ref) override {
+    Status next_batch(Block* block, std::vector<uint8_t>* same_key) override {
         const int next_pos = _pos + 1;
         if (next_pos >= _source->rows()) {
             return Status::Error<END_OF_FILE>("");
         }
         const bool same = _pos >= 0 && read_i64(KEY_IDX, _pos) == read_i64(KEY_IDX, next_pos);
         _pos = next_pos;
-        *ref = IteratorRowRef {.block = _source, .row_pos = _pos, .is_same = same};
+        Block row = _source->clone_empty();
+        MutableColumns columns = std::move(row).mutate_columns();
+        for (size_t i = 0; i < columns.size(); ++i) {
+            columns[i]->insert_from(*_source->get_by_position(i).column, _pos);
+        }
+        row.set_columns(std::move(columns));
+        block->swap(row);
+        same_key->assign(1, same);
         return Status::OK();
     }
 

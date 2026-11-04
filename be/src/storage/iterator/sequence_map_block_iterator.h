@@ -32,9 +32,9 @@ class RowwiseIterator;
 // Merge-on-read UNIQUE_KEYS tables with a sequence map, i.e. several sequence columns that
 // each govern a group of value columns: queries, compactions and the checksum task.
 //
-// The rows of the read arrive in key order, the newest rowset version of a key first,
-// and flags every older version of the same key with is_same (it must not drop them, since
-// an older rowset may still hold the winning value of some sequence group). The newest row
+// The rows of the read arrive in key order, the newest rowset version of a key first, every
+// older version of the same key flagged with is_same: none is dropped, since an older rowset may
+// still hold the winning value of some sequence group. The newest row
 // is the output row of its key; for each older row and each sequence group, the group's
 // values and sequence replace those of the output row when the older row's sequence is
 // larger. Example with groups {s1 -> v1}, {s2 -> v2}:

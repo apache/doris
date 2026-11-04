@@ -20,6 +20,8 @@
 #include <glog/logging.h>
 
 #include <cstddef>
+#include <cstdint>
+#include <vector>
 
 #include "common/status.h"
 #include "core/block/block.h"
@@ -63,8 +65,9 @@ public:
 // stop in the middle of a key group at an output Block boundary and continue with exactly
 // that row on the next call. Example with batch size 2 over the rows k1, k1, k2, k2: the
 // first next_block() copies k1 and k2 and stops with the cursor on the second k2; the second
-// call starts from it. The row is a reference into the iterator's Blocks and stays valid
-// until the next advance(), see RowwiseIterator::next_row().
+// call starts from it. The rows are read a Block at a time through
+// RowwiseIterator::next_batch(Block*, same_key), and `is_same` of a row is its same-key flag;
+// the row is a reference into the cursor's Block and stays valid until the next advance().
 class MergedRowCursor {
 public:
     explicit MergedRowCursor(RowwiseIterator* rows) : _rows(rows) {}
@@ -84,7 +87,11 @@ public:
     Status advance();
 
 private:
+    // Read the next Block and position the cursor on its first row.
+    Status _read_block();
+
     RowwiseIterator* _rows;
+    std::vector<uint8_t> _same_key;
     IteratorRowRef _row {{}, -1, false};
     bool _eof = false;
 };

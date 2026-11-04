@@ -95,6 +95,7 @@ private:
     void _append_source(std::vector<RowwiseIteratorUPtr> segment_iters,
                         std::vector<RowwiseIteratorUPtr>* sources) const;
     MergeDecision _key_group_merge(const ReaderParams& read_params) const;
+    bool _key_group_keeps_first_row_of_key(const ReaderParams& read_params) const;
 
     // Helper functions for sparse column optimization
     void _prepare_sparse_columns(MutableColumns& columns, size_t actual_rows,

@@ -54,6 +54,7 @@
 #include "storage/changelog.h"
 #include "storage/iterator/changelog_block_reader_utils.h"
 #include "storage/iterator/heap_merge_iterator.h"
+#include "storage/iterator/same_key_iterator.h"
 #include "storage/iterators.h"
 #include "storage/schema.h"
 #include "storage/tablet/tablet_schema.h"
@@ -195,7 +196,9 @@ void configure_two_rowset_merge(BlockReader& reader, std::vector<Row> rowset0_ro
     decision.sequence_ordinal = TSO_IDX;
     decision.small_sequence_first = true;
     decision.older_first = true;
-    reader._rows_iter = new_heap_merge_iterator(std::move(children), reader._read_schema, decision);
+    // As BlockReader merges: the merge sorts, a SameKeyIterator flags the rows of one key.
+    reader._rows_iter = new_same_key_iterator(
+            new_heap_merge_iterator(std::move(children), reader._read_schema, decision), decision);
     reader._rows_options.block_row_max = batch_size;
     ASSERT_TRUE(reader._rows_iter->init(reader._rows_options).ok());
 }

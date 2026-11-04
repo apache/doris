@@ -28,22 +28,21 @@ class RowwiseIterator;
 // Merge-on-read UNIQUE_KEYS tables without a sequence map: queries, compactions and the
 // checksum task.
 //
-// The rows of the read arrive in key order, the newest version of a key first, and it
-// drops the older versions of the same key itself (skip_same). So every row the cursor
-// yields is the final row of its key and is copied as is; the cursor only has to stop at
-// the Block limits. The reads that may apply the delete sign drop the deleted rows in
-// BlockReader::next_block_with_aggregation, after the merge.
+// The rows of the read arrive in key order with only the newest version of every key: the
+// SameKeyIterator above the merge drops the older ones (drop_older_versions), and rowsets read
+// one after another hold every key once. So the rows are copied as they come. The reads that may
+// apply the delete sign drop the deleted rows in BlockReader::next_block_with_aggregation, after
+// the merge.
 class UniqueKeyBlockIterator final : public TabletBlockIterator {
 public:
-    UniqueKeyBlockIterator(RowwiseIterator* rows, OutputBlockLimits limits);
+    explicit UniqueKeyBlockIterator(RowwiseIterator* rows) : _rows(rows) {}
 
-    Status init() override { return _cursor.init(); }
+    Status init() override { return Status::OK(); }
 
     Status next_block(Block* block, bool* eof) override;
 
 private:
-    MergedRowCursor _cursor;
-    const OutputBlockLimits _limits;
+    RowwiseIterator* _rows;
 };
 
 } // namespace doris

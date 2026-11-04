@@ -17,9 +17,11 @@
 
 #include "storage/iterator/vertical_key_merge_iterator.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <utility>
 
+#include "common/exception.h"
 #include "common/status.h"
 
 namespace doris {
@@ -28,9 +30,11 @@ using namespace ErrorCode;
 VerticalKeyMergeIterator::VerticalKeyMergeIterator(std::vector<RowwiseIteratorUPtr> sources,
                                                    ReadSchemaSPtr read_schema,
                                                    MergeDecision decision,
+                                                   bool keep_first_row_of_key,
                                                    RowSourcesBuffer* row_sources_buf)
         : _merge(std::move(sources), std::move(read_schema), decision),
-          _drop_older_versions(decision.drop_older_versions),
+          _keep_first_row_of_key(keep_first_row_of_key),
+          _same_key_flags(std::move(decision.compare_ordinals)),
           _row_sources_buf(row_sources_buf) {}
 
 Status VerticalKeyMergeIterator::init(const StorageReadOptions& opts,
@@ -40,33 +44,55 @@ Status VerticalKeyMergeIterator::init(const StorageReadOptions& opts,
 }
 
 Status VerticalKeyMergeIterator::next_batch(Block* block) {
-    Status st = _merge.next_batch(block, &_runs);
-    if (!st.ok() && !st.is<END_OF_FILE>()) {
-        return st;
-    }
-    // The runs of an EndOfFile hold the rows dropped last, which the value groups skip too. Only
-    // a dropped row carries the agg flag: the value groups skip (UNIQUE_KEYS) or fold (AGG_KEYS)
-    // exactly the rows the key group dropped.
-    _row_sources.clear();
-    for (const auto& run : _runs) {
-        const auto source = static_cast<uint16_t>(run.child);
-        _row_sources.emplace_back(source, run.first_same && _drop_older_versions);
-        _row_sources.insert(_row_sources.end(), run.rows - 1, RowSource(source, false));
-    }
-    RETURN_IF_ERROR(_row_sources_buf->append(_row_sources));
-    if (_sample_info != nullptr && block->rows() > 0) {
+    const size_t first_row = block->rows();
+    do {
+        RETURN_IF_ERROR(_merge.next_batch_with_children(block, &_row_children));
+        RETURN_IF_ERROR(_record_rows(block, first_row));
+        // A batch whose rows all repeated the key before them reads on: an OK batch adds at
+        // least one row.
+    } while (block->rows() == first_row);
+    if (_sample_info != nullptr) {
         _sample_info->bytes += block->allocated_bytes();
         _sample_info->rows += block->rows();
         _sample_info = nullptr;
     }
-    return st;
+    return Status::OK();
+}
+
+Status VerticalKeyMergeIterator::_record_rows(Block* block, size_t first_row) {
+    DCHECK_EQ(_row_children.size(), block->rows() - first_row);
+    _row_sources.clear();
+    if (!_keep_first_row_of_key) {
+        for (const uint32_t child : _row_children) {
+            _row_sources.emplace_back(static_cast<uint16_t>(child), false);
+        }
+        return _row_sources_buf->append(_row_sources);
+    }
+
+    _same_key_flags.compute(*block, first_row, &_same_key);
+    for (size_t i = 0; i < _row_children.size(); ++i) {
+        _row_sources.emplace_back(static_cast<uint16_t>(_row_children[i]), _same_key[i] != 0);
+    }
+    RETURN_IF_ERROR(_row_sources_buf->append(_row_sources));
+    const auto dropped = static_cast<size_t>(std::ranges::count(_same_key, 1));
+    if (dropped > 0) {
+        _merged_rows += dropped;
+        _filter.resize_fill(block->rows(), 1);
+        for (size_t i = 0; i < _same_key.size(); ++i) {
+            _filter[first_row + i] = !_same_key[i];
+        }
+        RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(block, _filter));
+    }
+    return Status::OK();
 }
 
 std::shared_ptr<RowwiseIterator> new_vertical_key_merge_iterator(
         std::vector<RowwiseIteratorUPtr> sources, ReadSchemaSPtr read_schema,
-        const MergeDecision& decision, RowSourcesBuffer* row_sources_buf) {
+        const MergeDecision& decision, bool keep_first_row_of_key,
+        RowSourcesBuffer* row_sources_buf) {
     return std::make_shared<VerticalKeyMergeIterator>(std::move(sources), std::move(read_schema),
-                                                      decision, row_sources_buf);
+                                                      decision, keep_first_row_of_key,
+                                                      row_sources_buf);
 }
 
 } // namespace doris

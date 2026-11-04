@@ -19,28 +19,47 @@
 
 #include <glog/logging.h>
 
+#include <memory>
+#include <utility>
+
+#include "core/block/block.h"
 #include "storage/iterators.h"
+#include "storage/schema.h"
 
 namespace doris {
 using namespace ErrorCode;
 
 Status MergedRowCursor::init() {
     DCHECK(!_eof);
-    return advance();
+    _row.block = std::make_shared<Block>(_rows->schema().create_read_block());
+    return _read_block();
 }
 
 Status MergedRowCursor::advance() {
     DCHECK(!_eof);
-    auto st = _rows->next_row(&_row);
+    ++_row.row_pos;
+    if (std::cmp_less(_row.row_pos, _row.block->rows())) {
+        _row.is_same = _same_key[_row.row_pos];
+        return Status::OK();
+    }
+    return _read_block();
+}
+
+Status MergedRowCursor::_read_block() {
+    _row.block->clear_column_data();
+    auto st = _rows->next_batch(_row.block.get(), &_same_key);
     if (UNLIKELY(st.is<END_OF_FILE>())) {
         _eof = true;
         _row.reset();
         return Status::OK();
     }
     if (UNLIKELY(!st.ok())) {
-        LOG(WARNING) << "next_row failed: " << st;
+        LOG(WARNING) << "next_batch failed: " << st;
         return st;
     }
+    DCHECK_EQ(_same_key.size(), _row.block->rows());
+    _row.row_pos = 0;
+    _row.is_same = _same_key[0];
     return Status::OK();
 }
 

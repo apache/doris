@@ -22,7 +22,6 @@
 #include <optional>
 #include <utility>
 
-#include "common/cast_set.h"
 #include "common/status.h"
 #include "core/block/block.h"
 #include "storage/iterators.h"
@@ -48,11 +47,9 @@ public:
 
     Status next_batch(Block* block) override;
 
-    // A union does not compare keys, the way next_row() never flags a row: every flag is 0.
-    // The AGG_KEYS fold reads a union only over rowsets whose keys do not overlap.
+    // A union does not compare keys: every flag is 0. The folds read a union only over rowsets
+    // whose keys do not overlap, so no key repeats.
     Status next_batch(Block* block, std::vector<uint8_t>* same_key) override;
-
-    Status next_row(IteratorRowRef* ref) override;
 
     const ReadSchema& schema() const override { return *_read_schema; }
 
@@ -67,9 +64,6 @@ private:
     RowwiseIteratorUPtr _cur_iter = nullptr;
     std::optional<StorageReadOptions> _read_options;
     std::vector<RowwiseIteratorUPtr> _origin_iters;
-    // next_row(): the Block the handed-out rows reference and the row handed out last.
-    std::shared_ptr<Block> _row_block;
-    size_t _row_pos = 0;
 };
 
 Status VUnionIterator::init(const StorageReadOptions& opts) {
@@ -110,22 +104,6 @@ Status VUnionIterator::next_batch(Block* block, std::vector<uint8_t>* same_key) 
     same_key->clear();
     RETURN_IF_ERROR(next_batch(block));
     same_key->resize(block->rows(), 0);
-    return Status::OK();
-}
-
-Status VUnionIterator::next_row(IteratorRowRef* ref) {
-    if (_row_block == nullptr) {
-        _row_block = std::make_shared<Block>(_read_schema->create_read_block());
-    }
-    if (_row_pos + 1 < _row_block->rows()) {
-        ++_row_pos;
-    } else {
-        _row_block->clear_column_data();
-        RETURN_IF_ERROR(next_batch(_row_block.get()));
-        _row_pos = 0;
-    }
-    *ref = IteratorRowRef {
-            .block = _row_block, .row_pos = cast_set<int>(_row_pos), .is_same = false};
     return Status::OK();
 }
 

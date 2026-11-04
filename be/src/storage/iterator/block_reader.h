@@ -37,13 +37,13 @@ class RuntimeProfile;
 //
 // It reads the segments of every rowset of the read through one RowwiseIterator, the rows of
 // the read: a VHeapMergeIterator over all segments when the rowsets overlap on keys and the read
-// needs key order, a VUnionIterator otherwise. One TabletBlockIterator, chosen by table model
-// and read mode, turns those rows into the output Blocks. The reader itself keeps no
-// per-read-mode state.
+// needs key order, with a SameKeyIterator above it that tells the rows of one key apart, and a
+// VUnionIterator otherwise. One TabletBlockIterator, chosen by table model and read mode, turns
+// those rows into the output Blocks. The reader itself keeps no per-read-mode state.
 //
 //   BlockReader
 //    └ TabletBlockIterator (Direct / UniqueKey / SequenceMap / AggKey / Changelog / TopN)
-//       └ _rows_iter: VHeapMergeIterator or VUnionIterator over
+//       └ _rows_iter: SameKeyIterator over a VHeapMergeIterator, or a VUnionIterator, over
 //            every segment of a rowset whose segments overlap on keys, and
 //            a VUnionIterator per rowset whose segments do not,
 //          in (rowset version, segment) order

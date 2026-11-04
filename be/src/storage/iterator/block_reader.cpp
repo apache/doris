@@ -36,6 +36,7 @@
 #include "storage/iterator/changelog_block_iterator.h"
 #include "storage/iterator/direct_block_iterator.h"
 #include "storage/iterator/heap_merge_iterator.h"
+#include "storage/iterator/same_key_iterator.h"
 #include "storage/iterator/sequence_map_block_iterator.h"
 #include "storage/iterator/topn_block_iterator.h"
 #include "storage/iterator/union_iterator.h"
@@ -140,7 +141,9 @@ Status BlockReader::_new_rows_iter(std::vector<RowwiseIteratorUPtr> children, bo
     SCOPED_RAW_TIMER(&_stats.block_reader_build_heap_init_timer_ns);
     const MergeDecision& decision = _reader_context.merge;
     if (merge) {
-        _rows_iter = new_heap_merge_iterator(std::move(children), _read_schema, decision);
+        // The merge only sorts; the rows of one key are told apart above it.
+        _rows_iter = new_same_key_iterator(
+                new_heap_merge_iterator(std::move(children), _read_schema, decision), decision);
     } else {
         if (decision.reverse) {
             std::ranges::reverse(children);
@@ -268,7 +271,7 @@ Status BlockReader::_init_block_iterator(const ReaderParams& read_params,
             _block_iter = std::make_unique<SequenceMapBlockIterator>(_rows_iter.get(), limits,
                                                                      _read_schema, &_merged_rows);
         } else {
-            _block_iter = std::make_unique<UniqueKeyBlockIterator>(_rows_iter.get(), limits);
+            _block_iter = std::make_unique<UniqueKeyBlockIterator>(_rows_iter.get());
             // The reads that may apply the delete sign (compaction, checksum) drop the deleted
             // rows after the merge, see next_block_with_aggregation().
             _filter_delete_sign = _delete_sign_available;

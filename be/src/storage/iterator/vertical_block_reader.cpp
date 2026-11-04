@@ -188,17 +188,20 @@ void VerticalBlockReader::_append_source(std::vector<RowwiseIteratorUPtr> segmen
 }
 
 // The key group is merged by the key, or by the cluster key of a merge-on-write table that has
-// one, a newer row of a key first. A UNIQUE_KEYS table without a cluster key and an AGG_KEYS
-// table keep the first row of every key: the row sources mark the others, which the value groups
-// skip or fold.
+// one, a newer row of a key first.
 MergeDecision VerticalBlockReader::_key_group_merge(const ReaderParams& read_params) const {
-    MergeDecision decision = decide_merge(
-            *_tablet_schema, *_read_schema, read_params.key_group_cluster_key_idxes,
-            /*key_ordered=*/true, /*reverse=*/false, _reader_context.merge.older_first);
-    if (_tablet_schema->keys_type() == KeysType::AGG_KEYS) {
-        decision.drop_older_versions = true;
-    }
-    return decision;
+    return decide_merge(*_tablet_schema, *_read_schema, read_params.key_group_cluster_key_idxes,
+                        /*key_ordered=*/true, /*reverse=*/false, _reader_context.merge.older_first);
+}
+
+// A UNIQUE_KEYS table without a cluster key and an AGG_KEYS table keep the first row of every key
+// in the key group: the row sources mark the others, which the value groups skip
+// (_unique_key_next_block) or fold (AggKeyBlockIterator). The other tables copy every row of
+// every group (_direct_next_block).
+bool VerticalBlockReader::_key_group_keeps_first_row_of_key(const ReaderParams& read_params) const {
+    const KeysType keys_type = _tablet_schema->keys_type();
+    return keys_type == KeysType::AGG_KEYS ||
+           (keys_type == KeysType::UNIQUE_KEYS && read_params.key_group_cluster_key_idxes.empty());
 }
 
 Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params,
@@ -222,9 +225,9 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params,
     _is_key_column_group = read_params.is_key_column_group;
 
     if (_is_key_column_group) {
-        _vcollect_iter =
-                new_vertical_key_merge_iterator(std::move(sources), _read_schema,
-                                                _key_group_merge(read_params), _row_sources_buffer);
+        _vcollect_iter = new_vertical_key_merge_iterator(
+                std::move(sources), _read_schema, _key_group_merge(read_params),
+                _key_group_keeps_first_row_of_key(read_params), _row_sources_buffer);
     } else {
         _vcollect_iter = new_vertical_mask_merge_iterator(std::move(sources), _row_sources_buffer,
                                                           _context_stats);

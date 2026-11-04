@@ -122,10 +122,10 @@ void ChangelogMinDeltaBlockIterator::_append_row_to_group() {
 }
 
 bool ChangelogMinDeltaBlockIterator::_row_belongs_to_group() const {
-    // is_same cannot be used here: it marks cross-segment key matches for dedup, so
-    // consecutive same-key rows that a compaction/quick-merge folded into one segment are left
-    // unmarked, which would split one key's change chain into several groups. Compare the
-    // leading key columns directly against the group's first row instead.
+    // is_same alone is not enough: a union of rowsets that do not overlap flags no row, while
+    // the change chain of one key can still span consecutive rows of one segment that a
+    // compaction/quick-merge wrote. Compare the leading key columns directly against the
+    // group's first row instead.
     const IteratorRowRef& row = _cursor.row();
     const size_t num_key_columns = _read_schema->num_key_columns();
     for (size_t k = 0; k < num_key_columns; ++k) {
