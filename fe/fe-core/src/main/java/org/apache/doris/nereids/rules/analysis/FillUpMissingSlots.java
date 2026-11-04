@@ -24,6 +24,7 @@ import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ArrayItemReference.ArrayItemSlot;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -207,6 +208,11 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
         }
 
         public void resolve(Expression expression, ResolvePlanType planType) {
+            // ArrayItemSlot represents a lambda-local variable, not an input from the aggregate's child.
+            // It is bound by its ArrayItemReference and should not participate in GROUP BY validation.
+            if (expression instanceof ArrayItemSlot) {
+                return;
+            }
             Pair<Optional<Expression>, Boolean> result = lookUp(expression);
             Optional<Expression> found = result.first;
             boolean isFoundInOutputExpressions = result.second;
