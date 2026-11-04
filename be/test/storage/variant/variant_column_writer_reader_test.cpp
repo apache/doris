@@ -3467,7 +3467,7 @@ TEST_F(VariantColumnWriterReaderTest,
     _tablet_schema = std::make_shared<TabletSchema>();
     _tablet_schema->init_from_pb(schema_pb);
     const TabletColumn& parent_column = _tablet_schema->column_by_uid(1);
-    // A C8 carrier is an untyped VARIANT schema slot; its concrete file codec is JSONB.
+    // A planned carrier is an untyped VARIANT schema slot; its concrete file codec is JSONB.
     TabletColumn extracted_column;
     extracted_column.set_name(parent_column.name_lower_case() + ".payload");
     extracted_column.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
@@ -3703,7 +3703,7 @@ const segment_v2::VariantPathColumn* find_materialized(
     const segment_v2::VariantPathColumn* found = nullptr;
     for (const auto& column : shredded.materialized) {
         if (column.path.get_path() == path) {
-            EXPECT_EQ(found, nullptr) << "D2: path materialized twice: " << path;
+            EXPECT_EQ(found, nullptr) << "path materialized twice: " << path;
             found = &column;
         }
     }

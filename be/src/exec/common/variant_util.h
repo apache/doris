@@ -88,7 +88,7 @@ struct VariantExtendedInfo {
 // cells at `path` (and sparse stats are not truncated), the path has no nested evidence, and every
 // dynamic input leaf type equals `template_type` (stored_type_equals_template). Typed input
 // leaves match.
-// Any other input keeps the values in a JSONB carrier (no cast, D1).
+// Any other input keeps the values in a JSONB carrier (no cast).
 bool old_leaf_matches_template_type(const VariantExtendedInfo& input, const std::string& path,
                                     const DataTypePtr& template_type,
                                     size_t max_sparse_column_statistics_size);
@@ -188,7 +188,7 @@ Status update_least_schema_internal(const std::map<PathInData, DataTypes>& subco
 // typed-paths-to-sparse layouts. This reads the column flags only. Compaction planning must also
 // treat a root with old-rowset nested-group evidence (collect_nested_group_compaction_root_uids)
 // as nested-group, because that history routes through the NG writer; other callers (write-time
-// stats, the carrier writer, write-schema resolution) see only C8's output and the flags suffice.
+// stats, the carrier writer, write-schema resolution) see only the planned output and the flags suffice.
 bool is_ordinary_template_variant(const TabletColumn& column);
 
 bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
@@ -221,8 +221,8 @@ public:
     // Resolves the compaction write schema for Variant roots. `prefer_extracted` is the configured
     // separate-column-group mode. Sets `use_extracted` when `schema`/`paths` carry transient
     // extracted Variant columns that must be removed from the output RowsetMeta. Layers of the
-    // "was this root altered" question: schema_version==0 here is the coarse pre-filter (H1),
-    // collect_compaction_schema's template-list comparison gates sparse-key I/O, and C8's
+    // "was this root altered" question: schema_version==0 here is the coarse pre-filter,
+    // collect_compaction_schema's template-list comparison gates sparse-key I/O, and the carrier planner's
     // template-path-in-history test is the carrier decision.
     static Status resolve_write_schema(const std::vector<RowsetSharedPtr>& inputs,
                                        bool prefer_extracted, TabletSchemaSPtr& schema,

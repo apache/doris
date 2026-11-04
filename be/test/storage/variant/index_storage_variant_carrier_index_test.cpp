@@ -526,7 +526,7 @@ TEST_F(IndexStorageVariantCarrierIndexTest, AddedIntTemplateOverBigintLeafStaysC
                    false);
 }
 
-// STRING "001" under an INT template stays a carrier: no cast to 1 in storage (D1).
+// STRING "001" under an INT template stays a carrier: no cast to 1 in storage (old values are never cast).
 TEST_F(IndexStorageVariantCarrierIndexTest, AddedIntTemplateOverStringLeafStaysCarrier) {
     std::vector<RowsetSharedPtr> uncompacted;
     RowsetSharedPtr compacted;

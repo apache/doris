@@ -172,7 +172,8 @@ protected:
                 if (column.parent_unique_id != kVariantUid) {
                     continue;
                 }
-                ASSERT_FALSE(column.is_doc_value_column); // D7 excludes DOC transitions.
+                ASSERT_FALSE(
+                        column.is_doc_value_column); // DOC mode rejects template and count changes.
                 if (column.is_sparse_column) {
                     for (const auto& [path, count] : column.sparse_non_null_size) {
                         EXPECT_GT(count, 0);
@@ -501,7 +502,7 @@ TEST_F(IndexStorageVariantTemplatePreservationTest, AddUnrelatedTemplateKeepsExi
     expect_p_type(recent.value(), TYPE_INT);
 }
 
-// Typed/template disagreement has no legal ADD-only producer (D9). If it ever appears, keep
+// Typed/template disagreement has no legal ADD-only producer. If it ever appears, keep
 // master behavior: the typed owner follows the target template and compaction does not fail.
 TEST_F(IndexStorageVariantTemplatePreservationTest, MismatchedTypedTemplateHistoryFollowsTarget) {
     initialize(variant_with_template(FieldType::OLAP_FIELD_TYPE_INT));
@@ -699,8 +700,8 @@ TEST_F(IndexStorageVariantTemplatePreservationTest, AddFindsSparsePathsMissingFr
     }
 }
 
-// C7 selects directly from aggregate_variant_extended_info's count map. Ordinary typed paths
-// never enter that map, so C8's ownership filter must leave unaltered-table budget choices intact.
+// Budget selection picks directly from aggregate_variant_extended_info's count map. Ordinary typed paths
+// never enter that map, so the carrier ownership filter must leave unaltered-table budget choices intact.
 TEST_F(IndexStorageVariantTemplatePreservationTest, UnalteredTemplatePreservesBudgetSelection) {
     for (bool external_meta : {false, true}) {
         for (int32_t shards : {0, 4}) {
@@ -1045,7 +1046,7 @@ TEST_F(IndexStorageVariantTemplatePreservationTest, VerticalOffUnalteredSkipsCar
 }
 
 // Separate column groups off + ADD history: a planning failure must fail compaction rather than
-// fall back to full-root shredding that would re-cast old dynamic values (D1).
+// fall back to full-root shredding that would re-cast old dynamic values (old values are never cast).
 TEST_F(IndexStorageVariantTemplatePreservationTest, VerticalOffAlteredPlanningFailureFails) {
     initialize(variant_with_template(std::nullopt), 117002);
     ASSERT_FALSE(HasFatalFailure());

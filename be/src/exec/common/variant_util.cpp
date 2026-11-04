@@ -1337,7 +1337,7 @@ using CollectedCompactionSchema = std::unordered_map<int32_t, VariantExtendedInf
 // and must not trigger the ADD-only sparse key scan. The metacharacters are those of BE matching
 // (fnmatch with FNM_PATHNAME in generate_sub_column_info): FE index binding uses Java
 // PathMatcher("glob:"), which also treats {a,b} and ** specially, but BE matches '{' literally
-// under either pattern type, so this BE-side equivalence holds (H2).
+// under either pattern type, so this BE-side equivalence holds.
 bool same_template_entry(const TabletColumn& source, const TabletColumn& target) {
     if (source.name() != target.name()) {
         return false;
@@ -1368,7 +1368,7 @@ Status collect_sparse_keys(const segment_v2::SegmentSharedPtr& segment,
         // Like VariantColumnReader::init, inspect root children as well as top-level metas.
         // External column-meta traversal returns the root with its sparse maps embedded in it.
         // This mirrors the reader's traversal and the writer's sparse map layout (children(0) is
-        // keys, SPARSE_COLUMN_PATH.b<N> shards); keep them in sync (H6).
+        // keys, SPARSE_COLUMN_PATH.b<N> shards); keep them in sync.
         if (meta.unique_id() == parent_uid) {
             for (const auto& child : meta.children_columns()) {
                 collect_sparse_meta(child);
@@ -1548,7 +1548,7 @@ bool old_leaf_matches_template_type(const VariantExtendedInfo& input, const std:
             return false; // Nested (array-of-object) evidence is not a scalar leaf.
         }
         if (input_path.get_is_typed()) {
-            continue; // D9: a typed input leaf already has the unchanged template type.
+            continue; // a typed input leaf already has the unchanged template type.
         }
         if (types.empty()) {
             return false;
@@ -1567,7 +1567,7 @@ namespace {
 
 Status reconcile_template_columns(const TabletSchema& target,
                                   ReconciledCompactionColumn& reconciled) {
-    // Paths with old dynamic or sparse cells. Typed evidence needs no per-path record: D9 never
+    // Paths with old dynamic or sparse cells. Typed evidence needs no per-path record: the ADD-only rule never
     // changes an existing template entry, so typed cells already have the target template type.
     std::unordered_set<std::string> dynamic_paths;
     const auto& input = *reconciled.input;
@@ -1593,7 +1593,7 @@ Status reconcile_template_columns(const TabletSchema& target,
         reconciled.template_paths.insert(path);
         // The single carrier-vs-typed decision. Old dynamic cells keep the template type and its
         // index only when every input leaf already has exactly that type (an identity cast, so
-        // D1 holds) and no input has sparse cells there; otherwise the values are preserved
+        // no old value is cast) and no input has sparse cells there; otherwise the values are preserved
         // verbatim in one pinned VARIANT carrier, including when new rows use the template.
         if (dynamic_paths.contains(path) &&
             !old_leaf_matches_template_type(
@@ -1602,7 +1602,7 @@ Status reconcile_template_columns(const TabletSchema& target,
             // sub_path_set excludes this owner from sparse routing.
             reconciled.carrier_paths.insert(path);
         } else {
-            // Master behavior: a typed owner follows the target template. D9 forbids changing an
+            // Master behavior: a typed owner follows the target template. the ADD-only rule forbids changing an
             // existing entry, so a stored-type/template-type mismatch is unreachable via ALTER; do
             // not add a new failure mode for never-altered tables if one ever appears.
             inherit_column_attributes(*reconciled.column, info.column);
@@ -1815,7 +1815,7 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
     return Status::OK();
 }
 
-// Full-root shredding reapplies load templates. Use C8's extracted layout for ADD carriers,
+// Full-root shredding reapplies load templates. Use the extracted carrier layout for ADD carriers,
 // even if separate Variant column groups are disabled.
 // Even ADD-only histories need planning on later compactions: publication retains the target
 // template but drops extracted slots, so template-list equality does not rule out an old carrier.
@@ -1823,7 +1823,7 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
 // Provenance split when separate column groups are disabled: a merged input schema at version 0
 // was never altered, so it skips planning and keeps master's full-root write. Otherwise an ADD
 // carrier may exist; a planning failure fails the compaction instead of re-casting old values
-// (D1). Contract (H1): every FE ALTER, light or heavy and including Cloud, bumps schema_version,
+// (old values are never cast). Every FE ALTER, light or heavy and including Cloud, bumps schema_version,
 // and the merged schema takes the inputs' maximum. A future FE ALTER path that does not bump it
 // must update this pre-filter. The safe direction: misjudging "altered" costs one planning pass.
 Status VariantCompactionUtil::resolve_write_schema(const std::vector<RowsetSharedPtr>& inputs,
@@ -1856,7 +1856,7 @@ Status VariantCompactionUtil::resolve_write_schema(const std::vector<RowsetShare
                      << ", status=" << status;
         return status;
     }
-    // Only C8's carriers need the ADD carrier writer; native typed columns keep the template.
+    // Only planned carriers need the ADD carrier writer; native typed columns keep the template.
     if (prefer_extracted || std::ranges::any_of(*resolved_paths, [](const auto& entry) {
             return !entry.second.carrier_path_set.empty();
         })) {

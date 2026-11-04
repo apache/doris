@@ -338,7 +338,7 @@ suite("test_variant_modify_max_subcolumns_count", "p0") {
     }
     def addVerify = { String stage ->
         logger.info("variant add template verify ${stage}")
-        // Whole values use an exact oracle: old m* cells keep their BIGINT values (D1), while the control
+        // Whole values use an exact oracle: old m* cells keep their BIGINT values (old values are never cast), while the control
         // table's dynamic m1 may be promoted to a common type by its own compaction.
         String wholeQuery = "SELECT k, CAST(v AS STRING) FROM @T ORDER BY k"
         def whole = sql wholeQuery.replace("@T", addTable)

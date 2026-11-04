@@ -1572,7 +1572,7 @@ TEST_F(FlexiblePartialUpdateTest, VerticalWriterPersistsRowsAcrossSegments) {
 }
 
 // ===========================================================================
-// ADD-carrier qualification (C10): a flexible partial update that skips the variant
+// ADD carriers: a flexible partial update that skips the variant
 // fills it from a row written before the template ADD; the historical value is kept.
 // ===========================================================================
 

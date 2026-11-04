@@ -124,7 +124,7 @@ public final class VariantPropertyChangePolicy {
         return hasBudgetChange(source, target) || hasTemplateChange(source, target);
     }
 
-    // D9: templates are ADD-only. Old entries must survive unchanged as an identical prefix.
+    // Templates are ADD-only. Old entries must survive unchanged as an identical prefix.
     static void checkTemplateAdd(Column source, Column target) throws DdlException {
         if (source.getVariantEnableDocMode()) {
             throw new DdlException("Can not change variant schema templates on a DOC-mode column");

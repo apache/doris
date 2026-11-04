@@ -499,7 +499,7 @@ VariantSubcolumnWriter::VariantSubcolumnWriter(const ColumnWriterOptions& opts,
 VariantSubcolumnWriter::~VariantSubcolumnWriter() = default;
 
 Status VariantSubcolumnWriter::init() {
-    // C8 plans an ADD carrier as an untyped VARIANT slot owned by a template. Ordinary dynamic
+    // Compaction planning makes an ADD carrier as an untyped VARIANT slot owned by a template. Ordinary dynamic
     // slots and native typed paths retain their existing write rules.
     if (_opts.rowset_ctx->write_type == DataWriteType::TYPE_COMPACTION &&
         _opts.rowset_ctx->variant_compaction_paths != nullptr) {
@@ -727,7 +727,7 @@ Status VariantSubcolumnWriter::finalize() {
     DataTypePtr storage_type;
     TabletSchema::SubColumnInfo subcolumn_info;
     const PathInData relative_path = get_column()->path_info_ptr()->copy_pop_front();
-    // Only C8's ADD carrier bypasses the load template. Its existing JSONB codec must keep
+    // Only the planned ADD carrier bypasses the load template. Its existing JSONB codec must keep
     // old dynamic/sparse values instead of converting them to the newly added template type.
     if (!_preserve_carrier_types &&
         variant_util::generate_sub_column_info(*_opts.rowset_ctx->tablet_schema,

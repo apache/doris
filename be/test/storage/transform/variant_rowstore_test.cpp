@@ -925,7 +925,7 @@ TEST_F(VariantRowStoreTest, RowStoreFillAfterPartialUpdate) {
 }
 
 // ===========================================================================
-// ADD-carrier qualification (C10): rows written before a template ADD keep their
+// ADD carriers: rows written before a template ADD keep their
 // historical values when a fixed partial update copies them under the new schema.
 // ===========================================================================
 
@@ -992,7 +992,7 @@ protected:
     static void expect_historical(const std::string& json, std::string_view where) {
         EXPECT_NE(json.find(R"("a":"001")"), std::string::npos) << where << ": " << json;
         EXPECT_EQ(json.find(R"("a":1)"), std::string::npos) << where << ": " << json;
-        // D2: the path materializes once in the row (no duplicated destination).
+        // the path materializes once in the row (no duplicated destination).
         EXPECT_EQ(json.find(R"("a")"), json.rfind(R"("a")")) << where << ": " << json;
     }
 
@@ -1065,7 +1065,7 @@ protected:
 
 // Old row {"a":"001"} written before ADD of template a:INT; a fixed partial update on vv
 // copies v from that row under the new (version 1) schema. The copied cell, its row-store
-// image, and the persisted rewrite must all keep the historical string (D1, D2).
+// image, and the persisted rewrite must all keep the historical string (no cast, single destination).
 TEST_P(VariantRowStoreAddedTemplateTest, FixedPartialUpdateKeepsHistoricalCarrier) {
     const bool partial_row_store = GetParam();
     const std::vector<int32_t> row_store_uids =
@@ -1198,7 +1198,7 @@ TEST_P(VariantRowStoreAddedTemplateTest, NeverAlteredFixedPartialUpdateKeepsType
 }
 
 // Pre-ADD values the template cannot hold losslessly become carriers (values kept, one
-// destination), and compaction schema planning picks the carrier up through C8.
+// destination), and compaction schema planning picks the carrier up.
 TEST_P(VariantRowStoreAddedTemplateTest, LossyCopiedValuesBecomeCarriersForCompaction) {
     const std::vector<int32_t> row_store_uids =
             GetParam() ? std::vector<int32_t> {0, 1} : std::vector<int32_t> {};
@@ -1228,7 +1228,8 @@ TEST_P(VariantRowStoreAddedTemplateTest, LossyCopiedValuesBecomeCarriersForCompa
             if (column->is_extracted_column() && column->parent_unique_id() == 1 &&
                 column->path_info_ptr()->get_path() == "v.a") {
                 ++a_columns;
-                EXPECT_EQ(column->type(), FieldType::OLAP_FIELD_TYPE_VARIANT); // C8 carrier slot
+                EXPECT_EQ(column->type(),
+                          FieldType::OLAP_FIELD_TYPE_VARIANT); // planned carrier slot
             }
         }
         EXPECT_EQ(a_columns, 1);

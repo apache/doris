@@ -987,7 +987,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 + ") DUPLICATE KEY(id)\n"
                 + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true');");
-        // DOC mode rejects the first template just like any later one (D7).
+        // DOC mode rejects the first template just like any later one.
         expectException("ALTER TABLE test." + docName + " MODIFY COLUMN v VARIANT<MATCH_NAME_GLOB 'b*':string, "
                 + "PROPERTIES(\"variant_enable_doc_mode\" = \"true\")>",
                 "Can not change variant schema templates on a DOC-mode column");
