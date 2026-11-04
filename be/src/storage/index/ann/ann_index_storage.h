@@ -35,7 +35,8 @@ namespace doris::segment_v2 {
 // only read. faiss needs no more of a store than that. It serializes an index as one stream
 // (ann.faiss), and IVF_ON_DISK adds a second file whose lists it reads at random offsets while it
 // searches (ann.ivfdata). This header is all the ANN code sees of storage; the index file formats
-// implement it (V1 and V2 in inverted/clucene/lucene_ann_store.h).
+// implement it (V1 and V2 in inverted/clucene/lucene_ann_store.h, SNII in
+// inverted/snii/snii_ann_store.h).
 
 // One file of an index, open for reading.
 class AnnIndexInput {

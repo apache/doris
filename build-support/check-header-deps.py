@@ -650,18 +650,12 @@ CLUCENE_INCLUDING_FILES = {
     "storage/index/index_file_reader.h",
     "storage/index/index_file_writer.h",
     "storage/index/inverted/clucene/inverted_index_searcher.h",
-    # SNII (T3, T12, T13).
-    "storage/index/inverted/snii/snii_blob_directory.h",
-    "storage/index/inverted/snii/snii_blob_staging_directory.h",
+    # SNII (T3, T13).
     "storage/index/inverted/snii/snii_index_reader.cpp",
 }
 # Files under a root whose code names a CLucene symbol.
 CLUCENE_SYMBOL_FILES = {
-    # SNII (T3, T12, T13).
-    "storage/index/inverted/snii/snii_blob_directory.cpp",
-    "storage/index/inverted/snii/snii_blob_directory.h",
-    "storage/index/inverted/snii/snii_blob_staging_directory.cpp",
-    "storage/index/inverted/snii/snii_blob_staging_directory.h",
+    # SNII (T3, T13).
     "storage/index/inverted/snii/snii_index_reader.cpp",
 }
 
