@@ -1,0 +1,206 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.connector.adbc;
+
+import org.apache.arrow.adbc.core.AdbcConnection;
+import org.apache.arrow.adbc.core.AdbcStatement;
+import org.apache.arrow.memory.RootAllocator;
+import org.apache.arrow.vector.VarCharVector;
+import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.ipc.ArrowReader;
+import org.apache.arrow.vector.ipc.ArrowStreamReader;
+import org.apache.arrow.vector.ipc.ArrowStreamWriter;
+import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.FieldType;
+import org.apache.arrow.vector.types.pojo.Schema;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.channels.Channels;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+class AdbcDorisMetadataTest {
+    @Test
+    void namespacesStayInsideTheCurrentRemoteCatalog() {
+        try (RecordingClient client = new RecordingClient("warehouse`one", List.of(
+                List.of("db_one"), List.of("db_two")))) {
+            Assertions.assertEquals(List.of("db_one", "db_two"), metadata(client).listDatabaseNames(null));
+            Assertions.assertEquals(List.of("SHOW DATABASES FROM `warehouse``one`"), client.queries);
+            Assertions.assertEquals(1, client.closedStatements);
+        }
+    }
+
+    @Test
+    void tablesAreScopedAndViewsAreExcluded() {
+        try (RecordingClient client = new RecordingClient("internal", List.of(List.of("db`one")))) {
+            AdbcConnectorMetadata metadata = metadata(client);
+            Assertions.assertEquals(List.of("db`one"), metadata.listDatabaseNames(null));
+            client.rows = List.of(List.of("base_table", "BASE TABLE"), List.of("view_table", "VIEW"),
+                    List.of("system_table", "SYSTEM VIEW"));
+            Assertions.assertEquals(List.of("base_table"), metadata.listTableNames(null, "db`one"));
+            Assertions.assertEquals("SHOW FULL TABLES FROM `internal`.`db``one`", client.queries.get(1));
+            AdbcTableHandle handle = (AdbcTableHandle) metadata.getTableHandle(null, "db`one", "base_table")
+                    .orElseThrow();
+            Assertions.assertEquals("internal", handle.getRemoteCatalog());
+            Assertions.assertEquals("db`one", handle.getRemoteDbSchema());
+            Assertions.assertEquals(2, client.closedStatements);
+        }
+    }
+
+    @Test
+    void freshListingSeesNewDatabases() {
+        try (RecordingClient client = new RecordingClient("internal", List.of(List.of("first_db")))) {
+            AdbcConnectorMetadata metadata = metadata(client);
+            Assertions.assertEquals(List.of("first_db"), metadata.listDatabaseNames(null));
+            client.rows = List.of(List.of("first_db"), List.of("new_db"));
+            Assertions.assertEquals(List.of("first_db", "new_db"), metadata.listDatabaseNames(null));
+        }
+    }
+
+    @Test
+    void anEmptyCatalogListingDoesNotInventADatabase() {
+        try (RecordingClient client = new RecordingClient("internal", List.of())) {
+            Assertions.assertEquals(List.of(), metadata(client).listDatabaseNames(null));
+        }
+    }
+
+    private static AdbcConnectorMetadata metadata(RecordingClient client) {
+        return new AdbcConnectorMetadata(client, new AdbcSchemaStrategy(), DorisDialect::new,
+                new AdbcMetadataCache(Map.of()));
+    }
+
+    private static final class RecordingClient extends AdbcClient {
+        private final RootAllocator allocator = new RootAllocator();
+        private final List<String> queries = new ArrayList<>();
+        private final String currentCatalog;
+        private List<List<String>> rows;
+        private int closedStatements;
+
+        private RecordingClient(String currentCatalog, List<List<String>> rows) {
+            super(Path.of("unused.so"), "unused.so", null, "grpc://localhost:1", null, null, Map.of());
+            this.currentCatalog = currentCatalog;
+            this.rows = rows;
+        }
+
+        @Override
+        public <T> T withConnection(AdbcConnectionCall<T> body) {
+            try {
+                return body.apply(new AdbcConnection() {
+                    @Override
+                    public String getCurrentCatalog() {
+                        return currentCatalog;
+                    }
+
+                    @Override
+                    public ArrowReader getObjects(GetObjectsDepth depth, String catalogPattern,
+                            String dbSchemaPattern, String tableNamePattern, String[] tableTypes,
+                            String columnNamePattern) {
+                        // An unscoped Flight metadata request reenters the catalog being loaded on a loopback source.
+                        throw new AssertionError("Unscoped GetObjects would recursively load this ADBC catalog");
+                    }
+
+                    @Override
+                    public ArrowReader getInfo(int[] infoCodes) {
+                        throw new AssertionError("The configured dialect needs no vendor probe");
+                    }
+
+                    @Override
+                    public AdbcStatement createStatement() {
+                        return new AdbcStatement() {
+                            @Override
+                            public void setSqlQuery(String query) {
+                                queries.add(query);
+                            }
+
+                            @Override
+                            public QueryResult executeQuery() {
+                                try {
+                                    return new QueryResult(-1, response());
+                                } catch (IOException e) {
+                                    throw new UncheckedIOException(e);
+                                }
+                            }
+
+                            @Override
+                            public UpdateResult executeUpdate() {
+                                throw new AssertionError("Metadata discovery must not write");
+                            }
+
+                            @Override
+                            public void prepare() {
+                                throw new AssertionError("Metadata discovery needs no prepared statement");
+                            }
+
+                            @Override
+                            public void close() {
+                                closedStatements++;
+                            }
+                        };
+                    }
+
+                    @Override
+                    public void close() {
+                    }
+                });
+            } catch (RuntimeException | Error e) {
+                throw e;
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
+        }
+
+        private ArrowReader response() throws IOException {
+            int columns = queries.get(queries.size() - 1).startsWith("SHOW FULL TABLES") ? 2 : 1;
+            List<Field> fields = new ArrayList<>();
+            for (int column = 0; column < columns; column++) {
+                fields.add(new Field("column_" + column, FieldType.nullable(ArrowType.Utf8.INSTANCE), null));
+            }
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            try (VectorSchemaRoot root = VectorSchemaRoot.create(new Schema(fields), allocator);
+                    ArrowStreamWriter writer = new ArrowStreamWriter(root, null, Channels.newChannel(bytes))) {
+                writer.start();
+                // One row per batch ensures discovery consumes the whole stream.
+                for (List<String> row : rows) {
+                    root.allocateNew();
+                    for (int column = 0; column < columns; column++) {
+                        ((VarCharVector) root.getVector(column)).setSafe(0,
+                                row.get(column).getBytes(StandardCharsets.UTF_8));
+                    }
+                    root.setRowCount(1);
+                    writer.writeBatch();
+                }
+                writer.end();
+            }
+            return new ArrowStreamReader(new ByteArrayInputStream(bytes.toByteArray()), allocator);
+        }
+
+        @Override
+        public void close() {
+            allocator.close();
+        }
+    }
+}
