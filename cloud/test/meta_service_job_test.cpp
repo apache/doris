@@ -35,6 +35,8 @@
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
+#include "meta-store/blob_message.h"
+#include "meta-store/codec.h"
 #include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/meta_reader.h"
@@ -341,7 +343,8 @@ MetaServiceCode remove_delete_bitmap_lock(MetaServiceProxy* meta_service, int64_
 MetaServiceCode update_delete_bitmap(MetaServiceProxy* meta_service, int64_t table_id,
                                      int64_t partition_id, int64_t tablet_id, int64_t lock_id,
                                      int64_t initor,
-                                     std::string cloud_unique_id = "test_cloud_unique_id") {
+                                     std::string cloud_unique_id = "test_cloud_unique_id",
+                                     int key_count = 3) {
     brpc::Controller cntl;
     UpdateDeleteBitmapRequest update_delete_bitmap_req;
     UpdateDeleteBitmapResponse update_delete_bitmap_res;
@@ -351,7 +354,7 @@ MetaServiceCode update_delete_bitmap(MetaServiceProxy* meta_service, int64_t tab
     update_delete_bitmap_req.set_lock_id(lock_id);
     update_delete_bitmap_req.set_initiator(initor);
     update_delete_bitmap_req.set_tablet_id(tablet_id);
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < key_count; i++) {
         update_delete_bitmap_req.add_rowset_ids("0200000003ea308a3647dbea83220ed4b8897f2288244a91");
         update_delete_bitmap_req.add_segment_ids(0);
         update_delete_bitmap_req.add_versions(i);
@@ -4343,6 +4346,96 @@ void testSchemaChangeJobWithMoWTest(int lock_version) {
 TEST(MetaServiceJobTest, SchemaChangeJobWithMoWTest) {
     testSchemaChangeJobWithMoWTest(2);
     testSchemaChangeJobWithMoWTest(1);
+}
+
+// A split (multi-KV) pending delete bitmap written by a schema change job must be completely
+// removed when the job finishes, not just the first KV.
+static void testSchemaChangeJobRemoveSplitPendingDeleteBitmap(int lock_version) {
+    config::delete_bitmap_lock_v2_white_list = lock_version == 1 ? "" : "*";
+    config::split_pending_delete_bitmap_kv = true;
+    DORIS_CLOUD_DEFER {
+        config::split_pending_delete_bitmap_kv = false;
+    };
+    auto meta_service = get_meta_service();
+
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    int64_t table_id = 1;
+    int64_t index_id = 2;
+    int64_t partition_id = 3;
+    int64_t tablet_id = 4;
+    int64_t new_tablet_id = 14;
+    constexpr int64_t lock_initiator = 12345;
+    ASSERT_NO_FATAL_FAILURE(
+            create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id, true));
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+    ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, index_id, partition_id,
+                                          new_tablet_id, true, true));
+    StartTabletJobResponse sc_res;
+    ASSERT_NO_FATAL_FAILURE(start_schema_change_job(meta_service.get(), table_id, index_id,
+                                                    partition_id, tablet_id, new_tablet_id, "job1",
+                                                    "be1", sc_res));
+    std::vector<doris::RowsetMetaCloudPB> output_rowsets;
+    for (int64_t i = 0; i < 5; ++i) {
+        output_rowsets.push_back(create_rowset(new_tablet_id, i + 2, i + 2));
+        CreateRowsetResponse res;
+        prepare_rowset(meta_service.get(), output_rowsets.back(), res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << i;
+        commit_rowset(meta_service.get(), output_rowsets.back(), res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << i;
+    }
+
+    ASSERT_EQ(get_delete_bitmap_lock(meta_service.get(), table_id, -2, lock_initiator),
+              MetaServiceCode::OK);
+    // each key is ~100 bytes, 2000 keys make the pending value exceed the split threshold
+    ASSERT_EQ(update_delete_bitmap(meta_service.get(), table_id, partition_id, new_tablet_id, -2,
+                                   lock_initiator, "test_cloud_unique_id", 2000),
+              MetaServiceCode::OK);
+
+    std::string pending_key = meta_pending_delete_bitmap_key({instance_id, new_tablet_id});
+    std::string pending_key_end = pending_key;
+    encode_int64(INT64_MAX, &pending_key_end);
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        // the value is split, so the plain key does not exist
+        std::string raw_value;
+        ASSERT_EQ(txn->get(pending_key, &raw_value), TxnErrorCode::TXN_KEY_NOT_FOUND);
+        std::unique_ptr<RangeGetIterator> it;
+        ASSERT_EQ(txn->get(pending_key, pending_key_end, &it), TxnErrorCode::TXN_OK);
+        ASSERT_GT(it->size(), 1);
+        ValueBuf value;
+        ASSERT_EQ(cloud::blob_get(txn.get(), pending_key, &value), TxnErrorCode::TXN_OK);
+        PendingDeleteBitmapPB pending_info;
+        ASSERT_TRUE(value.to_pb(&pending_info));
+        ASSERT_EQ(pending_info.delete_bitmap_keys_size(), 2000);
+    }
+
+    FinishTabletJobResponse res;
+    finish_schema_change_job(meta_service.get(), tablet_id, new_tablet_id, "job1", "be1",
+                             output_rowsets, res, lock_initiator);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+    // all split KVs of the pending delete bitmap must be gone
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::unique_ptr<RangeGetIterator> it;
+    ASSERT_EQ(txn->get(pending_key, pending_key_end, &it), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(it->size(), 0);
+}
+
+TEST(MetaServiceJobTest, SchemaChangeJobRemoveSplitPendingDeleteBitmap) {
+    testSchemaChangeJobRemoveSplitPendingDeleteBitmap(2);
+    testSchemaChangeJobRemoveSplitPendingDeleteBitmap(1);
 }
 
 TEST(MetaServiceJobTest, ConcurrentCompactionTest) {

@@ -5427,7 +5427,9 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
 
     // remove delete bitmap for MoW table
     std::string pending_key = meta_pending_delete_bitmap_key({instance_id_, tablet_id});
-    txn->remove(pending_key);
+    std::string pending_key_end = pending_key;
+    encode_int64(INT64_MAX, &pending_key_end);
+    txn->remove(pending_key, pending_key_end);
     std::string delete_bitmap_start = meta_delete_bitmap_key({instance_id_, tablet_id, "", 0, 0});
     std::string delete_bitmap_end = meta_delete_bitmap_key({instance_id_, tablet_id + 1, "", 0, 0});
     txn->remove(delete_bitmap_start, delete_bitmap_end);
@@ -5743,7 +5745,9 @@ int InstanceRecycler::recycle_versioned_tablet(int64_t tablet_id,
 
     // remove delete bitmap for MoW table
     std::string pending_key = meta_pending_delete_bitmap_key({instance_id_, tablet_id});
-    txn->remove(pending_key);
+    std::string pending_key_end = pending_key;
+    encode_int64(INT64_MAX, &pending_key_end);
+    txn->remove(pending_key, pending_key_end);
     std::string delete_bitmap_start = meta_delete_bitmap_key({instance_id_, tablet_id, "", 0, 0});
     std::string delete_bitmap_end = meta_delete_bitmap_key({instance_id_, tablet_id + 1, "", 0, 0});
     txn->remove(delete_bitmap_start, delete_bitmap_end);

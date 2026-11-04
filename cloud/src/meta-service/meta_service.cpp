@@ -3633,8 +3633,8 @@ static bool remove_pending_delete_bitmap(MetaServiceCode& code, std::string& msg
                                          std::stringstream& ss, std::unique_ptr<Transaction>& txn,
                                          std::string& instance_id, int64_t tablet_id) {
     std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
-    std::string pending_val;
-    auto err = txn->get(pending_key, &pending_val);
+    ValueBuf pending_val;
+    auto err = cloud::blob_get(txn.get(), pending_key, &pending_val);
     if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
         ss << "failed to get delete bitmap pending info, instance_id=" << instance_id
            << " tablet_id=" << tablet_id << " key=" << hex(pending_key) << " err=" << err;
@@ -3649,7 +3649,7 @@ static bool remove_pending_delete_bitmap(MetaServiceCode& code, std::string& msg
 
     // delete delete bitmap of expired txn
     PendingDeleteBitmapPB pending_info;
-    if (!pending_info.ParseFromString(pending_val)) [[unlikely]] {
+    if (!pending_val.to_pb(&pending_info)) [[unlikely]] {
         code = MetaServiceCode::PROTOBUF_PARSE_ERR;
         msg = "failed to parse PendingDeleteBitmapPB";
         return false;
@@ -4435,8 +4435,8 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     PendingDeleteBitmapPB previous_pending_info;
     if (is_explicit_txn && !is_first_sub_txn) {
         std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
-        std::string pending_val;
-        auto err = txn->get(pending_key, &pending_val);
+        ValueBuf pending_val;
+        auto err = cloud::blob_get(txn.get(), pending_key, &pending_val);
         if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
             ss << "failed to get delete bitmap pending info, instance_id=" << instance_id
                << " tablet_id=" << tablet_id << " key=" << hex(pending_key) << " err=" << err;
@@ -4447,7 +4447,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
 
         if (err == TxnErrorCode::TXN_OK) {
             // pending delete bitmaps of previous sub txns
-            if (!previous_pending_info.ParseFromString(pending_val)) [[unlikely]] {
+            if (!pending_val.to_pb(&previous_pending_info)) [[unlikely]] {
                 code = MetaServiceCode::PROTOBUF_PARSE_ERR;
                 msg = "failed to parse PendingDeleteBitmapPB";
                 return;
@@ -4487,7 +4487,15 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
             }
         }
         std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
-        txn->put(pending_key, pending_val);
+        std::string pending_key_end = pending_key;
+        encode_int64(INT64_MAX, &pending_key_end);
+        txn->remove(pending_key, pending_key_end);
+        if (config::split_pending_delete_bitmap_kv &&
+            pending_val.size() > DEFAULT_BLOB_SPLIT_SIZE) {
+            cloud::blob_put(txn.get(), pending_key, pending_val, 0);
+        } else {
+            txn->put(pending_key, pending_val);
+        }
         fdb_txn_size = fdb_txn_size + pending_key.size() + pending_val.size();
         LOG(INFO) << "xxx update delete bitmap put pending_key=" << hex(pending_key)
                   << " lock_id=" << request->lock_id() << " initiator=" << request->initiator()
