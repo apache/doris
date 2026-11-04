@@ -97,16 +97,14 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
     io::FileDescription file_description = {.path = _path, .fs_name {}};
     _fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
     io::FileWriterOptions file_writer_options = {.used_by_s3_committer = false};
-    auto create_file = [&]() {
-        return _fs->create_file(file_description.path, &_file_writer, &file_writer_options);
-    };
 
     Status open_status;
     switch (_file_format_type) {
     case TFileFormatType::FORMAT_PARQUET: {
         TParquetCompressionType::type parquet_compression_type =
                 DORIS_TRY(ParquetBuildHelper::to_parquet_compression_type(_compress_type));
-        RETURN_IF_ERROR(create_file());
+        RETURN_IF_ERROR(
+                _fs->create_file(file_description.path, &_file_writer, &file_writer_options));
         // Parquet 1.0 coerces Arrow nanoseconds to microseconds, including nested fields.
         ParquetFileOptions parquet_options = {
                 .compression_type = parquet_compression_type,
@@ -122,7 +120,8 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
         break;
     }
     case TFileFormatType::FORMAT_ORC: {
-        RETURN_IF_ERROR(create_file());
+        RETURN_IF_ERROR(
+                _fs->create_file(file_description.path, &_file_writer, &file_writer_options));
         _file_format_transformer = std::make_unique<VOrcTransformer>(
                 state, _file_writer.get(), _write_output_expr_ctxs, "", _write_column_names, false,
                 _compress_type, &_schema, _fs, _nan_count_field_ids);
