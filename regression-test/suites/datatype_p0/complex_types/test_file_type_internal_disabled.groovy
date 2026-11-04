@@ -66,11 +66,6 @@ suite("test_file_type_internal_disabled") {
             exception "FILE columns are not supported in internal tables"
         }
     }
-    qt_inline """
-        SELECT f, ELEMENT_AT(f, 'uri'), HEX(CAST(FL_GET_BINARY(f) AS STRING)), f IS NULL
-        FROM (SELECT CAST(NAMED_STRUCT('uri', NULL, 'offset', NULL, 'size', NULL,
-                    'content_type', NULL, 'checksum', NULL, 'inline', X'00FF') AS FILE) AS f) t
-    """
     qt_count "SELECT COUNT(f) FROM (SELECT CAST(NULL AS FILE) AS f) t"
     sql "DROP TABLE IF EXISTS test_file_type_disabled_scalar"
     sql """
@@ -78,8 +73,7 @@ suite("test_file_type_internal_disabled") {
         DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES("replication_num"="1")
         AS SELECT 1 AS id, ELEMENT_AT(f, 'uri') AS uri,
                   HEX(CAST(FL_GET_BINARY(f) AS STRING)) AS inline_hex
-        FROM (SELECT CAST(NAMED_STRUCT('uri', NULL, 'offset', NULL, 'size', NULL,
-                    'content_type', NULL, 'checksum', NULL, 'inline', X'00FF') AS FILE) AS f) t
+        FROM (SELECT CAST(NULL AS FILE) AS f) t
     """
     qt_scalar "SELECT id, uri, inline_hex FROM test_file_type_disabled_scalar ORDER BY id"
 

@@ -78,7 +78,7 @@ class FoldConstantRuleOnBETest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    void testFileCastsRemainForRuntimeEvaluation() {
+    void testUnsupportedFileCastsRemainForTypeChecking() {
         StructLiteral fileFields = new StructLiteral(ImmutableList.of(new StringLiteral("urn:x"),
                 new NullLiteral(BigIntType.INSTANCE), new NullLiteral(BigIntType.INSTANCE),
                 new NullLiteral(StringType.INSTANCE), new NullLiteral(StringType.INSTANCE),
@@ -92,7 +92,7 @@ class FoldConstantRuleOnBETest extends ExpressionRewriteTestHelper {
                         new StructType(ImmutableList.of(new StructField("f", FileType.INSTANCE, true, "")))));
         for (Expression expression : expressions) {
             Assertions.assertTrue(expression.isConstant());
-            Assertions.assertTrue(CheckCast.check(expression.child(0).getDataType(), expression.getDataType(), false));
+            Assertions.assertFalse(CheckCast.check(expression.child(0).getDataType(), expression.getDataType(), false));
             Assertions.assertThrows(AnalysisException.class,
                     () -> expression.child(0).checkedCastTo(expression.getDataType()));
             Assertions.assertSame(expression, FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(expression, context));
@@ -114,9 +114,9 @@ class FoldConstantRuleOnBETest extends ExpressionRewriteTestHelper {
                     new Cast(new NullLiteral(), type), context));
         }
         ArrayType fileArray = ArrayType.of(FileType.INSTANCE);
-        Assertions.assertEquals(new ArrayLiteral(ImmutableList.of(new NullLiteral(FileType.INSTANCE)), fileArray),
-                FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(new Cast(
-                        new ArrayLiteral(ImmutableList.of(new NullLiteral())), fileArray), context));
+        Cast arrayCast = new Cast(new ArrayLiteral(ImmutableList.of(new NullLiteral())), fileArray);
+        Assertions.assertFalse(CheckCast.check(arrayCast.child().getDataType(), fileArray, false));
+        Assertions.assertSame(arrayCast, FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(arrayCast, context));
     }
 
     @Test

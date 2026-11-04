@@ -111,21 +111,13 @@ public class FileAccessPathTest {
     }
 
     @Test
-    public void testMetadataDoesNotCrossFileConversionCasts() {
+    public void testMetadataCrossesFileIdentityCasts() {
         SlotReference file = slot("f", FileType.INSTANCE, true);
         Expression identityField = field(new Cast(file, FileType.INSTANCE), "uri");
         Assertions.assertEquals(ImmutableList.of(meta("f", "uri", "OFFSET")),
                 prune(file, new Length(identityField)).getAllAccessPaths());
         Assertions.assertEquals(ImmutableList.of(meta("f", "uri", "NULL")),
                 prune(file, new IsNull(identityField)).getAllAccessPaths());
-
-        SlotReference struct = slot("s", FileType.INSTANCE.publicStructType(), true);
-        Expression fileField = field(new Cast(struct, FileType.INSTANCE, true), "uri");
-        for (Expression expression : ImmutableList.of(new Length(fileField), new IsNull(fileField))) {
-            AccessPathInfo info = prune(struct, expression);
-            Assertions.assertEquals(ImmutableList.of(data("s")), info.getAllAccessPaths());
-            Assertions.assertEquals(struct.getDataType(), info.getPrunedType());
-        }
     }
 
     @Test
@@ -210,9 +202,6 @@ public class FileAccessPathTest {
         SlotReference file = slot("f", FileType.INSTANCE, true);
         Assertions.assertEquals(ImmutableList.of(data("f", "size")),
                 prune(file, field(new Cast(file, FileType.INSTANCE), "size")).getAllAccessPaths());
-        SlotReference struct = slot("s", FileType.INSTANCE.publicStructType(), true);
-        Assertions.assertEquals(ImmutableList.of(data("s")),
-                prune(struct, field(new Cast(struct, FileType.INSTANCE, true), "size")).getAllAccessPaths());
     }
 
     @Test
