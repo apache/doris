@@ -93,18 +93,21 @@ suite("test_routine_load_property","p0") {
         PROPERTIES ("replication_allocation" = "tag.location.default: 1");
     """
 
-    // U+FFFD, the Unicode replacement character, is what a statement whose bytes were not UTF-8 decodes to, and
-    // the replay takes it in a job's metadata for a byte an older version lost, so CREATE does not take it as
-    // enclose or escape. CREATE checks them before it connects to Kafka.
+    // CREATE takes only an ASCII character as enclose or escape: the tasks would get 0xFD or 0xEF for any byte from
+    // 0x80 up, which in UTF-8 data is absent or part of a character anyway. U+FFFD, the Unicode replacement
+    // character, is what a statement whose bytes were not UTF-8 decodes to. CREATE checks them before it connects to
+    // Kafka.
     for (String key : ["enclose", "escape"]) {
-        test {
-            sql """
-                CREATE ROUTINE LOAD test_${key}_replacement_character ON ${tableName}
-                COLUMNS TERMINATED BY ","
-                PROPERTIES ("${key}" = "\uFFFD")
-                FROM KAFKA ("kafka_broker_list" = "127.0.0.1:9092", "kafka_topic" = "test_${key}_replacement_character")
-            """
-            exception "${key} must not be U+FFFD"
+        for (String value : ["\uFFFD", "é"]) {
+            test {
+                sql """
+                    CREATE ROUTINE LOAD test_${key}_non_ascii ON ${tableName}
+                    COLUMNS TERMINATED BY ","
+                    PROPERTIES ("${key}" = "${value}")
+                    FROM KAFKA ("kafka_broker_list" = "127.0.0.1:9092", "kafka_topic" = "test_${key}_non_ascii")
+                """
+                exception "${key} must be an ASCII character"
+            }
         }
     }
 

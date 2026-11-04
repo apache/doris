@@ -416,10 +416,10 @@ public abstract class RoutineLoadJob
         if (fileFormatProperties instanceof CsvFileFormatProperties) {
             CsvFileFormatProperties csvFileFormatProperties = (CsvFileFormatProperties) fileFormatProperties;
             jobProperties.put(FileFormatProperties.PROP_FORMAT, "csv");
-            jobProperties.put(CsvFileFormatProperties.PROP_ENCLOSE, csvControlValue(info,
-                    CsvFileFormatProperties.PROP_ENCLOSE, csvFileFormatProperties.getEnclose()));
-            jobProperties.put(CsvFileFormatProperties.PROP_ESCAPE, csvControlValue(info,
-                    CsvFileFormatProperties.PROP_ESCAPE, csvFileFormatProperties.getEscape()));
+            jobProperties.put(CsvFileFormatProperties.PROP_ENCLOSE,
+                    new String(new byte[]{csvFileFormatProperties.getEnclose()}));
+            jobProperties.put(CsvFileFormatProperties.PROP_ESCAPE,
+                    new String(new byte[]{csvFileFormatProperties.getEscape()}));
             jobProperties.put(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL,
                     String.valueOf(csvFileFormatProperties.getEmptyFieldAsNull()));
             this.enclose = csvFileFormatProperties.getEnclose();
@@ -2061,9 +2061,9 @@ public abstract class RoutineLoadJob
             } else if (k.equals(CreateRoutineLoadInfo.LOAD_TO_SINGLE_TABLET)) {
                 loadToSingleTablet = Boolean.parseBoolean(v);
             } else if (k.equals(CsvFileFormatProperties.PROP_ENCLOSE)) {
-                enclose = recordedCsvControlByte(k, v, enclose);
+                enclose = csvControlByte(k, v, enclose);
             } else if (k.equals(CsvFileFormatProperties.PROP_ESCAPE)) {
-                escape = recordedCsvControlByte(k, v, escape);
+                escape = csvControlByte(k, v, escape);
             }
         });
         // Snapshotted from the creating session. A job created before the snapshot was persisted keeps false, which
@@ -2209,40 +2209,21 @@ public abstract class RoutineLoadJob
         }
     }
 
-    // The byte an enclose or escape value stands for, as CREATE takes it. ALTER of an older version did not check
-    // the value, so the metadata can hold one that CREATE rejects. Such a value never reached the job, and it does
-    // not now: the job keeps the byte it has, where an exception would fail the replay of the metadata.
+    // The byte an enclose or escape value stands for, as CREATE takes it. The metadata can hold a value that CREATE
+    // and ALTER reject now: ALTER of an older version did not check it, and CREATE of an older version took any
+    // character and recorded its byte, which reads back as U+FFFD from 0x80 up. Such a value is ignored the same way
+    // when the job is rebuilt and when an ALTER is replayed: the job keeps the byte it has, where an exception would
+    // fail the replay of the metadata. A job rebuilt with such a value keeps none, as after every restart so far.
     private byte csvControlByte(String key, String value, byte current) {
         try {
+            CreateRoutineLoadInfo.checkCsvControlValue(key, value);
             return key.equals(CsvFileFormatProperties.PROP_ENCLOSE)
                     ? CsvFileFormatProperties.parseEnclose(value) : CsvFileFormatProperties.parseEscape(value);
-        } catch (org.apache.doris.nereids.exceptions.AnalysisException e) {
+        } catch (AnalysisException | org.apache.doris.nereids.exceptions.AnalysisException e) {
             LOG.warn("routine load job {} keeps its {} instead of the invalid value '{}': {}",
                     id, key, value, e.getMessage());
             return current;
         }
-    }
-
-    // What CREATE records for enclose or escape: the value the statement gave, which the replay parses as CREATE did.
-    // The byte itself does not survive a String: new String(new byte[]{b}) decodes every byte from 0x80 up to U+FFFD.
-    // Without a value the byte is 0, recorded as it always was.
-    private static String csvControlValue(CreateRoutineLoadInfo info, String key, byte value) {
-        String given = info.getJobProperties().get(key);
-        return Strings.isNullOrEmpty(given) ? new String(new byte[]{value}) : given;
-    }
-
-    // csvControlByte for a value CREATE or ALTER recorded. CREATE of an older version recorded the byte, so a byte
-    // from 0x80 up came back as U+FFFD, which would now parse to 0xFD for enclose and 0xEF for escape. That byte is
-    // lost: the job keeps the default, which is what it has run with after every restart. CREATE and ALTER reject
-    // U+FFFD (CreateRoutineLoadInfo#checkCsvControlValue), so the metadata holds it only from an older version: a
-    // byte its CREATE lost, or a value its ALTER stored unchecked, which never reached the job either.
-    private byte recordedCsvControlByte(String key, String value, byte current) {
-        if (value.equals(String.valueOf((char) 0xFFFD))) {
-            LOG.warn("routine load job {} keeps its {}: an older version recorded the value as U+FFFD;"
-                    + " ALTER ROUTINE LOAD can set it again", id, key);
-            return current;
-        }
-        return csvControlByte(key, value, current);
     }
 
     /**

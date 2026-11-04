@@ -127,65 +127,57 @@ public class RoutineLoadJobReplayTest extends TestWithFeService {
         Assertions.assertFalse(replayed.isMemtableOnSinkNode());
     }
 
-    // new String(new byte[]{b}) decodes every byte from 0x80 up to U+FFFD, so CREATE records the value the statement
-    // gave, as ALTER does, and the replay parses it as CREATE did. Without a value it records the zero byte, as it
-    // always has.
+    // Without enclose and escape CREATE records the zero byte, and the replay gives the job none.
     @Test
-    public void testCreateRecordsTheGivenEncloseAndEscape() throws Exception {
-        KafkaRoutineLoadJob job = createJob("CREATE ROUTINE LOAD rl_replay_db.job_high_bit ON dup_tbl\n"
-                + "PROPERTIES ('enclose' = 'é', 'escape' = 'é')\n"
-                + "FROM KAFKA ('kafka_broker_list' = '127.0.0.1:9092', 'kafka_topic' = 'topic_high_bit')");
-        Map<String, String> jobProperties = Deencapsulation.getField(job, "jobProperties");
-        Assertions.assertEquals("é", jobProperties.get(CsvFileFormatProperties.PROP_ENCLOSE));
-        Assertions.assertEquals("é", jobProperties.get(CsvFileFormatProperties.PROP_ESCAPE));
-        // enclose is the low byte of the character, escape the first byte of its encoding in the default charset
-        Assertions.assertEquals((byte) 0xE9, job.getEnclose());
-        byte escape = job.getEscape();
-
-        NereidsRoutineLoadTaskInfo taskInfo = replay(job).toNereidsRoutineLoadTaskInfo();
-        Assertions.assertEquals((byte) 0xE9, taskInfo.getEnclose());
-        Assertions.assertEquals(escape, taskInfo.getEscape());
-
-        KafkaRoutineLoadJob withoutValues = createJob("CREATE ROUTINE LOAD rl_replay_db.job_no_enclose ON dup_tbl\n"
+    public void testCreateWithoutEncloseAndEscapeRecordsTheZeroByte() throws Exception {
+        KafkaRoutineLoadJob job = createJob("CREATE ROUTINE LOAD rl_replay_db.job_no_enclose ON dup_tbl\n"
                 + "FROM KAFKA ('kafka_broker_list' = '127.0.0.1:9092', 'kafka_topic' = 'topic_no_enclose')");
-        jobProperties = Deencapsulation.getField(withoutValues, "jobProperties");
+        Map<String, String> jobProperties = Deencapsulation.getField(job, "jobProperties");
         Assertions.assertEquals("\u0000", jobProperties.get(CsvFileFormatProperties.PROP_ENCLOSE));
         Assertions.assertEquals("\u0000", jobProperties.get(CsvFileFormatProperties.PROP_ESCAPE));
-        KafkaRoutineLoadJob replayed = replay(withoutValues);
-        Assertions.assertEquals(0, replayed.getEnclose());
-        Assertions.assertEquals(0, replayed.getEscape());
-    }
-
-    // CREATE of an older version recorded the byte, so the metadata of a job created with a byte from 0x80 up holds
-    // U+FFFD. The byte is lost: rather than parse to 0xFD and 0xEF, the job keeps no enclose and no escape, which is
-    // what it has run with after every restart.
-    @Test
-    public void testByteAnOlderCreateLostIsIgnored() throws Exception {
-        KafkaRoutineLoadJob job = createJob("CREATE ROUTINE LOAD rl_replay_db.job_lost_byte ON dup_tbl\n"
-                + "PROPERTIES ('enclose' = 'é', 'escape' = 'é')\n"
-                + "FROM KAFKA ('kafka_broker_list' = '127.0.0.1:9092', 'kafka_topic' = 'topic_lost_byte')");
-        Map<String, String> jobProperties = Deencapsulation.getField(job, "jobProperties");
-        // What an older CREATE recorded for a byte from 0x80 up
-        String lost = String.valueOf((char) 0xFFFD);
-        jobProperties.put(CsvFileFormatProperties.PROP_ENCLOSE, lost);
-        jobProperties.put(CsvFileFormatProperties.PROP_ESCAPE, lost);
-
         KafkaRoutineLoadJob replayed = replay(job);
-        Assertions.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, replayed.getState());
         Assertions.assertEquals(0, replayed.getEnclose());
         Assertions.assertEquals(0, replayed.getEscape());
     }
 
-    // So that U+FFFD in the metadata only ever is such a lost byte, CREATE does not take U+FFFD itself. A statement
-    // whose bytes were not UTF-8 decodes to it, so it does not stand for the byte the statement meant either.
+    // CREATE of an older version took any character as enclose or escape, and recorded the byte it took, which reads
+    // back as U+FFFD from 0x80 up. The rebuild re-parses the stored statement, which can hold such a character (U+FFFD
+    // where the client did not send UTF-8), and must not reject it as CREATE does now, since that would cancel the
+    // job. The job keeps no enclose and no escape for the U+FFFD recorded, which is what it has run with after every
+    // restart.
     @Test
-    public void testCreateRejectsTheReplacementCharacter() {
+    public void testOlderCreateStatementWithNonAsciiValueReplays() throws Exception {
+        for (String value : new String[] {String.valueOf((char) 0xFFFD), "é"}) {
+            KafkaRoutineLoadJob job = createJob("CREATE ROUTINE LOAD rl_replay_db.job_older_create ON dup_tbl\n"
+                    + "FROM KAFKA ('kafka_broker_list' = '127.0.0.1:9092', 'kafka_topic' = 'topic_older_create')");
+            // What an older version admitted and recorded
+            job.setOrigStmt(new OriginStatement("CREATE ROUTINE LOAD rl_replay_db.job_older_create ON dup_tbl\n"
+                    + "PROPERTIES ('enclose' = '" + value + "', 'escape' = '" + value + "')\n"
+                    + "FROM KAFKA ('kafka_broker_list' = '127.0.0.1:9092', 'kafka_topic' = 'topic_older_create')", 0));
+            Map<String, String> jobProperties = Deencapsulation.getField(job, "jobProperties");
+            jobProperties.put(CsvFileFormatProperties.PROP_ENCLOSE, String.valueOf((char) 0xFFFD));
+            jobProperties.put(CsvFileFormatProperties.PROP_ESCAPE, String.valueOf((char) 0xFFFD));
+
+            KafkaRoutineLoadJob replayed = replay(job);
+            Assertions.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, replayed.getState(), value);
+            Assertions.assertEquals(0, replayed.getEnclose(), value);
+            Assertions.assertEquals(0, replayed.getEscape(), value);
+        }
+    }
+
+    // CREATE takes only an ASCII character as enclose or escape: the tasks would get 0xFD or 0xEF for any byte from
+    // 0x80 up, which in UTF-8 data is absent or part of a character anyway. U+FFFD is what a statement whose bytes
+    // were not UTF-8 decodes to, and the full-width comma was taken as its low byte, 0x0C, as enclose.
+    @Test
+    public void testCreateRejectsNonAsciiEncloseAndEscape() {
         for (String key : new String[] {CsvFileFormatProperties.PROP_ENCLOSE, CsvFileFormatProperties.PROP_ESCAPE}) {
-            String sql = "CREATE ROUTINE LOAD rl_replay_db.job_replacement ON dup_tbl\n"
-                    + "PROPERTIES ('" + key + "' = '" + (char) 0xFFFD + "')\n"
-                    + "FROM KAFKA ('kafka_broker_list' = '127.0.0.1:9092', 'kafka_topic' = 'topic_replacement')";
-            Exception e = Assertions.assertThrows(Exception.class, () -> createJob(sql));
-            Assertions.assertTrue(e.getMessage().contains(key + " must not be U+FFFD"), e.getMessage());
+            for (String value : new String[] {"é", String.valueOf((char) 0xFFFD), "，"}) {
+                String sql = "CREATE ROUTINE LOAD rl_replay_db.job_non_ascii ON dup_tbl\n"
+                        + "PROPERTIES ('" + key + "' = '" + value + "')\n"
+                        + "FROM KAFKA ('kafka_broker_list' = '127.0.0.1:9092', 'kafka_topic' = 'topic_non_ascii')";
+                Exception e = Assertions.assertThrows(Exception.class, () -> createJob(sql));
+                Assertions.assertTrue(e.getMessage().contains(key + " must be an ASCII character"), e.getMessage());
+            }
         }
     }
 
@@ -227,5 +219,29 @@ public class RoutineLoadJobReplayTest extends TestWithFeService {
         Assertions.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, replayed.getState());
         Assertions.assertEquals(0, replayed.getEnclose());
         Assertions.assertEquals('\\', replayed.getEscape());
+    }
+
+    // ALTER of an older version also stored a value that is not ASCII. Neither the replay of that ALTER nor a rebuild
+    // of the job, whose metadata then holds the value, applies it: the job keeps the byte it has.
+    @Test
+    public void testNonAsciiValueAnOlderAlterStoredIsIgnored() throws Exception {
+        for (String value : new String[] {"é", String.valueOf((char) 0xFFFD)}) {
+            KafkaRoutineLoadJob job = createJob("CREATE ROUTINE LOAD rl_replay_db.job_older_alter ON dup_tbl\n"
+                    + "PROPERTIES ('enclose' = '\"', 'escape' = '\\\\')\n"
+                    + "FROM KAFKA ('kafka_broker_list' = '127.0.0.1:9092', 'kafka_topic' = 'topic_older_alter')");
+            Map<String, String> altered = Maps.newHashMap();
+            altered.put(CsvFileFormatProperties.PROP_ENCLOSE, value);
+            altered.put(CsvFileFormatProperties.PROP_ESCAPE, value);
+            job.replayModifyProperties(new AlterRoutineLoadJobOperationLog(job.getId(), altered, null));
+            Assertions.assertEquals('"', job.getEnclose(), value);
+            Assertions.assertEquals('\\', job.getEscape(), value);
+
+            Map<String, String> jobProperties = Deencapsulation.getField(job, "jobProperties");
+            Assertions.assertEquals(value, jobProperties.get(CsvFileFormatProperties.PROP_ENCLOSE));
+            KafkaRoutineLoadJob replayed = replay(job);
+            Assertions.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, replayed.getState(), value);
+            Assertions.assertEquals(0, replayed.getEnclose(), value);
+            Assertions.assertEquals(0, replayed.getEscape(), value);
+        }
     }
 }
