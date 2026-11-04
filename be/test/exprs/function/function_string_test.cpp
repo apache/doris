@@ -81,6 +81,34 @@ DataSet make_md5_varbinary_dataset(const std::vector<std::string>& inputs) {
 
 } // namespace
 
+TEST(function_string_test, ngram_search_gram_num) {
+    const InputTypeSet input_types = {Notnull {TYPE_STRING}, ConstedNotnull {TYPE_STRING},
+                                      ConstedNotnull {TYPE_INT}};
+    // 2 * |intersection| / (|text grams| + |pattern grams|); one row per data set because the
+    // const arguments are built from a single value.
+    const DataSet data_set = {{{std::string("abc"), std::string("abc"), int32_t(3)}, 1.0},
+                              {{std::string("ab"), std::string("abc"), int32_t(3)}, 0.0},
+                              {{std::string("ab"), std::string("abc"), int32_t(1)}, 0.8}};
+    for (const auto& row : data_set) {
+        ASSERT_TRUE(check_function<DataTypeFloat64>("ngram_search", input_types, {row}).ok());
+    }
+}
+
+TEST(function_string_test, ngram_search_nonpositive_gram_num) {
+    // FE folds a constant expression like `crc32('abc') % 3 - 3` on BE before it can check the
+    // value, so BE must reject a nonpositive gram_num instead of using it as a substring length.
+    const InputTypeSet input_types = {Notnull {TYPE_STRING}, ConstedNotnull {TYPE_STRING},
+                                      ConstedNotnull {TYPE_INT}};
+    for (int32_t gram_num : {0, -1}) {
+        const DataSet data_set = {{{std::string("abc"), std::string("abc"), gram_num}, 0.0}};
+        auto st = check_function<DataTypeFloat64>("ngram_search", input_types, data_set, -1, -1,
+                                                  true);
+        EXPECT_TRUE(st.is<ErrorCode::INVALID_ARGUMENT>()) << st;
+        EXPECT_NE(st.to_string().find("gram_num must be a positive constant"), std::string::npos)
+                << st;
+    }
+}
+
 TEST(function_string_test, parse_data_size_nullable) {
     const InputTypeSet input_types = {PrimitiveType::TYPE_STRING};
     const DataSet data_set = {{{Null()}, Null()},
@@ -2696,7 +2724,14 @@ TEST(function_string_test, function_extract_url_parameter_test) {
             {{VARCHAR("http://doris.apache.org?k1=aa&k2=bb&test=dd#999/"), VARCHAR("k3")},
              {VARCHAR("")}},
             {{VARCHAR("http://doris.apache.org?k1=aa&k2=bb&test=dd#999/"), VARCHAR("test")},
-             {VARCHAR("dd")}}};
+             {VARCHAR("dd")}},
+            // The first '#' comes before the first '?', so the '?' belongs to the fragment and
+            // the url has no parameters.
+            {{VARCHAR("http://doris.apache.org#f?k1=aa"), VARCHAR("k1")}, {VARCHAR("")}},
+            {{VARCHAR("http://doris.apache.org#f?k1=aa"), VARCHAR("aa")}, {VARCHAR("")}},
+            // The parameters end before the fragment.
+            {{VARCHAR("http://doris.apache.org?k1=aa#f?k2=bb"), VARCHAR("k1")}, {VARCHAR("aa")}},
+            {{VARCHAR("http://doris.apache.org?k1=aa#f?k2=bb"), VARCHAR("k2")}, {VARCHAR("")}}};
 
     check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
 }
@@ -2746,7 +2781,14 @@ TEST(function_string_test, function_parse_url_test) {
                           "https://www.facebook.com/aa/bb?returnpage=https://www.facebook.com/"),
                   std::string("HosT")},
                  std::string("www.facebook.com")},
-                {{std::string("http://www.baidu.com"), std::string("FILE")}, {std::string("")}}};
+                {{std::string("http://www.baidu.com"), std::string("FILE")}, {std::string("")}},
+                // The first '#' comes before the first '?', so the '?' belongs to the fragment
+                // and the url has no query component.
+                {{std::string("http://h/p#f?k=v"), std::string("QUERY")}, {Null()}},
+                {{std::string("http://h/p#f/?#k=v"), std::string("QUERY")}, {Null()}},
+                // The query component ends before the fragment.
+                {{std::string("http://h/p?k=1#f&k=2"), std::string("QUERY")}, {std::string("k=1")}},
+                {{std::string("http://h/p?"), std::string("QUERY")}, {std::string("")}}};
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
     }
@@ -2765,7 +2807,15 @@ TEST(function_string_test, function_parse_url_test) {
                  {Null()}},
                 {{std::string("http://fb.com/path/p1.p?q=1#f"), std::string("HOST"),
                   std::string("q")},
-                 {Null()}}};
+                 {Null()}},
+                // The only '?' is inside the fragment, so the url has no query component.
+                {{std::string("http://h/p#f?k=v"), std::string("QUERY"), std::string("k")},
+                 {Null()}},
+                // A duplicated key returns the first value.
+                {{std::string("http://h/p?k=1&k=2#f"), std::string("QUERY"), std::string("k")},
+                 {std::string("1")}},
+                {{std::string("http://h/p?k=1&k=2&k=3"), std::string("QUERY"), std::string("k")},
+                 {std::string("1")}}};
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
     }

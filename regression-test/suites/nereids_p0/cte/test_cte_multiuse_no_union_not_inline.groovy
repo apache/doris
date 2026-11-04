@@ -42,7 +42,7 @@ suite("test_cte_multiuse_no_union_not_inline") {
     """
     sql "INSERT INTO cte_multiuse_tbl2 VALUES (1, 10), (2, 20), (3, 30)"
     
-    // --- cte_inline_mode = 0: selective mode (default) ---
+    // --- cte_inline_mode = 0: selective mode ---
     sql "SET cte_inline_mode=0"
     // Keep default inline_cte_referenced_threshold=1 so that multi-use CTEs
     // (consumers > 1) survive the early CTEInline rule and reach the optimizer.

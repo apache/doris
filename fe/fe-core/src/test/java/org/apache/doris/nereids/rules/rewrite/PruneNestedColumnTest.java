@@ -27,6 +27,7 @@ import org.apache.doris.nereids.rules.rewrite.AccessPathExpressionCollector.Coll
 import org.apache.doris.nereids.rules.rewrite.NestedColumnPruning.DataTypeAccessTree;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -136,12 +137,23 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
 
         createTable("create table nested_array_tbl(\n"
                 + "  id int,\n"
-                + "  a array<array<int>>\n"
+                + "  a array<array<int>>,\n"
+                + "  indexes array<bigint>\n"
                 + ") properties ('replication_num'='1')");
 
         createTable("create table map_array_tbl(\n"
                 + "  id int,\n"
                 + "  map_arr_col map<string, array<int>>\n"
+                + ") properties ('replication_num'='1')");
+
+        createTable("create table array_map_meta_tbl(\n"
+                + "  id int,\n"
+                + "  a array<struct<v: int>>\n"
+                + ") properties ('replication_num'='1')");
+
+        createTable("create table array_map_map_producer_tbl(\n"
+                + "  id int,\n"
+                + "  m map<string, struct<v: int>>\n"
                 + ") properties ('replication_num'='1')");
 
         createTable("create table map_array_value_tbl(\n"
@@ -161,6 +173,17 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         createTable("create table nested_struct_tbl(\n"
                 + "  id int,\n"
                 + "  s struct<`outer`: struct<`a`: string, `inner_f`: string>>\n"
+                + ") properties ('replication_num'='1')");
+
+        // Struct holding a nested struct plus a sibling field. The sibling makes the column
+        // prunable, while element_at(wrapper, 'payload') gives the TRY_CAST a derived child that
+        // is rebuilt (not just re-typed) when the sibling is pruned away.
+        createTable("create table try_cast_nested_tbl(\n"
+                + "  id int,\n"
+                + "  wrapper struct<\n"
+                + "    payload: struct<good: string, bad: string>,\n"
+                + "    unused: int\n"
+                + "  >\n"
                 + ") properties ('replication_num'='1')");
 
         // Tables for outer-join nullability test: verifying that synthetic nullability
@@ -230,6 +253,32 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 "select cardinality(element_at(a, 1)) from nested_array_tbl",
                 ImmutableList.of(metaPath("a", "*", "OFFSET")),
                 ImmutableList.of(path("a", "*")));
+    }
+
+    @Test
+    public void testComparatorArraySortKeepsPayloadPath() throws Exception {
+        assertColumn("select array_sort((x, y) -> if(cardinality(x) < cardinality(y), -1, "
+                        + "if(cardinality(x) = cardinality(y), 0, 1)), a) from nested_array_tbl",
+                "array<array<int>>",
+                ImmutableList.of(path("a")),
+                ImmutableList.of());
+    }
+
+    @Test
+    public void testElementAtLambdaIndexKeepsPayloadPath() throws Exception {
+        assertColumns("select array_map((a, i) -> element_at(a, i), a, indexes) "
+                        + "from nested_array_tbl where indexes is not null",
+                ImmutableList.of(
+                        Triple.of(
+                                "array<array<int>>",
+                                ImmutableList.of(path("a", "*", "*")),
+                                ImmutableList.of()),
+                        Triple.of(
+                                "array<bigint>",
+                                // The branch keeps element payload and typed NULL metadata separately.
+                                ImmutableList.of(path("indexes", "*"), metaPath("indexes", "NULL")),
+                                ImmutableList.of(metaPath("indexes", "NULL")))
+                ));
     }
 
     @Test
@@ -638,6 +687,38 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     @Test
+    public void testTryCastNotPrunedThroughFieldAccess() throws Exception {
+        // TRY_CAST of a composite type keeps whole-value semantics: the conversion fails
+        // (and TRY_CAST returns NULL) if ANY field conversion fails. An outer field access
+        // element_at(try_cast(s as struct<k:int,...>), 'k') must therefore not narrow the
+        // underlying read to the accessed field only — the whole struct is read and the
+        // cast target/identity are unchanged.
+        assertColumn(
+                "select element_at(try_cast(s as struct<k:int,l:array<map<int,struct<a:int,b:double>>>>), 'k')"
+                        + " from tbl",
+                "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s")),
+                ImmutableList.of());
+    }
+
+    @Test
+    public void testTryCastKeptWhenDerivedChildIsRebuilt() throws Exception {
+        // Unlike testTryCastNotPrunedThroughFieldAccess, the TRY_CAST child here is not the slot
+        // itself but a derived element_at. The whole-value context opened by visitTryCast records
+        // [wrapper, payload], which only pins the payload value: the sibling field wrapper.unused
+        // is still pruned away, the wrapper slot type changes, and SlotTypeReplacer therefore
+        // rebuilds the inner element_at. Rebuilding the cast over that changed child must not
+        // downgrade the whole-value TRY_CAST into a strict CAST.
+        String sql = "select element_at(try_cast(element_at(wrapper, 'payload') as struct<good:int,bad:int>),"
+                + " 'good') from try_cast_nested_tbl";
+        assertColumn(sql,
+                "struct<payload:struct<good:text,bad:text>>",
+                ImmutableList.of(path("wrapper", "payload")),
+                ImmutableList.of());
+        assertTryCastPreserved(sql, "STRUCT<good:INT,bad:INT>");
+    }
+
+    @Test
     public void testPruneArrayLambda() throws Exception {
         // map_values(element_at(s, 'data').*)[0].a
         assertColumn("select element_at(array_map(x -> map_values(x)[0], element_at(s, 'data'))[0], 'a') from tbl",
@@ -649,6 +730,13 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         assertColumn("select array_map((x, y) -> element_at(map_values(x)[0], 'a') + element_at(map_values(y)[0], 'b'), element_at(s, 'data'), element_at(s, 'data')) from tbl",
                 "struct<data:array<map<int,struct<a:int,b:double>>>>",
                 ImmutableList.of(path("s", "data", "*", "VALUES", "a"), path("s", "data", "*", "VALUES", "b")),
+                ImmutableList.of()
+        );
+
+        assertColumn("select array_map(m -> array_map(x -> element_at(map_values(m)[0], 'a'), [1]), "
+                        + "element_at(s, 'data')) from tbl",
+                "struct<data:array<map<int,struct<a:int>>>>",
+                ImmutableList.of(path("s", "data", "*", "VALUES", "a")),
                 ImmutableList.of()
         );
     }
@@ -1537,6 +1625,26 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         assertColumns(sql, expectType == null ? null : ImmutableList.of(Triple.of(expectType, expectAllAccessPaths, expectPredicateAccessPaths)));
     }
 
+    /** Assert the physical plan contains a TRY_CAST of the given target type and no plain CAST of it. */
+    private void assertTryCastPreserved(String sql, String expectTargetType) throws Exception {
+        PhysicalPlan physicalPlan = collectComplexSlots(sql).first;
+        List<String> casts = new ArrayList<>();
+        physicalPlan.foreachUp(plan -> {
+            for (Expression expression : ((PhysicalPlan) plan).getExpressions()) {
+                expression.foreach(e -> {
+                    if (e instanceof Cast) {
+                        Cast cast = (Cast) e;
+                        casts.add(cast.getClass().getSimpleName() + " -> " + cast.getDataType().toSql());
+                    }
+                });
+            }
+        });
+        Assertions.assertTrue(casts.contains("TryCast -> " + expectTargetType),
+                "expected TRY_CAST -> " + expectTargetType + " in the physical plan, but found " + casts);
+        Assertions.assertFalse(casts.contains("Cast -> " + expectTargetType),
+                "TRY_CAST was downgraded to a plain CAST: " + casts);
+    }
+
     private void assertAllAccessPathsContain(String sql, List<TColumnAccessPath> expectContainAllAccessPaths,
             List<TColumnAccessPath> expectNotContainAllAccessPaths) throws Exception {
         Pair<PhysicalPlan, List<SlotDescriptor>> result = collectComplexSlots(sql);
@@ -2231,4 +2339,95 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                         ImmutableList.of("s", "f", "NULL"), true, TAccessPathType.META)),
                 "f is NOT NULL, expected NO [s,f,NULL] META in: " + allPaths);
     }
+
+    @Test
+    public void testCardinalityArrayMapCollectsContainerOffsetPath() throws Exception {
+        // ARRAY_MAP keeps the container shape of its inputs, so cardinality(array_map(...)) must
+        // collect the input array's OFFSET metadata. Passing the OFFSET requirement into the lambda
+        // body instead yields `a.*.OFFSET`, an OFFSET at the struct element level that the BE
+        // rejects; the element data the lambda reads must stay collected as well.
+        assertColumn("select cardinality(array_map(x -> x, a)) from array_map_meta_tbl",
+                "array<struct<v:int>>",
+                ImmutableList.of(path("a", "*"), metaPath("a", "OFFSET")),
+                ImmutableList.of());
+    }
+
+    @Test
+    public void testCardinalityArrayMapOnNestedArrayCollectsContainerOffsetPath() throws Exception {
+        assertColumn("select cardinality(array_map(x -> x, element_at(s, 'arr'))) "
+                        + "from nested_container_tbl",
+                "struct<arr:array<struct<str_field:text,int_field:int>>>",
+                ImmutableList.of(
+                        path("s", "arr", "*"),
+                        metaPath("s", "arr", "OFFSET")),
+                ImmutableList.of());
+    }
+
+    @Test
+    public void testCardinalityArrayMapOnMapValueCollectsValueOffsetPath() throws Exception {
+        assertAllAccessPathsContain(
+                "select cardinality(array_map(x -> x, element_at(element_at(s, 'm'), 'k'))) "
+                        + "from map_array_value_tbl",
+                ImmutableList.of(
+                        path("s", "m", "KEYS"),
+                        path("s", "m", "VALUES", "*"),
+                        metaPath("s", "m", "VALUES", "OFFSET")),
+                ImmutableList.of(
+                        metaPath("s", "m", "VALUES", "*", "OFFSET")));
+    }
+
+    @Test
+    public void testIsNullArrayMapCollectsContainerNullPath() throws Exception {
+        assertAllAccessPathsContain(
+                "select array_map(x -> x, a) is null from array_map_meta_tbl",
+                ImmutableList.of(metaPath("a", "NULL")),
+                ImmutableList.of(metaPath("a", "*", "NULL")));
+    }
+
+    @Test
+    public void testCardinalityArrayMapKeepsElementFieldTheLambdaReads() throws Exception {
+        assertColumn("select cardinality(array_map(x -> x.v + 1, a)) from array_map_meta_tbl",
+                "array<struct<v:int>>",
+                ImmutableList.of(path("a", "*", "v"), metaPath("a", "OFFSET")),
+                ImmutableList.of());
+    }
+
+    @Test
+    public void testArrayMapResultElementMetadataKeepsLambdaPayloadOnly() throws Exception {
+        // cardinality() of a selected ARRAY_MAP element addresses an element of the ARRAY_MAP
+        // result, whose shape is produced by the lambda, not the input array container. That
+        // metadata cannot be routed to the input array's element: doing so emitted the invalid
+        // `a.*.OFFSET` on a struct element, so only the element data the lambda reads is kept.
+        assertColumn("select cardinality(element_at(array_map(x -> array(x.v), a), 1)) "
+                        + "from array_map_meta_tbl",
+                "array<struct<v:int>>",
+                ImmutableList.of(path("a", "*", "v")),
+                ImmutableList.of());
+
+        assertColumn("select element_at(array_map(x -> array(x.v), a), 1) is null "
+                        + "from array_map_meta_tbl",
+                "array<struct<v:int>>",
+                ImmutableList.of(path("a", "*", "v")),
+                ImmutableList.of());
+    }
+
+    @Test
+    public void testArrayMapOnMapProducerUsesMapContainerMetadata() throws Exception {
+        // map_values / map_keys produce an array whose container is the map itself: its length is
+        // the map's entry count. The OFFSET requirement must be collected on the map column, as
+        // cardinality(map_values(m)) does, instead of the VALUES / KEYS sub-column, which has no
+        // offsets of its own when the value is a struct (`m.VALUES.OFFSET` fails in the BE).
+        assertColumn("select cardinality(array_map(x -> x.v + 1, map_values(m))) "
+                        + "from array_map_map_producer_tbl",
+                "map<text,struct<v:int>>",
+                ImmutableList.of(path("m", "VALUES", "v"), metaPath("m", "OFFSET")),
+                ImmutableList.of());
+
+        assertColumn("select cardinality(array_map(x -> 1, map_keys(m))) "
+                        + "from array_map_map_producer_tbl",
+                "map<text,struct<v:int>>",
+                ImmutableList.of(path("m", "KEYS"), metaPath("m", "OFFSET")),
+                ImmutableList.of());
+    }
+
 }

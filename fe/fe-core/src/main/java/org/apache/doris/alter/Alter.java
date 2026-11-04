@@ -90,6 +90,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropMaterializedViewCommand
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
+import org.apache.doris.persist.EditLog.EditLogItem;
 import org.apache.doris.persist.ModifyCommentOperationLog;
 import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.persist.ModifyTableEngineOperationLog;
@@ -1299,24 +1300,22 @@ public class Alter {
     public void processAlterMTMV(AlterMTMV alterMTMV, boolean isReplay) {
         TableNameInfo tbl = alterMTMV.getMvName();
         MTMV mtmv = null;
-        boolean alterSuccess = true;
+        EditLogItem editLogItem = null;
         try {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(tbl.getDb());
             mtmv = (MTMV) db.getTableOrMetaException(tbl.getTbl(), TableType.MATERIALIZED_VIEW);
             switch (alterMTMV.getOpType()) {
                 case ALTER_REFRESH_INFO:
-                    mtmv.alterRefreshInfo(alterMTMV.getRefreshInfo());
+                    editLogItem = mtmv.alterRefreshInfo(alterMTMV, isReplay);
                     break;
                 case ALTER_STATUS:
-                    mtmv.alterStatus(alterMTMV.getStatus());
+                    editLogItem = mtmv.alterStatus(alterMTMV, isReplay);
                     break;
                 case ALTER_PROPERTY:
-                    mtmv.alterMvProperties(alterMTMV.getMvProperties());
+                    editLogItem = mtmv.alterMvProperties(alterMTMV, isReplay);
                     break;
                 case ADD_TASK:
-                    alterSuccess = mtmv.addTaskResult(alterMTMV.getTask(), alterMTMV.getRelation(),
-                            alterMTMV.getPartitionSnapshots(),
-                            isReplay);
+                    mtmv.addTaskResult(alterMTMV, isReplay);
                     // If it is not a replay thread, it means that the current service is already a new version
                     // and does not require compatibility
                     if (isReplay) {
@@ -1326,12 +1325,12 @@ public class Alter {
                 default:
                     throw new RuntimeException("Unknown type value: " + alterMTMV.getOpType());
             }
+            // Await before rebuilding jobs, which can fail after the metadata has changed.
+            if (editLogItem != null) {
+                editLogItem.await();
+            }
             if (alterMTMV.isNeedRebuildJob()) {
                 Env.getCurrentEnv().getMtmvService().alterJob(mtmv, isReplay);
-            }
-            // 4. log it and replay it in the follower
-            if (!isReplay && alterSuccess) {
-                Env.getCurrentEnv().getEditLog().logAlterMTMV(alterMTMV);
             }
         } catch (UserException e) {
             // if MTMV has been dropped, ignore this exception

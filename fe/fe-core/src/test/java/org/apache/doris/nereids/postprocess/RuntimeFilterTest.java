@@ -53,10 +53,13 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.VariantType;
@@ -760,6 +763,163 @@ public class RuntimeFilterTest extends SSBTestBase {
                 "Standard RF s_suppkey->c_custkey should still target c_custkey");
 
         connectContext.getSessionVariable().enableDecoupledRuntimeFilter = false;
+    }
+
+    /**
+     * The runtime filters which every consumer of a CTE applies are pushed into the producer, where one of
+     * them filters the rows of all the consumers; the filters of a single consumer must stay where they are,
+     * otherwise they prune the rows the other consumers still need.
+     */
+    @Test
+    public void testPushSharedCteRuntimeFilterIntoTheProducer() {
+        int oldType = connectContext.getSessionVariable().getRuntimeFilterType();
+        boolean oldMaterialize = connectContext.getSessionVariable().enableCTEMaterialize;
+        connectContext.getSessionVariable().setRuntimeFilterType(TRuntimeFilterType.MIN_MAX.getValue());
+        connectContext.getSessionVariable().enableCTEMaterialize = true;
+        try {
+            // Keep a direct-slot project: 4.2 only pushes CTE filters through direct project items.
+            // Both consumers apply the same MIN filter built from `p_partkey`, so it reaches the producer.
+            PhysicalPlan plan = planAfterPostProcess(
+                    "with t as (select lo_partkey, abs(lo_partkey) as v from lineorder)"
+                            + " select c2.lo_partkey, c1.v, c2.v from t c2 cross join t c1 cross join part"
+                            + " where c1.lo_partkey > p_partkey and c2.lo_partkey > p_partkey");
+            List<RuntimeFilter> pushedIntoProducer = runtimeFiltersInsideCteProducers(plan);
+            Assertions.assertFalse(pushedIntoProducer.isEmpty(),
+                    () -> "the filter which every consumer applies must be pushed into the producer: "
+                            + plan.treeString() + " consumers: " + runtimeFiltersOnCteConsumers(plan));
+            // the filter which was moved into the producer is no longer applied by the consumer it was built
+            // for, otherwise the rows it filters would be filtered twice
+            List<RuntimeFilter> onConsumers = runtimeFiltersOnCteConsumers(plan);
+            Assertions.assertTrue(pushedIntoProducer.stream().noneMatch(onConsumers::contains),
+                    () -> "a filter pushed into the producer must not stay on its consumer: " + onConsumers);
+        } finally {
+            connectContext.getSessionVariable().setRuntimeFilterType(oldType);
+            connectContext.getSessionVariable().enableCTEMaterialize = oldMaterialize;
+        }
+    }
+
+    @Test
+    public void testDoNotPushSingleConsumerCteRuntimeFilterIntoTheProducer() {
+        int oldType = connectContext.getSessionVariable().getRuntimeFilterType();
+        boolean oldMaterialize = connectContext.getSessionVariable().enableCTEMaterialize;
+        connectContext.getSessionVariable().setRuntimeFilterType(TRuntimeFilterType.MIN_MAX.getValue());
+        connectContext.getSessionVariable().enableCTEMaterialize = true;
+        try {
+            // `c1.k > p_partkey` builds a MIN filter and `c2.k < p_partkey` a MAX one: each of them is
+            // applied by one consumer only, so neither may be applied on the shared producer.
+            List<RuntimeFilter> pushedIntoProducer = runtimeFiltersInsideCteProducers(planAfterPostProcess(
+                    "with t as (select lo_partkey, abs(lo_partkey) as v from lineorder)"
+                            + " select c2.lo_partkey, c1.v, c2.v from t c2 cross join t c1 cross join part"
+                            + " where c1.lo_partkey > p_partkey and c2.lo_partkey < p_partkey"));
+            Assertions.assertTrue(pushedIntoProducer.isEmpty(),
+                    () -> "the filters of a single consumer must not reach the producer: " + pushedIntoProducer);
+        } finally {
+            connectContext.getSessionVariable().setRuntimeFilterType(oldType);
+            connectContext.getSessionVariable().enableCTEMaterialize = oldMaterialize;
+        }
+    }
+
+    /**
+     * The filter created on the shared producer replaces the filters of the consumers, so it has to keep the
+     * requirement of that group not to be waited for. The producer feeds every consumer, while a filter which
+     * waits is built by one of them: a replacement which waits for a consumer whose own filter was
+     * non-blocking closes the cycle producer -> build side of a consumer -> consumer -> producer, and the
+     * query stalls until the runtime filter or the query times out.
+     */
+    @Test
+    public void testPushSharedCteRuntimeFilterIntoTheProducerKeepsTheNonBlockingRequirement() {
+        boolean oldMaterialize = connectContext.getSessionVariable().enableCTEMaterialize;
+        boolean oldExpandByInnerJoin = connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin;
+        boolean oldDecoupled = connectContext.getSessionVariable().enableDecoupledRuntimeFilter;
+        long oldMinDecoupledRows = connectContext.getSessionVariable().minDecoupledRfTargetRows;
+        connectContext.getSessionVariable().enableCTEMaterialize = true;
+        connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = true;
+        connectContext.getSessionVariable().enableDecoupledRuntimeFilter = true;
+        // the tables of the test catalog hold one row, while the decoupled filter of the plan below targets a
+        // scan of it: keep the filter which describes the behavior under test rather than the pruning of
+        // filters which cannot arrive in time on a tiny scan.
+        connectContext.getSessionVariable().minDecoupledRfTargetRows = 0;
+        try {
+            // `c1.c_custkey = s_suppkey` is the condition join: its standard filter targets the CTE consumer
+            // `c1` and expands to `c2`, while the reverse decoupled filter is built by the deeper join
+            // `c2.c_custkey = c1.c_custkey`, whose build side carries the filter on `c_region`. The decoupled
+            // filter is therefore preferred and both standard filters are marked non-blocking.
+            PhysicalPlan plan = planAfterPostProcess(
+                    "with t as (select c_custkey, c_region from customer)"
+                            + " select c1.c_custkey from t c2 join t c1 on c2.c_custkey = c1.c_custkey"
+                            + " join supplier on c1.c_custkey = s_suppkey"
+                            + " where c1.c_region = 'ASIA'");
+            List<RuntimeFilter> pushedIntoProducer = runtimeFiltersInsideCteProducers(plan);
+            Assertions.assertFalse(pushedIntoProducer.isEmpty(),
+                    () -> "the filter which every consumer applies must be pushed into the producer: "
+                            + plan.treeString());
+            Assertions.assertTrue(pushedIntoProducer.stream().allMatch(RuntimeFilter::isNonBlocking),
+                    () -> "a filter pushed into the producer must keep the non-blocking requirement of the"
+                            + " filters it replaces: " + pushedIntoProducer);
+        } finally {
+            connectContext.getSessionVariable().enableCTEMaterialize = oldMaterialize;
+            connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = oldExpandByInnerJoin;
+            connectContext.getSessionVariable().enableDecoupledRuntimeFilter = oldDecoupled;
+            connectContext.getSessionVariable().minDecoupledRfTargetRows = oldMinDecoupledRows;
+        }
+    }
+
+    /**
+     * A node which synthesizes a value of the source column -- here the NULL the repeat adds for the grouping
+     * set which does not group by it -- makes a filter built below it prune the rows the consumers above it
+     * still need, so the deepest filter must not stand in for them.
+     */
+    @Test
+    public void testDoNotPushRuntimeFilterWhichCrossesAValueSynthesizingNode() {
+        boolean oldMaterialize = connectContext.getSessionVariable().enableCTEMaterialize;
+        connectContext.getSessionVariable().enableCTEMaterialize = true;
+        try {
+            PhysicalPlan plan = planAfterPostProcess(
+                    "with t as (select lo_partkey as k from lineorder)"
+                            + " select c1.k from t c1 join ("
+                            + "   select x from ("
+                            + "     select c2.k as k2, p.p_partkey as x from t c2 join part p on c2.k <=> p.p_partkey"
+                            + "   ) a group by grouping sets ((x), ())"
+                            + " ) g on c1.k <=> g.x");
+            Assertions.assertTrue(plan.containsType(PhysicalRepeat.class),
+                    "the query must plan the grouping sets which synthesize the NULL");
+            Assertions.assertTrue(!plan.<Plan>collect(PhysicalCTEProducer.class::isInstance).isEmpty(),
+                    "the query must materialize the CTE");
+            Assertions.assertFalse(runtimeFiltersOnCteConsumers(plan).isEmpty(),
+                    "the consumers must keep the filters which may not be pushed");
+            List<RuntimeFilter> pushedIntoProducer = runtimeFiltersInsideCteProducers(plan);
+            Assertions.assertTrue(pushedIntoProducer.isEmpty(),
+                    () -> "a filter which crosses a value synthesizing node must not reach the producer: "
+                            + pushedIntoProducer);
+        } finally {
+            connectContext.getSessionVariable().enableCTEMaterialize = oldMaterialize;
+        }
+    }
+
+    private PhysicalPlan planAfterPostProcess(String sql) {
+        PlanChecker checker = PlanChecker.from(connectContext).analyze(sql).rewrite().optimize();
+        return new PlanPostProcessors(checker.getCascadesContext()).process(checker.getBestPlanTree());
+    }
+
+    /** The runtime filters which are still applied by the consumers of a CTE. */
+    private static List<RuntimeFilter> runtimeFiltersOnCteConsumers(PhysicalPlan plan) {
+        List<RuntimeFilter> applied = new ArrayList<>();
+        for (Plan consumer : plan.<Plan>collect(PhysicalCTEConsumer.class::isInstance)) {
+            applied.addAll(((AbstractPhysicalPlan) consumer).getAppliedRuntimeFilters());
+        }
+        return applied;
+    }
+
+    /** The runtime filters which were installed on the relations inside the CTE producers. */
+    private static List<RuntimeFilter> runtimeFiltersInsideCteProducers(PhysicalPlan plan) {
+        List<RuntimeFilter> applied = new ArrayList<>();
+        for (Plan producer : plan.<Plan>collect(PhysicalCTEProducer.class::isInstance)) {
+            for (Plan relation : ((PhysicalCTEProducer<?>) producer).child(0)
+                    .<Plan>collect(PhysicalRelation.class::isInstance)) {
+                applied.addAll(((AbstractPhysicalPlan) relation).getAppliedRuntimeFilters());
+            }
+        }
+        return applied;
     }
 
 }

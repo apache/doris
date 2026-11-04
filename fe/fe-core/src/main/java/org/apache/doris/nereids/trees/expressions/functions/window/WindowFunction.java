@@ -20,8 +20,10 @@ package org.apache.doris.nereids.trees.expressions.functions.window;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.types.DataType;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Objects;
 
@@ -29,6 +31,8 @@ import java.util.Objects;
  * Window functions, as known as analytic functions.
  */
 public abstract class WindowFunction extends BoundFunction implements SupportWindowAnalytic {
+
+    private static final BigDecimal MAX_BIGINT_OFFSET = BigDecimal.valueOf(Long.MAX_VALUE);
 
     public WindowFunction(String name, Expression... arguments) {
         super(name, arguments);
@@ -77,6 +81,24 @@ public abstract class WindowFunction extends BoundFunction implements SupportWin
         if (!param.isConstant()) {
             throw new AnalysisException(
                     "The parameter 2 of LAG/LEAD must be a constant value: " + this.toSql());
+        }
+    }
+
+    protected void checkOffsetBeforeTypeCoercion(Expression offset, String functionName) {
+        if (!offset.getDataType().isIntegralType()) {
+            throw new AnalysisException("The offset parameter of " + functionName
+                    + " must be a constant positive integer: " + this.toSql());
+        }
+        if (offset instanceof Literal) {
+            BigDecimal offsetValue = new BigDecimal(((Literal) offset).getStringValue());
+            if (offsetValue.compareTo(BigDecimal.ZERO) < 0) {
+                throw new AnalysisException("The offset parameter of " + functionName
+                        + " must be a constant positive integer: " + this.toSql());
+            }
+            if (offsetValue.compareTo(MAX_BIGINT_OFFSET) > 0) {
+                throw new AnalysisException("The offset parameter of " + functionName
+                        + " must not exceed " + Long.MAX_VALUE + ": " + this.toSql());
+            }
         }
     }
 }

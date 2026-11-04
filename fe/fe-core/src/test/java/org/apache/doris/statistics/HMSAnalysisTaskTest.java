@@ -316,12 +316,16 @@ public class HMSAnalysisTaskTest {
             {
                 tableIf.getId();
                 result = 30001;
+                tableIf.getName();
+                result = "test";
                 catalogIf.getId();
                 result = 10001;
                 catalogIf.getName();
                 result = "hms";
                 databaseIf.getId();
                 result = 20001;
+                databaseIf.getFullName();
+                result = "default";
             }
         };
 

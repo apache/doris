@@ -96,6 +96,19 @@ class SimplifyArithmeticRuleTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
+    void testPreserveCastAroundArithmetic() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(SimplifyArithmeticRule.INSTANCE)
+        ));
+
+        String castExpression = "cast(LA - 9223372036854775800 as double) + cast(0 as double)";
+        assertRewriteAfterSimplify(castExpression, castExpression);
+
+        String tryCastExpression = "try_cast(LA - 9223372036854775800 as double) + cast(0 as double)";
+        assertRewriteAfterSimplify(tryCastExpression, tryCastExpression);
+    }
+
+    @Test
     void testSimplifyArithmeticComparison() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
                 bottomUp(

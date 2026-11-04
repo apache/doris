@@ -55,6 +55,7 @@ import org.apache.doris.datasource.SplitGenerator;
 import org.apache.doris.datasource.SplitToScanRange;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergPartitionInfo;
@@ -108,6 +109,7 @@ import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.MetadataColumns;
@@ -161,6 +163,7 @@ import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -372,6 +375,12 @@ public class IcebergScanNodeTest {
         }
 
         @Override
+        protected Executor getManifestReadExecutor() {
+            // This fixture mocks static manifest IO on the calling thread; concurrency has separate tests.
+            return Runnable::run;
+        }
+
+        @Override
         public boolean isBatchMode() {
             return batchMode;
         }
@@ -445,6 +454,13 @@ public class IcebergScanNodeTest {
                 SessionVariable sv, AtomicInteger manifestLoadCount, boolean batchMode) {
             super(sv, false, batchMode);
             this.manifestLoadCount = manifestLoadCount;
+        }
+
+        @Override
+        protected CloseableIterable<FileScanTask> streamFileScanTasksWithManifestCache(
+                TableScan scan, Snapshot snapshot) {
+            manifestLoadCount.incrementAndGet();
+            return CloseableIterable.withNoopClose(Collections.emptyList());
         }
 
         @Override
@@ -1169,7 +1185,7 @@ public class IcebergScanNodeTest {
         setIcebergSource(batchNode, mockIcebergSource(10L, 20L));
         try (CloseableIterable<FileScanTask> ignored = planFileScanTaskWithManifestCache(
                 batchNode, mockTableScanWithPlanCounter(batchPlanCalls))) {
-            // Batch mode keeps the SDK iterable lazy instead of materializing manifest tasks.
+            // Batch mode uses the streaming manifest path without the serialized task cache.
         }
 
         SessionVariable explicitSizeVariable = new SessionVariable();
@@ -1182,8 +1198,8 @@ public class IcebergScanNodeTest {
             // Explicit split size also keeps the SDK iterable lazy.
         }
 
-        Assert.assertEquals(0, manifestLoadCount.get());
-        Assert.assertEquals(1, batchPlanCalls.get());
+        Assert.assertEquals(1, manifestLoadCount.get());
+        Assert.assertEquals(0, batchPlanCalls.get());
         Assert.assertEquals(1, explicitSizePlanCalls.get());
     }
 
@@ -3860,6 +3876,12 @@ public class IcebergScanNodeTest {
         setPrivateField(node, "icebergTable", table);
         Env env = Mockito.mock(Env.class);
         Mockito.when(env.getExtMetaCacheMgr()).thenReturn(Mockito.mock(ExternalMetaCacheMgr.class));
+        setPreExecutionAuthenticator(node, new ExecutionAuthenticator() { });
+        IcebergSnapshotCacheValue planningGeneration = new IcebergSnapshotCacheValue(
+                new IcebergPartitionInfo(Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap()),
+                new IcebergSnapshot(table.currentSnapshot().snapshotId(),
+                        table.schema().schemaId())).bindSourceGeneration(new IcebergTableCacheValue(table));
+        setPrivateField(node, "frozenGenerationSource", planningGeneration);
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
                 MockedStatic<IcebergManifestCacheLoader> loader =
                         Mockito.mockStatic(IcebergManifestCacheLoader.class)) {
@@ -3926,51 +3948,101 @@ public class IcebergScanNodeTest {
         checkDateToNanosEqualityDeletes(true, true, true);
     }
 
+    @Test
+    public void testStreamingManifestCacheKeepsDateIdentityPartitionAfterPromotion() throws Exception {
+        checkDateToNanosEqualityDeletes(false, true, false, true);
+    }
+
+    @Test
+    public void testStreamingManifestCacheKeepsDroppedDateIdentityPartitionAfterPromotion() throws Exception {
+        checkDateToNanosEqualityDeletes(true, true, false, true);
+    }
+
     private void checkDateToNanosEqualityDeletes(boolean dropped, boolean manifestCache,
             boolean dateDelete) throws Exception {
+        checkDateToNanosEqualityDeletes(dropped, manifestCache, dateDelete, false);
+    }
+
+    @Test
+    public void testStreamingManifestCacheKeepsDateIdentityPartitionAfterMicrosPromotion() throws Exception {
+        checkDateToTimestampEqualityDeletes(false, true, false, true, Types.TimestampType.withoutZone());
+    }
+
+    @Test
+    public void testStreamingManifestCacheKeepsDroppedDateIdentityPartitionAfterMicrosPromotion() throws Exception {
+        checkDateToTimestampEqualityDeletes(true, true, false, true, Types.TimestampType.withoutZone());
+    }
+
+    private void checkDateToNanosEqualityDeletes(boolean dropped, boolean manifestCache,
+            boolean dateDelete, boolean partitioned) throws Exception {
+        checkDateToTimestampEqualityDeletes(dropped, manifestCache, dateDelete, partitioned,
+                Types.TimestampNanoType.withoutZone());
+    }
+
+    private void checkDateToTimestampEqualityDeletes(boolean dropped, boolean manifestCache,
+            boolean dateDelete, boolean partitioned, org.apache.iceberg.types.Type.PrimitiveType timestampType)
+            throws Exception {
         Schema schema = new Schema(Types.NestedField.required(1, "ts", Types.DateType.get()),
                 Types.NestedField.optional(2, "id", Types.IntegerType.get()));
+        long timestampValue = timestampType.typeId() == org.apache.iceberg.types.Type.TypeID.TIMESTAMP_NANO
+                ? 1704153600000000000L : 1704153600000000L;
         String tableLocation = temporaryFolder.getRoot().toPath()
-                .resolve("manifest_cache_date_to_nanos_" + manifestCache + "_" + dateDelete).toUri().toString();
+                .resolve("manifest_cache_date_to_timestamp_" + manifestCache + "_" + dateDelete
+                        + "_" + partitioned + "_" + timestampType.typeId()).toUri().toString();
         Table table = new HadoopTables(new Configuration()).create(
-                schema, PartitionSpec.unpartitioned(), SortOrder.unsorted(),
+                schema, partitioned ? PartitionSpec.builderFor(schema).identity("ts").build()
+                        : PartitionSpec.unpartitioned(), SortOrder.unsorted(),
                 ImmutableMap.of(TableProperties.FORMAT_VERSION, "3"), tableLocation);
         Map<Integer, java.nio.ByteBuffer> dateBounds = ImmutableMap.of(1,
                 org.apache.iceberg.types.Conversions.toByteBuffer(Types.DateType.get(), 19724));
-        Map<Integer, java.nio.ByteBuffer> nanosBounds = ImmutableMap.of(1,
+        Map<Integer, java.nio.ByteBuffer> timestampBounds = ImmutableMap.of(1,
                 org.apache.iceberg.types.Conversions.toByteBuffer(
-                        Types.TimestampNanoType.withoutZone(), 1704153600000000000L));
+                        timestampType, timestampValue));
+        PartitionData datePartition = new PartitionData(table.spec().rawPartitionType());
+        if (partitioned) {
+            datePartition.set(0, 19724);
+        }
         DataFile dataFile = DataFiles.builder(table.spec())
+                .withPartition(datePartition)
                 .withPath(tableLocation + "/data/old.parquet")
                 .withFormat(FileFormat.PARQUET)
                 .withFileSizeInBytes(10)
                 .withMetrics(new org.apache.iceberg.Metrics(1L, null, ImmutableMap.of(1, 1L),
                         ImmutableMap.of(1, 0L), null,
-                        dateDelete ? nanosBounds : dateBounds, dateDelete ? nanosBounds : dateBounds))
+                        dateDelete ? timestampBounds : dateBounds, dateDelete ? timestampBounds : dateBounds))
                 .build();
         if (!dateDelete) {
             table.newFastAppend().appendFile(dataFile).commit();
         }
-        TableOperations operations = ((org.apache.iceberg.HasTableOperations) table).operations();
+        TableOperations operations = ((HasTableOperations) table).operations();
         TableMetadata before = operations.current();
         operations.commit(before, TableMetadata.buildFrom(before).setCurrentSchema(new Schema(
-                Types.NestedField.required(1, "ts", Types.TimestampNanoType.withoutZone()),
+                Types.NestedField.required(1, "ts", timestampType),
                 Types.NestedField.optional(2, "id", Types.IntegerType.get())), 2).build());
         table.refresh();
         if (dateDelete) {
             table.newFastAppend().appendFile(dataFile).commit();
         }
+        PartitionData timestampPartition = new PartitionData(table.spec().rawPartitionType());
+        if (partitioned) {
+            timestampPartition.set(0, timestampValue);
+        }
+        // Partitioned cases isolate partition-key matching; unpartitioned cases cover promoted equality-key bounds.
         table.newRowDelta().addDeletes(FileMetadata.deleteFileBuilder(table.spec())
-                .ofEqualityDeletes(1)
+                .withPartition(timestampPartition)
+                .ofEqualityDeletes(partitioned ? 2 : 1)
                 .withPath(tableLocation + "/data/eq-delete.parquet")
                 .withFormat(FileFormat.PARQUET)
                 .withFileSizeInBytes(10)
                 .withMetrics(new org.apache.iceberg.Metrics(1L, null, ImmutableMap.of(1, 1L),
                         ImmutableMap.of(1, 0L), null,
-                        dateDelete ? dateBounds : nanosBounds, dateDelete ? dateBounds : nanosBounds))
+                        dateDelete ? dateBounds : timestampBounds, dateDelete ? dateBounds : timestampBounds))
                 .build()).commit();
 
         if (dropped) {
+            if (partitioned) {
+                table.updateSpec().removeField("ts").commit();
+            }
             table.updateSchema().deleteColumn("ts").commit();
         }
 
@@ -3982,6 +4054,12 @@ public class IcebergScanNodeTest {
         setPrivateField(node, "icebergTable", table);
         Env env = Mockito.mock(Env.class);
         Mockito.when(env.getExtMetaCacheMgr()).thenReturn(Mockito.mock(ExternalMetaCacheMgr.class));
+        setPreExecutionAuthenticator(node, new ExecutionAuthenticator() { });
+        IcebergSnapshotCacheValue planningGeneration = new IcebergSnapshotCacheValue(
+                new IcebergPartitionInfo(Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap()),
+                new IcebergSnapshot(table.currentSnapshot().snapshotId(),
+                        table.schema().schemaId())).bindSourceGeneration(new IcebergTableCacheValue(table));
+        setPrivateField(node, "frozenGenerationSource", planningGeneration);
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
                 MockedStatic<IcebergManifestCacheLoader> loader =
                         Mockito.mockStatic(IcebergManifestCacheLoader.class)) {
@@ -3989,29 +4067,41 @@ public class IcebergScanNodeTest {
             loader.when(() -> IcebergManifestCacheLoader.loadDeleteFilesWithCache(Mockito.any(), Mockito.any(),
                     Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()))
                     .thenAnswer(invocation -> {
-                        List<DeleteFile> files = new ArrayList<>();
-                        try (CloseableIterable<DeleteFile> reader = ManifestFiles.readDeleteManifest(
-                                invocation.getArgument(2), table.io(), table.specs())) {
-                            reader.forEach(file -> files.add(file.copy()));
+                        ManifestCacheValue value = readPhysicalManifest(
+                                invocation.getArgument(2), table, true);
+                        if (partitioned) {
+                            PartitionData partition = (PartitionData) value.getDeleteFiles().get(0).partition();
+                            Assert.assertEquals(timestampType,
+                                    partition.getPartitionType().fields().get(0).type());
                         }
-                        return ManifestCacheValue.forDeleteFiles(files);
+                        return value;
                     });
             loader.when(() -> IcebergManifestCacheLoader.loadDataFilesWithCache(Mockito.any(), Mockito.any(),
                     Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()))
                     .thenAnswer(invocation -> {
-                        List<DataFile> files = new ArrayList<>();
-                        try (CloseableIterable<DataFile> reader = ManifestFiles.read(
-                                invocation.getArgument(2), table.io(), table.specs())) {
-                            reader.forEach(file -> files.add(file.copy()));
+                        ManifestCacheValue value = readPhysicalManifest(
+                                invocation.getArgument(2), table, false);
+                        if (partitioned) {
+                            PartitionData partition = (PartitionData) value.getDataFiles().get(0).partition();
+                            Assert.assertEquals(Types.DateType.get(),
+                                    partition.getPartitionType().fields().get(0).type());
                         }
-                        return ManifestCacheValue.forDataFiles(files);
+                        return value;
                     });
 
             TableScan scan = org.apache.iceberg.DorisDataTableScan.wrap(table.newScan().project(table.schema()));
             Assert.assertEquals(dropped, scan.schema().findField("ts") == null);
             List<FileScanTask> tasks;
             if (manifestCache) {
-                tasks = node.loadFileScanTasksWithManifestCache(scan, table.currentSnapshot());
+                if (partitioned) {
+                    tasks = new ArrayList<>();
+                    try (CloseableIterable<FileScanTask> planned = node.streamFileScanTasksWithManifestCache(
+                            scan, table.currentSnapshot())) {
+                        planned.forEach(tasks::add);
+                    }
+                } else {
+                    tasks = node.loadFileScanTasksWithManifestCache(scan, table.currentSnapshot());
+                }
             } else {
                 tasks = new ArrayList<>();
                 try (CloseableIterable<FileScanTask> planned = scan.planFiles()) {
@@ -4019,10 +4109,10 @@ public class IcebergScanNodeTest {
                 }
             }
 
-            // Historical DATE bounds are days, not nanos; they must not exclude the later delete.
+            // Historical DATE bounds use epoch days; they must not exclude the later delete.
             Assert.assertEquals(1, tasks.size());
             Assert.assertEquals(1, tasks.get(0).deletes().size());
-            if (!dateDelete) {
+            if (!dateDelete && !partitioned) {
                 Map<Integer, java.nio.ByteBuffer> otherNanos = ImmutableMap.of(1,
                         org.apache.iceberg.types.Conversions.toByteBuffer(
                                 Types.TimestampNanoType.withoutZone(), 1704240000000000000L));
@@ -4036,6 +4126,81 @@ public class IcebergScanNodeTest {
                         .specsById(table.specs()).build().forDataFile(0L, disjoint).length);
             }
         }
+    }
+
+    @Test
+    public void testNonBatchManifestReuseSerializesAdaptedDataAndDeleteFiles() throws Exception {
+        Schema schema = new Schema(Types.NestedField.optional(1, "p", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "id", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("p").build();
+        String location = temporaryFolder.newFolder("adapted-task-reuse").toURI().toString();
+        Table table = new HadoopTables(new Configuration()).create(schema, spec, SortOrder.unsorted(),
+                ImmutableMap.of(TableProperties.FORMAT_VERSION, "2"), location);
+        PartitionData partition = new PartitionData(spec.rawPartitionType());
+        partition.set(0, 7);
+        table.newFastAppend().appendFile(DataFiles.builder(spec)
+                .withPath(location + "/data.parquet").withPartition(partition)
+                .withRecordCount(1).withFileSizeInBytes(10).build()).commit();
+        table.newRowDelta().addDeletes(FileMetadata.deleteFileBuilder(spec).ofEqualityDeletes(2)
+                .withPath(location + "/delete.parquet").withFormat(FileFormat.PARQUET).withPartition(partition)
+                .withRecordCount(1).withFileSizeInBytes(10).build()).commit();
+        table.updateSchema().updateColumn("p", Types.LongType.get()).commit();
+        table.refresh();
+        StatementContext statement = new StatementContext();
+        ConnectContext context = new ConnectContext();
+        context.setStatementContext(statement);
+        context.setThreadLocalInfo();
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(Mockito.mock(ExternalMetaCacheMgr.class));
+        AtomicInteger dataLoads = new AtomicInteger();
+        AtomicInteger deleteLoads = new AtomicInteger();
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
+                MockedStatic<IcebergManifestCacheLoader> loader =
+                        Mockito.mockStatic(IcebergManifestCacheLoader.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            loader.when(() -> IcebergManifestCacheLoader.loadDataFilesWithCache(Mockito.any(), Mockito.any(),
+                    Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any())).thenAnswer(call -> {
+                        dataLoads.incrementAndGet();
+                        return readPhysicalManifest(call.getArgument(2), table, false);
+                    });
+            loader.when(() -> IcebergManifestCacheLoader.loadDeleteFilesWithCache(Mockito.any(), Mockito.any(),
+                    Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any())).thenAnswer(call -> {
+                        deleteLoads.incrementAndGet();
+                        return readPhysicalManifest(call.getArgument(2), table, true);
+                    });
+            for (int relation = 0; relation < 2; relation++) {
+                TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+                setIcebergSource(node, mockIcebergSource(10L, 20L));
+                setIcebergTable(node, table);
+                setPreExecutionAuthenticator(node, new ExecutionAuthenticator() {});
+                setPrivateField(node, "frozenGenerationSource", new IcebergSnapshotCacheValue(
+                        new IcebergPartitionInfo(Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap()),
+                        new IcebergSnapshot(table.currentSnapshot().snapshotId(),
+                                table.schema().schemaId())).bindSourceGeneration(new IcebergTableCacheValue(table)));
+                TableScan scan = DorisDataTableScan.wrap(table.newScan().project(table.schema()));
+                try (CloseableIterable<FileScanTask> planned = planFileScanTaskWithManifestCache(node, scan)) {
+                    List<FileScanTask> tasks = new ArrayList<>();
+                    planned.forEach(tasks::add);
+                    Assert.assertEquals(1, tasks.size());
+                    Assert.assertEquals(7L, tasks.get(0).file().partition().get(0, Long.class).longValue());
+                    Assert.assertEquals(1, tasks.get(0).deletes().size());
+                    Assert.assertEquals(7L, tasks.get(0).deletes().get(0).partition().get(0, Long.class).longValue());
+                }
+            }
+            Assert.assertEquals("equivalent relations reuse the adapted task payload", 1, dataLoads.get());
+            Assert.assertEquals(1, deleteLoads.get());
+        } finally {
+            statement.close();
+            ConnectContext.remove();
+        }
+    }
+
+    private ManifestCacheValue readPhysicalManifest(ManifestFile manifest, Table table, boolean deletes)
+            throws Exception {
+        Method loader = IcebergExternalMetaCache.class.getDeclaredMethod(
+                deletes ? "loadDeleteFiles" : "loadDataFiles", ManifestFile.class, Table.class, boolean.class);
+        loader.setAccessible(true);
+        return (ManifestCacheValue) loader.invoke(Mockito.mock(IcebergExternalMetaCache.class), manifest, table, false);
     }
 
     @Test
@@ -4244,6 +4409,74 @@ public class IcebergScanNodeTest {
         Assert.assertSame(frozenTable, useFrozenTableGeneration(node, refreshedTable));
         Assert.assertTrue(node.getEnableMappingVarbinary());
         Assert.assertFalse(node.getEnableMappingTimestampTz());
+    }
+
+    @Test
+    public void testMaximumBatchSettingClosesEmptyTasksAndGeneration() throws Exception {
+        List<Runnable> queued = new ArrayList<>();
+        SplitAssignment assignment = new SplitAssignment(
+                Mockito.mock(FederationBackendPolicy.class), Mockito.mock(SplitGenerator.class),
+                Mockito.mock(SplitToScanRange.class), Collections.emptyMap(), Collections.emptyList(),
+                false, Integer.MAX_VALUE, 10000);
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable()) {
+            {
+                splitAssignment = assignment;
+            }
+
+            @Override
+            protected Executor getSplitTaskExecutor() {
+                return queued::add;
+            }
+
+            @Override
+            CloseableIterable<FileScanTask> planFileScanTaskWithoutReuse(TableScan scan) {
+                return CloseableIterable.empty();
+            }
+        };
+        node.setTableScan(Mockito.mock(TableScan.class));
+        setPreExecutionAuthenticator(node, new ExecutionAuthenticator() {});
+        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        Mockito.when(source.getTargetTable()).thenReturn(table);
+        setIcebergSource(node, source);
+        AtomicInteger closed = new AtomicInteger();
+        try (MockedStatic<IcebergUtils> utils = Mockito.mockStatic(IcebergUtils.class)) {
+            utils.when(() -> IcebergUtils.retainTableGenerationForAsyncPlanning(table, null))
+                    .thenReturn((Closeable) closed::incrementAndGet);
+            node.doStartSplit();
+            Assert.assertEquals(1, queued.size());
+            queued.remove(0).run();
+            Assert.assertEquals(1, closed.get());
+            Assert.assertFalse(assignment.needMoreSplit());
+            assignment.init();
+        }
+    }
+
+    @Test
+    public void testCancelledAdmissionDoesNotLeakAnIndependentGenerationLease() throws Exception {
+        AtomicInteger references = new AtomicInteger(1);
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable()) {
+            @Override
+            protected Executor getSplitTaskExecutor() {
+                // Model statement cleanup retiring its original generation reference before admission.
+                references.decrementAndGet();
+                throw new java.util.concurrent.CancellationException("Scan task lease is closed");
+            }
+        };
+        node.setTableScan(Mockito.mock(TableScan.class));
+        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        Mockito.when(source.getTargetTable()).thenReturn(table);
+        setIcebergSource(node, source);
+        try (MockedStatic<IcebergUtils> utils = Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            utils.when(() -> IcebergUtils.retainTableGenerationForAsyncPlanning(
+                    Mockito.same(table), Mockito.isNull())).thenAnswer(call -> {
+                        references.incrementAndGet();
+                        return (Closeable) () -> references.decrementAndGet();
+                    });
+            Assert.assertThrows(java.util.concurrent.CancellationException.class, node::doStartSplit);
+            Assert.assertEquals("an independent planning lease must not outlive failed admission", 0, references.get());
+        }
     }
 
     @Test

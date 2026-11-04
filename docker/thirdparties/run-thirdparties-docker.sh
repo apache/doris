@@ -45,12 +45,12 @@ Usage: $0 <options>
      --hive-modules <list>  comma separated hive modules to refresh
 
   All valid components:
-    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,iceberg-rest,hudi,kafka,mariadb,db2,oceanbase,lakesoul,kerberos,ranger,polaris
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,iceberg-rest,hudi,kafka,mariadb,db2,oceanbase,lakesoul,kerberos,ranger,polaris,mongodb
   "
     exit 1
 }
 DEFAULT_COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,hudi,db2,oceanbase,kerberos,minio"
-ALL_COMPONENTS="${DEFAULT_COMPONENTS},kafka,lakesoul,ranger,polaris"
+ALL_COMPONENTS="${DEFAULT_COMPONENTS},kafka,lakesoul,ranger,polaris,mongodb"
 COMPONENTS=$2
 HELP=0
 STOP=0
@@ -234,6 +234,7 @@ RUN_KERBEROS=0
 RUN_MINIO=0
 RUN_RANGER=0
 RUN_POLARIS=0
+RUN_MONGODB=0
 
 RESERVED_PORTS="65535"
 
@@ -255,6 +256,8 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RESERVED_PORTS="${RESERVED_PORTS},50070,50075" # namenode and datanode ports
     elif [[ "${element}"x == "hive3"x ]]; then
         RUN_HIVE3=1
+    elif [[ "${element}"x == "mongodb"x ]]; then
+        RUN_MONGODB=1
     elif [[ "${element}"x == "kafka"x ]]; then
         RUN_KAFKA=1
     elif [[ "${element}"x == "iceberg"x ]]; then
@@ -939,6 +942,18 @@ start_mysql() {
         "${ROOT}/docker-compose/mysql/mysql-5.7.env" \
         -d --wait -- \
         "${ROOT}/docker-compose/mysql/data"
+}
+
+start_mongodb() {
+    # sudo may clear the caller's environment; pass the selected port through the rendered env file.
+    export MONGODB_PORT="${MONGODB_PORT:-27017}"
+    envsubst '${MONGODB_PORT}' <"${ROOT}/docker-compose/mongodb/mongodb.env.tpl" \
+        >"${ROOT}/docker-compose/mongodb/mongodb.env"
+    start_rendered_compose_stack "mongodb" \
+        "${ROOT}/docker-compose/mongodb/mongodb.yaml.tpl" \
+        "${ROOT}/docker-compose/mongodb/mongodb.yaml" \
+        "${ROOT}/docker-compose/mongodb/mongodb.env" \
+        -d --wait --
 }
 
 start_pg() {
@@ -1788,6 +1803,10 @@ fi
 
 if [[ "${RUN_MYSQL}" -eq 1 ]]; then
     launch_component "mysql" "${LOG_ROOT}/start_mysql.log" start_mysql
+fi
+
+if [[ "${RUN_MONGODB}" -eq 1 ]]; then
+    launch_component "mongodb" "${LOG_ROOT}/start_mongodb.log" start_mongodb
 fi
 
 if [[ "${RUN_PG}" -eq 1 ]]; then

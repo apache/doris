@@ -22,12 +22,17 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
 
+import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
 public class ConfigTest {
+    private static final String[] EXTERNAL_SCAN_SCHEDULER_CONFIGS = {
+            "external_scan_split_threads", "external_scan_metadata_threads", "external_scan_task_queue_capacity"
+    };
+
     @BeforeClass
     public static void setUp() throws Exception {
         Config config = new Config();
@@ -150,6 +155,64 @@ public class ConfigTest {
             Assertions.assertEquals("none", Config.mysql_caching_sha2_password_clients);
         } finally {
             Config.mysql_caching_sha2_password_clients = original;
+        }
+    }
+
+    @Test
+    public void testExternalScanSchedulerRejectsNonPositiveStartupValues() throws Exception {
+        assertExternalScanSchedulerRejectsNonPositiveValues(false);
+    }
+
+    @Test
+    public void testExternalScanSchedulerRejectsNonPositiveCustomStartupValues() throws Exception {
+        assertExternalScanSchedulerRejectsNonPositiveValues(true);
+    }
+
+    private void assertExternalScanSchedulerRejectsNonPositiveValues(boolean custom) throws Exception {
+        Config config = new Config();
+        config.init(configFile("").toString());
+        for (String name : EXTERNAL_SCAN_SCHEDULER_CONFIGS) {
+            Field field = Config.class.getField(name);
+            int original = field.getInt(null);
+            try {
+                for (String value : new String[] {"0", "-1"}) {
+                    Path invalid = configFile(name + "=" + value + "\n");
+                    IllegalArgumentException error = Assertions.assertThrows(IllegalArgumentException.class, () -> {
+                        if (custom) {
+                            config.initCustom(invalid.toString());
+                        } else {
+                            config.init(invalid.toString());
+                        }
+                    });
+                    Assertions.assertTrue(error.getMessage().contains(name));
+                    Assertions.assertInstanceOf(ConfigException.class, error.getCause());
+                    Assertions.assertTrue(error.getCause().getMessage().contains("must be greater than 0"));
+                    Assertions.assertEquals(original, field.getInt(null));
+                }
+            } finally {
+                field.setInt(null, original);
+            }
+        }
+    }
+
+    @Test
+    public void testExternalScanSchedulerAcceptsPositiveStartupValuesAndStaysImmutable() throws Exception {
+        Config config = new Config();
+        for (String name : EXTERNAL_SCAN_SCHEDULER_CONFIGS) {
+            Field field = Config.class.getField(name);
+            int original = field.getInt(null);
+            try {
+                config.init(configFile(name + "=1\n").toString());
+                Assertions.assertEquals(1, field.getInt(null));
+                config.initCustom(configFile(name + "= 128 \n").toString());
+                Assertions.assertEquals(128, field.getInt(null));
+                config.init(configFile(name + "=\n").toString());
+                Assertions.assertEquals(128, field.getInt(null));
+                Assertions.assertThrows(ConfigException.class, () -> ConfigBase.setMutableConfig(name, "8"));
+                Assertions.assertEquals(128, field.getInt(null));
+            } finally {
+                field.setInt(null, original);
+            }
         }
     }
 

@@ -84,6 +84,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -579,6 +580,37 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         return partitionValuesEntry.get(key.nameMapping.getCtlId()).get(key);
     }
 
+    /** Cheap scheduling hint only: do not list directories or initialize a cache on a miss. */
+    public long getCachedFileCount(List<HivePartition> partitions) {
+        if (partitions.isEmpty()) {
+            return 0;
+        }
+        HivePartition first = partitions.get(0);
+        long catalogId = first.getNameMapping().getCtlId();
+        MetaCacheEntry<FileCacheKey, FileCacheValue> entry = fileEntryIfInitialized(catalogId);
+        if (entry == null) {
+            return -1;
+        }
+        long fileId = Util.genIdByName(first.getNameMapping().getLocalDbName(),
+                first.getNameMapping().getLocalTblName());
+        long count = 0;
+        for (HivePartition partition : partitions) {
+            FileCacheKey key = partition.isDummyPartition()
+                    ? FileCacheKey.createDummyCacheKey(catalogId, fileId,
+                            partition.getPath(), partition.getInputFormat())
+                    : new FileCacheKey(catalogId, fileId, partition.getPath(),
+                            partition.getInputFormat(), partition.getPartitionValues());
+            FileCacheValue value = entry.peekIfPresent(key);
+            if (value == null) {
+                return -1;
+            }
+            if (value.getFiles() != null) {
+                count += value.getFiles().size();
+            }
+        }
+        return count;
+    }
+
     public List<FileCacheValue> getFilesByPartitions(List<HivePartition> partitions,
             boolean withCache,
             boolean concurrent,
@@ -836,7 +868,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
             mergedPartNames.addAll(newPartNames);
             if (!mergedPartNames.isEmpty()) {
                 addPartitionsCache(table.getOrBuildNameMapping(), mergedPartNames,
-                        table.getPartitionColumnTypes(java.util.Optional.empty()));
+                        table.getPartitionColumnTypes(Optional.empty()));
             }
 
             LOG.info("Refreshed cache for table {}: {} modified partitions, {} new partitions",
@@ -1350,8 +1382,8 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
             return first == null ? 0 : first.size();
         }
 
-        public java.util.Optional<SortedPartitionRanges<String>> getSortedPartitionRanges() {
-            return java.util.Optional.ofNullable(sortedPartitionRanges);
+        public Optional<SortedPartitionRanges<String>> getSortedPartitionRanges() {
+            return Optional.ofNullable(sortedPartitionRanges);
         }
 
         private SortedPartitionRanges<String> buildSortedPartitionRanges() {

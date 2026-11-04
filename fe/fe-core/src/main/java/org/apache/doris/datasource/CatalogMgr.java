@@ -441,40 +441,69 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
      * Modify the catalog property and write the meta log.
      */
     public void alterCatalogProps(String catalogName, Map<String, String> newProperties) throws UserException {
-        writeLock();
-        try {
-            CatalogIf catalog = nameToCatalog.get(catalogName);
-            if (catalog == null) {
-                throw new DdlException("No catalog found with name: " + catalogName);
+        while (true) {
+            CatalogIf catalog;
+            Map<String, String> oldProperties;
+            readLock();
+            try {
+                catalog = nameToCatalog.get(catalogName);
+                if (catalog == null) {
+                    throw new DdlException("No catalog found with name: " + catalogName);
+                }
+                oldProperties = Maps.newHashMap(catalog.getProperties());
+                if (newProperties.containsKey("type") && !catalog.getType()
+                        .equalsIgnoreCase(newProperties.get("type"))) {
+                    throw new DdlException("Can't modify the type of catalog property with name: " + catalogName);
+                }
+            } finally {
+                readUnlock();
             }
-            Map<String, String> oldProperties = catalog.getProperties();
-            if (newProperties.containsKey("type") && !catalog.getType()
-                    .equalsIgnoreCase(newProperties.get("type"))) {
-                throw new DdlException("Can't modify the type of catalog property with name: " + catalogName);
+            if (catalog instanceof ExternalCatalog) {
+                // Checks that may block on the network (the SSRF endpoint probe) must not hold the global catalog
+                // write lock: run them on the snapshot, and apply below only if no other DDL changed it meanwhile.
+                ((ExternalCatalog) catalog).validatePropertiesBeforeUpdateUnlocked(oldProperties, newProperties);
             }
-            CatalogLog log = new CatalogLog();
-            log.setCatalogId(catalog.getId());
-            Map<String, String> loggedProperties = Maps.newHashMap(newProperties);
-            if (catalog instanceof ExternalCatalog
-                    && loggedProperties.containsKey(CatalogProperty.ENABLE_MAPPING_VARBINARY)) {
-                // Older FEs replay this map verbatim, so normalize the durable record, not just
-                // the live CatalogProperty. Do not mutate the caller's possibly immutable map.
-                loggedProperties.put(CatalogProperty.ENABLE_MAPPING_VARBINARY, "true");
+            writeLock();
+            try {
+                if (nameToCatalog.get(catalogName) != catalog
+                        || !oldProperties.equals(catalog.getProperties())) {
+                    // The catalog was replaced or altered after the snapshot: check the current one again.
+                    continue;
+                }
+                alterCatalogPropsLocked(catalog, newProperties, oldProperties);
+                return;
+            } finally {
+                writeUnlock();
             }
-            if (catalog instanceof ExternalCatalog
-                    && loggedProperties.containsKey(CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ)) {
-                // Replicate the effective type policy so older followers infer the same schema.
-                loggedProperties.put(CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ, "true");
-            }
-            log.setNewProps(loggedProperties);
-            replayAlterCatalogProps(log, oldProperties, false);
-            if (!(catalog instanceof ExternalCatalog)) {
-                // External catalogs journal the committed change from the fenced helper once publication
-                // has happened; non-external catalogs only reach this point on success.
-                Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
-            }
-        } finally {
-            writeUnlock();
+        }
+    }
+
+    /**
+     * Journals and applies one ALTER CATALOG ... SET PROPERTIES. The caller holds the write lock and has already
+     * run {@link ExternalCatalog#validatePropertiesBeforeUpdateUnlocked} on these same old properties.
+     */
+    private void alterCatalogPropsLocked(CatalogIf catalog, Map<String, String> newProperties,
+            Map<String, String> oldProperties) throws DdlException {
+        CatalogLog log = new CatalogLog();
+        log.setCatalogId(catalog.getId());
+        Map<String, String> loggedProperties = Maps.newHashMap(newProperties);
+        if (catalog instanceof ExternalCatalog
+                && loggedProperties.containsKey(CatalogProperty.ENABLE_MAPPING_VARBINARY)) {
+            // Older FEs replay this map verbatim, so normalize the durable record, not just
+            // the live CatalogProperty. Do not mutate the caller's possibly immutable map.
+            loggedProperties.put(CatalogProperty.ENABLE_MAPPING_VARBINARY, "true");
+        }
+        if (catalog instanceof ExternalCatalog
+                && loggedProperties.containsKey(CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ)) {
+            // Replicate the effective type policy so older followers infer the same schema.
+            loggedProperties.put(CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ, "true");
+        }
+        log.setNewProps(loggedProperties);
+        replayAlterCatalogProps(log, oldProperties, false);
+        if (!(catalog instanceof ExternalCatalog)) {
+            // External catalogs journal the committed change from the fenced helper once publication
+            // has happened; non-external catalogs only reach this point on success.
+            Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
         }
     }
 

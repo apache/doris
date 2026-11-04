@@ -185,6 +185,27 @@ public class DecimalV3Type extends FractionalType {
         return new DecimalV3Type(precision, scale);
     }
 
+    /**
+     * A DecimalV3 wider than decimal128 can reach the planner while enable_decimal256 is off, e.g. a
+     * decimal(76, x) column or a view output analyzed with the variable on. In that case narrow it to
+     * decimal128 and keep as much scale as possible, so that the decimal128 rules never see an integral
+     * part wider than 38 digits.
+     */
+    public static DecimalV3Type narrowToDecimal128IfDisabled(DecimalV3Type type) {
+        if (type.getPrecision() <= MAX_DECIMAL128_PRECISION) {
+            return type;
+        }
+        boolean enableDecimal256 = false;
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null) {
+            enableDecimal256 = connectContext.getSessionVariable().isEnableDecimal256();
+        }
+        if (enableDecimal256) {
+            return type;
+        }
+        return createDecimalV3Type(MAX_DECIMAL128_PRECISION, Math.min(MAX_DECIMAL128_PRECISION, type.getScale()));
+    }
+
     public static DataType widerDecimalV3Type(DecimalV3Type left, DecimalV3Type right, boolean overflowToDouble) {
         return widerDecimalV3Type(left.getPrecision(), right.getPrecision(),
                 left.getScale(), right.getScale(), overflowToDouble);

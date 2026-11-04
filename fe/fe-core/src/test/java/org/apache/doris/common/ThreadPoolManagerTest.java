@@ -17,16 +17,106 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.common.util.FairTaskExecutor;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
+import org.apache.doris.metric.Metric;
+import org.apache.doris.metric.MetricRepo;
+
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 public class ThreadPoolManagerTest {
+
+    @Test(timeout = 30000)
+    public void testExternalScanSchedulersExportMetrics() throws Exception {
+        int splitThreads = Config.external_scan_split_threads;
+        int metadataThreads = Config.external_scan_metadata_threads;
+        try {
+            Config.external_scan_split_threads = 1;
+            Config.external_scan_metadata_threads = 1;
+            for (boolean checkpoint : new boolean[] {false, true}) {
+                ExternalMetaCacheMgr manager = new ExternalMetaCacheMgr(checkpoint);
+                try (FairTaskExecutor split = manager.getScanTaskExecutor(false);
+                        FairTaskExecutor metadata = manager.getScanTaskExecutor(true)) {
+                    ThreadPoolManager.registerAllThreadPoolMetric();
+                    String prefix = checkpoint ? "Checkpoint" : "NotCheckpoint";
+                    verifyFairTaskMetrics(split, prefix + "ExternalSplit");
+                    verifyFairTaskMetrics(metadata, prefix + "ExternalMetadata");
+                }
+            }
+        } finally {
+            Config.external_scan_split_threads = splitThreads;
+            Config.external_scan_metadata_threads = metadataThreads;
+        }
+    }
+
+    private void verifyFairTaskMetrics(FairTaskExecutor executor, String name) throws Exception {
+        Assert.assertEquals(0, metricValue(name, "pool_size"));
+        Assert.assertEquals(0, metricValue(name, "active_thread_num"));
+        Assert.assertEquals(0, metricValue(name, "task_in_queue"));
+        Assert.assertEquals(0, metricValue(name, "completed_task_count"));
+        Assert.assertEquals(0, metricValue(name, "task_group_num"));
+        Assert.assertEquals(Metric.MetricType.GAUGE, metric(name, "task_in_queue").getType());
+        Assert.assertEquals(Metric.MetricType.COUNTER, metric(name, "completed_task_count").getType());
+
+        FairTaskExecutor.Group group = executor.newGroup(2);
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch completed = new CountDownLatch(1);
+        try {
+            group.execute(() -> {
+                started.countDown();
+                try {
+                    Assert.assertTrue(release.await(10, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(e);
+                }
+            });
+            Assert.assertTrue(started.await(10, TimeUnit.SECONDS));
+            group.execute(completed::countDown);
+            Assert.assertEquals(1, metricValue(name, "pool_size"));
+            Assert.assertEquals(1, metricValue(name, "active_thread_num"));
+            Assert.assertEquals(1, metricValue(name, "task_in_queue"));
+            Assert.assertEquals(1, metricValue(name, "task_group_num"));
+            Assert.assertEquals(0, metricValue(name, "completed_task_count"));
+            release.countDown();
+            Assert.assertTrue(completed.await(10, TimeUnit.SECONDS));
+        } finally {
+            release.countDown();
+            executor.close();
+            Assert.assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+        }
+        Assert.assertEquals(0, metricValue(name, "active_thread_num"));
+        Assert.assertEquals(0, metricValue(name, "task_in_queue"));
+        Assert.assertEquals(0, metricValue(name, "task_group_num"));
+        Assert.assertEquals(2, metricValue(name, "completed_task_count"));
+    }
+
+    private long metricValue(String name, String type) {
+        return ((Number) metric(name, type).getValue()).longValue();
+    }
+
+    private Metric<?> metric(String name, String type) {
+        List<Metric<?>> metrics = MetricRepo.getMetricsByName("thread_pool").stream()
+                .<Metric<?>>map(metric -> metric)
+                .filter(metric -> metric.getLabels().stream()
+                        .anyMatch(label -> label.getKey().equals("name") && label.getValue().equals(name)))
+                .filter(metric -> metric.getLabels().stream()
+                        .anyMatch(label -> label.getKey().equals("type") && label.getValue().equals(type)))
+                .collect(Collectors.toList());
+        Assert.assertEquals(name + "/" + type, 1, metrics.size());
+        return metrics.get(0);
+    }
 
     @Test
     public void testBlockedPolicySkipsCancelledTask() {

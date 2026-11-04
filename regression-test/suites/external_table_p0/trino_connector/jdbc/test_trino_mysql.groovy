@@ -50,6 +50,7 @@ suite("test_trino_mysql", "p0,external,mysql,external_docker,external_docker_mys
 
         sql """use trino_mysql_test.doris_test"""
 
+        // Trino binary columns retain raw bytes as VARBINARY, including empty values and zero padding.
         qt_desc_all_types_null """desc all_types_nullable;"""
         qt_select_all_types_null """select * except(time1,time2,time3) from all_types_nullable order by 1;"""
         // Verify source instants independently of TIMESTAMPTZ's display format.

@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
@@ -36,6 +37,7 @@ import org.apache.doris.planner.RuntimeFilterGenerator.FilterSizeLimits;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -57,17 +59,22 @@ import java.util.stream.Collectors;
 public class RuntimeFilterContext {
 
     /**
-     * the combination of src expr, filter type and source join node, use to identify the filter
+     * The source, builder and predicate semantics identify a filter shared by multiple targets.
       */
     public class RuntimeFilterIdentity {
         final Expression expr;
         final TRuntimeFilterType type;
         final AbstractPhysicalJoin join;
+        final TMinMaxRuntimeFilterType minMaxType;
+        final boolean nullAware;
 
-        public RuntimeFilterIdentity(Expression expr, TRuntimeFilterType type, AbstractPhysicalJoin join) {
+        public RuntimeFilterIdentity(Expression expr, TRuntimeFilterType type, AbstractPhysicalJoin join,
+                TMinMaxRuntimeFilterType minMaxType, int exprOrder) {
             this.expr = expr;
             this.type = type;
             this.join = join;
+            this.minMaxType = minMaxType;
+            this.nullAware = isNullAware(join, exprOrder);
         }
 
         @Override
@@ -85,7 +92,8 @@ public class RuntimeFilterContext {
             }
             if (other instanceof RuntimeFilterIdentity) {
                 RuntimeFilterIdentity otherId = (RuntimeFilterIdentity) other;
-                return expr.equals(otherId.expr) && type.equals(otherId.type) && join.equals(otherId.join);
+                return expr.equals(otherId.expr) && type.equals(otherId.type) && join.equals(otherId.join)
+                        && minMaxType == otherId.minMaxType && nullAware == otherId.nullAware;
             }
             return false;
         }
@@ -283,14 +291,27 @@ public class RuntimeFilterContext {
         this.targetOnOlapScanNodeMap.computeIfAbsent(relation, k -> Lists.newArrayList()).add(slot);
     }
 
+    /** Whether the builder keeps a NULL probe value for this filter. */
+    public static boolean isNullAware(AbstractPhysicalJoin<?, ?> builder, int exprOrder) {
+        if (!(builder instanceof PhysicalHashJoin) || exprOrder < 0) {
+            return false;
+        }
+        List<Expression> conjuncts = builder.getHashJoinConjuncts();
+        Preconditions.checkArgument(exprOrder < conjuncts.size(),
+                "exprOrder %s of the runtime filter is not a hash join conjunct", exprOrder);
+        return conjuncts.get(exprOrder) instanceof NullSafeEqual;
+    }
+
     public RuntimeFilter getRuntimeFilterBySrcAndType(Expression src,
-                                                      TRuntimeFilterType type, AbstractPhysicalJoin join) {
-        return runtimeFilterIdentityToFilter.get(new RuntimeFilterIdentity(src, type, join));
+                                                      TRuntimeFilterType type, AbstractPhysicalJoin join,
+            TMinMaxRuntimeFilterType minMaxType, int exprOrder) {
+        return runtimeFilterIdentityToFilter.get(new RuntimeFilterIdentity(src, type, join, minMaxType, exprOrder));
     }
 
     public void setRuntimeFilterIdentityToFilter(Expression src, TRuntimeFilterType type,
                                                  AbstractPhysicalJoin join, RuntimeFilter rf) {
-        runtimeFilterIdentityToFilter.put(new RuntimeFilterIdentity(src, type, join), rf);
+        runtimeFilterIdentityToFilter.put(
+                new RuntimeFilterIdentity(src, type, join, rf.gettMinMaxType(), rf.getExprOrder()), rf);
     }
 
     public Map<ExprId, SlotRef> getExprIdToOlapScanNodeSlotRef() {

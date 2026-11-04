@@ -21,8 +21,8 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
+import org.apache.doris.nereids.trees.expressions.functions.MonotonicityUtils;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
-import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -95,10 +95,6 @@ public class DayOfMonth extends ScalarFunction
 
     @Override
     public boolean isMonotonic(Literal lower, Literal upper) {
-        if (lower instanceof DateLiteral && upper instanceof DateLiteral) {
-            return ((DateLiteral) lower).getYear() == ((DateLiteral) upper).getYear()
-                    && ((DateLiteral) lower).getMonth() == ((DateLiteral) upper).getMonth();
-        }
-        return false;
+        return MonotonicityUtils.isWithinSameMonth(lower, upper);
     }
 }

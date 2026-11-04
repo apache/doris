@@ -34,11 +34,13 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
+import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatch;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Search;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -157,12 +159,15 @@ public class InferPredicateByReplace {
         ExpressionAnalyzer analyzer = new ReplaceAnalyzer(null, new Scope(ImmutableList.of()), null, false, false);
         Set<Expression> res = new LinkedHashSet<>();
         for (T equals : equalSet) {
-            Map<Expression, Expression> replaceMap = new HashMap<>();
-            replaceMap.put(equals, replaceToThis);
             if (!exprPredicates.containsKey(equals)) {
                 continue;
             }
+            Map<Expression, Expression> replaceMap = new HashMap<>();
+            replaceMap.put(equals, replaceToThis);
             for (Expression predicate : exprPredicates.get(equals)) {
+                if (!canReplace(equals, replaceToThis, predicate)) {
+                    continue;
+                }
                 Expression newPredicates = ExpressionUtils.replace(predicate, replaceMap);
                 try {
                     Expression analyzed = analyzer.analyze(newPredicates);
@@ -173,6 +178,27 @@ public class InferPredicateByReplace {
             }
         }
         return res;
+    }
+
+    private static boolean canReplace(Expression source, Expression target, Expression predicate) {
+        Expression comparison = predicate instanceof Not ? predicate.child(0) : predicate;
+        // Direct comparisons observe comparison equality rather than a value's type or representation.
+        // Do not descend through functions, casts or OR to apply this exception.
+        if ((comparison instanceof ComparisonPredicate || comparison instanceof InPredicate)
+                && comparison.child(0).equals(source)) {
+            return true;
+        }
+        DataType type = source.getDataType();
+        // Comparison equality across types does not preserve type-sensitive expressions such as CAST to STRING.
+        if (!type.equals(target.getDataType())) {
+            return false;
+        }
+        // Only substitute types whose equality preserves the value observed by enclosing expressions.
+        // In particular, FLOAT/DOUBLE equality cannot distinguish signed zero, but SIGNBIT can.
+        // Comparisons can still be propagated separately by UnequalPredicateInfer.
+        return type.isBooleanType() || type.isIntegralType() || type.isDecimalLikeType()
+                || type.isStringLikeType() || type.isIPType()
+                || (type.isDateLikeType() && !type.isTimeStampTzType());
     }
 
     /* Extract the equivalence relationship a=b, and when case (d_tinyint as int)=d_int is encountered,
@@ -216,7 +242,8 @@ public class InferPredicateByReplace {
         for (Expression input : inputs) {
             // MATCH, multi_match and SEARCH depend on column indexes, and copies can change score().
             if (input.containsType(Match.class, MultiMatch.class, Search.class, SearchExpression.class)
-                    || input.anyMatch(expr -> !((ExpressionTrait) expr).isDeterministic())
+                    || input.anyMatch(expr -> expr instanceof NoneMovableFunction
+                            || !((ExpressionTrait) expr).isDeterministic())
                     || input.getInputSlots().size() != 1) {
                 continue;
             }

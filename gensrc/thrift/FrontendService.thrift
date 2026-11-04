@@ -101,6 +101,8 @@ struct TGetDbsParams {
   // Reserved for downstream field `current_roles` to keep thrift field ids
   // wire-compatible across maintained branches. Do not reuse this id.
   7: optional set<string> reserved_field_7
+  // Name-only scanners can avoid materializing database objects and omit db_ids in the response.
+  8: optional bool include_db_ids = true
 }
 
 // getDbNames returns a list of database names , database ids and catalog names ,catalog ids

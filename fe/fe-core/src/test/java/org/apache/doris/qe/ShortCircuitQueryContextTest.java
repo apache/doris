@@ -86,4 +86,23 @@ public class ShortCircuitQueryContextTest {
                 new RandomDistributionInfo(1)));
         Assertions.assertFalse(context.isReusable(connectContext(-1)));
     }
+
+    @Test
+    public void testDroppedTableCannotReuseCachedPlan() {
+        OlapTable table = table("tbl", 10);
+        ShortCircuitQueryContext context = new ShortCircuitQueryContext(table, 10, -1);
+        Assertions.assertTrue(context.isReusable(connectContext(-1)));
+        table.isDropped = true;
+        Assertions.assertFalse(context.isReusable(connectContext(-1)));
+    }
+
+    @Test
+    public void testRenamedTableCannotReuseCachedPlan() {
+        OlapTable table = table("tbl", 10);
+        ShortCircuitQueryContext context = new ShortCircuitQueryContext(table, 10, -1);
+        Assertions.assertTrue(context.isReusable(connectContext(-1)));
+        Mockito.doReturn("renamed").when(table).getName();
+        Assertions.assertFalse(context.isReusable(connectContext(-1)));
+    }
+
 }

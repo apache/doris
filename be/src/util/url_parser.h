@@ -66,6 +66,12 @@ public:
     static StringRef extract_url(StringRef url, StringRef name);
 
 private:
+    // Locates the query component of url and stores it in query. The query component starts
+    // right after the first '?' and ends before the '#' that starts the fragment (if any).
+    // Returns false when url has no query component, which is also the case when the first
+    // '#' comes before the first '?' because the '?' then belongs to the fragment.
+    static bool find_query_component(const StringRef& url, StringRef* query);
+
     // Constants representing parts of a URL.
     static const StringRef _s_url_authority;
     static const StringRef _s_url_file;
