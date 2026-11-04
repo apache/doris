@@ -57,4 +57,39 @@ TEST(JoinHashTableTest, NullAwareOtherConjunctSentinelResetsNullFlag) {
     EXPECT_EQ(0, null_flags[0]);
 }
 
+TEST(JoinHashTableTest, NullAwareOtherConjunctPreservesNullProbeCursor) {
+    JoinHashTable<uint32_t, std::hash<uint32_t>, false> table;
+    table.prepare_build<TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN>(2, 8, false, 0);
+
+    const std::array<uint32_t, 2> build_keys = {0, 7};
+    const std::array<uint32_t, 2> build_buckets = {
+            0, table.hash(build_keys[1]) & (table.get_bucket_size() - 1)};
+    table.build(build_keys.data(), build_buckets.data(), build_keys.size(), false);
+
+    const std::array<uint32_t, 1> probe_keys = {7};
+    const std::array<uint8_t, 1> probe_null_map = {1};
+    const uint32_t bucket = table.hash(probe_keys[0]) & (table.get_bucket_size() - 1);
+    const uint32_t nonempty_bucket_head = table.get_first()[bucket];
+    ASSERT_NE(0, nonempty_bucket_head);
+
+    auto check_null_probe = [&](uint32_t bucket_head, bool picking_null_keys) {
+        const std::array<uint32_t, 1> build_idx_map = {bucket_head};
+        std::array<uint32_t, 9> probe_idxs = {};
+        std::array<uint32_t, 9> build_idxs = {};
+        std::array<uint8_t, 9> null_flags = {};
+        const auto [probe_idx, build_idx, matched_cnt, still_picking_null_keys] =
+                table.find_null_aware_with_other_conjuncts(
+                        probe_keys.data(), build_idx_map.data(), 0, 0, probe_keys.size(),
+                        probe_idxs.data(), build_idxs.data(), null_flags.data(), picking_null_keys,
+                        probe_null_map.data());
+        EXPECT_EQ(0, probe_idx);
+        EXPECT_EQ(0, build_idx);
+        EXPECT_EQ(0, matched_cnt);
+        EXPECT_FALSE(still_picking_null_keys);
+    };
+
+    check_null_probe(0, false);
+    check_null_probe(nonempty_bucket_head, true);
+}
+
 } // namespace doris
