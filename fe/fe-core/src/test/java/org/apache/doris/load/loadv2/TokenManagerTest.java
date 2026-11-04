@@ -96,12 +96,14 @@ public class TokenManagerTest {
         Assertions.assertEquals(2, initial.size());
         Assertions.assertNotEquals(initial.get(0), initial.get(1));
         Assertions.assertEquals(initial, manager.acquireAuthTokens());
+        Assertions.assertEquals(initial.get(0), manager.acquireSigningToken());
         Assertions.assertEquals(initial.get(1), manager.acquireToken());
 
         Deencapsulation.invoke(manager, "addNewToken", "third-token");
         Assertions.assertEquals(List.of(initial.get(0), initial.get(1), "third-token"),
                 manager.acquireAuthTokens());
         Assertions.assertEquals("third-token", manager.acquireToken());
+        Assertions.assertEquals(initial.get(1), manager.acquireSigningToken());
         Assertions.assertTrue(manager.checkAuthToken(initial.get(0)));
         Assertions.assertEquals(2, initial.size());
 
@@ -109,6 +111,7 @@ public class TokenManagerTest {
         Assertions.assertEquals(List.of(initial.get(0), initial.get(1), "third-token", "fourth-token"),
                 manager.getAuthTokens());
         Assertions.assertEquals(manager.getAuthTokens(), manager.acquireAuthTokens());
+        Assertions.assertEquals("third-token", manager.acquireSigningToken());
 
         Deencapsulation.invoke(manager, "addNewToken", "fifth-token");
         Assertions.assertFalse(manager.checkAuthToken(initial.get(0)));
@@ -172,14 +175,14 @@ public class TokenManagerTest {
             result.setToken("latest-token");
             Mockito.when(client.acquireToken()).thenReturn(result);
             // An old master only serializes token.
-            Assertions.assertEquals(List.of("latest-token"), manager.acquireAuthTokens());
+            Assertions.assertEquals("latest-token", manager.acquireSigningToken());
             TokenManager legacyManager = startManager();
             Assertions.assertEquals(List.of("latest-token"), legacyManager.acquireAuthTokens());
             List<String> received = List.of("older-a", "older-b", "older-c", "older-d",
                     "signing-token", "latest-token");
             List<String> mutableReceived = new ArrayList<>(received);
             result.setAuthTokens(mutableReceived);
-            Assertions.assertEquals(received, manager.acquireAuthTokens());
+            Assertions.assertEquals("signing-token", manager.acquireSigningToken());
             mutableReceived.clear();
             Assertions.assertEquals("latest-token", manager.acquireToken());
             Mockito.verify(pool, Mockito.times(4)).returnObject(address, client);

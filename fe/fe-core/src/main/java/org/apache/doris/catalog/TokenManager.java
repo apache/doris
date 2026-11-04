@@ -128,6 +128,13 @@ public class TokenManager {
         }
     }
 
+    public String acquireSigningToken() throws UserException {
+        List<String> tokens = acquireAuthTokens();
+        // Sign with the second newest token so BEs have time to receive it through heartbeats.
+        // An old master returns only its current token during rolling upgrades.
+        return tokens.get(Math.max(0, tokens.size() - 2));
+    }
+
     public List<String> acquireAuthTokens() throws UserException {
         EvictingQueue<String> queue;
         synchronized (this) {
