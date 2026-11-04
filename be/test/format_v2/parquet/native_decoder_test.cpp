@@ -55,6 +55,7 @@
 #include "format_v2/parquet/reader/native/page_reader.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
+#include "storage/segment/row_ranges.h"
 #include "util/block_compression.h"
 #include "util/coding.h"
 #include "util/faststring.h"
@@ -1732,7 +1733,7 @@ TEST(ParquetV2NativeDecoderTest, DictionaryProbeMaterializesTypedValuesOnlyOnce)
     field.parquet_schema.__set_type(tparquet::Type::INT32);
     field.parquet_schema.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
     auto file = std::make_shared<NativeDecoderMemoryFileReader>(bytes);
-    const auto row_ranges = ::doris::RowRanges::create_single(2);
+    const auto row_ranges = segment_v2::RowRanges::create_single(2);
     ScalarColumnReader<false, false> reader(row_ranges, 2, chunk, nullptr, nullptr, nullptr);
     ASSERT_TRUE(reader.init(file, &field, bytes.size(), nullptr, "", ParquetReaderCompat {}, true)
                         .ok());
@@ -3657,7 +3658,7 @@ TEST(ParquetV2NativeDecoderTest, LazyFlatIndexedSkipValidatesFirstPageCardinalit
     field.parquet_schema.__set_type(tparquet::Type::INT32);
     field.parquet_schema.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
     auto file = std::make_shared<NativeDecoderMemoryFileReader>(bytes);
-    const auto row_ranges = ::doris::RowRanges::create_single(2, 4);
+    const auto row_ranges = segment_v2::RowRanges::create_single(2, 4);
     ScalarColumnReader<false, true> reader(row_ranges, 6, chunk, &offset_index, nullptr, nullptr);
     ASSERT_TRUE(reader.init(file, &field, bytes.size(), nullptr, "", ParquetReaderCompat {}, true)
                         .ok());
@@ -3703,7 +3704,7 @@ TEST(ParquetV2NativeDecoderTest, LazyFixedWidthFilterUsesReconciledFirstPageRang
     field.parquet_schema.__set_type(tparquet::Type::INT32);
     field.parquet_schema.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
     auto file = std::make_shared<NativeDecoderMemoryFileReader>(bytes);
-    const auto row_ranges = ::doris::RowRanges::create_single(0, 2);
+    const auto row_ranges = segment_v2::RowRanges::create_single(0, 2);
     ScalarColumnReader<false, true> reader(row_ranges, 3, chunk, &offset_index, nullptr, nullptr);
     ASSERT_TRUE(reader.init(file, &field, bytes.size(), nullptr, "", ParquetReaderCompat {}, true)
                         .ok());
@@ -3754,7 +3755,7 @@ TEST(ParquetV2NativeDecoderTest, LazyFlatIndexedFallbackUsesReconciledFirstPageR
     field.parquet_schema.__set_type(tparquet::Type::INT32);
     field.parquet_schema.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
     auto file = std::make_shared<NativeDecoderMemoryFileReader>(bytes);
-    const auto row_ranges = ::doris::RowRanges::create_single(0, 2);
+    const auto row_ranges = segment_v2::RowRanges::create_single(0, 2);
     ScalarColumnReader<false, true> reader(row_ranges, 3, chunk, &offset_index, nullptr, nullptr);
     ASSERT_TRUE(reader.init(file, &field, bytes.size(), nullptr, "", ParquetReaderCompat {}, true)
                         .ok());
@@ -4031,7 +4032,7 @@ TEST(ParquetV2NativeDecoderTest, LevelOnlyReaderSkipsLeadingZeroValuePages) {
         field.parquet_schema.__set_type(tparquet::Type::INT32);
         field.parquet_schema.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
 
-        auto row_ranges = ::doris::RowRanges::create_single(1);
+        auto row_ranges = segment_v2::RowRanges::create_single(1);
         ScalarColumnReader<false, false> scalar_reader(row_ranges, 1, chunk, nullptr, &utc,
                                                        nullptr);
         ASSERT_TRUE(
@@ -5117,7 +5118,7 @@ TEST(ParquetV2NativeDecoderTest, CacheDisabledPagesDoNotPrepareCopiedPayload) {
 }
 
 TEST(ParquetV2NativeDecoderTest, OversizedNestedBatchScratchUsesIdleBatchHysteresis) {
-    ::doris::RowRanges row_ranges;
+    segment_v2::RowRanges row_ranges;
     tparquet::ColumnChunk chunk;
     ScalarColumnReader<true, false> reader(row_ranges, 1, chunk, nullptr, nullptr, nullptr);
 
@@ -5137,7 +5138,7 @@ TEST(ParquetV2NativeDecoderTest, OversizedNestedBatchScratchUsesIdleBatchHystere
 }
 
 TEST(ParquetV2NativeDecoderTest, NestedBatchScratchEnforcesAggregateRetentionLimit) {
-    ::doris::RowRanges row_ranges;
+    segment_v2::RowRanges row_ranges;
     tparquet::ColumnChunk chunk;
     ScalarColumnReader<true, false> reader(row_ranges, 1, chunk, nullptr, nullptr, nullptr);
 

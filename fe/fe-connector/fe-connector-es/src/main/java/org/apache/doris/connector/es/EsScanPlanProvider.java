@@ -21,6 +21,7 @@ import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.NamedColumnHandle;
+import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
@@ -69,6 +70,7 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
     public static final String PROP_PASSWORD = "password";
     public static final String PROP_HTTP_SSL_ENABLED = "http_ssl_enabled";
     public static final String PROP_DOC_VALUES_MODE = "doc_values_mode";
+    private static final String PROP_READ_FULL_SOURCE = "read_full_source";
     public static final String PROP_ES_INDEX = "_es_index";
 
     public static final String PROP_DOCVALUE_CONTEXT_JSON = "docvalue_context_json";
@@ -131,7 +133,11 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
         List<ConnectorScanRange> ranges = new ArrayList<>();
         Map<Integer, List<EsShardRouting>> routingsMap = shardPartitions.getShardRoutings();
 
-        if (!enableParallelScroll) {
+        // Replacing an alias with a backing index loses its filter and search routing. Keep one
+        // scroll on the original target: per-shard requests on a multi-index alias repeat shard IDs.
+        boolean resolvesToBackingIndices = routingsMap.values().stream().flatMap(List::stream)
+                .anyMatch(routing -> !indexName.equals(routing.getIndexName()));
+        if (!enableParallelScroll || resolvesToBackingIndices) {
             // Single query mode: one scan range for the whole index
             List<String> hosts = collectAllHosts(routingsMap);
             ranges.add(new EsScanRange(
@@ -206,15 +212,17 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
         // accepts any casing. Passing the raw string through let "TRUE" mean https to FE and http to BE.
         nodeProps.put(PROP_HTTP_SSL_ENABLED, String.valueOf(props.isHttpSslEnabled()));
 
-        // Query DSL (with not-pushed conjunct tracking)
-        EsQueryDslResult dslResult = buildQueryDsl(filter, state);
-        nodeProps.put(PROP_QUERY_DSL, dslResult.getQueryDsl());
+        // The read mode is scan-wide: losing a's docvalue path also changes a keyword sibling b
+        // from scalar docvalues to source JSON (e.g. ["cat"]). Decide it before pruning b's predicate.
+        int docValuesMode = useDocValueScan(columns, state);
+        nodeProps.put(PROP_DOC_VALUES_MODE, String.valueOf(docValuesMode));
+        if (docValuesMode == 0 && state.getFieldContext() != null
+                && state.getFieldContext().requiresFullSourceRead()) {
+            nodeProps.put(PROP_READ_FULL_SOURCE, "true");
+        }
 
-        // Doc values mode — two-gate check matching old EsScanNode.useDocValueScan():
-        // Gate 1: selected field count must not exceed maxDocValueFields
-        // Gate 2: every selected field must exist in the docValueFieldsContext map
-        nodeProps.put(PROP_DOC_VALUES_MODE,
-                String.valueOf(useDocValueScan(columns, state)));
+        EsQueryDslResult dslResult = buildQueryDsl(filter, state, docValuesMode);
+        nodeProps.put(PROP_QUERY_DSL, dslResult.getQueryDsl());
 
         // Serialize docvalue_context and fields_context as JSON into flat properties
         // so we don't need the ES-specific getScanNodeMapProperties() on the generic SPI.
@@ -251,7 +259,7 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     private EsQueryDslResult buildQueryDsl(Optional<ConnectorExpression> filter,
-            EsMetadataState state) {
+            EsMetadataState state, int docValuesMode) {
         if (!filter.isPresent()) {
             return new EsQueryDslResult("{\"match_all\":{}}", Collections.emptyList());
         }
@@ -259,6 +267,7 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
         Map<String, String> fieldsContext = Collections.emptyMap();
         List<String> needCompatDateFields = Collections.emptyList();
         Map<String, String> column2typeMap = Collections.emptyMap();
+        Set<String> unsafeFields = new HashSet<>();
 
         if (state.getFieldContext() != null) {
             if (props.isKeywordSniff()) {
@@ -266,11 +275,42 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
             }
             needCompatDateFields = state.getFieldContext().getNeedCompatDateFields();
             column2typeMap = state.getFieldContext().getColumn2typeMap();
+            unsafeFields.addAll(state.getFieldContext().getSourceValueUnsafeFields());
+            if (docValuesMode == 0) {
+                unsafeFields.addAll(state.getFieldContext().getSourceModeUnsafeFields());
+            }
+            if (!props.isKeywordSniff()) {
+                // Without keyword sniff a term targets analyzed text, even when a safe raw subfield
+                // exists. Do not apply the unused raw path's safety to the actual text query.
+                unsafeFields.addAll(state.getFieldContext().getFetchFieldsContext().keySet());
+            }
+        }
+
+        if (docValuesMode == 0) {
+            collectSourceUnsafeFields(filter.get(), unsafeFields);
         }
 
         return EsQueryDslBuilder.buildQueryDslWithResult(
                 filter.get(), fieldsContext, column2typeMap,
-                props.isLikePushDown(), needCompatDateFields);
+                props.isLikePushDown(), needCompatDateFields, unsafeFields);
+    }
+
+    private static void collectSourceUnsafeFields(ConnectorExpression expression, Set<String> fields) {
+        if (expression instanceof ConnectorColumnRef) {
+            ConnectorColumnRef column = (ConnectorColumnRef) expression;
+            String type = column.getType().getTypeName();
+            // Source arrays preserve their container (or JSON STRING), whereas ES matches elements
+            // and treats an empty array as missing. Source nullness must retain the local predicate.
+            // _id comes from hit metadata and cannot acquire an array representation in source mode.
+            if (!"_id".equals(column.getColumnName())
+                    && ("STRING".equalsIgnoreCase(type) || "VARCHAR".equalsIgnoreCase(type)
+                            || "CHAR".equalsIgnoreCase(type) || "ARRAY".equalsIgnoreCase(type))) {
+                fields.add(column.getColumnName());
+            }
+        }
+        for (ConnectorExpression child : expression.getChildren()) {
+            collectSourceUnsafeFields(child, fields);
+        }
     }
 
     private EsMetadataState fetchMetadataState(ConnectorSession session, EsTableHandle handle,
@@ -348,6 +388,7 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
         copyIfPresent(properties, PROP_PASSWORD, esProperties);
         copyIfPresent(properties, PROP_HTTP_SSL_ENABLED, esProperties);
         copyIfPresent(properties, PROP_DOC_VALUES_MODE, esProperties);
+        copyIfPresent(properties, PROP_READ_FULL_SOURCE, esProperties);
         // Ask ES to stop after N hits instead of scrolling everything. Only correct when the engine has NO
         // filtering left to do after the scan (otherwise rows ES returns could still be filtered out, and
         // stopping early would lose rows), and only worth it when the limit fits in one BE batch. The engine

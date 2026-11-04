@@ -17,11 +17,13 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <limits>
 #include <memory>
 #include <optional>
 #include <vector>
 
+#include "core/arena.h"
 #include "core/column/column_array.h"
 #include "core/column/column_complex.h"
 #include "core/column/column_nullable.h"
@@ -32,9 +34,11 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_quantilestate.h"
 #include "core/string_buffer.hpp"
+#include "core/value/quantile_state.h"
 #include "exprs/aggregate/aggregate_function_percentile.h"
 #include "exprs/aggregate/aggregate_function_quantile_state.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
+#include "util/defer_op.h"
 #include "util/tdigest.h"
 
 namespace doris {
@@ -111,7 +115,186 @@ void expect_results_equal(const std::vector<double>& actual, const std::vector<d
     }
 }
 
+void expect_reset_quantile_state(size_t count, bool is_window) {
+    auto type = std::make_shared<DataTypeQuantileState>();
+    auto function = create_aggregate_function_quantile_state_union(
+            "quantile_union", {type}, type, false,
+            {.is_window_function = is_window, .column_names = {}});
+    std::unique_ptr<char[]> memory(new char[function->size_of_data()]);
+    auto* place = memory.get();
+    function->create(place);
+    Defer destroy([&] { function->destroy(place); });
+    Arena arena;
+    auto input = ColumnQuantileState::create();
+    QuantileState seed(10000);
+    for (size_t i = 0; i < count; ++i) {
+        seed.add_value(20);
+    }
+    input->insert_value(seed);
+    QuantileState next(2048);
+    next.add_value(30);
+    input->insert_value(next);
+    const IColumn* columns[] = {input.get()};
+
+    auto results = ColumnQuantileState::create();
+    function->insert_result_into(place, *results);
+    function->add(place, columns, 0, arena);
+    function->insert_result_into(place, *results);
+    function->reset(place);
+    function->insert_result_into(place, *results);
+    function->reset(place);
+    function->insert_result_into(place, *results);
+    function->add(place, columns, 1, arena);
+    function->insert_result_into(place, *results);
+
+    ASSERT_EQ(5, results->size());
+    for (double percentile : {0.0, 0.5, 1.0}) {
+        EXPECT_TRUE(std::isnan(results->get_element(0).get_value_by_percentile(percentile)));
+        EXPECT_DOUBLE_EQ(20, results->get_element(1).get_value_by_percentile(percentile));
+        EXPECT_TRUE(std::isnan(results->get_element(2).get_value_by_percentile(percentile)));
+        EXPECT_TRUE(std::isnan(results->get_element(3).get_value_by_percentile(percentile)));
+        EXPECT_DOUBLE_EQ(30, results->get_element(4).get_value_by_percentile(percentile));
+        EXPECT_DOUBLE_EQ(20, input->get_element(0).get_value_by_percentile(percentile));
+    }
+    EXPECT_EQ(sizeof(float) + 1, results->get_element(2).get_serialized_size());
+    EXPECT_EQ(sizeof(float) + 1, results->get_element(3).get_serialized_size());
+}
+
+void append_explicit_frame(const AggregateFunctionPtr& function, AggregateDataPtr place,
+                           const IColumn** columns, size_t row, size_t frame_size, Arena& arena,
+                           ColumnQuantileState& results, QuantileState& accumulator) {
+    for (size_t sample = 0; sample < frame_size; ++sample) {
+        function->add(place, columns, row, arena);
+    }
+    ASSERT_EQ(EXPLICIT, accumulator._type);
+    const size_t capacity = accumulator._explicit_data.capacity();
+    ASSERT_GE(capacity, frame_size);
+    function->insert_result_into(place, results);
+    function->reset(place);
+    EXPECT_EQ(EMPTY, accumulator._type);
+    EXPECT_TRUE(accumulator._explicit_data.empty());
+    // Bounded ROWS frames reset on every row; the warmed vector must survive each reset.
+    EXPECT_EQ(capacity, accumulator._explicit_data.capacity());
+    function->insert_result_into(place, results);
+    function->add(place, columns, row, arena);
+    EXPECT_EQ(capacity, accumulator._explicit_data.capacity());
+    function->reset(place);
+}
+
+void expect_repeated_explicit_frames_reuse_capacity(size_t frame_size) {
+    auto type = std::make_shared<DataTypeQuantileState>();
+    auto function = create_aggregate_function_quantile_state_union(
+            "quantile_union", {type}, type, false,
+            {.is_window_function = true, .column_names = {}});
+    std::unique_ptr<char[]> memory(new char[function->size_of_data()]);
+    auto* place = memory.get();
+    function->create(place);
+    Defer destroy([&] { function->destroy(place); });
+    Arena arena;
+    auto input = ColumnQuantileState::create();
+    for (double value : {20.0, 30.0}) {
+        QuantileState state;
+        state.add_value(value);
+        input->insert_value(state);
+    }
+    const IColumn* columns[] = {input.get()};
+    using Data = AggregateFunctionQuantileStateData<AggregateFunctionQuantileStateUnionOp>;
+    auto& accumulator = reinterpret_cast<Data*>(place)->value;
+
+    auto results = ColumnQuantileState::create();
+    for (size_t frame = 0; frame < 3; ++frame) {
+        append_explicit_frame(function, place, columns, frame % 2, frame_size, arena, *results,
+                              accumulator);
+    }
+    ASSERT_EQ(6, results->size());
+    for (size_t frame = 0; frame < 3; ++frame) {
+        const double expected = frame % 2 == 0 ? 20 : 30;
+        EXPECT_DOUBLE_EQ(expected, results->get_element(2 * frame).get_value_by_percentile(0.5));
+        EXPECT_TRUE(std::isnan(results->get_element(2 * frame + 1).get_value_by_percentile(0.5)));
+    }
+}
+
 } // namespace
+
+TEST(AggregateFunctionQuantileStateTest, EmptyWindowAfterNonemptyWindow) {
+    auto type = std::make_shared<DataTypeQuantileState>();
+    auto function = create_aggregate_function_quantile_state_union(
+            "quantile_union", {type}, type, false,
+            {.is_window_function = true, .column_names = {}});
+    std::unique_ptr<char[]> memory(new char[function->size_of_data()]);
+    auto* place = memory.get();
+    function->create(place);
+    Defer destroy([&] { function->destroy(place); });
+    Arena arena;
+    auto input = ColumnQuantileState::create();
+    QuantileState state;
+    state.add_value(20);
+    input->insert_value(state);
+    const IColumn* columns[] = {input.get()};
+
+    auto results = ColumnQuantileState::create();
+    function->insert_result_into(place, *results);
+    function->add(place, columns, 0, arena);
+    function->insert_result_into(place, *results);
+    function->reset(place);
+    function->insert_result_into(place, *results);
+
+    ASSERT_EQ(3, results->size());
+    for (double percentile : {0.0, 0.5, 1.0}) {
+        EXPECT_TRUE(std::isnan(results->get_element(0).get_value_by_percentile(percentile)));
+        EXPECT_DOUBLE_EQ(20, results->get_element(1).get_value_by_percentile(percentile));
+        EXPECT_TRUE(std::isnan(results->get_element(2).get_value_by_percentile(percentile)));
+    }
+}
+
+TEST(AggregateFunctionQuantileStateTest, ResetClearsAllRepresentations) {
+    for (bool is_window : {false, true}) {
+        for (size_t count : {size_t(1), size_t(3), size_t(QUANTILE_STATE_EXPLICIT_NUM + 1)}) {
+            expect_reset_quantile_state(count, is_window);
+        }
+    }
+}
+
+TEST(AggregateFunctionQuantileStateTest, RepeatedExplicitFramesReuseCapacity) {
+    for (size_t frame_size : {size_t(2), size_t(3), size_t(QUANTILE_STATE_EXPLICIT_NUM)}) {
+        expect_repeated_explicit_frames_reuse_capacity(frame_size);
+    }
+}
+
+TEST(AggregateFunctionQuantileStateTest, NullOnlyWindowAfterResetIsEmpty) {
+    auto type = std::make_shared<DataTypeQuantileState>();
+    auto function = create_aggregate_function_quantile_state_union(
+            "quantile_union", {make_nullable(type)}, type, false,
+            {.is_window_function = true, .column_names = {}});
+    std::unique_ptr<char[]> memory(new char[function->size_of_data()]);
+    auto* place = memory.get();
+    function->create(place);
+    Defer destroy([&] { function->destroy(place); });
+    Arena arena;
+    auto nested = ColumnQuantileState::create();
+    QuantileState state;
+    state.add_value(20);
+    nested->insert_value(state);
+    nested->insert_default();
+    auto null_map = ColumnUInt8::create();
+    null_map->insert_value(0);
+    null_map->insert_value(1);
+    auto input = ColumnNullable::create(std::move(nested), std::move(null_map));
+    const IColumn* columns[] = {input.get()};
+
+    auto results = ColumnQuantileState::create();
+    function->add(place, columns, 0, arena);
+    function->insert_result_into(place, *results);
+    function->reset(place);
+    function->add(place, columns, 1, arena);
+    function->insert_result_into(place, *results);
+
+    ASSERT_EQ(2, results->size());
+    for (double percentile : {0.0, 0.5, 1.0}) {
+        EXPECT_DOUBLE_EQ(20, results->get_element(0).get_value_by_percentile(percentile));
+        EXPECT_TRUE(std::isnan(results->get_element(1).get_value_by_percentile(percentile)));
+    }
+}
 
 TEST(AggregateFunctionQuantileStateTest, GrowingWindowKeepsResultsCompact) {
     auto type = std::make_shared<DataTypeQuantileState>();

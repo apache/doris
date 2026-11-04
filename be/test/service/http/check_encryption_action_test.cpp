@@ -27,6 +27,7 @@
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
+#include "cpp/sync_point.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_meta.h"
@@ -87,6 +88,34 @@ TEST_F(CheckEncryptionActionTest, UncheckableRowsetReportsError) {
     ASSERT_FALSE(res.has_value()) << "unexpected value: " << res.value();
     EXPECT_NE(res.error().to_string().find("failed to get fs for rowset"), std::string::npos)
             << res.error();
+}
+
+// `_meta_lock` is writer-preferring: if the check held it while reading files and took it again for
+// the tablet schema, a writer arriving in between would deadlock with the check.
+TEST_F(CheckEncryptionActionTest, RowsetsAreCheckedWithoutHoldingMetaLock) {
+    add_rowset(Version(2, 2), 1, "not_exist_resource");
+
+    bool checked = false;
+    bool meta_lock_is_free = false;
+    auto* sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "is_tablet_encrypted::check_rowset",
+            [&](auto&&) {
+                checked = true;
+                meta_lock_is_free = _tablet->get_header_lock().try_lock();
+                if (meta_lock_is_free) {
+                    _tablet->get_header_lock().unlock();
+                }
+            },
+            &guard);
+    sp->enable_processing();
+    auto res = is_tablet_encrypted(_tablet);
+    sp->disable_processing();
+
+    ASSERT_FALSE(res.has_value());
+    EXPECT_TRUE(checked);
+    EXPECT_TRUE(meta_lock_is_free);
 }
 
 } // namespace doris

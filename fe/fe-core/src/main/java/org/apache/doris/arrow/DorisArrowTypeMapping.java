@@ -47,10 +47,12 @@ import java.util.Map;
  * columns from one of them reads the batches BE emits as that type. The values mirror
  * {@code convert_to_arrow_type} in {@code be/src/format/arrow/arrow_row_batch.cpp}, which alone
  * decides the shape of the data on the wire; the cells known to disagree with it (a literal
- * {@code "UTC"} zone on TIMESTAMPTZ, {@code Null} for TIMEV2 / VARBINARY / AGG_STATE) are kept
- * deliberately until the BE Arrow type layer is reworked, and are then corrected here, once, against
- * a golden shared with BE (#67577). {@code DorisArrowTypeMappingTest} records every cell as it
- * stands, so a change to any of them is a change to that test as well.
+ * {@code "UTC"} zone on TIMESTAMPTZ, {@code Null} for AGG_STATE) are kept deliberately until the BE
+ * Arrow type layer is reworked, and are then corrected here, once, against a golden shared with BE
+ * (#67577). TIMEV2 and VARBINARY already follow BE (float64 and binary): a prepared statement
+ * advertises its result schema from here and is checked against the schema of the batches BE emits.
+ * {@code DorisArrowTypeMappingTest} records every cell as it stands, so a change to any of them is a
+ * change to that test as well.
  */
 public final class DorisArrowTypeMapping {
 
@@ -77,6 +79,7 @@ public final class DorisArrowTypeMapping {
             case FLOAT:
                 return new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE);
             case DOUBLE:
+            case TIMEV2:
                 return new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE);
             case LARGEINT:
             case VARCHAR:
@@ -125,6 +128,7 @@ public final class DorisArrowTypeMapping {
             case HLL:
             case BITMAP:
             case QUANTILE_STATE:
+            case VARBINARY:
                 return new ArrowType.Binary();
             case MAP:
                 return new ArrowType.Map(false);

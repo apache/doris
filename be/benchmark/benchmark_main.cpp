@@ -40,6 +40,7 @@
 #include "benchmark_hybrid_set.hpp"
 #include "benchmark_json_extract.hpp"
 #include "benchmark_relative_day.hpp"
+#include "benchmark_variant_assembler.hpp"
 #include "benchmark_zone_map_index.hpp"
 #include "binary_cast_benchmark.hpp"
 #include "parquet/benchmark_file_scanner_expr.hpp"

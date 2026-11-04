@@ -110,13 +110,13 @@ public class PluginApiVersionWiringTest {
     @Test
     public void connectorPluginWithoutSpatialContractIsRefused() throws IOException {
         ApiVersionGate gate = ApiVersionGate.forFamily("connector", ConnectorProvider.class);
-        Assertions.assertEquals(29, gate.getExpectedMajor());
+        Assertions.assertEquals(30, gate.getExpectedMajor());
         ConnectorPluginManager manager = new ConnectorPluginManager();
 
-        manager.loadPlugins(Collections.singletonList(connectorPluginRoot("28.0")));
+        manager.loadPlugins(Collections.singletonList(connectorPluginRoot("29.0")));
 
         Assertions.assertFalse(manager.getRegisteredTypes().contains("version_probe"),
-                "the pre-spatial API-28 plugin must not share the spatial SPI's major version");
+                "the pre-spatial API-29 plugin must not share the spatial SPI's major version");
     }
 
     @Test

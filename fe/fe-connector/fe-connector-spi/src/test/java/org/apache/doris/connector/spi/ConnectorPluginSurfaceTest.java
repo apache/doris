@@ -88,15 +88,16 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // API 28 has no spatial metadata or nested-spatial capability. Keep the spatial
-        // surface distinct even when master independently advances its connector API.
-        Assertions.assertEquals("29.0", version.getProperty("api.version"));
+        // API 29 adds typed table-absence errors but has no spatial metadata or nested-spatial
+        // capability. Keep the spatial surface distinct from that upstream contract.
+        Assertions.assertEquals("30.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
     private static final List<Class<?>> FROZEN_TYPES = Arrays.asList(
             ConnectorTaskScheduler.class,
             DiagnosticException.class,
+            ConnectorTableNotFoundException.class,
             ConnectorProvider.class,
             ConnectorSecuritySurface.class,
             ConnectorContext.class,

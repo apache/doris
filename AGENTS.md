@@ -20,7 +20,7 @@ Separately, any new outbound HTTP request the FE or BE issues to a host named by
 
 ## Thrift and Protobuf Field Ids
 
-Every change under `gensrc/thrift` and `gensrc/proto` must keep every upgrade compatible (branch-3.1 → 4.0 → 4.1 → 4.2 → master): a field id or enum value means the same thing on every branch, an id is never reused, and a new field is optional. The rule and how to review against it are in `gensrc/AGENTS.md`; read it before touching those directories.
+Every change under `gensrc/thrift` and `gensrc/proto` must keep every upgrade compatible (branch-3.1 → 4.0 → 4.1 → 4.2 → master): a field id or enum value means the same thing on every branch, an id is never reused, and a new field is optional. A new id or enum value is added on master first; a release-branch PR that adds one master does not have is not mergeable. The rule and how to review against it are in `gensrc/AGENTS.md`; read it before touching those directories.
 
 ## When running in a WORKTREE directory
 

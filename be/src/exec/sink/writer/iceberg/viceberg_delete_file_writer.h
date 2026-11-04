@@ -23,6 +23,7 @@
 
 #include "common/status.h"
 #include "core/block/block.h"
+#include "exec/sink/writer/iceberg/iceberg_output_location.h"
 #include "exprs/vexpr_fwd.h"
 #include "gen_cpp/DataSinks_types.h"
 #include "io/fs/file_writer.h"
@@ -50,8 +51,10 @@ class VFileFormatTransformer;
  */
 class VIcebergDeleteFileWriter {
 public:
-    VIcebergDeleteFileWriter(TFileContent::type delete_type, const std::string& output_path,
-                             TFileFormatType::type file_format,
+    // Writes file_name under location; the commit data reports the file under the table's own form
+    // of that directory, not the form it was written at.
+    VIcebergDeleteFileWriter(TFileContent::type delete_type, const IcebergOutputLocation& location,
+                             const std::string& file_name, TFileFormatType::type file_format,
                              TFileCompressType::type compress_type);
 
     ~VIcebergDeleteFileWriter();
@@ -96,9 +99,13 @@ public:
 
     std::shared_ptr<io::FileSystem> file_system() const { return _fs; }
 
+    // The path the file is written at, which is what cleanup must delete.
+    const std::string& write_path() const { return _write_path; }
+
 private:
     TFileContent::type _delete_type;
-    std::string _output_path;
+    std::string _write_path;
+    std::string _commit_path;
     TFileFormatType::type _file_format;
     TFileCompressType::type _compress_type = TFileCompressType::SNAPPYBLOCK;
 
@@ -122,8 +129,9 @@ private:
 class VIcebergDeleteFileWriterFactory {
 public:
     static std::unique_ptr<VIcebergDeleteFileWriter> create_writer(
-            TFileContent::type delete_type, const std::string& output_path,
-            TFileFormatType::type file_format, TFileCompressType::type compress_type);
+            TFileContent::type delete_type, const IcebergOutputLocation& location,
+            const std::string& file_name, TFileFormatType::type file_format,
+            TFileCompressType::type compress_type);
 };
 
 } // namespace doris
