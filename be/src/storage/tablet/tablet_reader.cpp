@@ -21,6 +21,7 @@
 #include <gen_cpp/segment_v2.pb.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
+#include <algorithm>
 #include <memory>
 #include <ostream>
 
@@ -49,6 +50,7 @@
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
+#include "util/time.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -469,6 +471,49 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
                                config::enable_prune_delete_sign_when_base_compaction) ||
                               read_params.reader_type == ReaderType::READER_COLD_DATA_COMPACTION ||
                               read_params.reader_type == ReaderType::READER_CHECKSUM);
+
+    // Grace watermark for MOW tables with a sequence column.
+    //
+    // A delete at sequence S must suppress every later out-of-order (lower-seq)
+    // write of the same key. Pruning a delete-sign tombstone physically drops the
+    // sequence value S that makes this suppression possible (see
+    // BaseTablet::lookup_row_key): once the tombstone is gone, a late write with
+    // seq < S can no longer be compared against it and resurrects the deleted key.
+    // This is a correctness bug even on a single copy (e.g. cloud mode with no
+    // replicas); with multiple replicas that prune at different times it also
+    // becomes a permanent divergence, since the delete bitmap is computed against
+    // physical data at write time.
+    //
+    // To avoid this we keep tombstones until the newest input rowset of this
+    // compaction is older than a grace window that should exceed the maximum
+    // expected out-of-order lateness of the sequence column. By then any late
+    // lower-seq write has already arrived and been applied, so pruning is safe
+    // and replica timing differences (bounded by clock skew << grace) are
+    // irrelevant. Non-sequence MOW tables are unaffected: version order already
+    // makes immediate pruning safe.
+    if (_delete_sign_available && read_params.tablet_schema != nullptr &&
+        read_params.tablet_schema->has_sequence_col()) {
+        int64_t grace_seconds = config::mow_sequence_delete_sign_grace_seconds;
+        if (grace_seconds < 0) {
+            // Never prune delete-sign tombstones for sequence-column tables.
+            _delete_sign_available = false;
+        } else if (grace_seconds > 0) {
+            int64_t newest_creation_time = 0;
+            for (const auto& split : read_params.rs_splits) {
+                if (split.rs_reader == nullptr || split.rs_reader->rowset() == nullptr) {
+                    continue;
+                }
+                newest_creation_time =
+                        std::max(newest_creation_time,
+                                 split.rs_reader->rowset()->rowset_meta()->creation_time());
+            }
+            // Only prune once the whole input is older than the grace window.
+            if (newest_creation_time > 0 &&
+                UnixSeconds() - newest_creation_time <= grace_seconds) {
+                _delete_sign_available = false;
+            }
+        }
+    }
 
     // `_filter_delete` indicates the condition where we should execlude deleted tuples when reading data.
     // However, queries will not use this condition but generate special where predicates to filter data.
