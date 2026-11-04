@@ -1337,8 +1337,9 @@ public class ReportHandler extends Daemon {
             for (long txnId : map.keySet()) {
                 PublishVersionTask task = new PublishVersionTask(backendId, txnId, dbId,
                         Lists.newArrayList(map.get(txnId)), createPublishVersionTaskTime);
-                // add to AgentTaskQueue for handling finish report.
-                if (AgentTaskQueue.addTask(task)) {
+                // A duplicate signature can carry new partitions; only terminally aborted tasks are skipped.
+                AgentTaskQueue.addTask(task);
+                if (task.getErrorCode() != TStatusCode.ABORTED) {
                     batchTask.addTask(task);
                 }
             }

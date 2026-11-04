@@ -363,17 +363,28 @@ public class AgentTaskCleanupDaemonTest {
     }
 
     @Test
-    public void testDuplicateRepublishRetainsOriginalTaskForResend() {
+    public void testDuplicateRepublishDispatchesNewPartitions() {
         backend.setAlive(true);
+        TPartitionVersionInfo failedPartition = new TPartitionVersionInfo(2L, 3L, 0L);
+        TPartitionVersionInfo newPartition = new TPartitionVersionInfo(3L, 4L, 0L);
         PublishVersionTask task = newPublishTask(BACKEND_ID, TRANSACTION_ID);
+        task.setFinished(true);
+        task.setErrorCode(TStatusCode.RUNTIME_ERROR);
+        task.addErrorTablets(List.of(10L));
         AgentTaskQueue.addTask(task);
+        SetMultimap<Long, TPartitionVersionInfo> updates = HashMultimap.create();
+        updates.put(TRANSACTION_ID, failedPartition);
+        updates.put(TRANSACTION_ID, newPartition);
         try (MockedStatic<AgentTaskExecutor> executor = Mockito.mockStatic(AgentTaskExecutor.class)) {
-            Deencapsulation.invoke(ReportHandler.class, "handleRepublishVersionInfo", republishInfo(), BACKEND_ID);
+            Deencapsulation.invoke(ReportHandler.class, "handleRepublishVersionInfo", Map.of(1L, updates), BACKEND_ID);
             ArgumentCaptor<AgentBatchTask> batch = ArgumentCaptor.forClass(AgentBatchTask.class);
             executor.verify(() -> AgentTaskExecutor.submit(batch.capture()));
-            Assertions.assertTrue(batch.getValue().getAllTasks().isEmpty());
+            Assertions.assertEquals(1, batch.getValue().getAllTasks().size());
+            PublishVersionTask dispatched = (PublishVersionTask) batch.getValue().getAllTasks().get(0);
+            Assertions.assertEquals(Set.of(failedPartition, newPartition),
+                    Set.copyOf(dispatched.getPartitionVersionInfos()));
             Assertions.assertSame(task, AgentTaskQueue.getTask(BACKEND_ID, TTaskType.PUBLISH_VERSION, TRANSACTION_ID));
-            Assertions.assertFalse(task.isFinished());
+            Assertions.assertEquals(List.of(failedPartition), task.getPartitionVersionInfos());
 
             executor.reset();
             Deencapsulation.invoke(ReportHandler.class, "taskReport", BACKEND_ID, Collections.emptyMap(), 0L);
