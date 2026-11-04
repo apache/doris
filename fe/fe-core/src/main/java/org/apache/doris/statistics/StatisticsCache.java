@@ -295,7 +295,7 @@ public class StatisticsCache {
     }
 
     /**
-     * Refresh stats cache, invalidate cache if the new data is unknown.
+     * Refresh stats cache, publish UNKNOWN if the new data is unknown.
      */
     public void syncColStats(ColStatsData data) {
         StatsId statsId = data.statsId;
@@ -303,7 +303,14 @@ public class StatisticsCache {
                 statsId.idxId, statsId.colId);
         ColumnStatistic columnStatistic = data.toColumnStatistic();
         if (columnStatistic == ColumnStatistic.UNKNOWN) {
-            invalidateColumnStatsCache(k.catalogId, k.dbId, k.tableId, k.idxId, k.colName);
+            // Publish a blocking UNKNOWN instead of invalidating. Invalidation leaves the
+            // entry absent, so a concurrent get() can trigger the async loader which reads
+            // the previous (stale) row from the statistics table before the buffered
+            // insert commits, and that stale value would then survive until the next
+            // refresh. A put closes this window: readers hit UNKNOWN directly and no
+            // reload races with the flush.
+            updateColStatsCache(k.catalogId, k.dbId, k.tableId, k.idxId, k.colName,
+                    ColumnStatistic.UNKNOWN);
         } else {
             putCache(k, columnStatistic);
         }

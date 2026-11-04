@@ -16,9 +16,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import com.google.common.collect.Maps
-import org.apache.doris.regression.util.Http
-
 suite("test_key_bounds_truncation_basic", "nonConcurrent") {
 
     // see be/src/util/key_util.h:50
@@ -35,26 +32,10 @@ suite("test_key_bounds_truncation_basic", "nonConcurrent") {
                 "disable_auto_compaction" = "true"); """
 
     def getRowsetMetas = { int version ->
-        def metaUrl = sql_return_maparray("show tablets from ${tableName};").get(0).MetaUrl
-        def jsonMeta = Http.GET(metaUrl, true, false)
-        for (def meta : jsonMeta.rs_metas) {
-            int end_version = meta.end_version
-            if (end_version == version) {
-                return meta
-            }
-        }
-        if (cloudMode) {
-            for (int retryTimes = 0; retryTimes < 100; retryTimes++) {
-                Thread.sleep(1000)
-                jsonMeta = Http.GET(metaUrl, true, false)
-                for (def meta : jsonMeta.rs_metas) {
-                    int end_version = meta.end_version
-                    if (end_version == version) {
-                        return meta
-                    }
-                }
-            }
-        }
+        def tablet = sql_return_maparray("show tablets from ${tableName};").get(0)
+        // Keep the default lazy-commit path enabled, but establish a read barrier before
+        // inspecting the exact physical rowset metadata produced by this INSERT.
+        return syncAndWaitCloudRowsetMeta(tablet, version)
     }
 
     def truncateString = { String s, int l ->

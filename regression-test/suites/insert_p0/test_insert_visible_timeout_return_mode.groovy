@@ -25,6 +25,7 @@ suite("test_insert_visible_timeout_return_mode", "nonConcurrent") {
     }
 
     def debugPoint = "PublishVersionDaemon.stop_publish"
+    def debugPointTimeoutSeconds = "10"
     // PublishVersionDaemon runs on the master FE. The pipeline config provides runner-facing
     // master FE endpoints; do not replace their mapped ports with raw SHOW FRONTENDS values.
     def feHttpAddress = context.config.feHttpAddress
@@ -46,15 +47,22 @@ suite("test_insert_visible_timeout_return_mode", "nonConcurrent") {
         )
     """
 
+    def debugPointEnabled = false
     try {
-        // Block FE publish so inserts can commit but remain non-visible until the debug point is removed.
-        DebugPoint.enableDebugPoint(feHost, feHttpPort, NodeType.FE, debugPoint)
+        // Block publish on the configured master FE with a timeout to bound the injected failure.
+        DebugPoint.enableDebugPoint(feHost, feHttpPort, NodeType.FE, debugPoint,
+                [timeout: debugPointTimeoutSeconds])
+        debugPointEnabled = true
 
         sql """ SET insert_visible_timeout_ms = 1000 """
 
         // Verify the default committed mode returns success after the visible wait times out.
         sql """ SET insert_visible_timeout_return_mode = 'committed' """
         sql """ INSERT INTO test_insert_visible_timeout_return_mode_tbl VALUES (1, 10) """
+
+        // The insert returned successfully in committed mode, but publish is still blocked.
+        def rowCountBeforePublish = sql """ SELECT COUNT(*) FROM test_insert_visible_timeout_return_mode_tbl """
+        assertEquals(0L, rowCountBeforePublish[0][0] as long)
 
         // Verify the error mode returns the publish-timeout error to the client while keeping the txn committed.
         sql """ SET insert_visible_timeout_return_mode = 'error' """
@@ -63,10 +71,8 @@ suite("test_insert_visible_timeout_return_mode", "nonConcurrent") {
             exception "transaction commit successfully, BUT data did not become visible within insert_visible_timeout_ms and will be visible later."
         }
     } finally {
-        try {
+        if (debugPointEnabled) {
             DebugPoint.disableDebugPoint(feHost, feHttpPort, NodeType.FE, debugPoint)
-        } catch (Throwable e) {
-            logger.warn("Failed to disable debug point ${debugPoint}", e)
         }
     }
 

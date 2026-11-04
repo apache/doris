@@ -98,6 +98,11 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     private final HiveConf hiveConf;
     private final ExecutionAuthenticator executionAuthenticator;
     private final MetaStoreClientProvider metaStoreClientProvider;
+    private final int partitionBatchSize;
+
+    /** Maximum partition names sent by one getPartitionsByNames RPC; a `hive.` catalog property. */
+    public static final String PARTITION_BATCH_SIZE_KEY = "hive.hms_partitions_batch_size_per_rpc";
+    public static final int DEFAULT_PARTITION_BATCH_SIZE = 5000;
 
     public ThriftHMSCachedClient(HiveConf hiveConf, int poolSize, ExecutionAuthenticator executionAuthenticator) {
         this(hiveConf, poolSize, executionAuthenticator, new DefaultMetaStoreClientProvider());
@@ -111,6 +116,29 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         this.metaStoreClientProvider = Preconditions.checkNotNull(metaStoreClientProvider, "metaStoreClientProvider");
         this.clientPool = poolSize == 0 ? null
                 : new GenericObjectPool<>(new ThriftHMSClientFactory(), createPoolConfig(poolSize));
+        this.partitionBatchSize = parsePartitionBatchSize(hiveConf);
+    }
+
+    private static int parsePartitionBatchSize(HiveConf hiveConf) {
+        return parsePartitionBatchSize(hiveConf == null ? null : hiveConf.get(PARTITION_BATCH_SIZE_KEY));
+    }
+
+    static int parsePartitionBatchSize(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return DEFAULT_PARTITION_BATCH_SIZE;
+        }
+        int parsed;
+        try {
+            parsed = Integer.parseInt(value.trim());
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(
+                    PARTITION_BATCH_SIZE_KEY + " must be a positive integer, got " + value, e);
+        }
+        if (parsed <= 0) {
+            throw new IllegalArgumentException(
+                    PARTITION_BATCH_SIZE_KEY + " must be a positive integer, got " + value);
+        }
+        return parsed;
     }
 
     @Override
@@ -344,23 +372,47 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
 
     @Override
     public List<Partition> getPartitions(String dbName, String tblName, List<String> partitionNames) {
+        // Strict form: every requested name must come back, exactly once, in request order. One batch
+        // executor owns bounded chunking, adaptive size fallback and response validation; this method
+        // only supplies the leaf transport that performs one physical getPartitionsByNames per attempt.
+        return newPartitionBatchExecutor()
+                .executeWithStats(new HmsPartitionRequest(dbName, tblName, partitionNames))
+                .getPartitions();
+    }
+
+    @Override
+    public List<Partition> getExistingPartitions(String dbName, String tblName, List<String> partitionNames) {
+        // Lenient form for callers racing remote DROPs (cache bulk loads, freshness probes): a missing
+        // name is a normal answer and is omitted; duplicate/unexpected/invalid responses still fail.
+        return newPartitionBatchExecutor()
+                .executeExistingWithStats(new HmsPartitionRequest(dbName, tblName, partitionNames))
+                .getPartitions();
+    }
+
+    private HmsPartitionBatchExecutor newPartitionBatchExecutor() {
+        return new HmsPartitionBatchExecutor(partitionBatchSize, this::fetchPartitionsByNames);
+    }
+
+    private List<Partition> fetchPartitionsByNames(String dbName, String tblName, List<String> partitionNames) {
+        if (isClosed) {
+            throw new HMSClientException("HMS client is closed");
+        }
         try (ThriftHMSClient client = getClient()) {
             try {
                 return ugiDoAs(() -> client.client.getPartitionsByNames(dbName, tblName, partitionNames));
             } catch (Exception e) {
                 client.setThrowable(e);
-                throw e;
+                // Everything reaching this catch crossed into the remote call (pool/auth setup failures
+                // throw from getClient() before this block), so classify it for the batch executor's
+                // adaptive-fallback ladder. ugiDoAs wraps the real failure in a RuntimeException; unwrap
+                // so thrift message-size causes stay visible to the degradable classification.
+                Throwable cause = e instanceof RuntimeException && e.getCause() != null ? e.getCause() : e;
+                throw new HmsPartitionBatchExecutor.RemoteCallException(cause.getMessage(), cause);
             }
+        } catch (HMSClientException e) {
+            throw e;
         } catch (Exception e) {
-            // Avoid printing too much log
-            String partitionNamesMsg;
-            if (partitionNames.size() <= 3) {
-                partitionNamesMsg = partitionNames.toString();
-            } else {
-                partitionNamesMsg = partitionNames.subList(0, 3) + "... total: " + partitionNames.size();
-            }
-            throw new HMSClientException("failed to get partitions for table %s in db %s with value [%s]", e, tblName,
-                    dbName, partitionNamesMsg);
+            throw new HMSClientException("failed to get partitions for table %s in db %s", e, tblName, dbName);
         }
     }
 

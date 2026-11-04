@@ -17,6 +17,9 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <array>
+#include <cstring>
 #include <limits>
 #include <optional>
 #include <string>
@@ -31,12 +34,41 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type/primitive_type.h"
+#include "format/parquet/schema_desc.h"
 #include "format_v2/parquet/native_schema_desc.h"
 #include "format_v2/parquet/native_schema_node.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_file_context.h"
+#include "format_v2/parquet/reader/native_column_reader.h"
+#include "io/fs/file_reader.h"
+#include "io/io_common.h"
+#include "util/coding.h"
+#include "util/thrift_util.h"
 
 namespace doris::format::parquet {
+
+TEST(ParquetSchemaTest, UnannotatedInt96DoesNotAcquireTimezoneFromMappingFlag) {
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(1);
+    tparquet::SchemaElement timestamp;
+    timestamp.__set_name("event_time");
+    timestamp.__set_type(tparquet::Type::INT96);
+    timestamp.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    for (bool legacy_flag : {false, true}) {
+        NativeFieldDescriptor native;
+        native.set_enable_mapping_timestamp_tz(legacy_flag);
+        ASSERT_TRUE(native.parse_from_thrift({root, timestamp}).ok());
+        EXPECT_EQ(remove_nullable(native.get_column(0)->data_type)->get_primitive_type(),
+                  TYPE_DATETIMEV2);
+        doris::FieldDescriptor legacy;
+        legacy.set_enable_mapping_timestamp_tz(legacy_flag);
+        ASSERT_TRUE(legacy.parse_from_thrift({root, timestamp}).ok());
+        EXPECT_EQ(remove_nullable(legacy.get_column(0)->data_type)->get_primitive_type(),
+                  TYPE_DATETIMEV2);
+    }
+}
+
 namespace {
 
 std::vector<tparquet::SchemaElement> unshredded_variant_schema(
@@ -196,6 +228,118 @@ std::vector<tparquet::SchemaElement> shredded_array_variant_schema(bool include_
 
 } // namespace
 
+namespace {
+
+class FooterDiagnosticFileReader final : public io::FileReader {
+public:
+    explicit FooterDiagnosticFileReader(std::string bytes) : _bytes(std::move(bytes)) {}
+    Status close() override { return Status::OK(); }
+    const io::Path& path() const override { return _path; }
+    size_t size() const override { return _bytes.size(); }
+    bool closed() const override { return false; }
+    int64_t mtime() const override { return 0; }
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const io::IOContext*) override {
+        *bytes_read = offset < _bytes.size() ? std::min(result.size, _bytes.size() - offset) : 0;
+        if (*bytes_read != 0) {
+            memcpy(result.data, _bytes.data() + offset, *bytes_read);
+        }
+        return Status::OK();
+    }
+
+private:
+    io::Path _path {"s3://example-bucket/nested.parquet"};
+    std::string _bytes;
+};
+
+Status open_diagnostic_footer(const std::vector<tparquet::SchemaElement>& schema) {
+    tparquet::FileMetaData metadata;
+    metadata.__set_version(1);
+    metadata.__set_schema(schema);
+    metadata.__set_num_rows(0);
+    metadata.__set_row_groups({});
+    std::vector<uint8_t> footer;
+    ThriftSerializer serializer(true, 1024);
+    RETURN_IF_ERROR(serializer.serialize(&metadata, &footer));
+    std::string bytes = "PAR1";
+    bytes.append(reinterpret_cast<const char*>(footer.data()), footer.size());
+    std::array<uint8_t, 4> length;
+    encode_fixed32_le(length.data(), static_cast<uint32_t>(footer.size()));
+    bytes.append(reinterpret_cast<const char*>(length.data()), length.size());
+    bytes.append("PAR1");
+    auto file = std::make_shared<FooterDiagnosticFileReader>(std::move(bytes));
+    ParquetFileContext context;
+    return context.open(file, nullptr, false, io::FileDescription(), false, false, nullptr);
+}
+
+} // namespace
+
+TEST(ParquetSchemaTest, VariantFallbackErrorReportsPathAndActualSchema) {
+    // A typed carrier still needs an optional fallback; only fallback-only elements may require it.
+    auto schema = shredded_array_variant_schema(true, true);
+    schema[7].__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+    auto status = open_diagnostic_footer(schema);
+    ASSERT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+    EXPECT_NE(status.to_string().find("s3://example-bucket/nested.parquet"), std::string::npos);
+    EXPECT_NE(status.to_string().find("variant_path=payload.typed_value.element.value"),
+              std::string::npos);
+    EXPECT_NE(status.to_string().find("physical_type=BYTE_ARRAY"), std::string::npos);
+    EXPECT_NE(status.to_string().find("repetition=REQUIRED"), std::string::npos);
+    EXPECT_NE(status.to_string().find("children=0"), std::string::npos);
+
+    schema[7].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    ASSERT_TRUE(open_diagnostic_footer(schema).ok());
+    schema[7].__set_type(tparquet::Type::INT64);
+    status = open_diagnostic_footer(schema);
+    ASSERT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+    EXPECT_NE(status.to_string().find("physical_type=INT64"), std::string::npos);
+    EXPECT_NE(status.to_string().find("repetition=OPTIONAL"), std::string::npos);
+
+    schema[7].__set_type(tparquet::Type::BYTE_ARRAY);
+    schema[7].__set_repetition_type(tparquet::FieldRepetitionType::REPEATED);
+    status = open_diagnostic_footer(schema);
+    ASSERT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+    EXPECT_NE(status.to_string().find("physical_type=BYTE_ARRAY"), std::string::npos);
+    EXPECT_NE(status.to_string().find("repetition=REPEATED"), std::string::npos);
+}
+
+TEST(ParquetSchemaTest, VariantFallbackGroupErrorReportsActualChildren) {
+    auto schema = shredded_object_variant_schema();
+    auto child = schema[6];
+    child.__set_name("child");
+    schema[6].__isset.type = false;
+    schema[6].__set_num_children(1);
+    schema.insert(schema.begin() + 7, child);
+    const auto status = open_diagnostic_footer(schema);
+    ASSERT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+    EXPECT_NE(status.to_string().find("variant_path=payload.typed_value.field.value"),
+              std::string::npos);
+    EXPECT_NE(status.to_string().find("physical_type=GROUP"), std::string::npos);
+    EXPECT_NE(status.to_string().find("children=1"), std::string::npos);
+}
+
+TEST(ParquetSchemaTest, FooterContextPreservesUnsupportedAndCorruptionCodes) {
+    auto schema = unshredded_variant_schema(2);
+    NativeFieldDescriptor descriptor;
+    const auto expected = descriptor.parse_from_thrift(schema);
+    ASSERT_FALSE(expected.ok());
+    const auto unsupported = open_diagnostic_footer(schema);
+    EXPECT_EQ(unsupported.code(), expected.code());
+    EXPECT_NE(unsupported.to_string().find(expected.msg()), std::string::npos);
+    EXPECT_NE(unsupported.to_string().find("s3://example-bucket/nested.parquet"),
+              std::string::npos);
+
+    auto file = std::make_shared<FooterDiagnosticFileReader>("PAR1");
+    ParquetFileContext context;
+    const auto corrupt =
+            context.open(file, nullptr, false, io::FileDescription(), false, false, nullptr);
+    ASSERT_TRUE(corrupt.is<ErrorCode::CORRUPTION>()) << corrupt;
+    EXPECT_NE(corrupt.to_string().find("s3://example-bucket/nested.parquet"), std::string::npos);
+    EXPECT_NE(corrupt.to_string().find("too small for a footer"), std::string::npos);
+}
+
 TEST(ParquetSchemaTest, NativeSchemaRecognizesVariantLogicalGroup) {
     for (const auto version : {std::optional<int8_t> {}, std::optional<int8_t> {1}}) {
         NativeFieldDescriptor descriptor;
@@ -225,6 +369,25 @@ TEST(ParquetSchemaTest, NativeSchemaRecognizesVariantLogicalGroup) {
         EXPECT_EQ(fields[0]->children[0]->name, "metadata");
         EXPECT_EQ(fields[0]->children[1]->name, "value");
     }
+}
+
+TEST(ParquetSchemaTest, RequestTypeSyncPreservesVariantPhysicalStruct) {
+    NativeFieldDescriptor descriptor;
+    ASSERT_TRUE(descriptor.parse_from_thrift(unshredded_variant_schema()).ok());
+    descriptor.assign_ids();
+
+    std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
+    ASSERT_TRUE(build_parquet_column_schema(descriptor, &fields).ok());
+    ASSERT_EQ(fields.size(), 1);
+    const auto* metadata_field = descriptor.get_column(0);
+    ASSERT_NE(metadata_field, nullptr);
+    NativeFieldSchema request_field = *metadata_field;
+
+    ASSERT_TRUE(detail::sync_native_field_types(*fields[0], &request_field).ok());
+    EXPECT_EQ(remove_nullable(request_field.data_type)->get_primitive_type(), TYPE_STRUCT);
+    ASSERT_NE(request_field.variant_physical_type, nullptr);
+    EXPECT_EQ(remove_nullable(request_field.variant_physical_type)->get_primitive_type(),
+              TYPE_STRUCT);
 }
 
 TEST(ParquetSchemaTest, AppliesTableFormatVariantOverrideToUnannotatedGroup) {
@@ -293,7 +456,30 @@ TEST(ParquetSchemaTest, AppliesPaimonFallbackOnlyArrayWithRequiredValue) {
     EXPECT_EQ(fields[0]->kind, ParquetColumnSchemaKind::VARIANT);
 }
 
-TEST(ParquetSchemaTest, RejectsRequiredShreddedFallbackOutsidePaimonFallbackOnlyArray) {
+TEST(ParquetSchemaTest, AcceptsAnnotatedFallbackOnlyArrayWithRequiredValue) {
+    auto schema = shredded_array_variant_schema(true, false);
+    schema[7].__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+    ASSERT_TRUE(open_diagnostic_footer(schema).ok());
+}
+
+TEST(ParquetSchemaTest, AcceptsAnnotatedShreddedVariantWithOptionalMetadata) {
+    auto schema = shredded_object_variant_schema();
+    schema[2].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    ASSERT_TRUE(open_diagnostic_footer(schema).ok());
+}
+
+TEST(ParquetSchemaTest, AcceptsAnnotatedShreddedVariantWithOptionalWrappers) {
+    auto object_schema = shredded_object_variant_schema();
+    object_schema[5].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    ASSERT_TRUE(open_diagnostic_footer(object_schema).ok());
+
+    auto array_schema = shredded_array_variant_schema(true, false);
+    array_schema[6].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    array_schema[7].__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+    ASSERT_TRUE(open_diagnostic_footer(array_schema).ok());
+}
+
+TEST(ParquetSchemaTest, RejectsRequiredShreddedFallbackOutsideFallbackOnlyArray) {
     const auto expect_override_corruption = [](std::vector<tparquet::SchemaElement> schema) {
         NativeFieldDescriptor descriptor;
         ASSERT_TRUE(descriptor.parse_from_thrift(schema).ok());
@@ -320,7 +506,7 @@ TEST(ParquetSchemaTest, RejectsRequiredShreddedFallbackOutsidePaimonFallbackOnly
     paimon_array_with_typed_value[7].__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
     expect_override_corruption(std::move(paimon_array_with_typed_value));
 
-    auto annotated_array = shredded_array_variant_schema(true, false);
+    auto annotated_array = shredded_array_variant_schema(true, true);
     annotated_array[7].__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
     NativeFieldDescriptor descriptor;
     const auto annotated_status = descriptor.parse_from_thrift(annotated_array);
@@ -342,11 +528,11 @@ TEST(ParquetSchemaTest, RejectsMalformedUnannotatedVariantOverride) {
     EXPECT_NE(status.to_string().find("unexpected child"), std::string::npos);
 }
 
-TEST(ParquetSchemaTest, RejectsOptionalMetadataOutsidePaimonShreddedOverride) {
-    auto annotated_shredded = shredded_object_variant_schema();
-    annotated_shredded[2].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+TEST(ParquetSchemaTest, RejectsOptionalMetadataForUnshreddedVariant) {
+    auto annotated_unshredded = unshredded_variant_schema();
+    annotated_unshredded[2].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
     NativeFieldDescriptor descriptor;
-    const auto annotated_status = descriptor.parse_from_thrift(annotated_shredded);
+    const auto annotated_status = descriptor.parse_from_thrift(annotated_unshredded);
     EXPECT_TRUE(annotated_status.is<ErrorCode::CORRUPTION>()) << annotated_status;
 
     auto unannotated_unshredded = unshredded_variant_schema();
@@ -466,8 +652,7 @@ TEST(ParquetSchemaTest, NativeVariantValidatesEveryShreddedWrapperAndScalar) {
 
     const auto optional_wrapper_status =
             descriptor.parse_from_thrift(shredded_object_variant_schema(true, false));
-    EXPECT_TRUE(optional_wrapper_status.is<ErrorCode::CORRUPTION>()) << optional_wrapper_status;
-    EXPECT_NE(optional_wrapper_status.to_string().find("wrapper"), std::string::npos);
+    EXPECT_TRUE(optional_wrapper_status.ok()) << optional_wrapper_status;
 }
 
 TEST(ParquetSchemaTest, NativeVariantRejectsDuplicateObjectFieldNames) {

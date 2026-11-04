@@ -21,11 +21,16 @@
 #include <unicode/normalizer2.h>
 #include <unicode/unistr.h>
 
+#ifdef ADDRESS_SANITIZER
+#include <sanitizer/allocator_interface.h>
+#endif
+
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "CLucene.h"
+#include "storage/index/inverted/tokenizer/empty/empty_tokenizer_factory.h"
 #include "storage/index/inverted/tokenizer/keyword/keyword_tokenizer_factory.h"
 #include "storage/index/inverted/tokenizer/standard/standard_tokenizer_factory.h"
 
@@ -48,6 +53,10 @@ TokenizerPtr create_tokenizer(const std::string& tokenizer_type, const std::stri
         tokenizer = factory.create();
     } else if (tokenizer_type == "keyword") {
         KeywordTokenizerFactory factory;
+        factory.initialize(settings);
+        tokenizer = factory.create();
+    } else if (tokenizer_type == "empty") {
+        EmptyTokenizerFactory factory;
         factory.initialize(settings);
         tokenizer = factory.create();
     } else {
@@ -246,7 +255,7 @@ TEST_F(ICUNormalizerFilterFactoryTest, NonEmptyUnicodeSetCreatesFilteredNormaliz
     auto filter = factory.create(tokenizer);
 
     auto tokens = collect_tokens(filter);
-    EXPECT_GE(tokens.size(), 1u);
+    EXPECT_GE(tokens.size(), 1U);
 }
 
 TEST_F(ICUNormalizerFilterFactoryTest, CreateWithoutInitializeThrows) {
@@ -290,6 +299,64 @@ TEST_F(ICUNormalizerFilterFactoryTest, ResetResetsUnderlyingStream) {
     }
 
     EXPECT_EQ(first_pass, second_pass);
+}
+
+TEST_F(ICUNormalizerFilterFactoryTest, LargeInputSkipsUnusedOffsetMaps) {
+    constexpr size_t input_size = 4 * 1024 * 1024;
+    std::string input(input_size, 'a');
+    input.back() = 'A';
+
+    Settings settings;
+    ICUNormalizerFilterFactory factory;
+    factory.initialize(settings);
+
+    auto tokenizer = create_tokenizer("empty", input);
+    auto filter = factory.create(tokenizer);
+
+    Token token;
+#ifdef ADDRESS_SANITIZER
+    const size_t allocated_before = __sanitizer_get_current_allocated_bytes();
+#endif
+    ASSERT_NE(filter->next(&token), nullptr);
+#ifdef ADDRESS_SANITIZER
+    const size_t allocated_after = __sanitizer_get_current_allocated_bytes();
+    ASSERT_GE(allocated_after, allocated_before);
+    EXPECT_LT(allocated_after - allocated_before, input_size * 4);
+#endif
+    EXPECT_TRUE(filter->get_source_byte_offsets().empty());
+    EXPECT_TRUE(filter->get_source_byte_end_offsets().empty());
+}
+
+TEST_F(ICUNormalizerFilterFactoryTest, LargeInputUsesCompactEnabledSourceSpan) {
+    constexpr size_t input_size = 4 * 1024 * 1024;
+    std::string input(input_size, 'a');
+    input.back() = 'A';
+
+    Settings settings;
+    ICUNormalizerFilterFactory factory;
+    factory.initialize(settings);
+
+    auto tokenizer = create_tokenizer("empty", input);
+    auto filter = factory.create(tokenizer);
+    filter->set_source_byte_offsets_enabled(true);
+
+    Token token;
+#ifdef ADDRESS_SANITIZER
+    const size_t allocated_before = __sanitizer_get_current_allocated_bytes();
+#endif
+    ASSERT_NE(filter->next(&token), nullptr);
+#ifdef ADDRESS_SANITIZER
+    const size_t allocated_after = __sanitizer_get_current_allocated_bytes();
+    ASSERT_GE(allocated_after, allocated_before);
+    EXPECT_LT(allocated_after - allocated_before, input_size * 12);
+#endif
+    EXPECT_TRUE(filter->get_source_byte_offsets().empty());
+    EXPECT_TRUE(filter->get_source_byte_end_offsets().empty());
+    int32_t source_start = -1;
+    int32_t source_end = -1;
+    EXPECT_TRUE(filter->get_conservative_source_byte_span(source_start, source_end));
+    EXPECT_EQ(source_start, 0);
+    EXPECT_EQ(source_end, static_cast<int32_t>(input.size()));
 }
 
 } // namespace doris::segment_v2::inverted_index

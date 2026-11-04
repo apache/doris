@@ -135,11 +135,12 @@ public:
 
     [[nodiscard]] bool is_cancelled() const { return !_exec_status.ok(); }
 
-    void cancel_all_pipeline_context(const Status& reason, int fragment_id = -1);
     std::string print_all_pipeline_context();
     void set_pipeline_context(const int fragment_id,
                               std::shared_ptr<PipelineFragmentContext> pip_ctx);
-    void cancel(Status new_status, int fragment_id = -1);
+    // The sole entry point for query cancellation. Only the first error is accepted; it is then
+    // propagated to every PipelineFragmentContext for fragment-local cleanup.
+    void cancel(Status new_status);
 
     [[nodiscard]] Status exec_status() { return _exec_status.status(); }
 
@@ -284,6 +285,15 @@ public:
         return _ai_resources;
     }
 
+    void set_s3_resources(std::map<std::string, TS3Resource> s3_resources) {
+        _s3_resources =
+                std::make_shared<const std::map<std::string, TS3Resource>>(std::move(s3_resources));
+    }
+
+    const std::shared_ptr<const std::map<std::string, TS3Resource>>& get_s3_resources() const {
+        return _s3_resources;
+    }
+
     std::unordered_map<TNetworkAddress, std::shared_ptr<PBackendService_Stub>>
     get_using_brpc_stubs() {
         std::lock_guard<std::mutex> lock(_brpc_stubs_mutex);
@@ -394,6 +404,7 @@ private:
     std::unordered_map<int, std::shared_ptr<TRuntimeProfileTree>> _load_channel_profile_map;
 
     std::shared_ptr<std::map<std::string, TAIResource>> _ai_resources;
+    std::shared_ptr<const std::map<std::string, TS3Resource>> _s3_resources;
 
     void _report_query_profile();
 

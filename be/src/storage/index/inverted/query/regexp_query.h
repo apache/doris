@@ -50,6 +50,8 @@ private:
 
     int32_t _max_expansions = 50;
     DisjunctionQuery _query;
+    // Set when score() is requested; every matching row then scores the constant 1.
+    bool _constant_score = false;
 
     friend class RegexpQueryTest;
 };

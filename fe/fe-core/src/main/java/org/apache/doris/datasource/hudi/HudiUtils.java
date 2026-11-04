@@ -83,7 +83,9 @@ public class HudiUtils {
                 return "int";
             case LONG:
                 if (logicalType instanceof LogicalTypes.TimestampMillis
-                        || logicalType instanceof LogicalTypes.TimestampMicros) {
+                        || logicalType instanceof LogicalTypes.TimestampMicros
+                        || logicalType instanceof LogicalTypes.LocalTimestampMillis
+                        || logicalType instanceof LogicalTypes.LocalTimestampMicros) {
                     return "timestamp";
                 }
                 if (logicalType instanceof LogicalTypes.TimeMicros) {
@@ -213,9 +215,17 @@ public class HudiUtils {
             return ScalarType.createTimeV2Type(6);
         }
         if (logicalType instanceof LogicalTypes.TimestampMillis) {
-            return ScalarType.createDatetimeV2Type(3);
+            // Avro timestamp annotations represent instants, not session-local wall clocks.
+            return ScalarType.createTimeStampTzType(3);
         }
         if (logicalType instanceof LogicalTypes.TimestampMicros) {
+            return ScalarType.createTimeStampTzType(6);
+        }
+        // Local timestamp annotations encode wall-clock fields rather than an instant.
+        if (logicalType instanceof LogicalTypes.LocalTimestampMillis) {
+            return ScalarType.createDatetimeV2Type(3);
+        }
+        if (logicalType instanceof LogicalTypes.LocalTimestampMicros) {
             return ScalarType.createDatetimeV2Type(6);
         }
         return Type.BIGINT;

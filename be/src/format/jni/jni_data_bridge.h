@@ -130,7 +130,8 @@ public:
 
     /**
      * Convert a Doris DataType to its JNI type string representation.
-     * e.g., TYPE_INT -> "int", TYPE_DECIMAL128I -> "decimal128(p,s)"
+     * e.g., TYPE_INT -> "int", TYPE_DECIMAL128I -> "decimal128(p,s)", TYPE_FILE -> "file".
+     * FILE retains its logical type; both sides use the canonical six-child physical layout.
      */
     static std::string get_jni_type(const DataTypePtr& data_type);
 

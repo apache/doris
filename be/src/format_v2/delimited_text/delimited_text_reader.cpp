@@ -32,6 +32,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "format/file_reader/new_plain_text_line_reader.h"
 #include "format/line_reader.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/materialized_reader_util.h"
@@ -555,6 +556,19 @@ Status DelimitedTextReader::_open_file() {
 Status DelimitedTextReader::_read_next_line(Slice* line, bool* eof) {
     DORIS_CHECK(line != nullptr);
     DORIS_CHECK(eof != nullptr);
+    if (_align_split_prefix) {
+        SCOPED_TIMER(_text_profile.read_line_time);
+        DCHECK_EQ(_skip_lines, 1);
+        size_t skipped_lines = 0;
+        auto* text_reader = assert_cast<NewPlainTextLineReader*>(_line_reader.get());
+        RETURN_IF_ERROR(text_reader->skip_split_prefix(_file_description->range_start_offset,
+                                                       _line_delimiter, &_line_reader_eof,
+                                                       _io_ctx.get(), &skipped_lines));
+        _align_split_prefix = false;
+        _skip_lines = 0;
+        _bom_removed = true;
+        update_counter(_text_profile.skipped_lines, skipped_lines);
+    }
     while (true) {
         const uint8_t* ptr = nullptr;
         size_t size = 0;

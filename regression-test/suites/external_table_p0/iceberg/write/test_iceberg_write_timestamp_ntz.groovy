@@ -24,6 +24,7 @@ suite("test_iceberg_write_timestamp_ntz", "p0,external,iceberg,external_docker,e
     }
 
   
+    def originalTimeZone = sql "SELECT @@time_zone"
     try {
 
         String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
@@ -48,8 +49,10 @@ suite("test_iceberg_write_timestamp_ntz", "p0,external,iceberg,external_docker,e
         logger.info("switched to catalog " + catalog_name)
         sql """ use test_db;""" 
 
-        sql """INSERT INTO t_ntz_doris VALUES ('2025-02-07 20:12:00');"""
-        sql """INSERT INTO t_tz_doris VALUES ('2025-02-07 20:12:01');"""
+        // Unqualified instant literals use the insert session zone; make the fixture deterministic.
+        sql "set time_zone = 'Asia/Shanghai'"
+        sql """INSERT OVERWRITE TABLE t_ntz_doris VALUES ('2025-02-07 20:12:00');"""
+        sql """INSERT OVERWRITE TABLE t_tz_doris VALUES ('2025-02-07 20:12:01');"""
 
      
         sql "set time_zone = 'Asia/Shanghai'"
@@ -66,6 +69,6 @@ suite("test_iceberg_write_timestamp_ntz", "p0,external,iceberg,external_docker,e
         // sql """drop catalog if exists ${catalog_name}"""
 
     } finally {
-
+        sql "SET time_zone = '${originalTimeZone[0][0]}'"
     }
 }

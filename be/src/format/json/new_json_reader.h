@@ -62,6 +62,7 @@ struct IOContext;
 struct ScannerCounter;
 class Block;
 class IColumn;
+class NewPlainTextLineReader;
 
 namespace json_reader_detail {
 Status append_null_for_malformed_json(Block& block);
@@ -83,7 +84,7 @@ public:
                   const TFileRangeDesc& range, const std::vector<SlotDescriptor*>& file_slot_descs,
                   size_t batch_size, io::IOContext* io_ctx,
                   std::shared_ptr<io::IOContext> io_ctx_holder = nullptr);
-    ~NewJsonReader() override = default;
+    ~NewJsonReader() override;
 
     Status init_reader(
             const std::unordered_map<std::string, VExprContextSPtr>& col_default_value_ctx,
@@ -200,7 +201,7 @@ private:
     const std::vector<SlotDescriptor*>& _file_slot_descs;
 
     io::FileReaderSPtr _file_reader;
-    std::unique_ptr<LineReader> _line_reader;
+    std::unique_ptr<NewPlainTextLineReader> _line_reader;
     bool _reader_eof;
     std::unique_ptr<Decompressor> _decompressor;
     TFileCompressType::type _file_compress_type;

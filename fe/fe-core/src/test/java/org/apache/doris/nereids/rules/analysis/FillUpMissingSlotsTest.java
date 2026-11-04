@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.SmallIntType;
@@ -48,6 +49,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements MemoPatternMatchSupported {
@@ -283,6 +285,24 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                                             ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, countStar)))
                                 ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(countStar.toSlot(), Literal.of(0L)))))
                         ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot()))));
+    }
+
+    @Test
+    void testHavingAggregateFunctionDoesNotLeakHelperOutput() {
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze("SELECT 1 FROM t1 HAVING SUM(a1) > 0")
+                .getPlan();
+        Assertions.assertEquals(1, plan.getOutput().size());
+
+        PlanChecker.from(connectContext)
+                .analyze("SELECT (SELECT 1 FROM t1 HAVING SUM(a1) > 0)");
+
+        ExceptionChecker.expectThrowsWithMsg(
+                AnalysisException.class,
+                "Multiple columns returned by subquery are not yet supported. Found 2",
+                () -> PlanChecker.from(connectContext).analyze(
+                        "SELECT (SELECT 1, 2 FROM t1 HAVING SUM(a1) > 0)"
+                ));
     }
 
     @Test

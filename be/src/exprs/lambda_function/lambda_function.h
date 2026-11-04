@@ -31,7 +31,7 @@ public:
 
     virtual std::string get_name() const = 0;
 
-    virtual doris::Status prepare(RuntimeState* state) {
+    virtual doris::Status prepare(RuntimeState* state, const VExprSPtrs& children) {
         batch_size = state->batch_size();
         return Status::OK();
     }

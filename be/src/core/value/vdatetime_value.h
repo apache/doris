@@ -209,6 +209,10 @@ static constexpr uint64_t MAX_DATETIME_V2 = ((uint64_t)MAX_DATE_V2 << TIME_PART_
 static constexpr uint64_t MIN_DATETIME_V2 = (uint64_t)MIN_DATE_V2 << TIME_PART_LENGTH;
 
 static constexpr uint32_t MAX_YEAR = 9999;
+// UTC 9999-12-31 23:59:59 plus one day for time zone offsets. Reject larger inputs
+// before narrowing the civil year; the converted date still needs its exact range check.
+static constexpr int64_t MAX_UNIX_TIMESTAMP_WITH_TIMEZONE =
+        253402300799LL + HOUR_PER_DAY * SECOND_PER_HOUR;
 static constexpr uint32_t MAX_MONTH = 12;
 static constexpr uint32_t MAX_HOUR = 23;
 static constexpr uint32_t MAX_MINUTE = 59;
@@ -1088,6 +1092,12 @@ public:
     template <TimeUnit unit, bool need_check = true>
     bool date_add_interval(const TimeInterval& interval);
 
+    // Fast path for DAY / WEEK intervals: only the date part moves (daynr +- days), the time part
+    // is untouched. Defined inline below `calc_daynr` so that per-row callers fully inline it;
+    // falls back to the generic `date_add_interval<DAY>` outside the day-offset dictionary.
+    template <bool need_check = true>
+    bool date_add_days(int64_t days);
+
     template <TimeUnit unit>
     bool date_set_interval(const TimeInterval& interval);
 
@@ -1687,8 +1697,6 @@ private:
 
     static constexpr int START_YEAR = 1900; // 1900-01-01
     static constexpr int END_YEAR = 2039;   // 2039-10-24
-    static constexpr int DAY_OFFSET_CAL_START_POINT_DAYNR =
-            719528; // 1970-01-01 (start from 0000-01-01, 0000-01-01 is day 1, returns 1)
 
     static std::array<DateV2Value<DateV2ValueType>, DICT_DAYS> DATE_DAY_OFFSET_ITEMS;
     static std::array<std::array<std::array<int, 31>, 12>, 140> DATE_DAY_OFFSET_DICT;
@@ -1703,6 +1711,9 @@ private:
     date_day_offset_dict& operator=(const date_day_offset_dict&) = default;
 
 public:
+    static constexpr int DAY_OFFSET_CAL_START_POINT_DAYNR =
+            719528; // 1970-01-01 (start from 0000-01-01, 0000-01-01 is day 1, returns 1)
+
     static bool can_speed_up_calc_daynr(int year) { return year >= START_YEAR && year <= END_YEAR; }
 
     static int get_offset_by_daynr(int daynr) { return daynr - DAY_OFFSET_CAL_START_POINT_DAYNR; }
@@ -1761,6 +1772,92 @@ inline uint32_t calc_daynr(uint16_t year, uint8_t month, uint8_t day) {
     }
     // Every 400 year has 97 leap year, 100, 200, 300 are not leap year.
     return delsum + y / 4 - y / 100 + y / 400;
+}
+
+// Doris follows MySQL's calendar, in which year 0 is NOT a leap year (see `is_leap()`): 0000-02-29
+// does not exist and `calc_daynr()` therefore numbers 0000-01-01 .. 0000-02-28 one day ahead of the
+// proleptic Gregorian calendar. Arrow `date32`, Parquet/ORC `DATE` and the Iceberg spec all define
+// their day ordinal in the proleptic Gregorian calendar, where year 0 IS a leap year. The two
+// numberings coincide from 0000-03-01 (daynr 60) onwards, so the whole difference is the missing
+// 0000-02-29. Every conversion between a Doris DATE and an external "days since 1970-01-01" value
+// must go through the two helpers below instead of adding/subtracting the epoch daynr directly.
+inline constexpr int64_t DAYNR_OF_UNIX_EPOCH =
+        date_day_offset_dict::DAY_OFFSET_CAL_START_POINT_DAYNR;
+inline constexpr int64_t DAYNR_OF_0000_03_01 = 60; // first daynr shared by both calendars
+
+// Doris daynr -> days since 1970-01-01 in the proleptic Gregorian calendar.
+inline constexpr int32_t daynr_to_epoch_days(int64_t daynr) {
+    return static_cast<int32_t>(daynr - DAYNR_OF_UNIX_EPOCH -
+                                (daynr < DAYNR_OF_0000_03_01 ? 1 : 0));
+}
+
+// The three boundaries of the external ordinal domain, derived from the daynr domain rather than
+// typed out, so a change to either calendar constant cannot leave them behind.
+inline constexpr int64_t EPOCH_DAYS_MIN = daynr_to_epoch_days(1); // 0000-01-01, smallest Doris DATE
+inline constexpr int64_t EPOCH_DAYS_0000_02_29 =
+        daynr_to_epoch_days(DAYNR_OF_0000_03_01) - 1; // exists in proleptic Gregorian only
+inline constexpr int64_t EPOCH_DAYS_MAX =
+        daynr_to_epoch_days(DATE_MAX_DAYNR); // 9999-12-31, the largest Doris DATE
+
+static_assert(DAYNR_OF_UNIX_EPOCH == 719528, "calc_daynr(1970, 1, 1)");
+static_assert(EPOCH_DAYS_MIN == -719528);
+static_assert(EPOCH_DAYS_0000_02_29 == -719469);
+static_assert(EPOCH_DAYS_MAX == 2932896);
+
+// Inverse of `daynr_to_epoch_days()`. Returns 0, which is never a valid daynr, when the value has
+// no Doris DATE representation: before 0000-01-01, after 9999-12-31, or the proleptic-only
+// 0000-02-29. Callers must reject 0 instead of feeding it to `get_date_from_daynr()`.
+inline constexpr int64_t epoch_days_to_daynr(int64_t epoch_days) {
+    if (epoch_days < EPOCH_DAYS_MIN || epoch_days > EPOCH_DAYS_MAX ||
+        epoch_days == EPOCH_DAYS_0000_02_29) {
+        return 0;
+    }
+    return epoch_days + DAYNR_OF_UNIX_EPOCH + (epoch_days < EPOCH_DAYS_0000_02_29 ? 1 : 0);
+}
+
+// Valid endpoints alone do not prove a DATE range is decodable: it may enclose the
+// Gregorian-only leap day. Metadata shortcuts require every ordinal in the range to be valid.
+inline constexpr bool epoch_days_range_is_representable(int64_t min, int64_t max) {
+    return min <= max && epoch_days_to_daynr(min) != 0 && epoch_days_to_daynr(max) != 0 &&
+           (max < EPOCH_DAYS_0000_02_29 || min > EPOCH_DAYS_0000_02_29);
+}
+
+// DAY / WEEK fast path. Real workloads hold dates that cluster in a narrow range, so the two
+// dictionary lookups below (`daynr(y, m, d)` and `daynr -> date`) are L1-resident; measured about
+// 3x faster than the generic `date_add_interval<DAY>` (no TimeInterval, no second-level
+// arithmetic, fully inlined into the caller's loop). Closed-form calendar arithmetic was tried
+// and is ~2.5x SLOWER than the generic path: its chain of constant divisions costs far more than
+// two warm table loads. Everything outside the dictionary (years < 1900 or > 2039, results
+// outside it, and year 0 with its MySQL daynr quirk) takes the generic path unchanged.
+template <typename T>
+template <bool need_check>
+inline bool DateV2Value<T>::date_add_days(int64_t days) {
+    if constexpr (need_check) {
+        if (!is_valid_date()) [[unlikely]] {
+            return false;
+        }
+    } else {
+        DCHECK(is_valid_date());
+    }
+    if (date_day_offset_dict::can_speed_up_calc_daynr(date_v2_value_.year_) &&
+        LIKELY(date_day_offset_dict::get_dict_init())) [[likely]] {
+        const int64_t day_nr =
+                date_day_offset_dict::get().daynr(date_v2_value_.year_, date_v2_value_.month_,
+                                                  date_v2_value_.day_) +
+                days;
+        // range-check before narrowing: `days` may be up to INT32 * 7
+        if (day_nr > 0 && day_nr <= DATE_MAX_DAYNR &&
+            date_day_offset_dict::can_speed_up_daynr_to_date(static_cast<int>(day_nr))) [[likely]] {
+            const auto to = date_day_offset_dict::get()[date_day_offset_dict::get_offset_by_daynr(
+                    static_cast<int>(day_nr))];
+            date_v2_value_.year_ = to.year();
+            date_v2_value_.month_ = to.month();
+            date_v2_value_.day_ = to.day();
+            return true;
+        }
+    }
+    return date_add_interval<TimeUnit::DAY, need_check>(
+            TimeInterval(TimeUnit::DAY, days < 0 ? -days : days, days < 0));
 }
 
 class DatetimeValueUtil {

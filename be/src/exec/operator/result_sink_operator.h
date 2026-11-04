@@ -25,6 +25,7 @@
 #include "runtime/result_block_buffer.h"
 
 namespace doris {
+class DorisArrowSchemaConvertor;
 #include "common/compile_check_begin.h"
 class ResultBlockBufferBase;
 
@@ -65,6 +66,9 @@ struct ResultFileOptions {
     //Bring BOM when exporting to CSV format
     bool with_bom = false;
     int64_t orc_writer_version = 0;
+    // Zero-pad the per-file index in the output file name to this many digits.
+    // 0 means no padding, preserving the historical name format.
+    int file_name_padding = 0;
 
     ResultFileOptions(const TResultFileSinkOptions& t_opt) {
         file_path = t_opt.file_path;
@@ -78,6 +82,9 @@ struct ResultFileOptions {
                 t_opt.__isset.delete_existing_files ? t_opt.delete_existing_files : false;
         file_suffix = t_opt.file_suffix;
         with_bom = t_opt.with_bom;
+        if (t_opt.__isset.file_name_padding) {
+            file_name_padding = t_opt.file_name_padding;
+        }
 
         is_local_file = true;
         if (t_opt.__isset.broker_addresses) {
@@ -167,6 +174,8 @@ private:
 
     Status _second_phase_fetch_data(RuntimeState* state, Block* final_block);
     const TResultSinkType::type _sink_type;
+    const bool _enable_arrow_type_metadata;
+    std::shared_ptr<const DorisArrowSchemaConvertor> _arrow_schema_convertor;
     const int _result_sink_buffer_size_rows;
     // set file options when sink type is FILE
     std::unique_ptr<ResultFileOptions> _file_opts = nullptr;

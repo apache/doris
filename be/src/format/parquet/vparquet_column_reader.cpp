@@ -41,6 +41,7 @@
 #include "format/table/iceberg_default_value.h"
 #include "io/fs/tracing_file_reader.h"
 #include "runtime/runtime_profile.h"
+#include "util/defer_op.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -548,11 +549,26 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_data(
     ColumnPtr resolved_column =
             _converter->get_physical_column(_field_schema->physical_type, _field_schema->data_type,
                                             doris_column, type, is_dict_filter);
+    // Direct reads transfer the caller's only ColumnPtr so mutate() can avoid cloning it. Restore
+    // that ownership if any read step returns before convert() moves the column back.
+    bool restore_doris_column = false;
+    Defer restore_column([&]() {
+        if (restore_doris_column) {
+            doris_column = std::move(resolved_column);
+        }
+    });
     if (_converter->read_directly_into_dst_logical_column()) {
         DCHECK_EQ(resolved_column.get(), doris_column.get());
         resolved_column = std::move(doris_column);
+        restore_doris_column = true;
     }
     DataTypePtr& resolved_type = _converter->get_physical_type();
+    auto convert_column = [&]() -> Status {
+        RETURN_IF_ERROR(_converter->convert(resolved_column, _field_schema->data_type, type,
+                                            doris_column, is_dict_filter));
+        restore_doris_column = false;
+        return Status::OK();
+    };
 
     _def_levels.clear();
     _rep_levels.clear();
@@ -561,8 +577,7 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_data(
     if (_in_nested) {
         RETURN_IF_ERROR(_read_nested_column(resolved_column, resolved_type, filter_map, batch_size,
                                             read_rows, eof, is_dict_filter));
-        return _converter->convert(resolved_column, _field_schema->data_type, type, doris_column,
-                                   is_dict_filter);
+        return convert_column();
     }
 
     int64_t right_row = 0;
@@ -638,8 +653,7 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_data(
         }
     }
 
-    return _converter->convert(resolved_column, _field_schema->data_type, type, doris_column,
-                               is_dict_filter);
+    return convert_column();
 }
 
 Status ArrayColumnReader::init(std::unique_ptr<ParquetColumnReader> element_reader,

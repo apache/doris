@@ -31,6 +31,7 @@ import org.apache.doris.cdcclient.utils.SchemaChangeManager;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.StreamingTaskStatus;
 import org.apache.doris.job.cdc.request.FetchRecordRequest;
+import org.apache.doris.job.cdc.request.TaskFailureRequest;
 import org.apache.doris.job.cdc.request.WriteRecordRequest;
 import org.apache.doris.job.cdc.split.BinlogSplit;
 
@@ -43,6 +44,7 @@ import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.source.SourceRecord;
 
 import java.io.BufferedOutputStream;
+import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -114,7 +116,6 @@ public class PipelineCoordinator {
     /** return data for http_file_reader */
     public StreamingResponseBody fetchRecordStream(FetchRecordRequest fetchReq) throws Exception {
         SourceReader sourceReader;
-        SplitReadResult readResult;
         try {
             LOG.info(
                     "Fetch record request with meta {}, jobId={}, taskId={}",
@@ -128,9 +129,23 @@ public class PipelineCoordinator {
                 LOG.info("Generated meta for job {}: {}", fetchReq.getJobId(), meta);
             }
 
-            sourceReader = Env.getCurrentEnv().getReader(fetchReq, !isLong(fetchReq.getJobId()));
+            sourceReader =
+                    isJobDrivenTvf(fetchReq.getJobId())
+                            ? Env.getCurrentEnv().getReaderAndClaim(fetchReq, fetchReq.getTaskId())
+                            : Env.getCurrentEnv().getReader(fetchReq, true);
+        } catch (Exception ex) {
+            throw new CommonException(ex);
+        }
+
+        SplitReadResult readResult;
+        try {
             readResult = sourceReader.prepareAndSubmitSplit(fetchReq);
         } catch (Exception ex) {
+            try {
+                closeTvfReader(fetchReq, sourceReader);
+            } catch (Exception cleanupEx) {
+                ex.addSuppressed(cleanupEx);
+            }
             throw new CommonException(ex);
         }
 
@@ -144,8 +159,25 @@ public class PipelineCoordinator {
                         fetchReq.getTaskId(),
                         ex);
                 throw new StreamException(ex);
+            } finally {
+                closeTvfReader(fetchReq, sourceReader);
             }
         };
+    }
+
+    private void closeTvfReader(FetchRecordRequest request, SourceReader sourceReader) {
+        Env env = Env.getCurrentEnv();
+        if (isJobDrivenTvf(request.getJobId())) {
+            env.detachReaderIfOwner(request.getJobId(), request.getTaskId());
+            // Release only this request's instance and keep the PG slot for the next task.
+            sourceReader.release(request);
+        } else {
+            try {
+                sourceReader.close(request);
+            } finally {
+                env.close(request.getJobId());
+            }
+        }
     }
 
     private void buildStreamRecords(
@@ -170,6 +202,7 @@ public class PipelineCoordinator {
                     fetchRecord.getTaskId(),
                     isSnapshotSplit);
             while (!shouldStop) {
+                checkTvfReaderOwner(fetchRecord);
                 Iterator<SourceRecord> recordIterator = sourceReader.pollRecords();
                 if (!recordIterator.hasNext()) {
                     Thread.sleep(100);
@@ -233,29 +266,29 @@ public class PipelineCoordinator {
         }
 
         List<Map<String, String>> offsetMeta = extractOffsetMeta(sourceReader, readResult);
+        checkTvfReaderOwner(fetchRecord);
         if (StringUtils.isNotEmpty(fetchRecord.getTaskId())) {
             taskOffsetCache.put(fetchRecord.getTaskId(), offsetMeta);
         }
-        // Convention: standalone TVF uses a UUID jobId; job-driven TVF will use a numeric Long
-        // jobId (set via rewriteTvfParams). When the job-driven path is implemented,
-        // rewriteTvfParams must inject the job's Long jobId into the TVF properties
-        // so that generateParams() can read it, keeping isLong() correct.
-        // TODO: replace isLong() with an explicit field in FetchRecordRequest
-        // once the job-driven TVF path is fully implemented.
-        if (!isLong(fetchRecord.getJobId())) {
-            // TVF requires closing the window after each execution,
-            // while PG requires dropping the slot.
-            sourceReader.close(fetchRecord);
-            // Clean up the job context so it does not accumulate in Env.jobContexts.
-            // Each TVF call uses a fresh UUID job ID, so without this the map grows unboundedly.
-            Env.getCurrentEnv().close(fetchRecord.getJobId());
+    }
+
+    private void checkTvfReaderOwner(FetchRecordRequest request) {
+        if (isJobDrivenTvf(request.getJobId())
+                && !Env.getCurrentEnv().isOwner(request.getJobId(), request.getTaskId())) {
+            throw new IllegalStateException(
+                    String.format(
+                            "TVF reader released or replaced for job %s task %s",
+                            request.getJobId(), request.getTaskId()));
         }
     }
 
-    private boolean isLong(String s) {
-        if (s == null || s.isEmpty()) return false;
+    // Convention: standalone TVF uses a UUID jobId; job-driven TVF uses the job's numeric Long
+    // jobId, injected into the TVF properties by rewriteTvfParams and read by generateParams().
+    // TODO: replace this jobId-based check with an explicit field in FetchRecordRequest.
+    private boolean isJobDrivenTvf(String jobId) {
+        if (jobId == null || jobId.isEmpty()) return false;
         try {
-            Long.parseLong(s);
+            Long.parseLong(jobId);
             return true;
         } catch (NumberFormatException e) {
             return false;
@@ -288,7 +321,8 @@ public class PipelineCoordinator {
     public RecordWithMeta fetchRecords(FetchRecordRequest fetchRecordRequest) throws Exception {
         SourceReader sourceReader =
                 Env.getCurrentEnv()
-                        .getReader(fetchRecordRequest, !isLong(fetchRecordRequest.getJobId()));
+                        .getReader(
+                                fetchRecordRequest, !isJobDrivenTvf(fetchRecordRequest.getJobId()));
         SplitReadResult readResult = sourceReader.prepareAndSubmitSplit(fetchRecordRequest);
         return buildRecordResponse(sourceReader, fetchRecordRequest, readResult);
     }
@@ -452,6 +486,9 @@ public class PipelineCoordinator {
      * <p>Heartbeat events will carry the latest offset.
      */
     public void writeRecords(WriteRecordRequest writeRecordRequest) throws Exception {
+        Preconditions.checkArgument(
+                StringUtils.isNotBlank(writeRecordRequest.getDorisUser()),
+                "Missing dorisUser; FE must send the Doris job creator's user name");
         // Extract connection parameters up front for use throughout this method
         String feAddr = writeRecordRequest.getFrontendAddress();
         String targetDb = writeRecordRequest.getTargetDb();
@@ -476,7 +513,7 @@ public class PipelineCoordinator {
         int heartbeatCount = 0;
         int ddlCount = 0;
         SplitReadResult readResult = null;
-        boolean hasExecuteDDL = false;
+        boolean hasSchemaChanges = false;
         boolean isSnapshotSplit = false;
         boolean stillOwner = false;
         try {
@@ -607,12 +644,17 @@ public class PipelineCoordinator {
                     if (result.getType() == DeserializeResult.Type.SCHEMA_CHANGE) {
                         // Flush pending data before DDL
                         batchStreamLoad.forceFlush();
+                        validateUnsupportedSchemaChange(writeRecordRequest, result);
                         if (!CollectionUtils.isEmpty(result.getSchemaChanges())) {
                             ddlCount += result.getSchemaChanges().size();
                         }
                         SchemaChangeManager.executeChanges(
-                                feAddr, targetDb, token, result.getSchemaChanges());
-                        hasExecuteDDL = true;
+                                feAddr,
+                                targetDb,
+                                token,
+                                writeRecordRequest.getJobId(),
+                                result.getSchemaChanges());
+                        hasSchemaChanges = true;
                         sourceReader.applySchemaChange(result.getUpdatedSchemas());
                         lastMessageIsHeartbeat = false;
                     }
@@ -675,12 +717,12 @@ public class PipelineCoordinator {
         batchStreamLoad.resetTaskId();
 
         // Serialize tableSchemas back to FE when:
-        // 1. A DDL was executed (in-memory schema was updated), OR
+        // 1. The source schema was updated, including ignored target DDL, OR
         // 2. It's a binlog split AND FE had no schema (FE tableSchemas was null) — this covers
         //    incremental-only startup and the first binlog round after snapshot completes.
         String tableSchemas = null;
         boolean feHadNoSchema = writeRecordRequest.getTableSchemas() == null;
-        if (hasExecuteDDL || (!isSnapshotSplit && feHadNoSchema)) {
+        if (hasSchemaChanges || (!isSnapshotSplit && feHadNoSchema)) {
             tableSchemas = sourceReader.serializeTableSchemas();
         }
         // own taskId, never the shared currentTaskId: FE rejects it if another task took over
@@ -691,6 +733,47 @@ public class PipelineCoordinator {
                 batchStreamLoad.getLoadStatistic(),
                 tableSchemas);
         taskProgressMap.remove(writeRecordRequest.getTaskId());
+    }
+
+    private void validateUnsupportedSchemaChange(
+            WriteRecordRequest request, DeserializeResult result) throws IOException {
+        if (result.getUnsupportedReason() == null) {
+            return;
+        }
+        if (!request.isTolerateSchemaChange()) {
+            throw new IOException(
+                    TaskFailureRequest.SCHEMA_CHANGE_UNSUPPORTED
+                            + " "
+                            + result.getUnsupportedReason()
+                            + ". Review the target schema. RESUME confirms acceptance of unsupported"
+                            + " changes for this recovery round.");
+        }
+        try {
+            SchemaChangeManager.validateTargetSchemas(
+                    request.getFrontendAddress(),
+                    request.getTargetDb(),
+                    request.getToken(),
+                    request.getJobId(),
+                    result.getUpdatedSchemas(),
+                    request.getConfig());
+        } catch (IOException e) {
+            IOException failure =
+                    new IOException(
+                            TaskFailureRequest.SCHEMA_CHANGE_UNSUPPORTED
+                                    + " "
+                                    + result.getUnsupportedReason()
+                                    + ". Doris target: "
+                                    + e.getMessage()
+                                    + ". Fix the target schema, then RESUME the job.");
+            // The root message drives FE's pause classification.
+            failure.addSuppressed(e);
+            throw failure;
+        }
+        LOG.warn(
+                "[SCHEMA-CHANGE-TOLERATED] Job {}: target column names verified;"
+                        + " target types and keys are not checked. {}",
+                request.getJobId(),
+                result.getUnsupportedReason());
     }
 
     public static boolean isHeartbeatEvent(SourceRecord record) {
@@ -780,6 +863,7 @@ public class PipelineCoordinator {
         batchStreamLoad.setCurrentTaskId(writeRecordRequest.getTaskId());
         batchStreamLoad.setFrontendAddress(writeRecordRequest.getFrontendAddress());
         batchStreamLoad.setToken(writeRecordRequest.getToken());
+        batchStreamLoad.setDorisUser(writeRecordRequest.getDorisUser());
         batchStreamLoad.setLoadProps(writeRecordRequest.getStreamLoadProps());
         batchStreamLoad.getLoadStatistic().clear();
         return batchStreamLoad;

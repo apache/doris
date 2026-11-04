@@ -37,7 +37,7 @@ import java.util.Map;
 import java.util.OptionalInt;
 import java.util.Set;
 
-/** Validation shared by catalog-scoped and relation-scoped Paimon reader tuning. */
+/** Validation shared by catalog-scoped and relation-scoped Paimon reader options. */
 public final class PaimonReaderOptions {
     public static final String TABLE_OPTION_PREFIX = "paimon.table-option.";
     public static final int MIN_READ_BATCH_SIZE = 1;
@@ -47,9 +47,10 @@ public final class PaimonReaderOptions {
     public static final long MIN_ASYNC_THRESHOLD_BYTES = 1024L * 1024L;
     public static final long MAX_ASYNC_THRESHOLD_BYTES = 1024L * 1024L * 1024L;
 
-    // Keep this list to batch-read controls consumed by Doris' Paimon scan path. Context selectors,
+    // Keep this list to reader options consumed by Doris' Paimon scan path. Context selectors,
     // streaming-source settings, storage layout, and write options are unsafe after schema binding.
     private static final Set<String> SUPPORTED_OPTIONS = ImmutableSet.of(
+            CoreOptions.BLOB_AS_DESCRIPTOR.key(),
             CoreOptions.READ_BATCH_SIZE.key(),
             CoreOptions.FILE_READER_ASYNC_THRESHOLD.key(),
             CoreOptions.FILE_INDEX_READ_ENABLED.key(),
@@ -61,6 +62,7 @@ public final class PaimonReaderOptions {
     // These settings do not alter the selected snapshot or manifest projection, so relation-local
     // copies can reuse the memoized partition projection while still planning splits from the copy.
     private static final Set<String> METADATA_NEUTRAL_OPTIONS = ImmutableSet.of(
+            CoreOptions.BLOB_AS_DESCRIPTOR.key(),
             CoreOptions.READ_BATCH_SIZE.key(),
             CoreOptions.FILE_READER_ASYNC_THRESHOLD.key(),
             CoreOptions.FILE_INDEX_READ_ENABLED.key(),
@@ -104,6 +106,8 @@ public final class PaimonReaderOptions {
             parse(key, value, CoreOptions.SOURCE_SPLIT_OPEN_FILE_COST);
         } else if (CoreOptions.SCAN_MANIFEST_PARALLELISM.key().equals(key)) {
             validateManifestParallelism(value);
+        } else if (CoreOptions.BLOB_AS_DESCRIPTOR.key().equals(key)) {
+            parse(key, value, CoreOptions.BLOB_AS_DESCRIPTOR);
         } else if (CoreOptions.FILE_INDEX_READ_ENABLED.key().equals(key)) {
             parse(key, value, CoreOptions.FILE_INDEX_READ_ENABLED);
         } else {

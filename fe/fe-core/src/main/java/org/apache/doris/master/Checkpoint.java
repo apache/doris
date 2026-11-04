@@ -27,6 +27,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.catalog.CloudReplica;
+import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.common.CheckpointException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -45,6 +46,7 @@ import org.apache.doris.persist.Storage;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.system.Frontend;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -121,14 +123,6 @@ public class Checkpoint extends MasterDaemon {
             if (imageVersion < checkPointVersion) {
                 LOG.info("Trigger checkpoint since last checkpoint journal id: {} is less than "
                         + "current finalized journal id: {}", imageVersion, checkPointVersion);
-            } else if (Config.isCloudMode() && Config.cloud_checkpoint_image_stale_threshold_seconds > 0
-                    && latestImageCreateTime > 0 && ((System.currentTimeMillis() - latestImageCreateTime)
-                    >= Config.cloud_checkpoint_image_stale_threshold_seconds * 1000L)) {
-                // No new finalized journals beyond the latest image.
-                // But in cloud mode, we may still want to force a checkpoint if the latest image file is expired.
-                // This helps that image can keep the newer table version, partition version, tablet stats.
-                LOG.info("Trigger checkpoint in cloud mode because latest image is expired. "
-                        + "latestImageSeq: {}, latestImageCreateTime: {}", imageVersion, latestImageCreateTime);
             } else {
                 return;
             }
@@ -168,6 +162,13 @@ public class Checkpoint extends MasterDaemon {
             }
             env.postProcessAfterMetadataReplayed(false);
             postProcessCloudMetadata();
+            try {
+                removeInvalidCloudReplicaRoutes(env);
+            } catch (Exception e) {
+                // Best effort: a failed sweep only leaves stale routes in this image, and loading it
+                // runs gsonPostProcess() which cleans them again. Never fail the checkpoint over it.
+                LOG.warn("failed to sweep stale cloud replica routes before saving image", e);
+            }
             latestImageFilePath = env.saveImage();
             replayedJournalId = env.getReplayedJournalId();
 
@@ -416,6 +417,16 @@ public class Checkpoint extends MasterDaemon {
 
     public ReentrantReadWriteLock getLock() {
         return lock;
+    }
+
+    @VisibleForTesting
+    static long removeInvalidCloudReplicaRoutes(Env env) {
+        if (Config.isNotCloudMode()) {
+            return 0;
+        }
+        // Sweep env's own catalog against env's own backend set -- this env is the checkpoint's private
+        // Env, so its replicas must never be judged against the serving cluster's live backends.
+        return ((CloudInternalCatalog) env.getInternalCatalog()).removeInvalidCloudReplicaRoutes(env.getClusterInfo());
     }
 
     private void postProcessCloudMetadata() {

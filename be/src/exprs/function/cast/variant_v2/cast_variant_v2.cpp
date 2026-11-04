@@ -55,18 +55,18 @@ ForcedNulls forced_nulls(const NullMap::value_type* null_map, size_t rows) {
 Status require_materialized_source(const Block& block, const ColumnNumbers& arguments, size_t rows,
                                    const IColumn** source) {
     if (arguments.size() != 1 || arguments[0] >= block.columns()) {
-        return Status::InvalidArgument("Variant V2 CAST requires exactly one valid argument");
+        return Status::InternalError("Variant V2 CAST requires exactly one valid argument");
     }
     const ColumnPtr& column = block.get_by_position(arguments[0]).column;
     if (!column) {
-        return Status::InvalidArgument("Variant V2 CAST source column is null");
+        return Status::InternalError("Variant V2 CAST source column is null");
     }
     if (column->size() != rows) {
         return Status::InternalError("Variant V2 CAST source has {} rows, expected {}",
                                      column->size(), rows);
     }
     if (is_column_const(*column)) {
-        return Status::InvalidArgument(
+        return Status::InternalError(
                 "Variant V2 CAST kernel requires a materialized source column");
     }
     *source = column.get();
@@ -75,8 +75,7 @@ Status require_materialized_source(const Block& block, const ColumnNumbers& argu
 
 Status commit_result(Block& block, uint32_t result, size_t rows, ColumnPtr output) {
     if (result >= block.columns()) {
-        return Status::InvalidArgument("Variant V2 CAST result position {} is out of range",
-                                       result);
+        return Status::InternalError("Variant V2 CAST result position {} is out of range", result);
     }
     if (!output || output->size() != rows) {
         return Status::InternalError("Variant V2 CAST produced {} rows, expected {}",
@@ -111,7 +110,7 @@ Status execute_to_variant(const DataTypePtr& captured_from_type, FunctionContext
             output = std::move(nulls);
         } else if (primitive == TYPE_VARIANT) {
             if (check_and_get_column<ColumnVariantV2>(source) == nullptr) {
-                return Status::InvalidArgument(
+                return Status::InternalError(
                         "ColumnVariantV2 CAST received a legacy Variant "
                         "column in compute-only mode");
             }
@@ -142,7 +141,7 @@ Status execute_from_variant(const DataTypePtr& captured_to_type, FunctionContext
     RETURN_IF_ERROR(require_materialized_source(block, arguments, rows, &source_column));
     const auto* source = check_and_get_column<ColumnVariantV2>(source_column);
     if (source == nullptr) {
-        return Status::InvalidArgument(
+        return Status::InternalError(
                 "ColumnVariantV2 CAST received a legacy Variant column in compute-only mode");
     }
 

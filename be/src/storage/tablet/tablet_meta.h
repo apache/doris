@@ -224,6 +224,9 @@ public:
     // used for after tablet cloned to clear stale rowset
     void clear_stale_rowset();
 
+    // Clear stale rowset metadata without changing the delete bitmap cache.
+    void clear_stale_rs_metas();
+
     void clear_rowsets();
 
     // MUST hold EXCLUSIVE `_meta_lock` in belonged Tablet
@@ -313,6 +316,17 @@ public:
         std::lock_guard wlock(_meta_lock);
         _ttl_seconds = ttl_seconds;
     }
+
+    // Absolute timestamp (seconds since epoch) at which this tablet's data stops being kept
+    // in the file cache TTL queue, or 0 when the tablet has no TTL or the deadline has
+    // already passed. The deadline is anchored at the tablet creation time, so every tablet
+    // of a table shares one deadline regardless of when each rowset was written.
+    //
+    // This is the single definition of that deadline. The load, compaction, schema change,
+    // query and warm up paths all stamp the cache blocks they create with this value, and
+    // BlockFileCacheTtlMgr expires those blocks by the very same value, so a block's
+    // recorded expiration time always agrees with the sweep that acts on it.
+    int64_t file_cache_ttl_expiration_time() const;
 
     int64_t avg_rs_meta_serialize_size() const { return _avg_rs_meta_serialize_size; }
 

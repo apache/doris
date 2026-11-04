@@ -17,8 +17,10 @@
 
 package org.apache.doris.tablefunction;
 
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
@@ -33,6 +35,7 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -64,6 +67,33 @@ public class CdcStreamTableValuedFunctionTest {
     }
 
     @Test
+    public void testTimestampColumnsMatchCdcJsonCarrier() throws Exception {
+        List<Column> sourceColumns = new ArrayList<>();
+        sourceColumns.add(new Column("event_time", ScalarType.createTimeStampTzType(6)));
+        sourceColumns.add(new Column("events", new ArrayType(ScalarType.createTimeStampTzType(3))));
+        List<Column> columns = getTableColumns(baseProperties(), sourceColumns);
+
+        // The CDC HTTP stream contains unzoned text, not JDBC's UTC instant carrier.
+        Assert.assertEquals(ScalarType.createDatetimeV2Type(6), columns.get(0).getType());
+        Assert.assertEquals(new ArrayType(ScalarType.createDatetimeV2Type(3)), columns.get(1).getType());
+    }
+
+    @Test
+    public void testBinaryColumnsMatchCdcJsonCarrier() throws Exception {
+        List<Column> sourceColumns = new ArrayList<>();
+        sourceColumns.add(new Column("payload", ScalarType.createVarbinaryType(16)));
+        sourceColumns.add(new Column("payloads", new ArrayType(ScalarType.createVarbinaryType(16))));
+        sourceColumns.add(new Column("nested", new ArrayType(new ArrayType(ScalarType.createVarbinaryType(16)))));
+        List<Column> columns = getTableColumns(baseProperties(), sourceColumns);
+
+        // JSON transports bytes as Base64 text; the TVF must not label that text as raw binary.
+        Assert.assertEquals("\"AQI=\"", OBJECT_MAPPER.writeValueAsString(new byte[] {1, 2}));
+        Assert.assertEquals(ScalarType.createStringType(), columns.get(0).getType());
+        Assert.assertEquals(new ArrayType(ScalarType.createStringType()), columns.get(1).getType());
+        Assert.assertEquals(new ArrayType(new ArrayType(ScalarType.createStringType())), columns.get(2).getType());
+    }
+
+    @Test
     public void testInvalidIncludeDeleteSignIsRejected() {
         Map<String, String> properties = baseProperties();
         properties.put(CdcStreamTableValuedFunction.INCLUDE_DELETE_SIGN, "invalid");
@@ -72,6 +102,33 @@ public class CdcStreamTableValuedFunctionTest {
                 () -> new CdcStreamTableValuedFunction(properties));
 
         Assert.assertTrue(exception.getMessage().contains("include_delete_sign"));
+    }
+
+    @Test
+    public void testInvalidSnapshotPropertiesAreRejected() {
+        for (String key : Arrays.asList(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE,
+                DataSourceConfigKeys.SNAPSHOT_PARALLELISM)) {
+            for (String value : Arrays.asList("oops", "0", "-1", "2147483648")) {
+                Map<String, String> properties = baseProperties();
+                properties.put(key, value);
+                AnalysisException exception = Assert.assertThrows(AnalysisException.class,
+                        () -> CdcStreamTableValuedFunction.validateProperties(properties));
+                Assert.assertTrue(exception.getMessage().contains(key));
+            }
+        }
+    }
+
+    @Test
+    public void testSnapshotParallelismRequiresEnoughServerIds() throws Exception {
+        Map<String, String> properties = baseProperties();
+        properties.put(DataSourceConfigKeys.SERVER_ID, "5400-5401");
+        properties.put(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, "3");
+        AnalysisException exception = Assert.assertThrows(AnalysisException.class,
+                () -> CdcStreamTableValuedFunction.validateProperties(properties));
+        Assert.assertTrue(exception.getMessage().contains("server_id range size 2"));
+
+        properties.put(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, "2");
+        CdcStreamTableValuedFunction.validateProperties(properties);
     }
 
     @Test
@@ -86,13 +143,18 @@ public class CdcStreamTableValuedFunctionTest {
     }
 
     private List<Column> getTableColumns(Map<String, String> properties) throws Exception {
-        JdbcClient jdbcClient = Mockito.mock(JdbcClient.class);
         List<Column> sourceColumns = new ArrayList<>();
         sourceColumns.add(new Column("id", PrimitiveType.INT));
+        return getTableColumns(properties, sourceColumns);
+    }
+
+    private List<Column> getTableColumns(Map<String, String> properties, List<Column> sourceColumns) throws Exception {
+        JdbcClient jdbcClient = Mockito.mock(JdbcClient.class);
         Mockito.when(jdbcClient.isTableExist("test_db", "test_table")).thenReturn(true);
         Mockito.when(jdbcClient.getColumnsFromJdbc("test_db", "test_table")).thenReturn(sourceColumns);
 
-        try (MockedStatic<StreamingJobUtils> utils = Mockito.mockStatic(StreamingJobUtils.class)) {
+        try (MockedStatic<StreamingJobUtils> utils =
+                Mockito.mockStatic(StreamingJobUtils.class, Mockito.CALLS_REAL_METHODS)) {
             utils.when(() -> StreamingJobUtils.getJdbcClient(
                             Mockito.eq(DataSourceType.MYSQL), Mockito.anyMap()))
                     .thenReturn(jdbcClient);

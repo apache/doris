@@ -69,7 +69,7 @@ public class LakeSoulJniScanner extends LakeSoulArrowJniScanner {
         withAllocator(nativeIOReader.getAllocator());
         nativeIOReader.setBatchSize(batchSize);
 
-        LOG.info("opening LakeSoulJniScanner with params={}", params);
+        LOG.info("opening LakeSoulJniScanner, queryId={}, batchSize={}", params.get("query_id"), batchSize);
 
         // add files
         for (String file : params.get(LakeSoulUtils.FILE_NAMES).split(LakeSoulUtils.LIST_DELIM)) {

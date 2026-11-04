@@ -320,6 +320,24 @@ public class MTMV extends OlapTable {
         }
     }
 
+    /**
+     * The compute group explicitly declared on this MV, empty when the user did not declare one.
+     * An empty result keeps the existing implicit resolution (admin's group for auto refresh,
+     * the session's group for a manual REFRESH).
+     */
+    public Optional<String> getComputeGroup() {
+        readMvLock();
+        try {
+            if (mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_COMPUTE_GROUP) && !StringUtils
+                    .isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_COMPUTE_GROUP))) {
+                return Optional.of(mvProperties.get(PropertyAnalyzer.PROPERTIES_COMPUTE_GROUP));
+            }
+            return Optional.empty();
+        } finally {
+            readMvUnlock();
+        }
+    }
+
     public boolean isUseForRewrite() {
         readMvLock();
         try {
@@ -455,12 +473,14 @@ public class MTMV extends OlapTable {
         return refreshSnapshot;
     }
 
-    public boolean hasCompleteRefreshSnapshot() {
-        Set<String> partitionNames = getPartitionNames();
+    public boolean hasRefreshSnapshot() {
         readMvLock();
         try {
-            // A refresh baseline is complete only when every current MV partition has a snapshot.
-            return refreshSnapshot.getPartitionSnapshots().keySet().containsAll(partitionNames);
+            // The baseline is invalidated only when the snapshot map is emptied as a whole, which is what
+            // ALTER excluded_trigger_tables and a status change do. A newly added MV partition legitimately
+            // has no snapshot yet, and must not turn a single-partition change into a full refresh: the
+            // per-partition comparison decides for it instead.
+            return refreshSnapshot != null && !MapUtils.isEmpty(refreshSnapshot.getPartitionSnapshots());
         } finally {
             readMvUnlock();
         }

@@ -1023,6 +1023,14 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_LANCE_INDEX_JOB_UPSERT: {
+                // Payload of the removed durable Lance index job framework (Text-delimited
+                // JSON). Consumed and ignored so journals from builds that manually enabled
+                // the gate stay readable; the operation code is never reused.
+                Text.readString(in);
+                isRead = true;
+                break;
+            }
             default: {
                 IOException e = new IOException();
                 LOG.error("UNKNOWN Operation Type {}", opCode, e);

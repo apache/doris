@@ -396,6 +396,75 @@ TEST_F(IndexReaderHelperTest, IsNeedSimilarityScoreWithInvertedIndexQueryTypeTes
             InvertedIndexQueryType::LESS_THAN_QUERY, &index_meta));
 }
 
+TEST_F(IndexReaderHelperTest, NormalizerOnlyPhraseAndScoringNeedNoPositions) {
+    TabletIndexPB index_pb;
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.set_index_id(2);
+    index_pb.set_index_name("normalized");
+    index_pb.add_col_unique_id(1);
+    (*index_pb.mutable_properties())[INVERTED_INDEX_NORMALIZER_NAME_KEY] = "lowercase";
+    TabletIndex index_meta;
+    index_meta.init_from_pb(index_pb);
+
+    auto reader = std::make_shared<MockInvertedIndexReader>(InvertedIndexReaderType::FULLTEXT,
+                                                            index_meta.properties());
+    EXPECT_EQ(get_parser_phrase_support_string_from_properties(index_meta.properties()),
+              INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
+    EXPECT_TRUE(IndexReaderHelper::is_support_phrase(reader));
+    EXPECT_TRUE(IndexReaderHelper::is_need_similarity_score(InvertedIndexQueryType::MATCH_ANY_QUERY,
+                                                            &index_meta));
+    EXPECT_TRUE(IndexReaderHelper::is_need_similarity_score(TExprOpcode::MATCH_ANY, &index_meta));
+
+    auto explicit_disabled = index_meta.properties();
+    explicit_disabled[INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY] =
+            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO;
+    auto disabled_reader = std::make_shared<MockInvertedIndexReader>(
+            InvertedIndexReaderType::FULLTEXT, explicit_disabled);
+    EXPECT_FALSE(IndexReaderHelper::is_support_phrase(disabled_reader));
+
+    auto builtin_alias = index_meta.properties();
+    builtin_alias[INVERTED_INDEX_NORMALIZER_NAME_KEY] = "LowerCase";
+    auto alias_reader = std::make_shared<MockInvertedIndexReader>(InvertedIndexReaderType::FULLTEXT,
+                                                                  builtin_alias);
+    EXPECT_TRUE(IndexReaderHelper::is_support_phrase(alias_reader));
+
+    TabletIndexPB custom_pb = index_pb;
+    (*custom_pb.mutable_properties())[INVERTED_INDEX_NORMALIZER_NAME_KEY] = "split_norm";
+    TabletIndex custom_meta;
+    custom_meta.init_from_pb(custom_pb);
+    auto custom_reader = std::make_shared<MockInvertedIndexReader>(
+            InvertedIndexReaderType::FULLTEXT, custom_meta.properties());
+    EXPECT_FALSE(IndexReaderHelper::is_support_phrase(custom_reader));
+    EXPECT_FALSE(IndexReaderHelper::is_need_similarity_score(
+            InvertedIndexQueryType::MATCH_ANY_QUERY, &custom_meta));
+}
+
+TEST_F(IndexReaderHelperTest, RegexpScoresConstantOnEveryIndex) {
+    // A regexp scores a constant 1 and reads no statistics, so neither the analyzer nor phrase
+    // support decides whether it scores.
+    for (const auto& properties : std::vector<std::map<std::string, std::string>> {
+                 {},
+                 {{"parser", "none"}},
+                 {{"parser", "english"}},
+                 {{"parser", "english"}, {"support_phrase", "true"}},
+                 {{"normalizer", "split_norm"}}}) {
+        SCOPED_TRACE(::testing::PrintToString(properties));
+        TabletIndexPB pb;
+        pb.set_index_id(1);
+        pb.set_index_name("regexp_index");
+        pb.set_index_type(IndexType::INVERTED);
+        pb.add_col_unique_id(1);
+        for (const auto& [key, value] : properties) {
+            (*pb.mutable_properties())[key] = value;
+        }
+        TabletIndex index;
+        index.init_from_pb(pb);
+        EXPECT_TRUE(IndexReaderHelper::is_need_similarity_score(TExprOpcode::MATCH_REGEXP, &index));
+        EXPECT_TRUE(IndexReaderHelper::is_need_similarity_score(
+                InvertedIndexQueryType::MATCH_REGEXP_QUERY, &index));
+    }
+}
+
 TEST_F(IndexReaderHelperTest, IsNeedSimilarityScoreWithTExprOpcodeTest) {
     TabletIndex index_meta;
     auto index_meta_pb = std::make_unique<TabletIndexPB>();

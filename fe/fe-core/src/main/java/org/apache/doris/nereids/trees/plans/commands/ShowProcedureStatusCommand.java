@@ -67,6 +67,12 @@ public class ShowProcedureStatusCommand extends Command implements NoForward {
         this.whereExpr = Objects.requireNonNull(whereExpr, "whereExpr should not be null");
     }
 
+    @Override
+    public ShowResultSetMetaData getResultSetMetaData() {
+        // These fixed headers are available before procedure lookup or execution.
+        return getMetaData();
+    }
+
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         for (String title : TITLE_NAMES) {

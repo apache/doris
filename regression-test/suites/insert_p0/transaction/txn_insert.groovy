@@ -35,7 +35,8 @@ suite("txn_insert") {
         if (fes.size() > 1) {
             for (def fe : fes) {
                 if (fe.IsMaster == "false" && fe.Alive == "true") {
-                    return "jdbc:mysql://${fe.Host}:${fe.QueryPort}/"
+                    return getServerPrepareJdbcUrl("jdbc:mysql://${fe.Host}:${fe.QueryPort}/",
+                            "regression_test_insert_p0_transaction", false).replace("&useServerPrepStmts=true", "")
                 }
             }
         }
@@ -304,7 +305,7 @@ suite("txn_insert") {
             def observer_fe_url = get_observer_fe_url()
             if (observer_fe_url != null) {
                 logger.info("observer url: $observer_fe_url")
-                connect( context.config.jdbcUser,  context.config.jdbcPassword,  observer_fe_url) {
+                connectToDoris( context.config.jdbcUser,  context.config.jdbcPassword,  observer_fe_url) {
                     result = sql """ select count() from regression_test_insert_p0_transaction.${table}_0 """
                     logger.info("select from observer result: $result")
                     assertEquals(79, result[0][0])

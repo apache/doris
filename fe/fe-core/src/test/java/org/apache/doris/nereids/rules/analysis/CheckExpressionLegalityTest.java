@@ -71,6 +71,24 @@ public class CheckExpressionLegalityTest implements MemoPatternMatchSupported {
     }
 
     @Test
+    public void testJsonModifyFunctionsRejectEvenArity() {
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        for (String function : new String[] {"json_set", "jsonb_set", "json_insert", "jsonb_insert",
+                "json_replace", "jsonb_replace"}) {
+            ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                    "number of arguments must be odd, but got 4", () ->
+                            PlanChecker.from(connectContext)
+                                    .analyze("select " + function + "('{}', '$.a', 1, '$.b')"));
+            ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                    "number of arguments must be odd, but got 6", () ->
+                            PlanChecker.from(connectContext)
+                                    .analyze("select " + function + "('{}', '$.a', 1, '$.b', 2, '$.c')"));
+            PlanChecker.from(connectContext).analyze("select " + function + "('{}', '$.a', 1)");
+            PlanChecker.from(connectContext).analyze("select " + function + "('{}', '$.a', 1, '$.b', 2)");
+        }
+    }
+
+    @Test
     public void testCountDistinctBitmap() {
         ConnectContext connectContext = MemoTestUtils.createConnectContext();
         PlanChecker.from(connectContext)

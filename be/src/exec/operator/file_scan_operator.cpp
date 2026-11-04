@@ -33,6 +33,7 @@
 #include "exec/scan/file_scanner_v2.h"
 #include "exec/scan/scanner_context.h"
 #include "format/format_common.h"
+#include "format/table/iceberg_scan_semantics.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_manager.h"
 
@@ -137,26 +138,43 @@ ScannerScheduler* FileScanLocalState::scan_scheduler(RuntimeState* state) const 
 bool FileScanLocalState::TEST_should_use_file_scanner_v2(const TQueryOptions& query_options,
                                                          bool is_load,
                                                          const TFileScanRangeParams& scan_params) {
-    return _should_use_file_scanner_v2(query_options, is_load, scan_params);
+    return should_use_file_scanner_v2(query_options, is_load, scan_params);
 }
 #endif
 
-bool FileScanLocalState::_should_use_file_scanner_v2(const TQueryOptions& query_options,
-                                                     bool is_load,
-                                                     const TFileScanRangeParams& scan_params) {
+bool FileScanLocalState::should_use_file_scanner_v2(const TQueryOptions& query_options,
+                                                    bool is_load,
+                                                    const TFileScanRangeParams& scan_params) {
     const bool is_transactional_hive =
             scan_params.__isset.table_format_params &&
             scan_params.table_format_params.table_format_type == "transactional_hive";
-    return query_options.__isset.enable_file_scanner_v2 && query_options.enable_file_scanner_v2 &&
-           !is_load && scan_params.format_type != TFileFormatType::FORMAT_ES_HTTP &&
-           !is_transactional_hive;
+    // Hybrid scans advertise native Parquet at scan level because ranges can arrive after the
+    // scanner is selected; FORMAT_JNI alone does not imply that every range uses JNI.
+    const bool is_hybrid_native_parquet = scan_params.format_type == TFileFormatType::FORMAT_JNI &&
+                                          scan_params.__isset.contains_native_parquet &&
+                                          scan_params.contains_native_parquet;
+    // Version 1 introduces the explicit wall-clock/instant contract that scanner V1 cannot honor.
+    const bool requires_parquet_timestamp_contract =
+            (scan_params.format_type == TFileFormatType::FORMAT_PARQUET ||
+             is_hybrid_native_parquet || supports_iceberg_scan_semantics_v1(&scan_params)) &&
+            (scan_params.__isset.hive_parquet_time_zone ||
+             (scan_params.__isset.parquet_timestamp_semantics_version &&
+              scan_params.parquet_timestamp_semantics_version >= 1));
+    const bool scanner_v2_requested = (query_options.__isset.enable_file_scanner_v2 &&
+                                       query_options.enable_file_scanner_v2) ||
+                                      requires_parquet_timestamp_contract;
+    // Iceberg's default write format does not describe retained files, and remote splits arrive
+    // after scanner construction. Keep versioned Iceberg scans on V2 without eagerly listing
+    // every file.
+    return scanner_v2_requested && !is_load &&
+           scan_params.format_type != TFileFormatType::FORMAT_ES_HTTP && !is_transactional_hive;
 }
 
 bool FileScanLocalState::_can_generate_physical_splits(const TQueryOptions& query_options,
                                                        bool is_load,
                                                        const TFileScanRangeParams& scan_params,
                                                        const TFileRangeDesc& range) {
-    if (!_should_use_file_scanner_v2(query_options, is_load, scan_params)) {
+    if (!should_use_file_scanner_v2(query_options, is_load, scan_params)) {
         return false;
     }
     const auto format = range.__isset.format_type ? range.format_type : scan_params.format_type;
@@ -210,7 +228,7 @@ Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
             state()->desc_tbl().get_tuple_descriptor(scan_params->src_tuple_id) != nullptr;
     // TODO: Use scanner v2 for all queries.
     const bool use_file_scanner_v2 =
-            _should_use_file_scanner_v2(state()->query_options(), is_load, *scan_params);
+            should_use_file_scanner_v2(state()->query_options(), is_load, *scan_params);
     _operator_profile->add_info_string("UseScannerV2", use_file_scanner_v2 ? "true" : "false");
     const auto* output_tuple_desc = state()->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     DORIS_CHECK(output_tuple_desc != nullptr);

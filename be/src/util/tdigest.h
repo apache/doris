@@ -171,6 +171,8 @@ public:
         return w;
     }
 
+    TDigest(const TDigest&) = default;
+
     TDigest& operator=(TDigest&& o) {
         _compression = o._compression;
         _max_processed = o._max_processed;
@@ -542,7 +544,8 @@ private:
 
     Value _min = std::numeric_limits<Value>::max();
 
-    Value _max = std::numeric_limits<Value>::min();
+    // min() is the smallest positive value, so use lowest() for non-positive inputs.
+    Value _max = std::numeric_limits<Value>::lowest();
 
     Index _max_processed;
 

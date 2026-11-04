@@ -107,6 +107,14 @@ public abstract class BaseAnalysisTask {
             + "FROM (SELECT `${colName}`${lengthAssert} "
             +     "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index}) __lc_t";
 
+    // Hot values are intentionally NOT collected by the linear estimator. The extra
+    // GROUP BY over the sampled column re-reads the whole sample and is the dominant cost
+    // of this template, which is used for every single distribution / single key column
+    // sample analyze. `hot_value` keeps its position in the result set and is reported as
+    // NULL, which every reader treats as "not collected" (see ColumnStatistic#hotValues),
+    // so the row layout stays identical to that of the other templates. Hot values are
+    // still collected by DUJ1_ANALYZE_TEMPLATE, which derives them from the grouped sample
+    // it already builds for the NDV estimate.
     protected static final String LINEAR_ANALYZE_TEMPLATE = "WITH cte1 AS ("
             +     "SELECT `${colName}`${lengthAssert} "
             +     "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index} ${sampleHints} ${limit} ${preAggHint}), "
@@ -124,19 +132,10 @@ public abstract class BaseAnalysisTask {
             +     "SUBSTRING(CAST(${min} AS STRING), 1, 1024) AS `min`, "
             +     "SUBSTRING(CAST(${max} AS STRING), 1, 1024) AS `max`, "
             +     "${dataSizeFunction} * ${scaleFactor} AS `data_size`, "
-            +     "NOW() FROM cte1), "
-            + "cte3 AS ("
-            +     "SELECT IFNULL(GROUP_CONCAT(CONCAT("
-            +         "REPLACE(REPLACE(t.`column_key`, \":\", \"\\\\:\"), \";\", \"\\\\;\"), "
-            +         "\" :\", ROUND(t.`count` / ${rowCount2}, 2)), \" ;\"), '') "
-            +         "as `hot_value` "
-            +     "FROM ("
-            +         "SELECT ${subStringColName} as `hash_value`, "
-            +         "MAX(`${colName}`) as `column_key`, "
-            +         "COUNT(1) AS `count` "
-            +         "FROM cte1 WHERE `${colName}` IS NOT NULL "
-            +         "GROUP BY `hash_value` ORDER BY `count` DESC LIMIT ${hotValueCollectCount}) t) "
-            + "SELECT * FROM cte2 CROSS JOIN cte3";
+            +     "NOW() AS `update_time`, "
+            +     "null as `hot_value` "
+            +     "FROM cte1) "
+            + "SELECT * FROM cte2";
 
     protected static final String DUJ1_ANALYZE_TEMPLATE = "WITH cte1 AS ("
             + "SELECT MAX(t0.`col_value`) as `col_value`, COUNT(1) as `count`, SUM(`len`) as `column_length` "
@@ -631,9 +630,12 @@ public abstract class BaseAnalysisTask {
                 if (MetricRepo.isInit) {
                     MetricRepo.COUNTER_STATISTICS_INVALID_STATS.increase(1L);
                 }
-                String message = String.format("ColStatsData is invalid, skip analyzing. %s", colStatsData.toSQL(true));
-                LOG.warn(message);
-                throw new RuntimeException(message);
+                // Don't throw: keep writing the row into the statistics table so that the
+                // whole job still finishes. toColumnStatistic() will defensively convert
+                // this pattern to ColumnStatistic.UNKNOWN at read time, so the optimizer
+                // never sees the bogus numbers. See issue #64122.
+                LOG.warn("ColStatsData is invalid, will write to table but be treated as UNKNOWN at read time. {}",
+                        colStatsData.toSQL(true));
             }
             // Update index row count after analyze.
             if (this instanceof OlapAnalysisTask) {

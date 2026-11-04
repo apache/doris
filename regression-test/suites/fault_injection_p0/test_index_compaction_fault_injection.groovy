@@ -311,7 +311,7 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
             DUPLICATE KEY(`id`)
             COMMENT 'OLAP'
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
-            PROPERTIES ( "replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
+            PROPERTIES ( "replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V2");
         """
 
         //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
@@ -342,7 +342,7 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
                 "replication_num" = "1",
                 "disable_auto_compaction" = "true",
                 "enable_unique_key_merge_on_write" = "true",
-                "inverted_index_storage_format" = "V1"
+                "inverted_index_storage_format" = "V2"
             );
         """
 

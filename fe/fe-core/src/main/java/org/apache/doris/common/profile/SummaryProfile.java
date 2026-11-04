@@ -62,6 +62,12 @@ public class SummaryProfile {
     public static final String END_TIME = "End Time";
     public static final String TOTAL_TIME = "Total";
     public static final String TASK_STATE = "Task State";
+    public static final String PROFILE_COMPLETION_STATE = "Profile Completion State";
+    public static final String PROFILE_COMPLETION_STATE_RUNNING = "RUNNING";
+    public static final String PROFILE_COMPLETION_STATE_COLLECTING = "COLLECTING";
+    public static final String PROFILE_COMPLETION_STATE_COMPLETE = "COMPLETE";
+    public static final String PROFILE_COMPLETION_STATE_INCOMPLETE = "INCOMPLETE";
+    public static final String PROFILE_COMPLETION_STATE_UNKNOWN = "UNKNOWN";
     public static final String USER = "User";
     public static final String DEFAULT_CATALOG = "Default Catalog";
     public static final String DEFAULT_DB = "Default Db";
@@ -77,6 +83,8 @@ public class SummaryProfile {
     public static final String DISTRIBUTED_PLAN = "Distributed Plan";
     public static final String SYSTEM_MESSAGE = "System Message";
     public static final String EXECUTED_BY_FRONTEND = "Executed By Frontend";
+    public static final String QUERY_BACKEND_SELECTION = "Query Backend Selection";
+    public static final String LOAD_BACKEND_SELECTION = "Load Backend Selection";
     // Execution Summary
     public static final String EXECUTION_SUMMARY_PROFILE_NAME = "Execution Summary";
     public static final String INIT_SCAN_NODE_TIME = "Init Scan Node Time";
@@ -217,6 +225,8 @@ public class SummaryProfile {
             TRANSACTION_COMMIT_TIME,
             SYSTEM_MESSAGE,
             EXECUTED_BY_FRONTEND,
+            QUERY_BACKEND_SELECTION,
+            LOAD_BACKEND_SELECTION,
             SPLITS_ASSIGNMENT_WEIGHT
     );
 
@@ -464,6 +474,10 @@ public class SummaryProfile {
 
     public RuntimeProfile getSummary() {
         return summaryProfile;
+    }
+
+    public void setProfileCompletionState(String profileCompletionState) {
+        summaryProfile.addInfoString(PROFILE_COMPLETION_STATE, profileCompletionState);
     }
 
     public RuntimeProfile getExecutionSummary() {
@@ -862,6 +876,16 @@ public class SummaryProfile {
             return this;
         }
 
+        public SummaryBuilder queryBackendSelection(String selection) {
+            map.put(QUERY_BACKEND_SELECTION, selection);
+            return this;
+        }
+
+        public SummaryBuilder loadBackendSelection(String selection) {
+            map.put(LOAD_BACKEND_SELECTION, selection);
+            return this;
+        }
+
         public SummaryBuilder sqlStatement(String val) {
             map.put(SQL_STATEMENT, val);
             return this;
@@ -932,7 +956,10 @@ public class SummaryProfile {
     }
 
     public int getNereidsOptimizeTimeMs() {
-        return getTimeMs(nereidsOptimizeFinishTime, nereidsCollectTablePartitionFinishTime);
+        long start = nereidsCollectTablePartitionFinishTime != -1
+                ? nereidsCollectTablePartitionFinishTime
+                : nereidsRewriteFinishTime;
+        return getTimeMs(nereidsOptimizeFinishTime, start);
     }
 
     public int getNereidsTranslateTimeMs() {
@@ -1033,7 +1060,12 @@ public class SummaryProfile {
     }
 
     public String getPrettyNereidsOptimizeTime() {
-        return getPrettyTime(nereidsOptimizeFinishTime, nereidsPreRewriteByMvFinishTime, TUnit.TIME_MS);
+        long start = nereidsPreRewriteByMvFinishTime != -1
+                ? nereidsPreRewriteByMvFinishTime
+                : (nereidsCollectTablePartitionFinishTime != -1
+                        ? nereidsCollectTablePartitionFinishTime
+                        : nereidsRewriteFinishTime);
+        return getPrettyTime(nereidsOptimizeFinishTime, start, TUnit.TIME_MS);
     }
 
     public String getPrettyNereidsTranslateTime() {

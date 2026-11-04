@@ -24,6 +24,7 @@
 
 #include <algorithm>
 #include <deque>
+#include <limits>
 #include <memory>
 #include <sstream>
 #include <string_view>
@@ -55,6 +56,7 @@
 #include "format_v2/orc/orc_reader.h"
 #include "format_v2/parquet/parquet_reader.h"
 #include "format_v2/parquet/reader/column_reader.h"
+#include "format_v2/table/schema_history_util.h"
 #include "format_v2/table_reader.h"
 #include "io/file_factory.h"
 #include "util/debug_points.h"
@@ -65,6 +67,76 @@ namespace doris::format::iceberg {
 
 static constexpr const char* ROW_LINEAGE_ROW_ID = "_row_id";
 static constexpr int32_t ROW_LINEAGE_ROW_ID_FIELD_ID = 2147483540;
+
+namespace {
+
+const schema::external::TField* get_external_field_ptr(
+        const schema::external::TFieldPtr& field_ptr) {
+    if (!field_ptr.__isset.field_ptr || field_ptr.field_ptr == nullptr) {
+        return nullptr;
+    }
+    return field_ptr.field_ptr.get();
+}
+
+bool external_field_has_authoritative_name_mapping(const schema::external::TField& field) {
+    if (field.__isset.name_mapping_is_authoritative && field.name_mapping_is_authoritative) {
+        return true;
+    }
+    if (!field.__isset.nestedField) {
+        return false;
+    }
+    if (field.nestedField.__isset.struct_field && field.nestedField.struct_field.__isset.fields) {
+        return std::ranges::any_of(field.nestedField.struct_field.fields, [](const auto& child) {
+            const auto* child_field = get_external_field_ptr(child);
+            return child_field != nullptr &&
+                   external_field_has_authoritative_name_mapping(*child_field);
+        });
+    }
+    if (field.nestedField.__isset.array_field && field.nestedField.array_field.__isset.item_field) {
+        const auto* item = get_external_field_ptr(field.nestedField.array_field.item_field);
+        return item != nullptr && external_field_has_authoritative_name_mapping(*item);
+    }
+    if (field.nestedField.__isset.map_field) {
+        const auto& map_field = field.nestedField.map_field;
+        if (map_field.__isset.key_field) {
+            const auto* key = get_external_field_ptr(map_field.key_field);
+            if (key != nullptr && external_field_has_authoritative_name_mapping(*key)) {
+                return true;
+            }
+        }
+        if (map_field.__isset.value_field) {
+            const auto* value = get_external_field_ptr(map_field.value_field);
+            return value != nullptr && external_field_has_authoritative_name_mapping(*value);
+        }
+    }
+    return false;
+}
+
+} // namespace
+
+bool IcebergTableReader::_scan_has_any_authoritative_name_mapping() const {
+    if (schema_has_any_authoritative_name_mapping(_projected_columns)) {
+        return true;
+    }
+    if (_scan_params == nullptr || !_scan_params->__isset.history_schema_info) {
+        return false;
+    }
+    // Metadata-only scans have no projected data column carrying aliases. Consult the complete
+    // schema so hidden equality-delete keys use the same authoritative mapping as visible fields.
+    for (const auto& schema : _scan_params->history_schema_info) {
+        if (!schema.__isset.root_field || !schema.root_field.__isset.fields) {
+            continue;
+        }
+        if (std::ranges::any_of(schema.root_field.fields, [](const auto& field) {
+                const auto* schema_field = get_external_field_ptr(field);
+                return schema_field != nullptr &&
+                       external_field_has_authoritative_name_mapping(*schema_field);
+            })) {
+            return true;
+        }
+    }
+    return false;
+}
 
 template <typename T>
 static std::string join_values_for_debug(const std::vector<T>& values) {
@@ -305,12 +377,38 @@ static Status build_v2_json_map_default(const format::ColumnDefinition& field,
     return Status::OK();
 }
 
+static bool parse_non_finite_default(doris::PrimitiveType type, std::string_view value,
+                                     Field* result) {
+    DORIS_CHECK(result != nullptr);
+    if (type != TYPE_FLOAT && type != TYPE_DOUBLE) {
+        return false;
+    }
+    double parsed;
+    if (value == "NaN") {
+        parsed = std::numeric_limits<double>::quiet_NaN();
+    } else if (value == "Infinity") {
+        parsed = std::numeric_limits<double>::infinity();
+    } else if (value == "-Infinity") {
+        parsed = -std::numeric_limits<double>::infinity();
+    } else {
+        return false;
+    }
+    // Iceberg serializes non-finite defaults as strings, which generic Doris numeric parsers reject.
+    *result = type == TYPE_FLOAT ? Field::create_field<TYPE_FLOAT>(static_cast<float>(parsed))
+                                 : Field::create_field<TYPE_DOUBLE>(parsed);
+    return true;
+}
+
 static Status build_v2_json_scalar_default(const format::ColumnDefinition& field,
                                            const DataTypePtr& value_type,
                                            const rapidjson::Value& json_value,
                                            std::deque<std::string>* binary_storage,
                                            const cctz::time_zone* timezone, Field* result) {
     const auto primitive_type = value_type->get_primitive_type();
+    if (primitive_type == TYPE_VARIANT) {
+        return Status::InvalidArgument(
+                "Iceberg VARIANT initial-default for field '{}' must be NULL", field.name);
+    }
     std::string serialized_value = iceberg_json_scalar_text(json_value);
     const bool binary_like =
             field.initial_default_value_is_base64 || primitive_type == TYPE_VARBINARY;
@@ -339,6 +437,9 @@ static Status build_v2_json_scalar_default(const format::ColumnDefinition& field
                                            field.name);
         }
         *result = Field::create_field<TYPE_STRING>(std::move(serialized_value));
+        return Status::OK();
+    }
+    if (parse_non_finite_default(primitive_type, serialized_value, result)) {
         return Status::OK();
     }
     RETURN_IF_ERROR(doris::iceberg::detail::normalize_timestamp_for_doris(primitive_type, timezone,
@@ -395,6 +496,10 @@ static Status build_v2_initial_default_field(const format::ColumnDefinition& fie
 
     const auto value_type = remove_nullable(data_type);
     const auto primitive_type = value_type->get_primitive_type();
+    if (primitive_type == TYPE_VARIANT) {
+        return Status::InvalidArgument(
+                "Iceberg VARIANT initial-default for field '{}' must be NULL", field.name);
+    }
     if (is_complex_type(primitive_type)) {
         rapidjson::Document document;
         document.Parse<rapidjson::kParseFullPrecisionFlag>(field.initial_default_value->data(),
@@ -426,6 +531,9 @@ static Status build_v2_initial_default_field(const format::ColumnDefinition& fie
     }
 
     std::string serialized_value = *field.initial_default_value;
+    if (parse_non_finite_default(primitive_type, serialized_value, result)) {
+        return Status::OK();
+    }
     RETURN_IF_ERROR(doris::iceberg::detail::normalize_timestamp_for_doris(primitive_type, timezone,
                                                                           &serialized_value));
     RETURN_IF_ERROR(value_type->get_serde()->from_fe_string(serialized_value, *result));
@@ -447,8 +555,8 @@ static Status build_initial_default_literal(const format::ColumnDefinition& tabl
     return Status::OK();
 }
 
-static Status build_initial_default_exprs(format::ColumnDefinition* column,
-                                          const cctz::time_zone* timezone) {
+Status prepare_iceberg_initial_default_exprs(format::ColumnDefinition* column,
+                                             const cctz::time_zone* timezone) {
     DORIS_CHECK(column != nullptr);
     if (column->initial_default_value.has_value()) {
         VExprSPtr literal;
@@ -456,7 +564,7 @@ static Status build_initial_default_exprs(format::ColumnDefinition* column,
         column->default_expr = VExprContext::create_shared(std::move(literal));
     }
     for (auto& child : column->children) {
-        RETURN_IF_ERROR(build_initial_default_exprs(&child, timezone));
+        RETURN_IF_ERROR(prepare_iceberg_initial_default_exprs(&child, timezone));
     }
     return Status::OK();
 }
@@ -771,7 +879,7 @@ Status IcebergTableReader::annotate_projected_column(const TFileScanSlotInfo& sl
     auto& schema_column = *context->schema_column;
     const cctz::time_zone* timezone =
             context->runtime_state == nullptr ? nullptr : &context->runtime_state->timezone_obj();
-    RETURN_IF_ERROR(build_initial_default_exprs(&schema_column, timezone));
+    RETURN_IF_ERROR(prepare_iceberg_initial_default_exprs(&schema_column, timezone));
     column->initial_default_value = schema_column.initial_default_value;
     column->initial_default_value_is_base64 = schema_column.initial_default_value_is_base64;
     column->is_optional = schema_column.is_optional;
@@ -1003,6 +1111,7 @@ Status IcebergTableReader::materialize_virtual_columns(Block* table_block) {
             RETURN_IF_ERROR(_materialize_iceberg_rowid(table_block, column_idx));
             break;
         case format::TableVirtualColumnType::INVALID:
+        case format::TableVirtualColumnType::PAIMON_BLOB:
             break;
         }
     }
@@ -1065,7 +1174,7 @@ Status IcebergTableReader::_parse_deletion_vector_file(const TTableFormatFileDes
     desc->path = deletion_vector->path;
     desc->start_offset = deletion_vector->content_offset;
     desc->size = static_cast<int64_t>(bytes_read);
-    desc->file_size = -1;
+    desc->file_size = deletion_vector->__isset.file_size ? deletion_vector->file_size : -1;
     desc->format = DeleteFileDesc::Format::ICEBERG;
     *has_delete_file = true;
     return Status::OK();
@@ -1421,7 +1530,8 @@ Status IcebergTableReader::_create_delete_file_reader(const TIcebergDeleteFileDe
         return Status::NotSupported("Unsupported Iceberg delete file format {}",
                                     delete_file.file_format);
     }
-    auto delete_range = build_iceberg_delete_file_range(delete_file.path);
+    auto delete_range = build_iceberg_delete_file_range(
+            delete_file.path, delete_file.__isset.file_size ? delete_file.file_size : -1);
     if (_current_task != nullptr && _current_task->data_file != nullptr &&
         !_current_task->data_file->fs_name.empty()) {
         delete_range.__set_fs_name(_current_task->data_file->fs_name);
@@ -1595,7 +1705,17 @@ Status IcebergTableReader::_resolve_equality_delete_fields(
             return Status::NotSupported(
                     "Iceberg equality delete does not support complex column {}", field->name);
         }
-        const auto key_type = path.size() > 1 ? make_nullable(field->type) : field->type;
+        // Equality comparison must run in the promoted (current snapshot schema) type domain.
+        // Narrowing a wider data key into a historical delete-file type is lossy: an INT overflow
+        // becomes NULL, and NULL-safe equality then matches a NULL delete key. Delete values are
+        // promoted into this same domain when the delete file is read.
+        const DataTypePtr delete_file_type =
+                path.size() > 1 ? make_nullable(field->type) : field->type;
+        DataTypePtr key_type = delete_file_type;
+        if (auto table_field = _find_table_column_by_field_id(field_id, delete_file_type, true);
+            table_field.has_value() && table_field->type != nullptr) {
+            key_type = table_field->type;
+        }
         delete_paths->push_back(std::move(path));
         result->field_ids.push_back(field_id);
         result->field_names.push_back(field->name);
@@ -1641,11 +1761,21 @@ Status IcebergTableReader::_load_equality_delete_file(const TIcebergDeleteFileDe
     std::vector<VExprContextSPtr> key_exprs;
     key_exprs.reserve(delete_paths.size());
     RowDescriptor row_desc;
-    for (const auto& path : delete_paths) {
+    for (size_t index = 0; index < delete_paths.size(); ++index) {
+        const auto& path = delete_paths[index];
         const auto root_column_id = format::LocalColumnId(path.front()->file_local_id());
         VExprSPtr key_expr;
         RETURN_IF_ERROR(build_equality_delete_key_expr(
                 path, request->local_positions.at(root_column_id).value(), &key_expr));
+        const auto& key_type = result->key_types[index];
+        if (!key_expr->data_type()->equals(*key_type)) {
+            // Historical delete values are promoted into the comparison domain. For an
+            // Iceberg-legal type promotion this cast is always widening, so it cannot turn a
+            // non-NULL value into NULL.
+            auto cast_expr = Cast::create_shared(key_type);
+            cast_expr->add_child(key_expr);
+            key_expr = std::move(cast_expr);
+        }
         auto context = VExprContext::create_shared(std::move(key_expr));
         RETURN_IF_ERROR(context->prepare(_runtime_state, row_desc));
         RETURN_IF_ERROR(context->open(_runtime_state));
@@ -1688,6 +1818,11 @@ Status IcebergTableReader::_read_equality_delete_file(const TIcebergDeleteFileDe
     }
     std::ostringstream cache_key;
     cache_key << _delete_file_cache_key("iceberg_v2_equality_delete_", delete_file.path);
+    if (scan_params.__isset.current_schema_id) {
+        // The promoted comparison type depends on the current snapshot schema, so a cached filter
+        // must not be reused across schemas.
+        cache_key << ":schema=" << scan_params.current_schema_id;
+    }
     cache_key << ':' << delete_file.field_ids.size();
     for (const auto field_id : delete_file.field_ids) {
         cache_key << ':' << field_id;

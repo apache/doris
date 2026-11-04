@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AvgWeighted;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MaxBy;
@@ -66,8 +65,9 @@ import java.util.Set;
 public class EliminateGroupBy extends OneRewriteRuleFactory {
     private static final ImmutableSet<Class<? extends Expression>> supportedBasicFunctions
             = ImmutableSet.of(Sum.class, Avg.class, Min.class, Max.class, Median.class, AnyValue.class);
+    // AvgWeighted must retain its aggregate: even one row can have zero weight or overflow v * w.
     private static final ImmutableSet<Class<? extends Expression>> supportedTwoArgsFunctions
-            = ImmutableSet.of(MinBy.class, MaxBy.class, AvgWeighted.class, Percentile.class);
+            = ImmutableSet.of(MinBy.class, MaxBy.class, Percentile.class);
     private static final ImmutableSet<Class<? extends Expression>> supportedDevLikeFunctions
             = ImmutableSet.of(Stddev.class, StddevSamp.class, Variance.class, VarianceSamp.class);
     private static final ImmutableSet<Class<? extends Expression>> supportedFunctionSum0

@@ -27,12 +27,18 @@
 #include <memory>
 #include <orc/OrcFile.hh>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "core/arena.h"
 #include "core/assert_cast.h"
 #include "core/column/column_string.h"
+#include "core/column/column_struct.h"
 #include "core/column/column_varbinary.h"
+#include "core/column/column_vector.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/data_type_varbinary_serde.h"
 #include "core/string_buffer.hpp"
@@ -56,6 +62,74 @@ static std::string make_bytes(size_t n, uint8_t seed = 0x31) {
 }
 
 class DataTypeVarbinarySerDeTest : public ::testing::Test {};
+
+TEST_F(DataTypeVarbinarySerDeTest, HiveTextBinaryUsesBase64InsteadOfJsonBytes) {
+    DataTypeVarbinarySerDe serde;
+    auto column = ColumnVarbinary::create();
+    auto options = DataTypeSerDe::get_default_format_options();
+    // Hive LazyBinary decodes Base64, whereas JSON/CSV and binary file readers keep raw bytes.
+    const std::vector<std::pair<std::string, std::string>> cases = {
+            {"dGVzdDI=", "test2"},
+            {"AP8=", std::string("\0\xff", 2)},
+            {"", ""},
+            {"not!base64", "not!base64"},
+            {"====", "===="},
+            {"dGVzdDI", "test2"},
+            {"dG Vz\tdDI=\r\n", "test2"},
+            {"-_8=", std::string("\xfb\xff", 2)},
+            {"YWJjZ", "abc"}};
+    for (const auto& [encoded, expected] : cases) {
+        Slice slice(encoded);
+        ASSERT_TRUE(serde.deserialize_one_cell_from_hive_text(*column, slice, options).ok());
+        EXPECT_EQ(expected, column->get_data_at(column->size() - 1).to_string());
+    }
+    auto output = ColumnString::create();
+    VectorBufferWriter writer(*output);
+    auto binary = ColumnVarbinary::create();
+    binary->insert_data("\0\xff", 2);
+    ASSERT_TRUE(serde.serialize_one_cell_to_hive_text(*binary, 0, writer, options).ok());
+    writer.commit();
+    EXPECT_EQ("AP8=", output->get_data_at(0).to_string());
+
+    std::string encoded = "dGVzdDI=";
+    Slice raw(encoded);
+    ASSERT_TRUE(serde.deserialize_one_cell_from_json(*column, raw, options).ok());
+    EXPECT_EQ(encoded, column->get_data_at(column->size() - 1).to_string());
+
+    auto vector_column = ColumnVarbinary::create();
+    std::vector<Slice> slices;
+    for (const auto& [text, expected] : cases) {
+        slices.emplace_back(text);
+    }
+    uint64_t count = 0;
+    ASSERT_TRUE(serde.deserialize_column_from_hive_text_vector(*vector_column, slices, &count,
+                                                               options, 2)
+                        .ok());
+    ASSERT_EQ(cases.size(), count);
+    for (size_t i = 0; i < cases.size(); ++i) {
+        EXPECT_EQ(cases[i].second, vector_column->get_data_at(i).to_string());
+    }
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, FromHexStringPreservesBinaryPartitionBytes) {
+    DataTypeVarbinarySerDe serde;
+    auto column = ColumnVarbinary::create();
+    auto options = DataTypeSerDe::get_default_format_options();
+    for (const std::string text : {"0x00FF", "0x", "0x123E4567E89B12D3A456426614174000"}) {
+        StringRef input(text);
+        ASSERT_TRUE(serde.from_string(input, *column, options).ok());
+    }
+    ASSERT_EQ(3, column->size());
+    EXPECT_EQ(std::string("\0\xff", 2), column->get_data_at(0).to_string());
+    EXPECT_EQ(0, column->get_data_at(1).size);
+    EXPECT_EQ(std::string("\x12\x3e\x45\x67\xe8\x9b\x12\xd3\xa4\x56\x42\x66\x14\x17\x40\x00", 16),
+              column->get_data_at(2).to_string());
+    for (const std::string text : {"0x0", "0xGG", "1234"}) {
+        StringRef input(text);
+        EXPECT_FALSE(serde.from_string(input, *column, options).ok());
+        EXPECT_EQ(3, column->size());
+    }
+}
 
 TEST_F(DataTypeVarbinarySerDeTest, Name) {
     DataTypeVarbinarySerDe serde;
@@ -115,19 +189,47 @@ TEST_F(DataTypeVarbinarySerDeTest, JsonTextBehavior) {
     }
 }
 
-TEST_F(DataTypeVarbinarySerDeTest, ProtobufNotSupported) {
+TEST_F(DataTypeVarbinarySerDeTest, ProtobufPreservesRawBytesAndSelectedRange) {
     DataTypeVarbinarySerDe serde;
-    auto col = ColumnVarbinary::create();
-    auto* vb = col.get();
-    std::string v = make_bytes(4);
-    vb->insert_data(v.data(), v.size());
+    auto source = ColumnVarbinary::create();
+    const std::vector<std::string> values {"skip", "", make_bytes(8), make_bytes(4096)};
+    for (const auto& bytes : values) {
+        source->insert_data(bytes.data(), bytes.size());
+    }
+    PValues pb;
+    ASSERT_TRUE(serde.write_column_to_pb(*source, pb, 1, source->size()).ok());
+    EXPECT_EQ(pb.type().id(), PGenericType::VARBINARY);
+    ASSERT_EQ(pb.bytes_value_size(), 3);
+    auto restored = ColumnVarbinary::create();
+    ASSERT_TRUE(serde.read_column_from_pb(*restored, pb).ok());
+    source->clear();
+    ASSERT_EQ(restored->size(), 3);
+    for (size_t row = 0; row < restored->size(); ++row) {
+        EXPECT_EQ(restored->get_data_at(row).to_string(), values[row + 1]);
+    }
+}
 
-    PValues pv;
-    auto st1 = serde.write_column_to_pb(*col, pv, 0, 1);
-    EXPECT_FALSE(st1.ok());
-
-    auto st2 = serde.read_column_from_pb(*vb, pv);
-    EXPECT_FALSE(st2.ok());
+TEST_F(DataTypeVarbinarySerDeTest, ProtobufPreservesBinaryStructFieldAndNulls) {
+    const auto binary = make_nullable(std::make_shared<DataTypeVarbinary>());
+    const auto type = std::make_shared<DataTypeStruct>(DataTypes {binary}, Strings {"payload"});
+    auto source = type->create_column();
+    const std::string bytes = make_bytes(4096);
+    source->insert(Field::create_field<TYPE_STRUCT>(
+            Struct {Field::create_field<TYPE_VARBINARY>(StringView(bytes))}));
+    source->insert(Field::create_field<TYPE_STRUCT>(Struct {Field()}));
+    source->insert(Field::create_field<TYPE_STRUCT>(
+            Struct {Field::create_field<TYPE_VARBINARY>(StringView())}));
+    PValues pb;
+    const auto serde = type->get_serde();
+    ASSERT_TRUE(serde->write_column_to_pb(*source, pb, 0, source->size()).ok());
+    auto restored = type->create_column();
+    ASSERT_TRUE(serde->read_column_from_pb(*restored, pb).ok());
+    ASSERT_EQ(restored->size(), 3);
+    const auto& field = assert_cast<const ColumnStruct&>(*restored).get_column(0);
+    EXPECT_EQ(field.get_data_at(0).to_string(), bytes);
+    EXPECT_TRUE(field.is_null_at(1));
+    EXPECT_FALSE(field.is_null_at(2));
+    EXPECT_EQ(field.get_data_at(2).size, 0);
 }
 
 TEST_F(DataTypeVarbinarySerDeTest, JsonbThrows) {

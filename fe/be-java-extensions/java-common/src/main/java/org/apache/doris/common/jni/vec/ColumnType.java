@@ -66,7 +66,8 @@ public class ColumnType {
         VARIANT(-1),
         ARRAY(-1),
         MAP(-1),
-        STRUCT(-1);
+        STRUCT(-1),
+        FILE(-1);
 
         public final int size;
 
@@ -87,27 +88,15 @@ public class ColumnType {
     private int scale;
 
     public ColumnType(String name, Type type) {
-        this.name = name;
-        this.type = type;
-        this.length = -1;
-        this.precision = -1;
-        this.scale = -1;
+        this(name, type, -1, -1, -1);
     }
 
     public ColumnType(String name, Type type, int length) {
-        this.name = name;
-        this.type = type;
-        this.length = length;
-        this.precision = -1;
-        this.scale = -1;
+        this(name, type, length, -1, -1);
     }
 
     public ColumnType(String name, Type type, int precision, int scale) {
-        this.name = name;
-        this.type = type;
-        this.length = -1;
-        this.precision = precision;
-        this.scale = scale;
+        this(name, type, -1, precision, scale);
     }
 
     public ColumnType(String name, Type type, int length, int precision, int scale) {
@@ -116,6 +105,17 @@ public class ColumnType {
         this.length = length;
         this.precision = precision;
         this.scale = scale;
+        if (type == Type.FILE) {
+            // FILE has a fixed schema, even when nested inside ARRAY, MAP or STRUCT.
+            childNames = Arrays.asList("uri", "offset", "size", "content_type", "checksum", "inline");
+            childTypes = Arrays.asList(
+                    new ColumnType("uri", Type.STRING),
+                    new ColumnType("offset", Type.BIGINT),
+                    new ColumnType("size", Type.BIGINT),
+                    new ColumnType("content_type", Type.STRING),
+                    new ColumnType("checksum", Type.STRING),
+                    new ColumnType("inline", Type.VARBINARY));
+        }
     }
 
     public List<String> getChildNames() {
@@ -163,7 +163,7 @@ public class ColumnType {
     }
 
     public boolean isComplexType() {
-        return type == Type.ARRAY || type == Type.MAP || type == Type.STRUCT;
+        return type == Type.ARRAY || type == Type.MAP || type == Type.STRUCT || type == Type.FILE;
     }
 
     public boolean isArray() {
@@ -184,6 +184,10 @@ public class ColumnType {
 
     public boolean isMap() {
         return type == Type.MAP;
+    }
+
+    public boolean isFile() {
+        return type == Type.FILE;
     }
 
     public boolean isStruct() {
@@ -240,10 +244,11 @@ public class ColumnType {
             case ARRAY:
             case MAP:
             case STRUCT:
+            case FILE:
                 // array & map : [const | nullMap | offsets | ... ]
-                // struct : [const | nullMap | ... ]
+                // struct & file : [const | nullMap | ... ]
                 int size = 3;
-                if (type == Type.STRUCT) {
+                if (type == Type.STRUCT || type == Type.FILE) {
                     size = 2;
                 }
                 for (ColumnType c : childTypes) {
@@ -352,6 +357,9 @@ public class ColumnType {
                 break;
             case "varbinary":
                 type = Type.VARBINARY;
+                break;
+            case "file":
+                type = Type.FILE;
                 break;
             case "variant":
                 type = Type.VARIANT;

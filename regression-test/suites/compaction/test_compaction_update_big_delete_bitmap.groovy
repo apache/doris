@@ -16,6 +16,8 @@
 // under the License.
 
 
+import org.apache.doris.regression.util.Http
+
 suite("test_compaction_update_big_delete_bitmap", "nonConcurrent") {
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
@@ -135,20 +137,7 @@ suite("test_compaction_update_big_delete_bitmap", "nonConcurrent") {
 
     def getMSDeleteBitmapStatus = { be_host, be_http_port, tablet_id ->
         boolean running = true
-        StringBuilder sb = new StringBuilder();
-        sb.append("curl -X GET http://${be_host}:${be_http_port}")
-        sb.append("/api/delete_bitmap/count_ms?tablet_id=")
-        sb.append(tablet_id)
-
-        String command = sb.toString()
-        logger.info(command)
-        def process = command.execute()
-        def code = process.waitFor()
-        def out = process.getText()
-        logger.info("Get ms delete bitmap count status:  =" + code + ", out=" + out)
-        assertEquals(code, 0)
-        def deleteBitmapStatus = parseJson(out.trim())
-        return deleteBitmapStatus
+        return Http.GET("http://${be_host}:${be_http_port}/api/delete_bitmap/count_ms?tablet_id=${tablet_id}", true, false)
     }
 
     def testTable = "test_compaction_update_big_delete_bitmap"

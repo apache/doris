@@ -21,6 +21,7 @@ import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.SplitCreator;
 import org.apache.doris.datasource.TableFormatType;
+import org.apache.doris.thrift.TPaimonBlobFileDesc;
 
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.table.source.DataSplit;
@@ -42,6 +43,28 @@ public class PaimonSplit extends FileSplit {
     private Optional<Long> optRowCount = Optional.empty();
     private Optional<Long> schemaId = Optional.empty();
     private Map<String, String> paimonPartitionValues = null;
+    private List<TPaimonBlobFileDesc> blobFiles;
+    // Row origin and count of the complete Parquet anchor, shared by all its byte splits.
+    private long anchorFirstRowId;
+    private long anchorRowCount;
+
+    public void setBlobFiles(List<TPaimonBlobFileDesc> files, long anchorFirstRowId, long anchorRowCount) {
+        this.blobFiles = files;
+        this.anchorFirstRowId = anchorFirstRowId;
+        this.anchorRowCount = anchorRowCount;
+    }
+
+    public List<TPaimonBlobFileDesc> getBlobFiles() {
+        return blobFiles;
+    }
+
+    public long getAnchorFirstRowId() {
+        return anchorFirstRowId;
+    }
+
+    public long getAnchorRowCount() {
+        return anchorRowCount;
+    }
 
     /**
      * Constructor for Paimon splits.

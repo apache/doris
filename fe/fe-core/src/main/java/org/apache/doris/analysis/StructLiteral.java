@@ -62,7 +62,8 @@ public class StructLiteral extends LiteralExpr {
         this.type = type;
         this.children = new ArrayList<>();
         for (LiteralExpr expr : exprs) {
-            if (!StructType.STRUCT.supportSubType(expr.getType())) {
+            // Nereids may fold the public STRUCT used as input to a FILE cast.
+            if (!expr.getType().isVarbinaryType() && !StructType.STRUCT.supportSubType(expr.getType())) {
                 throw new AnalysisException("Invalid element type in STRUCT: " + expr.getType());
             }
             children.add(expr);

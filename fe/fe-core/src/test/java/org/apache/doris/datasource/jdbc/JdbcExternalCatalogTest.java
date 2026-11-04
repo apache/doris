@@ -73,6 +73,16 @@ public class JdbcExternalCatalogTest {
     }
 
     @Test
+    public void testMalformedAlterMappingIsRejectedBeforePublication() {
+        Map<String, String> original = new HashMap<>(jdbcExternalCatalog.getProperties());
+        Map<String, String> update = new HashMap<>();
+        update.put(ExternalCatalog.META_NAMES_MAPPING, "not-json");
+        Assert.assertThrows(RuntimeException.class,
+                () -> jdbcExternalCatalog.validatePropertiesBeforeUpdate(original, update));
+        Assert.assertEquals(original, jdbcExternalCatalog.getProperties());
+    }
+
+    @Test
     public void replayJdbcCatalogTest() throws DdlException {
         jdbcExternalCatalog.getCatalogProperty().addProperty(JdbcResource.CONNECTION_POOL_MIN_SIZE, "1");
         JdbcExternalCatalog replayJdbcCatalog = (JdbcExternalCatalog) CatalogFactory.createFromLog(

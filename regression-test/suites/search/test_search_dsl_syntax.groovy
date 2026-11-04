@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_search_dsl_syntax", "p0") {
+    // SEARCH uses two-valued matching; SQL comparisons and MATCH retain three-valued logic.
     def tableName = "search_dsl_test_table"
     
     sql "DROP TABLE IF EXISTS ${tableName}"

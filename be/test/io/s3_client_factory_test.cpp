@@ -16,11 +16,14 @@
 // under the License.
 
 #include <aws/core/auth/AWSCredentialsProviderChain.h>
+#include <aws/core/auth/GeneralHTTPCredentialsProvider.h>
 #include <aws/core/auth/STSCredentialsProvider.h>
 #include <aws/identity-management/auth/STSAssumeRoleCredentialsProvider.h>
 #include <gtest/gtest.h>
 
+#include <cstdio>
 #include <cstdlib>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -29,6 +32,7 @@
 #include "cpp/custom_aws_credentials_provider_chain.h"
 #include "io/fs/rate_limited_obj_storage_client.h"
 #include "io/fs/s3_obj_storage_client.h"
+#include "testutil/container_credentials_endpoint.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
 
@@ -374,16 +378,15 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV2ProviderTypeWithoutRoleArn) 
                       provider),
               nullptr);
 
-    const char* old_container_uri = std::getenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI");
-    if (old_container_uri == nullptr) {
-        setenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "/v2/credentials/mock", 1);
-    }
-    S3ClientConf container_conf;
-    container_conf.cred_provider_type = CredProviderType::Container;
-    provider = factory.get_aws_credentials_provider(container_conf);
-    ASSERT_NE(std::dynamic_pointer_cast<Aws::Auth::TaskRoleCredentialsProvider>(provider), nullptr);
-    if (old_container_uri == nullptr) {
-        unsetenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI");
+    {
+        // The environment is pinned rather than merely topped up, so that this case asserts the
+        // same thing whether or not the machine running it happens to be inside a container.
+        ContainerCredentialsEnvGuard env;
+        env.set_ecs_task_role("/v2/credentials/mock");
+        S3ClientConf container_conf;
+        container_conf.cred_provider_type = CredProviderType::Container;
+        provider = factory.get_aws_credentials_provider(container_conf);
+        ASSERT_NE(as_valid_http_provider(provider), nullptr);
     }
 
     S3ClientConf instance_profile_conf;
@@ -455,6 +458,157 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV1RoleArnDefaultFallback) {
               nullptr);
 
     config::aws_credentials_provider_version = "v2";
+}
+
+namespace {
+
+// The provider is looked up inside the chain rather than constructed directly,
+// because what is under test is how CustomAwsCredentialsProviderChain wires the
+// environment.
+Aws::Auth::GeneralHTTPCredentialsProvider* find_http_provider(
+        const CustomAwsCredentialsProviderChain& chain) {
+    for (const auto& provider : chain.GetProviders()) {
+        auto* http_provider =
+                dynamic_cast<Aws::Auth::GeneralHTTPCredentialsProvider*>(provider.get());
+        if (http_provider != nullptr) {
+            return http_provider;
+        }
+    }
+    return nullptr;
+}
+
+} // namespace
+
+// EKS Pod Identity supplies the credential-endpoint token as a file that the
+// kubelet rotates in place, and never as a plain environment variable. The chain
+// must therefore hand the provider the token path, so that every refresh picks
+// up the current contents. Passing the value read at construction time works
+// until the first rotation and then fails with AccessDenied.
+TEST_F(S3ClientFactoryTest, CustomChainReadsRotatedTokenFileForPodIdentity) {
+    (void)S3ClientFactory::instance();
+
+    ContainerCredentialsEndpoint endpoint;
+    ASSERT_TRUE(endpoint.start());
+
+    ContainerCredentialsEnvGuard env;
+    const std::string token_path = env.token_file_path("custom_chain");
+    env.write_token_file(token_path, "token-one");
+    env.set_pod_identity(endpoint.url(), token_path);
+
+    CustomAwsCredentialsProviderChain chain;
+    auto* provider = find_http_provider(chain);
+    ASSERT_NE(provider, nullptr) << "no GeneralHTTPCredentialsProvider was added to the chain";
+
+    // Each GetAWSCredentials() drives one HTTP GET to the endpoint: the provider re-reads the token
+    // file, sends it as the Authorization header, and parses the credentials from the reply. The
+    // handler records the header it saw, so auth_headers() reports what actually went over the wire.
+    const auto first_credentials = provider->GetAWSCredentials();
+    EXPECT_EQ(first_credentials.GetAWSAccessKeyId(), "AKIDTEST");
+    EXPECT_EQ(first_credentials.GetSessionToken(), "SESSIONTEST");
+
+    // Rotate the file the way the kubelet does. The second call refetches rather than serving its
+    // cache only because the handler reports an already-expired Expiration.
+    env.write_token_file(token_path, "token-two");
+    provider->GetAWSCredentials();
+
+    // GE rather than EQ: the credentials client retries and the handler records every attempt, so an
+    // exact count would make a retry look like a bug. front/back keep the assertion at full strength
+    // because every request before the rewrite carries token-one and every one after carries token-two.
+    const auto auth_headers = endpoint.auth_headers();
+    ASSERT_GE(auth_headers.size(), 2u);
+    EXPECT_EQ(auth_headers.front(), "token-one");
+    EXPECT_EQ(auth_headers.back(), "token-two");
+}
+
+// The same wiring has to hold when CONTAINER is asked for by name rather than reached through the
+// default chain, which is the whole point of a public provider mode. Reading only
+// AWS_CONTAINER_CREDENTIALS_RELATIVE_URI leaves this provider with an empty URI, no HTTP client and
+// no credentials on every standard EKS deployment.
+TEST_F(S3ClientFactoryTest, ContainerProviderTypeReadsRotatedTokenFileForPodIdentity) {
+    S3ClientFactory& factory = S3ClientFactory::instance();
+    config::aws_credentials_provider_version = "v2";
+
+    ContainerCredentialsEndpoint endpoint;
+    ASSERT_TRUE(endpoint.start());
+
+    ContainerCredentialsEnvGuard env;
+    const std::string token_path = env.token_file_path("container_type");
+    env.write_token_file(token_path, "token-one");
+    env.set_pod_identity(endpoint.url(), token_path);
+
+    S3ClientConf conf;
+    conf.cred_provider_type = CredProviderType::Container;
+    auto provider = as_valid_http_provider(factory.get_aws_credentials_provider(conf));
+    ASSERT_NE(provider, nullptr) << "CONTAINER did not yield a usable container credentials "
+                                    "provider for AWS_CONTAINER_CREDENTIALS_FULL_URI";
+
+    const auto first_credentials = provider->GetAWSCredentials();
+    EXPECT_EQ(first_credentials.GetAWSAccessKeyId(), "AKIDTEST");
+    EXPECT_EQ(first_credentials.GetSessionToken(), "SESSIONTEST");
+
+    env.write_token_file(token_path, "token-two");
+    provider->GetAWSCredentials();
+
+    const auto auth_headers = endpoint.auth_headers();
+    ASSERT_GE(auth_headers.size(), 2u);
+    EXPECT_EQ(auth_headers.front(), "token-one");
+    EXPECT_EQ(auth_headers.back(), "token-two");
+}
+
+TEST_F(S3ClientFactoryTest, ContainerProviderTypeForwardsInlineAuthorizationToken) {
+    S3ClientFactory& factory = S3ClientFactory::instance();
+    config::aws_credentials_provider_version = "v2";
+
+    ContainerCredentialsEndpoint endpoint;
+    ASSERT_TRUE(endpoint.start());
+
+    ContainerCredentialsEnvGuard env;
+    env.set_inline_token_endpoint(endpoint.url(), "inline-token");
+
+    S3ClientConf conf;
+    conf.cred_provider_type = CredProviderType::Container;
+    auto provider = as_valid_http_provider(factory.get_aws_credentials_provider(conf));
+    ASSERT_NE(provider, nullptr) << "CONTAINER did not yield a usable container credentials "
+                                    "provider for an inline authorization token";
+
+    EXPECT_EQ(provider->GetAWSCredentials().GetAWSAccessKeyId(), "AKIDTEST");
+
+    const auto auth_headers = endpoint.auth_headers();
+    ASSERT_GE(auth_headers.size(), 1u);
+    EXPECT_EQ(auth_headers.front(), "inline-token");
+}
+
+TEST_F(S3ClientFactoryTest, ContainerProviderTypeStillHonoursEcsRelativeUri) {
+    S3ClientFactory& factory = S3ClientFactory::instance();
+    config::aws_credentials_provider_version = "v2";
+
+    ContainerCredentialsEnvGuard env;
+    env.set_ecs_task_role("/v2/credentials/mock");
+
+    S3ClientConf conf;
+    conf.cred_provider_type = CredProviderType::Container;
+    EXPECT_NE(as_valid_http_provider(factory.get_aws_credentials_provider(conf)), nullptr)
+            << "CONTAINER did not yield a usable container credentials provider for "
+               "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI";
+}
+
+// With neither URI exported there is nothing to talk to, and the provider says so. This pins the
+// discriminator the two tests above rely on: IsValid() really does distinguish a wired provider
+// from an inert one, so their assertions cannot pass vacuously.
+TEST_F(S3ClientFactoryTest, ContainerProviderTypeIsUnusableWithoutAnyUri) {
+    S3ClientFactory& factory = S3ClientFactory::instance();
+    config::aws_credentials_provider_version = "v2";
+
+    // Constructing the guard is the whole setup: it clears all four AWS_CONTAINER_* variables, so
+    // this runs as if on a host that is not a container at all.
+    ContainerCredentialsEnvGuard env;
+
+    S3ClientConf conf;
+    conf.cred_provider_type = CredProviderType::Container;
+    auto provider = factory.get_aws_credentials_provider(conf);
+    ASSERT_NE(std::dynamic_pointer_cast<Aws::Auth::GeneralHTTPCredentialsProvider>(provider),
+              nullptr);
+    EXPECT_EQ(as_valid_http_provider(provider), nullptr);
 }
 
 } // namespace doris

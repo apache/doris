@@ -22,6 +22,11 @@ suite("physical_agg_regulator") {
     set enable_parallel_result_sink=false;
     set be_number_for_test=1;
     """
+    // A sample request larger than the table falls back to a full scan with the linear estimator,
+    // which does not collect hot value. branch-4.1 has no `WITH HOT VALUE` clause to ask for hot
+    // values explicitly, and this table is distributed by a single column, so every sample analyze
+    // of it uses the linear estimator. The expected plan therefore reflects the no-hot-value
+    // behaviour of the linear estimator.
     multi_sql """
     analyze table t1025_skew5000 with sample rows 7000 with sync;
     --drop cached stats t1025;
@@ -31,6 +36,7 @@ suite("physical_agg_regulator") {
     select count(distinct a_1), count(distinct b_5) from t1025_skew5000 group by d_1025;"""
 
 
+    // Same reason as above: no hot values are collected on this path in branch-4.1.
     multi_sql """
     analyze table t1025 with sample rows 4000 with sync;
     --drop cached stats t1025;

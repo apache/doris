@@ -29,3 +29,11 @@
 2	2	a
 3	2	a
 
+-- !sum_empty_frame --
+1	\N	\N	0
+2	10	10	1
+
+-- !group_concat_empty_frame --
+1	\N	\N
+2	a	a
+

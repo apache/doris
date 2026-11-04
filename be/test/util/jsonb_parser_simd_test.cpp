@@ -400,4 +400,41 @@ TEST_F(JsonbParserTest, ParseJsonWithToLongKey) {
     EXPECT_FALSE(st.ok());
     std::cout << st.msg() << std::endl;
 }
+
+TEST_F(JsonbParserTest, ParseJsonWithEscapedNulInString) {
+    std::string_view json_with_nul = R"({"key":"a\u0000b"})";
+    std::string_view expected_json_with_nul = R"({"key":"a\u0000b"})";
+    EXPECT_EQ(parse_json_and_check(json_with_nul, expected_json_with_nul), Status::OK());
+}
+
+TEST_F(JsonbParserTest, ParseJsonWithEscapedNulInNestedArray) {
+    std::string_view json_with_nul = R"({"key":["a\u0000b","c"]})";
+    std::string_view expected_json_with_nul = R"({"key":["a\u0000b","c"]})";
+    EXPECT_EQ(parse_json_and_check(json_with_nul, expected_json_with_nul), Status::OK());
+}
+
+TEST_F(JsonbParserTest, ParseJsonWithTrailingNulInString) {
+    std::string_view json_with_nul = R"({"key":"a\u0000"})";
+    std::string_view expected_json_with_nul = R"({"key":"a\u0000"})";
+    EXPECT_EQ(parse_json_and_check(json_with_nul, expected_json_with_nul), Status::OK());
+}
+
+TEST_F(JsonbParserTest, ParseJsonWithOnlyNulInString) {
+    std::string_view json_with_nul = R"({"key":"\u0000"})";
+    std::string_view expected_json_with_nul = R"({"key":"\u0000"})";
+    EXPECT_EQ(parse_json_and_check(json_with_nul, expected_json_with_nul), Status::OK());
+}
+
+TEST_F(JsonbParserTest, ParseJsonWithTrailingNulInNestedArray) {
+    std::string_view json_with_nul = R"({"key":["a\u0000","\u0000"]})";
+    std::string_view expected_json_with_nul = R"({"key":["a\u0000","\u0000"]})";
+    EXPECT_EQ(parse_json_and_check(json_with_nul, expected_json_with_nul), Status::OK());
+}
+
+TEST_F(JsonbParserTest, ParseJsonWithEscapedNulInKey) {
+    std::string_view json_with_nul = R"({"a\u0000b":1})";
+    std::string_view expected_json_with_nul = R"({"a\u0000b":1})";
+    EXPECT_EQ(parse_json_and_check(json_with_nul, expected_json_with_nul), Status::OK());
+}
+
 } // namespace doris

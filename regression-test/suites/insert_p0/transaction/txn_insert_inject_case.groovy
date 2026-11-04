@@ -40,6 +40,7 @@ suite("txn_insert_inject_case", "nonConcurrent") {
         """
     }
     GetDebugPoint().disableDebugPointForAllBEs("FlushToken.submit_flush_error")
+    GetDebugPoint().disableDebugPointForAllBEs("FragmentMgr.exec_plan_fragment.failed")
     sql """insert into ${table}_1 values(1, 2.2, "abc", [], []), (2, 3.3, "xyz", [1], [1, 0]), (null, null, null, [null], [null, 0])  """
     sql """insert into ${table}_2 values(3, 2.2, "abc", [], []), (4, 3.3, "xyz", [1], [1, 0]), (null, null, null, [null], [null, 0])  """
 
@@ -48,20 +49,20 @@ suite("txn_insert_inject_case", "nonConcurrent") {
     (ipList, portList) = GetDebugPoint().getBEHostAndHTTPPort()
     logger.info("be ips: ${ipList}, ports: ${portList}")
 
-    def enableDebugPoint = { ->
+    def enableDebugPoint = { debugPoint ->
         ipList.each { beid, ip ->
-            DebugPoint.enableDebugPoint(ip, portList[beid] as int, NodeType.BE, "FlushToken.submit_flush_error")
+            DebugPoint.enableDebugPoint(ip, portList[beid] as int, NodeType.BE, debugPoint)
         }
     }
 
-    def disableDebugPoint = { ->
+    def disableDebugPoint = { debugPoint ->
         ipList.each { beid, ip ->
-            DebugPoint.disableDebugPoint(ip, portList[beid] as int, NodeType.BE, "FlushToken.submit_flush_error")
+            DebugPoint.disableDebugPoint(ip, portList[beid] as int, NodeType.BE, debugPoint)
         }
     }
 
     try {
-        enableDebugPoint()
+        enableDebugPoint("FlushToken.submit_flush_error")
         sql """ begin """
         try {
             sql """ insert into ${table}_0 select * from ${table}_1; """
@@ -78,10 +79,10 @@ suite("txn_insert_inject_case", "nonConcurrent") {
             assertTrue(e.getMessage().contains("dbug_be_memtable_submit_flush_error"))
         }
 
-        disableDebugPoint()
+        disableDebugPoint("FlushToken.submit_flush_error")
         sql """ insert into ${table}_0 select * from ${table}_1; """
 
-        enableDebugPoint()
+        enableDebugPoint("FlushToken.submit_flush_error")
         try {
             sql """ insert into ${table}_0 select * from ${table}_1; """
             assertTrue(false, "insert should fail")
@@ -90,15 +91,29 @@ suite("txn_insert_inject_case", "nonConcurrent") {
             assertTrue(e.getMessage().contains("dbug_be_memtable_submit_flush_error"))
         }
 
-        disableDebugPoint()
-        sql """ insert into ${table}_0 select * from ${table}_1; """
+        disableDebugPoint("FlushToken.submit_flush_error")
         sql """ commit"""
     } catch (Exception e) {
         logger.error("failed", e)
     } finally {
         sql """ rollback """
-        disableDebugPoint()
+        disableDebugPoint("FlushToken.submit_flush_error")
         GetDebugPoint().disableDebugPointForAllBEs("FlushToken.submit_flush_error")
+    }
+
+    try {
+        enableDebugPoint("FragmentMgr.exec_plan_fragment.failed")
+        sql """ begin """
+        test {
+            sql """ insert into ${table}_0 select * from ${table}_1; """
+            exception "FragmentMgr.exec_plan_fragment.failed"
+        }
+        disableDebugPoint("FragmentMgr.exec_plan_fragment.failed")
+        sql """ insert into ${table}_0 select * from ${table}_1; """
+        sql """ commit """
+    } finally {
+        sql """ rollback """
+        disableDebugPoint("FragmentMgr.exec_plan_fragment.failed")
     }
     sql "sync"
     order_qt_select1 """select * from ${table}_0"""

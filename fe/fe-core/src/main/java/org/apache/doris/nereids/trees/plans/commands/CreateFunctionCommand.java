@@ -430,12 +430,6 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     }
 
     private void checkUdfSupportedType(Type type, String typePosition) throws AnalysisException {
-        // Reject bitmap/hll/quantile_state type
-        if (type.isObjectStored()) {
-            throw new AnalysisException(String.format(
-                    "%s does not support %s type %s", binaryType, typePosition, type.toSql()));
-        }
-
         if (type.isArrayType()) {
             checkUdfSupportedType(((ArrayType) type).getItemType(), typePosition + " element");
         } else if (type.isMapType()) {
@@ -445,6 +439,9 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             for (StructField field : ((StructType) type).getFields()) {
                 checkUdfSupportedType(field.getType(), typePosition + " field " + field.getName());
             }
+        } else if (type.isObjectStored()) {
+            throw new AnalysisException(String.format(
+                    "%s does not support %s type %s", binaryType, typePosition, type.toSql()));
         }
     }
 
@@ -529,7 +526,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         }
         function = ScalarFunction.createUdf(binaryType,
                 functionName, argsDef.getArgTypes(),
-                ((ArrayType) (returnType.toCatalogDataType())).getItemType(), argsDef.isVariadic(),
+                ((ArrayType) (returnType.toCatalogDataType())).getItemType(), false,
                 location, symbol, null, null);
         function.setChecksum(checksum);
         function.setNullableMode(returnNullMode);
@@ -551,7 +548,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             location = null;
         }
         builder.name(functionName).argsType(argsDef.getArgTypes()).retType(returnType.toCatalogDataType())
-                .hasVarArgs(argsDef.isVariadic()).intermediateType(intermediateType.toCatalogDataType())
+                .hasVarArgs(false).intermediateType(intermediateType.toCatalogDataType())
                 .location(location);
         String initFnSymbol = properties.get(INIT_KEY);
         if (initFnSymbol == null && !(binaryType == TFunctionBinaryType.JAVA_UDF
@@ -641,7 +638,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         }
         function = ScalarFunction.createUdf(binaryType,
                 functionName, argsDef.getArgTypes(),
-                returnType.toCatalogDataType(), argsDef.isVariadic(),
+                returnType.toCatalogDataType(), false,
                 location, symbol, prepareFnSymbol, closeFnSymbol);
         function.setChecksum(checksum);
         function.setNullableMode(returnNullMode);
@@ -1174,7 +1171,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         }
         Map<String, String> sessionVariables = ConnectContextUtil.getAffectQueryResultInPlanVariables(ctx);
         function = AliasFunction.createFunction(functionName, argsDef.getArgTypes(),
-                Type.VARCHAR, argsDef.isVariadic(), parameters, translateToLegacyExpr(originFunction, ctx),
+                Type.VARCHAR, false, parameters, translateToLegacyExpr(originFunction, ctx),
                 sessionVariables);
     }
 

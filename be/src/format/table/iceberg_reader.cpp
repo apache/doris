@@ -1415,14 +1415,14 @@ Status IcebergTableReader::_position_delete_base(
         Status create_status = Status::OK();
         auto* delete_file_cache = _kv_cache->get<DeleteFile>(
                 _delet_file_cache_key(delete_file.path), [&]() -> DeleteFile* {
-                    auto* position_delete = new DeleteFile;
-                    create_status = _read_position_delete_file(delete_file, position_delete);
+                    auto position_delete = std::make_unique<DeleteFile>();
+                    create_status = _read_position_delete_file(delete_file, position_delete.get());
 
                     if (!create_status) {
                         return nullptr;
                     }
 
-                    return position_delete;
+                    return position_delete.release();
                 });
         if (create_status.is<ErrorCode::END_OF_FILE>()) {
             continue;
@@ -1461,6 +1461,17 @@ Status IcebergTableReader::_position_delete_base(
         COUNTER_UPDATE(_iceberg_profile.num_delete_rows, num_delete_rows);
     }
     return Status::OK();
+}
+
+Status IcebergTableReader::TEST_position_delete_base(
+        const std::string& data_file_path,
+        const std::vector<TIcebergDeleteFileDesc>& delete_files) {
+    return _position_delete_base(data_file_path, delete_files);
+}
+
+Status IcebergTableReader::TEST_read_equality_delete_file(
+        const TIcebergDeleteFileDesc& delete_file) {
+    return _process_equality_delete({delete_file});
 }
 
 Status IcebergTableReader::_read_position_delete_file(const TIcebergDeleteFileDesc& delete_file,
@@ -2060,7 +2071,8 @@ Status IcebergTableReader::read_deletion_vector(const std::string& data_file_pat
         delete_range.path = delete_file_desc.path;
         delete_range.start_offset = delete_file_desc.content_offset;
         delete_range.size = delete_file_desc.content_size_in_bytes;
-        delete_range.file_size = -1;
+        delete_range.file_size =
+                delete_file_desc.__isset.file_size ? delete_file_desc.file_size : -1;
 
         // We may consider caching the DeletionVectorReader when reading Puffin files,
         // where the underlying reader is an `InMemoryFileReader` and a single data file is
@@ -2155,7 +2167,7 @@ Status IcebergParquetReader::_process_equality_delete(
         delete_desc.path = delete_file.path;
         delete_desc.start_offset = 0;
         delete_desc.size = -1;
-        delete_desc.file_size = -1;
+        delete_desc.file_size = delete_file.__isset.file_size ? delete_file.file_size : -1;
 
         auto delete_reader = ParquetReader::create_unique(
                 _profile, _params, delete_desc, READ_DELETE_FILE_BATCH_SIZE,
@@ -2302,7 +2314,7 @@ Status IcebergOrcReader::_process_equality_delete(
         delete_desc.path = delete_file.path;
         delete_desc.start_offset = 0;
         delete_desc.size = -1;
-        delete_desc.file_size = -1;
+        delete_desc.file_size = delete_file.__isset.file_size ? delete_file.file_size : -1;
 
         auto delete_reader = OrcReader::create_unique(_profile, _state, _params, delete_desc,
                                                       READ_DELETE_FILE_BATCH_SIZE,

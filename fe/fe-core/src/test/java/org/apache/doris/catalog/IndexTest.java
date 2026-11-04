@@ -18,14 +18,65 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.IndexDef;
+import org.apache.doris.analysis.InvertedIndexUtil;
 
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class IndexTest {
+
+    @Test
+    public void testInvertedIndexPhraseDefaultsFollowTokenization() {
+        Index exact = new Index(1, "exact", Collections.singletonList("col"),
+                IndexDef.IndexType.INVERTED, Collections.emptyMap(), "");
+        Assert.assertFalse(exact.getProperties().containsKey("support_phrase"));
+        Assert.assertFalse(InvertedIndexUtil.getInvertedIndexSupportPhrase(Collections.emptyMap()));
+
+        Index keyword = new Index(2, "keyword", Collections.singletonList("col"),
+                IndexDef.IndexType.INVERTED, Collections.singletonMap("parser", "none"), "");
+        Assert.assertFalse(keyword.getProperties().containsKey("support_phrase"));
+
+        Index normalized = new Index(3, "normalized", Collections.singletonList("col"),
+                IndexDef.IndexType.INVERTED, Collections.singletonMap("normalizer", "lowercase"), "");
+        Assert.assertFalse(normalized.getProperties().containsKey("support_phrase"));
+        Assert.assertFalse(InvertedIndexUtil.getInvertedIndexSupportPhrase(
+                Collections.singletonMap("normalizer", "lowercase")));
+
+        Index customNormalizer = new Index(7, "custom_normalizer", Collections.singletonList("col"),
+                IndexDef.IndexType.INVERTED, Collections.singletonMap("normalizer", "split_norm"), "");
+        Assert.assertEquals("true", customNormalizer.getProperties().get("support_phrase"));
+
+        Map<String, String> disabledCustomProperties = new HashMap<>();
+        disabledCustomProperties.put("normalizer", "split_norm");
+        disabledCustomProperties.put("support_phrase", "false");
+        Index disabledCustomNormalizer = new Index(8, "disabled_custom_normalizer",
+                Collections.singletonList("col"), IndexDef.IndexType.INVERTED,
+                disabledCustomProperties, "");
+        Assert.assertEquals("false", disabledCustomNormalizer.getProperties().get("support_phrase"));
+
+        Index parsed = new Index(4, "parsed", Collections.singletonList("col"),
+                IndexDef.IndexType.INVERTED, Collections.singletonMap("parser", "english"), "");
+        Assert.assertEquals("true", parsed.getProperties().get("support_phrase"));
+        Assert.assertFalse(InvertedIndexUtil.getInvertedIndexSupportPhrase(
+                Collections.singletonMap("parser", "english")));
+
+        Index analyzed = new Index(5, "analyzed", Collections.singletonList("col"),
+                IndexDef.IndexType.INVERTED, Collections.singletonMap("analyzer", "english"), "");
+        Assert.assertEquals("true", analyzed.getProperties().get("support_phrase"));
+
+        Map<String, String> disabledProperties = new HashMap<>();
+        disabledProperties.put("parser", "english");
+        disabledProperties.put("support_phrase", "false");
+        Index disabled = new Index(6, "disabled", Collections.singletonList("col"),
+                IndexDef.IndexType.INVERTED, disabledProperties, "");
+        Assert.assertEquals("false", disabled.getProperties().get("support_phrase"));
+    }
 
     @Test
     public void testGetColumnUniqueIds() {

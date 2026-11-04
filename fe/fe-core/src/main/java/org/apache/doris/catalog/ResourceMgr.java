@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Resource.ResourceType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -76,12 +77,16 @@ public class ResourceMgr implements Writable {
     }
 
     public void createResource(CreateResourceCommand command) throws DdlException {
+        createResource(command, null);
+    }
+
+    public void createResource(CreateResourceCommand command, UserIdentity creator) throws DdlException {
         CreateResourceInfo info = command.getInfo();
         if (info.getResourceType() == ResourceType.UNKNOWN) {
             throw new DdlException(
                     "Only support SPARK, ODBC_CATALOG, JDBC, S3_COOLDOWN, S3, HDFS(JFS/JUICEFS), and HMS resource.");
         }
-        Resource resource = Resource.fromCommand(command);
+        Resource resource = Resource.fromCommand(command, creator);
         if (createResource(resource, info.isIfNotExists())) {
             Env.getCurrentEnv().getEditLog().logCreateResource(resource);
             LOG.info("Create resource success. Resource: {}", resource.getName());

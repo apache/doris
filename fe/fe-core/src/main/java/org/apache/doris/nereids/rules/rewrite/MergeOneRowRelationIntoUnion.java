@@ -43,6 +43,7 @@ public class MergeOneRowRelationIntoUnion extends OneRewriteRuleFactory {
         return logicalUnion().when(u -> u.children().stream()
                 .anyMatch(LogicalOneRowRelation.class::isInstance)).then(u -> {
                     ImmutableList.Builder<List<NamedExpression>> constantExprsList = ImmutableList.builder();
+                    constantExprsList.addAll(u.getConstantExprsList());
                     List<Plan> newChildren = Lists.newArrayList();
                     ImmutableList.Builder<List<SlotReference>> newChildrenOutputs = ImmutableList.builder();
                     for (int i = 0; i < u.arity(); i++) {

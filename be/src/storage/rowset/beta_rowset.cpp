@@ -115,7 +115,9 @@ Status BetaRowset::get_segment_num_rows(std::vector<uint32_t>* segment_rows,
     // So here `ROWSET_UNLOADING` is allowed.
     DCHECK_NE(_rowset_state_machine.rowset_state(), ROWSET_UNLOADED);
 #endif
-    RETURN_IF_ERROR(_load_segment_rows_once.call([this, enable_segment_cache, read_stats, io_ctx] {
+    auto load_segment_rows = [this, enable_segment_cache, read_stats, io_ctx]() -> Status {
+        // Start from scratch, a previous failed attempt may have left partial rows.
+        _segments_rows.clear();
         auto segment_count = num_segments();
         if (segment_count == 0) {
             return Status::OK();
@@ -165,7 +167,18 @@ Status BetaRowset::get_segment_num_rows(std::vector<uint32_t>* segment_rows,
         auto self = std::dynamic_pointer_cast<BetaRowset>(shared_from_this());
         return load_segment_rows_from_footer(self, &_segments_rows, enable_segment_cache,
                                              read_stats, io_ctx);
-    }));
+    };
+
+    // Only remember a successful load. A failure (e.g. a transient S3 SlowDown) must not be
+    // cached, otherwise every later caller of this long-lived rowset gets the same stale error.
+    if (!_segment_rows_loaded.load(std::memory_order_acquire)) {
+        std::lock_guard lock(_segment_rows_mutex);
+        if (!_segment_rows_loaded.load(std::memory_order_relaxed)) {
+            RETURN_IF_ERROR(load_segment_rows());
+            // `_segments_rows` is never modified once loaded, so it can be read without lock.
+            _segment_rows_loaded.store(true, std::memory_order_release);
+        }
+    }
     segment_rows->assign(_segments_rows.cbegin(), _segments_rows.cend());
     return Status::OK();
 }

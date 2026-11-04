@@ -31,4 +31,6 @@ public @interface ConnectorProperty {
     boolean sensitive() default false;
 
     boolean isRegionField() default false;
+
+    Class<? extends ConnectorPropertyValidator> validator() default ConnectorPropertyValidator.None.class;
 }

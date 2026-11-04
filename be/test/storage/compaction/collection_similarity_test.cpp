@@ -22,8 +22,12 @@
 #include <memory>
 #include <vector>
 
+#include "common/exception.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
+#include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/thread_context.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -761,6 +765,66 @@ TEST_F(CollectionSimilarityTest, LargeDataBoundaryThresholdTest) {
         }
         EXPECT_TRUE(found_threshold) << "GE filter should include score == threshold";
     }
+}
+
+} // namespace doris
+namespace doris {
+
+TEST(CollectionSimilarityMemoryTest, TracksCollectedMovedAndMergedScores) {
+    auto tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER, "compound-score-map");
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(tracker);
+    const auto consumption = [&] {
+        thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+        return tracker->consumption();
+    };
+    const auto baseline = consumption();
+    constexpr uint32_t row_count = 32768;
+    roaring::Roaring matched_rows;
+    matched_rows.addRange(0, row_count);
+    {
+        CollectionSimilarity child;
+        EXPECT_GT(consumption(), baseline);
+        for (uint32_t row = 0; row < row_count; ++row) {
+            child.collect(row, 1.0F);
+        }
+        const auto child_bytes = consumption() - baseline;
+        EXPECT_GE(child_bytes, row_count * sizeof(ScoreMap::value_type));
+        {
+            auto scores = child.release_scores();
+            EXPECT_EQ(scores.size(), row_count);
+            EXPECT_EQ(consumption(), baseline + child_bytes);
+            {
+                CollectionSimilarity parent;
+                parent.merge_scores(scores, matched_rows);
+                EXPECT_GE(consumption(), baseline + 2 * child_bytes);
+                auto merged = parent.release_scores();
+                ASSERT_EQ(merged.size(), row_count);
+                EXPECT_FLOAT_EQ(merged.at(row_count - 1), 1.0F);
+            }
+            EXPECT_EQ(consumption(), baseline + child_bytes);
+        }
+        EXPECT_EQ(consumption(), baseline);
+        child.collect(7, 2.0F);
+        EXPECT_GT(consumption(), baseline);
+    }
+    EXPECT_EQ(consumption(), baseline);
+}
+
+TEST(CollectionSimilarityMemoryTest, RejectsAllocationsAboveTrackerLimit) {
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                    "compound-score-map-limit", 1024);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(tracker);
+    ++enable_thread_catch_bad_alloc;
+    Defer restore_catch_bad_alloc {[] { --enable_thread_catch_bad_alloc; }};
+    try {
+        CollectionSimilarity collector;
+        FAIL() << "Expected the score map to respect the memory limit";
+    } catch (const Exception& e) {
+        EXPECT_EQ(e.code(), ErrorCode::MEM_ALLOC_FAILED);
+    }
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    EXPECT_EQ(tracker->consumption(), 0);
 }
 
 } // namespace doris

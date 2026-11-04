@@ -56,6 +56,7 @@ struct IOContext;
 } // namespace io
 
 class Block;
+class TabletCollectionStatistics;
 
 io::IOContext build_score_runtime_collection_io_context(RuntimeState* state, ReaderType reader_type,
                                                         int64_t expiration_time,
@@ -75,6 +76,9 @@ public:
         io::FileCacheStatistics initial_file_cache_stats;
         int64_t limit;
         bool aggregation;
+        // Set when the tablet is split across several scanners, so that they all score with
+        // statistics of the entire tablet instead of only the rowsets each one reads.
+        std::shared_ptr<TabletCollectionStatistics> tablet_collection_statistics;
     };
 
     OlapScanner(ScanLocalStateBase* parent, Params&& params);
@@ -105,6 +109,7 @@ private:
     [[nodiscard]] Status _init_variant_columns();
 
     std::vector<OlapScanRange*> _key_ranges;
+    std::shared_ptr<TabletCollectionStatistics> _tablet_collection_statistics;
 
     TabletReader::ReaderParams _tablet_reader_params;
     std::unique_ptr<TabletReader> _tablet_reader;

@@ -31,7 +31,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
@@ -128,6 +127,19 @@ public class ShowCreateTableCommand extends ShowCommand {
         return ShowResultSetMetaData.builder().build();
     }
 
+    /** Resolve the result header without rendering the table DDL. */
+    public ShowResultSetMetaData getMetaData(ConnectContext ctx) throws AnalysisException {
+        // The table kind determines the header; rendering DDL is unnecessary for schema discovery.
+        validate(ctx);
+        DatabaseIf db = ctx.getEnv().getCatalogMgr().getCatalogOrAnalysisException(tblNameInfo.getCtl())
+                .getDbOrAnalysisException(tblNameInfo.getDb());
+        TableIf table = resolveShowCreateTarget(db);
+        if (table instanceof View) {
+            return VIEW_META_DATA;
+        }
+        return table.getType() == Table.TableType.MATERIALIZED_VIEW ? MATERIALIZED_VIEW_META_DATA : META_DATA;
+    }
+
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
@@ -146,7 +158,7 @@ public class ShowCreateTableCommand extends ShowCommand {
         try {
             if (table.getType() == Table.TableType.HMS_EXTERNAL_TABLE) {
                 rows.add(Arrays.asList(table.getName(),
-                        HiveMetaStoreClientHelper.showCreateTable((HMSExternalTable) table)));
+                        ((HMSExternalTable) table).getCreateTableSql()));
                 return new ShowResultSet(META_DATA, rows);
             }
             if ((table.getType() == Table.TableType.ICEBERG_EXTERNAL_TABLE)

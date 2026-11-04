@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWor
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.DataSink;
+import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.ResultFileSink;
 import org.apache.doris.planner.ResultSink;
@@ -49,6 +50,8 @@ import org.apache.doris.qe.runtime.PipelineExecutionTaskBuilder;
 import org.apache.doris.qe.runtime.QueryProcessor;
 import org.apache.doris.qe.runtime.SingleFragmentPipelineTask;
 import org.apache.doris.qe.runtime.ThriftPlansBuilder;
+import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.resource.workloadgroup.QueryQueue;
 import org.apache.doris.resource.workloadgroup.QueueToken;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
@@ -71,8 +74,10 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /** NereidsCoordinator */
@@ -355,6 +360,12 @@ public class NereidsCoordinator extends Coordinator {
     }
 
     @Override
+    public List<TNetworkAddress> getBackendBrpcAddresses() {
+        return executionTask.getChildrenTasks().values().stream()
+                .map(task -> task.getBackend().getBrpcAddress().deepCopy()).collect(Collectors.toList());
+    }
+
+    @Override
     public List<TNetworkAddress> getInvolvedBackends() {
         return Utils.fastToImmutableList(coordinatorContext.backends.get().keySet());
     }
@@ -456,8 +467,29 @@ public class NereidsCoordinator extends Coordinator {
 
     protected void processTopSink(
             CoordinatorContext coordinatorContext, PipelineDistributedPlan topPlan) throws AnalysisException {
+        recordLoadSinkCoordinator(coordinatorContext, topPlan);
         setForArrowFlight(coordinatorContext, topPlan);
         setForBroker(coordinatorContext, topPlan);
+    }
+
+    private void recordLoadSinkCoordinator(
+            CoordinatorContext coordinatorContext, PipelineDistributedPlan topPlan) {
+        ConnectContext connectContext = coordinatorContext.connectContext;
+        if (!(coordinatorContext.dataSink instanceof OlapTableSink)
+                || coordinatorContext.queryOptions.getQueryType() != TQueryType.LOAD
+                || !BackendSelectionManager.isLoadSelectionEnabled(connectContext)
+                || topPlan.getInstanceJobs().isEmpty()) {
+            return;
+        }
+        BackendSelection.SelectionHint hint = BackendSelectionManager.resolveLoadSelectionHint(connectContext);
+        if (!BackendSelectionManager.hasLoadSelectionPreference(hint)) {
+            return;
+        }
+        DistributedPlanWorker worker = topPlan.getInstanceJobs().get(0).getAssignedWorker();
+        if (worker instanceof BackendWorker) {
+            connectContext.getBackendSelectionProfile().recordLoadCoordinator(
+                    hint, ((BackendWorker) worker).getBackend());
+        }
     }
 
     private void setForArrowFlight(CoordinatorContext coordinatorContext, PipelineDistributedPlan topPlan) {
@@ -466,6 +498,7 @@ public class NereidsCoordinator extends Coordinator {
         if (dataSink instanceof ResultSink || dataSink instanceof ResultFileSink) {
             if (connectContext != null && !connectContext.isReturnResultFromLocal()) {
                 Preconditions.checkState(connectContext.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL));
+                Set<Long> resultBackendIds = new HashSet<>();
                 for (AssignedJob instance : topPlan.getInstanceJobs()) {
                     BackendWorker worker = (BackendWorker) instance.getAssignedWorker();
                     Backend backend = worker.getBackend();
@@ -474,6 +507,11 @@ public class NereidsCoordinator extends Coordinator {
                     }
                     TUniqueId finstId;
                     if (connectContext.getSessionVariable().enableParallelResultSink()) {
+                        // Parallel instances on a BE share one query-id buffer, so their tickets
+                        // cannot be published as independently consumable result partitions.
+                        if (!resultBackendIds.add(worker.id())) {
+                            continue;
+                        }
                         finstId = getQueryId();
                     } else {
                         finstId = instance.instanceId();

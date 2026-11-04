@@ -17,6 +17,7 @@
 
 #include "core/value/timestamptz_value.h"
 
+#include "common/exception.h"
 #include "exprs/function/cast/cast_to_timestamptz_impl.hpp"
 
 namespace doris {
@@ -38,6 +39,13 @@ std::string TimestampTzValue::to_string(const cctz::time_zone& tz, int scale) co
     auto lookup_result = tz.lookup(cur_tz_time);
 
     cctz::civil_second civ = lookup_result.cs;
+    // UTC storage bounds do not guarantee a representable session-local year. Reject
+    // overflow before DateTimeV2 formatting could produce an offset-only wire value.
+    if (civ.year() < 0 || civ.year() > 9999) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "TIMESTAMPTZ local year is outside [0, 9999]: year={}, timezone={}",
+                        civ.year(), tz.name());
+    }
     auto time_offset = lookup_result.offset;
 
     bool is_negative_offset = time_offset < 0;
@@ -65,6 +73,14 @@ std::string TimestampTzValue::to_string(const cctz::time_zone& tz, int scale) co
     buffer[len++] = ':';
     buffer[len++] = static_cast<char>('0' + offset_mins / 10);
     buffer[len++] = '0' + offset_mins % 10;
+    // Historical zones can have sub-minute offsets. Dropping their seconds changes the
+    // instant represented by the client-visible wall clock and offset when read back.
+    const int offset_seconds = abs_offset % 60;
+    if (offset_seconds != 0) {
+        buffer[len++] = ':';
+        buffer[len++] = static_cast<char>('0' + offset_seconds / 10);
+        buffer[len++] = static_cast<char>('0' + offset_seconds % 10);
+    }
     return {buffer, static_cast<size_t>(len)};
 }
 

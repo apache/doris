@@ -22,6 +22,7 @@ suite("test_oceanbase_jdbc_catalog", "p2,external") {
     String bucket = getS3BucketName()
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/oceanbase-client-2.4.8.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        sql """ set time_zone = 'Asia/Shanghai' """
         String catalog_name = "oceanbase_catalog";
         String ex_db_name = "doris_test";
         String oceanbase_port = context.config.otherConfigs.get("oceanbase_port");

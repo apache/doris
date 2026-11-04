@@ -75,7 +75,8 @@ public class VariantField {
         sb.append("'").append(pattern).append("'");
         sb.append(":").append(type.toSql(depth + 1));
         if (!comment.isEmpty()) {
-            sb.append(" COMMENT '").append(comment).append("'");
+            sb.append(" COMMENT \"").append(comment.replace("\\", "\\\\").replace("\"", "\"\""))
+                    .append("\"");
         }
         return sb.toString();
     }

@@ -56,6 +56,13 @@ public class PrintableMapTest {
     }
 
     @Test
+    public void testSensitiveKeysContainAiApiKeys() {
+        Assertions.assertTrue(PrintableMap.SENSITIVE_KEY.contains("ai.api_key"));
+        Assertions.assertTrue(PrintableMap.SENSITIVE_KEY.contains("ai.embed.api_key"));
+        Assertions.assertTrue(PrintableMap.SENSITIVE_KEY.contains("ai.embed.mm.api_key"));
+    }
+
+    @Test
     public void testBasicConstructor() {
         Map<String, String> testMap = new HashMap<>();
         testMap.put("key1", "value1");

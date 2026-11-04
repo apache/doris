@@ -17,16 +17,24 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
+
+import java.lang.reflect.Field;
 
 /**
  * Regression test:
@@ -71,6 +79,61 @@ class ShortCircuitPointQueryTest extends TestWithFeService
             // should still keep scan node for point query path
             Assertions.assertTrue(plan.anyMatch(p -> p instanceof LogicalOlapScan));
             Assertions.assertFalse(plan.anyMatch(p -> p instanceof LogicalEmptyRelation));
+        } finally {
+            FeConstants.runningUnitTest = originRunningUnitTest;
+        }
+    }
+
+    @Test
+    void testArrowFlightSqlConnectionDoesNotUseShortCircuit() throws Exception {
+        // The short circuit hands its rows back through PointQueryExecutor, which registers no
+        // FlightSqlEndpointsLocation and leaves no Arrow result on the BE, so GetFlightInfo used to fail
+        // with "fetch arrow flight schema failed, no FlightSqlEndpointsLocations" and drop the row.
+        // An Arrow Flight SQL connection has to plan the normal execution path. See #67368.
+        String sql = "select * from tbl_point_query where `key` = 1";
+        Field connectTypeField = ConnectContext.class.getDeclaredField("connectType");
+        connectTypeField.setAccessible(true);
+        ConnectType originConnectType = (ConnectType) connectTypeField.get(connectContext);
+        try {
+            connectTypeField.set(connectContext, ConnectType.ARROW_FLIGHT_SQL);
+            Plan plan = rewrite(sql);
+
+            Assertions.assertFalse(connectContext.getStatementContext().isShortCircuitQuery());
+            // And the plan really is the ordinary one: tbl_point_query is empty, so it prunes to a
+            // LogicalEmptyRelation, which is exactly what the short circuit suppresses in
+            // testShortCircuitPointQueryKeepOlapScanWhenTableEmpty above.
+            Assertions.assertTrue(plan.anyMatch(p -> p instanceof LogicalEmptyRelation));
+            Assertions.assertFalse(plan.anyMatch(p -> p instanceof LogicalOlapScan));
+        } finally {
+            connectTypeField.set(connectContext, originConnectType);
+        }
+
+        // The very same statement still short circuits on a MySQL connection.
+        rewrite(sql);
+        Assertions.assertTrue(connectContext.getStatementContext().isShortCircuitQuery());
+    }
+
+    @Test
+    void testToFilePointQueryUsesNormalExecution() {
+        try (MockedStatic<S3Resource> resources = Mockito.mockStatic(S3Resource.class)) {
+            for (String projection : ImmutableList.of("to_file('resource', v1)",
+                    "element_at(to_file('resource', v1), 'size')")) {
+                rewrite("select " + projection + " from tbl_point_query where `key` = 1");
+                Assertions.assertFalse(connectContext.getStatementContext().isShortCircuitQuery(), projection);
+            }
+        }
+        rewrite("select v1 from tbl_point_query where `key` = 1");
+        Assertions.assertTrue(connectContext.getStatementContext().isShortCircuitQuery());
+    }
+
+    private Plan rewrite(String sql) {
+        boolean originRunningUnitTest = FeConstants.runningUnitTest;
+        FeConstants.runningUnitTest = false;
+        try {
+            return PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .getPlan();
         } finally {
             FeConstants.runningUnitTest = originRunningUnitTest;
         }

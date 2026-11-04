@@ -105,6 +105,13 @@ inline bool is_match_query(InvertedIndexQueryType query_type) {
             query_type == InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY);
 }
 
+// Query types that read term positions and so need an index built with support_phrase.
+inline bool is_phrase_query(InvertedIndexQueryType query_type) {
+    return (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY ||
+            query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY ||
+            query_type == InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY);
+}
+
 inline std::string query_type_to_string(InvertedIndexQueryType query_type) {
     switch (query_type) {
     case InvertedIndexQueryType::UNKNOWN_QUERY: {

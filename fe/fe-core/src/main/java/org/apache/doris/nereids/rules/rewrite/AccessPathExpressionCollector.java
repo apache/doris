@@ -67,6 +67,7 @@ import com.google.common.collect.Multimap;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
@@ -223,6 +224,12 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
                 return continueCollectAccessPath(first, context);
             }
             return visit(elementAt, context);
+        } else if (first.getDataType().isFileType()) {
+            // Analysis restricts FILE selectors to constant public field names. Physical FILE
+            // children stay in their canonical positions even when only one path is requested.
+            context.accessPathBuilder.addPrefix(
+                    ((Literal) arguments.get(1)).getStringValue().toLowerCase(Locale.ROOT));
+            return continueCollectAccessPath(first, context);
         } else {
             return visit(elementAt, context);
         }
@@ -572,6 +579,11 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
     // backend will throw exception because it can not only access the values without the cast keys,
     // so we should check whether the map type is changed, if not changed, we can prune the type.
     private static boolean mapTypeIsChanged(DataType originType, DataType castType, boolean inMap) {
+        // FILE <-> STRUCT is a value conversion, not a rename of an identical physical tree.
+        // Validation of such casts needs the complete source, including uri and inline.
+        if (originType.isFileType() || castType.isFileType()) {
+            return !originType.equals(castType);
+        }
         if (originType.isMapType()) {
             MapType originMapType = (MapType) originType;
             MapType castMapType = (MapType) castType;

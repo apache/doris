@@ -69,6 +69,8 @@ public class MTMVPartitionUtilTest {
     @Mocked
     private MTMVRefreshContext context;
     @Mocked
+    private MTMVRefreshContext.PreparedPartitionSnapshots partitionSnapshots;
+    @Mocked
     private MTMVBaseVersions versions;
 
     private Set<BaseTableInfo> baseTables = Sets.newHashSet();
@@ -150,6 +152,18 @@ public class MTMVPartitionUtilTest {
                 minTimes = 0;
                 result = baseSnapshotIf;
 
+                context.prepareComparablePartitionSnapshots((Set<String>) any);
+                minTimes = 0;
+                result = partitionSnapshots;
+
+                context.preparePartitionSnapshots((Set<String>) any);
+                minTimes = 0;
+                result = partitionSnapshots;
+
+                partitionSnapshots.get((MTMVRelatedTableIf) any, anyString);
+                minTimes = 0;
+                result = baseSnapshotIf;
+
                 refreshSnapshot.equalsWithPct(anyString, anyString, (MTMVSnapshotIf) any,
                         (BaseTableInfo) any);
                 minTimes = 0;
@@ -208,7 +222,8 @@ public class MTMVPartitionUtilTest {
     @Test
     public void testIsSyncWithPartition() throws AnalysisException {
         boolean isSyncWithPartition = MTMVPartitionUtil
-                .isSyncWithPartitions(context, "name1", Sets.newHashSet("name2"), baseOlapTable);
+                .isSyncWithPartitions(context, partitionSnapshots, "name1",
+                        Sets.newHashSet("name2"), baseOlapTable);
         Assert.assertTrue(isSyncWithPartition);
     }
 
@@ -222,7 +237,8 @@ public class MTMVPartitionUtilTest {
             }
         };
         boolean isSyncWithPartition = MTMVPartitionUtil
-                .isSyncWithPartitions(context, "name1", Sets.newHashSet("name2"), baseOlapTable);
+                .isSyncWithPartitions(context, partitionSnapshots, "name1",
+                        Sets.newHashSet("name2"), baseOlapTable);
         Assert.assertFalse(isSyncWithPartition);
     }
 
@@ -237,7 +253,8 @@ public class MTMVPartitionUtilTest {
             }
         };
         boolean isSyncWithPartition = MTMVPartitionUtil
-                .isSyncWithPartitions(context, "name1", Sets.newHashSet("name2"), baseOlapTable);
+                .isSyncWithPartitions(context, partitionSnapshots, "name1",
+                        Sets.newHashSet("name2"), baseOlapTable);
         Assert.assertFalse(isSyncWithPartition);
     }
 
@@ -262,8 +279,8 @@ public class MTMVPartitionUtilTest {
         };
 
         Set<TableName> excludedTriggerTables = ImmutableSet.of();
-        boolean isMTMVPartitionSync = MTMVPartitionUtil.isMTMVPartitionSync(context, "name1", baseTables,
-                excludedTriggerTables);
+        boolean isMTMVPartitionSync = MTMVPartitionUtil.isMTMVPartitionSync(context, partitionSnapshots,
+                "name1", baseTables, excludedTriggerTables);
 
         Assert.assertTrue(isMTMVPartitionSync);
         Assert.assertTrue(excludedTriggerTables.isEmpty());

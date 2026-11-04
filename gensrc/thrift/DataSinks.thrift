@@ -160,6 +160,12 @@ struct TResultFileSinkOptions {
     // currently only for csv
     // TODO: merge with parquet_compression_type and orc_compression_type
     22: optional PlanNodes.TFileCompressType compression_type
+
+    // Zero-pad the per-file index in the output file name to this many digits
+    // (e.g. my_prefix_{fragment_instance_id}_00000.csv). 0 or unset means no
+    // padding, preserving the historical name format. Used to make rollover
+    // files sort lexicographically (so _00011 sorts after _00002).
+    23: optional i32 file_name_padding
 }
 
 struct TMemoryScratchSink {
@@ -231,6 +237,8 @@ struct TResultSink {
     1: optional TResultSinkType type;
     2: optional TResultFileSinkOptions file_options; // deprecated
     3: optional TFetchOption fetch_option;
+    // Absent for old FEs, whose Flight schema comparison requires legacy field metadata.
+    4: optional bool enable_arrow_type_metadata = false;
 }
 
 struct TResultFileSink {
@@ -384,6 +392,9 @@ struct THiveTableSink {
     10: optional bool overwrite
     11: optional THiveSerDeProperties serde_properties
     12: optional list<Types.TNetworkAddress> broker_addresses;
+    // Field 13 is supports_deferred_azure_multipart (bool) in master; never reuse its wire ID.
+    // Absent: legacy session timezone; empty: wall-clock INT96; otherwise: named catalog timezone.
+    14: optional string hive_parquet_time_zone
 }
 
 enum TUpdateMode {
@@ -489,6 +500,8 @@ struct TIcebergTableSink {
     17: optional TIcebergWriteType write_type = TIcebergWriteType.INSERT;
     // Unset keeps collection enabled for rolling upgrades with older FEs.
     18: optional bool collect_column_stats;
+    // Thrift map values cannot be null. These keys distinguish SQL NULL from text and empty bytes.
+    19: optional set<string> static_partition_null_keys;
 }
 
 struct TIcebergRewritableDeleteFileSet {
@@ -594,6 +607,9 @@ struct TTVFTableSink {
     13: optional i64 backend_id              // local TVF: specify BE
     14: optional TTVFWriterType writer_type   // NATIVE or JNI
     15: optional string writer_class          // Java class name (required when writer_type=JNI)
+    // Zero-pad the per-file index in the output file name to this many digits.
+    // 0 or unset means no padding. Mirrors TResultFileSinkOptions.file_name_padding.
+    16: optional i32 file_name_padding
 }
 
 struct TMCCommitData {

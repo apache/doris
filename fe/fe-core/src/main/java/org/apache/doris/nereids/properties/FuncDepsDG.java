@@ -24,6 +24,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -95,6 +96,58 @@ public class FuncDepsDG {
      */
     public boolean isEmpty() {
         return dgItems.isEmpty();
+    }
+
+    /**
+     * Checks whether the determinant closure contains every dependency slot.
+     *
+     * <p>Nodes are indexed by each slot that they are still waiting for. When a dependency edge adds a slot to
+     * the closure, only nodes waiting for that slot are revisited. Each node and edge is expanded at most once,
+     * avoiding construction of the graph's full transitive FD relation.</p>
+     */
+    public boolean isDependent(Set<Slot> determinants, Set<Slot> dependencies) {
+        Set<Slot> closure = new HashSet<>(determinants);
+        if (closure.containsAll(dependencies)) {
+            return true;
+        }
+
+        int[] missingSlotCounts = new int[dgItems.size()];
+        Map<Slot, List<Integer>> waitingNodes = new HashMap<>();
+        ArrayDeque<Integer> readyNodes = new ArrayDeque<>();
+        for (DGItem item : dgItems) {
+            for (Slot slot : item.slots) {
+                if (!closure.contains(slot)) {
+                    missingSlotCounts[item.index]++;
+                    waitingNodes.computeIfAbsent(slot, key -> new ArrayList<>()).add(item.index);
+                }
+            }
+            if (missingSlotCounts[item.index] == 0) {
+                readyNodes.add(item.index);
+            }
+        }
+
+        while (!readyNodes.isEmpty()) {
+            DGItem item = dgItems.get(readyNodes.remove());
+            for (int childIndex : item.children) {
+                for (Slot slot : dgItems.get(childIndex).slots) {
+                    if (closure.add(slot)) {
+                        List<Integer> nodes = waitingNodes.get(slot);
+                        if (nodes != null) {
+                            for (int nodeIndex : nodes) {
+                                missingSlotCounts[nodeIndex]--;
+                                if (missingSlotCounts[nodeIndex] == 0) {
+                                    readyNodes.add(nodeIndex);
+                                }
+                            }
+                        }
+                    }
+                }
+                if (closure.containsAll(dependencies)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**

@@ -17,6 +17,8 @@
 
 #include "storage/index/inverted/query/query_helper.h"
 
+#include <algorithm>
+
 namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
 
@@ -24,8 +26,8 @@ void QueryHelper::collect(const IndexQueryContextPtr& context,
                           const std::vector<SimilarityPtr>& similarities,
                           const std::vector<TermIterPtr>& iterators, int32_t doc) {
     for (size_t i = 0; i < iterators.size(); i++) {
-        auto freq = iterators[i]->freq();
-        auto doc_length = iterators[i]->norm();
+        auto freq = std::max(iterators[i]->freq(), 1);
+        auto doc_length = std::max(iterators[i]->norm(), 1);
         auto score = similarities[i]->score(static_cast<float>(freq), doc_length);
         context->collection_similarity->collect(doc, score);
     }
@@ -38,8 +40,8 @@ void QueryHelper::collect(const IndexQueryContextPtr& context,
         const auto& iter = iterators[i];
         if (std::holds_alternative<TermPositionsIterPtr>(iter)) {
             const auto& term_iter = std::get<TermPositionsIterPtr>(iter);
-            auto freq = term_iter->freq();
-            auto norm = term_iter->norm();
+            auto freq = std::max(term_iter->freq(), 1);
+            auto norm = std::max(term_iter->norm(), 1);
             auto score = similarities[i]->score(static_cast<float>(freq), norm);
             context->collection_similarity->collect(doc, score);
         }
@@ -50,8 +52,8 @@ void QueryHelper::collect_many(const IndexQueryContextPtr& context, const Simila
                                const DocRange& doc_range) {
     for (size_t j = 0; j < doc_range.doc_many_size_; j++) {
         rowid_t row_id = (*doc_range.doc_many)[j];
-        auto freq = (*doc_range.freq_many)[j];
-        auto norm = (*doc_range.norm_many)[j];
+        auto freq = doc_range.freq_many ? (*doc_range.freq_many)[j] : 1;
+        auto norm = doc_range.norm_many ? std::max((*doc_range.norm_many)[j], 1U) : 1U;
         auto score = similarity->score(static_cast<float>(freq), norm);
         context->collection_similarity->collect(row_id, score);
     }
@@ -62,8 +64,8 @@ void QueryHelper::collect_range(const IndexQueryContextPtr& context,
     const uint32_t docs_size = doc_range.doc_range.second - doc_range.doc_range.first;
     for (uint32_t j = 0; j < docs_size; j++) {
         segment_v2::rowid_t row_id = doc_range.doc_range.first + j;
-        auto freq = (*doc_range.freq_many)[j];
-        auto norm = (*doc_range.norm_many)[j];
+        auto freq = doc_range.freq_many ? (*doc_range.freq_many)[j] : 1;
+        auto norm = doc_range.norm_many ? std::max((*doc_range.norm_many)[j], 1U) : 1U;
         auto score = similarity->score(static_cast<float>(freq), norm);
         context->collection_similarity->collect(row_id, score);
     }

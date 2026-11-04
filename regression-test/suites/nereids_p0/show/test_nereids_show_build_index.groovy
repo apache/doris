@@ -33,7 +33,7 @@ suite("test_nereids_show_build_index") {
             INDEX idx_note1 (`note`) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
         )
         DUPLICATE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-        PROPERTIES ( "replication_num" = "1", "inverted_index_storage_format" = "V1" );
+        PROPERTIES ( "replication_num" = "1", "inverted_index_storage_format" = "V2" );
         """
         sql """
         CREATE TABLE IF NOT EXISTS test_show_build_index.test_show_build_index_tbl2 (
@@ -47,7 +47,7 @@ suite("test_nereids_show_build_index") {
             INDEX idx_note2 (`note`) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
         )
         DUPLICATE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-        PROPERTIES ( "replication_num" = "1", "inverted_index_storage_format" = "V1" );
+        PROPERTIES ( "replication_num" = "1", "inverted_index_storage_format" = "V2" );
         """
         sql "BUILD INDEX idx_user_id1 ON test_show_build_index.test_show_build_index_tbl1;"
         sql "BUILD INDEX idx_user_id2 ON test_show_build_index.test_show_build_index_tbl2;"

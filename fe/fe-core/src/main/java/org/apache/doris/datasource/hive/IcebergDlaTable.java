@@ -29,10 +29,6 @@ import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-import org.apache.iceberg.PartitionField;
-import org.apache.iceberg.PartitionSpec;
-import org.apache.iceberg.Table;
 
 import java.util.List;
 import java.util.Map;
@@ -114,32 +110,8 @@ public class IcebergDlaTable extends HMSDlaTable {
         if (isValidRelatedTableCached) {
             return isValidRelatedTable;
         }
-        isValidRelatedTable = false;
-        Set<String> allFields = Sets.newHashSet();
-        Table table = IcebergUtils.getIcebergTable(hmsTable);
-        for (PartitionSpec spec : table.specs().values()) {
-            if (spec == null) {
-                isValidRelatedTableCached = true;
-                return false;
-            }
-            List<PartitionField> fields = spec.fields();
-            if (fields.size() != 1) {
-                isValidRelatedTableCached = true;
-                return false;
-            }
-            PartitionField partitionField = spec.fields().get(0);
-            String transformName = partitionField.transform().toString();
-            if (!IcebergUtils.YEAR.equals(transformName)
-                    && !IcebergUtils.MONTH.equals(transformName)
-                    && !IcebergUtils.DAY.equals(transformName)
-                    && !IcebergUtils.HOUR.equals(transformName)) {
-                isValidRelatedTableCached = true;
-                return false;
-            }
-            allFields.add(table.schema().findColumnName(partitionField.sourceId()));
-        }
+        isValidRelatedTable = IcebergUtils.withIcebergTable(hmsTable, IcebergUtils::isValidRelatedTable);
         isValidRelatedTableCached = true;
-        isValidRelatedTable = allFields.size() == 1;
         return isValidRelatedTable;
     }
 }

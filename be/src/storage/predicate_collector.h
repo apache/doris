@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <cstdint>
+#include <map>
 #include <memory>
 #include <set>
 #include <string>
@@ -29,6 +31,13 @@
 #include "storage/index/inverted/query/query_info.h"
 
 namespace doris {
+
+struct InvertedIndexAnalyzerCtx;
+
+// Build the analyzer context of an index, converting a failure to build the analyzer provider
+// into a Status instead of letting the exception escape a Status-returning caller.
+Result<InvertedIndexAnalyzerCtx> analyzer_context_from_properties(
+        const std::map<std::string, std::string>& properties);
 
 class VSlotRef;
 

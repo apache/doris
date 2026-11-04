@@ -22,6 +22,7 @@ suite("test_hudi_partition_prune", "p2,external,hudi") {
         return
     }
 
+    sql """ set time_zone = 'Asia/Shanghai' """
     String catalog_name = "test_hudi_partition_prune"
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String hudiHmsPort = context.config.otherConfigs.get("hudiHmsPort")

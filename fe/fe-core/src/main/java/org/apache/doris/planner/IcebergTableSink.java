@@ -256,7 +256,15 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
             if (context.isStaticPartitionOverwrite()) {
                 Map<String, String> staticPartitionValues = context.getStaticPartitionValues();
                 if (staticPartitionValues != null && !staticPartitionValues.isEmpty()) {
-                    tSink.setStaticPartitionValues(staticPartitionValues);
+                    // Thrift strings cannot carry null; preserve nullness without changing real text values.
+                    for (Map.Entry<String, String> entry : staticPartitionValues.entrySet()) {
+                        if (entry.getValue() == null) {
+                            tSink.putToStaticPartitionValues(entry.getKey(), "null");
+                            tSink.addToStaticPartitionNullKeys(entry.getKey());
+                        } else {
+                            tSink.putToStaticPartitionValues(entry.getKey(), entry.getValue());
+                        }
+                    }
                 }
             }
         }

@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -81,14 +82,24 @@ public class AlterDatabaseEvent extends MetastoreEvent {
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support ExternalCatalog Databases");
         }
-        if (catalog.getDbNullable(dbAfter.getName()) != null) {
+        HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
+        boolean beforeExcluded = hmsCatalog.isDatabaseEventTargetExcluded(dbBefore.getName());
+        boolean afterExcluded = hmsCatalog.isDatabaseEventTargetExcluded(dbAfter.getName());
+        if (beforeExcluded && afterExcluded) {
+            return;
+        }
+        if (!afterExcluded && catalog.getDbNullable(dbAfter.getName()) != null) {
             logInfo("AlterExternalDatabase canceled, because dbAfter has exist, "
                             + "catalogName:[{}],dbName:[{}]",
                     catalogName, dbAfter.getName());
             return;
         }
-        Env.getCurrentEnv().getCatalogMgr().unregisterExternalDatabase(dbBefore.getName(), catalogName);
-        Env.getCurrentEnv().getCatalogMgr().registerExternalDatabaseFromEvent(dbAfter.getName(), catalogName);
+        if (!beforeExcluded) {
+            Env.getCurrentEnv().getCatalogMgr().unregisterExternalDatabase(dbBefore.getName(), catalogName);
+        }
+        if (!afterExcluded) {
+            Env.getCurrentEnv().getCatalogMgr().registerExternalDatabaseFromEvent(dbAfter.getName(), catalogName);
+        }
 
     }
 

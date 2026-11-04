@@ -240,7 +240,10 @@ bool validate_offset_index(const tparquet::OffsetIndex& index, const ColumnChunk
     // to the owning metadata so page-to-row mapping cannot silently move by one physical page.
     const uint64_t chunk_begin = chunk_range.offset;
     const uint64_t chunk_end = chunk_begin + chunk_range.length;
-    uint64_t previous_end = chunk_begin;
+    // A gap can hide an omitted data page even when ColumnIndex has the same entry count.
+    // Decline such indexes before pruning can lose rows; auxiliary pages and writer padding
+    // conservatively use sequential traversal. A dictionary prefix ends at data_page_offset.
+    uint64_t previous_end = static_cast<uint64_t>(data_page_offset);
     int64_t previous_row = -1;
     for (const auto& location : index.page_locations) {
         if (location.first_row_index <= previous_row || location.first_row_index >= row_count ||
@@ -249,14 +252,14 @@ bool validate_offset_index(const tparquet::OffsetIndex& index, const ColumnChunk
         }
         const uint64_t begin = static_cast<uint64_t>(location.offset);
         const uint64_t size = static_cast<uint64_t>(location.compressed_page_size);
-        if (begin < chunk_begin || begin < previous_end || begin > chunk_end ||
+        if (begin < chunk_begin || begin != previous_end || begin > chunk_end ||
             size > chunk_end - begin) {
             return false;
         }
         previous_row = location.first_row_index;
         previous_end = begin + size;
     }
-    return true;
+    return previous_end == chunk_end;
 }
 
 namespace {
@@ -1067,11 +1070,11 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_dictionary_page(bool
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::ensure_first_data_page_parsed() {
-    if (_first_data_page_parsed) {
+    if (_first_data_page_parsed && _page_reader->has_active_offset_index()) {
         return Status::OK();
     }
-    // OffsetIndex row bounds are untrusted until page zero has been reconciled and its declared
-    // cardinality checked, so no indexed skip may observe them before this one-time parse.
+    // OffsetIndex bounds need an initial reconciliation. If the index is discarded, every later
+    // page needs its header parsed before callers use its sequential row bounds.
     return parse_page_header();
 }
 
@@ -1096,19 +1099,17 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
     }
     int32_t page_num_values = _page_reader->is_header_v2() ? header->data_page_header_v2.num_values
                                                            : header->data_page_header.num_values;
-    if constexpr (IN_COLLECTION && OFFSET_INDEX) {
-        if (!_page_reader->is_header_v2() && _page_reader->has_active_offset_index()) {
-            // V1 nested pages do not declare their logical row count. An OffsetIndex span cannot
-            // be trusted until repetition levels are decoded, so keep the sequential cursor path.
-            _page_reader->discard_offset_index();
-            _offset_index = nullptr;
-        }
-    }
+    // A later V1 page can still use a valid OffsetIndex in a mixed-version chunk. Its first
+    // repetition level is checked when loaded, and its row count when the levels are exhausted.
     const bool active_offset_index = _page_reader->has_active_offset_index();
+    if (_skipped_unverified_indexed_page && !active_offset_index) {
+        // Lazy skips leave part of the physical prefix unknown. Once the index is discarded,
+        // neither its absolute row coordinate nor the parsed-value EOF count can be reused.
+        return Status::Corruption("Parquet OffsetIndex fallback after skipping an unverified page");
+    }
     if (page_num_values < 0 || page_num_values > _metadata.num_values ||
-        (!active_offset_index &&
-         static_cast<uint64_t>(page_num_values) >
-                 static_cast<uint64_t>(_metadata.num_values) - _chunk_parsed_values)) {
+        static_cast<uint64_t>(page_num_values) >
+                static_cast<uint64_t>(_metadata.num_values) - _chunk_parsed_values) {
         // Page counts are untrusted and feed both level decoders and scratch sizing. Bound each
         // page by the column metadata before converting to unsigned counters.
         return Status::Corruption("Parquet data page value count {} exceeds column total {}",
@@ -1142,10 +1143,9 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
     _remaining_def_nums = page_num_values;
     _remaining_num_values = page_num_values;
 
-    // no offset will parse all header.
-    if (!active_offset_index) {
-        _chunk_parsed_values += _remaining_num_values;
-    }
+    // Count each parsed data header exactly once, including the indexed prefix. A safe fallback
+    // uses this physical value count for EOF; nested logical rows are not interchangeable with it.
+    _chunk_parsed_values += _remaining_num_values;
     _first_data_page_parsed = true;
     _state = HEADER_PARSED;
     return Status::OK();
@@ -1155,6 +1155,17 @@ template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::next_page() {
     if constexpr (OFFSET_INDEX) {
         RETURN_IF_ERROR(ensure_first_data_page_parsed());
+        if (_page_reader->has_active_offset_index()) {
+            // Preserve header/payload-free indexed skips. An unread header or an unfinished V1
+            // row span prevents a later sequential fallback, but does not require eager I/O.
+            if (_state == INITIALIZED) {
+                _skipped_unverified_indexed_page = true;
+            } else if constexpr (IN_COLLECTION) {
+                if (!_page_reader->is_header_v2() && _remaining_rep_nums != 0) {
+                    _skipped_unverified_indexed_page = true;
+                }
+            }
+        }
     } else {
         // Load dictionary state before advancing can jump past the physical dictionary page.
         RETURN_IF_ERROR(_ensure_dictionary_page_loaded());
@@ -1171,7 +1182,18 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::next_page() {
         _decompress_release_pending = false;
         _decompress_release_threshold = std::numeric_limits<size_t>::max();
     }
+    const bool indexed = _page_reader->has_active_offset_index();
+    if (!indexed && (_page_reader->is_header_v2() || !IN_COLLECTION)) {
+        _current_row = _page_reader->end_row();
+    }
     RETURN_IF_ERROR(_page_reader->next_page());
+    if (indexed) {
+        _current_row = _page_reader->start_row();
+    } else if constexpr (IN_COLLECTION) {
+        // V1 row counts come from repetition levels, so PageReader cannot advance this coordinate
+        // from its header. Synchronize before a following V2 header derives its sequential bounds.
+        _page_reader->set_sequential_row_start(_current_row);
+    }
     _state = INITIALIZED;
     return Status::OK();
 }
@@ -1394,6 +1416,18 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
             RETURN_IF_ERROR(_rep_level_decoder.init(
                     &_page_data, header->data_page_header.repetition_level_encoding, _max_rep_level,
                     _remaining_rep_nums));
+        }
+    }
+    if constexpr (IN_COLLECTION && OFFSET_INDEX) {
+        if (_max_rep_level > 0 && _remaining_rep_nums > 0 &&
+            _page_reader->has_active_offset_index()) {
+            // Indexed pages must start at a row boundary, including V1 pages after indexed skips.
+            // Reject continuations before a partial selection can expose values from the wrong row.
+            if (_rep_level_decoder.get_next() != 0) {
+                return Status::Corruption(
+                        "Indexed Parquet nested page must start at a row boundary");
+            }
+            _rep_level_decoder.rewind_one();
         }
     }
     if (_max_def_level > 0) {
@@ -2262,29 +2296,29 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::seek_to_nested_row(size_t
     if constexpr (IN_COLLECTION && OFFSET_INDEX) {
         RETURN_IF_ERROR(ensure_first_data_page_parsed());
     }
-    if constexpr (OFFSET_INDEX) {
-        if (_page_reader->has_active_offset_index()) {
-            while (true) {
+    while (true) {
+        if constexpr (OFFSET_INDEX) {
+            if (_page_reader->has_active_offset_index()) {
                 if (_page_reader->start_row() <= left_row && left_row < _page_reader->end_row()) {
-                    break;
+                    RETURN_IF_ERROR(parse_page_header());
+                    if (_page_reader->has_active_offset_index()) {
+                        RETURN_IF_ERROR(load_page_data());
+                        RETURN_IF_ERROR(_skip_nested_rows_in_page(left_row - _current_row));
+                        _current_row = left_row;
+                        return Status::OK();
+                    }
+                    // Parsing can discard the index and change this page's bounds. Re-enter the
+                    // sequential decision below instead of seeking within the stale indexed span.
                 } else if (has_next_page()) {
                     RETURN_IF_ERROR(next_page());
-                    _current_row = _page_reader->start_row();
+                    continue;
                 } else [[unlikely]] {
                     return Status::InternalError("no match seek row {}, current row {}", left_row,
                                                  _current_row);
                 }
             }
-
-            RETURN_IF_ERROR(parse_page_header());
-            RETURN_IF_ERROR(load_page_data());
-            RETURN_IF_ERROR(_skip_nested_rows_in_page(left_row - _current_row));
-            _current_row = left_row;
-            return Status::OK();
         }
-    }
 
-    while (true) {
         RETURN_IF_ERROR(parse_page_header());
         if (_page_reader->is_header_v2() || !IN_COLLECTION) {
             if (_page_reader->start_row() <= left_row && left_row < _page_reader->end_row()) {

@@ -386,6 +386,8 @@ suite("test_array_functions_by_literal") {
         qt_sql "select array_pushback(array(cast (111.111 as decimalv3(6,3)),cast (222.222 as decimalv3(6,3))), cast (333.333 as decimalv3(6,3)))"
         qt_sql "select array_pushback([null,null], null)"
         qt_sql "select array_pushback([null,null,null,null], 80)"
+        qt_sql "select number, array_pushback(cast(null as array<int>), number) from numbers('number'='16') order by number"
+        qt_sql "select number, array_append(cast(null as array<int>), number) from numbers('number'='16') order by number"
 
         // array_cum_sum
         qt_sql "select array_cum_sum([0, 2, 127])"

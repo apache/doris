@@ -369,13 +369,12 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
             sql """drop materialized view if exists ${mvName}"""
         }
 
-        // FileScannerV2 is required by both the native and JNI scan paths for external VARIANT.
-        sql """set enable_file_scanner_v2 = false"""
+        // Native Parquet requires V2 regardless of the session preference; pure JNI still honors it.
         sql """set force_jni_scanner = false"""
-        test {
-            sql """select * from ${catalogName}.test_paimon_spark.variant_smoke"""
-            exception "External VARIANT columns require FileScannerV2"
-        }
+        def nativeVariantQuery = "select * from ${catalogName}.test_paimon_spark.variant_smoke order by id"
+        def nativeVariantRows = sql(nativeVariantQuery)
+        sql """set enable_file_scanner_v2 = false"""
+        assertEquals(nativeVariantRows, sql(nativeVariantQuery))
 
         sql """set force_jni_scanner = true"""
         test {

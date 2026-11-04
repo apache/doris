@@ -54,6 +54,12 @@ public class ShowCreateProcedureCommand extends Command implements NoForward {
 
     }
 
+    @Override
+    public ShowResultSetMetaData getResultSetMetaData() {
+        // These fixed headers are available before procedure lookup or execution.
+        return getMetaData();
+    }
+
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         for (String title : TITLE_NAMES) {

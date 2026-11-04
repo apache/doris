@@ -19,6 +19,7 @@
 
 #include <unicode/normalizer2.h>
 #include <unicode/unistr.h>
+#include <unicode/utf8.h>
 
 #include "common/exception.h"
 #include "common/logging.h"
@@ -35,6 +36,8 @@ ICUNormalizerFilter::ICUNormalizerFilter(TokenStreamPtr in,
 }
 
 Token* ICUNormalizerFilter::next(Token* t) {
+    _text_changed = false;
+    _normalized_source_length = 0;
     if (!_in->next(t)) {
         return nullptr;
     }
@@ -60,6 +63,12 @@ Token* ICUNormalizerFilter::next(Token* t) {
     _output_buffer.clear();
     result16.toUTF8String(_output_buffer);
 
+    _text_changed = std::string_view(buffer, length) != std::string_view(_output_buffer);
+    if (_text_changed && _source_byte_offsets_enabled) {
+        _normalized_source_length = t->endOffset() - t->startOffset();
+        DORIS_CHECK_GE(_normalized_source_length, 0);
+    }
+
     set_text(t, std::string_view(_output_buffer.data(), _output_buffer.size()));
 
     return t;
@@ -67,6 +76,35 @@ Token* ICUNormalizerFilter::next(Token* t) {
 
 void ICUNormalizerFilter::reset() {
     DorisTokenFilter::reset();
+    _text_changed = false;
+    _normalized_source_length = 0;
+}
+
+std::span<const int32_t> ICUNormalizerFilter::get_source_byte_offsets() const {
+    return _text_changed ? std::span<const int32_t> {}
+                         : DorisTokenFilter::get_source_byte_offsets();
+}
+
+std::span<const int32_t> ICUNormalizerFilter::get_source_byte_end_offsets() const {
+    return _text_changed ? std::span<const int32_t> {}
+                         : DorisTokenFilter::get_source_byte_end_offsets();
+}
+
+bool ICUNormalizerFilter::get_conservative_source_byte_span(int32_t& start, int32_t& end) const {
+    if (!_text_changed) {
+        return DorisTokenFilter::get_conservative_source_byte_span(start, end);
+    }
+    if (!_source_byte_offsets_enabled) {
+        return false;
+    }
+    start = 0;
+    end = _normalized_source_length;
+    return true;
+}
+
+void ICUNormalizerFilter::set_source_byte_offsets_enabled(bool enabled) {
+    _source_byte_offsets_enabled = enabled;
+    DorisTokenFilter::set_source_byte_offsets_enabled(enabled);
 }
 
 } // namespace doris::segment_v2::inverted_index

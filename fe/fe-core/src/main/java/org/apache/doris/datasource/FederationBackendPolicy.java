@@ -156,13 +156,25 @@ public class FederationBackendPolicy {
     }
 
     public void init(List<String> preLocations) throws UserException {
+        init(preLocations, Collections.emptyList());
+    }
+
+    /** Initialize the policy with exactly one eligible backend. */
+    public void initWithBackendId(long backendId) throws UserException {
+        init(Collections.emptyList(), Collections.singletonList(backendId));
+    }
+
+    /** Build the standard external-scan policy with optional location and backend-ID constraints. */
+    private void init(List<String> preLocations, List<Long> requiredBackendIds)
+            throws UserException {
         // scan node is used for query
         BeSelectionPolicy.Builder builder = new BeSelectionPolicy.Builder();
         builder.needQueryAvailable()
                 .needLoadAvailable()
                 .preferComputeNode(Config.prefer_compute_node_for_external_table)
                 .assignExpectBeNum(Config.min_backend_num_for_external_table)
-                .addPreLocations(preLocations);
+                .addPreLocations(preLocations)
+                .addRequiredBackendIds(requiredBackendIds);
         init(builder.build());
     }
 
@@ -206,6 +218,13 @@ public class FederationBackendPolicy {
         Backend selectedBackend = backends.get(nextBe++);
         nextBe = nextBe % backends.size();
         return selectedBackend;
+    }
+
+    /** Replace only the round-robin order; candidate membership and backend metadata remain unchanged. */
+    public void replaceBackendOrder(List<Backend> orderedBackends) {
+        backends.clear();
+        backends.addAll(orderedBackends);
+        nextBe = 0;
     }
 
     @VisibleForTesting
@@ -500,4 +519,3 @@ public class FederationBackendPolicy {
         }
     }
 }
-

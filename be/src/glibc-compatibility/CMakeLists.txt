@@ -45,9 +45,13 @@ if (GLIBC_COMPATIBILITY)
     endif ()
 
     list(REMOVE_ITEM glibc_compatibility_sources musl/getentropy.c)
-    if(HAVE_SYS_RANDOM_H)
-        list(APPEND glibc_compatibility_sources musl/getentropy.c)
-    endif()
+
+    # lance_c is linked after this archive and introduces these libc references
+    # too late for another archive scan. Keep the hidden version adapters in the
+    # explicit object target so the final -lc does not pull in the toolchain's
+    # monolithic glibc-compatibility object and conflict with Doris' definitions.
+    set(lance_compatibility_source lance_symbol_versions.c)
+    list(REMOVE_ITEM glibc_compatibility_sources ${lance_compatibility_source})
 
     # Need to omit frame pointers to match the performance of glibc
     set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fomit-frame-pointer")
@@ -65,9 +69,26 @@ if (GLIBC_COMPATIBILITY)
     # before ASAN shadow memory is initialized, causing SIGSEGV. Skip custom memcpy in
     # this case and fall back to glibc's memcpy.
     if (ARCH_ARM AND (CMAKE_BUILD_TYPE STREQUAL "ASAN_UT" OR CMAKE_BUILD_TYPE STREQUAL "ASAN"))
-        add_library(glibc-compatibility-explicit OBJECT musl/getrandom.c)
+        add_library(glibc-compatibility-explicit OBJECT
+            musl/getrandom.c
+            ${lance_compatibility_source}
+        )
     else()
-        add_library(glibc-compatibility-explicit OBJECT musl/getrandom.c ${MEMCPY_SOURCE})
+        add_library(glibc-compatibility-explicit OBJECT
+            musl/getrandom.c
+            ${MEMCPY_SOURCE}
+            ${lance_compatibility_source}
+        )
+    endif()
+    if(HAVE_SYS_RANDOM_H)
+        # ASAN's weak getentropy interceptor prevents extracting our implementation
+        # from the static archive. Link it explicitly so calls do not reach a null
+        # real_getentropy on glibc < 2.25.
+        target_sources(glibc-compatibility-explicit PRIVATE musl/getentropy.c)
+        if (COMPILER_CLANG)
+            # Preserve the warning policy previously supplied by the archive target.
+            set_source_files_properties(musl/getentropy.c PROPERTIES COMPILE_OPTIONS -Wno-conversion)
+        endif()
     endif()
     target_compile_options(glibc-compatibility-explicit PRIVATE -fPIC)
     add_library(glibc-compatibility STATIC ${glibc_compatibility_sources})

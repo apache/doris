@@ -29,8 +29,11 @@ import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
 
 import com.github.shyiko.mysql.binlog.GtidSet;
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfig;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffset;
+import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffsetKind;
+import org.apache.flink.cdc.connectors.mysql.source.split.MySqlBinlogSplit;
 import org.apache.flink.cdc.connectors.mysql.source.split.MySqlSnapshotSplit;
 import org.junit.jupiter.api.Test;
 
@@ -111,6 +114,43 @@ public class MySqlSourceReaderTest {
         BinlogOffset off = startupBinlogOffset("{\"gtids\":\"" + gtid + "\"}");
         assertEquals(gtid, off.getGtidSet());
         assertNotNull(off.getOffsetKind());
+    }
+
+    @Test
+    void binlogSplitUsesGtidOnlyOffsetWithoutFallingBack() throws Exception {
+        String gtid = SERVER_UUID + ":1-3:5-7";
+        MySqlSourceReader reader = new MySqlSourceReader();
+        reader.setTableSchemas(new HashMap<>());
+        JobBaseConfig config =
+                new JobBaseConfig(
+                        "job-1",
+                        "MYSQL",
+                        Map.of(
+                                DataSourceConfigKeys.JDBC_URL, "jdbc:mysql://localhost:3306/testdb",
+                                DataSourceConfigKeys.USER, "u",
+                                DataSourceConfigKeys.PASSWORD, "p",
+                                DataSourceConfigKeys.DATABASE, "testdb",
+                                DataSourceConfigKeys.TABLE, "t_test",
+                                DataSourceConfigKeys.OFFSET, "initial"),
+                        null);
+        Method method =
+                MySqlSourceReader.class.getDeclaredMethod(
+                        "createBinlogSplit", Map.class, JobBaseConfig.class);
+        method.setAccessible(true);
+        Tuple2<?, ?> result =
+                (Tuple2<?, ?>)
+                        method.invoke(
+                                reader,
+                                Map.of("startingOffset", Map.of("gtids", gtid, "event", "7", "row", "3")),
+                                config);
+        BinlogOffset offset = ((MySqlBinlogSplit) result.f0).getStartingOffset();
+
+        assertEquals(gtid, offset.getGtidSet());
+        assertEquals(BinlogOffsetKind.SPECIFIC, offset.getOffsetKind());
+        assertEquals("", offset.getFilename());
+        assertEquals(0L, offset.getPosition());
+        assertEquals(7L, offset.getRestartSkipEvents());
+        assertEquals(3L, offset.getRestartSkipRows());
     }
 
     @Test

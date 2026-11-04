@@ -139,6 +139,10 @@ public class ColStatsData {
 
     public ColumnStatistic toColumnStatistic() {
         try {
+            if (!isValid()) {
+                return ColumnStatistic.UNKNOWN;
+            }
+
             ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(count);
             columnStatisticBuilder.setNdv(ndv);
             columnStatisticBuilder.setNumNulls(nullCount);

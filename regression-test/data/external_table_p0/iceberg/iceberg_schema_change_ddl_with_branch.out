@@ -250,6 +250,11 @@ phone	text	Yes	true	\N
 4	david@example.com
 
 -- !all_branches_have_phone --
+1	\N
+2	\N
+3	\N
+4	\N
+5	\N
 
 -- !summary_main --
 1	Alice	95.5	\N	\N

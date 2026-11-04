@@ -95,10 +95,22 @@ class CustomMySqlAntlrDdlParserTest {
     }
 
     @Test
-    void parseUnsupportedColumnChanges() {
-        assertUnsupported("ALTER TABLE t1 RENAME COLUMN age TO years");
-        assertUnsupported("ALTER TABLE t1 CHANGE COLUMN age years BIGINT");
-        assertUnsupported("ALTER TABLE t1 MODIFY COLUMN age BIGINT");
+    void parseColumnAlterations() {
+        assertColumnChange(
+                "ALTER TABLE t1 RENAME COLUMN age TO years",
+                MySqlSchemaChange.Type.RENAME,
+                "age",
+                "years");
+        assertColumnChange(
+                "ALTER TABLE t1 CHANGE COLUMN age years BIGINT",
+                MySqlSchemaChange.Type.CHANGE,
+                "age",
+                "years");
+        assertColumnChange(
+                "ALTER TABLE t1 MODIFY COLUMN age BIGINT",
+                MySqlSchemaChange.Type.MODIFY,
+                "age",
+                "age");
     }
 
     @Test
@@ -116,12 +128,16 @@ class CustomMySqlAntlrDdlParserTest {
         assertEquals("age", changes.get(1).getColumnName());
     }
 
-    private static void assertUnsupported(String ddl) {
+    private static void assertColumnChange(
+            String ddl, MySqlSchemaChange.Type type, String columnName, String newColumnName) {
         Tables tables = tables(table("id", "age"));
         CustomMySqlAntlrDdlParser parser = parser();
         parser.parse(ddl, tables);
         List<MySqlSchemaChange> changes = parser.getAndClearParsedChanges();
-        assertEquals(MySqlSchemaChange.Type.UNSUPPORTED, changes.get(0).getType());
+        assertEquals(1, changes.size());
+        assertEquals(type, changes.get(0).getType());
+        assertEquals(columnName, changes.get(0).getColumnName());
+        assertEquals(newColumnName, changes.get(0).getNewColumnName());
     }
 
     private static CustomMySqlAntlrDdlParser parser() {

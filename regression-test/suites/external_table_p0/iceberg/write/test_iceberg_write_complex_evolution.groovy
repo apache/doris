@@ -116,6 +116,15 @@ suite("test_iceberg_write_complex_evolution",
     """
     sql """alter table complex_evolution add partition key bucket(8, id) as id_bucket"""
     sql """alter table complex_evolution add partition key truncate(1, group_key) as group_prefix"""
+    // Iceberg permits a nested primitive source. Create it through Spark to verify Doris can plan and
+    // physically partition the following INSERT by the schema-wide nested field id. Invalidate Spark's
+    // cached table first so its commit requirement sees the partition ids assigned by the Doris DDLs.
+    spark_iceberg """refresh table demo.${dbName}.complex_evolution"""
+    spark_iceberg """
+        alter table demo.${dbName}.complex_evolution
+        add partition field bucket(4, payload.nested.count)
+    """
+    sql """refresh table complex_evolution"""
 
     sql """
         insert into complex_evolution values
@@ -135,7 +144,15 @@ suite("test_iceberg_write_complex_evolution",
                     struct(cast(5 as bigint), null, null),
                     null,
                     map('null-value', null)
-                ))
+                )),
+            (6, 'Z3', null, null, null)
+    """
+
+    // Route an UPDATE insert image by the nested source and preserve the parent-NULL partition value.
+    sql """
+        update complex_evolution
+        set group_key = case id when 4 then 'A2' else 'Z4' end
+        where id in (4, 6)
     """
 
     // W02-S03: Current schema reads both old and new files without moving old child values.
@@ -165,6 +182,13 @@ suite("test_iceberg_write_complex_evolution",
         from complex_evolution\$partitions
         group by spec_id
         order by spec_id
+    """
+    order_qt_complex_nested_partition_pruning """
+        select id
+        from complex_evolution
+        where payload.nested.count = cast(7000000000 as bigint)
+           or (id = 6 and payload.nested.count is null)
+        order by id
     """
     assertSparkMatchesDoris()
 

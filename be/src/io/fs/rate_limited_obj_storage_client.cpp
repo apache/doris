@@ -109,6 +109,15 @@ ObjectStorageResponse RateLimitedObjStorageClient::list_objects(
     return _inner->list_objects(opts, files);
 }
 
+ObjectStorageListPageResponse RateLimitedObjStorageClient::list_objects_page(
+        const ObjectStoragePathOptions& opts, std::string_view continuation_token) {
+    S3RateLimitGuard guard(S3RateLimitType::GET, 0);
+    if (!guard.ok()) {
+        return {.resp = rate_limited_response(S3RateLimitType::GET, guard.reject_reason())};
+    }
+    return _inner->list_objects_page(opts, continuation_token);
+}
+
 ObjectStorageResponse RateLimitedObjStorageClient::delete_objects(
         const ObjectStoragePathOptions& opts, std::vector<std::string> objs) {
     S3RateLimitGuard guard(S3RateLimitType::PUT, 0);

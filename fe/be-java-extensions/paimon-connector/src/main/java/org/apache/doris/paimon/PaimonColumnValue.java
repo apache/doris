@@ -19,7 +19,11 @@ package org.apache.doris.paimon;
 
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ColumnValue;
+import org.apache.doris.common.jni.vec.FileValue;
 
+import org.apache.paimon.data.Blob;
+import org.apache.paimon.data.BlobDescriptor;
+import org.apache.paimon.data.BlobRef;
 import org.apache.paimon.data.DataGetters;
 import org.apache.paimon.data.InternalArray;
 import org.apache.paimon.data.InternalMap;
@@ -34,6 +38,10 @@ import org.apache.paimon.types.RowType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.LocalDate;
@@ -47,6 +55,7 @@ import java.util.Map;
 
 public class PaimonColumnValue implements ColumnValue {
     private static final Logger LOG = LoggerFactory.getLogger(PaimonColumnValue.class);
+    static final long DEFAULT_BLOB_MAX_SIZE = 10L * 1024 * 1024;
     private static final Map<String, String> DORIS_TIME_ZONE_ALIASES;
 
     static {
@@ -69,6 +78,8 @@ public class PaimonColumnValue implements ColumnValue {
     private PaimonVariantProjection variantProjection;
     // rebuild subpath variant to doris
     private Variant materializedVariant;
+    private boolean blobAsDescriptor;
+    private long blobMaxSize = DEFAULT_BLOB_MAX_SIZE;
     // Keep these caches lazy so scalar columns do not pay for complex-type reuse bookkeeping.
     private List<PaimonColumnValue> arrayValues;
     private List<PaimonColumnValue> mapKeys;
@@ -114,6 +125,14 @@ public class PaimonColumnValue implements ColumnValue {
 
     public void setTimeZone(String timeZone) {
         this.timeZone = resolveTimeZone(timeZone);
+    }
+
+    public void setBlobAsDescriptor(boolean blobAsDescriptor) {
+        this.blobAsDescriptor = blobAsDescriptor;
+    }
+
+    public void setBlobMaxSize(long blobMaxSize) {
+        this.blobMaxSize = blobMaxSize;
     }
 
     @Override
@@ -280,7 +299,7 @@ public class PaimonColumnValue implements ColumnValue {
     @Override
     public void unpackStruct(List<Integer> structFieldIndex, List<ColumnValue> values) {
         RowType rowType = (RowType) dataType;
-        // Projection entries are original child indexes, so the binary row must keep the full RowType arity.
+        // Projection entries are original child indexes, so keep the full RowType arity.
         InternalRow row = record.getRow(idx, rowType.getFieldCount());
         if (structValues == null) {
             structValues = new ArrayList<>();
@@ -288,6 +307,53 @@ public class PaimonColumnValue implements ColumnValue {
         for (int i : structFieldIndex) {
             values.add(reuseColumnValue(structValues, i, row, i, dorisType.getChildTypes().get(i),
                     rowType.getFields().get(i).type()));
+        }
+    }
+
+    @Override
+    public FileValue getFile() {
+        Blob blob = record.getBlob(idx);
+        if (blobAsDescriptor) {
+            // Use the SDK's typed descriptor API without reading the payload.
+            BlobDescriptor descriptor = blob.toDescriptor();
+            return new FileValue(descriptor.uri(), descriptor.offset(),
+                    descriptor.length() < 0 ? null : descriptor.length(), null, null, null);
+        }
+        return new FileValue(null, null, null, null, null, readBlobPayload(blob));
+    }
+
+    private byte[] readBlobPayload(Blob blob) {
+        if (blob instanceof BlobRef) {
+            // Managed .blob references carry their length, so reject before opening the payload.
+            checkBlobSize(blob.toDescriptor().length());
+        }
+        // External descriptors can have length -1. Read at most limit + 1 bytes,
+        // checking before retaining each chunk instead of materializing the whole object.
+        try (InputStream input = blob.newInputStream();
+                ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[(int) Math.min(8192L, blobMaxSize + 1)];
+            long total = 0;
+            while (true) {
+                int request = (int) Math.min(buffer.length, blobMaxSize - total + 1);
+                int read = input.read(buffer, 0, request);
+                if (read < 0) {
+                    return output.toByteArray();
+                }
+                total += read;
+                checkBlobSize(total);
+                output.write(buffer, 0, read);
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to read Paimon BLOB column '" + dorisType.getName() + "'", e);
+        }
+    }
+
+    private void checkBlobSize(long size) {
+        if (size > blobMaxSize) {
+            throw new IllegalArgumentException("Paimon BLOB column '" + dorisType.getName()
+                    + "' inline size " + size + " bytes exceeds paimon_blob_max_size=" + blobMaxSize
+                    + " bytes. Increase paimon_blob_max_size "
+                    + "or use blob-as-descriptor=true");
         }
     }
 
@@ -306,6 +372,8 @@ public class PaimonColumnValue implements ColumnValue {
             // VectorColumn consumes unpacked values synchronously, before this parent advances to another value.
             value.reset(childRecord, childIndex, childDorisType, childPaimonType, timeZone);
         }
+        value.blobAsDescriptor = blobAsDescriptor;
+        value.blobMaxSize = blobMaxSize;
         return value;
     }
 

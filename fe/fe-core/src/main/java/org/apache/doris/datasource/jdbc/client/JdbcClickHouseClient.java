@@ -161,9 +161,10 @@ public class JdbcClickHouseClient extends JdbcClient {
         }
 
         if (ckType.startsWith("DateTime")) {
+            // ClickHouse stores epoch ticks even when the column inherits the server timezone.
             // DateTime with second precision
             if (ckType.startsWith("DateTime(") || ckType.equals("DateTime")) {
-                return ScalarType.createDatetimeV2Type(0);
+                return ScalarType.createTimeStampTzType(0);
             } else {
                 // DateTime64 with millisecond precision
                 // Datetime64(6) / DateTime64(6, 'Asia/Shanghai')
@@ -172,7 +173,7 @@ public class JdbcClickHouseClient extends JdbcClient {
                 if (precision > 6) {
                     precision = JDBC_DATETIME_SCALE;
                 }
-                return ScalarType.createDatetimeV2Type(precision);
+                return ScalarType.createTimeStampTzType(precision);
             }
         }
 

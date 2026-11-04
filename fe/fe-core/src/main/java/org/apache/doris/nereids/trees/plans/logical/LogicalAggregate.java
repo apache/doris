@@ -29,8 +29,6 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregatePhase;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -446,7 +444,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
             return false;
         }
         Expression agg = namedExpression.child(0);
-        return agg instanceof Count || agg instanceof Ndv;
+        return ExpressionUtils.isUniformAgg(agg);
     }
 
     @Override

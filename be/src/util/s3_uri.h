@@ -34,7 +34,8 @@ namespace doris {
 class S3URI {
 public:
     S3URI(const std::string& location) : _location(location) {}
-    Status parse();
+    // Preserve object keys verbatim when the path denotes an object rather than a URL.
+    Status parse(bool preserve_key = false);
     const std::string& get_bucket() const { return _bucket; }
     const std::string& get_key() const { return _key; }
     const std::string& get_location() const { return _location; }

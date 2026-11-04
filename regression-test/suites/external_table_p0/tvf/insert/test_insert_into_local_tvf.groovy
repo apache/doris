@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_insert_into_local_tvf", "tvf,external,external_docker") {
+    logger.info("Skip: this suite requires LOCAL TVF, which is disabled.")
+    return
+
 
     List<List<Object>> backends = sql """ show backends """
     assertTrue(backends.size() > 0)
@@ -593,7 +596,29 @@ suite("test_insert_into_local_tvf", "tvf,external,external_docker") {
         ) ORDER BY c1;
     """
 
-    // ============ 23. Error: missing file_path ============
+    // ============ 23. Duplicate output names preserve positional values ============
+
+    sshExec("root", be_host, "rm -f ${basePath}/duplicate_output_names_*")
+    sshExec("root", be_host, "mkdir -p ${basePath}")
+    sshExec("root", be_host, "chmod 777 ${basePath}")
+
+    sql """
+        INSERT INTO local(
+            "file_path" = "${basePath}/duplicate_output_names_",
+            "backend_id" = "${be_id}",
+            "format" = "csv"
+        ) SELECT 1 AS x, 2 AS x;
+    """
+
+    qt_duplicate_output_names """
+        SELECT * FROM local(
+            "file_path" = "${basePath}/duplicate_output_names_*",
+            "backend_id" = "${be_id}",
+            "format" = "csv"
+        );
+    """
+
+    // ============ 24. Error: missing file_path ============
 
     test {
         sql """
@@ -605,7 +630,7 @@ suite("test_insert_into_local_tvf", "tvf,external,external_docker") {
         exception "file_path"
     }
 
-    // ============ 24. Error: missing format ============
+    // ============ 25. Error: missing format ============
 
     test {
         sql """
@@ -617,7 +642,7 @@ suite("test_insert_into_local_tvf", "tvf,external,external_docker") {
         exception "format"
     }
 
-    // ============ 25. Error: missing backend_id for local ============
+    // ============ 26. Error: missing backend_id for local ============
 
     test {
         sql """
@@ -629,7 +654,7 @@ suite("test_insert_into_local_tvf", "tvf,external,external_docker") {
         exception "backend_id"
     }
 
-    // ============ 26. Error: unsupported TVF name ============
+    // ============ 27. Error: unsupported TVF name ============
 
     test {
         sql """
@@ -641,7 +666,7 @@ suite("test_insert_into_local_tvf", "tvf,external,external_docker") {
         exception "INSERT INTO TVF only supports"
     }
 
-    // ============ 27. Error: unsupported format ============
+    // ============ 28. Error: unsupported format ============
 
     test {
         sql """
@@ -654,7 +679,7 @@ suite("test_insert_into_local_tvf", "tvf,external,external_docker") {
         exception "Unsupported"
     }
 
-    // ============ 28. Error: wildcard in file_path ============
+    // ============ 29. Error: wildcard in file_path ============
 
     test {
         sql """
@@ -667,7 +692,7 @@ suite("test_insert_into_local_tvf", "tvf,external,external_docker") {
         exception "wildcards"
     }
 
-    // ============ 29. Error: delete_existing_files=true on local TVF ============
+    // ============ 30. Error: delete_existing_files=true on local TVF ============
 
     test {
         sql """

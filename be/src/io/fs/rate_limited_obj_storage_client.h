@@ -34,7 +34,7 @@ namespace doris::io {
 // calls additionally reserve their payload size from the bytes bucket (reconciled
 // with the actually transferred size for reads). Note that APIs which internally
 // paginate (list_objects, delete_objects_recursively) are charged once per logical
-// call, not once per underlying HTTP request.
+// call, not once per underlying HTTP request. list_objects_page charges each page.
 class RateLimitedObjStorageClient final : public ObjStorageClient {
 public:
     explicit RateLimitedObjStorageClient(std::shared_ptr<ObjStorageClient> inner)
@@ -56,6 +56,8 @@ public:
                                      size_t* size_return) override;
     ObjectStorageResponse list_objects(const ObjectStoragePathOptions& opts,
                                        std::vector<FileInfo>* files) override;
+    ObjectStorageListPageResponse list_objects_page(const ObjectStoragePathOptions& opts,
+                                                    std::string_view continuation_token) override;
     ObjectStorageResponse delete_objects(const ObjectStoragePathOptions& opts,
                                          std::vector<std::string> objs) override;
     ObjectStorageResponse delete_object(const ObjectStoragePathOptions& opts) override;

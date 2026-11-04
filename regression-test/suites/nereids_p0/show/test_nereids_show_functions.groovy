@@ -99,7 +99,12 @@ suite("test_nereids_show_functions") {
 
     def runtime_version = getPythonUdfRuntimeVersion()
     def suitePath = context.file.parent + "/../.."
-
+    def pyudfPath = "${suitePath}/pythonudf_p0/udf_scripts/pyudf.zip"
+    def pyudtfPath = "${suitePath}/pythonudtf_p0/udtf_scripts/pyudtf.zip"
+    scp_udf_file_to_all_fe(pyudfPath)
+    scp_udf_file_to_all_fe(pyudtfPath)
+    scp_udf_file_to_all_be(pyudfPath)
+    scp_udf_file_to_all_be(pyudtfPath)
     sql """ DROP FUNCTION IF EXISTS py_add(int, int) """
     sql """ CREATE FUNCTION py_add(INT, INT)
             RETURNS INT
@@ -127,7 +132,7 @@ suite("test_nereids_show_functions") {
 
     sql """ DROP FUNCTION IF EXISTS python_udf_int_test(int) """
     sql """ CREATE FUNCTION python_udf_int_test(int) RETURNS int PROPERTIES (
-            "file"="file://${suitePath}/pythonudf_p0/udf_scripts/pyudf.zip",
+            "file"="file://${pyudfPath}",
             "symbol"="int_test.evaluate",
             "type"="PYTHON_UDF",
             "always_nullable" = "true",
@@ -150,7 +155,7 @@ suite("test_nereids_show_functions") {
 
     sql """ DROP FUNCTION IF EXISTS python_udaf_sum_int(int) """
     sql """ CREATE AGGREGATE FUNCTION python_udaf_sum_int(int) RETURNS bigint PROPERTIES (
-            "file"="file://${suitePath}/pythonudf_p0/udf_scripts/pyudf.zip",
+            "file"="file://${pyudfPath}",
             "symbol"="sum_int.SumInt",
             "type"="PYTHON_UDF",
             "always_nullable" = "true",
@@ -173,7 +178,7 @@ suite("test_nereids_show_functions") {
     sql """ DROP FUNCTION IF EXISTS py_split_string_module(STRING) """
     sql """CREATE TABLES FUNCTION py_split_string_module(STRING)
         RETURNS ARRAY<STRING> PROPERTIES (
-            "file" = "file://${suitePath}/pythonudtf_p0/udtf_scripts/pyudtf.zip",
+            "file" = "file://${pyudtfPath}",
             "symbol" = "pyudtf_module.basic_udtf.split_string_udtf",
             "type" = "PYTHON_UDF",
             "runtime_version" = "${runtime_version}"

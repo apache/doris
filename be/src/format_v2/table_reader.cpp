@@ -27,6 +27,7 @@
 #include <ranges>
 #include <set>
 #include <sstream>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -48,15 +49,34 @@
 #include "format_v2/delimited_text/csv_reader.h"
 #include "format_v2/delimited_text/text_reader.h"
 #include "format_v2/json/json_reader.h"
-#include "format_v2/native/native_reader.h"
 #include "format_v2/orc/orc_reader.h"
 #include "format_v2/parquet/parquet_reader.h"
 #include "runtime/file_scan_profile.h"
 #include "storage/segment/condition_cache.h"
 #include "util/debug_points.h"
+#include "util/hash_util.hpp"
 #include "util/string_util.h"
 
 namespace doris::format {
+
+std::optional<std::string> TableReader::_get_int96_timezone_override(
+        const TFileScanRangeParams* params) {
+    if (params == nullptr) {
+        return std::nullopt;
+    }
+    // The timezone field predates the version marker. Honor intermediate FEs that send it alone,
+    // including an explicit empty value selecting wall-clock semantics.
+    if (params->__isset.hive_parquet_time_zone) {
+        return params->hive_parquet_time_zone;
+    }
+    // Only a plan lacking both an explicit timezone and the new contract uses the legacy session.
+    if (!params->__isset.parquet_timestamp_semantics_version ||
+        params->parquet_timestamp_semantics_version < 1) {
+        return std::nullopt;
+    }
+    return std::string {};
+}
+
 namespace {
 
 std::optional<uint64_t> build_predicate_snapshot_digest(const VExprContextSPtrs& conjuncts) {
@@ -184,8 +204,6 @@ std::string file_format_to_string(FileFormat format) {
         return "TEXT";
     case FileFormat::JNI:
         return "JNI";
-    case FileFormat::NATIVE:
-        return "NATIVE";
     case FileFormat::ARROW:
         return "ARROW";
     case FileFormat::WAL:
@@ -511,6 +529,11 @@ DataTypePtr restore_current_primitive_type(const schema::external::TField& field
     }
     DORIS_CHECK(fallback_type != nullptr);
     const auto primitive_type = thrift_to_type(field.type.type);
+    if (primitive_type == TYPE_VARIANT) {
+        // TColumnType predates the execution-only variant_is_v2 marker. Reconstructing from its
+        // primitive enum would silently replace an Iceberg compute-V2 carrier with legacy VARIANT.
+        return fallback_type;
+    }
     if (is_complex_type(primitive_type)) {
         return fallback_type;
     }
@@ -544,6 +567,10 @@ ColumnDefinition build_schema_column_metadata_from_external_field(
                                                field.initial_default_value_is_base64,
             .is_optional = field.__isset.is_optional ? std::make_optional(field.is_optional)
                                                      : std::nullopt,
+            .timestamp_is_adjusted_to_utc =
+                    field.__isset.timestamp_is_adjusted_to_utc
+                            ? std::make_optional(field.timestamp_is_adjusted_to_utc)
+                            : std::nullopt,
             .is_partition_key = false,
     };
 }
@@ -1197,14 +1224,17 @@ Status TableReader::init(TableReadOptions&& options) {
 
 Status TableReader::validate_variant_file_mappings(FileFormat format,
                                                    const std::vector<ColumnMapping>& mappings) {
-    if (format == FileFormat::PARQUET || !std::ranges::any_of(mappings, mapping_reads_variant)) {
+    // WAL stores Doris blocks directly and therefore supports Variant without the external-file
+    // format restrictions applied here.
+    if (format == FileFormat::PARQUET || format == FileFormat::WAL ||
+        !std::ranges::any_of(mappings, mapping_reads_variant)) {
         return Status::OK();
     }
     // Gate on a physical mapping, not the table schema: an older file may legitimately omit a
     // Variant field added by schema evolution, in which case the mapper synthesizes NULL.
     return Status::NotSupported(
-            "External Variant is supported only for Parquet files in FileScannerV2; file format "
-            "{} is not supported",
+            "Variant is supported only for Parquet files and WAL in FileScannerV2; file format {} "
+            "is not supported",
             file_format_to_string(format));
 }
 
@@ -1338,6 +1368,7 @@ Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts,
             _table_filters, _projected_columns, refreshed_request.get(), _runtime_state,
             _file_scan_request == nullptr ? nullptr : &_file_scan_request->local_positions));
     refreshed_request->predicate_snapshot_digest = _predicate_snapshot_digest;
+    refreshed_request->row_ids = _row_ids;
     // A refresh does not prove that every future runtime filter has arrived. Keep carrier values
     // available whenever the split started with pending filters.
     if (_push_down_agg_type == TPushAggOp::type::COUNT && _push_down_count_columns.has_value() &&
@@ -1349,6 +1380,8 @@ Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts,
         }
     }
     RETURN_IF_ERROR(customize_file_scan_request(refreshed_request.get()));
+    RETURN_IF_ERROR(
+            refreshed_mapper->reconcile_scan_request_after_customization(refreshed_request.get()));
     if (_file_scan_request == nullptr ||
         !same_physical_scan_layout(*refreshed_request, *_file_scan_request)) {
         // A reader cannot reinterpret columns already materialized with another block layout.
@@ -1399,6 +1432,12 @@ bool TableReader::_should_enable_condition_cache(const FileScanRequest& file_req
     if (file_request.conjuncts.empty()) {
         return false;
     }
+    // Localization may inject schema-evolution casts absent from the scanner's digest. Honor
+    // their uncacheable contract: an unchanged field ID can acquire different timestamp semantics,
+    // and reusing an old all-false granule would silently discard matching rows.
+    if (!build_predicate_snapshot_digest(file_request.conjuncts).has_value()) {
+        return false;
+    }
     // Delete files/deletion vectors are table-format state. They may change independently of the
     // data file path/mtime/size used by the external cache key, so caching their result can become
     // stale. Keep delete filtering enabled, but do not read or write condition cache.
@@ -1433,8 +1472,22 @@ Status TableReader::_init_reader_condition_cache(const FileScanRequest& file_req
     const auto cache_size = _condition_cache_source_range.has_value()
                                     ? _condition_cache_source_range->second
                                     : file.range_size;
+    auto cache_digest = _condition_cache_digest;
+    if (_format == FileFormat::PARQUET) {
+        const auto timezone = _get_int96_timezone_override(_scan_params);
+        if (timezone.has_value()) {
+            // A cached false granule is valid only under the same INT96 interpretation. The
+            // helper normalizes versioned omission to explicit empty; legacy absence keeps
+            // the session-based key. Do not mutate the predicate seed reused by later splits.
+            constexpr std::string_view contract_tag = "parquet-int96-timezone:";
+            cache_digest = HashUtil::xxHash64WithSeed(contract_tag.data(), contract_tag.size(),
+                                                      cache_digest);
+            cache_digest =
+                    HashUtil::xxHash64WithSeed(timezone->data(), timezone->size(), cache_digest);
+        }
+    }
     _condition_cache_key = segment_v2::ConditionCache::ExternalCacheKey(
-            file.path, file.mtime, file.file_size, _condition_cache_digest, cache_start, cache_size,
+            file.path, file.mtime, file.file_size, cache_digest, cache_start, cache_size,
             segment_v2::ConditionCache::ExternalCacheKey::BASE_GRANULE_AWARE_VERSION);
     _condition_cache_initialized = true;
 
@@ -1628,6 +1681,8 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
     const bool enable_mapping_varbinary = _scan_params != nullptr &&
                                           _scan_params->__isset.enable_mapping_varbinary &&
                                           _scan_params->enable_mapping_varbinary;
+    const std::optional<std::string> hive_parquet_time_zone =
+            _get_int96_timezone_override(_scan_params);
     if (_format == FileFormat::PARQUET) {
         // V2 must honor the scan contract directly; otherwise Hive STRING columns backed by an
         // unannotated BYTE_ARRAY are silently exposed as VARBINARY and predicate bytes no longer
@@ -1636,7 +1691,7 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
                 _global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary,
                 _current_task->file_context, _current_task->format_split_id,
-                _current_task->format_split_id_end);
+                _current_task->format_split_id_end, hive_parquet_time_zone);
         return Status::OK();
     }
     if (_format == FileFormat::ORC) {
@@ -1679,11 +1734,6 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
                 _scan_params, _current_file_range_desc, *_file_slot_descs,
                 _current_range_compress_type, _current_range_load_id);
-        return Status::OK();
-    }
-    if (_format == FileFormat::NATIVE) {
-        *reader = std::make_unique<format::native::NativeReader>(
-                _system_properties, _current_task->data_file, _io_ctx, _scanner_profile);
         return Status::OK();
     }
     return Status::NotSupported("TableReader does not support file format {}",
@@ -1744,6 +1794,7 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
                                      ? std::make_optional(options.current_range.load_id)
                                      : std::nullopt;
     _global_rowid_context = options.global_rowid_context;
+    _row_ids = options.row_ids;
     _delete_rows = nullptr;
     _deletion_vector = nullptr;
     _aggregate_pushdown_tried = false;
@@ -1772,9 +1823,10 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     // the NULL state of a COUNT argument. Require the new FE's explicit empty argument list, which
     // means COUNT(*)/COUNT(1). A non-empty list means COUNT(col), while nullopt comes from an old FE
     // whose COUNT semantics are unknown during a BE-first rolling upgrade.
-    if (_push_down_agg_type == TPushAggOp::type::COUNT && _push_down_count_columns.has_value() &&
-        _push_down_count_columns->empty() && options.all_runtime_filters_applied &&
-        _conjuncts.empty() && options.current_range.__isset.table_format_params &&
+    if (!_row_ids.has_value() && _push_down_agg_type == TPushAggOp::type::COUNT &&
+        _push_down_count_columns.has_value() && _push_down_count_columns->empty() &&
+        options.all_runtime_filters_applied && _conjuncts.empty() &&
+        options.current_range.__isset.table_format_params &&
         options.current_range.table_format_params.__isset.table_level_row_count) {
         DORIS_CHECK(options.current_range.table_format_params.table_level_row_count >= -1);
         _remaining_table_level_count =

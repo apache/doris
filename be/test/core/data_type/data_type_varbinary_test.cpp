@@ -30,17 +30,24 @@
 #include "agent/be_exec_version_manager.h"
 #include "common/exception.h"
 #include "core/assert_cast.h"
+#include "core/block/block.h"
 #include "core/column/column_const.h"
 #include "core/column/column_string.h"
 #include "core/column/column_varbinary.h"
 #include "core/data_type/common_data_type_serder_test.h"
 #include "core/data_type/common_data_type_test.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/field.h"
 #include "core/string_buffer.hpp"
 #include "core/string_view.h"
 #include "core/types.h"
+#include "storage/olap_common.h"
 #include "util/mysql_row_buffer.h"
 
 namespace doris {
@@ -257,9 +264,9 @@ TEST_F(DataTypeVarbinaryTest, SerDeWriteColumnToMysql) {
     EXPECT_GT(rb_bin.length(), 0);
 }
 
-TEST_F(DataTypeVarbinaryTest, GetStorageFieldTypeThrows) {
+TEST_F(DataTypeVarbinaryTest, GetStorageFieldType) {
     DataTypeVarbinary dt;
-    EXPECT_THROW({ (void)dt.get_storage_field_type(); }, doris::Exception);
+    EXPECT_THROW(dt.get_storage_field_type(), doris::Exception);
 }
 
 TEST_F(DataTypeVarbinaryTest, GetFieldFromTExprNodeWithEmbeddedNull) {
@@ -283,6 +290,91 @@ TEST_F(DataTypeVarbinaryTest, ToProtobufDefaultLen) {
     PScalarType scalar;
     dt.to_protobuf(&ptype, &pnode, &scalar);
     EXPECT_EQ(scalar.len(), -1);
+}
+
+TEST_F(DataTypeVarbinaryTest, BlockRoundTripPreservesDeclaredLength) {
+    for (int length : {-1, 16, 32}) {
+        for (bool nullable : {false, true}) {
+            SCOPED_TRACE(::testing::Message() << "length=" << length << ", nullable=" << nullable);
+            DataTypePtr type = std::make_shared<DataTypeVarbinary>(length);
+            if (nullable) {
+                type = make_nullable(type);
+            }
+            auto column = type->create_column();
+            const std::string value = make_bytes(16);
+            column->insert(Field::create_field<TYPE_VARBINARY>(StringView(value)));
+            if (nullable) {
+                column->insert_default();
+            }
+            Block block {{std::move(column), type, "binary_value"}};
+            PBlock serialized;
+            size_t uncompressed_bytes = 0;
+            size_t compressed_bytes = 0;
+            int64_t compress_time = 0;
+            ASSERT_TRUE(block.serialize(BeExecVersionManager::get_newest_version(), &serialized,
+                                        &uncompressed_bytes, &compressed_bytes, &compress_time,
+                                        segment_v2::CompressionTypePB::SNAPPY)
+                                .ok());
+            std::string wire;
+            ASSERT_TRUE(serialized.SerializeToString(&wire));
+            PBlock received;
+            ASSERT_TRUE(received.ParseFromString(wire));
+            Block restored;
+            int64_t decompress_time = 0;
+            ASSERT_TRUE(restored.deserialize(received, &uncompressed_bytes, &decompress_time).ok());
+            const auto& entry = restored.get_by_position(0);
+            ASSERT_EQ(entry.type->is_nullable(), nullable);
+            EXPECT_EQ(assert_cast<const DataTypeVarbinary&>(*remove_nullable(entry.type)).len(),
+                      length);
+            ASSERT_EQ(restored.rows(), block.rows());
+            for (size_t row = 0; row < block.rows(); ++row) {
+                EXPECT_EQ((*entry.column)[row], (*block.get_by_position(0).column)[row]);
+            }
+        }
+    }
+}
+
+TEST_F(DataTypeVarbinaryTest, NestedColumnMetadataPreservesDeclaredLength) {
+    auto binary16 = std::make_shared<DataTypeVarbinary>(16);
+    auto binary32 = std::make_shared<DataTypeVarbinary>(32);
+    DataTypeStruct type({std::make_shared<DataTypeArray>(make_nullable(binary16)),
+                         std::make_shared<DataTypeMap>(binary16, make_nullable(binary32))},
+                        {"array_value", "map_value"});
+    PColumnMeta metadata;
+    type.to_pb_column_meta(&metadata);
+    std::string wire;
+    ASSERT_TRUE(metadata.SerializeToString(&wire));
+    PColumnMeta received;
+    ASSERT_TRUE(received.ParseFromString(wire));
+    auto restored = DataTypeFactory::instance().create_data_type(received);
+    const auto& fields = assert_cast<const DataTypeStruct&>(*restored).get_elements();
+    const auto& array = assert_cast<const DataTypeArray&>(*fields[0]);
+    ASSERT_TRUE(array.get_nested_type()->is_nullable());
+    EXPECT_EQ(
+            assert_cast<const DataTypeVarbinary&>(*remove_nullable(array.get_nested_type())).len(),
+            16);
+    const auto& map = assert_cast<const DataTypeMap&>(*fields[1]);
+    EXPECT_EQ(assert_cast<const DataTypeVarbinary&>(*map.get_key_type()).len(), 16);
+    ASSERT_TRUE(map.get_value_type()->is_nullable());
+    EXPECT_EQ(assert_cast<const DataTypeVarbinary&>(*remove_nullable(map.get_value_type())).len(),
+              32);
+}
+
+TEST_F(DataTypeVarbinaryTest, LegacyColumnMetadataUsesUnspecifiedLength) {
+    PColumnMeta metadata;
+    metadata.set_type(PGenericType::VARBINARY);
+    auto restored = DataTypeFactory::instance().create_data_type(metadata);
+    EXPECT_EQ(assert_cast<const DataTypeVarbinary&>(*restored).len(), -1);
+}
+
+TEST_F(DataTypeVarbinaryTest, ProtobufPreservesDeclaredLength) {
+    PTypeDesc type;
+    auto* node = type.add_types();
+    node->set_type(TTypeNodeType::SCALAR);
+    node->mutable_scalar_type()->set_type(TPrimitiveType::VARBINARY);
+    node->mutable_scalar_type()->set_len(2);
+    auto restored = DataTypeFactory::instance().create_data_type(type, false);
+    EXPECT_EQ(assert_cast<const DataTypeVarbinary&>(*restored).len(), 2);
 }
 
 TEST_F(DataTypeVarbinaryTest, GetFieldWithDataTypeNonInline) {

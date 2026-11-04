@@ -17,20 +17,28 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
+import org.apache.doris.datasource.iceberg.IcebergSchemaCacheValue;
+import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.fs.FileSystemDirectoryLister;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.HashBiMap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import mockit.Injectable;
+import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.SerDeInfo;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
@@ -43,12 +51,62 @@ import org.mockito.Mockito;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.function.Function;
 
 
 /**
  * Test class for HMSExternalTable, focusing on view-related functionality
  */
 public class HMSExternalTableTest {
+    @Test
+    public void testPreloadInitializationAndShowCreateRepairOutsideTableMonitor() throws Exception {
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        HMSExternalDatabase database = Mockito.mock(HMSExternalDatabase.class);
+        HMSCachedClient client = Mockito.mock(HMSCachedClient.class);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getRemoteName()).thenReturn("db");
+        Mockito.doReturn(database).when(catalog).getDbOrAnalysisException("db");
+        Mockito.when(catalog.getClient()).thenReturn(client);
+        HMSExternalTable table = new HMSExternalTable(2L, "t", "t", catalog, database);
+        java.util.concurrent.atomic.AtomicInteger repairs = new java.util.concurrent.atomic.AtomicInteger();
+        Mockito.when(database.observeTableLookup(table)).thenReturn(Optional.of(() -> {
+            Assertions.assertFalse(Thread.holdsLock(table));
+            repairs.incrementAndGet();
+        }));
+        RuntimeException missing = new RuntimeException(
+                new org.apache.hadoop.hive.metastore.api.NoSuchObjectException("missing"));
+        Mockito.when(client.getTable("db", "t")).thenThrow(missing);
+        Assertions.assertSame(missing, Assertions.assertThrows(RuntimeException.class,
+                table::supportsLatestSnapshotPreload));
+        Assertions.assertEquals(1, repairs.get());
+        Assertions.assertSame(missing, Assertions.assertThrows(RuntimeException.class, table::getCreateTableSql));
+        Assertions.assertEquals(2, repairs.get());
+    }
+
+    @Test
+    public void testBinaryPartitionKeepsLegacyTextMapping() throws Exception {
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        HMSCachedClient client = Mockito.mock(HMSCachedClient.class);
+        Mockito.when(catalog.getClient()).thenReturn(client);
+        Table remote = new Table();
+        remote.setPartitionKeys(Collections.singletonList(
+                new FieldSchema("part_key", "binary", "")));
+        Mockito.when(client.getTable(Mockito.anyString(), Mockito.anyString())).thenReturn(remote);
+        HMSExternalDatabase database = new HMSExternalDatabase(catalog, 1L, "db", "db");
+        HMSExternalTable binaryTable = new HMSExternalTable(2L, "tbl", "tbl", catalog, database);
+        Column partition = new Column("part_key",
+                ScalarType.createVarbinaryType(16));
+        Column data = new Column("payload", ScalarType.createVarbinaryType(16));
+        List<Column> partitions = Deencapsulation.invoke(binaryTable, "initPartitionColumns",
+                Lists.newArrayList(data, partition));
+        Assertions.assertTrue(partitions.get(0).getType().isVarchar());
+        Assertions.assertEquals(PrimitiveType.VARBINARY, data.getType().getPrimitiveType());
+        // Existing HMS partition names must still materialize as text, without hex reinterpretation.
+        Assertions.assertEquals("plain_partition", new PartitionValue("plain_partition")
+                .getValue(partitions.get(0).getType()).getStringValue());
+    }
+
     private TestHMSExternalTable table;
     private static final String TEST_VIEW_TEXT = "SELECT * FROM test_table";
     private static final String TEST_EXPANDED_VIEW = "/* Presto View */";
@@ -186,6 +244,35 @@ public class HMSExternalTableTest {
                     .getAllPartitionsWithCache(Mockito.eq(table), Mockito.anyList());
             Mockito.verify(hiveCache).getFilesByPartitions(Mockito.eq(partitions), Mockito.eq(false),
                     Mockito.eq(true), Mockito.any(FileSystemDirectoryLister.class), Mockito.isNull());
+        }
+    }
+
+    @Test
+    public void testIcebergSchemaAndColumnWithoutConnectContextUseScopedSnapshotProjection() {
+        ConnectContext.remove();
+        Deencapsulation.setField(table, "dlaType", HMSExternalTable.DLAType.ICEBERG);
+        Column column = new Column("id", PrimitiveType.INT);
+        IcebergSchemaCacheValue schemaValue = new IcebergSchemaCacheValue(
+                Lists.newArrayList(column), Lists.newArrayList());
+        IcebergSnapshotCacheValue snapshotValue = Mockito.mock(IcebergSnapshotCacheValue.class);
+        org.apache.iceberg.Table icebergTable = Mockito.mock(org.apache.iceberg.Table.class);
+        Mockito.when(snapshotValue.getIcebergTable()).thenReturn(Optional.of(icebergTable));
+
+        try (MockedStatic<IcebergUtils> icebergUtils = Mockito.mockStatic(
+                IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            icebergUtils.when(() -> IcebergUtils.getSchemaCacheValue(table, snapshotValue))
+                    .thenReturn(schemaValue);
+            icebergUtils.when(() -> IcebergUtils.withSnapshotCacheValue(
+                            Mockito.eq(Optional.empty()), Mockito.eq(table),
+                            Mockito.<Function<IcebergSnapshotCacheValue, IcebergSchemaCacheValue>>any()))
+                    .thenAnswer(invocation -> {
+                        Function<IcebergSnapshotCacheValue, IcebergSchemaCacheValue> action =
+                                invocation.getArgument(2);
+                        return action.apply(snapshotValue);
+                    });
+
+            Assertions.assertEquals(Lists.newArrayList(column), table.getFullSchema());
+            Assertions.assertSame(column, table.getColumn("ID"));
         }
     }
 

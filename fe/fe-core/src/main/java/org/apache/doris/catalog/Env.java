@@ -91,6 +91,7 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.SmallFileMgr;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.TokenMasker;
 import org.apache.doris.common.util.Util;
@@ -200,6 +201,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableLikeInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
+import org.apache.doris.nereids.util.SqlLiteralUtils;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.BackendReplicasInfo;
@@ -1813,6 +1815,11 @@ public class Env {
             // so no need to check 'isReady' flag in this method
             postProcessAfterMetadataReplayed(false);
 
+            // Replicate legacy type mapping markers before queries/checkpoints can expose a local-only
+            // upgrade. Followers consume the ordinary ALTER records even on older binaries.
+            toMasterProgress = "migrate catalog type mappings";
+            catalogMgr.migrateVarbinaryMappingProperties();
+
             insertOverwriteManager.allTaskFail();
 
             toMasterProgress = "start daemon threads";
@@ -2043,7 +2050,7 @@ public class Env {
         splitSourceManager.start();
     }
 
-    private void transferToNonMaster(FrontendNodeType newType) {
+    private boolean transferToNonMaster(FrontendNodeType newType) {
         isReady.set(false);
 
         try {
@@ -2053,7 +2060,7 @@ public class Env {
                 // not set canRead here, leave canRead as what is was.
                 // if meta out of date, canRead will be set to false in replayer thread.
                 metaReplayState.setTransferToUnknown();
-                return;
+                return true;
             }
 
             // transfer from INIT/UNKNOWN to OBSERVER/FOLLOWER
@@ -2065,8 +2072,11 @@ public class Env {
 
             // 'isReady' will be set to true in 'setCanRead()' method
             if (!postProcessAfterMetadataReplayed(true)) {
-                // the state has changed, exit early.
-                return;
+                // A newer BDB state is already waiting in typeTransferQueue. Abort this stale transition so the
+                // state listener can process the newer state instead of waiting indefinitely for this node to
+                // become ready as a non-master. The caller must not publish newType to feType in this case:
+                // none of the non-master initialization below, including MetricRepo.init(), has completed yet.
+                return false;
             }
 
             checkLowerCaseTableNames();
@@ -2083,11 +2093,13 @@ public class Env {
                 followerColumnSender = new FollowerColumnSender();
                 followerColumnSender.start();
             }
+            return true;
         } catch (Throwable e) {
             // When failed to transfer to non-master, we need to exit the process.
             // Otherwise, the process will be in an unknown state.
             LOG.error("failed to transfer to non-master.", e);
             System.exit(-1);
+            return false;
         }
     }
 
@@ -3098,6 +3110,8 @@ public class Env {
                         return;
                     }
 
+                    boolean transferCompleted = true;
+
                     /*
                      * INIT -> MASTER: transferToMaster
                      * INIT -> FOLLOWER/OBSERVER: transferToNonMaster
@@ -3115,7 +3129,7 @@ public class Env {
                                 }
                                 case FOLLOWER:
                                 case OBSERVER: {
-                                    transferToNonMaster(newType);
+                                    transferCompleted = transferToNonMaster(newType);
                                     break;
                                 }
                                 case UNKNOWN:
@@ -3133,7 +3147,7 @@ public class Env {
                                 }
                                 case FOLLOWER:
                                 case OBSERVER: {
-                                    transferToNonMaster(newType);
+                                    transferCompleted = transferToNonMaster(newType);
                                     break;
                                 }
                                 default:
@@ -3148,7 +3162,7 @@ public class Env {
                                     break;
                                 }
                                 case UNKNOWN: {
-                                    transferToNonMaster(newType);
+                                    transferCompleted = transferToNonMaster(newType);
                                     break;
                                 }
                                 default:
@@ -3159,7 +3173,7 @@ public class Env {
                         case OBSERVER: {
                             switch (newType) {
                                 case UNKNOWN: {
-                                    transferToNonMaster(newType);
+                                    transferCompleted = transferToNonMaster(newType);
                                     break;
                                 }
                                 default:
@@ -3179,6 +3193,17 @@ public class Env {
                             break;
                     } // end switch formerFeType
 
+                    if (!transferCompleted) {
+                        // feType represents the last fully initialized FE state, not merely the latest state
+                        // reported by BDB. A non-master transition can be interrupted when a newer BDB state is
+                        // queued while it waits for metadata to become ready. Committing newType after that early
+                        // return would make a repeated FOLLOWER/OBSERVER event look redundant and skip the
+                        // incomplete initialization permanently. Keep the previous committed state so the queued
+                        // event is evaluated against the state that was actually initialized and can retry the
+                        // transition or take a different path.
+                        LOG.info("skip committing incomplete FE type transfer from {} to {}", feType, newType);
+                        continue;
+                    }
                     feType = newType;
                     LOG.info("finished to transfer FE type to {}", feType);
                 }
@@ -3530,7 +3555,7 @@ public class Env {
         } else {
             ExternalCatalog externalCatalog = (ExternalCatalog) catalogMgr.getCatalog(info.getCtlName());
             if (externalCatalog != null) {
-                externalCatalog.replayDropDb(info.getDbName());
+                externalCatalog.replayDropDb(info.getDbName(), info.getResolvedDbName());
             }
         }
     }
@@ -3739,10 +3764,12 @@ public class Env {
                 sb.append(",");
             }
             Column column = columns.get(i);
-            sb.append(column.getName());
+            // quote the column name to keep the generated DDL re-executable when the column name
+            // contains special characters (e.g. created via string literal alias like select 1 as '(第一列)')
+            sb.append(SqlUtils.getIdentSql(column.getName()));
             if (!StringUtils.isEmpty(column.getComment())) {
                 sb.append(" comment '");
-                sb.append(column.getComment());
+                sb.append(column.getComment().replace("'", "\\'"));
                 sb.append("'");
             }
         }
@@ -4064,9 +4091,7 @@ public class Env {
             View view = (View) table;
 
             sb.append("CREATE VIEW `").append(table.getName()).append("`");
-            if (StringUtils.isNotBlank(table.getComment())) {
-                sb.append(" COMMENT '").append(table.getComment()).append("'");
-            }
+            addViewComment(table, sb);
             sb.append(" AS ").append(view.getInlineViewDef());
             createTableStmt.add(sb + ";");
             return;
@@ -4485,9 +4510,7 @@ public class Env {
             sb.append("CREATE VIEW `").append(table.getName()).append("`");
             addColNameAndComment(view, sb);
             sb.append("\n");
-            if (StringUtils.isNotBlank(table.getComment())) {
-                sb.append(" COMMENT '").append(table.getComment()).append("'");
-            }
+            addViewComment(table, sb);
             sb.append(" AS ").append(view.getInlineViewDef());
             createTableStmt.add(sb + ";");
             return;
@@ -4524,7 +4547,8 @@ public class Env {
 
         sb.append(" (\n");
         int idx = 0;
-        List<Column> columns = table.getBaseSchema(false);
+        List<Column> columns = table instanceof IcebergExternalTable
+                ? ((IcebergExternalTable) table).getBaseSchemaForDisplay(false) : table.getBaseSchema(false);
         for (Column column : columns) {
             if (idx++ != 0) {
                 sb.append(",\n");
@@ -6076,6 +6100,14 @@ public class Env {
         try {
             String colName = renameClause.getColName();
             String newColName = renameClause.getNewColName();
+            Column column = table.getColumn(colName);
+            if (column == null) {
+                throw new DdlException("Column[" + colName + "] does not exists");
+            }
+            if (column.getType().isVariantType() && newColName.indexOf('.') != -1) {
+                throw new DdlException(
+                        "Cannot use `VARIANT` type column named with a `.` character: " + newColName);
+            }
             Map<Long, Integer> indexIdToSchemaVersion = new HashMap<Long, Integer>();
             renameColumn(db, table, colName, newColName, indexIdToSchemaVersion, false);
         } finally {
@@ -7456,6 +7488,19 @@ public class Env {
     private static void addTableComment(TableIf table, StringBuilder sb) {
         if (StringUtils.isNotBlank(table.getComment())) {
             sb.append("\nCOMMENT '").append(table.getComment(true)).append("'");
+        }
+    }
+
+    private static void addViewComment(TableIf table, StringBuilder sb) {
+        if (StringUtils.isNotBlank(table.getComment())) {
+            String comment = table.getComment();
+            sb.append(" COMMENT ");
+            // Keep the historical output unchanged when the comment is already safe in single quotes.
+            if (comment.indexOf('\'') >= 0 || comment.indexOf('\\') >= 0) {
+                sb.append(SqlLiteralUtils.quoteStringLiteral(comment));
+            } else {
+                sb.append('\'').append(comment).append('\'');
+            }
         }
     }
 

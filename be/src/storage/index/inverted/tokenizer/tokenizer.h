@@ -19,8 +19,14 @@
 
 #include <unicode/utf8.h>
 
+#include <algorithm>
+#include <cstdint>
+#include <functional>
+#include <span>
 #include <string_view>
+#include <vector>
 
+#include "storage/index/inverted/char_filter/char_filter.h"
 #include "storage/index/inverted/token_stream.h"
 
 namespace doris::segment_v2::inverted_index {
@@ -39,11 +45,160 @@ public:
 
     using Tokenizer::reset;
     // Only use the parameterless reset method
-    void reset() override { _in = _in_pending; };
+    void reset() override {
+        _in = _in_pending;
+        _source_byte_offsets.clear();
+        _source_byte_end_offsets.clear();
+        release_oversized_scratch(_source_byte_offsets);
+        release_oversized_scratch(_source_byte_end_offsets);
+        release_oversized_scratch(_source_offsets_scratch);
+    };
+
+    std::span<const int32_t> get_source_byte_offsets() const override {
+        return _source_byte_offsets_enabled ? std::span<const int32_t> {_source_byte_offsets}
+                                            : std::span<const int32_t> {};
+    }
+
+    std::span<const int32_t> get_source_byte_end_offsets() const override {
+        return _source_byte_offsets_enabled ? std::span<const int32_t> {_source_byte_end_offsets}
+                                            : std::span<const int32_t> {};
+    }
+
+    void set_source_byte_offsets_enabled(bool enabled) override {
+        _source_byte_offsets_enabled = enabled;
+    }
+
+    size_t source_byte_offsets_capacity_for_test() const {
+        return _source_byte_offsets.capacity() + _source_byte_end_offsets.capacity();
+    }
 
 protected:
+    int32_t correct_source_offset(int32_t offset) const {
+        const auto* char_filter = dynamic_cast<const DorisCharFilter*>(_in.get());
+        return char_filter == nullptr ? offset : char_filter->correct_offset(offset);
+    }
+
+    // Correct the offset a term starts at; see DorisCharFilter::correct_start_offset().
+    int32_t correct_source_start_offset(int32_t offset) const {
+        const auto* char_filter = dynamic_cast<const DorisCharFilter*>(_in.get());
+        return char_filter == nullptr ? offset : char_filter->correct_start_offset(offset);
+    }
+
+    void set_source_byte_offsets(std::string_view term, int32_t source_start) {
+        set_source_byte_offsets(term, term, source_start);
+    }
+
+    void set_source_byte_offsets(std::string_view term, std::string_view source,
+                                 int32_t source_start) {
+        _source_byte_offsets.clear();
+        _source_byte_end_offsets.clear();
+        if (!_source_byte_offsets_enabled) {
+            return;
+        }
+
+        const auto* char_filter = dynamic_cast<const DorisCharFilter*>(_in.get());
+        const int32_t corrected_start = char_filter == nullptr
+                                                ? source_start
+                                                : char_filter->correct_start_offset(source_start);
+        std::vector<int32_t>& source_offsets = _source_offsets_scratch;
+        source_offsets.clear();
+        source_offsets.push_back(0);
+        const char* data = source.data();
+        const auto length = static_cast<int32_t>(source.size());
+        int32_t offset = 0;
+        while (offset < length) {
+            UChar32 code_point;
+            U8_NEXT(data, offset, length, code_point);
+            if (code_point < 0) {
+                return;
+            }
+            source_offsets.push_back(char_filter == nullptr
+                                             ? offset
+                                             : char_filter->correct_offset(source_start + offset) -
+                                                       corrected_start);
+        }
+
+        const int32_t term_runes = count_utf8_runes(term);
+        if (term_runes < 0) {
+            return;
+        }
+        publish_source_byte_offsets(term_runes, source_offsets);
+    }
+
+    // Publish per-rune source boundaries for a term, widening repeated boundaries into
+    // conservative start/end spans so no rune claims an empty source range. source_offsets is
+    // the caller's reusable scratch: the common case swaps it with the published vector so
+    // both keep their capacity and ordinary tokens stop allocating after warm-up.
+    void publish_source_byte_offsets(int32_t term_runes, std::vector<int32_t>& source_offsets) {
+        _source_byte_offsets.clear();
+        _source_byte_end_offsets.clear();
+        if (!_source_byte_offsets_enabled || term_runes < 0 || source_offsets.empty()) {
+            return;
+        }
+        if (static_cast<size_t>(term_runes + 1) == source_offsets.size()) {
+            const bool strictly_increasing =
+                    std::ranges::adjacent_find(source_offsets, std::greater_equal<>()) ==
+                    source_offsets.end();
+            if (strictly_increasing) {
+                _source_byte_offsets.swap(source_offsets);
+                return;
+            }
+
+            _source_byte_offsets.resize(source_offsets.size());
+            _source_byte_end_offsets.resize(term_runes);
+            for (int32_t i = 0; i < term_runes; ++i) {
+                int32_t start = source_offsets[i];
+                int32_t end = source_offsets[i + 1];
+                if (start == end) {
+                    int32_t previous = i;
+                    while (previous > 0 && source_offsets[previous] == start) {
+                        --previous;
+                    }
+                    if (source_offsets[previous] != start) {
+                        start = source_offsets[previous];
+                    } else {
+                        int32_t next = i + 1;
+                        while (next < term_runes && source_offsets[next] == end) {
+                            ++next;
+                        }
+                        end = source_offsets[next];
+                    }
+                }
+                _source_byte_offsets[i] = start;
+                _source_byte_end_offsets[i] = end;
+            }
+            _source_byte_offsets.back() = source_offsets.back();
+            return;
+        }
+
+        const int32_t source_length = source_offsets.back();
+        _source_byte_offsets.assign(term_runes + 1, 0);
+        _source_byte_offsets.back() = source_length;
+        _source_byte_end_offsets.assign(term_runes, source_length);
+    }
+
+    static int32_t count_utf8_runes(std::string_view text) {
+        const char* data = text.data();
+        const auto length = static_cast<int32_t>(text.size());
+        int32_t offset = 0;
+        int32_t runes = 0;
+        while (offset < length) {
+            UChar32 code_point;
+            U8_NEXT(data, offset, length, code_point);
+            if (code_point < 0) {
+                return -1;
+            }
+            ++runes;
+        }
+        return runes;
+    }
+
     ReaderPtr _in;
     ReaderPtr _in_pending;
+    std::vector<int32_t> _source_byte_offsets;
+    std::vector<int32_t> _source_byte_end_offsets;
+    std::vector<int32_t> _source_offsets_scratch;
+    bool _source_byte_offsets_enabled {false};
 };
 using TokenizerPtr = std::shared_ptr<DorisTokenizer>;
 

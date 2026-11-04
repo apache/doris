@@ -23,11 +23,13 @@ import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.authenticate.password.ClearPassword;
 
+import com.google.common.base.Strings;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
 class MysqlAuthPacketCredentialExtractorTest {
     private static final String USER_NAME = "alice";
@@ -79,6 +81,49 @@ class MysqlAuthPacketCredentialExtractorTest {
         Assertions.assertArrayEquals(token.getBytes(StandardCharsets.UTF_8), request.getCredential());
         Assertions.assertInstanceOf(ClearPassword.class, request.getPassword());
         Assertions.assertEquals(token, ((ClearPassword) request.getPassword()).getPassword());
+    }
+
+    @Test
+    void testExtractAuthenticateRequestForOidcClientPayloadWithPadding() {
+        MysqlAuthPacketCredentialExtractor extractor = new MysqlAuthPacketCredentialExtractor();
+        MysqlChannel channel = Mockito.mock(MysqlChannel.class);
+        MysqlAuthPacket authPacket = Mockito.mock(MysqlAuthPacket.class);
+        String token = "eyJhbGciOiJSUzI1NiJ9." + Strings.repeat("p", 1024) + ".signature";
+        byte[] payload = oidcClientPayload(token);
+        // Connector/J reserves nine bytes for the length and leaves six zero bytes after this token.
+        byte[] paddedPayload = Arrays.copyOf(payload, payload.length + 6);
+        Mockito.when(channel.getRemoteIp()).thenReturn(REMOTE_IP);
+        Mockito.when(authPacket.getPluginName()).thenReturn(OIDC_CLIENT_PLUGIN);
+        Mockito.when(authPacket.getAuthResponse()).thenReturn(paddedPayload);
+
+        AuthenticateRequest request = extractor.extractAuthenticateRequest(USER_NAME, channel, authPacket)
+                .orElseThrow(() -> new AssertionError("request is required"));
+
+        Assertions.assertEquals(CredentialType.OAUTH_TOKEN, request.getCredentialType());
+        Assertions.assertArrayEquals(token.getBytes(StandardCharsets.UTF_8), request.getCredential());
+        Assertions.assertInstanceOf(ClearPassword.class, request.getPassword());
+        Assertions.assertEquals(token, ((ClearPassword) request.getPassword()).getPassword());
+    }
+
+    @Test
+    void testExtractAuthenticateRequestPreservesOidcClientPayloadWithNonZeroTrailingByte() {
+        MysqlAuthPacketCredentialExtractor extractor = new MysqlAuthPacketCredentialExtractor();
+        MysqlChannel channel = Mockito.mock(MysqlChannel.class);
+        MysqlAuthPacket authPacket = Mockito.mock(MysqlAuthPacket.class);
+        String token = "eyJhbGciOiJSUzI1NiJ9.payload.signature";
+        byte[] payload = oidcClientPayload(token);
+        byte[] invalidPayload = Arrays.copyOf(payload, payload.length + 6);
+        invalidPayload[invalidPayload.length - 1] = 1;
+        Mockito.when(channel.getRemoteIp()).thenReturn(REMOTE_IP);
+        Mockito.when(authPacket.getPluginName()).thenReturn(OIDC_CLIENT_PLUGIN);
+        Mockito.when(authPacket.getAuthResponse()).thenReturn(invalidPayload);
+
+        AuthenticateRequest request = extractor.extractAuthenticateRequest(USER_NAME, channel, authPacket)
+                .orElseThrow(() -> new AssertionError("request is required"));
+
+        Assertions.assertArrayEquals(invalidPayload, request.getCredential());
+        Assertions.assertEquals(new String(invalidPayload, StandardCharsets.UTF_8),
+                ((ClearPassword) request.getPassword()).getPassword());
     }
 
     private static byte[] oidcClientPayload(String token) {

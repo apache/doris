@@ -109,6 +109,33 @@ TEST(PaimonJniReaderTest, UsesScanLevelPredicateBeforeLegacySplitPredicate) {
     EXPECT_EQ(params["paimon_predicate"], "scan-predicate");
 }
 
+TEST(PaimonJniReaderTest, UsesDefaultBlobMaxSizeWithoutRuntimeState) {
+    auto range = make_paimon_jni_range();
+    auto scan_params = make_scan_params();
+    scan_params.__set_paimon_predicate("serialized-predicate");
+    PaimonJniReader reader;
+    ASSERT_TRUE(init_reader(&reader, &scan_params).ok());
+
+    std::map<std::string, std::string> params;
+    ASSERT_TRUE(build_params(&reader, range, &params).ok());
+    EXPECT_EQ(params.at("paimon_blob_max_size"), "10485760");
+}
+
+TEST(PaimonJniReaderTest, ForwardsBlobMaxSizeFromRuntimeState) {
+    TQueryOptions query_options;
+    query_options.__set_paimon_blob_max_size(8);
+    RuntimeState state {query_options, TQueryGlobals()};
+    auto range = make_paimon_jni_range();
+    auto scan_params = make_scan_params();
+    scan_params.__set_paimon_predicate("serialized-predicate");
+    PaimonJniReader reader;
+    ASSERT_TRUE(init_reader(&reader, &scan_params, &state).ok());
+
+    std::map<std::string, std::string> params;
+    ASSERT_TRUE(build_params(&reader, range, &params).ok());
+    EXPECT_EQ(params.at("paimon_blob_max_size"), "8");
+}
+
 TEST(PaimonJniReaderTest, ForwardsSerializedTableCacheKey) {
     auto range = make_paimon_jni_range();
     range.table_format_params.paimon_params.__set_paimon_predicate("serialized-predicate");

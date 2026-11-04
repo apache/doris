@@ -52,6 +52,19 @@ suite("test_create_mv_and_mtmv") {
                  dt;
 
     """)
+    def expectedRowCounts = [2]
+    def rowCounts = []
+    for (int i = 0; i < 120; i++) {
+        def result = sql """SHOW INDEX STATS ${tableName} ${mvName};"""
+        rowCounts = result.collect { it[4].toInteger() }
+        log.info("SHOW INDEX STATS ${tableName} ${mvName}: ${result}, MV row counts: ${rowCounts}")
+        if (rowCounts == expectedRowCounts) {
+            break
+        }
+        Thread.sleep(5000)
+    }
+    assertEquals(expectedRowCounts, rowCounts,
+            "Unexpected row counts for materialized view ${mvName}")
     explain {
         sql("""
                     SELECT dt,advertiser,

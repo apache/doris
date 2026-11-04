@@ -269,6 +269,7 @@ suite("test_iceberg_write_partition_types_null",
     """
     // Read each time-transform field from Iceberg metadata so epoch boundaries
     // and NULL routing are observable independently of source-row equality.
+    // Pre-epoch values belong to the preceding year/month/day/hour, using floor semantics.
     order_qt_temporal_physical_partitions """
         select struct_element(`partition`, 'p_date_bucket_bucket'),
                struct_element(`partition`, 'p_date_year_year'),

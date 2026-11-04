@@ -457,7 +457,6 @@ Status OlapScanLocalState::_should_push_down_function_filter(VectorizedFnCall* f
     const auto& children = fn_call->children();
     doris::FunctionContext* func_cxt = expr_ctx->fn_context(fn_call->fn_context_index());
     DCHECK(func_cxt != nullptr);
-    DCHECK(children.size() == 2);
     for (size_t i = 0; i < children.size(); i++) {
         if (VExpr::expr_without_cast(children[i])->node_type() != TExprNodeType::SLOT_REF) {
             // not a slot ref(column)
@@ -565,6 +564,8 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
                 std::max<int64_t>(1024, state()->parallel_scan_min_rows_per_scanner());
         scanner_builder.set_max_scanners_count(max_scanners_count);
         scanner_builder.set_min_rows_per_scanner(min_rows_per_scanner);
+        // BM25 statistics must not depend on how a tablet is split into scanners.
+        scanner_builder.set_share_tablet_collection_statistics(_score_runtime != nullptr);
         // If the session variable is set, force one scanner per segment.
         if (state()->query_options().__isset.optimize_index_scan_parallelism &&
             state()->query_options().optimize_index_scan_parallelism) {
@@ -627,18 +628,20 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
             for (auto& split : _read_sources[scan_range_idx].rs_splits) {
                 split.rs_reader = split.rs_reader->clone();
             }
-            auto scanner =
-                    OlapScanner::create_shared(this, OlapScanner::Params {
-                                                             state(),
-                                                             _scanner_profile.get(),
-                                                             scanner_ranges,
-                                                             _tablets[scan_range_idx].tablet,
-                                                             version,
-                                                             _read_sources[scan_range_idx],
-                                                             {},
-                                                             p._limit,
-                                                             p._olap_scan_node.is_preaggregation,
-                                                     });
+            auto scanner = OlapScanner::create_shared(
+                    this, OlapScanner::Params {
+                                  state(),
+                                  _scanner_profile.get(),
+                                  scanner_ranges,
+                                  _tablets[scan_range_idx].tablet,
+                                  version,
+                                  _read_sources[scan_range_idx],
+                                  {},
+                                  p._limit,
+                                  p._olap_scan_node.is_preaggregation,
+                                  // Each scanner reads the tablet's entire read source.
+                                  nullptr,
+                          });
             RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
             scanners->push_back(std::move(scanner));
         }
@@ -670,15 +673,16 @@ Status OlapScanLocalState::_sync_cloud_tablets(RuntimeState* state) {
                 tasks.emplace_back([this, sync_stats, version, i, task_ctx, task_create_time]() {
                     // Record bthread scheduling delay
                     auto task_start_time = std::chrono::steady_clock::now();
+                    auto task_lock = task_ctx.lock();
+                    if (task_lock == nullptr) {
+                        return Status::OK();
+                    }
+                    // The local state owns sync_stats, so keep its context alive before access.
                     if (sync_stats) {
                         sync_stats->bthread_schedule_delay_ns +=
                                 std::chrono::duration_cast<std::chrono::nanoseconds>(
                                         task_start_time - task_create_time)
                                         .count();
-                    }
-                    auto task_lock = task_ctx.lock();
-                    if (task_lock == nullptr) {
-                        return Status::OK();
                     }
                     Defer defer([&] {
                         if (_pending_tablets_num.fetch_sub(1) == 1) {

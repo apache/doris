@@ -42,6 +42,10 @@ struct FileSystemProperties;
 
 namespace doris::format::iceberg {
 
+// Position-delete row projection also needs the typed defaults used by ordinary data scans.
+Status prepare_iceberg_initial_default_exprs(format::ColumnDefinition* column,
+                                             const cctz::time_zone* timezone = nullptr);
+
 // Iceberg table-level reader.
 // It reuses TableReader for split orchestration, dynamic partition pruning and table-block
 // finalization, while composing a FileReader for physical data-file reads instead of inheriting
@@ -67,6 +71,12 @@ public:
                                            ? schema_has_any_field_id(_data_reader.file_schema)
                                            : schema_has_all_field_ids(_data_reader.file_schema);
         if (!_data_reader.file_schema.empty() && has_field_ids) {
+            return format::TableColumnMappingMode::BY_FIELD_ID;
+        }
+        if (!_data_reader.file_schema.empty() && supports_iceberg_scan_semantics_v2(_scan_params) &&
+            !_scan_has_any_authoritative_name_mapping()) {
+            // ID-less migrated files are name-readable only while Iceberg's explicit default name
+            // mapping exists; current names must not resurrect file fields after it is removed.
             return format::TableColumnMappingMode::BY_FIELD_ID;
         }
         return format::TableColumnMappingMode::BY_NAME;
@@ -112,6 +122,8 @@ private:
     static constexpr const char* ICEBERG_ROW_POS = "pos";
     static constexpr size_t ICEBERG_FILE_PATH_BLOCK_POSITION = 0;
     static constexpr size_t ICEBERG_ROW_POS_BLOCK_POSITION = 1;
+
+    bool _scan_has_any_authoritative_name_mapping() const;
 
     class PositionDeleteRowsCollector final {
     public:

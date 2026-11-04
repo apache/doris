@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.TabletSlidingWindowAccessStats;
+import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.qe.ComputeGroupException;
@@ -40,6 +41,7 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
@@ -60,6 +62,9 @@ import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -86,6 +91,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
     private static final int MAX_GLOBAL_TABLET_SET_INITIAL_CAPACITY = 1 << 16;
     private static final Function<Long, Set<Long>> DEFAULT_GLOBAL_TABLET_SET_FACTORY =
             ignored -> ConcurrentHashMap.newKeySet();
+    private static final DateTimeFormatter STALE_ROUTE_CLEAN_TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm");
 
     private final CloudTabletRebalancerMetrics rebalancerMetrics;
     private long currentRoundTabletScanCount;
@@ -545,14 +551,18 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 return;
             }
 
-            statRouteInfo();
-            migrateTabletsForSmoothUpgrade();
-            statRouteInfo();
+            try {
+                statRouteInfo();
+                migrateTabletsForSmoothUpgrade();
+                statRouteInfo();
 
-            indexBalanced = true;
-            tableBalanced = true;
+                indexBalanced = true;
+                tableBalanced = true;
 
-            performBalancing();
+                performBalancing();
+            } finally {
+                releaseSchedulingIndexes();
+            }
 
             checkDecommissionState(clusterToBes);
             inited = true;
@@ -669,6 +679,15 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 globalBalance();
             }
         }
+    }
+
+    private void releaseSchedulingIndexes() {
+        // These indexes are no longer used after balancing. Replace their top-level maps instead of clearing
+        // every entry so the complete tablet membership graphs can become collectible without an O(N) traversal.
+        partitionToTablets = new ConcurrentHashMap<>();
+        futurePartitionToTablets = new ConcurrentHashMap<>();
+        beToTabletsInTable = new ConcurrentHashMap<>();
+        futureBeToTabletsInTable = new ConcurrentHashMap<>();
     }
 
     private boolean balanceAllPartitionsByPhase(ActiveSchedulePhase phase) {
@@ -992,24 +1011,62 @@ public class CloudTabletRebalancer extends MasterDaemon {
         // baseline. Advancing only after a sweep would leave the baseline at the pre-addition set, and
         // dropping that same backend later would compare equal to it and go unnoticed.
         lastSweptBackends = currentBes;
-        if (pendingSweepRounds > 0) {
+        // Outside the configured window, leave pendingSweepRounds untouched rather than draining it: a
+        // backend that goes away outside the window must still get its two rounds once the window
+        // opens, not lose them to rounds that never actually swept.
+        if (pendingSweepRounds > 0 && isStaleRouteCleanTimeAllowed()) {
             pendingSweepRounds--;
             return true;
         }
         return false;
     }
 
+    /**
+     * Whether the configured cleanup window (cloud_tablet_rebalancer_stale_route_clean_start_time to
+     * ..._end_time) contains the current time. Equal start/end -- including the "00:00"/"00:00" default --
+     * means unrestricted, matching the pre-existing behavior of sweeping whenever staleRouteSweepNeeded()
+     * says a sweep is due. An unparseable configuration also falls back to unrestricted rather than
+     * silently disabling cleanup.
+     */
+    @VisibleForTesting
+    boolean isStaleRouteCleanTimeAllowed() {
+        LocalTime start = parseCleanTime(Config.cloud_tablet_rebalancer_stale_route_clean_start_time);
+        LocalTime end = parseCleanTime(Config.cloud_tablet_rebalancer_stale_route_clean_end_time);
+        if (start == null || end == null || start.equals(end)) {
+            return true;
+        }
+        return isWithinWindow(LocalTime.now(TimeUtils.getDorisZoneId()), start, end);
+    }
+
+    @VisibleForTesting
+    static boolean isWithinWindow(LocalTime now, LocalTime start, LocalTime end) {
+        if (start.isBefore(end)) {
+            return !now.isBefore(start) && !now.isAfter(end);
+        }
+        // across midnight, e.g. 23:00 - 06:00
+        return !now.isBefore(start) || !now.isAfter(end);
+    }
+
+    private static LocalTime parseCleanTime(String time) {
+        try {
+            return LocalTime.parse(time, STALE_ROUTE_CLEAN_TIME_FORMAT);
+        } catch (DateTimeParseException e) {
+            LOG.warn("invalid cloud_tablet_rebalancer_stale_route_clean time: {}", time);
+            return null;
+        }
+    }
+
     private boolean completeRouteInfo() {
         List<UpdateCloudReplicaInfo> updateReplicaInfos = new ArrayList<UpdateCloudReplicaInfo>();
         long[] assignedErrNum = {0L};
-        long[] staleRouteNum = {0L};
         boolean sweepStaleRoutes = staleRouteSweepNeeded(allBes);
-        // loopCloudReplica() has the compute group loop innermost, so it hands us every replica once per
-        // live compute group, while removeInvalidRoutes() scans the whole route map and does not care
-        // which group we are on. Pin the sweep to one arbitrary group id so a sweeping round still makes a
-        // single pass per replica. If clusterToBes is empty the callback never runs at all, so the serving
-        // catalog keeps the entries until it reloads the image -- there is nothing to route in that state.
-        String sweepTicket = sweepStaleRoutes ? clusterToBes.keySet().stream().findFirst().orElse(null) : null;
+        // Cleanup is independent of compute groups and includes shadow indices of active tables.
+        // Take the catalog and backend set from the same Env so the sweep can never mix the two.
+        Env currentEnv = Env.getCurrentEnv();
+        long staleRouteNum = sweepStaleRoutes
+                ? ((CloudInternalCatalog) currentEnv.getInternalCatalog())
+                        .removeInvalidCloudReplicaRoutes(currentEnv.getClusterInfo())
+                : 0;
         long needRehashDeadTime = System.currentTimeMillis() - Config.rehash_tablet_after_be_dead_seconds * 1000L;
         loopCloudReplica((Database db, Table table, Partition partition, MaterializedIndex index, String cluster) -> {
             boolean assigned = false;
@@ -1021,16 +1078,6 @@ public class CloudTabletRebalancer extends MasterDaemon {
             for (Tablet tablet : tablets) {
                 for (Replica r : tablet.getReplicas()) {
                     CloudReplica replica = (CloudReplica) r;
-                    // Drop routes of compute groups that no longer exist; gsonPostProcess() only converges
-                    // the catalog on image load, so without this the leader keeps them until it restarts.
-                    // No edit log op is written for the removal: the entries are already unroutable, and
-                    // the image is written by the master-only checkpoint, whose Env cleans the catalog it
-                    // loads, so no leader/follower difference ever reaches persisted state. Note this
-                    // daemon is master-only, so a follower keeps its own stale entries in heap until it
-                    // restarts or is promoted and runs a round here.
-                    if (cluster.equals(sweepTicket)) {
-                        staleRouteNum[0] += replica.removeInvalidRoutes();
-                    }
                     // clean secondary map
                     replica.checkAndClearSecondaryClusterToBe(cluster, needRehashDeadTime);
                     // colocate table no need to update primary backends
@@ -1100,7 +1147,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
         });
 
         LOG.info("collect to editlog route {} infos, error num {}, swept stale routes {}, entries dropped {}",
-                updateReplicaInfos.size(), assignedErrNum[0], sweepStaleRoutes, staleRouteNum[0]);
+                updateReplicaInfos.size(), assignedErrNum[0], sweepStaleRoutes, staleRouteNum);
 
         if (updateReplicaInfos.isEmpty()) {
             return true;
@@ -1150,18 +1197,16 @@ public class CloudTabletRebalancer extends MasterDaemon {
         globalBeToTablets.computeIfAbsent(be, globalTabletSetFactory).add(tabletId);
 
         // table
-        beToTabletsInTable.putIfAbsent(tableId, new ConcurrentHashMap<Long, Set<Long>>());
-        ConcurrentHashMap<Long, Set<Long>> beToTabletsOfTable = beToTabletsInTable.get(tableId);
-        beToTabletsOfTable.putIfAbsent(be, ConcurrentHashMap.newKeySet());
-        beToTabletsOfTable.get(be).add(tabletId);
+        ConcurrentHashMap<Long, Set<Long>> beToTabletsOfTable =
+                beToTabletsInTable.computeIfAbsent(tableId, ignored -> new ConcurrentHashMap<>());
+        beToTabletsOfTable.computeIfAbsent(be, ignored -> ConcurrentHashMap.newKeySet()).add(tabletId);
 
         // partition
-        partToTablets.putIfAbsent(partId, new ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>());
-        ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> indexToTablets = partToTablets.get(partId);
-        indexToTablets.putIfAbsent(indexId, new ConcurrentHashMap<Long, Set<Long>>());
-        ConcurrentHashMap<Long, Set<Long>> beToTabletsOfIndex = indexToTablets.get(indexId);
-        beToTabletsOfIndex.putIfAbsent(be, ConcurrentHashMap.newKeySet());
-        beToTabletsOfIndex.get(be).add(tabletId);
+        ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> indexToTablets =
+                partToTablets.computeIfAbsent(partId, ignored -> new ConcurrentHashMap<>());
+        ConcurrentHashMap<Long, Set<Long>> beToTabletsOfIndex =
+                indexToTablets.computeIfAbsent(indexId, ignored -> new ConcurrentHashMap<>());
+        beToTabletsOfIndex.computeIfAbsent(be, ignored -> ConcurrentHashMap.newKeySet()).add(tabletId);
     }
 
     private Function<Long, Set<Long>> newGlobalTabletSetFactory(Map<Long, Set<Long>> previousBeToTablets) {

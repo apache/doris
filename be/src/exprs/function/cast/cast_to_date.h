@@ -436,9 +436,11 @@ public:
             TimestampTzValue from_tz {col_from[i]};
             DateV2Value<DateTimeV2ValueType> dt;
             if (!from_tz.to_datetime(dt, local_time_zone, dt_scale, tz_scale)) {
-                return Status::InternalError(
-                        "can not cast from  timestamptz : {} to datetime in timezone : {}",
-                        from_tz.to_string(local_time_zone), context->state()->timezone());
+                // The failed local conversion may also be unformattable. Render the stored
+                // UTC fields so reporting the cast error cannot throw a second exception.
+                return Status::InvalidArgument(
+                        "can not cast from  timestamptz : {} UTC to datetime in timezone : {}",
+                        from_tz.utc_dt().to_string(tz_scale), context->state()->timezone());
             }
             col_to_data[i] = dt.to_date_int_val();
         }

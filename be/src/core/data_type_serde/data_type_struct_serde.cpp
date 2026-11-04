@@ -20,14 +20,17 @@
 #include <algorithm>
 
 #include "arrow/array/builder_nested.h"
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "core/column/column.h"
 #include "core/column/column_const.h"
 #include "core/column/column_struct.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/complex_type_deserialize_util.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "core/data_type_serde/orc_serde_utils.h"
 #include "core/string_ref.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
@@ -36,6 +39,58 @@ namespace doris {
 
 class Arena;
 #include "common/compile_check_begin.h"
+
+namespace {
+
+int64_t find_struct_child_index(const ::orc::Type& type, const std::string& field_name) {
+    DORIS_CHECK(type.getKind() == ::orc::TypeKind::STRUCT);
+    for (uint64_t child_idx = 0; child_idx < type.getSubtypeCount(); ++child_idx) {
+        if (type.getFieldName(child_idx) == field_name) {
+            return static_cast<int64_t>(child_idx);
+        }
+    }
+    return -1;
+}
+
+Status decode_struct_orc_values(const DataTypeSerDeSPtrs& elem_serdes_ptrs, IColumn& nested_column,
+                                const OrcDecodedColumnView& orc_view) {
+    const auto* orc_struct = dynamic_cast<const ::orc::StructVectorBatch*>(orc_view.batch);
+    if (orc_struct == nullptr) {
+        return Status::InternalError("Unexpected ORC struct batch type {}",
+                                     orc_view.batch->toString());
+    }
+    DORIS_CHECK(orc_view.file_type != nullptr);
+    DORIS_CHECK(orc_view.selected_type != nullptr);
+    DORIS_CHECK(orc_view.selected_type->getSubtypeCount() == orc_struct->fields.size());
+    auto& struct_column = assert_cast<ColumnStruct&>(nested_column);
+    DORIS_CHECK(struct_column.tuple_size() == orc_view.selected_type->getSubtypeCount());
+    DORIS_CHECK(elem_serdes_ptrs.size() == orc_view.selected_type->getSubtypeCount());
+    for (uint64_t selected_idx = 0; selected_idx < orc_view.selected_type->getSubtypeCount();
+         ++selected_idx) {
+        const auto field_name = orc_view.selected_type->getFieldName(selected_idx);
+        const auto file_child_idx = find_struct_child_index(*orc_view.file_type, field_name);
+        if (file_child_idx < 0) {
+            return Status::InternalError("Selected ORC field {} is not in file struct", field_name);
+        }
+        const auto* file_child_type =
+                orc_view.file_type->getSubtype(static_cast<uint64_t>(file_child_idx));
+        const auto* selected_child_type = orc_view.selected_type->getSubtype(selected_idx);
+        DORIS_CHECK(file_child_type != nullptr);
+        DORIS_CHECK(selected_child_type != nullptr);
+        DORIS_CHECK(selected_idx < orc_struct->fields.size());
+        auto child_column =
+                struct_column.get_column_ptr(static_cast<size_t>(selected_idx))->assert_mutable();
+        auto child_view = orc_serde_utils::make_child_orc_view(
+                orc_view, file_child_type, selected_child_type, orc_struct->fields[selected_idx],
+                orc_view.rows, orc_view.selected_rows);
+        RETURN_IF_ERROR(orc_serde_utils::read_orc_child_column(elem_serdes_ptrs[selected_idx],
+                                                               child_column, child_view));
+        struct_column.get_column_ptr(static_cast<size_t>(selected_idx)) = std::move(child_column);
+    }
+    return Status::OK();
+}
+
+} // namespace
 
 std::string DataTypeStructSerDe::get_name() const {
     size_t size = elem_names.size();
@@ -340,7 +395,7 @@ Status DataTypeStructSerDe::serialize_column_to_jsonb(const IColumn& from_column
     for (size_t i = 0; i < elem_serdes_ptrs.size(); ++i) {
         // check key
         if (elem_names[i].size() > std::numeric_limits<uint8_t>::max()) {
-            return Status::InternalError("key size exceeds max limit {} ", elem_names[i]);
+            return Status::InvalidArgument("key size exceeds max limit {} ", elem_names[i]);
         }
         // write key
         if (!writer.writeKey(elem_names[i].data(), (uint8_t)elem_names[i].size())) {
@@ -415,6 +470,75 @@ Status DataTypeStructSerDe::write_column_to_arrow(const IColumn& column, const N
         }
     }
     return Status::OK();
+}
+
+namespace {
+
+template <typename WriteElement>
+Status write_struct_column_to_target(const IColumn& column, const NullMap* null_map,
+                                     arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+                                     WriteElement&& write_element) {
+    auto& builder = assert_cast<arrow::StructBuilder&>(*array_builder);
+    const auto& struct_column = assert_cast<const ColumnStruct&>(column);
+    for (int64_t row = start; row < end; ++row) {
+        if (null_map != nullptr && (*null_map)[row]) {
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), struct_column, builder));
+            continue;
+        }
+        RETURN_IF_ERROR(checkArrowStatus(builder.Append(), struct_column, builder));
+        for (size_t element = 0; element < struct_column.tuple_size(); ++element) {
+            RETURN_IF_ERROR(write_element(struct_column, builder, element, row));
+        }
+    }
+    return Status::OK();
+}
+
+} // namespace
+
+Status DataTypeStructSerDe::write_column_to_paimon_arrow(
+        const std::shared_ptr<const IDataType>& type, const IColumn& column,
+        const NullMap* null_map, const std::shared_ptr<arrow::Field>& field,
+        arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+        const cctz::time_zone& ctz) const {
+    const auto& struct_type = assert_cast<const DataTypeStruct&>(*type);
+    // Child indices are meaningful only when the target has the same structural arity.
+    if (field->type()->id() != arrow::Type::STRUCT ||
+        array_builder->type()->id() != arrow::Type::STRUCT ||
+        field->type()->num_fields() != struct_type.get_elements().size()) {
+        return Status::InvalidArgument("Paimon struct writer requires matching Arrow fields");
+    }
+    return write_struct_column_to_target(
+            column, null_map, array_builder, start, end,
+            [&](const ColumnStruct& struct_column, arrow::StructBuilder& builder, size_t element,
+                int64_t row) {
+                return elem_serdes_ptrs[element]->write_column_to_paimon_arrow(
+                        struct_type.get_element(element), struct_column.get_column(element),
+                        nullptr, field->type()->field(cast_set<int>(element)),
+                        builder.field_builder(cast_set<int>(element)), row, row + 1, ctz);
+            });
+}
+
+Status DataTypeStructSerDe::write_column_to_iceberg_arrow(
+        const std::shared_ptr<const IDataType>& type, const IColumn& column,
+        const NullMap* null_map, const std::shared_ptr<arrow::Field>& field,
+        arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+        const cctz::time_zone& ctz) const {
+    const auto& struct_type = assert_cast<const DataTypeStruct&>(*type);
+    // Child indices are meaningful only when the target has the same structural arity.
+    if (field->type()->id() != arrow::Type::STRUCT ||
+        array_builder->type()->id() != arrow::Type::STRUCT ||
+        field->type()->num_fields() != struct_type.get_elements().size()) {
+        return Status::InvalidArgument("Iceberg struct writer requires matching Arrow fields");
+    }
+    return write_struct_column_to_target(
+            column, null_map, array_builder, start, end,
+            [&](const ColumnStruct& struct_column, arrow::StructBuilder& builder, size_t element,
+                int64_t row) {
+                return elem_serdes_ptrs[element]->write_column_to_iceberg_arrow(
+                        struct_type.get_element(element), struct_column.get_column(element),
+                        nullptr, field->type()->field(cast_set<int>(element)),
+                        builder.field_builder(cast_set<int>(element)), row, row + 1, ctz);
+            });
 }
 
 Status DataTypeStructSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
@@ -666,6 +790,17 @@ bool DataTypeStructSerDe::write_column_to_hive_text(const IColumn& column, Buffe
     }
     bw.write("}", 1);
     return true;
+}
+
+Status DataTypeStructSerDe::read_column_from_orc(IColumn& column,
+                                                 const OrcDecodedColumnView& view) const {
+    DORIS_CHECK(view.file_type != nullptr);
+    DORIS_CHECK(view.batch != nullptr);
+    DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::STRUCT);
+    if (orc_serde_utils::orc_decode_row_count(view.rows, view.selected_rows) == 0) {
+        return Status::OK();
+    }
+    return decode_struct_orc_values(elem_serdes_ptrs, column, view);
 }
 
 } // namespace doris

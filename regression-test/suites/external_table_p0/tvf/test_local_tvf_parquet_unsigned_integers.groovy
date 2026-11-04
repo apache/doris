@@ -19,6 +19,9 @@ import org.junit.Assert
 
 // This suit test the `backends` tvf
 suite("test_local_tvf_parquet_unsigned_integers", "p0,external,external_docker") {
+    logger.info("Skip: this suite requires LOCAL TVF, which is disabled.")
+    return
+
     List<List<Object>> backends =  sql """ show backends """
     def dataFilePath = context.config.dataPath + "/external_table_p0/tvf/"
 

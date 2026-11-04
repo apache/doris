@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.hudi;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SchemaCacheValue;
@@ -26,15 +27,26 @@ import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
 
 import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class HudiExternalMetaCacheTest {
+
+    private static final ExecutionAuthenticator AUTHENTICATOR = new ExecutionAuthenticator() { };
 
     @Test
     public void testEntryAccessAfterExplicitInit() {
@@ -174,8 +186,209 @@ public class HudiExternalMetaCacheTest {
         }
     }
 
+    @Test
+    public void testFsViewGenerationDoesNotCrossCatalogReset() {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            HudiExternalMetaCache cache = new HudiExternalMetaCache(executor);
+            long catalogId = 1L;
+            NameMapping nameMapping = nameMapping(catalogId, "db1", "tbl1");
+            HudiFsViewCacheKey key = HudiFsViewCacheKey.of(nameMapping);
+
+            cache.initCatalog(catalogId, Collections.emptyMap());
+            HoodieTableFileSystemView oldView = Mockito.mock(HoodieTableFileSystemView.class);
+            cache.entry(catalogId, HudiExternalMetaCache.ENTRY_FS_VIEW,
+                    HudiFsViewCacheKey.class, HudiFsViewCacheValue.class)
+                    .put(key, cacheOwnedFsViewValue(oldView));
+            HudiExternalMetaCache.FsViewGeneration oldGeneration =
+                    cache.captureFsViewGeneration(catalogId);
+
+            cache.invalidateCatalog(catalogId);
+            cache.initCatalog(catalogId, Collections.emptyMap());
+            HoodieTableFileSystemView newView = Mockito.mock(HoodieTableFileSystemView.class);
+            cache.entry(catalogId, HudiExternalMetaCache.ENTRY_FS_VIEW,
+                    HudiFsViewCacheKey.class, HudiFsViewCacheValue.class)
+                    .put(key, cacheOwnedFsViewValue(newView));
+
+            try {
+                oldGeneration.getFsView(nameMapping, AUTHENTICATOR);
+                Assert.fail("stale generation must not acquire the replacement cache entry");
+            } catch (IllegalStateException expected) {
+                Assert.assertTrue(expected.getMessage().contains("runtime changed"));
+            }
+            Mockito.verify(oldView).close();
+            Mockito.verify(oldView, Mockito.never()).sync();
+            Mockito.verify(newView, Mockito.never()).sync();
+
+            HudiExternalMetaCache.FsViewGeneration newGeneration =
+                    cache.captureFsViewGeneration(catalogId);
+            AtomicBoolean authenticated = new AtomicBoolean();
+            ExecutionAuthenticator authenticator = new ExecutionAuthenticator() {
+                @Override
+                public <T> T execute(Callable<T> task) throws Exception {
+                    authenticated.set(true);
+                    try {
+                        return task.call();
+                    } finally {
+                        authenticated.set(false);
+                    }
+                }
+            };
+            Mockito.doAnswer(invocation -> {
+                Assert.assertTrue(authenticated.get());
+                return null;
+            }).when(newView).sync();
+            try (HudiFsViewCacheValue.Lease lease = newGeneration.getFsView(nameMapping, authenticator)) {
+                Assert.assertSame(newView, lease.get());
+            }
+            Assert.assertFalse(authenticated.get());
+            Mockito.verify(newView).sync();
+            cache.invalidateCatalog(catalogId);
+            Mockito.verify(newView).close();
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testDisabledFsViewCacheClosesUnpublishedValueAfterLease() {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        HoodieTableFileSystemView view = Mockito.mock(HoodieTableFileSystemView.class);
+        try {
+            HudiExternalMetaCache cache = new HudiExternalMetaCache(executor) {
+                @Override
+                protected HudiFsViewCacheValue createFsView(HudiFsViewCacheKey key) {
+                    return new HudiFsViewCacheValue(view);
+                }
+            };
+            long catalogId = 1L;
+            NameMapping nameMapping = nameMapping(catalogId, "db1", "tbl1");
+            Map<String, String> properties = com.google.common.collect.Maps.newHashMap();
+            properties.put("meta.cache.hudi.fs_view.ttl-second", "0");
+            cache.initCatalog(catalogId, properties);
+            HudiExternalMetaCache.FsViewGeneration generation =
+                    cache.captureFsViewGeneration(catalogId);
+
+            try (HudiFsViewCacheValue.Lease lease = generation.getFsView(nameMapping, AUTHENTICATOR)) {
+                Assert.assertSame(view, lease.get());
+                Mockito.verify(view).sync();
+                Mockito.verify(view, Mockito.never()).close();
+            }
+
+            Mockito.verify(view).close();
+            MetaCacheEntry<HudiFsViewCacheKey, HudiFsViewCacheValue> entry = cache.entry(catalogId,
+                    HudiExternalMetaCache.ENTRY_FS_VIEW,
+                    HudiFsViewCacheKey.class, HudiFsViewCacheValue.class);
+            Assert.assertNull(entry.peekIfPresent(HudiFsViewCacheKey.of(nameMapping)));
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testRemovalBeforeCallerAcquireStillHandsOffLoadedView() {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        HoodieTableFileSystemView view = Mockito.mock(HoodieTableFileSystemView.class);
+        AtomicInteger loads = new AtomicInteger();
+        AtomicBoolean removeBeforeAcquire = new AtomicBoolean(true);
+        try {
+            HudiExternalMetaCache cache = new HudiExternalMetaCache(executor) {
+                @Override
+                protected HudiFsViewCacheValue createFsView(HudiFsViewCacheKey key) {
+                    loads.incrementAndGet();
+                    return new HudiFsViewCacheValue(view);
+                }
+
+                @Override
+                void afterFsViewLoadForTest(FsViewGeneration generation, HudiFsViewCacheKey key,
+                        HudiFsViewCacheValue value) {
+                    if (removeBeforeAcquire.compareAndSet(true, false)) {
+                        MetaCacheEntry<HudiFsViewCacheKey, HudiFsViewCacheValue> entry = entry(
+                                key.getNameMapping().getCtlId(), ENTRY_FS_VIEW,
+                                HudiFsViewCacheKey.class, HudiFsViewCacheValue.class);
+                        entry.invalidateKey(key);
+                        // Deterministically place the asynchronous removal cleanup before tryAcquire.
+                        value.releaseCacheReference();
+                    }
+                }
+            };
+            long catalogId = 1L;
+            NameMapping nameMapping = nameMapping(catalogId, "db1", "tbl1");
+            cache.initCatalog(catalogId, Collections.emptyMap());
+            HudiExternalMetaCache.FsViewGeneration generation =
+                    cache.captureFsViewGeneration(catalogId);
+
+            try (HudiFsViewCacheValue.Lease lease = generation.getFsView(nameMapping, AUTHENTICATOR)) {
+                Assert.assertSame(view, lease.get());
+                Mockito.verify(view).sync();
+                Mockito.verify(view, Mockito.never()).close();
+            }
+
+            Assert.assertEquals(1, loads.get());
+            Mockito.verify(view).close();
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testColdLoadDoesNotBlockCatalogRetirement() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        CountDownLatch loadStarted = new CountDownLatch(1);
+        CountDownLatch allowLoad = new CountDownLatch(1);
+        HoodieTableFileSystemView view = Mockito.mock(HoodieTableFileSystemView.class);
+        try {
+            HudiExternalMetaCache cache = new HudiExternalMetaCache(refreshExecutor) {
+                @Override
+                protected HudiFsViewCacheValue createFsView(HudiFsViewCacheKey key) {
+                    loadStarted.countDown();
+                    try {
+                        Assert.assertTrue(allowLoad.await(3L, TimeUnit.SECONDS));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException(e);
+                    }
+                    return new HudiFsViewCacheValue(view);
+                }
+            };
+            long catalogId = 1L;
+            NameMapping nameMapping = nameMapping(catalogId, "db1", "tbl1");
+            cache.initCatalog(catalogId, Collections.emptyMap());
+            HudiExternalMetaCache.FsViewGeneration generation =
+                    cache.captureFsViewGeneration(catalogId);
+
+            Future<HudiFsViewCacheValue.Lease> acquisition = workers.submit(
+                    () -> generation.getFsView(nameMapping, AUTHENTICATOR));
+            Assert.assertTrue(loadStarted.await(3L, TimeUnit.SECONDS));
+
+            Future<?> retirement = workers.submit(() -> cache.invalidateCatalog(catalogId));
+            retirement.get(3L, TimeUnit.SECONDS);
+            allowLoad.countDown();
+
+            try {
+                acquisition.get(3L, TimeUnit.SECONDS);
+                Assert.fail("load from the retired generation must not be handed to the scan");
+            } catch (ExecutionException expected) {
+                Assert.assertTrue(expected.getCause() instanceof IllegalStateException);
+            }
+            Mockito.verify(view).close();
+            Mockito.verify(view, Mockito.never()).sync();
+        } finally {
+            allowLoad.countDown();
+            workers.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
     private NameMapping nameMapping(long catalogId, String dbName, String tableName) {
         return new NameMapping(catalogId, dbName, tableName, "remote_" + dbName, "remote_" + tableName);
+    }
+
+    private HudiFsViewCacheValue cacheOwnedFsViewValue(HoodieTableFileSystemView view) {
+        HudiFsViewCacheValue value = new HudiFsViewCacheValue(view);
+        value.releaseLoaderReference();
+        return value;
     }
 
     private HudiPartitionCacheKey partitionKey(NameMapping nameMapping, long timestamp, boolean useHiveSyncPartition) {

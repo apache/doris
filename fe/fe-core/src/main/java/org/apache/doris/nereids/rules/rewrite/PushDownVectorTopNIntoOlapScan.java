@@ -146,10 +146,11 @@ public class PushDownVectorTopNIntoOlapScan implements RewriteRuleFactory {
             return null;
         }
 
+        // Keep the score that BindScoreToOlapScan bound to the scan.
         Plan plan = scan.appendVirtualColumnsAndTopN(
                 ImmutableList.of(orderKeyAlias),
                 topN.getOrderKeys(), Optional.of(topN.getLimit() + topN.getOffset()),
-                ImmutableList.of(), Optional.empty(), Optional.empty());
+                scan.getScoreOrderKeys(), scan.getScoreLimit(), scan.getScoreRangeInfo());
 
         Map<Expression, Expression> replaceMap = Maps.newHashMap();
         replaceMap.put(orderKeyAlias, orderKeyAlias.toSlot());

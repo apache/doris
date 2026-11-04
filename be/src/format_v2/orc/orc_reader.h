@@ -77,6 +77,7 @@ public:
     Status get_schema(std::vector<format::ColumnDefinition>* const file_schema) const override;
     std::unique_ptr<format::TableColumnMapper> create_column_mapper(
             format::TableColumnMapperOptions options) const override;
+    bool supports_rowid_fetch() const override { return true; }
     Status open(std::shared_ptr<format::FileScanRequest> request) override;
     Status get_block(Block* file_block, size_t* rows, bool* eof) override;
     Status get_aggregate_result(const format::FileAggregateRequest& request,

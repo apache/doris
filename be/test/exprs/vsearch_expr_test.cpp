@@ -105,22 +105,6 @@ std::shared_ptr<IndexExecContext> make_inverted_context(
                                               nullptr, nullptr, column_iter_opts);
 }
 
-std::shared_ptr<segment_v2::Segment> make_segment_with_variant_parent() {
-    TabletSchemaPB schema_pb;
-    schema_pb.set_keys_type(KeysType::DUP_KEYS);
-    auto* parent = schema_pb.add_column();
-    parent->set_unique_id(0);
-    parent->set_name("data");
-    parent->set_type("VARIANT");
-    parent->set_is_key(false);
-    parent->set_is_nullable(true);
-
-    auto tablet_schema = std::make_shared<TabletSchema>();
-    tablet_schema->init_from_pb(schema_pb);
-    return std::make_shared<segment_v2::Segment>(0, RowsetId(), tablet_schema,
-                                                 InvertedIndexFileInfo());
-}
-
 } // namespace
 
 class VSearchExprTest : public testing::Test {
@@ -1386,7 +1370,8 @@ TEST_F(VSearchExprTest, EvaluateInvertedIndexHandlesMissingIterators) {
     context->set_index_context(inverted_ctx);
 
     auto status = expr->evaluate_inverted_index(context.get(), 32);
-    EXPECT_TRUE(status.ok());
+    EXPECT_EQ(ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, status.code());
+    EXPECT_FALSE(inverted_ctx->has_index_result_for_expr(expr.get()));
     EXPECT_FALSE(status_map[0][expr.get()]);
 }
 
@@ -1417,20 +1402,87 @@ TEST_F(VSearchExprTest, MissingVariantChildIteratorDoesNotUseParentIterator) {
     status_map[0][expr.get()] = false;
     status_map[1][expr.get()] = false;
 
-    // Keep the parent in the segment schema so a parent-rebinding implementation would find it.
+    // A missing iterator without storage evidence cannot establish path absence.
     segment_v2::ColumnIteratorOptions column_iter_opts;
-    auto segment = make_segment_with_variant_parent();
+
     auto inverted_ctx =
             std::make_shared<IndexExecContext>(col_ids, index_iterators, storage_types, status_map,
-                                               nullptr, segment.get(), column_iter_opts);
+                                               nullptr, nullptr, column_iter_opts);
     auto context = std::make_shared<VExprContext>(expr);
     context->set_index_context(inverted_ctx);
 
     auto status = expr->evaluate_inverted_index(context.get(), 32);
-    EXPECT_TRUE(status.ok()) << status;
-    EXPECT_TRUE(inverted_ctx->has_index_result_for_expr(expr.get()));
+    EXPECT_EQ(ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, status.code()) << status;
+    EXPECT_FALSE(inverted_ctx->has_index_result_for_expr(expr.get()));
     EXPECT_FALSE(status_map[0][expr.get()]);
     EXPECT_FALSE(status_map[1][expr.get()]);
+}
+
+TEST_F(VSearchExprTest, MissingVariantRootUsesCurrentReadSchemaUid) {
+    for (bool historical_same_name : {false, true}) {
+        TabletSchemaPB schema_pb;
+        schema_pb.set_keys_type(KeysType::DUP_KEYS);
+        if (historical_same_name) {
+            auto* parent = schema_pb.add_column();
+            parent->set_unique_id(1);
+            parent->set_name("data");
+            parent->set_type("VARIANT");
+            parent->set_is_key(false);
+            parent->set_is_nullable(true);
+        }
+        auto tablet_schema = std::make_shared<TabletSchema>();
+        tablet_schema->init_from_pb(schema_pb);
+        auto segment = std::make_shared<segment_v2::Segment>(0, RowsetId(), tablet_schema,
+                                                             InvertedIndexFileInfo());
+        ColumnPB leaf_pb;
+        leaf_pb.set_unique_id(26);
+        leaf_pb.set_parent_unique_id(25);
+        leaf_pb.set_name("data.items.message");
+        leaf_pb.set_type("STRING");
+        leaf_pb.set_is_key(false);
+        leaf_pb.set_is_nullable(true);
+        std::vector<TabletColumnPtr> columns {std::make_shared<TabletColumn>(leaf_pb)};
+        std::vector<ColumnId> col_ids {0};
+        auto read_schema = std::make_shared<Schema>(columns, col_ids);
+        for (bool negated : {false, true}) {
+            TExprNode node = test_node;
+            node.search_param.__set_original_dsl(negated ? "NOT data.items.message:hello"
+                                                         : "data.items.message:hello");
+            node.search_param.root.__set_field_name("data.items.message");
+            auto& binding = node.search_param.field_bindings.front();
+            binding.__set_field_name("data.items.message");
+            binding.__set_is_variant_subcolumn(true);
+            binding.__set_parent_field_name("data");
+            binding.__set_subcolumn_path("items.message");
+            if (negated) {
+                TSearchClause complement;
+                complement.__set_clause_type("NOT");
+                complement.__set_children({node.search_param.root});
+                node.search_param.__set_root(complement);
+            }
+            auto expr = VSearchExpr::create_shared(node);
+            expr->add_child(create_slot_ref(0, "data.items.message"));
+            std::vector<std::unique_ptr<segment_v2::IndexIterator>> iterators;
+            iterators.emplace_back(nullptr);
+            std::vector<IndexFieldNameAndTypePair> types {
+                    {"25.data.items.message", std::make_shared<DataTypeString>()}};
+            std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
+            status_map[0][expr.get()] = false;
+            OlapReaderStatistics stats;
+            segment_v2::ColumnIteratorOptions opts;
+            opts.stats = &stats;
+            auto index_context =
+                    std::make_shared<IndexExecContext>(col_ids, iterators, types, status_map,
+                                                       nullptr, segment.get(), opts, read_schema);
+            auto context = std::make_shared<VExprContext>(expr);
+            context->set_index_context(index_context);
+            ASSERT_TRUE(expr->evaluate_inverted_index(context.get(), 4).ok());
+            const auto* result = index_context->get_index_result_for_expr(expr.get());
+            ASSERT_NE(nullptr, result);
+            EXPECT_EQ(negated ? 4 : 0, result->get_data_bitmap()->cardinality());
+            EXPECT_TRUE(result->get_null_bitmap()->isEmpty());
+        }
+    }
 }
 
 TEST_F(VSearchExprTest, EvaluateInvertedIndexNestedFallbackReturnsNotSupportedInCE) {

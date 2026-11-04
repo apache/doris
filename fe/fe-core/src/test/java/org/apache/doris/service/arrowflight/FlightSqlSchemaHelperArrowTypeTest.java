@@ -17,6 +17,7 @@
 
 package org.apache.doris.service.arrowflight;
 
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.thrift.TColumnDesc;
 import org.apache.doris.thrift.TPrimitiveType;
@@ -26,6 +27,7 @@ import org.apache.arrow.vector.complex.MapVector;
 import org.apache.arrow.vector.ipc.ReadChannel;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
 import org.apache.arrow.vector.types.DateUnit;
+import org.apache.arrow.vector.types.FloatingPointPrecision;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
@@ -75,6 +77,16 @@ public class FlightSqlSchemaHelperArrowTypeTest {
 
     private static Field buildField(TColumnDesc columnDesc) {
         return Deencapsulation.invoke(FlightSqlSchemaHelper.class, "buildField", DB, TABLE, columnDesc);
+    }
+
+    @Test
+    public void fileHasNoSupportedArrowType() {
+        Field field = buildField(desc("file", TPrimitiveType.FILE,
+                desc("uri", TPrimitiveType.VARCHAR), desc("offset", TPrimitiveType.BIGINT),
+                desc("size", TPrimitiveType.BIGINT), desc("content_type", TPrimitiveType.VARCHAR),
+                desc("checksum", TPrimitiveType.VARCHAR), desc("inline", TPrimitiveType.VARBINARY)));
+        Assertions.assertEquals(new ArrowType.Null(), field.getType());
+        Assertions.assertTrue(field.getChildren().isEmpty());
     }
 
     /**
@@ -206,4 +218,13 @@ public class FlightSqlSchemaHelperArrowTypeTest {
         Assertions.assertEquals(ArrowType.ArrowTypeID.List, array.getType().getTypeID());
         Assertions.assertEquals(new ArrowType.Int(32, true), array.getChildren().get(0).getType());
     }
+
+    @Test
+    public void timeAndBinaryResultTypes() {
+        Assertions.assertEquals(new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE),
+                FlightSqlSchemaHelper.getArrowType(PrimitiveType.TIMEV2, 0, 6));
+        Assertions.assertEquals(new ArrowType.Binary(),
+                FlightSqlSchemaHelper.getArrowType(PrimitiveType.VARBINARY, 0, 0));
+    }
+
 }

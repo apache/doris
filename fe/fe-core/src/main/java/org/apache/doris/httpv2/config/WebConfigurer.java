@@ -20,13 +20,16 @@ package org.apache.doris.httpv2.config;
 import org.apache.doris.common.Config;
 import org.apache.doris.httpv2.interceptor.AuthInterceptor;
 
-import org.springframework.boot.web.server.ErrorPage;
+import org.springframework.boot.web.error.ErrorPage;
 import org.springframework.boot.web.server.WebServerFactoryCustomizer;
-import org.springframework.boot.web.servlet.server.ConfigurableServletWebServerFactory;
+import org.springframework.boot.web.server.servlet.ConfigurableServletWebServerFactory;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.Ordered;
 import org.springframework.http.HttpStatus;
 import org.springframework.util.AntPathMatcher;
+import org.springframework.web.filter.UrlHandlerFilter;
 import org.springframework.web.multipart.support.StandardServletMultipartResolver;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
@@ -58,7 +61,16 @@ public class WebConfigurer implements WebMvcConfigurer {
     @Override
     public void configurePathMatch(PathMatchConfigurer configurer) {
         configurer.setPathMatcher(new AntPathMatcher());
-        configurer.setUseTrailingSlashMatch(true);
+    }
+
+    @Bean
+    public FilterRegistrationBean<UrlHandlerFilter> trailingSlashFilter() {
+        // Spring 7 removed optional trailing-slash matching. Wrap requests before MVC routing
+        // and authentication so existing clients keep their URLs, methods, bodies and queries.
+        FilterRegistrationBean<UrlHandlerFilter> registration = new FilterRegistrationBean<>(
+                UrlHandlerFilter.trailingSlashHandler("/**").wrapRequest().build());
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 1);
+        return registration;
     }
 
     @Override

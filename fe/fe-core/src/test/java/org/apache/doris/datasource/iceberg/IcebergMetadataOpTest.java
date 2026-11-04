@@ -23,6 +23,8 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 
 import org.apache.iceberg.CatalogProperties;
@@ -34,6 +36,9 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.ViewCatalog;
+import org.apache.iceberg.exceptions.ForbiddenException;
+import org.apache.iceberg.exceptions.NoSuchNamespaceException;
+import org.apache.iceberg.exceptions.ServiceFailureException;
 import org.junit.Assert;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -43,10 +48,308 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class IcebergMetadataOpTest {
+
+    @Test
+    public void testListDatabaseNamesSkipsNamespacesDeletedDuringTraversal() {
+        Catalog icebergCatalog = Mockito.mock(Catalog.class,
+                Mockito.withSettings().extraInterfaces(SupportsNamespaces.class));
+        SupportsNamespaces nsCatalog = (SupportsNamespaces) icebergCatalog;
+        Namespace deleted = Namespace.of("deleted");
+        Namespace parent = Namespace.of("parent");
+        Namespace deletedChild = Namespace.of("parent", "deleted");
+        Namespace emptyChild = Namespace.of("parent", "empty");
+        Namespace sibling = Namespace.of("sibling");
+
+        Mockito.when(nsCatalog.listNamespaces(Namespace.empty())).thenReturn(Arrays.asList(deleted, parent, sibling));
+        Mockito.when(nsCatalog.listNamespaces(parent)).thenReturn(Arrays.asList(deletedChild, emptyChild));
+        Mockito.when(nsCatalog.listNamespaces(emptyChild)).thenReturn(Collections.emptyList());
+        Mockito.when(nsCatalog.listNamespaces(deleted))
+                .thenThrow(new NoSuchNamespaceException("Namespace does not exist: %s", deleted));
+        Mockito.when(nsCatalog.listNamespaces(deletedChild))
+                .thenThrow(new NoSuchNamespaceException("Namespace does not exist: %s", deletedChild));
+
+        List<String> result = nestedNamespaceOps(icebergCatalog).listDatabaseNames();
+
+        Assert.assertEquals(Arrays.asList("parent", "parent.empty", "sibling"), result);
+    }
+
+    @Test
+    public void testListDatabaseNamesPropagatesMissingRootNamespace() {
+        Catalog icebergCatalog = Mockito.mock(Catalog.class,
+                Mockito.withSettings().extraInterfaces(SupportsNamespaces.class));
+        SupportsNamespaces nsCatalog = (SupportsNamespaces) icebergCatalog;
+        NoSuchNamespaceException failure = new NoSuchNamespaceException("Missing root");
+        Mockito.when(nsCatalog.listNamespaces(Namespace.empty())).thenThrow(failure);
+
+        RuntimeException exception = Assert.assertThrows(RuntimeException.class,
+                () -> nestedNamespaceOps(icebergCatalog).listDatabaseNames());
+
+        Assert.assertSame(failure, exception.getCause());
+    }
+
+    @Test
+    public void testListDatabaseNamesPropagatesOtherTraversalFailures() {
+        for (RuntimeException failure : Arrays.asList(
+                new ForbiddenException("Access denied"), new ServiceFailureException("Service unavailable"))) {
+            Catalog icebergCatalog = Mockito.mock(Catalog.class,
+                    Mockito.withSettings().extraInterfaces(SupportsNamespaces.class));
+            SupportsNamespaces nsCatalog = (SupportsNamespaces) icebergCatalog;
+            Namespace child = Namespace.of("child");
+            Mockito.when(nsCatalog.listNamespaces(Namespace.empty()))
+                    .thenReturn(Collections.singletonList(child));
+            Mockito.when(nsCatalog.listNamespaces(child)).thenThrow(failure);
+
+            RuntimeException exception = Assert.assertThrows(RuntimeException.class,
+                    () -> nestedNamespaceOps(icebergCatalog).listDatabaseNames());
+
+            Assert.assertSame(failure, exception.getCause());
+        }
+    }
+
+    private IcebergMetadataOps nestedNamespaceOps(Catalog icebergCatalog) {
+        IcebergRestExternalCatalog dorisCatalog = Mockito.mock(IcebergRestExternalCatalog.class);
+        CatalogProperty catalogProperty = Mockito.mock(CatalogProperty.class);
+        IcebergRestProperties restProperties = Mockito.mock(IcebergRestProperties.class);
+        IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
+
+        Mockito.when(restProperties.isIcebergRestNestedNamespaceEnabled()).thenReturn(true);
+        Mockito.when(catalogProperty.getMetastoreProperties()).thenReturn(restProperties);
+        Mockito.when(dorisCatalog.getCatalogProperty()).thenReturn(catalogProperty);
+        Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
+        });
+        Mockito.when(dorisCatalog.getProperties()).thenReturn(Collections.emptyMap());
+        Mockito.when(dorisCatalog.beginCatalogOperation(Mockito.any()))
+                .thenAnswer(invocation -> tracker.beginOperation());
+        return new IcebergMetadataOps(dorisCatalog, icebergCatalog);
+    }
+
+    @Test
+    public void testCatalogOperationDelaysGenerationRetirement() throws Exception {
+        IcebergExternalCatalog dorisCatalog = Mockito.mock(IcebergExternalCatalog.class);
+        Catalog icebergCatalog = Mockito.mock(Catalog.class,
+                Mockito.withSettings().extraInterfaces(SupportsNamespaces.class));
+        IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
+        CountDownLatch operationStarted = new CountDownLatch(1);
+        CountDownLatch allowOperationToFinish = new CountDownLatch(1);
+        AtomicInteger cleanupCalls = new AtomicInteger();
+
+        Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
+        });
+        Mockito.when(dorisCatalog.getProperties()).thenReturn(Collections.emptyMap());
+        Mockito.when(dorisCatalog.beginCatalogOperation(Mockito.any()))
+                .thenAnswer(invocation -> tracker.beginOperation());
+        Mockito.when(icebergCatalog.tableExists(TableIdentifier.of("db", "tbl"))).thenAnswer(invocation -> {
+            operationStarted.countDown();
+            Assert.assertTrue(allowOperationToFinish.await(5, TimeUnit.SECONDS));
+            return true;
+        });
+
+        IcebergMetadataOps ops = new IcebergMetadataOps(dorisCatalog, icebergCatalog);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<Boolean> operation = executor.submit(() -> ops.tableExist("db", "tbl"));
+            Assert.assertTrue(operationStarted.await(5, TimeUnit.SECONDS));
+
+            tracker.retireCurrent(cleanupCalls::incrementAndGet);
+            Assert.assertEquals(0, cleanupCalls.get());
+
+            allowOperationToFinish.countDown();
+            Assert.assertTrue(operation.get(5, TimeUnit.SECONDS));
+            Assert.assertEquals(1, cleanupCalls.get());
+        } finally {
+            allowOperationToFinish.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testHmsCatalogOperationDelaysGenerationRetirement() throws Exception {
+        HMSExternalCatalog dorisCatalog = Mockito.mock(HMSExternalCatalog.class);
+        Catalog icebergCatalog = Mockito.mock(Catalog.class,
+                Mockito.withSettings().extraInterfaces(SupportsNamespaces.class));
+        IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
+        CountDownLatch operationStarted = new CountDownLatch(1);
+        CountDownLatch allowOperationToFinish = new CountDownLatch(1);
+        AtomicInteger cleanupCalls = new AtomicInteger();
+
+        Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
+        });
+        Mockito.when(dorisCatalog.getProperties()).thenReturn(Collections.emptyMap());
+        Mockito.when(dorisCatalog.beginIcebergCatalogOperation(Mockito.any()))
+                .thenAnswer(invocation -> tracker.beginOperation());
+        Mockito.when(icebergCatalog.tableExists(TableIdentifier.of("db", "tbl"))).thenAnswer(invocation -> {
+            operationStarted.countDown();
+            Assert.assertTrue(allowOperationToFinish.await(5, TimeUnit.SECONDS));
+            return true;
+        });
+
+        IcebergMetadataOps ops = new IcebergMetadataOps(dorisCatalog, icebergCatalog);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<Boolean> operation = executor.submit(() -> ops.tableExist("db", "tbl"));
+            Assert.assertTrue(operationStarted.await(5, TimeUnit.SECONDS));
+
+            tracker.retireCurrent(cleanupCalls::incrementAndGet);
+            Assert.assertEquals(0, cleanupCalls.get());
+
+            allowOperationToFinish.countDown();
+            Assert.assertTrue(operation.get(5, TimeUnit.SECONDS));
+            Assert.assertEquals(1, cleanupCalls.get());
+            Mockito.verify(dorisCatalog).beginIcebergCatalogOperation(ops);
+        } finally {
+            allowOperationToFinish.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testNativeCreateTableCaseFoldCollisionUsesRetainedGeneration() throws Exception {
+        verifyCreateTableCaseFoldCollisionUsesRetainedGeneration(false);
+    }
+
+    @Test
+    public void testHmsCreateTableCaseFoldCollisionUsesRetainedGeneration() throws Exception {
+        verifyCreateTableCaseFoldCollisionUsesRetainedGeneration(true);
+    }
+
+    @Test
+    public void testCreateTableCaseFoldCollisionIncludesViews() throws Exception {
+        IcebergRestExternalCatalog dorisCatalog = Mockito.mock(IcebergRestExternalCatalog.class);
+        Catalog icebergCatalog = Mockito.mock(Catalog.class,
+                Mockito.withSettings().extraInterfaces(SupportsNamespaces.class, ViewCatalog.class));
+        IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
+        Map<String, String> props = new HashMap<>();
+        props.put("type", "iceberg");
+        props.put("iceberg.catalog.type", "rest");
+        props.put("iceberg.rest.uri", "http://localhost:8181");
+        Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
+        });
+        Mockito.when(dorisCatalog.getProperties()).thenReturn(Collections.emptyMap());
+        Mockito.when(dorisCatalog.getCatalogProperty()).thenReturn(new CatalogProperty(null, props));
+        Mockito.when(dorisCatalog.getLowerCaseTableNames()).thenReturn(1);
+        ExternalDatabase<?> retainedDb = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(retainedDb.getRemoteName()).thenReturn("db");
+        IcebergMetadataOps ops = new IcebergMetadataOps(dorisCatalog, icebergCatalog);
+        Mockito.when(dorisCatalog.beginCatalogOperation(ops)).thenAnswer(invocation -> tracker.beginOperation());
+        Mockito.doReturn(retainedDb).when(dorisCatalog).getDbForCatalogOperation(ops, "db");
+        Mockito.when(icebergCatalog.tableExists(TableIdentifier.of("db", "TBL1"))).thenReturn(false);
+        Mockito.when(icebergCatalog.listTables(Namespace.of("db"))).thenReturn(Collections.emptyList());
+        Mockito.when(((ViewCatalog) icebergCatalog).listViews(Namespace.of("db")))
+                .thenReturn(Collections.singletonList(TableIdentifier.of("db", "tbl1")));
+
+        CreateTableInfo createTableInfo = Mockito.mock(CreateTableInfo.class);
+        Mockito.when(createTableInfo.getDbName()).thenReturn("db");
+        Mockito.when(createTableInfo.getTableName()).thenReturn("TBL1");
+        Mockito.when(createTableInfo.isIfNotExists()).thenReturn(false);
+
+        // Doris exposes Iceberg tables and views in one case-folded namespace, so a view named
+        // tbl1 must reject CREATE TABLE TBL1 under lower_case_table_names.
+        Exception exception = Assert.assertThrows(Exception.class, () -> ops.createTableImpl(createTableInfo));
+        Assert.assertTrue(exception.getCause() instanceof DdlException);
+        Assert.assertTrue(exception.getCause().getMessage().contains("TBL1"));
+        Mockito.verify(icebergCatalog, Mockito.never()).createTable(
+                Mockito.any(TableIdentifier.class), Mockito.any(Schema.class),
+                Mockito.any(PartitionSpec.class), Mockito.anyMap());
+    }
+
+    private void verifyCreateTableCaseFoldCollisionUsesRetainedGeneration(boolean hmsCatalog) throws Exception {
+        ExternalCatalogSetup setup = createExternalCatalogSetup(hmsCatalog);
+        Catalog icebergCatalog = Mockito.mock(Catalog.class,
+                Mockito.withSettings().extraInterfaces(SupportsNamespaces.class));
+        IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
+        CountDownLatch listStarted = new CountDownLatch(1);
+        CountDownLatch finishList = new CountDownLatch(1);
+        AtomicBoolean resetCompleted = new AtomicBoolean();
+        AtomicInteger cleanupCalls = new AtomicInteger();
+
+        Mockito.when(setup.catalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
+        });
+        Mockito.when(setup.catalog.getProperties()).thenReturn(Collections.emptyMap());
+        Mockito.when(setup.catalog.getLowerCaseTableNames()).thenReturn(1);
+        ExternalDatabase<?> retainedDb = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(retainedDb.getRemoteName()).thenReturn("db");
+        IcebergMetadataOps ops = new IcebergMetadataOps(setup.catalog, icebergCatalog);
+        setup.bindOperation(ops, tracker, retainedDb);
+        Mockito.when(icebergCatalog.tableExists(TableIdentifier.of("db", "TBL1"))).thenReturn(false);
+        Mockito.when(icebergCatalog.listTables(Namespace.of("db"))).thenAnswer(invocation -> {
+            listStarted.countDown();
+            Assert.assertTrue(finishList.await(5, TimeUnit.SECONDS));
+            Assert.assertTrue(resetCompleted.get());
+            return Collections.singletonList(TableIdentifier.of("db", "tbl1"));
+        });
+
+        CreateTableInfo createTableInfo = Mockito.mock(CreateTableInfo.class);
+        Mockito.when(createTableInfo.getDbName()).thenReturn("db");
+        Mockito.when(createTableInfo.getTableName()).thenReturn("TBL1");
+        Mockito.when(createTableInfo.isIfNotExists()).thenReturn(false);
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<Boolean> create = executor.submit(() -> ops.createTableImpl(createTableInfo));
+            Assert.assertTrue(listStarted.await(5, TimeUnit.SECONDS));
+            tracker.retireCurrent(cleanupCalls::incrementAndGet);
+            resetCompleted.set(true);
+            Assert.assertEquals(0, cleanupCalls.get());
+            finishList.countDown();
+
+            Exception exception = Assert.assertThrows(Exception.class, () -> create.get(5, TimeUnit.SECONDS));
+            Assert.assertTrue(exception.getCause() instanceof DdlException);
+            Assert.assertTrue(exception.getCause().getMessage().contains("TBL1"));
+            Assert.assertTrue(resetCompleted.get());
+            Assert.assertEquals(1, cleanupCalls.get());
+            Mockito.verify(retainedDb, Mockito.never()).getTableNullable(Mockito.anyString());
+            Mockito.verify(icebergCatalog, Mockito.never()).createTable(
+                    Mockito.any(TableIdentifier.class), Mockito.any(Schema.class),
+                    Mockito.any(PartitionSpec.class), Mockito.anyMap());
+        } finally {
+            finishList.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    private ExternalCatalogSetup createExternalCatalogSetup(boolean hmsCatalog) {
+        if (hmsCatalog) {
+            return new ExternalCatalogSetup(Mockito.mock(HMSExternalCatalog.class), true);
+        }
+        return new ExternalCatalogSetup(Mockito.mock(IcebergExternalCatalog.class), false);
+    }
+
+    private static final class ExternalCatalogSetup {
+        private final org.apache.doris.datasource.ExternalCatalog catalog;
+        private final boolean hmsCatalog;
+
+        private ExternalCatalogSetup(org.apache.doris.datasource.ExternalCatalog catalog, boolean hmsCatalog) {
+            this.catalog = catalog;
+            this.hmsCatalog = hmsCatalog;
+        }
+
+        private void bindOperation(IcebergMetadataOps ops, IcebergCatalogResourceTracker tracker,
+                ExternalDatabase<?> retainedDb) {
+            if (hmsCatalog) {
+                HMSExternalCatalog hms = (HMSExternalCatalog) catalog;
+                Mockito.when(hms.beginIcebergCatalogOperation(ops))
+                        .thenAnswer(invocation -> tracker.beginOperation());
+                Mockito.doReturn(retainedDb).when(hms).getDbForIcebergCatalogOperation(ops, "db");
+            } else {
+                IcebergExternalCatalog iceberg = (IcebergExternalCatalog) catalog;
+                Mockito.when(iceberg.beginCatalogOperation(ops))
+                        .thenAnswer(invocation -> tracker.beginOperation());
+                Mockito.doReturn(retainedDb).when(iceberg).getDbForCatalogOperation(ops, "db");
+            }
+        }
+    }
 
     @Test
     public void testGetNamespaces() {
@@ -129,15 +432,18 @@ public class IcebergMetadataOpTest {
     public void testPerformCreateTableRespectsCatalogDefaultFormatVersion() throws Exception {
         Map<String, String> catalogProps = new HashMap<>();
         catalogProps.put(CatalogProperties.TABLE_DEFAULT_PREFIX + TableProperties.FORMAT_VERSION, "3");
+        catalogProps.put(IcebergExternalCatalog.ICEBERG_CATALOG_TYPE, IcebergExternalCatalog.ICEBERG_HMS);
         IcebergExternalCatalog dorisCatalog = mockHmsCatalog(catalogProps);
         Catalog icebergCatalog = Mockito.mock(Catalog.class,
                 Mockito.withSettings().extraInterfaces(SupportsNamespaces.class));
         IcebergMetadataOps ops = new IcebergMetadataOps(dorisCatalog, icebergCatalog);
+        Mockito.verify(dorisCatalog, Mockito.never()).getIcebergCatalogType();
+        catalogProps.put(CatalogProperties.TABLE_DEFAULT_PREFIX + TableProperties.FORMAT_VERSION, "1");
 
         ExternalDatabase<?> dorisDb = Mockito.mock(ExternalDatabase.class);
         Mockito.when(dorisDb.getRemoteName()).thenReturn("db");
         Mockito.when(dorisDb.getTableNullable("tbl")).thenReturn(null);
-        Mockito.doReturn(dorisDb).when(dorisCatalog).getDbNullable("db");
+        Mockito.doReturn(dorisDb).when(dorisCatalog).getDbForCatalogOperation(ops, "db");
         Mockito.when(dorisCatalog.getName()).thenReturn("iceberg_catalog");
         Mockito.when(icebergCatalog.tableExists(TableIdentifier.of("db", "tbl"))).thenReturn(false);
 
@@ -150,21 +456,24 @@ public class IcebergMetadataOpTest {
                 new Column("id", Type.INT, true)));
         Mockito.when(createTableInfo.getProperties()).thenReturn(tableProps);
 
-        ops.performCreateTable(createTableInfo);
+        ops.createTableImpl(createTableInfo);
 
+        Mockito.verify(dorisCatalog, Mockito.never()).getDbNullable(Mockito.anyString());
         Mockito.verify(createTableInfo).validateIcebergRowLineageColumns(3);
         ArgumentCaptor<Map<String, String>> propsCaptor = ArgumentCaptor.forClass(Map.class);
         Mockito.verify(icebergCatalog).createTable(Mockito.eq(TableIdentifier.of("db", "tbl")),
                 Mockito.any(Schema.class), Mockito.any(PartitionSpec.class), propsCaptor.capture());
         Assert.assertFalse(propsCaptor.getValue().containsKey(TableProperties.FORMAT_VERSION));
         Assert.assertEquals(3, IcebergUtils.getEffectiveIcebergFormatVersion(
-                propsCaptor.getValue(), catalogProps));
+                propsCaptor.getValue(), Collections.singletonMap(
+                        CatalogProperties.TABLE_DEFAULT_PREFIX + TableProperties.FORMAT_VERSION, "3")));
     }
 
     @Test
     public void testCreateDatabaseWithPropertiesForSupportedCatalogs() throws Exception {
         List<String> supportedCatalogTypes = Arrays.asList(
                 IcebergExternalCatalog.ICEBERG_HMS,
+                IcebergExternalCatalog.ICEBERG_HMS.toUpperCase(Locale.ROOT),
                 IcebergExternalCatalog.ICEBERG_JDBC,
                 IcebergExternalCatalog.ICEBERG_GLUE);
         for (String catalogType : supportedCatalogTypes) {
@@ -174,8 +483,8 @@ public class IcebergMetadataOpTest {
             SupportsNamespaces namespaceCatalog = (SupportsNamespaces) icebergCatalog;
             IcebergExternalCatalog dorisCatalog = Mockito.mock(IcebergExternalCatalog.class);
             Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {});
-            Mockito.when(dorisCatalog.getProperties()).thenReturn(Collections.emptyMap());
-            Mockito.when(dorisCatalog.getIcebergCatalogType()).thenReturn(catalogType);
+            Mockito.when(dorisCatalog.getProperties()).thenReturn(Collections.singletonMap(
+                    IcebergExternalCatalog.ICEBERG_CATALOG_TYPE, catalogType));
             Mockito.when(namespaceCatalog.namespaceExists(Namespace.of(dbName))).thenReturn(false);
             IcebergMetadataOps ops = new IcebergMetadataOps(dorisCatalog, icebergCatalog);
             Map<String, String> properties = Collections.singletonMap("owner", "doris");
@@ -190,6 +499,7 @@ public class IcebergMetadataOpTest {
     public void testCreateDatabaseWithLocationForSupportedCatalogs() throws Exception {
         List<String> supportedCatalogTypes = Arrays.asList(
                 IcebergExternalCatalog.ICEBERG_HMS,
+                IcebergExternalCatalog.ICEBERG_HMS.toUpperCase(Locale.ROOT),
                 IcebergExternalCatalog.ICEBERG_GLUE);
         for (String catalogType : supportedCatalogTypes) {
             String dbName = catalogType + "_location_db";
@@ -198,8 +508,8 @@ public class IcebergMetadataOpTest {
             SupportsNamespaces namespaceCatalog = (SupportsNamespaces) icebergCatalog;
             IcebergExternalCatalog dorisCatalog = Mockito.mock(IcebergExternalCatalog.class);
             Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {});
-            Mockito.when(dorisCatalog.getProperties()).thenReturn(Collections.emptyMap());
-            Mockito.when(dorisCatalog.getIcebergCatalogType()).thenReturn(catalogType);
+            Mockito.when(dorisCatalog.getProperties()).thenReturn(Collections.singletonMap(
+                    IcebergExternalCatalog.ICEBERG_CATALOG_TYPE, catalogType));
             Mockito.when(namespaceCatalog.namespaceExists(Namespace.of(dbName))).thenReturn(false);
             IcebergMetadataOps ops = new IcebergMetadataOps(dorisCatalog, icebergCatalog);
             Map<String, String> properties = Collections.singletonMap(
@@ -219,8 +529,8 @@ public class IcebergMetadataOpTest {
         SupportsNamespaces namespaceCatalog = (SupportsNamespaces) icebergCatalog;
         IcebergExternalCatalog dorisCatalog = Mockito.mock(IcebergExternalCatalog.class);
         Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {});
-        Mockito.when(dorisCatalog.getProperties()).thenReturn(Collections.emptyMap());
-        Mockito.when(dorisCatalog.getIcebergCatalogType()).thenReturn(IcebergExternalCatalog.ICEBERG_JDBC);
+        Mockito.when(dorisCatalog.getProperties()).thenReturn(Collections.singletonMap(
+                IcebergExternalCatalog.ICEBERG_CATALOG_TYPE, IcebergExternalCatalog.ICEBERG_JDBC));
         Mockito.when(namespaceCatalog.namespaceExists(Namespace.of(dbName))).thenReturn(false);
         IcebergMetadataOps ops = new IcebergMetadataOps(dorisCatalog, icebergCatalog);
         Map<String, String> properties = Collections.singletonMap(
@@ -250,8 +560,8 @@ public class IcebergMetadataOpTest {
             SupportsNamespaces namespaceCatalog = (SupportsNamespaces) icebergCatalog;
             IcebergExternalCatalog dorisCatalog = Mockito.mock(IcebergExternalCatalog.class);
             Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {});
-            Mockito.when(dorisCatalog.getProperties()).thenReturn(Collections.emptyMap());
-            Mockito.when(dorisCatalog.getIcebergCatalogType()).thenReturn(catalogType);
+            Mockito.when(dorisCatalog.getProperties()).thenReturn(Collections.singletonMap(
+                    IcebergExternalCatalog.ICEBERG_CATALOG_TYPE, catalogType));
             Mockito.when(namespaceCatalog.namespaceExists(Namespace.of(dbName))).thenReturn(false);
             IcebergMetadataOps ops = new IcebergMetadataOps(dorisCatalog, icebergCatalog);
             Map<String, String> properties = Collections.singletonMap("owner", "doris");
@@ -271,7 +581,6 @@ public class IcebergMetadataOpTest {
         Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
         });
         Mockito.when(dorisCatalog.getProperties()).thenReturn(catalogProperties);
-        Mockito.when(dorisCatalog.getIcebergCatalogType()).thenReturn(IcebergExternalCatalog.ICEBERG_HMS);
         Mockito.when(dorisCatalog.getCatalogProperty()).thenReturn(new CatalogProperty(null, Collections.emptyMap()));
         return dorisCatalog;
     }

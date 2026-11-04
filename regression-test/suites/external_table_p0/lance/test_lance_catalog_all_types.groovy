@@ -29,7 +29,9 @@ suite("test_lance_catalog_all_types","p0,external") {
     String catalogName = "test_lance_catalog_all_types"
     String databaseName = "default"
     String tableName = "all_types"
-    String unsupported = "unknown type: UNSUPPORTED_TYPE"
+    def scannerV2Rows = sql """SHOW VARIABLES LIKE 'enable_file_scanner_v2'"""
+    assertEquals(1, scannerV2Rows.size())
+    String originalScannerV2 = scannerV2Rows[0][1].toString()
 
     /*
      * Lance/Arrow to Doris type mapping exercised by this fixture:
@@ -38,7 +40,7 @@ suite("test_lance_catalog_all_types","p0,external") {
      *
      * | Lance / Arrow type | Doris DESC type | Status / notes |
      * |---|---|---|
-     * | null | UNSUPPORTED | Unsupported |
+     * | null | null_type | Supported; every value is SQL NULL |
      * | bool | boolean | Supported |
      * | int8 | tinyint | Supported |
      * | uint8 | smallint | Supported by lossless widening |
@@ -65,7 +67,7 @@ suite("test_lance_catalog_all_types","p0,external") {
      * | timestamp(ms) | datetime(3) | Supported |
      * | timestamp(us/ns) | datetime(6) | Nanoseconds are truncated to microseconds |
      * | timestamp(us, UTC) | timestamptz(6) | UTC instant; rendered in the Doris session timezone |
-     * | duration(s/ms/us/ns) | UNSUPPORTED | Unsupported |
+     * | duration(s/ms/us/ns) | bigint | Exact signed count in the Arrow field's declared unit |
      * | struct | struct<...> | Child types are converted recursively |
      * | list / large_list / fixed_size_list | array<...> | Item type is converted recursively |
      * | fixed_size_list<uint8> | array<smallint> | Item type is widened recursively |
@@ -73,8 +75,8 @@ suite("test_lance_catalog_all_types","p0,external") {
      * | map | map<...,...> | Key/value types are converted recursively |
      * | dictionary<int16, utf8> | smallint | SDK currently exposes only the physical index type |
      * | Lance Blob v2 | UNSUPPORTED | Blob materialization is not implemented |
-     * | Arrow JSON extension | UNSUPPORTED | JSON extension decoding is not implemented |
-     * | fixed_size_list<Lance BFloat16> | UNSUPPORTED | BFloat16 decoding is not implemented |
+     * | Arrow JSON extension | json | Returned as Doris JSON |
+     * | fixed_size_list<Lance BFloat16> | array<float> | BFloat16 values are widened exactly |
      *
      * Dataset.getSchema() preserves extension metadata for Blob, JSON, and BFloat16,
      * allowing Doris to reject them without interpreting their physical storage.
@@ -85,6 +87,7 @@ suite("test_lance_catalog_all_types","p0,external") {
 
     sql """DROP CATALOG IF EXISTS `${catalogName}`"""
     try {
+        sql """SET enable_file_scanner_v2 = true"""
         sql """
             CREATE CATALOG `${catalogName}` PROPERTIES (
                 "type" = "lance",
@@ -126,6 +129,20 @@ suite("test_lance_catalog_all_types","p0,external") {
             where row_id = 1;
         """
 
+        // Verify both schema mappings and values for the additional Lance types.
+        qt_additional_lance_types """
+            SELECT
+                null_col IS NULL AS null_is_null,
+                duration_s_col,
+                duration_ms_col,
+                duration_us_col,
+                duration_ns_col,
+                CAST(json_col AS STRING) AS json_col,
+                bfloat16_vector_col
+            FROM `${catalogName}`.`${databaseName}`.`${tableName}`
+            WHERE row_id = 1
+        """
+
         def timestampRows = sql """
             SELECT timestamp_us_col, timestamp_us_utc_col
             FROM `${catalogName}`.`${databaseName}`.`${tableName}`
@@ -145,6 +162,7 @@ suite("test_lance_catalog_all_types","p0,external") {
         assertEquals("2026-07-28 12:34:56.123456+00:00", timestampRows[0][1].toString())
 
     } finally {
+        sql """SET enable_file_scanner_v2 = ${originalScannerV2}"""
         // sql """DROP CATALOG IF EXISTS `${catalogName}`"""
     }
 }

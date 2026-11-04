@@ -59,6 +59,15 @@ public interface HMSCachedClient {
 
     List<Partition> getPartitions(String dbName, String tblName, List<String> partitionNames);
 
+    /**
+     * Gets the subset of the requested partitions that exist. Unlike {@link #getPartitions}, a name the
+     * metastore no longer has is a normal answer and is simply absent from the result. The compatibility
+     * default preserves implementations whose {@code getPartitions} already returns only what exists.
+     */
+    default List<Partition> getExistingPartitions(String dbName, String tblName, List<String> partitionNames) {
+        return getPartitions(dbName, tblName, partitionNames);
+    }
+
     Table getTable(String dbName, String tblName);
 
     List<FieldSchema> getSchema(String dbName, String tblName);

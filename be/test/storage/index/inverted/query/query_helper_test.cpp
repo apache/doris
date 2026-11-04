@@ -52,6 +52,23 @@ private:
     float _score_value;
 };
 
+class RecordingSimilarity : public doris::segment_v2::Similarity {
+public:
+    MOCK_FUNCTION void for_one_term(const IndexQueryContextPtr&, const std::wstring&,
+                                    const std::wstring&) override {}
+    MOCK_FUNCTION void for_terms(const IndexQueryContextPtr&, const std::wstring&,
+                                 const std::vector<std::wstring>&) override {}
+    MOCK_FUNCTION float score(float freq, int64_t encoded_norm) override {
+        last_freq = freq;
+        last_norm = encoded_norm;
+        return freq;
+    }
+    MOCK_FUNCTION float max_score() override { return 1.0F; }
+
+    float last_freq = 0;
+    int64_t last_norm = 0;
+};
+
 class MockTermIterator : public TermIterator {
 public:
     MockTermIterator(int32_t freq_val, int32_t norm_val) : _freq(freq_val), _norm(norm_val) {}
@@ -178,6 +195,52 @@ TEST_F(QueryHelperTest, CollectMany) {
     ASSERT_TRUE(_context->collection_similarity->_bm25_scores.count(10) > 0);
     ASSERT_TRUE(_context->collection_similarity->_bm25_scores.count(20) > 0);
     ASSERT_TRUE(_context->collection_similarity->_bm25_scores.count(30) > 0);
+}
+
+TEST_F(QueryHelperTest, CollectManyWithoutPostingsStatistics) {
+    SimilarityPtr similarity = std::make_unique<RecordingSimilarity>();
+    auto* recording = static_cast<RecordingSimilarity*>(similarity.get());
+    DocRange doc_range;
+    doc_range.type_ = DocRangeType::kMany;
+    doc_range.doc_many_size_ = 1;
+    std::vector<uint32_t> docs {10};
+    std::vector<uint32_t> norms {0};
+    doc_range.doc_many = &docs;
+    doc_range.norm_many = &norms;
+
+    QueryHelper::collect_many(_context, similarity, doc_range);
+
+    EXPECT_FLOAT_EQ(recording->last_freq, 1.0F);
+    EXPECT_EQ(recording->last_norm, 1);
+    EXPECT_FLOAT_EQ(_context->collection_similarity->_bm25_scores.at(10), 1.0F);
+}
+
+TEST_F(QueryHelperTest, CollectRangeWithoutPostingsStatistics) {
+    SimilarityPtr similarity = std::make_unique<RecordingSimilarity>();
+    auto* recording = static_cast<RecordingSimilarity*>(similarity.get());
+    DocRange doc_range;
+    doc_range.type_ = DocRangeType::kRange;
+    doc_range.doc_range = std::make_pair(10, 11);
+
+    QueryHelper::collect_range(_context, similarity, doc_range);
+
+    EXPECT_FLOAT_EQ(recording->last_freq, 1.0F);
+    EXPECT_EQ(recording->last_norm, 1);
+    EXPECT_FLOAT_EQ(_context->collection_similarity->_bm25_scores.at(10), 1.0F);
+}
+
+TEST_F(QueryHelperTest, CollectSingleTermWithoutPostingsStatistics) {
+    std::vector<SimilarityPtr> similarities;
+    similarities.push_back(std::make_unique<RecordingSimilarity>());
+    auto* recording = static_cast<RecordingSimilarity*>(similarities.front().get());
+    std::vector<TermIterPtr> iterators;
+    iterators.push_back(std::make_shared<MockTermIterator>(0, 0));
+
+    QueryHelper::collect(_context, similarities, iterators, 10);
+
+    EXPECT_FLOAT_EQ(recording->last_freq, 1.0F);
+    EXPECT_EQ(recording->last_norm, 1);
+    EXPECT_FLOAT_EQ(_context->collection_similarity->_bm25_scores.at(10), 1.0F);
 }
 
 TEST_F(QueryHelperTest, CollectManyWithZeroSize) {

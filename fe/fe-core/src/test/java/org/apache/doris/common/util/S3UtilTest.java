@@ -20,6 +20,9 @@ package org.apache.doris.common.util;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.nio.file.FileSystems;
+import java.nio.file.PathMatcher;
+import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.List;
 
@@ -108,9 +111,9 @@ public class S3UtilTest {
 
     @Test
     public void testExtendGlobNumberRange_invalidCharacters() {
-        // Test invalid characters {Refrain,1..3}
+        // Preserve literal file names alongside numeric ranges.
         String input = "file_{Refrain,1..3}.csv";
-        String expected = "file_{1,2,3}.csv";
+        String expected = "file_{Refrain,1,2,3}.csv";
         String result = S3Util.extendGlobNumberRange(input);
         Assert.assertEquals(expected, result);
     }
@@ -222,6 +225,54 @@ public class S3UtilTest {
         String expected = "data_{2,3,4,6}.csv";
         String result = S3Util.extendGlobNumberRange(input);
         Assert.assertEquals(expected, result);
+    }
+
+    @Test
+    public void testExtendGlobNumberRange_preservesPaddedValues() {
+        for (String pattern : Arrays.asList("base/day/001", "base/day/{001}",
+                "base/day/{001,002}", "base/day/{001,1}", "base/day/{2147483648}")) {
+            Assert.assertEquals(pattern, S3Util.extendGlobs(pattern));
+        }
+        Assert.assertEquals("base/day/{001,1,2}",
+                S3Util.extendGlobs("base/day/{001,1..2}"));
+    }
+
+    @Test
+    public void testExtendGlobNumberRange_matchesPaddedFileNames() {
+        PathMatcher matcher = FileSystems.getDefault().getPathMatcher(
+                "glob:" + S3Util.extendGlobs("base/day/{001,002}"));
+        Assert.assertTrue(matcher.matches(Paths.get("base/day/001")));
+        Assert.assertTrue(matcher.matches(Paths.get("base/day/002")));
+        Assert.assertFalse(matcher.matches(Paths.get("base/day/1")));
+        Assert.assertFalse(matcher.matches(Paths.get("base/day/2")));
+    }
+
+    @Test
+    public void testExtendGlobNumberRange_preservesDistinctHeadPaths() {
+        Assert.assertEquals(Arrays.asList("base/day/001", "base/day/1"),
+                S3Util.expandBracePatterns(S3Util.extendGlobs("base/day/{001,1,001,1}")));
+        Assert.assertEquals(Arrays.asList("base/day/1"),
+                S3Util.expandBracePatterns(S3Util.extendGlobs("base/day/{1,1}")));
+    }
+
+    @Test
+    public void testExtendGlobNumberRange_preservesMixedFileNames() {
+        Assert.assertEquals("base/day/{001,abc}", S3Util.extendGlobs("base/day/{001,abc}"));
+        Assert.assertEquals("base/day/{abc,1,2}", S3Util.extendGlobs("base/day/{abc,1..2}"));
+        Assert.assertEquals(Arrays.asList("base/day/001", "base/day/abc.csv"),
+                S3Util.expandBracePatterns(S3Util.extendGlobs("base/day/{001,abc.csv,001,abc.csv}")));
+        PathMatcher matcher = FileSystems.getDefault().getPathMatcher(
+                "glob:" + S3Util.extendGlobs("base/day/{001,abc.csv}"));
+        Assert.assertTrue(matcher.matches(Paths.get("base/day/001")));
+        Assert.assertTrue(matcher.matches(Paths.get("base/day/abc.csv")));
+    }
+
+    @Test
+    public void testExtendGlobNumberRange_preservesLiteralCharacters() {
+        for (String pattern : Arrays.asList("base/day/{001,$file}", "base/day/{001,\\file}",
+                "base/day/{001, abc }", "base/day/{abc,}", "base/day/{$file}")) {
+            Assert.assertEquals(pattern, S3Util.extendGlobs(pattern));
+        }
     }
 
     @Test

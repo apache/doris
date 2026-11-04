@@ -237,6 +237,11 @@ qt_sql204 """ select cast('9999-12-31 23:59:59.999999 +00:00' as datetime(6)) ""
 testFoldConst("select cast('9999-12-31 23:59:59.999999 +00:00' as datetime(6))")
 qt_sql205 """ select cast('0000-01-01 00:00:00+12:00' as datetime(6)); """
 testFoldConst("select cast('0000-01-01 00:00:00+12:00' as datetime(6));")
+testFoldConst("select cast('9999-12-31 23:59:59.999999' as date), "
+        + "cast('9999-12-31 23:59:59.999999' as datev2)")
+waitUntilSafeExecutionTime("NOT_CROSS_DAY_BOUNDARY", 2)
+testFoldConst("select cast(cast('-00:00:01' as time(0)) as datetime(0)), "
+        + "cast(cast('-00:00:01' as time(0)) as datetimev2(0))")
 
     sql "set debug_skip_fold_constant = false"
 

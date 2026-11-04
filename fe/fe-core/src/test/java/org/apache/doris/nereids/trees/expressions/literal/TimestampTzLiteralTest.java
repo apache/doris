@@ -17,8 +17,15 @@
 
 package org.apache.doris.nereids.trees.expressions.literal;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.types.CharType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TimeStampTzType;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
@@ -439,5 +446,37 @@ class TimestampTzLiteralTest {
         Assertions.assertEquals(0, literal.minute);
         Assertions.assertEquals(0, literal.second);
         Assertions.assertEquals(0, literal.microSecond);
+    }
+
+    @Test
+    void testStringCastLocalYearBounds() {
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            for (boolean upper : new boolean[] {false, true}) {
+                TimestampTzLiteral literal = upper
+                        ? new TimestampTzLiteral(TimeStampTzType.of(6), 9999, 12, 31, 23, 59, 59, 999999)
+                        : new TimestampTzLiteral(TimeStampTzType.of(6), 0, 1, 1, 0, 0, 0, 0);
+                context.getSessionVariable().setTimeZone(upper ? "+08:00" : "-08:00");
+                for (boolean strict : new boolean[] {false, true}) {
+                    context.getSessionVariable().enableStrictCast = strict;
+                    for (DataType target : new DataType[] {
+                            StringType.INSTANCE, VarcharType.createVarcharType(64), CharType.createCharType(64)}) {
+                        Assertions.assertThrows(AnalysisException.class, () -> literal.checkedCastTo(target));
+                        Cast cast = new Cast(literal, target);
+                        // Defer to BE instead of folding a value whose local year cannot be displayed.
+                        Assertions.assertEquals(cast, FoldConstantRuleOnFE.evaluate(cast, null));
+                    }
+                }
+                context.getSessionVariable().setTimeZone("UTC");
+                Cast validCast = new Cast(literal, StringType.INSTANCE);
+                Expression folded = FoldConstantRuleOnFE.evaluate(validCast, null);
+                Assertions.assertInstanceOf(StringLiteral.class, folded);
+                Assertions.assertEquals(upper ? "9999-12-31 23:59:59.999999+00:00"
+                        : "0000-01-01 00:00:00.000000+00:00", ((StringLiteral) folded).getStringValue());
+            }
+        } finally {
+            ConnectContext.remove();
+        }
     }
 }

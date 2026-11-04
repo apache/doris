@@ -20,6 +20,7 @@
 #include "common/phdr_cache.h"
 
 #include <dlfcn.h>
+#include <gtest/gtest.h>
 #include <link.h>
 
 #include <cstdlib>
@@ -62,6 +63,31 @@ std::string test_dso_path() {
 
 } // namespace
 
+#if defined(ADDRESS_SANITIZER)
+TEST(PhdrCacheDeathTest, FailedSymbolLookupsWithSlowUnwinding) {
+    const char* asan_options = std::getenv("ASAN_OPTIONS");
+    const bool had_options = asan_options != nullptr;
+    const std::string saved_options = had_options ? asan_options : "";
+    const std::string child_options = saved_options + ":fast_unwind_on_malloc=0:disable_coredump=1";
+    ASSERT_EQ(0, setenv("ASAN_OPTIONS", child_options.c_str(), 1));
+
+    // Re-exec so ASAN reads the slow-unwind option before initializing the child process.
+    ::testing::FLAGS_gtest_death_test_style = "threadsafe";
+    EXPECT_EXIT(
+            {
+                // Do not consume dlerror() between lookups: the second dlsym must free the
+                // first lookup's error string while ASAN collects the free stack trace.
+                void* first = dlsym(RTLD_DEFAULT, "doris_phdr_cache_missing_symbol_one");
+                void* second = dlsym(RTLD_DEFAULT, "doris_phdr_cache_missing_symbol_two");
+                std::_Exit(static_cast<int>(first != nullptr || second != nullptr));
+            },
+            ::testing::ExitedWithCode(0), "");
+
+    EXPECT_EQ(0, had_options ? setenv("ASAN_OPTIONS", saved_options.c_str(), 1)
+                             : unsetenv("ASAN_OPTIONS"));
+}
+#endif
+
 // Covers the exact late-dlopen risk of PHDR caching. Normal callers of dl_iterate_phdr must keep
 // seeing the live loader list, while the stack-trace signal handler can explicitly opt in to the
 // cached snapshot to avoid re-entering glibc's loader lock from an interrupted thread.
@@ -84,8 +110,13 @@ TEST(PhdrCacheTest, DefaultLoaderViewIsLiveWhileScopedViewUsesSnapshot) {
 
     {
         ScopedPHDRCacheRead cache_scope;
+#if defined(ADDRESS_SANITIZER)
+        EXPECT_TRUE(phdr_contains_test_dso())
+                << "ASAN must use the live loader list even inside a cache scope";
+#else
         EXPECT_FALSE(phdr_contains_test_dso())
                 << "scoped PHDR cache should read the pre-dlopen snapshot";
+#endif
     }
     EXPECT_FALSE(unwind_phdr_cache_contains_test_dso(reinterpret_cast<uintptr_t>(marker)))
             << "libunwind PHDR hook should also read the pre-dlopen snapshot";

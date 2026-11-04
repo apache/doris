@@ -17,18 +17,38 @@
 
 package org.apache.doris.nereids.trees.expressions.literal;
 
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.rules.expression.check.CheckCast;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.FileType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.VarBinaryType;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class StructLiteralTest {
+
+    @Test
+    public void testFilePublicStructLiteralTranslation() {
+        byte[] inline = {0, (byte) 0xff, (byte) 0x80};
+        for (Literal content : ImmutableList.of(new VarBinaryLiteral(inline),
+                new NullLiteral(VarBinaryType.INSTANCE))) {
+            StructLiteral literal = new StructLiteral(ImmutableList.of(new StringLiteral("urn:x"),
+                    new NullLiteral(BigIntType.INSTANCE), new NullLiteral(BigIntType.INSTANCE),
+                    new NullLiteral(StringType.INSTANCE), new NullLiteral(StringType.INSTANCE), content),
+                    FileType.INSTANCE.publicStructType());
+            LiteralExpr translated = literal.toLegacyLiteral();
+            Assertions.assertEquals(literal.getDataType().toCatalogDataType(), translated.getType());
+            Assertions.assertEquals(6, translated.getChildren().size());
+            Assertions.assertEquals(content.toLegacyLiteral(), translated.getChild(5));
+            Assertions.assertDoesNotThrow(translated::treeToThrift);
+        }
+    }
 
     @Test
     public void testInferFieldNullabilityForRequiredTarget() {

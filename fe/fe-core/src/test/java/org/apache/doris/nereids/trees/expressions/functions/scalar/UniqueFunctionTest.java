@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -97,6 +98,18 @@ class UniqueFunctionTest extends SqlTestBase {
         Assertions.assertNotEquals(uuidNum, new UuidNumeric());
         Assertions.assertEquals(uuidNum.withIgnoreUniqueId(true), new UuidNumeric().withIgnoreUniqueId(true));
         Assertions.assertEquals(uuidNum, uuidNum.withChildren());
+
+        ArrayLiteral array = new ArrayLiteral(ImmutableList.of(new BigIntLiteral(1L), new BigIntLiteral(2L)));
+        ArrayShuffle shuffle1 = new ArrayShuffle(array);
+        ArrayShuffle shuffle2 = new ArrayShuffle(array, new BigIntLiteral(10L));
+        Assertions.assertNotEquals(shuffle1, new ArrayShuffle(array));
+        Assertions.assertEquals(shuffle1.withIgnoreUniqueId(true), new ArrayShuffle(array).withIgnoreUniqueId(true));
+        Assertions.assertEquals(shuffle1, shuffle1.withChildren(array));
+        Assertions.assertEquals(shuffle1, shuffle1.withChildren(array, new BigIntLiteral(10L))); // only compare unique id
+        Assertions.assertNotEquals(shuffle2, new ArrayShuffle(array, new BigIntLiteral(10L)));
+        Assertions.assertEquals(shuffle2.withIgnoreUniqueId(true),
+                new ArrayShuffle(array, new BigIntLiteral(10L)).withIgnoreUniqueId(true));
+        Assertions.assertEquals(shuffle2, shuffle2.withChildren(array, new BigIntLiteral(10L)));
     }
 
     @Test

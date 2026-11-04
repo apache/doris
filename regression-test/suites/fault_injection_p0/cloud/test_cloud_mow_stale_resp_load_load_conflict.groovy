@@ -15,10 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import java.util.concurrent.atomic.AtomicReference
+
+import org.apache.doris.regression.util.Http
+
 suite("test_cloud_mow_stale_resp_load_load_conflict", "nonConcurrent") {
     if (!isCloudMode()) {
         return
     }
+
+    // A previous fault-injection suite may have failed during cleanup. Clear points before
+    // table creation as well, because stale load hooks can affect the setup inserts below.
+    GetDebugPoint().clearDebugPointsForAllFEs()
+    GetDebugPoint().clearDebugPointsForAllBEs()
 
     def customFeConfig = [
         delete_bitmap_lock_expiration_seconds : 10,
@@ -46,42 +55,86 @@ suite("test_cloud_mow_stale_resp_load_load_conflict", "nonConcurrent") {
         sql "sync;"
         order_qt_sql "select * from ${table1};"
 
+        Thread firstLoadThread = null
+        def firstLoadError = new AtomicReference<Throwable>()
         try {
             GetDebugPoint().clearDebugPointsForAllFEs()
             GetDebugPoint().clearDebugPointsForAllBEs()
 
-            // block the first load
-            GetDebugPoint().enableDebugPointForAllBEs("BaseTablet::update_delete_bitmap.enable_spin_wait", [token: "token1"])
-            GetDebugPoint().enableDebugPointForAllBEs("BaseTablet::update_delete_bitmap.block", [wait_token: "token1"])
+            def tablets = sql_return_maparray("show tablets from ${table1};")
+            assertEquals(1, tablets.size())
+            def tabletId = tablets[0].TabletId
+            def backends = sql_return_maparray("show backends;").findAll {
+                it.Alive.toString().equalsIgnoreCase("true")
+            }
+            assertFalse(backends.isEmpty(), "no alive backend")
+            def getActiveCalcTasks = {
+                long activeTasks = 0
+                backends.each { be ->
+                    def conn = Http.openConnection("http://${be.Host}:${be.BrpcPort}/brpc_metrics")
+                    conn.connectTimeout = 5000
+                    conn.readTimeout = 5000
+                    def metrics = conn.inputStream.getText('UTF-8')
+                    def matcher = metrics =~ /(?m)^task_calculate_delete_bitmap\s+(\d+)$/
+                    assert matcher.find() : "task_calculate_delete_bitmap not found on ${be.Host}:${be.BrpcPort}"
+                    activeTasks += matcher.group(1).toLong()
+                }
+                return activeTasks
+            }
+            long activeCalcTasks = getActiveCalcTasks()
+            def firstLoadLabel = "stale_resp_first_${UUID.randomUUID().toString().replaceAll('-', '')}"
 
-            // the first load
-            def t1 = Thread.start {
-                sql "insert into ${table1} values(1,999,999),(2,888,888);"
+            // Block after calculation releases the BE tablet's rowset-update lock. Blocking
+            // inside update_delete_bitmap would prevent the second load from calculating at all.
+            GetDebugPoint().enableDebugPointForAllBEs(
+                    "CloudTabletCalcDeleteBitmapTask.handle.block_after_calc",
+                    [tablet_id: "${tabletId}", timeout: "90"])
+            firstLoadThread = Thread.start {
+                try {
+                    sql "insert into ${table1} with label `${firstLoadLabel}` values(1,999,999),(2,888,888);"
+                } catch (Throwable t) {
+                    firstLoadError.set(t)
+                }
             }
 
-            // wait util the first load's delete bitmap update lock expired
-            // to ensure that the second load can take the delete bitmap update lock
-            // Config.delete_bitmap_lock_expiration_seconds = 10s
-            def timeout = getFeConfig("delete_bitmap_lock_expiration_seconds").toInteger() + 2;
-            Thread.sleep(timeout * 1000)
-
-            // the second load
-            GetDebugPoint().enableDebugPointForAllBEs("BaseTablet::update_delete_bitmap.enable_spin_wait", [token: "token2"])
-            Thread.sleep(200)
+            // Queue the second load only after the first has started calculation under the FE
+            // commit lock. Its 15-second wait exceeds the 10-second MS lock expiration.
+            awaitUntil(30, 0.1) {
+                if (firstLoadError.get() != null) {
+                    throw firstLoadError.get()
+                }
+                getActiveCalcTasks() > activeCalcTasks
+            }
+            def firstLoadTxns = sql_return_maparray("show transaction where label = '${firstLoadLabel}';")
+            assertEquals(1, firstLoadTxns.size())
+            def firstLoadTxnId = firstLoadTxns[0].TransactionId
+            // Keep the original task blocked, and block its retries as well, while letting
+            // other transactions calculate and respond on whichever BE serves the tablet.
+            GetDebugPoint().enableDebugPointForAllBEs(
+                    "CloudTabletCalcDeleteBitmapTask.handle.block_after_calc",
+                    [tablet_id: "${tabletId}", transaction_id: "${firstLoadTxnId}", timeout: "90"])
 
             sql "insert into ${table1}(k1,c1,c2) values(1,666,666),(2,555,555);"
 
             order_qt_sql "select * from ${table1};"
 
 
-            // keep waiting util the delete bitmap calculation timeout(Config.calculate_delete_bitmap_task_timeout_seconds = 15s)
-            // and the coordinator BE will retry to commit the first load's txn
-            timeout = getFeConfig("calculate_delete_bitmap_task_timeout_seconds").toInteger() + 2;
-            Thread.sleep(timeout * 1000)
-
-            // let the first partial update load finish
-            GetDebugPoint().enableDebugPointForAllBEs("BaseTablet::update_delete_bitmap.block")
-            t1.join()
+            // Keep both the stale response and a retry in flight before releasing the hook.
+            // This suite is nonConcurrent; the blocked first task remains in the active count.
+            awaitUntil(30, 0.1) {
+                if (firstLoadError.get() != null) {
+                    throw firstLoadError.get()
+                }
+                getActiveCalcTasks() >= activeCalcTasks + 2
+            }
+            assertTrue(firstLoadThread.isAlive(), "first load must remain blocked before releasing responses")
+            GetDebugPoint().disableDebugPointForAllBEs(
+                    "CloudTabletCalcDeleteBitmapTask.handle.block_after_calc")
+            firstLoadThread.join(60000)
+            assertFalse(firstLoadThread.isAlive(), "the first load did not finish after releasing the delayed responses")
+            if (firstLoadError.get() != null) {
+                throw firstLoadError.get()
+            }
 
             Thread.sleep(1000)
 
@@ -92,6 +145,10 @@ suite("test_cloud_mow_stale_resp_load_load_conflict", "nonConcurrent") {
             throw e
         } finally {
             GetDebugPoint().clearDebugPointsForAllBEs()
+            if (firstLoadThread != null && firstLoadThread.isAlive()) {
+                firstLoadThread.join(60000)
+                assertFalse(firstLoadThread.isAlive(), "first load did not exit after clearing debug points")
+            }
         }
 
         sql "DROP TABLE IF EXISTS ${table1};"

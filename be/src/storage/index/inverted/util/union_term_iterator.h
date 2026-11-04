@@ -142,10 +142,9 @@ public:
 
     int32_t doc_freq() const { return _cost; }
 
-    int32_t norm() const {
-        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                        "UnionTermIterator does not support scoring");
-    }
+    // The norm belongs to the document, so the sub-iterator positioned on it reports the same one
+    // as any other.
+    int32_t norm() const { return _docs_queue->top()->norm(); }
 
 private:
     int32_t _cost = 0;

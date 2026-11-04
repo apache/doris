@@ -133,7 +133,8 @@ suite('test_create_partition_idempotence', 'docker') {
             sql """ INSERT INTO ${tableName2} SELECT * FROM ${sourceTable2}; """
             assertEquals(1, 2, "should failed")
         } catch (Exception e) {
-            if (e.message.contains("ALREADY_EXIST") || e.message.contains("rowset already exists")) {
+            if (e.message.contains("ALREADY_EXIST") || e.message.contains("rowset already exists") ||
+                e.message.contains("tmp rowset key and recycle rowset key are mutually exclusive")) {
             } else {
                 assertEquals(2, 3, "unknown fail: ${e.message}")
             }

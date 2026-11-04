@@ -18,8 +18,8 @@
 // This test runs all 22 TPC-H queries on MOR (Merge-On-Read) unique key tables
 // with read_mor_as_dup_tables enabled, and compares the results against actual
 // DUPLICATE KEY tables loaded with the same data (loaded twice).
-// MOR tables with read_mor_as_dup should produce identical results to DUP tables
-// since both skip merge and expose all row versions.
+// MOR tables with read_mor_as_dup should produce identical results to DUP tables.
+// The dedicated MOR tables disable compaction to preserve both loaded versions.
 
 suite("test_read_mor_as_dup") {
     sql "SET query_timeout = 1800"
@@ -34,9 +34,13 @@ suite("test_read_mor_as_dup") {
         def queryName = queryFile.name.replace('.sql', '')
         def querySql = queryFile.text
 
-        // Run on MOR tables with read_mor_as_dup_tables enabled
+        // Run on the dedicated MOR tables with read_mor_as_dup_tables enabled
+        def morSql = querySql
+        for (def tbl : tableNames) {
+            morSql = morSql.replaceAll("\\b${tbl}\\b", "${tbl}_mor_as_dup")
+        }
         sql "SET read_mor_as_dup_tables = '*'"
-        def morResult = sql querySql
+        def morResult = sql morSql
 
         // Run the same query on actual DUP tables (replace table names with _dup suffix)
         sql "SET read_mor_as_dup_tables = ''"

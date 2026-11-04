@@ -27,6 +27,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstring>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -68,6 +69,10 @@ struct Array : public FieldVector {
 };
 
 struct Struct : public FieldVector {
+    using FieldVector::FieldVector;
+};
+
+struct File : public FieldVector {
     using FieldVector::FieldVector;
 };
 
@@ -191,13 +196,15 @@ public:
     Field(PrimitiveType w) : type(w) {}
     template <PrimitiveType T>
     static Field create_field(const typename PrimitiveTypeTraits<T>::CppType& data) {
-        auto f = Field(T);
+        // Publish the type only after construction succeeds, so allocation failures cannot
+        // destroy uninitialized owned storage (including long binary values).
+        auto f = Field();
         f.template create_concrete<T>(data);
         return f;
     }
     template <PrimitiveType T>
     static Field create_field(typename PrimitiveTypeTraits<T>::CppType&& data) {
-        auto f = Field(T);
+        auto f = Field();
         f.template create_concrete<T>(std::move(data));
         return f;
     }
@@ -236,13 +243,15 @@ public:
 
     bool is_complex_field() const {
         return type == PrimitiveType::TYPE_ARRAY || type == PrimitiveType::TYPE_MAP ||
-               type == PrimitiveType::TYPE_STRUCT || type == PrimitiveType::TYPE_VARIANT;
+               type == PrimitiveType::TYPE_STRUCT || type == PrimitiveType::TYPE_VARIANT ||
+               type == PrimitiveType::TYPE_FILE;
     }
 
     Field& operator=(Field&& rhs) {
         if (this != &rhs) {
             if (type != rhs.type) {
                 destroy();
+                type = TYPE_NULL;
                 create(std::move(rhs));
             } else {
                 assign(std::move(rhs));
@@ -294,8 +303,8 @@ public:
 
 private:
     std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(PrimitiveType), Null, UInt64, UInt128, Int64,
-                         Int128, IPv6, Float64, String, JsonbField, StringView, Array, Struct, Map,
-                         VariantField, Decimal32, Decimal64, DecimalV2Value, Decimal128V3,
+                         Int128, IPv6, Float64, String, JsonbField, StringView, Array, Struct, File,
+                         Map, VariantField, Decimal32, Decimal64, DecimalV2Value, Decimal128V3,
                          Decimal256, BitmapValue, HyperLogLog, QuantileState>
             storage;
 

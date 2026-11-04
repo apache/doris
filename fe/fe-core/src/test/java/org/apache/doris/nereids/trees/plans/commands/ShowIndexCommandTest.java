@@ -30,7 +30,7 @@ import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.lance.LanceExternalCatalog;
 import org.apache.doris.datasource.lance.LanceExternalDatabase;
-import org.apache.doris.datasource.lance.LanceLogicalIndex;
+import org.apache.doris.datasource.lance.index.LanceShowIndexInfo;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
@@ -136,7 +136,7 @@ public class ShowIndexCommandTest extends TestWithFeService {
 
     @Test
     void testBuildLanceRowsMapsAllThirteenColumns() {
-        LanceLogicalIndex index = new LanceLogicalIndex(
+        LanceShowIndexInfo index = new LanceShowIndexInfo(
                 "VectorIndex", Collections.singletonList("embedding"), "IVF_PQ",
                 "{\"metric_type\":\"cosine\"}");
 
@@ -152,11 +152,11 @@ public class ShowIndexCommandTest extends TestWithFeService {
 
     @Test
     void testBuildLanceRowsExpandsCompositeIndexWithoutReorderingInput() {
-        LanceLogicalIndex first = new LanceLogicalIndex(
+        LanceShowIndexInfo first = new LanceShowIndexInfo(
                 "z_index", Arrays.asList("first", "second", "third"), "BTREE", "{}");
-        LanceLogicalIndex second = new LanceLogicalIndex(
+        LanceShowIndexInfo second = new LanceShowIndexInfo(
                 "a_index", Collections.singletonList("fourth"), "BITMAP", "{}");
-        List<LanceLogicalIndex> indexes = Lists.newArrayList(first, second);
+        List<LanceShowIndexInfo> indexes = Lists.newArrayList(first, second);
 
         List<List<String>> rows = ShowIndexCommand.buildLanceRows("events", indexes);
 

@@ -286,7 +286,12 @@ Status IndexBuilder::update_inverted_index_info() {
                             st = Status::Error<ErrorCode::INIT_FAILED>(
                                     "debug point: reader init error");
                         })
-                if (!st.ok() && !st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) {
+                // A missing container (the rowset predates every index) and an
+                // empty one (the schema owns an index, but no logical index had
+                // anything to write) both mean there is nothing to carry over.
+                // In both cases every requested index is built from the raw columns.
+                if (!st.ok() && !st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>() &&
+                    !st.is<ErrorCode::INVERTED_INDEX_BYPASS>()) {
                     return st;
                 }
                 _index_file_readers.emplace(
@@ -339,8 +344,19 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
 
     if (_is_drop_op) {
         const auto& output_rs_tablet_schema = output_rowset_meta->tablet_schema();
-        if (output_rs_tablet_schema->get_inverted_index_storage_format() !=
-            InvertedIndexStorageFormatPB::V1) {
+        // A rowset must not keep an index file that its own schema does not claim:
+        // link, copy, upload, remove and checksum all consult that schema before
+        // touching the compound file. The old LocalFileWriter destructor happened
+        // to delete an unclosed orphan, but remote writers could preserve it.
+        const bool is_v1 = output_rs_tablet_schema->get_inverted_index_storage_format() ==
+                           InvertedIndexStorageFormatPB::V1;
+        const bool output_has_index_file = output_rs_tablet_schema->has_inverted_index() ||
+                                           output_rs_tablet_schema->has_ann_index();
+        if (!is_v1 && !output_has_index_file) {
+            LOG(INFO) << "drop index removed the last index, no index file is written. tablet_id="
+                      << _tablet->tablet_id()
+                      << " rowset_id=" << output_rowset_meta->rowset_id().to_string();
+        } else if (!is_v1) {
             const auto& fs = output_rowset_meta->fs();
 
             const auto& output_rowset_schema = output_rowset_meta->tablet_schema();
@@ -409,8 +425,17 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
         return Status::OK();
     } else {
         // create inverted or ann index writer
-        const auto& fs = output_rowset_meta->fs();
         auto output_rowset_schema = output_rowset_meta->tablet_schema();
+        // If no requested index survives schema resolution and the input rowset
+        // owned none, the output schema must not gain an orphan compound file.
+        if (!output_rowset_schema->has_inverted_index() && !output_rowset_schema->has_ann_index()) {
+            LOG(INFO) << "no index in the output rowset schema, no index file is written."
+                      << " tablet_id=" << _tablet->tablet_id()
+                      << " rowset_id=" << output_rowset_meta->rowset_id().to_string()
+                      << " source_rows=" << output_rowset_meta->num_rows();
+            return Status::OK();
+        }
+        const auto& fs = output_rowset_meta->fs();
         size_t inverted_index_size = 0;
         for (auto& seg_ptr : segments) {
             std::string index_path_prefix {

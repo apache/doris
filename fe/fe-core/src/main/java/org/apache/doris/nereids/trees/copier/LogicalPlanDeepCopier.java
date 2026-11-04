@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.copier;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.properties.OrderKey;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
@@ -111,22 +110,24 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         LogicalCatalogRelation newRelation =
                 catalogRelation.withRelationId(StatementScopeIdGenerator.newRelationId());
         updateReplaceMapWithOutput(catalogRelation, newRelation, context.exprIdReplaceMap);
-        List<NamedExpression> virtualColumns = catalogRelation.getVirtualColumns().stream()
-                .map(e -> {
-                    if (e instanceof Alias) {
-                        return new Alias(((Alias) e).child(), e.getName());
-                    }
-                    return e;
-                })
-                .collect(ImmutableList.toImmutableList());
-        for (int i = 0; i < virtualColumns.size(); i++) {
-            context.exprIdReplaceMap.put(catalogRelation.getVirtualColumns().get(i).getExprId(),
-                    virtualColumns.get(i).getExprId());
+        if (!catalogRelation.getVirtualColumns().isEmpty()) {
+            // A virtual column can refer to the others, so each one gets its new id before any is copied.
+            for (NamedExpression column : catalogRelation.getVirtualColumns()) {
+                context.exprIdReplaceMap.put(column.getExprId(), StatementScopeIdGenerator.newExprId());
+            }
+            List<NamedExpression> virtualColumns = catalogRelation.getVirtualColumns().stream()
+                    .map(column -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(column, context))
+                    .collect(ImmutableList.toImmutableList());
+            newRelation = newRelation.withVirtualColumns(virtualColumns);
+            if (newRelation instanceof LogicalOlapScan) {
+                // The score and ANN order keys sort by virtual columns.
+                LogicalOlapScan olapScan = (LogicalOlapScan) newRelation;
+                newRelation = olapScan.appendVirtualColumnsAndTopN(ImmutableList.of(),
+                        copyOrderKeys(olapScan.getAnnOrderKeys(), context), olapScan.getAnnLimit(),
+                        copyOrderKeys(olapScan.getScoreOrderKeys(), context), olapScan.getScoreLimit(),
+                        olapScan.getScoreRangeInfo());
+            }
         }
-        virtualColumns = virtualColumns.stream()
-                .map(o -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
-                .collect(ImmutableList.toImmutableList());
-        newRelation = newRelation.withVirtualColumns(virtualColumns);
         context.putRelation(catalogRelation.getRelationId(), newRelation);
         return updateOperativeSlots(catalogRelation, newRelation);
     }
@@ -267,11 +268,15 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
     @Override
     public Plan visitLogicalTopN(LogicalTopN<? extends Plan> topN, DeepCopierContext context) {
         Plan child = topN.child().accept(this, context);
-        List<OrderKey> orderKeys = topN.getOrderKeys().stream()
+        List<OrderKey> orderKeys = copyOrderKeys(topN.getOrderKeys(), context);
+        return new LogicalTopN<>(orderKeys, topN.getLimit(), topN.getOffset(), child);
+    }
+
+    private static List<OrderKey> copyOrderKeys(List<OrderKey> orderKeys, DeepCopierContext context) {
+        return orderKeys.stream()
                 .map(o -> new OrderKey(ExpressionDeepCopier.INSTANCE.deepCopy(o.getExpr(), context),
                         o.isAsc(), o.isNullFirst()))
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalTopN<>(orderKeys, topN.getLimit(), topN.getOffset(), child);
     }
 
     @Override

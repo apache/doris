@@ -47,7 +47,11 @@ public class PhysicalLazyMaterializeTVFScan extends PhysicalTVFRelation {
         super(scan.getRelationId(), scan.getFunction(), scan.getOperativeSlots(), scan.getLogicalProperties());
         this.scan = scan;
         this.rowId = rowId;
-        this.lazySlots = lazySlots;
+        this.lazySlots = ImmutableList.copyOf(lazySlots);
+    }
+
+    public List<Slot> getLazySlots() {
+        return lazySlots;
     }
 
     @Override
@@ -80,7 +84,7 @@ public class PhysicalLazyMaterializeTVFScan extends PhysicalTVFRelation {
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitPhysicalTVFRelation(this, context);
+        return visitor.visitPhysicalLazyMaterializeTVFScan(this, context);
     }
 
     @Override

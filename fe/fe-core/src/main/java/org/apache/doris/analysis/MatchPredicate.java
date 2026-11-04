@@ -134,8 +134,7 @@ public class MatchPredicate extends Predicate {
         this.invertedIndexParserStopwords = InvertedIndexUtil.getInvertedIndexParserStopwords(properties);
 
         if (!Strings.isNullOrEmpty(analyzer)) {
-            // Normalize to lowercase for case-insensitive matching
-            this.explicitAnalyzer = analyzer.trim().toLowerCase();
+            this.explicitAnalyzer = analyzer.trim();
         }
         fn = new Function(new FunctionName(op.name), Lists.newArrayList(e1.getType(), e2.getType()), retType,
                 false, true, nullableMode);

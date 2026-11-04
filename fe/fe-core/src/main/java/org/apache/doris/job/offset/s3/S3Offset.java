@@ -19,11 +19,14 @@ package org.apache.doris.job.offset.s3;
 
 import org.apache.doris.job.offset.Offset;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.thrift.TBrokerFileStatus;
 
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
+
+import java.util.List;
 
 @Getter
 @Setter
@@ -31,9 +34,10 @@ public class S3Offset implements Offset {
     String startFile;
     @SerializedName("endFile")
     String endFile;
-    // s3://bucket/path/{1.csv,2.csv}
-    String fileLists;
     int fileNum;
+    private transient List<TBrokerFileStatus> fileStatuses;
+    @SerializedName("lastBatch")
+    boolean lastBatch;
 
     @Override
     public String toSerializedJson() {
@@ -42,7 +46,7 @@ public class S3Offset implements Offset {
 
     @Override
     public boolean isEmpty() {
-        return StringUtils.isEmpty(fileLists);
+        return fileStatuses == null || fileStatuses.isEmpty();
     }
 
     @Override

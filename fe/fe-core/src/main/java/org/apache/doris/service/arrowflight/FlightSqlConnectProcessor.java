@@ -18,16 +18,20 @@
 package org.apache.doris.service.arrowflight;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.ConnectionException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
@@ -40,6 +44,7 @@ import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowStreamReader;
+import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -60,6 +65,7 @@ import java.util.concurrent.TimeoutException;
 public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoCloseable {
     private static final Logger LOG = LogManager.getLogger(FlightSqlConnectProcessor.class);
     private Schema arrowSchema;
+    private List<Literal> parameters;
 
     public FlightSqlConnectProcessor(ConnectContext context) {
         super(context);
@@ -97,6 +103,39 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
 
         ctx.setRunningQuery(query);
         super.handleQuery(query);
+    }
+
+    public void handleQuery(String query, List<Literal> parameters) throws ConnectionException {
+        this.parameters = parameters;
+        try {
+            handleQuery(query);
+        } finally {
+            this.parameters = null;
+        }
+    }
+
+    @Override
+    protected List<StatementBase> parseWithFallback(String originStmt, String convertedStmt,
+            SessionVariable sessionVariable) throws ConnectionException {
+        List<StatementBase> statements = super.parseWithFallback(originStmt, convertedStmt, sessionVariable);
+        if (parameters != null && !parameters.isEmpty() && statements != null) {
+            try {
+                if (statements.size() != 1 || !(statements.get(0) instanceof LogicalPlanAdapter)) {
+                    throw new IllegalArgumentException("Parameters require a single query statement");
+                }
+                // Reparse on every execution so bindings cannot retain planner state from a previous query.
+                FlightSqlParameters.bind(((LogicalPlanAdapter) statements.get(0)).getStatementContext(), parameters);
+            } catch (RuntimeException e) {
+                handleQueryException(e, originStmt, null, null);
+                for (StatementBase statement : statements) {
+                    if (statement instanceof LogicalPlanAdapter) {
+                        ((LogicalPlanAdapter) statement).getStatementContext().close();
+                    }
+                }
+                return null;
+            }
+        }
+        return statements;
     }
 
     // TODO
@@ -158,7 +197,13 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
                                     String.format("Schema size %s' is not equal to arrow field size %s, queryId: %s.",
                                             fieldVectors.size(), resultOutputExprs.size(), DebugUtil.printId(tid)));
                         }
-                        schema = root.getSchema();
+                        List<Field> fields = new ArrayList<>();
+                        for (int i = 0; i < resultOutputExprs.size(); i++) {
+                            fields.add(FlightSqlSchemaHelper.withDorisTypeMetadata(
+                                    root.getSchema().getFields().get(i), resultOutputExprs.get(i).getType()));
+                        }
+                        // Compare and advertise the same complete metadata regardless of BE upgrade order.
+                        schema = new Schema(fields, root.getSchema().getCustomMetadata());
                         if (arrowSchema == null) {
                             arrowSchema = schema;
                         } else if (!arrowSchema.equals(schema)) {
@@ -196,11 +241,12 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
     @Override
     public void close() throws Exception {
         ctx.setCommand(MysqlCommand.COM_SLEEP);
-        // Executors whose results are pulled from the BE keep their coordinator alive past
-        // GetFlightInfo (registered as deferred executors on the ConnectContext) so the BE can
-        // still fetch external-table splits during DoGet. Do NOT finalize those here; they are
-        // finalized when the next query starts or the connection is torn down. Executors that are
-        // not deferred (local results, or a query that already failed) are finalized now. See #62259.
+        // An external-table scan in batch mode keeps its coordinator alive past GetFlightInfo
+        // (registered as a deferred executor on the ConnectContext) so the BE can still fetch its
+        // splits during DoGet. Do NOT finalize those here; they are finalized when the next query
+        // starts, when the connection is torn down, or by the idle reaper in
+        // ConnectContext.checkTimeout. Every other executor (local results, results the BE buffers
+        // on its own, or a query that already failed) is finalized now. See #62259 and #67503.
         for (StmtExecutor asynExecutor : returnResultFromRemoteExecutor) {
             if (!asynExecutor.isDeferredForArrowFlight()) {
                 asynExecutor.finalizeQuery();

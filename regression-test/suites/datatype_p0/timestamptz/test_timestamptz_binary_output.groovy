@@ -64,6 +64,8 @@ suite("test_timestamptz_binary_output") {
     String url = getServerPrepareJdbcUrl(context.config.jdbcUrl, "regression_test_datatype_p0_timestamptz");
     logger.info("jdbc prepare statement url: ${url}")
     def result1 = connect(user, password, url) {
+        // A prepared connection has its own session; exercise historical second offsets explicitly.
+        sql "set time_zone = 'Asia/Shanghai'"
         qt_all_bin0 """
             SELECT * FROM test_timestamptz_binary_output_no_scale ORDER BY 1, 2, 3;
         """
@@ -106,6 +108,8 @@ suite("test_timestamptz_binary_output") {
         SELECT * FROM test_timestamptz_binary_output_with_scale ORDER BY 1, 2, 3;
     """
     def result2 = connect(user, password, url) {
+        // Keep the scaled binary-protocol check independent of the server's default time zone.
+        sql "set time_zone = 'Asia/Shanghai'"
         qt_all_bin_scale0 """
             SELECT * FROM test_timestamptz_binary_output_with_scale ORDER BY 1, 2, 3;
         """

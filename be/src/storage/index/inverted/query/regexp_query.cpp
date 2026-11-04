@@ -23,6 +23,7 @@
 
 #include "common/logging.h"
 #include "util/debug_points.h"
+#include "util/hyperscan_util.h"
 
 namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
@@ -38,8 +39,12 @@ void RegexpQuery::add(const InvertedIndexQueryInfo& query_info) {
     if (query_info.term_infos.empty()) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "term_infos cannot be empty");
     }
+    _constant_score = _context->collection_similarity && query_info.is_similarity_score;
 
     const std::string& pattern = query_info.term_infos[0].get_single_term();
+    if (is_hyperscan_regexp_expensive(pattern)) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, HYPERSCAN_BOUNDED_REPEAT_ERROR);
+    }
     auto prefix = get_regex_prefix(pattern);
 
     hs_database_t* database = nullptr;
@@ -80,6 +85,14 @@ void RegexpQuery::add(const InvertedIndexQueryInfo& query_info) {
 
 void RegexpQuery::search(roaring::Roaring& roaring) {
     _query.search(roaring);
+    // A regexp scores a constant 1 per matching row, as an Elasticsearch regexp query does in query
+    // context, so body MATCH 'apple' AND body MATCH_REGEXP 'ap.*' adds 1 to the apple score. The
+    // expanded terms' own BM25 would depend on how many terms the pattern happens to match.
+    if (_constant_score) {
+        for (const auto row_id : roaring) {
+            _context->collection_similarity->collect(row_id, 1.0F);
+        }
+    }
 }
 
 std::optional<std::string> RegexpQuery::get_regex_prefix(const std::string& pattern) {

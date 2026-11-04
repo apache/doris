@@ -16,6 +16,9 @@
 // under the License.
 
 #pragma once
+#include <string>
+#include <vector>
+
 #include "common/global_types.h"
 #include "exprs/function/function.h"
 #include "exprs/vexpr.h"
@@ -25,7 +28,10 @@ class VLambdaFunctionExpr final : public VExpr {
     ENABLE_FACTORY_CREATOR(VLambdaFunctionExpr);
 
 public:
-    VLambdaFunctionExpr(const TExprNode& node) : VExpr(node) {}
+    VLambdaFunctionExpr(const TExprNode& node)
+            : VExpr(node),
+              _has_argument_names(node.__isset.lambda_argument_names),
+              _argument_names(node.lambda_argument_names) {}
     ~VLambdaFunctionExpr() override = default;
 
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override {
@@ -58,9 +64,15 @@ public:
 
     const std::string& expr_name() const override { return _expr_name; }
 
+    bool has_argument_names() const { return _has_argument_names; }
+
+    const std::vector<std::string>& argument_names() const { return _argument_names; }
+
     uint64_t get_digest(uint64_t seed) const override { return 0; }
 
 private:
     const std::string _expr_name = "vlambda_function_expr";
+    const bool _has_argument_names;
+    const std::vector<std::string> _argument_names;
 };
 } // namespace doris

@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.FileType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StructField;
@@ -49,9 +50,11 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
@@ -180,6 +183,14 @@ public class NestedColumnPruning implements CustomRewriter {
                             slot.getExprId().asInt(), Pair.of(pathType, path)
                     );
                 }
+            }
+        }
+
+        // FILE map lookups must retain the key stream alongside the selected FILE field.
+        for (Slot slot : slotIdToAllAccessTree.keySet()) {
+            if (slot.getDataType().typeContainsFile()) {
+                expandMapStarPaths(slot, allAccessPaths);
+                expandMapStarPaths(slot, predicateAccessPaths);
             }
         }
 
@@ -331,7 +342,10 @@ public class NestedColumnPruning implements CustomRewriter {
 
         /** pruneCastType */
         public DataType pruneCastType(DataTypeAccessTree origin, DataTypeAccessTree cast) {
-            if (type instanceof StructType) {
+            if (type.isFileType() || cast.type.isFileType()) {
+                // FILE conversions validate the complete source and retain the declared target.
+                return cast.type;
+            } else if (type instanceof StructType) {
                 Map<String, String> nameMapping = new LinkedHashMap<>();
                 List<String> castNames = new ArrayList<>(cast.children.keySet());
                 int i = 0;
@@ -385,7 +399,14 @@ public class NestedColumnPruning implements CustomRewriter {
             if (index >= path.size()) {
                 return true;
             }
-            if (cast.type instanceof StructType) {
+            if (type.isFileType() || cast.type.isFileType()) {
+                if (!type.equals(cast.type)) {
+                    return false;
+                }
+                String fieldName = path.get(index).toLowerCase(Locale.ROOT);
+                return children.get(fieldName).replacePathByAnotherTree(
+                        cast.children.get(fieldName), path, index + 1);
+            } else if (cast.type instanceof StructType) {
                 List<StructField> fields = ((StructType) cast.type).getFields();
                 for (int i = 0; i < fields.size(); i++) {
                     String castFieldName = path.get(index);
@@ -422,7 +443,7 @@ public class NestedColumnPruning implements CustomRewriter {
                 this.pathType = TAccessPathType.DATA;
             }
 
-            if (this.type.isStructType()) {
+            if (this.type.isStructType() || this.type.isFileType()) {
                 String fieldName = path.get(accessIndex).toLowerCase();
                 DataTypeAccessTree child = children.get(fieldName);
                 if (child != null) {
@@ -496,6 +517,10 @@ public class NestedColumnPruning implements CustomRewriter {
             } else if (type instanceof MapType) {
                 root.children.put(AccessPathInfo.ACCESS_MAP_KEYS, of(((MapType) type).getKeyType(), pathType));
                 root.children.put(AccessPathInfo.ACCESS_MAP_VALUES, of(((MapType) type).getValueType(), pathType));
+            } else if (type instanceof FileType) {
+                for (StructField field : ((FileType) type).getFields()) {
+                    root.children.put(field.getName(), of(field.getDataType(), pathType));
+                }
             }
             return root;
         }
@@ -563,5 +588,114 @@ public class NestedColumnPruning implements CustomRewriter {
                 throw new AnalysisException("unsupported data type: " + dataType);
             }
         }
+    }
+
+    /**
+     * Expand map-level {@code *} wildcards into {@code KEYS} + {@code VALUES}
+     * variants.  For n map-level stars in a single path, n+1 paths are
+     * emitted: one all-VALUES path plus one KEYS-terminating path per star
+     * position.  Array-level stars are left unchanged.
+     *
+     * <p>Paths with no map-level star are kept as-is.
+     */
+    private static void expandMapStarPaths(
+            Slot slot,
+            Multimap<Integer, Pair<TAccessPathType, List<String>>> accessPaths) {
+        int slotId = slot.getExprId().asInt();
+        Collection<Pair<TAccessPathType, List<String>>> slotPaths = accessPaths.get(slotId);
+        if (slotPaths.isEmpty()) {
+            return;
+        }
+        DataType slotType = slot.getDataType();
+
+        List<Pair<TAccessPathType, List<String>>> toAdd = new ArrayList<>();
+        List<Pair<TAccessPathType, List<String>>> toRemove = new ArrayList<>();
+
+        for (Pair<TAccessPathType, List<String>> p : slotPaths) {
+            List<String> path = p.second;
+            List<Integer> positions = new ArrayList<>();
+            findMapStarPositions(path, slotType, positions);
+            if (positions.isEmpty()) {
+                continue;
+            }
+            toRemove.add(p);
+            toAdd.addAll(expandOnePath(p.first, path, positions));
+        }
+
+        slotPaths.removeAll(toRemove);
+        slotPaths.addAll(toAdd);
+    }
+
+    private static void findMapStarPositions(
+            List<String> path, DataType slotType, List<Integer> positions) {
+        DataType current = slotType;
+        for (int i = 1; i < path.size(); i++) {
+            String component = path.get(i);
+            if (current.isStructType()) {
+                StructField field = ((StructType) current).getField(component);
+                if (field == null) {
+                    break;
+                }
+                current = field.getDataType();
+            } else if (current.isArrayType()) {
+                if (!AccessPathInfo.ACCESS_ALL.equals(component)) {
+                    break;
+                }
+                current = ((ArrayType) current).getItemType();
+            } else if (current.isMapType()) {
+                MapType mapType = (MapType) current;
+                if (AccessPathInfo.ACCESS_ALL.equals(component)) {
+                    positions.add(i);
+                    current = mapType.getValueType();
+                } else if (AccessPathInfo.ACCESS_MAP_KEYS.equals(component)) {
+                    current = mapType.getKeyType();
+                } else if (AccessPathInfo.ACCESS_MAP_VALUES.equals(component)) {
+                    current = mapType.getValueType();
+                } else {
+                    current = mapType.getValueType();
+                }
+            } else if (current.isFileType()) {
+                StructField field = ((FileType) current).getFields().stream()
+                        .filter(candidate -> candidate.getName().equals(component))
+                        .findFirst().orElse(null);
+                if (field == null) {
+                    break;
+                }
+                current = field.getDataType();
+            } else {
+                break;
+            }
+        }
+    }
+
+    private static List<Pair<TAccessPathType, List<String>>> expandOnePath(
+            TAccessPathType type, List<String> path, List<Integer> positions) {
+        int n = positions.size();
+        List<Pair<TAccessPathType, List<String>>> result = new ArrayList<>(n + 1);
+
+        // All-VALUES path: replace every map * with VALUES
+        List<String> allValues = new ArrayList<>(path);
+        for (int pos : positions) {
+            allValues.set(pos, AccessPathInfo.ACCESS_MAP_VALUES);
+        }
+        result.add(Pair.of(type, allValues));
+
+        // KEYS-terminating path for each position. Map lookup still reads key data even when
+        // the values path only reads metadata.
+        for (int i = 0; i < n; i++) {
+            int keysPos = positions.get(i);
+            List<String> keysPath = new ArrayList<>();
+            for (int j = 0; j < keysPos; j++) {
+                String component = path.get(j);
+                if (positions.contains(j)) {
+                    component = AccessPathInfo.ACCESS_MAP_VALUES;
+                }
+                keysPath.add(component);
+            }
+            keysPath.add(AccessPathInfo.ACCESS_MAP_KEYS);
+            result.add(Pair.of(TAccessPathType.DATA, keysPath));
+        }
+
+        return result;
     }
 }

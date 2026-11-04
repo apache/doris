@@ -159,13 +159,8 @@ public class OlapAnalysisTaskTest {
                         + "ROUND(SUM(CASE WHEN `null` IS NULL THEN 1 ELSE 0 END) * ${scaleFactor}) AS `null_count`, "
                         + "SUBSTRING(CAST('1' AS STRING), 1, 1024) AS `min`, "
                         + "SUBSTRING(CAST('2' AS STRING), 1, 1024) AS `max`, "
-                        + "COUNT(1) * 4 * ${scaleFactor} AS `data_size`, NOW() FROM cte1), "
-                        + "cte3 AS (SELECT IFNULL(GROUP_CONCAT(CONCAT(REPLACE(REPLACE(t.`column_key`, "
-                        + "\":\", \"\\\\:\"), \";\", \"\\\\;\"), \" :\", ROUND(t.`count` / ${rowCount2}, 2)), "
-                        + "\" ;\"), '') as `hot_value` FROM (SELECT ${subStringColName} as `hash_value`, "
-                        + "MAX(`null`) as `column_key`, COUNT(1) AS `count` FROM cte1 "
-                        + "WHERE `null` IS NOT NULL GROUP BY `hash_value` ORDER BY `count` DESC LIMIT 10) t) "
-                        + "SELECT * FROM cte2 CROSS JOIN cte3", sql);
+                        + "COUNT(1) * 4 * ${scaleFactor} AS `data_size`, NOW() AS `update_time`, "
+                        + "null as `hot_value` FROM cte1) SELECT * FROM cte2", sql);
             }
         };
 
@@ -384,8 +379,9 @@ public class OlapAnalysisTaskTest {
                 new OlapAnalysisTask.SampleCollectInfo(AnalyzeSampleAlgorithm.FULL, null));
         Assertions.assertEquals("1", params.get("scaleFactor"));
         Assertions.assertEquals("", params.get("sampleHints"));
-        Assertions.assertEquals("(SELECT COUNT(1) FROM cte1 WHERE `${colName}` IS NOT NULL)",
-                params.get("rowCount2"));
+        // The linear estimator does not collect hot values, so it fills no hot value param.
+        Assertions.assertNull(params.get("rowCount2"));
+        Assertions.assertNull(params.get("subStringColName"));
         Assertions.assertEquals("ROUND(NDV(`${colName}`) * ${scaleFactor})", params.get("ndvFunction"));
         Assertions.assertNull(params.get("preAggHint"));
         Assertions.assertEquals("COUNT(1)", params.get("rowCount"));
@@ -396,8 +392,8 @@ public class OlapAnalysisTaskTest {
                 new OlapAnalysisTask.SampleCollectInfo(AnalyzeSampleAlgorithm.LINEAR,
                         Pair.of(Lists.newArrayList(1L, 2L), 100L)));
         Assertions.assertEquals("TABLET(1, 2)", params.get("sampleHints"));
-        Assertions.assertEquals("(SELECT COUNT(1) FROM cte1 WHERE `${colName}` IS NOT NULL)",
-                params.get("rowCount2"));
+        Assertions.assertNull(params.get("rowCount2"));
+        Assertions.assertNull(params.get("subStringColName"));
         Assertions.assertEquals("ROUND(NDV(`${colName}`) * ${scaleFactor})", params.get("ndvFunction"));
         params.clear();
 
@@ -410,6 +406,7 @@ public class OlapAnalysisTaskTest {
         Assertions.assertEquals("TABLET(1, 2)", params.get("sampleHints"));
         Assertions.assertEquals("(SELECT SUM(`count`) FROM cte1 WHERE `col_value` IS NOT NULL)",
                 params.get("rowCount2"));
+        Assertions.assertEquals("`${colName}`", params.get("subStringColName"));
         Assertions.assertTrue(params.get("ndvFunction").contains("`t1`.`col_value`"),
                 "DUJ1 ndvFunction must reference cte1 output, got: " + params.get("ndvFunction"));
         params.clear();

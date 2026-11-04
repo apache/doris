@@ -18,6 +18,11 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -57,9 +62,14 @@ public class DropDictionaryCommand extends Command implements ForwardWithSync {
     }
 
     @Override
-    public void run(ConnectContext ctx, StmtExecutor executor) {
+    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (dbName == null) { // use current database
             dbName = ctx.getDatabase();
+        }
+        // check auth. dictionaries always live in the internal catalog.
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, InternalCatalog.INTERNAL_CATALOG_NAME,
+                dbName, dictName, PrivPredicate.DROP)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "DROP");
         }
         try {
             ctx.getEnv().getDictionaryManager().dropDictionary(ctx, dbName, dictName, ifExists);

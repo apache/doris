@@ -116,23 +116,6 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
     @Override
     public void initialize(String jobId, DataSource dataSource, Map<String, String> config) {
         this.serializer.init(config);
-
-        // Initialize thread pool for parallel polling
-        int parallelism =
-                Integer.parseInt(
-                        config.getOrDefault(
-                                DataSourceConfigKeys.SNAPSHOT_PARALLELISM,
-                                DataSourceConfigKeys.SNAPSHOT_PARALLELISM_DEFAULT));
-        this.snapshotPollExecutor =
-                Executors.newFixedThreadPool(
-                        parallelism,
-                        r -> {
-                            Thread t = new Thread(r);
-                            t.setName("snapshot-reader-" + jobId + "-" + t.getId());
-                            t.setDaemon(true);
-                            return t;
-                        });
-        LOG.info("Initialized poll executor with parallelism: {}", parallelism);
     }
 
     /**
@@ -322,6 +305,17 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
         this.snapshotReaderContexts.clear();
         this.completedSplitIds.clear();
 
+        shutdownSnapshotPollExecutor();
+        this.snapshotPollExecutor =
+                Executors.newFixedThreadPool(
+                        splits.size(),
+                        r -> {
+                            Thread t = new Thread(r);
+                            t.setName("snapshot-reader-" + baseReq.getJobId() + "-" + t.getId());
+                            t.setDaemon(true);
+                            return t;
+                        });
+
         List<CompletableFuture<Void>> futures = new ArrayList<>();
         // Create reader for each split and submit
         for (int i = 0; i < splits.size(); i++) {
@@ -450,7 +444,7 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
 
         // Rebuild path: fail loudly if the source position is gone (e.g. slot dropped) instead of
         // silently re-locating from a lost offset.
-        validateStreamSource(offsetMeta, baseReq);
+        validateStreamSource(newStreamSplit.getStartingOffset(), baseReq);
 
         this.streamReader = getBinlogSplitReader(baseReq);
 
@@ -476,8 +470,8 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
     }
 
     // Source-specific check before (re)building the stream reader; default no-op.
-    protected void validateStreamSource(
-            Map<String, Object> offsetMeta, JobBaseRecordRequest baseReq) throws Exception {}
+    protected void validateStreamSource(Offset startingOffset, JobBaseRecordRequest baseReq)
+            throws Exception {}
 
     @Override
     public Iterator<SourceRecord> pollRecords() throws Exception {
@@ -946,6 +940,7 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
 
     @Override
     public synchronized void finishSplitRecords() {
+        shutdownSnapshotPollExecutor();
         // Cancel any active poll operations
         if (activePollFutures != null) {
             activePollFutures.forEach(f -> f.cancel(true));
@@ -1012,6 +1007,7 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
     protected void shutdownSnapshotPollExecutor() {
         if (snapshotPollExecutor != null) {
             snapshotPollExecutor.shutdownNow();
+            snapshotPollExecutor = null;
         }
     }
 

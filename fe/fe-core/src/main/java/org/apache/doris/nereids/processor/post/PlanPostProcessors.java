@@ -23,6 +23,7 @@ import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterV2Ge
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TRuntimeFilterMode;
 
 import com.google.common.collect.ImmutableList;
@@ -73,7 +74,8 @@ public class PlanPostProcessors {
          2. LazyMaterializeTopN should be applied after RecomputeLogicalPropertiesProcessor
          PhysicalLazyMaterialize.materializedSlots should be subsequence of topN.getOutput().
          */
-        if (cascadesContext.getConnectContext().getSessionVariable().enableTopnLazyMaterialization()) {
+        SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
+        if (sessionVariable.enableTopnLazyMaterialization() || sessionVariable.enableLanceLazyMaterialization) {
             builder.add(new LazyMaterializeTopN());
         }
         builder.add(new MergeProjectPostProcessor());

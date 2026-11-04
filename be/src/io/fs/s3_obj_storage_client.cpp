@@ -284,7 +284,13 @@ ObjectStorageHeadResponse S3ObjStorageClient::head_object(const ObjectStoragePat
             _client->HeadObject(request), "s3_file_system::head_object", std::ref(request).get());
     if (outcome.IsSuccess()) {
         return {.resp = {convert_to_obj_response(Status::OK())},
-                .file_size = outcome.GetResult().GetContentLength()};
+                .file_size = outcome.GetResult().GetContentLength(),
+                .content_type = outcome.GetResult().GetContentType().empty()
+                                        ? std::nullopt
+                                        : std::make_optional(outcome.GetResult().GetContentType()),
+                .etag = outcome.GetResult().GetETag().empty()
+                                ? std::nullopt
+                                : std::make_optional(outcome.GetResult().GetETag())};
     } else if (outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
         return {.resp = {convert_to_obj_response(Status::Error<ErrorCode::NOT_FOUND, false>(""))}};
     } else {
@@ -310,17 +316,21 @@ ObjectStorageResponse S3ObjStorageClient::get_object(const ObjectStoragePathOpti
     if (!outcome.IsSuccess()) {
         record_s3_request_failed(outcome.GetError());
         return {convert_to_obj_response(s3fs_error(
-                        outcome.GetError(), fmt::format("failed to read from {}", opts.key))),
+                        outcome.GetError(),
+                        fmt::format("failed to get object: bucket={} object={} offset={} size={}",
+                                    opts.bucket, opts.key, offset, bytes_read))),
                 static_cast<int>(outcome.GetError().GetResponseCode()),
                 outcome.GetError().GetRequestId()};
     }
     *size_return = outcome.GetResult().GetContentLength();
-    // case for incomplete read
+    // Short read, or a server or a proxy answering a ranged read with the whole object.
     SYNC_POINT_CALLBACK("s3_obj_storage_client::get_object", size_return);
     if (*size_return != bytes_read) {
-        return {convert_to_obj_response(Status::InternalError(
-                "failed to read from {}(bytes read: {}, bytes req: {}), request_id: {}", opts.key,
-                *size_return, bytes_read, outcome.GetResult().GetRequestId()))};
+        return {convert_to_obj_response(
+                Status::InternalError("incomplete read from bucket={} object={} offset={}, expect "
+                                      "{}, got {}, request_id={}",
+                                      opts.bucket, opts.key, offset, bytes_read, *size_return,
+                                      outcome.GetResult().GetRequestId()))};
     }
     return ObjectStorageResponse::OK();
 }
@@ -373,6 +383,58 @@ ObjectStorageResponse S3ObjStorageClient::list_objects(const ObjectStoragePathOp
         request.SetContinuationToken(outcome.GetResult().GetNextContinuationToken());
     } while (is_trucated);
     return ObjectStorageResponse::OK();
+}
+
+ObjectStorageListPageResponse S3ObjStorageClient::list_objects_page(
+        const ObjectStoragePathOptions& opts, std::string_view continuation_token) {
+    const auto& prefix = opts.prefix.empty() ? opts.key : opts.prefix;
+    Aws::S3::Model::ListObjectsV2Request request;
+    request.WithBucket(opts.bucket).WithPrefix(prefix).WithMaxKeys(1000);
+    if (!opts.delimiter.empty()) {
+        request.SetDelimiter(opts.delimiter);
+    }
+    if (!continuation_token.empty()) {
+        request.SetContinuationToken(std::string(continuation_token));
+    }
+    SYNC_POINT_CALLBACK("S3ObjStorageClient::list_objects", &request);
+    SCOPED_BVAR_LATENCY(s3_bvar::s3_list_latency);
+    auto outcome = _client->ListObjectsV2(request);
+    if (!outcome.IsSuccess()) {
+        // Some S3-compatible providers return NoSuchKey for an absent prefix.
+        if (outcome.GetError().GetErrorType() == Aws::S3::S3Errors::NO_SUCH_KEY) {
+            return {.resp = ObjectStorageResponse::OK()};
+        }
+        record_s3_request_failed(outcome.GetError());
+        return {.resp = {convert_to_obj_response(s3fs_error(
+                                 outcome.GetError(), fmt::format("failed to list {}", prefix))),
+                         static_cast<int>(outcome.GetError().GetResponseCode()),
+                         outcome.GetError().GetRequestId()}};
+    }
+    const auto& result = outcome.GetResult();
+    if (result.GetIsTruncated() && result.GetNextContinuationToken().empty()) {
+        return {.resp = {.status = convert_to_obj_response(Status::InternalError(
+                                 "failed to list {}, truncated response has no continuation token, "
+                                 "request_id={}",
+                                 prefix, result.GetRequestId())),
+                         .http_code = 0}};
+    }
+    ObjectStorageListPageResponse page {
+            .resp = ObjectStorageResponse::OK(),
+            .continuation_token = result.GetNextContinuationToken(),
+            .has_more = result.GetIsTruncated(),
+    };
+    page.common_prefixes.reserve(result.GetCommonPrefixes().size());
+    for (const auto& entry : result.GetCommonPrefixes()) {
+        page.common_prefixes.emplace_back(entry.GetPrefix());
+    }
+    page.objects.reserve(result.GetContents().size());
+    for (const auto& obj : result.GetContents()) {
+        page.objects.push_back(
+                {.key = obj.GetKey(),
+                 .size = obj.GetSize(),
+                 .etag = obj.GetETag().empty() ? std::nullopt : std::make_optional(obj.GetETag())});
+    }
+    return page;
 }
 
 ObjectStorageResponse S3ObjStorageClient::delete_objects(const ObjectStoragePathOptions& opts,

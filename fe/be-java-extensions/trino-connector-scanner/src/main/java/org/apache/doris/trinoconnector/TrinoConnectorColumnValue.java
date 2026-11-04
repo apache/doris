@@ -43,6 +43,7 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 
 public class TrinoConnectorColumnValue implements ColumnValue {
@@ -171,7 +172,8 @@ public class TrinoConnectorColumnValue implements ColumnValue {
     @Override
     public LocalDateTime getTimeStampTz() {
         Object o = trinoType.getObjectValue(connectorSession, block, position);
-        return ((SqlTimestampWithTimeZone) o).toZonedDateTime().toLocalDateTime();
+        // JNI encodes UTC components; dropping the source zone would shift the instant.
+        return LocalDateTime.ofInstant(((SqlTimestampWithTimeZone) o).toZonedDateTime().toInstant(), ZoneOffset.UTC);
     }
 
     @Override

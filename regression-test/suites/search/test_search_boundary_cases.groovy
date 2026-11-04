@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_search_boundary_cases", "p0") {
+    // SEARCH uses two-valued matching; SQL comparisons and MATCH retain three-valued logic.
     def tableName = "search_boundary_test"
 
     // Pin enable_common_expr_pushdown to prevent CI flakiness from fuzzy testing.

@@ -31,12 +31,36 @@ import org.mockito.Mockito;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
 public class DataSourceConfigValidatorTest {
 
     private static final int PG_MAX_IDENTIFIER_LENGTH = 63;
+
+    @Test
+    public void testSchemaChangeBehaviorAcceptsLegalValuesIgnoringCase() {
+        for (DataSourceType source : new DataSourceType[] {DataSourceType.MYSQL, DataSourceType.POSTGRES}) {
+            for (String value : new String[] {"evolve", "ignore", "EvOlVe", "IgNoRe"}) {
+                DataSourceConfigValidator.validateSource(
+                        Collections.singletonMap(DataSourceConfigKeys.SCHEMA_CHANGE_BEHAVIOR, value), source.name());
+            }
+        }
+    }
+
+    @Test
+    public void testSchemaChangeBehaviorRejectsInvalidAndEmptyValues() {
+        for (DataSourceType source : new DataSourceType[] {DataSourceType.MYSQL, DataSourceType.POSTGRES}) {
+            for (String value : new String[] {"invalid", "", " "}) {
+                IllegalArgumentException exception = Assert.assertThrows(IllegalArgumentException.class,
+                        () -> DataSourceConfigValidator.validateSource(
+                                Collections.singletonMap(DataSourceConfigKeys.SCHEMA_CHANGE_BEHAVIOR, value),
+                                source.name()));
+                Assert.assertTrue(exception.getMessage().contains(DataSourceConfigKeys.SCHEMA_CHANGE_BEHAVIOR));
+            }
+        }
+    }
 
     private static Map<String, String> sslModeInput(String value) {
         Map<String, String> input = new HashMap<>();
@@ -420,6 +444,20 @@ public class DataSourceConfigValidatorTest {
         Map<String, String> props = new HashMap<>();
         props.put(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, "2");
 
+        DataSourceConfigValidator.validateSource(props, DataSourceType.OCEANBASE.name());
+    }
+
+    @Test
+    public void testOceanBaseServerIdRangeKeepsOriginalValidation() {
+        Map<String, String> props = new HashMap<>();
+        props.put(DataSourceConfigKeys.SERVER_ID, "5400");
+        DataSourceConfigValidator.validateSource(props, DataSourceType.OCEANBASE.name());
+
+        props.put(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, "2");
+        Assert.assertThrows(IllegalArgumentException.class,
+                () -> DataSourceConfigValidator.validateSource(props, DataSourceType.OCEANBASE.name()));
+
+        props.put(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, "1");
         DataSourceConfigValidator.validateSource(props, DataSourceType.OCEANBASE.name());
     }
 

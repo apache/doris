@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.iceberg.rewrite;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache.WritableTableLease;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -499,6 +500,22 @@ public class RewriteGroupTaskTest {
         // expectedFileCount < availableBeCount, so use GATHER
         Assertions.assertEquals(6, parallelism);
         Assertions.assertTrue(useGather);
+    }
+
+    @Test
+    public void testCancelBeforeExecutionReleasesGenerationBorrower() throws Exception {
+        WritableTableLease lease = Mockito.mock(WritableTableLease.class);
+        RewriteGroupTask.RewriteResultCallback callback =
+                Mockito.mock(RewriteGroupTask.RewriteResultCallback.class);
+        RewriteGroupTask task = new RewriteGroupTask(
+                mockGroup, 1L, mockTable, null, lease, mockConnectContext,
+                512 * MB, 1, callback);
+
+        task.cancel();
+        task.execute();
+
+        Mockito.verify(lease).close();
+        Mockito.verify(callback).onTaskFailed(Mockito.eq(task.getId()), Mockito.any(Exception.class));
     }
 
     // ========== Helper Methods ==========

@@ -474,11 +474,12 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
     String hdfs_properties = """
                 "hadoop.username" = "doris"
     """
-    // kerberos
+    // Both Kerberos property forms must match the DataNode SASL protection to allow writes.
     String hdfs_kerberos_properties = """
                 "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
                 "dfs.namenode.kerberos.principal" = "hdfs/hadoop-master@LABS.TERADATA.COM",
                 "dfs.client.use.datanode.hostname" = "true",
+                "dfs.data.transfer.protection" = "authentication",
                 "hadoop.security.token.service.use_ip" = "false",
                 "hadoop.security.authentication" = "kerberos", 
                 "io-impl" = "org.apache.doris.datasource.iceberg.fileio.DelegateFileIO",          
@@ -490,6 +491,7 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
                 "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
                 "dfs.namenode.kerberos.principal" = "hdfs/hadoop-master@LABS.TERADATA.COM",
                 "dfs.client.use.datanode.hostname" = "true",
+                "dfs.data.transfer.protection" = "authentication",
                 "hadoop.security.token.service.use_ip" = "false",
                 "io-impl" = "org.apache.doris.datasource.iceberg.fileio.DelegateFileIO",          
                 "hdfs.authentication.type" = "kerberos",

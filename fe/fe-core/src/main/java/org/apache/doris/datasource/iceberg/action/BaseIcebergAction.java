@@ -19,12 +19,19 @@ package org.apache.doris.datasource.iceberg.action;
 
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache.WritableTableLease;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.execute.BaseExecuteAction;
 
+import org.apache.iceberg.Table;
+
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -33,11 +40,13 @@ import java.util.Optional;
  * functionality while inheriting common execution action behavior.
  */
 public abstract class BaseIcebergAction extends BaseExecuteAction {
+    private final IcebergMetadataOps metadataOps;
 
     protected BaseIcebergAction(String actionType, Map<String, String> properties,
             Optional<PartitionNamesInfo> partitionNamesInfo,
-            Optional<Expression> whereCondition) {
+            Optional<Expression> whereCondition, IcebergMetadataOps metadataOps) {
         super(actionType, properties, partitionNamesInfo, whereCondition);
+        this.metadataOps = Objects.requireNonNull(metadataOps, "metadataOps is null");
     }
 
     @Override
@@ -69,6 +78,35 @@ public abstract class BaseIcebergAction extends BaseExecuteAction {
      */
     protected void validateIcebergAction() throws UserException {
         // Default implementation does nothing.
+    }
+
+    @Override
+    protected final List<String> executeAction(TableIf table) throws UserException {
+        // Keep the pre-mutation generation fence outside the execution catch. The command may
+        // safely rebuild the action when acquisition detects a reset, but it must never retry an
+        // exception raised after the action body has started.
+        WritableTableLease writableLease = IcebergUtils.acquireWritableIcebergTable(
+                (IcebergExternalTable) table, metadataOps);
+        try (WritableTableLease lease = writableLease) {
+            return lease.getAuthenticator().execute(
+                    () -> executeIcebergAction(table, lease));
+        } catch (UserException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new UserException("Failed to execute Iceberg action: " + e.getMessage(), e);
+        }
+    }
+
+    /** Override when an action needs to pass the exact writable generation into nested work. */
+    protected List<String> executeIcebergAction(TableIf table, WritableTableLease lease)
+            throws UserException {
+        return executeIcebergAction(table, lease.getTable());
+    }
+
+    /** Execute an action while the writable table's exact catalog generation remains retained. */
+    protected List<String> executeIcebergAction(TableIf table, Table icebergTable)
+            throws UserException {
+        throw new UnsupportedOperationException("Iceberg action must implement an execution hook");
     }
 
 }

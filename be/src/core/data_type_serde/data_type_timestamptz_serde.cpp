@@ -24,6 +24,7 @@
 #include "core/data_type/primitive_type.h"
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/decoded_column_view.h"
+#include "core/data_type_serde/orc_serde_utils.h"
 #include "core/data_type_serde/parquet_decode_source.h"
 #include "core/data_type_serde/parquet_timestamp.h"
 #include "core/value/timestamptz_value.h"
@@ -34,6 +35,45 @@
 namespace doris {
 
 namespace {
+
+Status decode_timestamp_tz_orc_values(IColumn& nested_column,
+                                      const OrcDecodedColumnView& orc_view) {
+    const auto* orc_batch = dynamic_cast<const ::orc::TimestampVectorBatch*>(orc_view.batch);
+    if (orc_batch == nullptr) {
+        return Status::InternalError("Unexpected ORC timestamp batch type {}",
+                                     orc_view.batch->toString());
+    }
+    auto& data = assert_cast<ColumnTimeStampTz&>(nested_column).get_data();
+    const size_t old_data_size = data.size();
+    const auto output_rows =
+            orc_serde_utils::orc_decode_row_count(orc_view.rows, orc_view.selected_rows);
+    data.resize(old_data_size + output_rows);
+    static const auto utc_time_zone = cctz::utc_time_zone();
+    for (size_t row = 0; row < output_rows; ++row) {
+        const auto source_row = orc_serde_utils::orc_source_row_at(row, orc_view.selected_rows);
+        if (orc_serde_utils::orc_row_is_null(*orc_view.batch, source_row)) {
+            data[old_data_size + row] = TimestampTzValue {};
+            continue;
+        }
+        auto& value = data[old_data_size + row];
+        orc_serde_utils::RoundedOrcTimestamp timestamp;
+        auto status = orc_serde_utils::round_orc_timestamp_to_microseconds(
+                orc_batch->data[source_row], orc_batch->nanoseconds[source_row], &timestamp);
+        if (!status.ok()) {
+            data.resize(old_data_size);
+            return status;
+        }
+        DateV2Value<DateTimeV2ValueType> datetime;
+        status = orc_serde_utils::orc_timestamp_to_datetime(
+                timestamp.seconds, timestamp.microseconds, utc_time_zone, false, &datetime);
+        if (!status.ok()) {
+            data.resize(old_data_size);
+            return status;
+        }
+        value = TimestampTzValue(datetime);
+    }
+    return Status::OK();
+}
 
 Status append_timestamptz_from_utc_epoch_micros(ColumnTimeStampTz::Container& data,
                                                 int64_t timestamp_micros) {
@@ -359,6 +399,29 @@ Status DataTypeTimeStampTzSerDe::write_column_to_arrow(const IColumn& column,
     return Status::OK();
 }
 
+Status DataTypeTimeStampTzSerDe::write_column_to_paimon_arrow(
+        const std::shared_ptr<const IDataType>& type, const IColumn& column,
+        const NullMap* null_map, const std::shared_ptr<arrow::Field>& field,
+        arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+        const cctz::time_zone& ctz) const {
+    if (field->type()->id() != arrow::Type::TIMESTAMP) {
+        return Status::InvalidArgument(
+                "Paimon timestamp writer has no binding for Doris type {} and Arrow field {}",
+                type->get_name(), field->ToString());
+    }
+    // The pinned Paimon schema must agree with the declared precision; do not silently rescale.
+    const auto& timestamp = assert_cast<const arrow::TimestampType&>(*field->type());
+    const arrow::TimeUnit::type expected_unit = type->get_scale() > 3   ? arrow::TimeUnit::MICRO
+                                                : type->get_scale() > 0 ? arrow::TimeUnit::MILLI
+                                                                        : arrow::TimeUnit::SECOND;
+    if (timestamp.unit() != expected_unit) {
+        return Status::InvalidArgument(
+                "Paimon timestamp writer has no binding for Doris type {} and Arrow field {}",
+                type->get_name(), field->ToString());
+    }
+    return write_column_to_arrow(column, null_map, array_builder, start, end, ctz);
+}
+
 /**
  * Reads an Arrow timestamp array into a TIMESTAMPTZ column.
  *
@@ -465,6 +528,13 @@ Status DataTypeTimeStampTzSerDe::write_column_to_orc(const std::string& timezone
         int64_t timestamp = 0;
         col_data[row_id].unix_timestamp(&timestamp, UTC);
 
+        // ORC-645 increments this second to zero, making it indistinguishable from a
+        // positive instant. Reject it before the writer can silently corrupt the value.
+        if (timestamp == -1 && col_data[row_id].microsecond() >= 1000) {
+            return Status::NotSupported(
+                    "ORC cannot represent pre-epoch timestamp fractions in [-0.999, 0) seconds "
+                    "without data loss; use Parquet for these values");
+        }
         cur_batch->data[row_id] = timestamp;
         cur_batch->nanoseconds[row_id] = col_data[row_id].microsecond() * micro_to_nano_second;
     }
@@ -605,6 +675,18 @@ void DataTypeTimeStampTzSerDe::write_one_cell_to_binary(const IColumn& src_colum
            sizeof(uint8_t));
     memcpy(chars.data() + old_size + sizeof(uint8_t) + sizeof(uint8_t), data_ref.data,
            data_ref.size);
+}
+
+Status DataTypeTimeStampTzSerDe::read_column_from_orc(IColumn& column,
+                                                      const OrcDecodedColumnView& view) const {
+    DORIS_CHECK(view.file_type != nullptr);
+    DORIS_CHECK(view.batch != nullptr);
+    DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::TIMESTAMP_INSTANT);
+    DORIS_CHECK(view.enable_mapping_timestamp_tz);
+    if (orc_serde_utils::orc_decode_row_count(view.rows, view.selected_rows) == 0) {
+        return Status::OK();
+    }
+    return decode_timestamp_tz_orc_values(column, view);
 }
 
 } // namespace doris

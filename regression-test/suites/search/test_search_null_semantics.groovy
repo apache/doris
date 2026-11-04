@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_search_null_semantics", "p0") {
+    // SEARCH uses two-valued matching; SQL comparisons and MATCH retain three-valued logic.
     def tableName = "search_null_test"
 
     // Pin enable_common_expr_pushdown to prevent CI flakiness from fuzzy testing.
@@ -84,7 +85,7 @@ suite("test_search_null_semantics", "p0") {
         WHERE not search('content:Round', '{"mode":"standard"}')
     """
 
-    // Test Case 2b: Phrase NOT queries must treat NULL rows as UNKNOWN
+    // Test Case 2b: Phrase NOT complements non-matches, including NULL rows
     qt_test_case_2_phrase_not """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${tableName}
         WHERE NOT search('content:"Selma Blair"', '{"mode":"standard"}')
@@ -92,7 +93,7 @@ suite("test_search_null_semantics", "p0") {
     """
 
     // Test Case 3: NULL handling in OR queries
-    // Verify that NULL OR TRUE = TRUE logic works
+    // A non-matching NULL term OR a matching term is a match
     qt_test_case_3_or_with_null """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content FROM ${tableName}
         WHERE search('title:Ronald OR content:biography', '{"mode":"standard"}')
@@ -100,7 +101,7 @@ suite("test_search_null_semantics", "p0") {
     """
 
     // Test Case 4: NULL handling in AND queries
-    // Verify that NULL AND TRUE = NULL logic works
+    // A non-matching NULL term makes SEARCH AND non-matching
     qt_test_case_4_and_with_null """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content FROM ${tableName}
         WHERE search('title:Ronald AND content:biography', '{"mode":"standard"}')
@@ -142,7 +143,7 @@ suite("test_search_null_semantics", "p0") {
     """
 
     // ------------------------------------------------------------------
-    // Additional coverage: nested boolean logic with explicit NULL checks
+    // Additional coverage: nested Boolean SEARCH versus SQL/MATCH NULL handling
     // ------------------------------------------------------------------
 
     def nestedTable = "search_nested_null_logic"
@@ -274,7 +275,7 @@ suite("test_search_null_semantics", "p0") {
     sql "DROP TABLE IF EXISTS ${nestedTable}"
 
     // ------------------------------------------------------------------
-    // Additional coverage: general ternary logic scenarios with articles
+    // Additional coverage: two-valued SEARCH versus three-valued MATCH
     // ------------------------------------------------------------------
 
     def ternaryTable = "search_three_value_logic"

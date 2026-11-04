@@ -45,6 +45,13 @@ class UniformTest extends TestWithFeService {
                 + "UNIQUE KEY(id)\n"
                 + "distributed by hash(id) buckets 10\n"
                 + "properties('replication_num' = '1');");
+        createTable("create table test.uniform_agg_witness (\n"
+                + "pk int not null,\n"
+                + "b int not null,\n"
+                + "v int null)\n"
+                + "UNIQUE KEY(pk)\n"
+                + "distributed by hash(pk) buckets 10\n"
+                + "properties('replication_num' = '1');");
         connectContext.setDatabase("test");
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
     }
@@ -77,6 +84,33 @@ class UniformTest extends TestWithFeService {
         Assertions.assertTrue(plan.getLogicalProperties().getTrait()
                 .isUniform(plan.getOutput().get(0)));
 
+    }
+
+    @Test
+    void testSingleRowAggregateUniformityRequiresStableParticipation() {
+        assertAggregateUniform("select count(*) from uniform_agg_witness group by pk", true);
+        assertAggregateUniform("select count(b) from uniform_agg_witness group by pk", true);
+        assertAggregateUniform("select ndv(b) from uniform_agg_witness group by pk", true);
+        assertAggregateUniform("select count(distinct pk, b) from uniform_agg_witness group by pk", true);
+        assertAggregateUniform("select count(if(v is null, 1, 0)) from uniform_agg_witness group by pk", true);
+
+        assertAggregateUniform("select count(v) from uniform_agg_witness group by pk", false);
+        assertAggregateUniform("select ndv(v) from uniform_agg_witness group by pk", false);
+        assertAggregateUniform("select count(distinct b, v) from uniform_agg_witness group by pk", false);
+        assertAggregateUniform(
+                "select count(if(v is null, 1, null)) from uniform_agg_witness group by pk", false);
+        assertAggregateUniform("select count(cast(pk as tinyint)) from uniform_agg_witness group by pk", false);
+        assertAggregateUniform("select count(try_cast(pk as tinyint)) from uniform_agg_witness group by pk", false);
+        assertAggregateUniform("select count(u.name) from uniform_agg_witness w "
+                + "left join uni u on w.pk = u.id group by w.pk", false);
+    }
+
+    private void assertAggregateUniform(String sql, boolean expected) {
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .getPlan();
+        Assertions.assertEquals(expected, plan.getLogicalProperties().getTrait()
+                .isUniform(plan.getOutput().get(0)), sql);
     }
 
     @Test

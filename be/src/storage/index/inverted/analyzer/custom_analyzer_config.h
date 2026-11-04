@@ -29,6 +29,7 @@ using ComponentConfigPtr = std::shared_ptr<ComponentConfig>;
 
 class CustomAnalyzerConfig;
 using CustomAnalyzerConfigPtr = std::shared_ptr<CustomAnalyzerConfig>;
+using ImmutableCustomAnalyzerConfigPtr = std::shared_ptr<const CustomAnalyzerConfig>;
 
 class CustomAnalyzerConfig {
 public:
@@ -53,9 +54,9 @@ public:
     CustomAnalyzerConfig(Builder* builder);
     ~CustomAnalyzerConfig() = default;
 
-    ComponentConfigPtr get_tokenizer_config();
-    std::vector<ComponentConfigPtr> get_char_filter_configs();
-    std::vector<ComponentConfigPtr> get_token_filter_configs();
+    ComponentConfigPtr get_tokenizer_config() const;
+    std::vector<ComponentConfigPtr> get_char_filter_configs() const;
+    std::vector<ComponentConfigPtr> get_token_filter_configs() const;
 
 private:
     ComponentConfigPtr _tokenizer_config;

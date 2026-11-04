@@ -237,7 +237,8 @@ TEST_F(PhraseFreqTest, NormVisitor_WithDISI) {
     EXPECT_EQ(norm, 1);
 }
 
-TEST_F(PhraseFreqTest, UnionTermIterator_NormThrowsException) {
+// A phrase prefix scores a row with the norm of its union, which the sub-iterator on the row gives.
+TEST_F(PhraseFreqTest, UnionTermIterator_NormIsThatOfTheSubOnTheDocument) {
     auto mock1 = std::make_shared<MockIterator>();
     mock1->set_postings({{1, {0}}});
     auto mock2 = std::make_shared<MockIterator>();
@@ -246,7 +247,7 @@ TEST_F(PhraseFreqTest, UnionTermIterator_NormThrowsException) {
     std::vector<std::shared_ptr<MockIterator>> subs = {mock1, mock2};
     UnionTermIterator<MockIterator> union_iter(subs);
 
-    EXPECT_THROW(union_iter.norm(), Exception);
+    EXPECT_EQ(union_iter.norm(), 1);
 }
 
 TEST_F(PhraseFreqTest, ExactPhraseMatcher_MultipleDocuments) {

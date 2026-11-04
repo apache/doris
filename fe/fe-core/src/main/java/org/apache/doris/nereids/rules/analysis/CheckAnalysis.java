@@ -38,12 +38,17 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TResultSinkType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -99,10 +104,13 @@ public class CheckAnalysis implements AnalysisRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
             RuleType.CHECK_ANALYSIS.build(
-                any().then(plan -> {
+                any().thenApply(ctx -> {
+                    Plan plan = ctx.root;
                     checkExpressionInputTypes(plan);
+                    CheckAnalysis.checkFilePlan(plan);
                     checkUnexpectedExpressions(plan);
                     checkDistinctSetOperation(plan);
+                    checkArrowFlightResult(plan, ctx.connectContext);
                     return null;
                 })
             ),
@@ -113,6 +121,35 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                 })
             )
         );
+    }
+
+    /** Validate operator keys after expression binding. */
+    public static void checkFilePlan(Plan plan) {
+        if (plan instanceof LogicalSort) {
+            ((LogicalSort<?>) plan).getOrderKeys()
+                    .forEach(key -> ExpressionUtils.checkFileKey(key.getExpr(), "ORDER BY"));
+        }
+        if (plan instanceof LogicalAggregate) {
+            ((LogicalAggregate<?>) plan).getGroupByExpressions()
+                    .forEach(key -> ExpressionUtils.checkFileKey(key, "GROUP BY"));
+        }
+        if (plan instanceof LogicalRepeat) {
+            ((LogicalRepeat<?>) plan).getGroupByExpressions()
+                    .forEach(key -> ExpressionUtils.checkFileKey(key, "GROUPING SETS"));
+        }
+        if (plan instanceof LogicalSetOperation
+                && (!(plan instanceof LogicalUnion) || ((LogicalSetOperation) plan).getQualifier() != Qualifier.ALL)) {
+            plan.getOutput().forEach(key -> ExpressionUtils.checkFileKey(key, plan.getType().toString()));
+        }
+    }
+
+    private void checkArrowFlightResult(Plan plan, ConnectContext connectContext) {
+        if (plan instanceof LogicalResultSink
+                && connectContext.getResultSinkType() == TResultSinkType.ARROW_FLIGHT_PROTOCOL
+                && plan.getExpressions().stream()
+                        .anyMatch(output -> output.getDataType().typeContainsFile())) {
+            throw new AnalysisException("Arrow Flight does not support FILE result columns");
+        }
     }
 
     private void checkUnexpectedExpressions(Plan plan) {

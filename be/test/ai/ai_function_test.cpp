@@ -1558,14 +1558,14 @@ public:
 };
 
 TEST(AIFunctionTest, NormalizeLegacyCompletionsEndpoint) {
-    TAIResource resource;
+    AIResource resource;
     resource.endpoint = "https://api.openai.com/v1/completions";
     FunctionAISentimentTestHelper::normalize_endpoint(resource);
     ASSERT_EQ(resource.endpoint, "https://api.openai.com/v1/chat/completions");
 }
 
 TEST(AIFunctionTest, NormalizeEndpointNoopForOtherPaths) {
-    TAIResource resource;
+    AIResource resource;
     resource.endpoint = "https://api.openai.com/v1/chat/completions";
     FunctionAISentimentTestHelper::normalize_endpoint(resource);
     ASSERT_EQ(resource.endpoint, "https://api.openai.com/v1/chat/completions");
@@ -1576,7 +1576,7 @@ TEST(AIFunctionTest, NormalizeEndpointNoopForOtherPaths) {
 }
 
 TEST(AIFunctionTest, NormalizeGeminiGenerateEndpointFromBaseVersion) {
-    TAIResource resource;
+    AIResource resource;
     resource.provider_type = "gemini";
     resource.model_name = "gemini-pro";
     resource.endpoint = "https://generativelanguage.googleapis.com/v1beta";
@@ -1587,7 +1587,7 @@ TEST(AIFunctionTest, NormalizeGeminiGenerateEndpointFromBaseVersion) {
 }
 
 TEST(AIFunctionTest, NormalizeGeminiEmbedEndpointFromBaseVersion) {
-    TAIResource resource;
+    AIResource resource;
     resource.provider_type = "GEMINI";
     resource.model_name = "gemini-embedding-2-preview";
     resource.endpoint = "https://generativelanguage.googleapis.com/v1beta";
@@ -1599,7 +1599,7 @@ TEST(AIFunctionTest, NormalizeGeminiEmbedEndpointFromBaseVersion) {
 }
 
 TEST(AIFunctionTest, NormalizeGeminiEndpointNoopForNonBasePath) {
-    TAIResource resource;
+    AIResource resource;
     resource.provider_type = "gemini";
     resource.model_name = "gemini-pro";
     resource.endpoint =
@@ -1611,7 +1611,7 @@ TEST(AIFunctionTest, NormalizeGeminiEndpointNoopForNonBasePath) {
 }
 
 TEST(AIFunctionTest, NormalizeGeminiEmbedLegacySingleEndpointToBatchEndpoint) {
-    TAIResource resource;
+    AIResource resource;
     resource.provider_type = "gemini";
     resource.model_name = "gemini-embedding-2-preview";
     resource.endpoint =

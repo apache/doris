@@ -23,12 +23,15 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Utility class for handling fields annotated with {@link ConnectorProperty}.
  * Provides methods to extract supported connector properties from a class and bind them to an object instance.
  */
 public class ConnectorPropertiesUtils {
+    private static final Map<Class<? extends ConnectorPropertyValidator>, ConnectorPropertyValidator> VALIDATORS =
+            new ConcurrentHashMap<>();
 
     /**
      * Retrieves all fields annotated with {@link ConnectorProperty} from the given class and its superclasses,
@@ -74,6 +77,7 @@ public class ConnectorPropertiesUtils {
                 try {
                     Object rawValue = props.get(matchedName);
                     Object convertedValue = convertValue(rawValue, field.getType());
+                    validateValue(target, field, matchedName, convertedValue, props);
                     field.set(target, convertedValue);
                 } catch (Exception e) {
                     throw new IllegalArgumentException(
@@ -82,6 +86,25 @@ public class ConnectorPropertiesUtils {
                     );
                 }
             }
+        }
+    }
+
+    private static void validateValue(Object target, Field field, String propertyName, Object value,
+            Map<String, String> props) {
+        Class<? extends ConnectorPropertyValidator> validatorClass =
+                field.getAnnotation(ConnectorProperty.class).validator();
+        ConnectorPropertyValidator validator = VALIDATORS.computeIfAbsent(
+                validatorClass, ConnectorPropertiesUtils::createValidator);
+        validator.validate(target, field, propertyName, value, props);
+    }
+
+    private static ConnectorPropertyValidator createValidator(
+            Class<? extends ConnectorPropertyValidator> validatorClass) {
+        try {
+            return validatorClass.getDeclaredConstructor().newInstance();
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalArgumentException(
+                    "Failed to create connector property validator " + validatorClass.getName(), e);
         }
     }
 

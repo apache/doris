@@ -183,10 +183,6 @@ public class MysqlProto {
         if (handshakeResponse == null) {
             return failHandshake(context, CLIENT_CLOSED_CONNECTION_DURING_HANDSHAKE);
         }
-        if (capability.isDeprecatedEOF()) {
-            context.getMysqlChannel().setClientDeprecatedEOF();
-        }
-
         // we do not save client capability to context, so here we save CLIENT_MULTI_STATEMENTS to MysqlChannel
         if (capability.isClientMultiStatements()) {
             context.getMysqlChannel().setClientMultiStatements();
@@ -208,7 +204,11 @@ public class MysqlProto {
         }
 
         // change the capability of serializer
-        context.setCapability(context.getServerCapability());
+        context.setCapability(new MysqlCapability(context.getServerCapability().getFlags()
+                & authPacket.getCapability().getFlags()));
+        if (context.getCapability().isDeprecatedEOF()) {
+            channel.setClientDeprecatedEOF();
+        }
         serializer.setCapability(context.getCapability());
 
         String qualifiedUser = parseUser(context, authPacket.getAuthResponse(), authPacket.getUser());

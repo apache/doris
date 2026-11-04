@@ -23,6 +23,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.plans.commands.insert.PaimonInsertCommandContext;
 import org.apache.doris.nereids.types.DataType;
 
@@ -35,6 +36,7 @@ import org.apache.paimon.types.DataTypeRoot;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Collections;
 import java.util.HashMap;
@@ -163,7 +165,7 @@ public class PaimonWriteBinding {
             boolean isNull = castValue instanceof NullLiteral;
             String partitionValue = isNull
                     ? defaultPartitionName
-                    : canonicalPartitionValue(castValue, partitionField);
+                    : canonicalPartitionValue(castValue, partitionField, overwrite);
             if (overwrite && !isNull
                     && defaultPartitionName.equals(partitionValue)) {
                 // Paimon 1.3's public static-overwrite API uses this string as the
@@ -187,22 +189,30 @@ public class PaimonWriteBinding {
     }
 
     private static String canonicalPartitionValue(
-            Literal literal, DataField partitionField) {
+            Literal literal, DataField partitionField, boolean overwrite) throws AnalysisException {
         String value = literal.getStringValue();
         if (partitionField.type().getTypeRoot()
                 != DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
             return value;
         }
 
-        // Doris writes an LTZ literal as civil time in the session zone. Paimon 1.3
-        // parses the string accepted by withOverwrite in the FE JVM default zone.
-        // Translate the same instant into that zone so the overwrite predicate and
-        // the row written by the JNI writer identify the same typed partition.
-        LocalDateTime sessionValue = LocalDateTime.parse(
-                value.replace(' ', 'T'), DateTimeFormatter.ISO_LOCAL_DATE_TIME);
-        return sessionValue.atZone(TimeUtils.getDorisZoneId())
-                .withZoneSameInstant(ZoneId.systemDefault())
-                .toLocalDateTime()
+        // The write boundary now carries UTC instants. Do not parse its display string as
+        // session-local time: that loses the offset and makes a DST fold ambiguous again.
+        ZonedDateTime instant = literal instanceof TimestampTzLiteral
+                ? ((TimestampTzLiteral) literal).toJavaDateType().atZone(ZoneId.of("UTC"))
+                : LocalDateTime.parse(value.replace(' ', 'T'), DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+                        .atZone(TimeUtils.getDorisZoneId());
+        // Paimon 1.3 parses withOverwrite strings in the FE JVM default zone.
+        ZoneId sdkZone = ZoneId.systemDefault();
+        LocalDateTime localValue = instant.withZoneSameInstant(sdkZone).toLocalDateTime();
+        if (overwrite && sdkZone.getRules().getValidOffsets(localValue).size() > 1) {
+            // Both fold instants serialize to the same offset-free overwrite key. Reject both
+            // rather than letting the SDK select a different partition when it parses the key.
+            throw new AnalysisException("Static LTZ partition value for column '" + partitionField.name()
+                    + "' is ambiguous in FE JVM time zone " + sdkZone
+                    + " and cannot be represented in a static overwrite");
+        }
+        return localValue
                 // Paimon 1.3's timestamp parser accepts a space, but not ISO's
                 // 'T', between the date and time components.
                 .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)

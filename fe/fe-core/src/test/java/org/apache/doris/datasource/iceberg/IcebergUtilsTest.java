@@ -17,25 +17,38 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
 import org.apache.doris.datasource.property.storage.OSSProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
+import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Range;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.FileFormat;
@@ -65,6 +78,7 @@ import org.apache.iceberg.types.Types.LongType;
 import org.apache.iceberg.types.Types.StructType;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
@@ -72,6 +86,7 @@ import java.nio.ByteBuffer;
 import java.time.DateTimeException;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -83,9 +98,206 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 
 public class IcebergUtilsTest {
+    @Test
+    public void testTimestampPredicateLiteralAlreadyContainsUtcFields() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            for (String zone : Arrays.asList("UTC", "Asia/Shanghai", "America/New_York")) {
+                context.getSessionVariable().setTimeZone(zone);
+                for (LocalDateTime utc : Arrays.asList(
+                        LocalDateTime.of(1969, 12, 31, 23, 59, 59, 999999000),
+                        LocalDateTime.of(2021, 11, 7, 5, 30, 0, 123456000),
+                        LocalDateTime.of(2021, 11, 7, 6, 30, 0, 123456000))) {
+                    // Planner TIMESTAMPTZ literals are UTC instants, even in non-UTC sessions.
+                    DateLiteral literal = new DateLiteral(utc, ScalarType.createTimeStampTzType(6));
+                    long micros = utc.toEpochSecond(ZoneOffset.UTC) * 1_000_000 + utc.getNano() / 1000;
+                    Assert.assertEquals(micros,
+                            IcebergUtils.extractDorisLiteral(Types.TimestampType.withZone(), literal));
+                }
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testTimestampTransformRangesUseUtc() throws Exception {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            List<Column> columns = Collections.singletonList(
+                    new Column("ts", ScalarType.createTimeStampTzType(6)));
+            for (String zone : Arrays.asList("UTC", "Asia/Shanghai", "America/New_York")) {
+                context.getSessionVariable().setTimeZone(zone);
+                for (String transform : Arrays.asList("hour", "day", "month", "year")) {
+                    // Iceberg transform ordinals describe UTC boundaries, not session-local time.
+                    Range<PartitionKey> range = IcebergUtils.getPartitionRange("0", transform, columns);
+                    Assert.assertEquals(0, range.lowerEndpoint().getKeys().get(0).compareLiteral(
+                            new DateLiteral(1970, 1, 1, 0, 0, 0, 0, columns.get(0).getType())));
+                }
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testYearZeroTransformRangeUsesProlepticYear() throws Exception {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        context.getSessionVariable().setTimeZone("UTC");
+        try {
+            for (ScalarType type : Arrays.asList(ScalarType.createDateV2Type(),
+                    ScalarType.createDatetimeV2Type(6), ScalarType.createTimeStampTzType(6))) {
+                List<Column> columns = Collections.singletonList(new Column("ts", type));
+                // Year-of-era formatting would map both year zero and year one to 0001.
+                Range<PartitionKey> range = IcebergUtils.getPartitionRange("-1970", "year", columns);
+                Assert.assertFalse(range.isEmpty());
+                Assert.assertEquals(0L, ((DateLiteral) range.lowerEndpoint().getKeys().get(0)).getYear());
+                Assert.assertEquals(1L, ((DateLiteral) range.upperEndpoint().getKeys().get(0)).getYear());
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testTimestampTransformNullRange() throws Exception {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            List<Column> columns = Collections.singletonList(
+                    new Column("ts", ScalarType.createTimeStampTzType(6)));
+            for (String zone : Arrays.asList("UTC", "Asia/Shanghai", "America/New_York")) {
+                context.getSessionVariable().setTimeZone(zone);
+                Range<PartitionKey> nullRange = IcebergUtils.getPartitionRange(null, "day", columns);
+                Assert.assertFalse(nullRange.isEmpty());
+                Assert.assertTrue(nullRange.upperEndpoint().compareTo(
+                        IcebergUtils.getPartitionRange("0", "day", columns).lowerEndpoint()) < 0);
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testTimestampPartitionSerializationRoundTrip() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            for (String zone : Arrays.asList("UTC", "Asia/Shanghai", "America/New_York")) {
+                context.getSessionVariable().setTimeZone(zone);
+                for (Types.TimestampType type : Arrays.asList(Types.TimestampType.withZone(),
+                        Types.TimestampType.withoutZone())) {
+                    for (long micros : new long[] {-1L, -1_000_001L, 1636263000123456L, 1636266600123456L}) {
+                        // Partition metadata must retain the instant even in a DST overlap.
+                        String serialized = Deencapsulation.<String>invoke(IcebergUtils.class, "serializePartitionValue", type, micros, zone);
+                        Assert.assertEquals(micros, IcebergUtils.parsePartitionValueFromString(
+                                serialized.replace('T', ' '), type));
+                    }
+                }
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testTimestampPartitionCommitsPreserveExplicitOffsets() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            for (String zone : Arrays.asList("UTC", "Asia/Shanghai", "America/New_York")) {
+                context.getSessionVariable().setTimeZone(zone);
+                for (String value : Arrays.asList("2021-11-07T01:30:00.123456-04:00",
+                        "2021-11-07T01:30:00.123456-05:00", "1969-12-31T23:59:59.999999+00:00")) {
+                    java.time.Instant instant = java.time.OffsetDateTime.parse(value).toInstant();
+                    long expected = instant.getEpochSecond() * 1_000_000L + instant.getNano() / 1000;
+                    // BE commits include an offset so the FE session must not reinterpret their fields.
+                    Assert.assertEquals(expected, IcebergUtils.parsePartitionValueFromString(
+                            value.replace('T', ' '), Types.TimestampType.withZone()));
+                }
+                Assert.assertEquals(-1L, IcebergUtils.parsePartitionValueFromString(
+                        "1969-12-31 23:59:59.999999", Types.TimestampType.withoutZone()));
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testStaticBinaryPartitionContextUsesTypedHex() {
+        UnboundIcebergTableSink<?> sink = Mockito.mock(UnboundIcebergTableSink.class);
+        Mockito.when(sink.hasStaticPartition()).thenReturn(true);
+        Mockito.when(sink.getStaticPartitionKeyValues()).thenReturn(Collections.singletonMap("key",
+                new VarBinaryLiteral("DEAD")));
+        InsertOverwriteTableCommand command = new InsertOverwriteTableCommand(
+                sink, Optional.empty(), Optional.empty(), Optional.empty());
+        IcebergInsertCommandContext context = new IcebergInsertCommandContext();
+        Deencapsulation.invoke(command, "setStaticPartitionToContext", sink, context);
+        Assert.assertEquals("0xDEAD", context.getStaticPartitionValues().get("key"));
+    }
+
+    @Test
+    public void testBinaryPartitionCommitRoundTrip() {
+        byte[] bytes = new byte[] {0, (byte) 0xde, (byte) 0xad, (byte) 0xff};
+        for (org.apache.iceberg.types.Type type : Arrays.asList(
+                Types.BinaryType.get(), Types.FixedType.ofLength(bytes.length))) {
+            Assert.assertEquals(ByteBuffer.wrap(bytes),
+                    IcebergUtils.parsePartitionValueFromString("0x00deadff", type));
+            Assert.assertEquals("0x00deadff", Deencapsulation.<String>invoke(IcebergUtils.class, "serializePartitionValue", type,
+                    ByteBuffer.wrap(bytes), "UTC"));
+            Assert.assertEquals(ByteBuffer.allocate(0),
+                    IcebergUtils.parsePartitionValueFromString("0x", Types.BinaryType.get()));
+        }
+        UUID uuid = UUID.fromString("00112233-4455-6677-8899-aabbccddeeff");
+        Assert.assertEquals(uuid, IcebergUtils.parsePartitionValueFromString(
+                "0x00112233445566778899aabbccddeeff", Types.UUIDType.get()));
+        Assert.assertEquals(uuid, IcebergUtils.parsePartitionValueFromString(uuid.toString(), Types.UUIDType.get()));
+        Assert.assertThrows(IllegalArgumentException.class, () -> IcebergUtils.parsePartitionValueFromString(
+                "0xdead", Types.FixedType.ofLength(4)));
+        Assert.assertThrows(IllegalArgumentException.class, () -> IcebergUtils.parsePartitionValueFromString(
+                "0xdead", Types.UUIDType.get()));
+        for (String malformed : Arrays.asList("DEAD", "0xD", "0xGG")) {
+            Assert.assertThrows(IllegalArgumentException.class, () -> IcebergUtils.parsePartitionValueFromString(
+                    malformed, Types.BinaryType.get()));
+        }
+        ByteBuffer slice = ByteBuffer.wrap(bytes).asReadOnlyBuffer();
+        slice.position(1);
+        Assert.assertEquals("0xdeadff", Deencapsulation.<String>invoke(IcebergUtils.class, "serializePartitionValue", Types.BinaryType.get(), slice, "UTC"));
+        Assert.assertEquals(1, slice.position());
+    }
+
     @Test
     public void testSelectEffectiveStoragePropertiesPrefersOssOverGenericS3() throws UserException {
         Map<String, String> properties = new HashMap<>();
@@ -110,6 +322,32 @@ public class IcebergUtilsTest {
         Assert.assertTrue(selected.get(StorageProperties.Type.OSS) instanceof OSSProperties);
         Assert.assertSame(selected.get(StorageProperties.Type.OSS),
                 LocationPath.of("s3://bucket/data.parquet", selected).getStorageProperties());
+    }
+
+    @Test
+    public void testIcebergFixedAlwaysMapsToLengthPreservingVarbinary() {
+        for (boolean enableMappingVarbinary : Arrays.asList(false, true)) {
+            Type shortFixed = IcebergUtils.icebergTypeToDorisType(
+                    Types.FixedType.ofLength(4), enableMappingVarbinary, false);
+            Assert.assertTrue(shortFixed.isVarbinaryType());
+            Assert.assertEquals(4, ((ScalarType) shortFixed).getLength());
+
+            Type longFixed = IcebergUtils.icebergTypeToDorisType(
+                    Types.FixedType.ofLength(256), enableMappingVarbinary, false);
+            Assert.assertTrue(longFixed.isVarbinaryType());
+            Assert.assertEquals(256, ((ScalarType) longFixed).getLength());
+        }
+    }
+
+    @Test
+    public void testIcebergBinaryAlwaysMapsToVarbinary() {
+        Type binary = IcebergUtils.icebergTypeToDorisType(Types.BinaryType.get(), false, false);
+        Assert.assertTrue(binary.isVarbinaryType());
+        Assert.assertEquals(ScalarType.MAX_VARBINARY_LENGTH, ((ScalarType) binary).getLength());
+
+        Type uuid = IcebergUtils.icebergTypeToDorisType(Types.UUIDType.get(), false, false);
+        Assert.assertTrue(uuid.isVarbinaryType());
+        Assert.assertEquals(16, ((ScalarType) uuid).getLength());
     }
 
     @Test
@@ -140,7 +378,7 @@ public class IcebergUtilsTest {
     }
 
     @Test
-    public void testRetainedGenerationKeepsProjectionAtomic() {
+    public void testRetainedGenerationKeepsProjectionAtomic() throws Exception {
         Schema originalSchema = new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()));
         Schema evolvedSchema = new Schema(
@@ -174,6 +412,52 @@ public class IcebergUtilsTest {
     }
 
     @Test
+    public void testMalformedNameMappingFailsInsteadOfFallingBackToCurrentSchemaNames() {
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.name()).thenReturn("db.tbl");
+        Mockito.when(table.properties()).thenReturn(Collections.singletonMap(
+                TableProperties.DEFAULT_NAME_MAPPING, "{not valid json"));
+
+        // Iceberg (and therefore Spark) refuses to read a table whose name mapping cannot be
+        // parsed; silently rewriting the property into current-schema aliases would turn renamed
+        // columns of ID-less files into NULLs instead of reporting the metadata fault.
+        UserException exception = Assert.assertThrows(UserException.class,
+                () -> IcebergUtils.getNameMapping(table));
+        Assert.assertTrue(exception.getMessage().contains(TableProperties.DEFAULT_NAME_MAPPING));
+        Assert.assertTrue(exception.getMessage().contains("db.tbl"));
+    }
+
+    @Test
+    public void testHasPartitionedSpecLooksAtEverySpecNotOnlyTheCurrentOne() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "p", Types.IntegerType.get()));
+        PartitionSpec identity = PartitionSpec.builderFor(schema).identity("p").withSpecId(0).build();
+        PartitionSpec unpartitioned = PartitionSpec.unpartitioned();
+
+        // A table that evolved identity(p) -> unpartitioned still has files carrying p in their
+        // partition metadata, so scan planning must keep sending those values.
+        Table evolved = Mockito.mock(Table.class);
+        Mockito.when(evolved.specs()).thenReturn(ImmutableMap.of(0, identity, 1, unpartitioned));
+        Assert.assertTrue(IcebergUtils.hasPartitionedSpec(evolved));
+
+        Table neverPartitioned = Mockito.mock(Table.class);
+        Mockito.when(neverPartitioned.specs()).thenReturn(ImmutableMap.of(0, unpartitioned));
+        Assert.assertFalse(IcebergUtils.hasPartitionedSpec(neverPartitioned));
+    }
+
+    @Test
+    public void testEmptyNameMappingStillParsesAsAuthoritativeMapping() throws Exception {
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.properties()).thenReturn(
+                Collections.singletonMap(TableProperties.DEFAULT_NAME_MAPPING, "[]"));
+
+        Optional<Map<Integer, List<String>>> mapping = IcebergUtils.getNameMapping(table);
+        Assert.assertTrue(mapping.isPresent());
+        Assert.assertTrue(mapping.get().isEmpty());
+    }
+
+    @Test
     public void testGetFileFormatUsesPropertiesWithoutPlanningDataFiles() {
         Table table = Mockito.mock(Table.class);
         Mockito.when(table.properties()).thenReturn(Collections.emptyMap());
@@ -197,30 +481,77 @@ public class IcebergUtilsTest {
 
     @Test
     public void testPartitionColumnsUseFrozenTableSpec() {
-        Schema frozenSchema = new Schema(17, Arrays.asList(
+        Schema historicalSchema = new Schema(17, Arrays.asList(
                 Types.NestedField.required(1, "p", Types.IntegerType.get()),
                 Types.NestedField.optional(2, "q", Types.IntegerType.get())));
+        Schema currentSchema = new Schema(18, Arrays.asList(
+                Types.NestedField.required(1, "p_renamed", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "q", Types.IntegerType.get())));
         Table frozenTable = Mockito.mock(Table.class);
-        Mockito.when(frozenTable.schema()).thenReturn(frozenSchema);
-        Mockito.when(frozenTable.schemas()).thenReturn(
-                Collections.singletonMap(frozenSchema.schemaId(), frozenSchema));
-        Mockito.when(frozenTable.spec()).thenReturn(PartitionSpec.builderFor(frozenSchema).identity("p").build());
+        Mockito.when(frozenTable.schema()).thenReturn(currentSchema);
+        Mockito.when(frozenTable.schemas()).thenReturn(ImmutableMap.of(
+                historicalSchema.schemaId(), historicalSchema,
+                currentSchema.schemaId(), currentSchema));
+        Mockito.when(frozenTable.spec()).thenReturn(
+                PartitionSpec.builderFor(currentSchema).identity("p_renamed").build());
         Mockito.when(frozenTable.currentSnapshot()).thenReturn(Mockito.mock(Snapshot.class));
 
         IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
         IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
         Mockito.when(dorisTable.getCatalog()).thenReturn(catalog);
-        Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {});
         Mockito.when(catalog.getName()).thenReturn("catalog");
-        IcebergSnapshotCacheValue cacheValue = new IcebergSnapshotCacheValue(
-                IcebergPartitionInfo.empty(), new IcebergSnapshot(101L, frozenSchema.schemaId()),
-                Optional.empty(), frozenTable);
+        IcebergSchemaCacheValue cacheValue = IcebergUtils.buildTableSchemaCacheValue(
+                dorisTable, historicalSchema.schemaId(), frozenTable,
+                new ExecutionAuthenticator() { }, false, false);
 
-        List<Column> partitionColumns = IcebergUtils.getIcebergPartitionColumns(
-                Optional.of(new IcebergMvccSnapshot(cacheValue)), dorisTable);
-
-        Assert.assertEquals(Collections.singletonList("p"), partitionColumns.stream()
+        Assert.assertEquals(Collections.singletonList("p"), cacheValue.getPartitionColumns().stream()
                 .map(Column::getName).collect(java.util.stream.Collectors.toList()));
+    }
+
+    @Test
+    public void testPartitionColumnsProjectInsideSnapshotLease() {
+        Env env = Mockito.mock(Env.class);
+        ExternalMetaCacheMgr cacheManager = Mockito.mock(ExternalMetaCacheMgr.class);
+        IcebergExternalMetaCache cache = Mockito.mock(IcebergExternalMetaCache.class);
+        IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        NameMapping mapping = NameMapping.createForTest(1L, "db", "tbl");
+        Table frozenTable = Mockito.mock(Table.class);
+        IcebergSnapshotCacheValue snapshotValue = new IcebergSnapshotCacheValue(
+                IcebergPartitionInfo.empty(), new IcebergSnapshot(11L, 17L),
+                Optional.empty(), frozenTable);
+        List<Column> partitionColumns = Collections.singletonList(new Column("p", Type.INT));
+        IcebergSchemaCacheValue schemaValue = new IcebergSchemaCacheValue(
+                partitionColumns, partitionColumns);
+        AtomicBoolean leaseActive = new AtomicBoolean();
+        Mockito.when(dorisTable.getCatalog()).thenReturn(catalog);
+        Mockito.when(dorisTable.getOrBuildNameMapping()).thenReturn(mapping);
+        Mockito.when(catalog.getId()).thenReturn(1L);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheManager);
+        Mockito.when(cacheManager.iceberg(1L)).thenReturn(cache);
+        Mockito.when(cache.withSnapshotCacheValue(Mockito.eq(dorisTable), Mockito.any()))
+                .thenAnswer(invocation -> {
+                    leaseActive.set(true);
+                    try {
+                        Function<IcebergSnapshotCacheValue, List<Column>> projection = invocation.getArgument(1);
+                        return projection.apply(snapshotValue);
+                    } finally {
+                        leaseActive.set(false);
+                    }
+                });
+        Mockito.when(cache.getIcebergSchemaCacheValue(mapping, 17L, frozenTable))
+                .thenAnswer(invocation -> {
+                    Assert.assertTrue("schema/spec projection must remain inside the snapshot lease", leaseActive.get());
+                    return schemaValue;
+                });
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+            Assert.assertSame(partitionColumns,
+                    IcebergUtils.getIcebergPartitionColumns(Optional.empty(), dorisTable));
+        }
+        Mockito.verify(cache, Mockito.never()).getSnapshotCache(dorisTable);
     }
 
     @Test
@@ -229,6 +560,7 @@ public class IcebergUtilsTest {
             IcebergHMSExternalCatalog c1 =
                     new IcebergHMSExternalCatalog(1, "name", null, new HashMap<>(), "");
             HiveCatalog i1 = IcebergUtils.createIcebergHiveCatalog(c1, "i1");
+            Assert.assertTrue(i1 instanceof DorisHiveCatalog);
             Assert.assertTrue(getListAllTables(i1));
 
             IcebergHMSExternalCatalog c2 =
@@ -259,7 +591,7 @@ public class IcebergUtilsTest {
     }
 
     private boolean getListAllTables(HiveCatalog hiveCatalog) throws IllegalAccessException, NoSuchFieldException {
-        Field declaredField = hiveCatalog.getClass().getDeclaredField("listAllTables");
+        Field declaredField = HiveCatalog.class.getDeclaredField("listAllTables");
         declaredField.setAccessible(true);
         return declaredField.getBoolean(hiveCatalog);
     }
@@ -392,6 +724,27 @@ public class IcebergUtilsTest {
         Assert.assertTrue(type instanceof org.apache.doris.catalog.VariantType);
         Assert.assertTrue(((org.apache.doris.catalog.VariantType) type).isComputeV2());
         Assert.assertEquals(Types.VariantType.get(), IcebergUtils.dorisTypeToIcebergType(type));
+    }
+
+    @Test
+    public void testIcebergVariantDefaultsMustBeNull() {
+        Types.VariantType variantType = Types.VariantType.get();
+        Schema schema = new Schema(Types.NestedField.optional(1, "payload", variantType));
+
+        Assert.assertNull(IcebergUtils.parseIcebergLiteral(null, variantType));
+        Assert.assertTrue(IcebergUtils.getSerializedInitialDefaults(schema, false).isEmpty());
+
+        IllegalArgumentException ddlException = Assert.assertThrows(IllegalArgumentException.class,
+                () -> IcebergUtils.parseIcebergLiteral("{\"source\":\"ddl\"}", variantType));
+        Assert.assertTrue(ddlException.getMessage().contains("VARIANT default values must be NULL"));
+
+        Types.NestedField malformedField = Mockito.mock(Types.NestedField.class);
+        Mockito.when(malformedField.fieldId()).thenReturn(1);
+        Mockito.when(malformedField.type()).thenReturn(variantType);
+        Mockito.when(malformedField.initialDefault()).thenReturn("non-null-variant");
+        IllegalArgumentException readException = Assert.assertThrows(IllegalArgumentException.class,
+                () -> IcebergUtils.getSerializedInitialDefault(malformedField, false));
+        Assert.assertTrue(readException.getMessage().contains("VARIANT initial-default must be NULL"));
     }
 
     @Test
@@ -597,7 +950,7 @@ public class IcebergUtilsTest {
     }
 
     @Test
-    public void testLegacyTimestamptzMissingColumnExpressionUsesSessionTimeZone() {
+    public void testTimestamptzMissingColumnExpressionPreservesOffsetWithoutFlag() {
         Types.NestedField field = Types.NestedField.optional("event_time")
                 .withId(1)
                 .ofType(Types.TimestampType.withZone())
@@ -607,7 +960,7 @@ public class IcebergUtilsTest {
         context.getSessionVariable().setTimeZone("Asia/Shanghai");
         context.setThreadLocalInfo();
         try {
-            Assert.assertEquals("2025-01-18 09:02:03.654321",
+            Assert.assertEquals("2025-01-18 01:02:03.654321+00:00",
                     IcebergUtils.getSerializedInitialDefaultForDorisExpression(field, false));
             Assert.assertEquals("2025-01-18 01:02:03.654321+00:00",
                     IcebergUtils.getSerializedInitialDefaultForDorisExpression(field, true));
@@ -680,6 +1033,29 @@ public class IcebergUtilsTest {
 
         Map<String, String> partitionInfoMap = IcebergUtils.getPartitionInfoMap(partitionData, partitionSpec, "UTC");
         Assert.assertNull(partitionInfoMap);
+    }
+
+    @Test
+    public void testBinaryPartitionJsonPreservesBufferBounds() {
+        for (org.apache.iceberg.types.Type type : Arrays.asList(Types.BinaryType.get(), Types.FixedType.ofLength(4))) {
+            Schema schema = new Schema(Types.NestedField.optional(1, "partition_key", type));
+            PartitionSpec spec = PartitionSpec.builderFor(schema).identity("partition_key").build();
+            ByteBuffer buffer = ByteBuffer.allocateDirect(6);
+            buffer.put(new byte[] {42, 0, (byte) 0xff, (byte) 0x80, 0x2f, 42});
+            buffer.position(1);
+            buffer.limit(5);
+            ByteBuffer value = buffer.asReadOnlyBuffer();
+            PartitionData partition = new PartitionData(spec.partitionType());
+            partition.set(0, value);
+            List<String> encoded = IcebergUtils.parsePartitionValuesFromJson(
+                    IcebergUtils.getPartitionDataJson(partition, spec, "UTC"));
+            Assert.assertEquals(Collections.singletonList("0x00ff802f"), encoded);
+            Assert.assertEquals(1, value.position());
+            Assert.assertEquals(5, value.limit());
+            Assert.assertEquals(value, IcebergUtils.parsePartitionValueFromString(encoded.get(0), type));
+        }
+        Assert.assertThrows(IllegalArgumentException.class,
+                () -> IcebergUtils.parsePartitionValueFromString("0x00ff802f", Types.FixedType.ofLength(3)));
     }
 
     @Test
@@ -986,6 +1362,10 @@ public class IcebergUtilsTest {
         Mockito.when(table.snapshot(3)).thenReturn(s3);
         Snapshot s4 = mockSnapshot(4, 1);
         Mockito.when(table.snapshot(4)).thenReturn(s4);
+        Snapshot s5 = mockSnapshot(5, 2);
+        Mockito.when(table.snapshot(5)).thenReturn(s5);
+        Snapshot s6 = mockSnapshot(6, 2);
+        Mockito.when(table.snapshot(6)).thenReturn(s6);
 
         // init history for snapshots
         List<HistoryEntry> history = new ArrayList<>();
@@ -993,6 +1373,8 @@ public class IcebergUtilsTest {
         history.add(mockHistory(2, "2025-05-01 22:34:56"));
         history.add(mockHistory(3, "2025-05-02 12:34:56"));
         history.add(mockHistory(4, "2025-05-03 12:34:56"));
+        history.add(mockHistory(5, LocalDateTime.of(2025, 5, 4, 12, 34, 56, 125_000_000)));
+        history.add(mockHistory(6, LocalDateTime.of(2025, 5, 4, 12, 34, 56, 526_000_000)));
         Mockito.when(table.history()).thenReturn(history);
 
         // create some refs
@@ -1106,6 +1488,8 @@ public class IcebergUtilsTest {
         assertQuerySpecSnapshotByTimeOf(table, "2025-05-02 11:34:56", 2, 0, null);
         assertQuerySpecSnapshotByTimeOf(table, "2025-05-02 12:34:56", 3, 1, null);
         assertQuerySpecSnapshotByTimeOf(table, "2025-05-03 12:34:56", 4, 1, null);
+        assertQuerySpecSnapshotByTimeOf(table, "2025-05-04 12:34:56.125", 5, 2, null);
+        assertQuerySpecSnapshotByTimeOf(table, "2025-05-04 12:34:56.526000", 6, 2, null);
 
         // query invalid time format
         Assert.assertThrows(
@@ -1128,11 +1512,13 @@ public class IcebergUtilsTest {
     }
 
     private HistoryEntry mockHistory(long snapshotId, String time) {
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        return mockHistory(snapshotId, LocalDateTime.parse(time, formatter));
+    }
+
+    private HistoryEntry mockHistory(long snapshotId, LocalDateTime dateTime) {
         HistoryEntry historyEntry = Mockito.mock(HistoryEntry.class);
         Mockito.when(historyEntry.snapshotId()).thenReturn(snapshotId);
-
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-        LocalDateTime dateTime = LocalDateTime.parse(time, formatter);
         long millis = dateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
 
         Mockito.when(historyEntry.timestampMillis()).thenReturn(millis);

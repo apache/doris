@@ -202,6 +202,12 @@ public class MaterializedViewHandler extends AlterHandler {
             if (olapTable.existTempPartitions()) {
                 throw new DdlException("Can not alter table when there are temp partitions in table");
             }
+            if (createMvCommand.isIfNotExists()
+                    && olapTable.hasMaterializedIndex(createMvCommand.getMVName())) {
+                LOG.info("materialized view[{}] already exists on table[{}], skip creating it",
+                        createMvCommand.getMVName(), olapTable.getName());
+                return;
+            }
             // check no duplicate column name in full schema
             Set<String> allColumnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             for (Column column : olapTable.getFullSchema()) {
@@ -613,6 +619,9 @@ public class MaterializedViewHandler extends AlterHandler {
         }
 
         for (Column column : newMVColumns) {
+            if (column.getType().typeContainsFile()) {
+                throw new DdlException("FILE columns are not supported in internal tables");
+            }
             // check c.2
             if (column.isKey() && column.getType().isFloatingPointType()) {
                 throw new DdlException("Do not support float/double type on key column, you can change it to decimal");

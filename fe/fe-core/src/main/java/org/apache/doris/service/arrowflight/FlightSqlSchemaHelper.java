@@ -17,8 +17,13 @@
 
 package org.apache.doris.service.arrowflight;
 
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
@@ -31,8 +36,10 @@ import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
 import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TListTableStatusResult;
+import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TTableStatus;
 
+import org.apache.arrow.flight.CallStatus;
 import org.apache.arrow.flight.sql.FlightSqlColumnMetadata;
 import org.apache.arrow.flight.sql.impl.FlightSql.CommandGetDbSchemas;
 import org.apache.arrow.flight.sql.impl.FlightSql.CommandGetTables;
@@ -91,7 +98,7 @@ public class FlightSqlSchemaHelper {
      * Ref: `convert_to_arrow_type` in be/src/util/arrow/row_batch.cpp.
      * which is consistent with the type of Arrow data returned by Doris Arrow Flight Sql query.
      */
-    private static ArrowType getArrowType(PrimitiveType primitiveType, Integer precision, Integer scale) {
+    static ArrowType getArrowType(PrimitiveType primitiveType, Integer precision, Integer scale) {
         switch (primitiveType) {
             case BOOLEAN:
                 return new ArrowType.Bool();
@@ -107,6 +114,7 @@ public class FlightSqlSchemaHelper {
             case FLOAT:
                 return new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE);
             case DOUBLE:
+            case TIMEV2:
                 return new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE);
             case LARGEINT:
             case VARCHAR:
@@ -148,6 +156,7 @@ public class FlightSqlSchemaHelper {
                 return new ArrowType.Decimal(precision, scale, 256);
             case DECIMALV2:
                 return new ArrowType.Decimal(27, 9, 128);
+            case VARBINARY:
             case HLL:
             case BITMAP:
             case QUANTILE_STATE:
@@ -161,6 +170,56 @@ public class FlightSqlSchemaHelper {
             default:
                 return new ArrowType.Null();
         }
+    }
+
+    static Field withDorisTypeMetadata(Field field, Type type) {
+        if (type.isVariantType()) {
+            requireVariantV2();
+            if (field.getMetadata() == null
+                    || !"arrow.parquet.variant".equals(field.getMetadata().get("ARROW:extension:name"))) {
+                throw CallStatus.UNIMPLEMENTED.withDescription(
+                        "Backend returned a non-native Variant schema; use Variant V2 "
+                                + "or cast the result to STRING").toRuntimeException();
+            }
+        }
+        List<Field> children = new ArrayList<>(field.getChildren());
+        if (type.isArrayType()) {
+            children.set(0, withDorisTypeMetadata(children.get(0), ((ArrayType) type).getItemType()));
+        } else if (type.isMapType()) {
+            Field entries = children.get(0);
+            List<Field> pair = new ArrayList<>(entries.getChildren());
+            pair.set(0, withDorisTypeMetadata(pair.get(0), ((MapType) type).getKeyType()));
+            pair.set(1, withDorisTypeMetadata(pair.get(1), ((MapType) type).getValueType()));
+            children.set(0, new Field(entries.getName(), entries.getFieldType(), pair));
+        } else if (type.isStructType()) {
+            StructType struct = (StructType) type;
+            for (int i = 0; i < children.size(); i++) {
+                children.set(i, withDorisTypeMetadata(children.get(i), struct.getFields().get(i).getType()));
+            }
+        }
+        String marker = null;
+        switch (type.getPrimitiveType()) {
+            case LARGEINT:
+            case IPV4:
+            case IPV6:
+            case VARIANT:
+                marker = type.getPrimitiveType().name();
+                break;
+            case JSONB:
+                marker = "JSON";
+                break;
+            default:
+                break;
+        }
+        FieldType fieldType = field.getFieldType();
+        if (marker != null && !field.getMetadata().containsKey("doris_type")) {
+            Map<String, String> metadata = new HashMap<>(field.getMetadata());
+            metadata.put("doris_type", marker);
+            fieldType = new FieldType(field.isNullable(), field.getType(), field.getDictionary(), metadata);
+        }
+        // Old BEs omit these markers. Fill only missing ones from the planned Doris type;
+        // preserve conflicting markers and all physical properties for the strict schema comparison.
+        return new Field(field.getName(), fieldType, children);
     }
 
     private static ArrowType columnDescToArrowType(final TColumnDesc desc) {
@@ -294,11 +353,35 @@ public class FlightSqlSchemaHelper {
 
     /** One column, with its nested types described down to the leaves. */
     private static Field buildField(String dbName, String tableName, TColumnDesc desc) {
+        if (desc.getColumnType() == TPrimitiveType.VARIANT) {
+            return nativeVariantField(desc.getColumnName(), desc.isIsAllowNull(),
+                    createFlightSqlColumnMetadata(dbName, tableName, desc));
+        }
         ArrowType arrowType = columnDescToArrowType(desc);
         return new Field(desc.getColumnName(),
                 new FieldType(desc.isIsAllowNull(), arrowType, null,
                         createFlightSqlColumnMetadata(dbName, tableName, desc)),
                 arrowChildren(dbName, tableName, desc, arrowType));
+    }
+
+    private static void requireVariantV2() {
+        // Schema discovery must reject legacy Variant before publishing a native binary layout.
+        if (!Config.enable_variant_v2) {
+            throw CallStatus.UNIMPLEMENTED.withDescription(
+                    "Native Arrow Flight output only supports Variant V2, not legacy Variant; "
+                            + "cast the result to STRING for text output").toRuntimeException();
+        }
+    }
+
+    static Field nativeVariantField(String name, boolean nullable, Map<String, String> columnMetadata) {
+        requireVariantV2();
+        Map<String, String> metadata = new HashMap<>(columnMetadata);
+        // Discovery and execution must share the extension metadata as well as its storage type.
+        metadata.put("ARROW:extension:name", "arrow.parquet.variant");
+        metadata.put("ARROW:extension:metadata", "");
+        return new Field(name, new FieldType(nullable, new ArrowType.Struct(), null, metadata),
+                Arrays.asList(Field.notNullable("metadata", new ArrowType.Binary()),
+                        Field.notNullable("value", new ArrowType.Binary())));
     }
 
     /**
@@ -342,7 +425,8 @@ public class FlightSqlSchemaHelper {
                 Field entries = new Field(MapVector.DATA_VECTOR_NAME,
                         new FieldType(false, new ArrowType.Struct(), null),
                         Arrays.asList(new Field(key.getName(),
-                                        new FieldType(false, key.getType(), null), key.getChildren()),
+                                        new FieldType(false, key.getType(), null, key.getMetadata()),
+                                        key.getChildren()),
                                 value));
                 return Collections.singletonList(entries);
             case Struct:

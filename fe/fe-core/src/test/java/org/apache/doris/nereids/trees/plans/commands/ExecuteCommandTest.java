@@ -17,8 +17,11 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalScanTaskCacheKey;
@@ -30,11 +33,15 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.PreparedStatementContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.ShortCircuitQueryContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TQueryOptions;
 
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
@@ -168,10 +175,21 @@ public class ExecuteCommandTest {
                 statementContext.getSnapshot(table, Optional.empty(), Optional.empty()).orElse(null));
 
         new ExecuteCommand("stmt", prepareCommand, statementContext).run(connectContext, executor);
-        statementContext.loadSnapshots(table, Optional.empty(), Optional.empty());
+
+        // ExecuteCommand allocates a fresh StatementContext per EXECUTE, so the next execution must not
+        // reuse the snapshot pinned on the previous context (a stale snapshot would make a later commit
+        // permanently invisible).
+        StatementContext nextContext = preparedStatement.getStatementContext();
+        Assertions.assertNotSame(statementContext, nextContext,
+                "ExecuteCommand allocates a fresh StatementContext per EXECUTE");
+        // The executor (and with it the ConnectContext) must be switched to the fresh context.
+        // Otherwise execution keeps running on the previous context and the freshly allocated one
+        // would be dead weight -- the OOM fix would not take effect.
+        Mockito.verify(executor).setStatementContext(nextContext);
+        nextContext.loadSnapshots(table, Optional.empty(), Optional.empty());
 
         Assertions.assertSame(second,
-                statementContext.getSnapshot(table, Optional.empty(), Optional.empty()).orElse(null));
+                nextContext.getSnapshot(table, Optional.empty(), Optional.empty()).orElse(null));
         Mockito.verify(table, Mockito.times(2)).loadSnapshot(Optional.empty(), Optional.empty());
     }
 
@@ -199,16 +217,25 @@ public class ExecuteCommandTest {
                 () -> Collections.singletonList("prepared-" + loadCount.incrementAndGet()));
 
         new ExecuteCommand("stmt", prepareCommand, statementContext).run(connectContext, executor);
+
+        // ExecuteCommand allocates a fresh StatementContext per EXECUTE, so every execution gets its own
+        // external scan task cache instead of reusing tasks loaded by a previous execution.
+        StatementContext firstExecuteContext = preparedStatement.getStatementContext();
+        Assertions.assertNotSame(statementContext, firstExecuteContext,
+                "ExecuteCommand allocates a fresh StatementContext per EXECUTE");
         StatementContext.ExternalScanTaskCache firstExecuteGeneration =
-                statementContext.getExternalScanTaskCache();
+                firstExecuteContext.getExternalScanTaskCache();
         Assertions.assertNotSame(preparedGeneration, firstExecuteGeneration);
         Assertions.assertEquals(Collections.singletonList("execute-2"),
                 firstExecuteGeneration.getOrLoad(key,
                         () -> Collections.singletonList("execute-" + loadCount.incrementAndGet())));
 
         new ExecuteCommand("stmt", prepareCommand, statementContext).run(connectContext, executor);
+        StatementContext secondExecuteContext = preparedStatement.getStatementContext();
+        Assertions.assertNotSame(firstExecuteContext, secondExecuteContext,
+                "ExecuteCommand allocates a fresh StatementContext per EXECUTE");
         StatementContext.ExternalScanTaskCache secondExecuteGeneration =
-                statementContext.getExternalScanTaskCache();
+                secondExecuteContext.getExternalScanTaskCache();
         Assertions.assertNotSame(firstExecuteGeneration, secondExecuteGeneration);
         Assertions.assertEquals(Collections.singletonList("execute-3"),
                 secondExecuteGeneration.getOrLoad(key,
@@ -255,7 +282,71 @@ public class ExecuteCommandTest {
                 org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext.class)));
         new ExecuteCommand("stmt", prepareCommand, statementContext).run(connectContext, executor);
 
-        Assertions.assertFalse(statementContext.getIcebergWriteSchemaContext().isPresent());
+        // ExecuteCommand allocates a fresh StatementContext per EXECUTE, so the write schema pinned by
+        // one execution must not leak into the next one.
+        StatementContext nextContext = preparedStatement.getStatementContext();
+        Assertions.assertNotSame(statementContext, nextContext,
+                "ExecuteCommand allocates a fresh StatementContext per EXECUTE");
+        Assertions.assertFalse(nextContext.getIcebergWriteSchemaContext().isPresent());
+    }
+
+    @Test
+    public void testFastPathInstallsCachedShortCircuitContextAcrossExecutions() throws Exception {
+        // ExecuteCommand allocates a fresh StatementContext per EXECUTE. The fresh context carries the
+        // short-circuit flag but not the cached plan, so the fast path must install the just-validated
+        // ShortCircuitQueryContext before direct execution -- otherwise result sending falls back to
+        // `new ShortCircuitQueryContext(planner, ...)` with a null planner (this path never plans) and
+        // NPEs on planner.getDescTable(). Two executions exercise the second (reusable) EXECUTE that
+        // hits the regression.
+        // MUTATION: removing the install in ExecuteCommand.run() -> the fresh context has no
+        // statement-level cache -> the assertSame below flips -> red.
+        String sql = "select * from tbl";
+        LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
+
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        StatementContext statementContext = new StatementContext();
+        statementContext.setShortCircuitQuery(true);
+        PrepareCommand prepareCommand = new PrepareCommand(
+                "stmt", logicalPlan, Collections.emptyList(), new OriginStatement(sql, 0));
+        PreparedStatementContext preparedStatement = new PreparedStatementContext(
+                prepareCommand, connectContext, statementContext, "stmt");
+
+        // A real ShortCircuitQueryContext (built from a mocked planner) that passes isReusable().
+        Planner planner = Mockito.mock(Planner.class);
+        Mockito.when(planner.getQueryOptions()).thenReturn(new TQueryOptions());
+        DescriptorTable descriptorTable = new DescriptorTable();
+        descriptorTable.createTupleDescriptor();
+        Mockito.when(planner.getDescTable()).thenReturn(descriptorTable);
+        OlapScanNode scanNode = Mockito.mock(OlapScanNode.class);
+        OlapTable table = Mockito.spy(new OlapTable());
+        Mockito.doReturn("tbl").when(table).getName();
+        Mockito.doReturn(10).when(table).getBaseSchemaVersion();
+        Mockito.when(scanNode.getOlapTable()).thenReturn(table);
+        Mockito.when(scanNode.getConjuncts()).thenReturn(Collections.emptyList());
+        Mockito.when(planner.getScanNodes()).thenReturn(Collections.singletonList(scanNode));
+        ShortCircuitQueryContext cachedPlan = new ShortCircuitQueryContext(planner, Mockito.mock(Queriable.class));
+        preparedStatement.shortCircuitQueryContext = Optional.of(cachedPlan);
+
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(connectContext.getPreparedStementContext("stmt")).thenReturn(preparedStatement);
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.enableGroupCommitFullPrepare = false;
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(connectContext.getStatementContext()).thenReturn(statementContext);
+        Mockito.when(executor.getContext()).thenReturn(connectContext);
+
+        ExecuteCommand execute = new ExecuteCommand("stmt", prepareCommand, statementContext);
+        execute.run(connectContext, executor);
+        Assertions.assertSame(cachedPlan, preparedStatement.getStatementContext().getShortCircuitQueryContext(),
+                "the fast path installs the validated cache on the fresh context (first EXECUTE)");
+        Mockito.verify(executor, Mockito.times(1)).executeAndSendResult(Mockito.anyBoolean(), Mockito.anyBoolean(),
+                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
+
+        execute.run(connectContext, executor);
+        Assertions.assertSame(cachedPlan, preparedStatement.getStatementContext().getShortCircuitQueryContext(),
+                "the fast path installs the validated cache on the fresh context (second, reusable EXECUTE)");
+        Mockito.verify(executor, Mockito.times(2)).executeAndSendResult(Mockito.anyBoolean(), Mockito.anyBoolean(),
+                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
     }
 
     private String resolveNextSnapshot(TableScanParams scanParams, AtomicInteger snapshotId) {

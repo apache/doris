@@ -1,0 +1,5 @@
+$954a5d41-5fc9-4e39-96d9-864e1ac233bcê™
+row_id ÿÿÿÿÿÿÿÿÿ*int3208
+5	embedding ÿÿÿÿÿÿÿÿÿ*fixed_size_list:float:408
+body ÿÿÿÿÿÿÿÿÿ*string08
+note ÿÿÿÿÿÿÿÿÿ*string08

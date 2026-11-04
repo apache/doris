@@ -222,8 +222,8 @@ Status cast_typed_variant_to_string(FunctionContext* context, const ColumnVarian
 Status cast_variant_refs_to_string(FunctionContext* context, std::span<const VariantRef> values,
                                    ForcedNulls forced_nulls, ColumnPtr* output) {
     if (!forced_nulls.empty() && forced_nulls.size() != values.size()) {
-        return Status::InvalidArgument("Variant V2 STRING CAST null map has {} rows, expected {}",
-                                       forced_nulls.size(), values.size());
+        return Status::InternalError("Variant V2 STRING CAST null map has {} rows, expected {}",
+                                     forced_nulls.size(), values.size());
     }
     return cast_values_to_string(
             context, values.size(), forced_nulls, [&](size_t row) { return values[row]; },
@@ -236,7 +236,7 @@ Status cast_variant_refs_to_string(FunctionContext* context, std::span<const Var
 Status cast_variant_to_string(FunctionContext* context, const ColumnVariantV2& source, size_t rows,
                               ForcedNulls forced_nulls, ColumnPtr* output) {
     if (source.size() != rows || (!forced_nulls.empty() && forced_nulls.size() != rows)) {
-        return Status::InvalidArgument("Invalid Variant V2 input shape for STRING CAST");
+        return Status::InternalError("Invalid Variant V2 input shape for STRING CAST");
     }
     if (source.is_typed()) {
         return cast_typed_variant_to_string(context, source, rows, forced_nulls, output);

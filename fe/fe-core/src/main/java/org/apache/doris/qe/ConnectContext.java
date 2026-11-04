@@ -35,6 +35,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
+import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
@@ -68,6 +69,9 @@ import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.plsql.Exec;
 import org.apache.doris.plsql.executor.PlSqlOperation;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
+import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.BackendSelectionManager;
+import org.apache.doris.resource.BackendSelectionProfile;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
@@ -78,16 +82,19 @@ import org.apache.doris.statistics.Histogram;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TResultSinkType;
+import org.apache.doris.thrift.TS3Resource;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import lombok.Getter;
 import lombok.Setter;
+import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -103,6 +110,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -139,6 +147,7 @@ public class ConnectContext {
     protected volatile LoadTaskInfo streamLoadInfo;
 
     protected volatile TUniqueId queryId = null;
+    private final Map<String, TS3Resource> s3Resources = Maps.newLinkedHashMap();
     // only be active one time. tell Coordinator to regenerate instance ids for certain query(when retry).
     protected volatile TUniqueId needRegenerateInstanceId = null;
     protected volatile AtomicInteger instanceIdGenerator = new AtomicInteger();
@@ -150,7 +159,29 @@ public class ConnectContext {
     protected volatile long loginTime;
     // for arrow flight
     protected volatile String peerIdentity;
-    private final Map<String, String> preparedQuerys = new HashMap<>();
+    private final Map<String, PreparedQuery> preparedQuerys = new HashMap<>();
+    private static final long MAX_FLIGHT_PARAMETER_BYTES = 16L * 1024 * 1024;
+    private long flightParameterBytes;
+    private boolean flightPreparedQueriesClosed;
+
+    private static class PreparedQuery {
+        private final String sql;
+        private String catalog;
+        private String database;
+        private Schema schema;
+        private int parameterCount;
+        private List<Literal> parameters;
+        private long bindingVersion;
+        private long parameterBytes;
+
+        private PreparedQuery(String sql, String catalog, String database, Schema schema) {
+            this.sql = sql;
+            this.catalog = catalog;
+            this.database = database;
+            this.schema = schema;
+        }
+    }
+
     private String runningQuery;
     private final List<FlightSqlEndpointsLocation> flightSqlEndpointsLocations = Lists.newArrayList();
     private boolean returnResultFromLocal = true;
@@ -241,6 +272,7 @@ public class ConnectContext {
 
     // The FE ip current connected
     private String currentConnectedFEIp = "";
+    private transient String connectingFeLocalResourceGroup = "";
 
     private InsertResult insertResult;
 
@@ -256,6 +288,13 @@ public class ConnectContext {
 
     private String workloadGroupName = "";
     private boolean isGroupCommit;
+    private BackendSelection.SelectionHint queryBackendSelectionDecision;
+    private BackendSelection.SelectionHint loadBackendSelectionDecision;
+    // A replayed async load owns this hint independently of the statement lifecycle. The
+    // statement-level decision is reset by setStartTime(), but the persisted load intent must
+    // remain available while the load planner is being rebuilt.
+    private BackendSelection.SelectionHint loadBackendSelectionHint;
+    private final BackendSelectionProfile backendSelectionProfile = new BackendSelectionProfile();
 
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCOL;
 
@@ -279,6 +318,14 @@ public class ConnectContext {
     @Getter
     @Setter
     private ByteBuffer prepareExecuteBuffer;
+
+    // Snapshot of cached types omitted by the current COM_STMT_EXECUTE packet.
+    @Getter
+    @Setter
+    private int[] prepareExecuteTypeCodes;
+
+    // Whether the current COM_STMT_EXECUTE requested a server-side read-only cursor.
+    private boolean cursorFetchRequested;
 
     private MysqlHandshakePacket mysqlHandshakePacket;
 
@@ -391,9 +438,10 @@ public class ConnectContext {
         }
         resetSessionVariable();
         userVars = new HashMap<>();
-        preparedQuerys.clear();
+        clearPreparedQueries();
         preparedStatementContextMap.clear();
         runningQuery = null;
+        s3Resources.clear();
         queryId = null;
         lastQueryId = null;
         setTraceId(null);
@@ -500,6 +548,14 @@ public class ConnectContext {
             return;
         }
         this.connectAttributes = new HashMap<>(connectAttributes);
+    }
+
+    public boolean isCursorFetchRequested() {
+        return cursorFetchRequested;
+    }
+
+    public void setCursorFetchRequested(boolean cursorFetchRequested) {
+        this.cursorFetchRequested = cursorFetchRequested;
     }
 
     public boolean isTxnModel() {
@@ -807,8 +863,54 @@ public class ConnectContext {
     }
 
     public void setStartTime() {
+        s3Resources.clear();
         startTime = System.currentTimeMillis();
         returnRows = 0;
+        queryBackendSelectionDecision = null;
+        loadBackendSelectionDecision = null;
+        backendSelectionProfile.reset();
+    }
+
+    public BackendSelection.SelectionHint getQueryBackendSelectionDecision() {
+        if (queryBackendSelectionDecision == null) {
+            queryBackendSelectionDecision = BackendSelectionManager.getQuerySelectionHint(this);
+        }
+        return queryBackendSelectionDecision;
+    }
+
+    // Audit runs for every statement type, so it must not create a query selection hint.
+    public BackendSelection.SelectionHint getQueryBackendSelectionDecisionForAudit() {
+        return queryBackendSelectionDecision == null
+                ? BackendSelection.SelectionHint.noSelection()
+                : queryBackendSelectionDecision;
+    }
+
+    // Load hints are resolved at several scheduling sites (sink, coordinator, group commit);
+    // each records the statement-level hint here so the audit reflects the load decision
+    // instead of the scan-side query decision.
+    public void recordLoadBackendSelectionDecision(BackendSelection.SelectionHint hint) {
+        loadBackendSelectionDecision = hint;
+    }
+
+    public void recordLoadBackendSelectionHint(BackendSelection.SelectionHint hint) {
+        loadBackendSelectionHint = hint;
+    }
+
+    public BackendSelection.SelectionHint getLoadBackendSelectionHint() {
+        return loadBackendSelectionHint;
+    }
+
+    public BackendSelection.SelectionHint getLoadBackendSelectionDecision() {
+        return loadBackendSelectionDecision;
+    }
+
+    public BackendSelection.SelectionHint getLoadBackendSelectionDecisionForAudit() {
+        return loadBackendSelectionDecision != null
+                ? loadBackendSelectionDecision : loadBackendSelectionHint;
+    }
+
+    public BackendSelectionProfile getBackendSelectionProfile() {
+        return backendSelectionProfile;
     }
 
     public void updateReturnRows(int returnRows) {
@@ -836,15 +938,156 @@ public class ConnectContext {
     }
 
     public void addPreparedQuery(String preparedStatementId, String preparedQuery) {
-        preparedQuerys.put(preparedStatementId, preparedQuery);
+        synchronized (preparedQuerys) {
+            addPreparedQuery(preparedStatementId, preparedQuery, null);
+        }
+    }
+
+    public void addPreparedQuery(String preparedStatementId, String preparedQuery, Schema schema) {
+        synchronized (preparedQuerys) {
+            if (flightPreparedQueriesClosed) {
+                throw new IllegalStateException("Flight SQL session is closed");
+            }
+            removePreparedQuery(preparedStatementId);
+            preparedQuerys.put(preparedStatementId,
+                    new PreparedQuery(preparedQuery, getDefaultCatalog(), getDatabase(), schema));
+        }
+    }
+
+    public void addPreparedQuery(String id, String sql, Schema schema, int parameterCount) {
+        synchronized (preparedQuerys) {
+            addPreparedQuery(id, sql, schema);
+            preparedQuerys.get(id).parameterCount = parameterCount;
+        }
+    }
+
+    public int getPreparedQueryParameterCount(String id) {
+        synchronized (preparedQuerys) {
+            PreparedQuery query = preparedQuerys.get(id);
+            return query == null ? -1 : query.parameterCount;
+        }
+    }
+
+    public List<Literal> getPreparedQueryParameters(String id) {
+        synchronized (preparedQuerys) {
+            PreparedQuery query = preparedQuerys.get(id);
+            return query == null ? null : query.parameters;
+        }
+    }
+
+    public long beginPreparedQueryBinding(String id) {
+        synchronized (preparedQuerys) {
+            PreparedQuery query = preparedQuerys.get(id);
+            if (query == null) {
+                return -1;
+            }
+            flightParameterBytes -= query.parameterBytes;
+            query.parameterBytes = 0;
+            query.parameters = null;
+            return ++query.bindingVersion;
+        }
+    }
+
+    public boolean isPreparedQueryBindingCurrent(String id, long version) {
+        synchronized (preparedQuerys) {
+            PreparedQuery query = preparedQuerys.get(id);
+            return query != null && query.bindingVersion == version;
+        }
+    }
+
+    public void setPreparedQueryParameters(String id, List<Literal> parameters, Schema schema) {
+        synchronized (preparedQuerys) {
+            PreparedQuery query = preparedQuerys.get(id);
+            if (query == null) {
+                throw new IllegalStateException("Prepared statement expired");
+            }
+            long bytes = parameters == null ? 0 : parameters.size() * 128L;
+            if (parameters != null) {
+                for (Literal parameter : parameters) {
+                    if (parameter.getValue() instanceof String) {
+                        bytes += 2L * ((String) parameter.getValue()).length();
+                    }
+                }
+            }
+            // A per-upload limit alone allows many handles to retain unbounded parameter memory in one session.
+            if (flightParameterBytes - query.parameterBytes + bytes > MAX_FLIGHT_PARAMETER_BYTES) {
+                throw new IllegalArgumentException("Prepared query parameters exceed the 16 MiB session limit");
+            }
+            flightParameterBytes += bytes - query.parameterBytes;
+            query.parameterBytes = bytes;
+            // Keep a detached immutable snapshot using a Java 8-compatible copy implementation.
+            query.parameters = parameters == null ? null : ImmutableList.copyOf(parameters);
+            query.schema = schema;
+        }
+    }
+
+    public boolean setPreparedQueryParameters(String id, List<Literal> parameters, Schema schema, long version) {
+        synchronized (preparedQuerys) {
+            if (!isPreparedQueryBindingCurrent(id, version)) {
+                return false;
+            }
+            setPreparedQueryParameters(id, parameters, schema);
+            return true;
+        }
+    }
+
+    public boolean refreshPreparedQueryNamespace(String id) {
+        synchronized (preparedQuerys) {
+            PreparedQuery query = preparedQuerys.get(id);
+            if (query == null) {
+                return false;
+            }
+            if (query.parameterCount == 0) {
+                query.catalog = getDefaultCatalog();
+                query.database = getDatabase();
+            }
+            return true;
+        }
+    }
+
+    public Schema getPreparedQuerySchema(String preparedStatementId) {
+        synchronized (preparedQuerys) {
+            PreparedQuery query = preparedQuerys.get(preparedStatementId);
+            return query == null ? null : query.schema;
+        }
     }
 
     public String getPreparedQuery(String preparedStatementId) {
-        return preparedQuerys.get(preparedStatementId);
+        synchronized (preparedQuerys) {
+            PreparedQuery query = preparedQuerys.get(preparedStatementId);
+            if (query == null) {
+                return null;
+            }
+            // A handle must not execute unqualified SQL in a different namespace than its advertised schema.
+            if (!Objects.equals(query.catalog, getDefaultCatalog()) || !Objects.equals(query.database, getDatabase())) {
+                removePreparedQuery(preparedStatementId);
+                return null;
+            }
+            return query.sql;
+        }
+    }
+
+    public void closePreparedQueries() {
+        synchronized (preparedQuerys) {
+            flightPreparedQueriesClosed = true;
+            clearPreparedQueries();
+        }
+    }
+
+    public void clearPreparedQueries() {
+        synchronized (preparedQuerys) {
+            preparedQuerys.clear();
+            flightParameterBytes = 0;
+        }
     }
 
     public void removePreparedQuery(String preparedStatementId) {
-        preparedQuerys.remove(preparedStatementId);
+        synchronized (preparedQuerys) {
+            PreparedQuery query = preparedQuerys.remove(preparedStatementId);
+            if (query != null) {
+                flightParameterBytes -= query.parameterBytes;
+            }
+        }
     }
 
     public void setRunningQuery(String runningQuery) {
@@ -969,6 +1212,9 @@ public class ConnectContext {
     public void clear() {
         executor = null;
         statementContext = null;
+        loadBackendSelectionDecision = null;
+        loadBackendSelectionHint = null;
+        cursorFetchRequested = false;
     }
 
     public PlSqlOperation getPlSqlOperation() {
@@ -985,7 +1231,9 @@ public class ConnectContext {
     // held by the coordinator's scan nodes), so closing the coordinator at the end of
     // GetFlightInfo would release the SplitSource too early and make the BE's fetchSplitBatch fail
     // with "Split source X is released". These executors are finalized when the next query starts
-    // on this connection, or when the connection is torn down. See #62259.
+    // on this connection, when the connection is torn down, or by the idle reaper in checkTimeout
+    // once the connection has been sleeping for arrow_flight_deferred_query_idle_timeout_second.
+    // See #62259 and #67503.
     private final List<StmtExecutor> flightSqlDeferredExecutors = new ArrayList<>();
 
     public void addFlightSqlDeferredExecutor(StmtExecutor executor) {
@@ -1010,6 +1258,45 @@ public class ConnectContext {
                 LOG.warn("failed to finalize deferred arrow flight executor", t);
             }
         }
+    }
+
+    /**
+     * How long, in seconds, a sleeping connection may keep its deferred Arrow Flight executors
+     * before the timeout checker finalizes them without killing the connection
+     * (Config.arrow_flight_deferred_query_idle_timeout_second). A Flight client that opens a
+     * session per query and never closes it would otherwise pin each deferred query's query queue
+     * slot and query registration until wait_timeout (8h by default). The bound is never shorter
+     * than the execution timeout the deferred query was run with: the client may still be pulling
+     * that query's results from the BE, which still needs the batch split source the coordinator
+     * holds. Returns -1 when the bound is disabled or nothing is deferred.
+     */
+    public long getFlightSqlDeferredExecutorsIdleTimeoutS() {
+        int configTimeoutS = Config.arrow_flight_deferred_query_idle_timeout_second;
+        if (configTimeoutS <= 0) {
+            return -1;
+        }
+        long execTimeoutS = -1;
+        synchronized (flightSqlDeferredExecutors) {
+            if (flightSqlDeferredExecutors.isEmpty()) {
+                return -1;
+            }
+            for (StmtExecutor deferredExecutor : flightSqlDeferredExecutors) {
+                execTimeoutS = Math.max(execTimeoutS, deferredExecutor.getDeferredExecTimeoutS());
+            }
+        }
+        return Math.max(configTimeoutS, execTimeoutS);
+    }
+
+    // Called by the timeout checker for a sleeping connection that is not past wait_timeout yet.
+    private void reapIdleFlightSqlDeferredExecutors(long idleMs) {
+        long timeoutS = getFlightSqlDeferredExecutorsIdleTimeoutS();
+        if (timeoutS < 0 || idleMs <= timeoutS * 1000L) {
+            return;
+        }
+        LOG.warn("release deferred arrow flight query of idle connection, connectionId: {}, remote: {}, "
+                        + "idle: {}ms, idle timeout: {}s",
+                connectionId, getRemoteHostPortString(), idleMs, timeoutS);
+        closeFlightSqlDeferredExecutors();
     }
 
     /**
@@ -1128,6 +1415,18 @@ public class ConnectContext {
         if (connectScheduler != null && !Strings.isNullOrEmpty(traceId)) {
             connectScheduler.getConnectPoolMgr().putTraceId2QueryId(traceId, queryId);
         }
+    }
+
+    /** Resolve each resource once for the current query without retaining it in prepared expressions. */
+    public TS3Resource getOrRegisterS3Resource(String resourceName) {
+        return s3Resources.computeIfAbsent(resourceName,
+                name -> S3Resource.checkResource(name, this).toThrift()).deepCopy();
+    }
+
+    public Map<String, TS3Resource> getS3Resources() {
+        Map<String, TS3Resource> resources = Maps.newLinkedHashMap();
+        s3Resources.forEach((name, resource) -> resources.put(name, resource.deepCopy()));
+        return resources;
     }
 
     public void resetQueryId() {
@@ -1284,6 +1583,8 @@ public class ConnectContext {
                 // Need kill this connection.
                 killFlag = true;
                 killConnection = true;
+            } else {
+                reapIdleFlightSqlDeferredExecutors(delta);
             }
         } else {
             String timeoutTag = "query";
@@ -1328,6 +1629,14 @@ public class ConnectContext {
 
     public String getCurrentConnectedFEIp() {
         return currentConnectedFEIp;
+    }
+
+    public void setConnectingFeLocalResourceGroup(String connectingFeLocalResourceGroup) {
+        this.connectingFeLocalResourceGroup = Strings.nullToEmpty(connectingFeLocalResourceGroup);
+    }
+
+    public String getConnectingFeLocalResourceGroup() {
+        return connectingFeLocalResourceGroup;
     }
 
     /**
@@ -1452,10 +1761,14 @@ public class ConnectContext {
             }
 
             row.add(Env.getCurrentEnv().getSelfNode().getHost());
-            if (cloudCluster == null) {
+            String currentCloudCluster = sessionVariable.getCloudCluster();
+            if (Strings.isNullOrEmpty(currentCloudCluster)) {
+                currentCloudCluster = cloudCluster;
+            }
+            if (currentCloudCluster == null) {
                 row.add("NULL");
             } else {
-                row.add(cloudCluster);
+                row.add(currentCloudCluster);
             }
             return row;
         }
@@ -1486,6 +1799,11 @@ public class ConnectContext {
     }
 
     public void setCloudCluster(String cluster) {
+        // A compute group only exists in cloud mode. Swallowing the call here instead of making
+        // every caller wrap it in `if (Config.isCloudMode())` keeps that check in one place.
+        if (!Config.isCloudMode()) {
+            return;
+        }
         this.getSessionVariable().setCloudCluster(cluster);
     }
 

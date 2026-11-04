@@ -170,7 +170,9 @@ public:
         auto node = ptype->add_types();
         node->set_type(TTypeNodeType::SCALAR);
         auto scalar_type = node->mutable_scalar_type();
-        scalar_type->set_type(doris::to_thrift(get_primitive_type()));
+        // NULL uses UInt8 internally; preserve its logical type even inside complex schemas.
+        scalar_type->set_type(is_null_literal() ? TPrimitiveType::NULL_TYPE
+                                                : doris::to_thrift(get_primitive_type()));
         to_protobuf(ptype, node, scalar_type);
     }
 #ifdef BE_TEST

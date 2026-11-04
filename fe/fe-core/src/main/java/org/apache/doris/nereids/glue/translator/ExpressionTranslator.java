@@ -31,6 +31,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.FunctionParams;
+import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LambdaFunctionCallExpr;
 import org.apache.doris.analysis.LambdaFunctionExpr;
@@ -102,6 +103,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.DictGetMany;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToFile;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdtf;
@@ -259,6 +261,9 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         // down for storage-level index evaluation (fast path).
         Index invertedIndex = null;
         String analyzer = match.getAnalyzer().orElse(null);
+        if (analyzer != null) {
+            analyzer = InvertedIndexUtil.resolveAnalyzerName(analyzer);
+        }
         Column column = slot.getOriginalColumn().orElse(null);
         OlapTable olapTbl = getOlapTableDirectly(slot);
         if (column != null && olapTbl != null) {
@@ -761,6 +766,12 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
         searchPredicate.setNullableFromNereids(searchExpression.nullable());
         return searchPredicate;
+    }
+
+    @Override
+    public Expr visitToFile(ToFile toFile, PlanTranslatorContext context) {
+        context.getConnectContext().getOrRegisterS3Resource(toFile.getResourceName());
+        return visitScalarFunction(toFile, context);
     }
 
     @Override

@@ -45,6 +45,7 @@ struct ObjectStoragePathOptions {
     std::string key = std::string();                     // blob name in azure
     std::string prefix = std::string();                  // for batch delete and recursive delete
     std::optional<std::string> upload_id = std::nullopt; // only used for S3 upload
+    std::string delimiter {}; // optional native hierarchy listing delimiter
 };
 
 struct ObjectCompleteMultiPart {
@@ -62,6 +63,7 @@ struct ObjectStorageResponse {
     ObjectStorageStatus status {};
     int http_code {200};
     std::string request_id = std::string();
+    bool ok() const { return status.code == 0; }
     static ObjectStorageResponse OK() {
         // clang-format off
         return {
@@ -81,6 +83,22 @@ struct ObjectStorageUploadResponse {
 struct ObjectStorageHeadResponse : ObjectStorageResponse {
     ObjectStorageResponse resp {};
     long long file_size {0};
+    std::optional<std::string> content_type {};
+    std::optional<std::string> etag {};
+};
+
+struct ObjectMeta {
+    std::string key {};
+    int64_t size = 0;
+    std::optional<std::string> etag {};
+};
+
+struct ObjectStorageListPageResponse {
+    ObjectStorageResponse resp {};
+    std::vector<ObjectMeta> objects {};
+    std::vector<std::string> common_prefixes {};
+    std::string continuation_token {};
+    bool has_more = false;
 };
 
 class ObjStorageClient {
@@ -118,6 +136,13 @@ public:
     // **Notice**: The files returned by this function contains the full key in object storage.
     virtual ObjectStorageResponse list_objects(const ObjectStoragePathOptions& opts,
                                                std::vector<FileInfo>* files) = 0;
+    // Fetch one bounded provider page; implementations must not enumerate subsequent pages.
+    virtual ObjectStorageListPageResponse list_objects_page(const ObjectStoragePathOptions& opts,
+                                                            std::string_view continuation_token) {
+        return {.resp = {.status = {ErrorCode::NOT_IMPLEMENTED_ERROR,
+                                    "Paged object listing is unsupported"},
+                         .http_code = 0}};
+    }
     // According to the bucket and prefix specified by the user, it performs batch deletion based on the object names in the object array.
     virtual ObjectStorageResponse delete_objects(const ObjectStoragePathOptions& opts,
                                                  std::vector<std::string> objs) = 0;

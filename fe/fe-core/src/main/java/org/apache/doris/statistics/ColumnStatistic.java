@@ -60,7 +60,7 @@ public class ColumnStatistic {
 
     public static final Set<Type> UNSUPPORTED_TYPE = Sets.newHashSet(Type.HLL, Type.BITMAP, Type.ARRAY, Type.STRUCT,
             Type.MAP, Type.QUANTILE_STATE, Type.JSONB, Type.VARIANT, Type.TIMEV2, Type.LAMBDA_FUNCTION,
-            Type.VARBINARY);
+            Type.VARBINARY, Type.FILE);
 
     // ATTENTION: Stats deriving WILL NOT use 'count' field any longer.
     // Use 'rowCount' field in Statistics if needed.
@@ -98,7 +98,8 @@ public class ColumnStatistic {
     public final String updatedTime;
 
     /**
-     * hotValues == null: not collected (e.g. full analyze). Do NOT use for optimization.
+     * hotValues == null: not collected (e.g. full analyze, or a sample analyze that used
+     * the linear estimator). Do NOT use for optimization.
      * hotValues != null && hotValues.isEmpty(): collected but no hot values (not skewed).
      * hotValues != null && !hotValues.isEmpty(): collected with hot values.
      */
@@ -141,6 +142,11 @@ public class ColumnStatistic {
      * this function is used by analyze job and cbo job.
      */
     public static ColumnStatistic fromResultRow(ResultRow row) {
+        ColStatsData statsData = new ColStatsData(row);
+        if (!statsData.isValid()) {
+            return ColumnStatistic.UNKNOWN;
+        }
+
         double count = Double.parseDouble(row.get(7));
         ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(count);
         double ndv = Double.parseDouble(row.getWithDefault(8, "0"));

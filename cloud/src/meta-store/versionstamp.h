@@ -17,11 +17,10 @@
 
 #pragma once
 
-#include <byteswap.h>
-#include <fmt/format.h>
-
+#include <algorithm>
 #include <array>
 #include <bit>
+#include <compare>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -143,10 +142,11 @@ public:
     }
 
     std::string to_string() const {
-        std::string result;
-        result.reserve(21); // 10 bytes * 2 hex digits + 1 for null terminator
-        for (const auto& byte : data_) {
-            result += fmt::format("{:02x}", byte);
+        constexpr char hex_digits[] = "0123456789abcdef";
+        std::string result(data_.size() * 2, '0');
+        for (size_t i = 0; i < data_.size(); ++i) {
+            result[2 * i] = hex_digits[data_[i] >> 4];
+            result[2 * i + 1] = hex_digits[data_[i] & 0x0f];
         }
         return result;
     }

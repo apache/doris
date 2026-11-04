@@ -68,6 +68,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -108,6 +109,13 @@ public class CloudSystemInfoService extends SystemInfoService {
             new ConcurrentHashMap<>();
 
     private InstanceInfoPB.Status instanceStatus;
+
+    // Written and consumed by the journal replay thread; additions never strand existing routes.
+    private long replayBackendRemovalVersion;
+
+    public long getReplayBackendRemovalVersion() {
+        return replayBackendRemovalVersion;
+    }
 
     public long getCloudColocateHrwBeId(GroupId groupId, String clusterId, List<Long> availableBeIds, long idx) {
         return getCloudColocateHrwBeIdInternal(groupId, clusterId, availableBeIds, idx, -1);
@@ -249,17 +257,46 @@ public class CloudSystemInfoService extends SystemInfoService {
         clusterIdToBackend.computeIfAbsent(clusterId, k -> new ArrayList<>());
     }
 
-    public void removeVirtualClusterInfoFromMapsNoLock(String clusterId, String clusterName) {
-        LOG.info("remove virtual cluster info from maps, clusterId={}, clusterName={}", clusterId, clusterName);
-        clusterIdToBackend.remove(clusterId);
-        clusterNameToId.remove(clusterName);
-    }
-
     public void renameVirtualClusterInfoFromMapsNoLock(String clusterId, String oldClusterName, String newClusterName) {
         LOG.info("remove virtual cluster info from maps, clusterId={}, name from {} to {}",
                 clusterId, oldClusterName, newClusterName);
         clusterNameToId.put(newClusterName, clusterId);
-        clusterNameToId.remove(oldClusterName);
+        clusterNameToId.remove(oldClusterName, clusterId);
+    }
+
+    // Physical and virtual group checkers fetch and apply snapshots independently.
+    // For example:
+    // 1. A current physical snapshot installs name -> newId.
+    // 2. A delayed virtual snapshot overwrites it with name -> oldId.
+    // 3. A later virtual snapshot removes oldId and its name mapping.
+    // The new physical group's metadata and BEs still exist, but its name mapping
+    // is missing. Normal add/rename detection cannot repair it because neither
+    // the group ID nor the BE names have changed.
+    //
+    // Reconcile name mappings for locally installed groups on every sync cycle.
+    // Callers must exclude records whose metadata reconciliation was rejected.
+    // This does not reject stale snapshots; it restores the current mapping once
+    // a later cycle applies current metadata from the meta service.
+    public void refreshComputeGroupNames(Collection<Cloud.ClusterPB> remoteComputeGroups) {
+        wlock.lock();
+        try {
+            for (Cloud.ClusterPB group : remoteComputeGroups) {
+                String id = group.getClusterId();
+                // Empty physical groups and rejected virtual groups may not be installed locally.
+                // Do not create a name pointing to missing metadata.
+                if (!computeGroupIdToComputeGroup.containsKey(id)) {
+                    continue;
+                }
+                String name = group.getClusterName();
+                String previousId = clusterNameToId.put(name, id);
+                if (!id.equals(previousId)) {
+                    LOG.warn("repair compute group name mapping from meta service, name={}, oldId={}, currentId={}",
+                            name, previousId, id);
+                }
+            }
+        } finally {
+            wlock.unlock();
+        }
     }
 
     public CloudComputeGroupMeta getComputeGroupByName(String computeGroupName) {
@@ -423,11 +460,17 @@ public class CloudSystemInfoService extends SystemInfoService {
         }
     }
 
+    // Remove local metadata for a physical or virtual compute group. Physical backends
+    // must be removed by the caller before removing the group.
     public void removeComputeGroup(String computeGroupId, String computeGroupName) {
         try {
             wlock.lock();
+            LOG.info("remove compute group, id={}, name={}", computeGroupId, computeGroupName);
             computeGroupIdToComputeGroup.remove(computeGroupId);
-            removeVirtualClusterInfoFromMapsNoLock(computeGroupId, computeGroupName);
+            clusterIdToBackend.remove(computeGroupId);
+            // Earlier checkers could publish aliases from rejected renames. Remove every name
+            // still owned by this ID, without removing names already reused by another group.
+            clusterNameToId.entrySet().removeIf(entry -> computeGroupId.equals(entry.getValue()));
             invalidateCloudColocatePlacement(computeGroupId);
         } finally {
             wlock.unlock();
@@ -634,22 +677,13 @@ public class CloudSystemInfoService extends SystemInfoService {
             be = be.stream().filter(i -> !d.contains(i.getId())).collect(Collectors.toList());
             // ATTN: clusterId may have zero nodes
             clusterIdToBackend.replace(clusterId, be);
-            // such as dropCluster, but no lock
             // ATTN: Empty clusters are treated as dropped clusters.
             if (be.isEmpty()) {
                 LOG.info("del clusterId {} and clusterName {} due to be nodes eq 0", clusterId, clusterName);
                 MetricRepo.unregisterCloudMetrics(clusterId, clusterName, toDel);
-                boolean succ = clusterNameToId.remove(clusterName, clusterId);
 
                 // remove from computeGroupIdToComputeGroup
                 removeComputeGroup(clusterId, clusterName);
-
-                if (!succ) {
-                    LOG.warn("impossible, somewhere err, clusterNameToId {}, "
-                            + "want remove cluster name {}, cluster id {}",
-                            clusterNameToId, clusterName, clusterId);
-                }
-                clusterIdToBackend.remove(clusterId);
             }
             LOG.info("update (del) cloud cluster map, clusterName={} clusterId={} backendNum={} current backend={}",
                     clusterName, clusterId, be.size(), b);
@@ -958,6 +992,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         List<Backend> toDel = new ArrayList<>();
         toDel.add(backend);
         updateCloudClusterMap(new ArrayList<>(), toDel);
+        replayBackendRemovalVersion++;
     }
 
     @Override
@@ -1232,7 +1267,7 @@ public class CloudSystemInfoService extends SystemInfoService {
                                       final String originalName, final String clusterId) {
         wlock.lock();
         try {
-            clusterNameToId.remove(originalName);
+            clusterNameToId.remove(originalName, clusterId);
             clusterNameToId.put(newName, clusterId);
         } finally {
             wlock.unlock();
@@ -1262,17 +1297,6 @@ public class CloudSystemInfoService extends SystemInfoService {
             }
         }
         return clusterName;
-    }
-
-    public void dropCluster(final String clusterId, final String clusterName) {
-        wlock.lock();
-        try {
-            clusterNameToId.remove(clusterName, clusterId);
-            clusterIdToBackend.remove(clusterId);
-            invalidateCloudColocatePlacement(clusterId);
-        } finally {
-            wlock.unlock();
-        }
     }
 
     public List<String> getCloudClusterNames() {
@@ -1401,6 +1425,47 @@ public class CloudSystemInfoService extends SystemInfoService {
                 map.put(clusterId, idBe.getValue());
             }
             return map;
+        } finally {
+            rlock.unlock();
+        }
+    }
+
+    /**
+     * Returns the backend only when it belongs to the backend pool currently selected for
+     * {@code clusterName}. The name may identify a physical or virtual compute group; virtual
+     * routing is resolved internally. Backend health and load availability are not checked here.
+     *
+     * @return the matching backend, or null if the cluster or backend is absent or the backend is
+     *         outside the current pool
+     */
+    public Backend getBackendInCurrentCluster(String clusterName, long backendId) {
+        rlock.lock();
+        try {
+            String physicalClusterName = getPhysicalCluster(clusterName);
+            String clusterId = clusterNameToId.get(physicalClusterName);
+            if (Strings.isNullOrEmpty(clusterId)) {
+                return null;
+            }
+            List<Backend> backends = clusterIdToBackend.get(clusterId);
+            if (backends == null) {
+                return null;
+            }
+
+            int low = 0;
+            int high = backends.size() - 1;
+            while (low <= high) {
+                int mid = (low + high) >>> 1;
+                Backend backend = backends.get(mid);
+                int result = Long.compare(backend.getId(), backendId);
+                if (result < 0) {
+                    low = mid + 1;
+                } else if (result > 0) {
+                    high = mid - 1;
+                } else {
+                    return backend;
+                }
+            }
+            return null;
         } finally {
             rlock.unlock();
         }

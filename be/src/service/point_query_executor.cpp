@@ -590,7 +590,8 @@ Status PointQueryExecutor::_lookup_row_data() {
                 const auto& segment = *it;
                 for (int cid : _reusable->missing_col_uids()) {
                     int pos = _reusable->get_col_uid_to_idx().at(cid);
-                    auto row_id = static_cast<segment_v2::rowid_t>(row_loc.row_id);
+                    std::vector<segment_v2::rowid_t> row_ids {
+                            static_cast<segment_v2::rowid_t>(row_loc.row_id)};
                     auto& column = result_columns[pos];
                     std::unique_ptr<ColumnIterator> iter;
                     SlotDescriptor* slot = _reusable->tuple_desc()->slots()[pos];
@@ -598,7 +599,7 @@ Status PointQueryExecutor::_lookup_row_data() {
                     storage_read_options.stats = &_read_stats;
                     storage_read_options.io_ctx = io_ctx;
                     RETURN_IF_ERROR(segment->seek_and_read_by_rowid(*_tablet->tablet_schema(), slot,
-                                                                    row_id, column,
+                                                                    row_ids, column,
                                                                     storage_read_options, iter));
                 }
             }

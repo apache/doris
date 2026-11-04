@@ -23,8 +23,10 @@
 #include <vector>
 
 #include "CLucene/index/DocRange.h"
+#include "storage/index/inverted/similarity/bm25_similarity.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
+namespace {
 
 class MockTermDocs : public lucene::index::TermDocs {
 public:
@@ -69,6 +71,8 @@ public:
     void close() override {}
     lucene::index::TermPositions* __asTermPositions() override { return nullptr; }
     int32_t docFreq() override { return _doc_freq; }
+    int32_t getMaxBlockFreq() override { return -1; }
+    int32_t getMaxBlockNorm() override { return -1; }
 
 protected:
     std::vector<uint32_t> _docs;
@@ -155,6 +159,8 @@ private:
     bool _read_done = false;
 };
 
+} // namespace
+
 class SegmentPostingsTest : public testing::Test {};
 
 TEST_F(SegmentPostingsTest, test_postings_positions_with_offset) {
@@ -183,6 +189,22 @@ TEST_F(SegmentPostingsTest, test_segment_postings_base_constructor_next_true) {
     EXPECT_EQ(base.size_hint(), 3);
     EXPECT_EQ(base.freq(), 2);
     EXPECT_EQ(base.norm(), 1);
+}
+
+TEST_F(SegmentPostingsTest, KeywordPostingsUseUnitNorm) {
+    auto similarity = std::make_shared<segment_v2::BM25Similarity>(1.0F, 1.0F);
+    TermDocsPtr iter(new MockTermDocs({1, 3}, {1, 7}, {0, 0}, 2));
+    SegmentPostings postings(std::move(iter), true, similarity, false);
+    EXPECT_EQ(postings.doc(), 1);
+    EXPECT_EQ(postings.norm(), 1);
+    EXPECT_FLOAT_EQ(similarity->score(postings.freq(), postings.norm()), 1.0F);
+    EXPECT_GE(postings.block_max_score(), similarity->score(postings.freq(), postings.norm()));
+    EXPECT_EQ(postings.advance(), 3);
+    EXPECT_EQ(postings.norm(), 1);
+    EXPECT_NEAR(similarity->score(postings.freq(), postings.norm()), 7.0F * 2.2F / 8.2F, 1e-6F);
+    EXPECT_GE(postings.block_max_score(), similarity->score(postings.freq(), postings.norm()));
+    EXPECT_GE(postings.max_score(), similarity->score(postings.freq(), postings.norm()));
+    EXPECT_EQ(postings.max_block_norm(), 1);
 }
 
 TEST_F(SegmentPostingsTest, test_segment_postings_base_constructor_next_false) {
