@@ -403,6 +403,38 @@ public class IcebergWritePlanProviderTest {
     }
 
     @Test
+    public void invalidSelectedIsolationRejectsPlanBeforeReturningBackendSink() {
+        Map<WriteOperation, String> isolationKeys = new LinkedHashMap<>();
+        isolationKeys.put(WriteOperation.DELETE, TableProperties.DELETE_ISOLATION_LEVEL);
+        isolationKeys.put(WriteOperation.UPDATE, TableProperties.UPDATE_ISOLATION_LEVEL);
+        isolationKeys.put(WriteOperation.MERGE, TableProperties.MERGE_ISOLATION_LEVEL);
+        for (Map.Entry<WriteOperation, String> entry : isolationKeys.entrySet()) {
+            Table table = unpartitionedUnsortedTable(freshCatalog());
+            table.updateProperties().set("delete_isolation_level", "snapshot")
+                    .set(entry.getValue(), "invalid").commit();
+            RecordingConnectorContext context = contextWithStorage();
+            RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+            ops.table = table;
+            IcebergConnectorTransaction txn = new IcebergConnectorTransaction(42L, ops, context);
+            WriteHandle handle = new WriteHandle(new IcebergTableHandle("db1", "t2"))
+                    .writeOperation(entry.getKey());
+
+            DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> providerFor(table, context).planWrite(new WriteSession(txn), handle));
+
+            Assertions.assertTrue(ex.getMessage().contains("Invalid isolation level: invalid"),
+                    "an invalid selected standard key must not fall back to the valid legacy value");
+            Assertions.assertNull(txn.getTransaction(), "a failed preparation cannot return an executable BE sink");
+            Assertions.assertNull(txn.getTable());
+            Assertions.assertTrue(txn.getCommitDataList().isEmpty());
+            Assertions.assertEquals(0, context.normalizeCount,
+                    "invalid isolation must fail before output paths are bound into a backend sink");
+            Assertions.assertNull(table.currentSnapshot(), "preparation must not create write snapshots");
+            txn.close();
+        }
+    }
+
+    @Test
     public void getWriteColumnsCarriesPinnedTypedDefaultsAndNullability() {
         Schema writeSchema = new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()),
