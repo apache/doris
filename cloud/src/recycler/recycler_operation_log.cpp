@@ -807,6 +807,7 @@ int InstanceRecycler::recycle_operation_logs() {
     auto scan_and_recycle_operation_log = [&](const std::string_view& key,
                                               const std::vector<std::string>& raw_keys,
                                               OperationLogPB operation_log) {
+        ++metrics_context.total_scanned_num;
         std::string_view log_key(key);
         Versionstamp log_versionstamp;
         if (!decode_versioned_key(&log_key, &log_versionstamp)) {
