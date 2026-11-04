@@ -17,70 +17,76 @@
 
 #include "storage/index/inverted/analysis/analyzer/ik/dic/DictSegment.h"
 
+#include <algorithm>
+#include <limits>
+#include <string>
+
+#include "common/check.h"
+#include "storage/index/inverted/analysis/analyzer/ik/core/CharacterUtil.h"
+#include "storage/index/inverted/analysis/analyzer/ik/dic/FlatDict.h"
+
 namespace doris::segment_v2 {
+
+// Here rather than in a FlatDict.cpp of its own: the trie is what it is built from, and a new
+// source would move the Storage target's unity batches.
+FlatDict::FlatDict(const DictSegment& root) {
+    // `order` lists the segments in the order they are numbered; a segment's children are
+    // appended when it is numbered, so they get the next free numbers, all in a row.
+    std::vector<const DictSegment*> order {&root};
+    std::vector<const DictSegment*> children;
+    for (size_t i = 0; i < order.size(); ++i) {
+        const DictSegment& segment = *order[i];
+        children.clear();
+        segment.forEachChild([&children](const DictSegment& child) { children.push_back(&child); });
+        std::ranges::sort(children, [](const DictSegment* lhs, const DictSegment* rhs) {
+            return lhs->keyChar() < rhs->keyChar();
+        });
+        // Every number fits child_begin, and every child count the 31 bits it has.
+        DORIS_CHECK(order.size() + children.size() <= std::numeric_limits<uint32_t>::max() / 2);
+        Node node;
+        node.key = segment.keyChar();
+        node.child_begin = static_cast<uint32_t>(order.size());
+        node.child_count = static_cast<uint32_t>(children.size());
+        node.word_end = segment.isWordEnd() ? 1 : 0;
+        nodes_.push_back(node);
+        order.insert(order.end(), children.begin(), children.end());
+    }
+    nodes_.shrink_to_fit();
+
+    root_children_.assign(kDirectKeys, kNoNode);
+    const Node& root_node = nodes_[kNoNode];
+    for (uint32_t c = root_node.child_begin; c < root_node.child_begin + root_node.child_count;
+         ++c) {
+        if (nodes_[c].key >= 0 && nodes_[c].key < kDirectKeys) {
+            root_children_[nodes_[c].key] = c;
+        }
+    }
+}
 
 DictSegment::DictSegment(int32_t key_char) : key_char_(key_char) {
     children_array_.reserve(ARRAY_LENGTH_LIMIT);
+    live_count_.fetch_add(1, std::memory_order_relaxed);
+}
+
+DictSegment::~DictSegment() {
+    live_count_.fetch_sub(1, std::memory_order_relaxed);
 }
 
 bool DictSegment::hasNextNode() const {
     return store_size_ > 0;
 }
 
-Hit DictSegment::match(const CharacterUtil::TypedRuneArray& typed_runes, size_t unicode_offset,
-                       size_t length) {
-    Hit search_hit;
-    search_hit.setByteBegin(typed_runes[unicode_offset].offset);
-    search_hit.setCharBegin(unicode_offset);
-    match(typed_runes, unicode_offset, length, search_hit);
-    return search_hit;
-}
-
-void DictSegment::match(const CharacterUtil::TypedRuneArray& typed_runes, size_t unicode_offset,
-                        size_t length, Hit& search_hit) {
-    search_hit.setUnmatch();
-
-    if (!typed_runes.empty() && unicode_offset < typed_runes.size()) {
-        search_hit.setByteEnd(typed_runes[unicode_offset].offset +
-                              typed_runes[unicode_offset].getByteLength());
-        search_hit.setCharEnd(unicode_offset);
-    }
-
-    length = (length == 0 || unicode_offset + length > typed_runes.size())
-                     ? typed_runes.size() - unicode_offset
-                     : length;
-
-    int32_t ch = typed_runes[unicode_offset].getChar();
-    DictSegment* ds = nullptr;
+const DictSegment* DictSegment::findChild(int32_t key_char) const {
     if (store_size_ <= ARRAY_LENGTH_LIMIT) {
-        for (size_t i = 0; i < store_size_ && i < children_array_.size(); i++) {
-            if (children_array_[i]->key_char_ == ch) {
-                ds = children_array_[i].get();
-                break;
+        for (size_t i = 0; i < store_size_; ++i) {
+            if (children_array_[i]->key_char_ == key_char) {
+                return children_array_[i].get();
             }
         }
-    } else {
-        auto it = children_map_.find(ch);
-        if (it != children_map_.end()) {
-            ds = it->second.get();
-        } else {
-            return;
-        }
+        return nullptr;
     }
-
-    if (ds) {
-        if (length == 1) {
-            if (ds->is_word_end_) {
-                search_hit.setMatch();
-            }
-            if (ds->hasNextNode()) {
-                search_hit.setPrefix();
-                search_hit.setMatchedDictSegment(ds);
-            }
-        } else if (length > 1) {
-            ds->match(typed_runes, unicode_offset + 1, length - 1, search_hit);
-        }
-    }
+    const auto it = children_map_.find(key_char);
+    return it == children_map_.end() ? nullptr : it->second.get();
 }
 
 void DictSegment::fillSegment(const char* text) {

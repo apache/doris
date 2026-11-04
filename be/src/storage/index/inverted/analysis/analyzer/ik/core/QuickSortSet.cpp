@@ -42,13 +42,13 @@ void QuickSortSet::clear() {
 bool QuickSortSet::addLexeme(Lexeme& lexeme) {
     Cell* new_cell = nullptr;
     if (cell_size_ == 0) {
-        new_cell = allocateCell(std::move(lexeme));
+        new_cell = allocateCell(lexeme);
         head_ = tail_ = new_cell;
         cell_size_++;
         return true;
     }
     if (lexeme < tail_->lexeme_) {
-        new_cell = allocateCell(std::move(lexeme));
+        new_cell = allocateCell(lexeme);
         tail_->next_ = new_cell;
         new_cell->prev_ = tail_;
         tail_ = new_cell;
@@ -56,7 +56,7 @@ bool QuickSortSet::addLexeme(Lexeme& lexeme) {
         return true;
     }
     if (head_->lexeme_ < lexeme) {
-        new_cell = allocateCell(std::move(lexeme));
+        new_cell = allocateCell(lexeme);
         head_->prev_ = new_cell;
         new_cell->next_ = head_;
         head_ = new_cell;
@@ -75,7 +75,7 @@ bool QuickSortSet::addLexeme(Lexeme& lexeme) {
     if (index && index->lexeme_ == lexeme) {
         return false;
     }
-    new_cell = allocateCell(std::move(lexeme));
+    new_cell = allocateCell(lexeme);
     new_cell->prev_ = index;
     if (auto next = index->next_) {
         new_cell->next_ = next;
@@ -93,7 +93,7 @@ const Lexeme* QuickSortSet::peekFirst() const {
 std::optional<Lexeme> QuickSortSet::pollFirst() {
     if (!head_) return std::nullopt;
     Cell* old_head = head_;
-    Lexeme result = std::move(old_head->getLexeme());
+    Lexeme result = old_head->getLexeme();
 
     head_ = head_->next_;
     if (head_)
@@ -113,7 +113,7 @@ const Lexeme* QuickSortSet::peekLast() const {
 std::optional<Lexeme> QuickSortSet::pollLast() {
     if (!tail_) return std::nullopt;
     Cell* old_tail = tail_;
-    Lexeme result = std::move(old_tail->getLexeme());
+    Lexeme result = old_tail->getLexeme();
 
     tail_ = tail_->prev_;
     if (tail_)
@@ -134,9 +134,9 @@ size_t QuickSortSet::getPathEnd() const {
     return tail_ ? tail_->lexeme_.getByteBegin() + tail_->lexeme_.getByteLength() : 0;
 }
 
-Cell* QuickSortSet::allocateCell(Lexeme&& lexeme) {
+Cell* QuickSortSet::allocateCell(const Lexeme& lexeme) {
     Cell* cell = arena_.alloc<Cell>();
-    return new (cell) Cell(std::move(lexeme));
+    return new (cell) Cell(lexeme);
 }
 
 void QuickSortSet::deallocateCell(Cell* cell) {

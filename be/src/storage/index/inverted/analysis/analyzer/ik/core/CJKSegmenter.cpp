@@ -19,39 +19,32 @@
 
 namespace doris::segment_v2 {
 
-CJKSegmenter::CJKSegmenter() = default;
+CJKSegmenter::CJKSegmenter(const Dictionary& dictionary) : dictionary_(dictionary) {}
 
 void CJKSegmenter::analyze(AnalyzeContext& context) {
     if (context.getCurrentCharType() != CharacterUtil::CharType::USELESS) {
-        // Prioritize processing the prefixes that have already been matched
-        if (!tmp_hits_.empty()) {
-            auto it = tmp_hits_.begin();
-            while (it != tmp_hits_.end()) {
-                Hit& hit = *it;
-                Dictionary::getSingleton()->matchWithHit(context.getTypedRuneArray(),
-                                                         context.getCursor(), hit);
-                if (hit.isMatch()) {
-                    Lexeme newLexeme(context.getBufferOffset(), hit.getByteBegin(),
-                                     hit.getByteEnd() - hit.getByteBegin(), Lexeme::Type::CNWord,
-                                     hit.getCharBegin(), hit.getCharEnd());
-                    context.addLexeme(newLexeme);
-
-                    if (!hit.isPrefix()) {
-                        it = tmp_hits_.erase(it);
-                    } else {
-                        ++it;
-                    }
-                } else if (hit.isUnmatch()) {
-                    // Hit is not a word, remove
-                    it = tmp_hits_.erase(it);
-                } else {
-                    ++it;
-                }
+        // Prioritize processing the prefixes that have already been matched. A hit that is still
+        // a prefix moves down to the next kept slot, so the kept hits stay in their order: in
+        // 中华人民, the hits at 民 started at 中, 华 and 人; 华人民 leads to no word and is
+        // dropped, and the hits from 中 and 人 stay first and second.
+        size_t kept = 0;
+        for (Hit& hit : tmp_hits_) {
+            dictionary_.matchWithHit(context.getTypedRuneArray(), context.getCursor(), hit);
+            if (hit.isMatch()) {
+                Lexeme newLexeme(context.getBufferOffset(), hit.getByteBegin(),
+                                 hit.getByteEnd() - hit.getByteBegin(), Lexeme::Type::CNWord,
+                                 hit.getCharBegin(), hit.getCharEnd());
+                context.addLexeme(newLexeme);
+            }
+            // A hit that is no longer a prefix, a word that ends here or no word, is dropped.
+            if (hit.isPrefix()) {
+                tmp_hits_[kept++] = hit;
             }
         }
+        tmp_hits_.resize(kept);
         // Perform a single-character match at the current pointer position.
-        auto singleCharHit = Dictionary::getSingleton()->matchInMainDict(
-                context.getTypedRuneArray(), context.getCursor(), 1);
+        auto singleCharHit =
+                dictionary_.matchInMainDict(context.getTypedRuneArray(), context.getCursor(), 1);
         if (singleCharHit.isMatch()) {
             Lexeme newLexeme(context.getBufferOffset(), context.getCurrentCharOffset(),
                              context.getCurrentCharLen(), Lexeme::Type::CNChar,

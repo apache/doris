@@ -21,6 +21,9 @@
 #include <limits>
 #include <memory>
 #include <sstream>
+#include <string>
+#include <string_view>
+#include <vector>
 
 #include "CLucene.h" // IWYU pragma: keep
 #include "common/config.h"
@@ -85,8 +88,9 @@ protected:
         segmenter.reset(s);
 
         Lexeme lexeme;
-        while (segmenter.next(lexeme)) {
-            tokenInfos.emplace_back(lexeme.getText(), lexeme.getType());
+        std::string_view text;
+        while (segmenter.next(lexeme, text)) {
+            tokenInfos.emplace_back(std::string(text), lexeme.getType());
         }
     }
 
@@ -773,6 +777,64 @@ TEST_F(IKTokenizerTest, TestCNQuantifierSegmenter) {
             << "'U+5E74' should be COUNT type";
 }
 
+// lower_case only applies to the words IK hands out: the window lowercases an ASCII capital in
+// place before it segments, so "Hello" comes out as "hello" either way, while the full-width ＡＢＣ
+// stays in the window as it is and only folds to ASCII when its word is handed out, to "ABC" with
+// lower_case false and to "abc" with lower_case true.
+TEST_F(IKTokenizerTest, TestLowerCaseOnlyAppliesToTheWords) {
+    for (const bool smart : {true, false}) {
+        SCOPED_TRACE(smart);
+        IKTokenizer keep_case(ik_config(smart), false);
+        EXPECT_EQ(inverted_index::collect_terms(keep_case, "Hello ＡＢＣ"),
+                  (std::vector<std::string> {"hello", "ABC"}));
+        IKTokenizer lowercase(ik_config(smart), true);
+        EXPECT_EQ(inverted_index::collect_terms(lowercase, "Hello ＡＢＣ"),
+                  (std::vector<std::string> {"hello", "abc"}));
+    }
+}
+
+// A character on the 4096-byte window boundary, at every misalignment, after ASCII words: the
+// window ends before a character it cannot hold whole and refills at a space within its last 100
+// characters, so the next window starts with the cut character and no word is split or lost. é is
+// no word character and only ends the word before it; 中 and 😀 are words of their own.
+TEST_F(IKTokenizerTest, TestCharacterAcrossTheWindowAtEveryOffset) {
+    constexpr std::string_view kFiller = "lorem ipsum dolor sit amet consectetur ";
+    for (const bool smart : {true, false}) {
+        IKTokenizer tokenizer(ik_config(smart), true);
+        for (const std::string_view character : {"é", "中", "😀"}) {
+            for (size_t start = 4096 - 8; start <= 4096 + 4; ++start) {
+                std::string text;
+                while (text.size() < start) {
+                    text += kFiller;
+                }
+                text.resize(start);
+                std::vector<std::string> expected;
+                std::istringstream words(text);
+                for (std::string word; words >> word;) {
+                    expected.push_back(word);
+                }
+                if (character != "é") {
+                    expected.emplace_back(character);
+                }
+                expected.emplace_back("tail");
+                expected.emplace_back("words");
+                text += character;
+                text += " tail words";
+                EXPECT_EQ(inverted_index::collect_terms(tokenizer, text), expected)
+                        << smart << " " << character << " at " << start;
+            }
+        }
+    }
+}
+
+// A value whose last character is cut short throws, even after words IK could segment: 你好 and
+// the first two bytes of U+4E2D. The stream reads the next value as if nothing happened.
+TEST_F(IKTokenizerTest, TestUndecodableTailThrows) {
+    IKTokenizer tokenizer(ik_config(true), true);
+    EXPECT_THROW(tokenizer.reset("你好\xE4\xB8"), Exception);
+    EXPECT_EQ(inverted_index::collect_terms(tokenizer, "你好"), std::vector<std::string> {"你好"});
+}
+
 // Test the exception handling capabilities of the IKTokenizer and AnalyzeContext. The value is a
 // string, so a failure comes from bytes IK cannot decode, not from a reader.
 TEST_F(IKTokenizerTest, TestExceptionHandling) {
@@ -798,10 +860,10 @@ TEST_F(IKTokenizerTest, TestExceptionHandling) {
 
     // PART 2: Test AnalyzeContext::fillBuffer exception handling
     {
-        // Create AnalyzeContext
+        // Create AnalyzeContext, with the dictionaries PART 1 loaded
         std::shared_ptr<Configuration> config = std::make_shared<Configuration>();
         Arena arena {};
-        AnalyzeContext context(arena, config);
+        AnalyzeContext context(arena, config, *Dictionary::getSingleton());
 
         // Test case 1: bytes that decode to no character
         inverted_index::TextCursor cut_short;

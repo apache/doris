@@ -17,9 +17,7 @@
 
 #pragma once
 
-#include <list>
-#include <memory>
-#include <string>
+#include <vector>
 
 #include "storage/index/inverted/analysis/analyzer/ik/core/AnalyzeContext.h"
 #include "storage/index/inverted/analysis/analyzer/ik/core/CharacterUtil.h"
@@ -27,14 +25,16 @@
 
 namespace doris::segment_v2 {
 
-class CJKSegmenter : public ISegmenter {
+class CJKSegmenter final : public ISegmenter {
 private:
     static constexpr AnalyzeContext::SegmenterType SEGMENTER_TYPE =
             AnalyzeContext::SegmenterType::CJK_SEGMENTER;
-    std::list<Hit> tmp_hits_;
+    const Dictionary& dictionary_;
+    // The prefixes matched so far, oldest first.
+    std::vector<Hit> tmp_hits_;
 
 public:
-    CJKSegmenter();
+    explicit CJKSegmenter(const Dictionary& dictionary);
 
     void analyze(AnalyzeContext& context) override;
     void reset() override;

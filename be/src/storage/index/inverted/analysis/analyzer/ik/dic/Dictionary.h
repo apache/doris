@@ -18,20 +18,25 @@
 #pragma once
 
 #include <atomic>
-#include <fstream>
 #include <memory>
 #include <mutex>
 #include <string>
-#include <vector>
 
 #include "common/exception.h"
 #include "common/logging.h"
 #include "storage/index/inverted/analysis/analyzer/ik/cfg/Configuration.h"
 #include "storage/index/inverted/analysis/analyzer/ik/core/CharacterUtil.h"
-#include "storage/index/inverted/analysis/analyzer/ik/dic/DictSegment.h"
+#include "storage/index/inverted/analysis/analyzer/ik/dic/FlatDict.h"
 #include "storage/index/inverted/analysis/analyzer/ik/dic/Hit.h"
 
 namespace doris::segment_v2 {
+
+class DictSegment;
+
+// The main, quantifier and stop word dictionaries, loaded once per process. Each file is loaded
+// into a DictSegment trie, copied into a FlatDict and freed, so a loaded Dictionary keeps only the
+// flat copies. A segmenter is given the loaded Dictionary when it is made and reads it through
+// that reference: the per-character path never goes through getSingleton().
 class Dictionary {
 private:
     // Published only after every dictionary has loaded, so a failed load leaves nothing behind and
@@ -42,12 +47,13 @@ private:
     static std::atomic<Dictionary*> singleton_;
     static std::mutex init_mutex_;
 
-    // Dictionary segment mappings
-    std::unique_ptr<DictSegment> main_dict_;
-    std::unique_ptr<DictSegment> quantifier_dict_;
-    std::unique_ptr<DictSegment> stop_words_;
     std::unique_ptr<Configuration> config_;
     bool load_ext_dict_;
+    // Built in this order by the constructor, after config_ and load_ext_dict_.
+    FlatDict main_dict_;
+    FlatDict quantifier_dict_;
+    FlatDict stop_words_;
+
     class Cleanup {
     public:
         ~Cleanup() { delete Dictionary::singleton_.exchange(nullptr); }
@@ -59,14 +65,16 @@ private:
     static const std::string PATH_DIC_QUANTIFIER;
     static const std::string PATH_DIC_STOP;
 
+    // Loads every dictionary; throws when one of the three files cannot be read, while a missing
+    // extension file is only logged.
     explicit Dictionary(const Configuration& cfg, bool use_ext_dict = false);
 
-    void loadMainDict();
-    void loadStopWordDict();
-    void loadQuantifierDict();
+    FlatDict loadMainDict() const;
+    FlatDict loadStopWordDict() const;
+    FlatDict loadQuantifierDict() const;
 
-    void loadDictFile(DictSegment* dict, const std::string& file_path, bool critical,
-                      const std::string& dict_name);
+    static void loadDictFile(DictSegment* dict, const std::string& file_path, bool critical,
+                             const std::string& dict_name);
 
     Dictionary(const Dictionary&) = delete;
     Dictionary& operator=(const Dictionary&) = delete;
@@ -94,16 +102,43 @@ public:
 
     Configuration* getConfiguration() const { return config_.get(); }
 
+    // A hit of the `length` characters from `unicode_offset`; a match or a prefix spans them,
+    // which makes its char end unicode_offset + length, one past the last of them: 中 matched
+    // alone at index 5 ends at 6. The CJK segmenter gives that end to the lexeme of the character
+    // and the quantifier segmenter continues the hit from it, and both decide tokens.
     Hit matchInMainDict(const CharacterUtil::TypedRuneArray& typed_runes, size_t unicode_offset,
-                        size_t length);
+                        size_t length) const {
+        return spanHit(main_dict_.match(typed_runes, unicode_offset, length), typed_runes,
+                       unicode_offset, length);
+    }
     Hit matchInQuantifierDict(const CharacterUtil::TypedRuneArray& typed_runes,
-                              size_t unicode_offset, size_t length);
+                              size_t unicode_offset, size_t length) const {
+        return spanHit(quantifier_dict_.match(typed_runes, unicode_offset, length), typed_runes,
+                       unicode_offset, length);
+    }
+    // Continues a prefix `hit` with the character at `current_index`, after which the hit's char
+    // end is `current_index` itself.
     void matchWithHit(const CharacterUtil::TypedRuneArray& typed_runes, size_t current_index,
-                      Hit& hit);
+                      Hit& hit) const {
+        DCHECK(hit.getMatchedDict() != nullptr);
+        hit.getMatchedDict()->match(typed_runes, current_index, 1, hit.getMatchedNode(), hit);
+    }
     bool isStopWord(const CharacterUtil::TypedRuneArray& typed_runes, size_t unicode_offset,
-                    size_t length);
+                    size_t length) const {
+        return stop_words_.isWord(typed_runes, unicode_offset, length);
+    }
 
-    void printStats() const;
+private:
+    static Hit spanHit(Hit result, const CharacterUtil::TypedRuneArray& typed_runes,
+                       size_t unicode_offset, size_t length) {
+        if (!result.isUnmatch()) {
+            result.setByteBegin(typed_runes[unicode_offset].offset);
+            result.setCharBegin(unicode_offset);
+            result.setByteEnd(typed_runes[unicode_offset + length - 1].getNextBytePosition());
+            result.setCharEnd(unicode_offset + length);
+        }
+        return result;
+    }
 };
 
 inline std::atomic<Dictionary*> Dictionary::singleton_ {nullptr};

@@ -337,15 +337,12 @@ TEST(ComponentStreamTest, IKTokenizerReleasesItsWords) {
         auto& ik = as<IKTokenizer>(*tokenizer);
         expect_released_at_next_row(
                 *tokenizer, repeat_to("中华人民共和国 ab ", kLongRowBytes), "short", true, [&] {
-                    size_t bytes = ik.tokens_.capacity() * sizeof(std::string) +
-                                   ik.ik_segmenter_->arena_.size() +
-                                   ik.ik_segmenter_->context_->segment_buff_.capacity() +
-                                   ik.ik_segmenter_->context_->typed_runes_.capacity() *
-                                           sizeof(CharacterUtil::TypedRune);
-                    for (const std::string& text : ik.tokens_) {
-                        bytes += text.capacity();
-                    }
-                    return bytes;
+                    return ik.words_.capacity() * sizeof(IKTokenizer::Word) +
+                           ik.words_bytes_.capacity() + ik.ik_segmenter_->arena_.size() +
+                           ik.ik_segmenter_->context_->segment_buff_.capacity() +
+                           ik.ik_segmenter_->context_->typed_runes_.capacity() *
+                                   sizeof(CharacterUtil::TypedRune) +
+                           ik.ik_segmenter_->context_->results_.capacity() * sizeof(Lexeme);
                 });
     }
 }
