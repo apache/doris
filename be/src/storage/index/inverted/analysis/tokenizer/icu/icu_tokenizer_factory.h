@@ -23,18 +23,23 @@
 
 namespace doris::segment_v2::inverted_index {
 
+// The custom icu_tokenizer, and with `lowercase` the builtin icu parser, whose tokenizer
+// lowercases its own terms.
 class ICUTokenizerFactory : public TokenizerFactory {
 public:
-    ICUTokenizerFactory() = default;
+    explicit ICUTokenizerFactory(bool lowercase = false) : _lowercase(lowercase) {}
     ~ICUTokenizerFactory() override = default;
 
     void initialize(const Settings& settings) override {}
 
     std::unique_ptr<TextTokenizer> create() const override {
-        auto tokenizer = std::make_unique<ICUTokenizer>();
+        auto tokenizer = std::make_unique<ICUTokenizer>(_lowercase);
         tokenizer->initialize(config::inverted_index_dict_path + "/icu");
         return tokenizer;
     }
+
+private:
+    const bool _lowercase;
 };
 
 } // namespace doris::segment_v2::inverted_index

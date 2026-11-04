@@ -17,65 +17,39 @@
 
 #include "storage/index/inverted/analysis/tokenizer/icu/composite_break_iterator.h"
 
-#include <unicode/unistr.h>
+#include <unicode/uchar.h>
 
 #include <memory>
+#include <utility>
 
 namespace doris::segment_v2::inverted_index {
 
-CompositeBreakIterator::CompositeBreakIterator(const ICUTokenizerConfigPtr& config)
-        : config_(config) {
-    scriptIterator_ = std::make_unique<ScriptIterator>(config->combine_cj());
+CompositeBreakIterator::CompositeBreakIterator(ICUTokenizerConfigPtr config)
+        : config_(std::move(config)) {
     word_breakers_.resize(u_getIntPropertyMaxValue(UCHAR_SCRIPT) + 1);
-}
-
-void CompositeBreakIterator::initialize() {
-    scriptIterator_->initialize();
-}
-
-int32_t CompositeBreakIterator::next() {
-    int32_t next = rbbi_->next();
-    while (next == UBRK_DONE && scriptIterator_->next()) {
-        rbbi_ = get_break_iterator(scriptIterator_->get_script_code());
-        rbbi_->set_text(text_, scriptIterator_->get_script_start(),
-                        scriptIterator_->get_script_limit() - scriptIterator_->get_script_start());
-        next = rbbi_->next();
-    }
-    return (next == UBRK_DONE) ? UBRK_DONE : next + scriptIterator_->get_script_start();
-}
-
-int32_t CompositeBreakIterator::current() {
-    int32_t current = rbbi_->current();
-    return (current == UBRK_DONE) ? UBRK_DONE : current + scriptIterator_->get_script_start();
-}
-
-int32_t CompositeBreakIterator::get_rule_status() {
-    return rbbi_->get_rule_status();
-}
-
-int32_t CompositeBreakIterator::get_script_code() {
-    return scriptIterator_->get_script_code();
 }
 
 void CompositeBreakIterator::set_text(const UChar* text, int32_t start, int32_t length) {
     text_ = text;
-    scriptIterator_->set_text(text_, start, length);
-    if (scriptIterator_->next()) {
-        rbbi_ = get_break_iterator(scriptIterator_->get_script_code());
-        rbbi_->set_text(text_, scriptIterator_->get_script_start(),
-                        scriptIterator_->get_script_limit() - scriptIterator_->get_script_start());
+    scriptIterator_.set_text(text_, start, length);
+    if (scriptIterator_.next()) {
+        set_run_text();
     } else {
         rbbi_ = get_break_iterator(USCRIPT_COMMON);
-        rbbi_->set_text(text_, 0, 0);
+        rbbi_->set_text(&utext_, text_, 0, 0);
     }
+}
+
+void CompositeBreakIterator::set_run_text() {
+    rbbi_ = get_break_iterator(scriptIterator_.get_script_code());
+    rbbi_->set_text(&utext_, text_, scriptIterator_.get_script_start(),
+                    scriptIterator_.get_script_limit() - scriptIterator_.get_script_start());
 }
 
 BreakIteratorWrapper* CompositeBreakIterator::get_break_iterator(int32_t scriptCode) {
     if (!word_breakers_[scriptCode]) {
-        auto wordBreak =
+        word_breakers_[scriptCode] =
                 std::make_unique<BreakIteratorWrapper>(config_->get_break_iterator(scriptCode));
-        wordBreak->initialize();
-        word_breakers_[scriptCode].swap(wordBreak);
     }
     return word_breakers_[scriptCode].get();
 }

@@ -30,10 +30,8 @@ BreakIteratorPtr DefaultICUTokenizerConfig::cjk_break_iterator_;
 BreakIteratorPtr DefaultICUTokenizerConfig::default_break_iterator_;
 BreakIteratorPtr DefaultICUTokenizerConfig::myanmar_syllable_iterator_;
 
-DefaultICUTokenizerConfig::DefaultICUTokenizerConfig(bool cjk_as_words, bool myanmar_as_words) {
-    cjk_as_words_ = cjk_as_words;
-    myanmar_as_words_ = myanmar_as_words;
-}
+DefaultICUTokenizerConfig::DefaultICUTokenizerConfig(bool myanmar_as_words)
+        : myanmar_as_words_(myanmar_as_words) {}
 
 void DefaultICUTokenizerConfig::initialize(const std::string& dictPath) {
     static std::atomic<bool> initialized_(false);

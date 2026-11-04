@@ -28,7 +28,6 @@ public:
 
     virtual void initialize(const std::string& dictPath) = 0;
     virtual icu::BreakIterator* get_break_iterator(int32_t script) = 0;
-    virtual bool combine_cj() = 0;
 
     static const int32_t EMOJI_SEQUENCE_STATUS = 299;
 };
