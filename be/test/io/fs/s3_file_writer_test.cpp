@@ -1528,10 +1528,10 @@ TEST_F(S3FileWriterInvalidationTest, async_close_waits_for_upload_callbacks_afte
     EXPECT_EQ(mock_client->put_object_count, 0);
 }
 
-// The holder is invalidated while close waits for the parts: it sees that after the wait, and
-// never completes the upload.
-TEST_F(S3FileWriterInvalidationTest, multipart_invalidated_during_the_wait_is_not_completed) {
-    auto [mock_client, writer] = create_s3_client("invalidate_during_complete_wait");
+// The holder is invalidated after all parts finish, before CompleteMultipartUpload is called;
+// close detects the invalidation and never completes the upload.
+TEST_F(S3FileWriterInvalidationTest, multipart_invalidated_after_uploads_is_not_completed) {
+    auto [mock_client, writer] = create_s3_client("invalidate_after_uploads_before_complete");
     invalidate_at("S3FileWriter::_complete:1", writer);
 
     EXPECT_EQ(writer->append(generate_test_string('b', config::s3_write_buffer_size * 2)),
