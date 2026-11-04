@@ -36,12 +36,7 @@ class GroupCommitBlockSinkLocalState final : public PipelineXSinkLocalState<Basi
     using Base = PipelineXSinkLocalState<BasicSharedState>;
 
 public:
-    GroupCommitBlockSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : Base(parent, state), _filter_bitmap(1024) {
-        _finish_dependency =
-                std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
-                                             parent->get_name() + "_FINISH_DEPENDENCY", true);
-    }
+    GroupCommitBlockSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
 
     ~GroupCommitBlockSinkLocalState() override;
 
@@ -67,6 +62,8 @@ private:
     std::unique_ptr<OlapTableBlockConvertor> _block_convertor;
 
     std::shared_ptr<LoadBlockQueue> _load_block_queue = nullptr;
+    std::vector<int> _column_permutation;
+    bool _need_column_permutation = false;
     // used to calculate if meet the max filter ratio
     std::vector<std::shared_ptr<Block>> _blocks;
     bool _is_block_appended = false;

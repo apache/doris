@@ -20,14 +20,18 @@
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <chrono>
 
 #include "cloud/config.h"
 #include "common/compiler_util.h"
 #include "common/config.h"
 #include "common/status.h"
+#include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_nullable.h"
 #include "exec/pipeline/dependency.h"
 #include "runtime/cluster_info.h"
+#include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/memory/mem_tracker_limiter.h"
@@ -540,11 +544,10 @@ Status GroupCommitTable::_create_group_commit_load(
             auto load_block_queue = std::make_shared<LoadBlockQueue>(
                     instance_id, label, txn_id, schema_version, index_size, _all_block_queues_bytes,
                     result.wait_internal_group_commit_finish, result.group_commit_interval_ms,
-                    result.group_commit_data_bytes);
-            RETURN_IF_ERROR(load_block_queue->create_wal(
-                    _db_id, _table_id, txn_id, label, _exec_env->wal_mgr(),
-                    pipeline_params.fragment.output_sink.olap_table_sink.schema.slot_descs,
-                    be_exe_version));
+                    result.group_commit_data_bytes,
+                    pipeline_params.fragment.output_sink.olap_table_sink.schema.slot_descs);
+            RETURN_IF_ERROR(load_block_queue->create_wal(_db_id, _table_id, txn_id, label,
+                                                         _exec_env->wal_mgr(), be_exe_version));
             created_load_block_queue = load_block_queue;
 
             std::unique_lock l(_lock);
@@ -915,16 +918,56 @@ void GroupCommitMgr::remove_load_id(int64_t table_id, const UniqueId& load_id) {
     }
 }
 
+Status LoadBlockQueue::get_column_permutation(const TupleDescriptor& producer_tuple,
+                                              std::vector<int>& column_permutation) const {
+    const auto& slots = producer_tuple.slots();
+    // Replacing an MV can retain the base schema version and index count while changing
+    // the columns. Reject that schema mismatch instead of dropping or mislabelling data.
+    if (slots.size() != _slot_descs.size()) {
+        return Status::DataQualityError<false>(
+                "group commit column count not match: producer={}, consumer={}. "
+                "Please retry this load manually.",
+                slots.size(), _slot_descs.size());
+    }
+    std::unordered_map<std::string, std::vector<int>> positions;
+    for (int i = 0; i < slots.size(); ++i) {
+        positions[slots[i]->col_name()].push_back(i);
+    }
+    std::vector<int> permutation;
+    permutation.reserve(_slot_descs.size());
+    for (const auto& slot : _slot_descs) {
+        auto& candidates = positions[slot.colName];
+        auto type = DataTypeFactory::instance().create_data_type(slot.slotType, false);
+        // Match by name and type: MV unique IDs are index-local, and fullSchema may
+        // retain a shared MV expression from different indexes on different FEs.
+        // Shadow columns retain the original name but can change type (INT -> BIGINT).
+        auto it = std::ranges::find_if(candidates, [&](int pos) {
+            return remove_nullable(slots[pos]->type())->equals(*type);
+        });
+        // The version/index-count check cannot detect replacing one MV with another.
+        if (it == candidates.end()) {
+            return Status::DataQualityError<false>(
+                    "group commit column not match: name={}, type={}. "
+                    "Please retry this load manually.",
+                    slot.colName, type->get_name());
+        }
+        permutation.push_back(*it);
+        candidates.erase(it);
+    }
+    column_permutation.swap(permutation);
+    return Status::OK();
+}
+
 Status LoadBlockQueue::create_wal(int64_t db_id, int64_t tb_id, int64_t wal_id,
                                   const std::string& import_label, WalManager* wal_manager,
-                                  std::vector<TSlotDescriptor>& slot_desc, int be_exe_version) {
+                                  int be_exe_version) {
     std::string real_label = config::group_commit_wait_replay_wal_finish
                                      ? import_label + "_test_wait"
                                      : import_label;
     RETURN_IF_ERROR(ExecEnv::GetInstance()->wal_mgr()->create_wal_path(
             db_id, tb_id, wal_id, real_label, _wal_base_path, WAL_VERSION));
     _v_wal_writer = std::make_shared<VWalWriter>(db_id, tb_id, wal_id, real_label, wal_manager,
-                                                 slot_desc, be_exe_version);
+                                                 _slot_descs, be_exe_version);
     return _v_wal_writer->init();
 }
 

@@ -19,6 +19,7 @@
 
 #include <gen_cpp/DataSinks_types.h>
 
+#include <algorithm>
 #include <chrono>
 #include <thread>
 
@@ -27,6 +28,14 @@
 #include "util/debug_points.h"
 
 namespace doris {
+GroupCommitBlockSinkLocalState::GroupCommitBlockSinkLocalState(DataSinkOperatorXBase* parent,
+                                                               RuntimeState* state)
+        : Base(parent, state), _filter_bitmap(1024) {
+    _finish_dependency =
+            std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
+                                         parent->get_name() + "_FINISH_DEPENDENCY", true);
+}
+
 GroupCommitBlockSinkLocalState::~GroupCommitBlockSinkLocalState() {
     if (_load_block_queue) {
         DBUG_EXECUTE_IF("GroupCommitBlockSink.delay_teardown_remove_load_id", {
@@ -133,6 +142,21 @@ Status GroupCommitBlockSinkLocalState::_add_block(RuntimeState* state,
                                                   std::shared_ptr<Block> block) {
     if (block->rows() == 0) {
         return Status::OK();
+    }
+    // Each producer is planned by its local FE; fullSchema can list MV columns in
+    // a different order from the master FE's consumer plan, e.g. [k, mv_b, mv_a]
+    // versus [k, mv_a, mv_b]. Resolve the mapping once, after a queue is available.
+    if (_column_permutation.empty()) {
+        RETURN_IF_ERROR(_load_block_queue->get_column_permutation(
+                *_parent->cast<GroupCommitBlockSinkOperatorX>()._output_tuple_desc,
+                _column_permutation));
+        _need_column_permutation = !std::ranges::is_sorted(_column_permutation);
+    }
+    DCHECK_EQ(block->columns(), _column_permutation.size());
+    // Validation and partition filtering used the producer layout. Reorder only now,
+    // before buffering, enqueueing and WAL serialization, without recomputing MV values.
+    if (_need_column_permutation) {
+        block->shuffle_columns(_column_permutation);
     }
     // the insert group commit tvf always accept nullable columns, so we should convert
     // the non-nullable columns to nullable columns
