@@ -1516,13 +1516,33 @@ public class AnalysisManager implements Writable {
                 long changelogIndexId = olapTable.hasChangelog()
                         ? olapTable.getChangelogIndexMeta().getIndexId() : -1;
                 long rowsForAllReplica = 0;
-                long changelogRowsForAllReplica = 0;
                 for (Entry<Long, Long> entry : tabletRows.entrySet()) {
-                    if (changelogIndexId > 0 && isChangelogTablet(entry.getKey(), changelogIndexId)) {
-                        // The change rows of the load, which are neither the rows loaded into the
-                        // base index nor a lower bound of the table's rows: see TableStatsMeta.
-                        changelogRowsForAllReplica += entry.getValue();
-                        continue;
+                    if (changelogIndexId > 0) {
+                        TabletMeta tabletMeta = Env.getCurrentEnv().getTabletInvertedIndex()
+                                .getTabletMeta(entry.getKey());
+                        // A partition can be force-dropped before the transaction becomes visible.
+                        // Its changelog tablets must not be mistaken for base tablets after removal.
+                        if (tabletMeta == null) {
+                            continue;
+                        }
+                        Partition partition = olapTable.getPartition(tabletMeta.getPartitionId());
+                        if (partition == null) {
+                            continue;
+                        }
+                        if (tabletMeta.getIndexId() == changelogIndexId) {
+                            short partitionReplicaNum = olapTable.getPartitionInfo()
+                                    .getReplicaAllocation(tabletMeta.getPartitionId()).getTotalReplicaNum();
+                            MaterializedIndex changelogIndex = partition.getIndex(changelogIndexId);
+                            // Update the partition index that stream P/Q snapshots read. A periodic
+                            // tablet report replaces this estimate with the retained row count, so
+                            // TTL does not leave a lifetime accumulator behind. The transaction
+                            // visibility path holds the table write lock, excluding tablet stats.
+                            // A report may already include this load; adding it again temporarily
+                            // overestimates the count until the next report.
+                            changelogIndex.setRowCount(Math.max(0, changelogIndex.getRowCount())
+                                    + entry.getValue() / partitionReplicaNum);
+                            continue;
+                        }
                     }
                     rowsForAllReplica += entry.getValue();
                     if (LOG.isDebugEnabled()) {
@@ -1535,7 +1555,6 @@ public class AnalysisManager implements Writable {
                         + "rows for all replica {}, tablets count {}",
                         olapTable.getName(), tableUpdateRows, replicaNum, rowsForAllReplica, tabletRows.size());
                 statsStatus.updatedRows.addAndGet(tableUpdateRows);
-                statsStatus.addIndexUpdatedRows(changelogIndexId, changelogRowsForAllReplica / replicaNum);
                 if (StatisticsUtil.enablePartitionAnalyze()) {
                     updatePartitionRows(olapTable, tabletRows, statsStatus, replicaNum);
                 }
@@ -1561,11 +1580,6 @@ public class AnalysisManager implements Writable {
                 }
             }
         }
-    }
-
-    private static boolean isChangelogTablet(long tabletId, long changelogIndexId) {
-        TabletMeta tabletMeta = Env.getCurrentEnv().getTabletInvertedIndex().getTabletMeta(tabletId);
-        return tabletMeta != null && tabletMeta.getIndexId() == changelogIndexId;
     }
 
     protected void updatePartitionRows(OlapTable table, Map<Long, Long> originTabletToRows,
