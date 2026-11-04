@@ -1849,7 +1849,13 @@ Status VariantCompactionUtil::resolve_write_schema(const std::vector<RowsetShare
     DBUG_EXECUTE_IF("Compaction.resolve_variant_write_schema.planning_failure", {
         status = Status::InternalError("injected variant carrier planning failure");
     });
-    RETURN_IF_ERROR(status);
+    if (!status.ok()) {
+        // Fail closed: writing with the load template could re-cast an old carrier value.
+        LOG(WARNING) << "variant carrier planning failed, tablet="
+                     << (inputs.empty() ? -1 : inputs.front()->rowset_meta()->tablet_id())
+                     << ", status=" << status;
+        return status;
+    }
     // Only C8's carriers need the ADD carrier writer; native typed columns keep the template.
     if (prefer_extracted || std::ranges::any_of(*resolved_paths, [](const auto& entry) {
             return !entry.second.carrier_path_set.empty();
