@@ -118,6 +118,21 @@ public class TokenManagerTest {
         Assertions.assertThrows(IllegalArgumentException.class, () -> new TokenManager().start());
     }
 
+    @Test
+    public void testRestartWithoutCachedSigningToken() throws UserException {
+        TokenManager manager = startManager();
+        List<String> previousTokens = manager.getAuthTokens();
+        ScheduledExecutorService previousGenerator = Deencapsulation.getField(manager, "tokenGenerator");
+        manager.start();
+        Assertions.assertTrue(previousGenerator.isShutdown());
+        List<String> tokens = manager.getAuthTokens();
+        Assertions.assertEquals(2, tokens.size());
+        Assertions.assertFalse(previousTokens.contains(tokens.get(0)));
+        Assertions.assertFalse(previousTokens.contains(tokens.get(1)));
+        Assertions.assertEquals(tokens.get(0), manager.acquireSigningToken());
+        Assertions.assertEquals(tokens.get(1), manager.acquireToken());
+    }
+
     @SuppressWarnings("unchecked")
     @Test
     public void testFollowerSigningTokenDuringMasterUpgrade() throws Exception {
@@ -133,17 +148,19 @@ public class TokenManagerTest {
         ClientPool.frontendPool = pool;
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-            TokenManager manager = new TokenManager();
+            TokenManager manager = startManager();
             TMySqlLoadAcquireTokenResult result = new TMySqlLoadAcquireTokenResult();
             result.setStatus(new TStatus(TStatusCode.OK));
             result.setToken("latest-token");
             Mockito.when(client.acquireToken()).thenReturn(result);
             // An old master does not serialize signing_token.
             Assertions.assertEquals("latest-token", manager.acquireSigningToken());
+            TokenManager legacyManager = startManager();
+            Assertions.assertEquals("latest-token", legacyManager.acquireSigningToken());
             result.setSigningToken("signing-token");
             Assertions.assertEquals("signing-token", manager.acquireSigningToken());
             Assertions.assertEquals("latest-token", manager.acquireToken());
-            Mockito.verify(pool, Mockito.times(3)).returnObject(address, client);
+            Mockito.verify(pool, Mockito.times(4)).returnObject(address, client);
 
             // A present but empty key must not silently fall back to the latest token.
             result.setSigningToken("");
@@ -162,6 +179,30 @@ public class TokenManagerTest {
             Assertions.assertThrows(UserException.class, manager::acquireSigningToken);
             Mockito.verify(pool).invalidateObject(address, client);
             Mockito.verify(pool, Mockito.never()).returnObject(address, client);
+
+            // Promotion must retain the last successful signing key despite subsequent failures.
+            Mockito.when(env.isMaster()).thenReturn(true);
+            Object previousQueue = Deencapsulation.getField(manager, "tokenQueue");
+            ScheduledExecutorService previousGenerator = Deencapsulation.getField(manager, "tokenGenerator");
+            manager.start();
+            Assertions.assertTrue(previousGenerator.isShutdown());
+            List<String> tokens = manager.getAuthTokens();
+            Assertions.assertEquals(2, tokens.size());
+            Assertions.assertEquals("signing-token", tokens.get(0));
+            Assertions.assertNotEquals("signing-token", tokens.get(1));
+            Assertions.assertEquals(tokens.get(0), manager.acquireSigningToken());
+            Assertions.assertEquals(tokens.get(1), manager.acquireToken());
+
+            // Simulate an old scheduled task that was waiting for start() to release the lock.
+            Deencapsulation.invoke(manager, "rotateToken", previousQueue);
+            Assertions.assertEquals(tokens, manager.getAuthTokens());
+            Object currentQueue = Deencapsulation.getField(manager, "tokenQueue");
+            Deencapsulation.invoke(manager, "rotateToken", currentQueue);
+            Assertions.assertEquals(tokens.get(1), manager.acquireSigningToken());
+
+            legacyManager.start();
+            Assertions.assertEquals("latest-token", legacyManager.acquireSigningToken());
+            Assertions.assertEquals("latest-token", legacyManager.getAuthTokens().get(0));
         } finally {
             ClientPool.frontendPool = previousPool;
         }

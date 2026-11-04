@@ -54,6 +54,8 @@ public class TokenManager {
     private  int thriftTimeoutMs = 300 * 1000;
     private  EvictingQueue<String> tokenQueue;
     private volatile String latestToken;
+    // Retained across follower-to-master promotion; populated only after a successful acquisition.
+    private volatile String lastAcquiredSigningToken;
     private  ScheduledExecutorService tokenGenerator;
 
     public TokenManager() {
@@ -63,16 +65,32 @@ public class TokenManager {
         if (Config.token_queue_size < 2) {
             throw new IllegalArgumentException("token_queue_size must be at least 2");
         }
+        // Promotion calls start() again on the same TokenManager.
+        if (this.tokenGenerator != null) {
+            this.tokenGenerator.shutdownNow();
+        }
         this.tokenQueue = EvictingQueue.create(Config.token_queue_size);
-        // Seed both generations so the first heartbeat also carries the signing key to new BEs.
-        this.addNewToken(generateNewToken());
+        // Seed [cached signing token, new token], so promotion keeps using the signing key
+        // acquired from the old master. Without a cache, initialize two new generations.
+        String signingToken = lastAcquiredSigningToken;
+        this.addNewToken(signingToken == null ? generateNewToken() : signingToken);
         this.addNewToken(generateNewToken());
         this.tokenGenerator = Executors.newScheduledThreadPool(1,
                 new CustomThreadFactory("token-generator"));
+        EvictingQueue<String> queue = this.tokenQueue;
         // Publish the initial queue before the first scheduled rotation.
-        this.tokenGenerator.scheduleAtFixedRate(() -> this.addNewToken(generateNewToken()),
+        this.tokenGenerator.scheduleAtFixedRate(() -> rotateToken(queue),
                 Config.token_generate_period_hour,
                 Config.token_generate_period_hour, TimeUnit.HOURS);
+    }
+
+    private synchronized void rotateToken(EvictingQueue<String> queue) {
+        // An old task may already be waiting for this lock when promotion stops its executor.
+        // It must not rotate the newly initialized queue before its first heartbeat.
+        if (queue != tokenQueue) {
+            return;
+        }
+        addNewToken(generateNewToken());
     }
 
     private synchronized void addNewToken(String token) {
@@ -119,6 +137,7 @@ public class TokenManager {
                 if (token == null || token.isEmpty()) {
                     throw new UserException("Flight signing token is not available from master");
                 }
+                lastAcquiredSigningToken = token;
                 return token;
             } catch (TException e) {
                 LOG.warn("acquire signing token error", e);
