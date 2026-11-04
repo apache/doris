@@ -96,7 +96,7 @@ suite("test_cte_nondeterministic_not_inline") {
     """
     assertTrue(explainUuid2.toString().contains("PhysicalCteProducer"))
 
-    // --- cte_inline_mode = 0: default rule-based mode ---
+    // --- cte_inline_mode = 0: rule-based selective mode ---
     sql "SET cte_inline_mode=0"
     sql "SET inline_cte_referenced_threshold=10"
 
