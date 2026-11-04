@@ -31,6 +31,7 @@
 #include "exprs/function/cast/cast_base.h" // IWYU pragma: keep
 #include "util/asan_util.h"
 #include "util/string_parser.hpp"
+#include "util/timezone_utils.h"
 
 namespace doris {
 // NOLINTBEGIN(readability-function-size)
@@ -691,7 +692,7 @@ FRAC:
             cctz::civil_second cs {res.year(), res.month(),  res.day(),
                                    res.hour(), res.minute(), res.second()};
 
-            auto given = cctz::convert(cs, parsed_tz);
+            auto given = TimezoneUtils::convert_local_to_instant(cs, parsed_tz);
             auto local = cctz::convert(given, *local_time_zone);
             res.template unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)local.year());
             res.template unchecked_set_time_unit<TimeUnit::MONTH>((uint32_t)local.month());
@@ -925,7 +926,7 @@ inline bool CastToDateOrDatetime::from_string_non_strict_mode_impl(
             cctz::civil_second cs {res.year(), res.month(),  res.day(),
                                    res.hour(), res.minute(), res.second()};
 
-            auto given = cctz::convert(cs, parsed_tz);
+            auto given = TimezoneUtils::convert_local_to_instant(cs, parsed_tz);
             auto local = cctz::convert(given, *local_time_zone);
             res.template unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)local.year());
             res.template unchecked_set_time_unit<TimeUnit::MONTH>((uint32_t)local.month());

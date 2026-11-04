@@ -28,7 +28,6 @@ import org.apache.doris.nereids.trees.expressions.functions.MonotonicityUtils;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
@@ -37,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.util.DateUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -110,7 +110,7 @@ public class ConvertTz extends ScalarFunction
         if (fromZone == null || toZone == null) {
             return false;
         }
-        if (toZone.getRules().isFixedOffset()) {
+        if (fromZone.getRules().isFixedOffset() && toZone.getRules().isFixedOffset()) {
             return true;
         }
         if (lower == null || upper == null) {
@@ -127,26 +127,15 @@ public class ConvertTz extends ScalarFunction
         if (upperDateTime.isBefore(lowerDateTime)) {
             return false;
         }
-        /*
-         * convert_tz can be treated as a composition of two mappings:
-         *
-         *   source local time x -> instant by from_tz -> target local time by to_tz.
-         *
-         * After PR #64029, the first mapping is monotonic non-decreasing. A spring gap in from_tz
-         * flattens skipped local times to the transition instant, and a fall-back overlap uses the
-         * pre-transition offset before jumping forward at the overlap end. Neither case makes the
-         * instant move backward as x increases.
-         *
-         * The second mapping, instant -> to_tz local time, is also monotonic non-decreasing except
-         * at a to_tz fall-back transition, where the displayed local time jumps backward. Therefore
-         * convert_tz is non-monotonic for a partition only when the instant interval obtained from
-         * interpreting the partition bounds in from_tz crosses a to_tz fall-back transition instant.
-         *
-         * Partition pruning folds both endpoints before deriving the function range, so a fall-back
-         * instant inside (fromInstant(lower), fromInstant(upper)] disables the monotonic shortcut.
-         */
-        Instant lowerInstant = DateTimeLiteral.convertLocalToInstant(lowerDateTime, fromZone);
-        Instant upperInstant = DateTimeLiteral.convertLocalToInstant(upperDateTime, fromZone);
+        // A source gap can reverse the order. In New York on 2024-03-10,
+        // 02:30 maps to 07:30 UTC, but 03:00 maps to 07:00 UTC.
+        // Reject that range before using its endpoints for partition pruning.
+        if (!MonotonicityUtils.isLocalToInstantMonotonic(fromZone, lowerDateTime, upperDateTime)) {
+            return false;
+        }
+        Instant lowerInstant = DateUtils.convertLocalToInstant(lowerDateTime, fromZone);
+        Instant upperInstant = DateUtils.convertLocalToInstant(upperDateTime, fromZone);
+        // An overlap in the target zone can also reverse the local time order.
         return MonotonicityUtils.isInstantToLocalMonotonic(toZone, lowerInstant, upperInstant);
     }
 
