@@ -76,7 +76,7 @@ protected:
         desc.__set_table_name("test");
         desc.__set_branch("main");
         desc.__set_storage_options({});
-        _sink.__set_commit_message_version(11);
+        _sink.__set_commit_message_version(14);
         _sink.__set_table_desc(desc);
         _sink.__set_backend_type(TPaimonWriteBackendType::FFI);
         _sink.__set_write_mode(TPaimonWriteMode::APPEND);
@@ -158,7 +158,7 @@ TEST_F(FfiPaimonWriteBackendTest, WritesDpcmAndReleasesFixedBudget) {
     const auto& payload = messages.front().payload;
     ASSERT_GE(payload.size(), 16);
     EXPECT_EQ(payload.substr(0, 4), "DPCM");
-    EXPECT_EQ(static_cast<unsigned char>(payload[7]), 11);
+    EXPECT_EQ(static_cast<unsigned char>(payload[7]), 14);
     EXPECT_EQ(file_count(), 1);
     _writer.reset();
     ASSERT_TRUE(_backend.close().ok());
@@ -277,7 +277,18 @@ TEST_F(FfiPaimonWriteBackendTest, MissingCommitProtocolFailsBeforeMemoryAdmissio
     _sink.__isset.commit_message_version = false;
     const auto status = _backend.open(_sink, _state.get(), &_profile);
     EXPECT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("commit protocol version 11"), std::string::npos);
+    EXPECT_NE(status.to_string().find("commit protocol version 14"), std::string::npos);
+    EXPECT_EQ(counter("QueryReservedBytes"), 0);
+    EXPECT_EQ(counter("FixedBudgetBytes"), 0);
+    EXPECT_EQ(file_count(), 0);
+}
+
+TEST_F(FfiPaimonWriteBackendTest, RejectsLegacyCommitProtocolBeforeMemoryAdmission) {
+    // A pre-upgrade FE requests v11, which this writer must not label as v14.
+    _sink.__set_commit_message_version(11);
+    const auto status = _backend.open(_sink, _state.get(), &_profile);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("commit protocol version 14"), std::string::npos);
     EXPECT_EQ(counter("QueryReservedBytes"), 0);
     EXPECT_EQ(counter("FixedBudgetBytes"), 0);
     EXPECT_EQ(file_count(), 0);
