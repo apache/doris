@@ -170,8 +170,10 @@ public class TokenManager {
                     lastAcquiredAuthTokens = tokens;
                     lastCachedAuthTokenRequestId = requestId;
                 }
+                // The caller must use the newer cached queue as well, rather than sign
+                // with an older RPC response that has already been superseded.
+                return lastAcquiredAuthTokens;
             }
-            return tokens;
         } catch (TException e) {
             LOG.warn("acquire auth tokens error", e);
             throw new UserException("Acquire auth tokens from master failed", e);

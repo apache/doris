@@ -260,7 +260,7 @@ public class TokenManagerTest {
                 }
                 return newerResult;
             }).when(client).acquireToken();
-            Assertions.assertEquals(olderTokens, orderingManager.acquireAuthTokens());
+            Assertions.assertEquals(newerTokens, orderingManager.acquireAuthTokens());
             Mockito.when(env.isMaster()).thenReturn(true);
             orderingManager.start();
             Assertions.assertEquals(newerTokens, orderingManager.getAuthTokens());
