@@ -601,18 +601,9 @@ public abstract class ExternalCatalog
         Map<String, Boolean> excludeDatabaseMap = getExcludeDatabaseMap();
         List<Pair<String, String>> remoteToLocalPairs = Lists.newArrayList();
 
-        allDatabases = allDatabases.stream().filter(dbName -> {
-            if (!dbName.equals(InfoSchemaDb.DATABASE_NAME) && !dbName.equals(MysqlDb.DATABASE_NAME)) {
-                // Exclude database map take effect with higher priority over include database map
-                if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(dbName)) {
-                    return false;
-                }
-                if (!includeDatabaseMap.isEmpty() && !includeDatabaseMap.containsKey(dbName)) {
-                    return false;
-                }
-            }
-            return true;
-        }).collect(Collectors.toList());
+        allDatabases = allDatabases.stream()
+                .filter(dbName -> isDatabaseListed(dbName, includeDatabaseMap, excludeDatabaseMap))
+                .collect(Collectors.toList());
 
         for (String remoteDbName : allDatabases) {
             remoteToLocalPairs.add(Pair.of(
@@ -1413,6 +1404,27 @@ public abstract class ExternalCatalog
 
     public void registerDatabaseFromEvent(String remoteDbName, String localDbName) {
         throw new NotImplementedException("registerDatabaseFromEvent not implemented");
+    }
+
+    /**
+     * Whether the database list of this catalog keeps the remote database: information_schema and mysql always, the
+     * others as include_database_list and exclude_database_list allow. A database that an event announces is added
+     * only when it is.
+     */
+    protected boolean isDatabaseListed(String remoteDbName) {
+        return isDatabaseListed(remoteDbName, getIncludeDatabaseMap(), getExcludeDatabaseMap());
+    }
+
+    private static boolean isDatabaseListed(String remoteDbName, Map<String, Boolean> includeDatabaseMap,
+            Map<String, Boolean> excludeDatabaseMap) {
+        if (remoteDbName.equals(InfoSchemaDb.DATABASE_NAME) || remoteDbName.equals(MysqlDb.DATABASE_NAME)) {
+            return true;
+        }
+        // Exclude database map take effect with higher priority over include database map
+        if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(remoteDbName)) {
+            return false;
+        }
+        return includeDatabaseMap.isEmpty() || includeDatabaseMap.containsKey(remoteDbName);
     }
 
     protected Map<String, Boolean> getIncludeDatabaseMap() {

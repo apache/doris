@@ -692,6 +692,11 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
      */
     @Override
     public void registerDatabaseFromEvent(String remoteDbName, String localDbName) {
+        // The database list leaves out what include_database_list and exclude_database_list keep out; an event must
+        // not add it to the list either.
+        if (!isDatabaseListed(remoteDbName)) {
+            return;
+        }
         long dbId = Util.genIdByName(getName(), localDbName);
         try {
             ExternalDatabase<? extends ExternalTable> db =
