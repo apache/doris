@@ -691,7 +691,9 @@ FRAC:
             cctz::civil_second cs {res.year(), res.month(),  res.day(),
                                    res.hour(), res.minute(), res.second()};
 
-            auto given = cctz::convert(cs, parsed_tz);
+            // Move gap input forward by its length, as in DATETIMEV2 parsing.
+            // New York 2024-03-10 02:30 becomes 03:30.
+            auto given = parsed_tz.lookup(cs).pre;
             auto local = cctz::convert(given, *local_time_zone);
             res.template unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)local.year());
             res.template unchecked_set_time_unit<TimeUnit::MONTH>((uint32_t)local.month());
@@ -925,7 +927,9 @@ inline bool CastToDateOrDatetime::from_string_non_strict_mode_impl(
             cctz::civil_second cs {res.year(), res.month(),  res.day(),
                                    res.hour(), res.minute(), res.second()};
 
-            auto given = cctz::convert(cs, parsed_tz);
+            // Move gap input forward by its length, as in DATETIMEV2 parsing.
+            // New York 2024-03-10 02:30 becomes 03:30.
+            auto given = parsed_tz.lookup(cs).pre;
             auto local = cctz::convert(given, *local_time_zone);
             res.template unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)local.year());
             res.template unchecked_set_time_unit<TimeUnit::MONTH>((uint32_t)local.month());

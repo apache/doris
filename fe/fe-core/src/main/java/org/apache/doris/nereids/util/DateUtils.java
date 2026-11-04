@@ -28,7 +28,6 @@ import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.ResolverStyle;
@@ -38,10 +37,7 @@ import java.time.temporal.ChronoField;
 import java.time.temporal.IsoFields;
 import java.time.temporal.TemporalAccessor;
 import java.time.temporal.WeekFields;
-import java.time.zone.ZoneOffsetTransition;
-import java.time.zone.ZoneRules;
 import java.util.Arrays;
-import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
@@ -463,28 +459,15 @@ public class DateUtils {
         }
     }
 
-    /** Convert a civil datetime between time zones using the same DST policy as BE cctz. */
-    public static LocalDateTime convertTimeZone(long year, long month, long day, long hour, long minute,
-            long second, ZoneId fromZone, ZoneId toZone) {
-        LocalDateTime localDateTime = LocalDateTime.of((int) year, (int) month, (int) day,
-                (int) hour, (int) minute, (int) second);
-        return LocalDateTime.ofInstant(convertLocalToInstant(localDateTime, fromZone), toZone);
-    }
-
     /**
-     * Convert a local civil datetime to an instant with the same overlap/gap policy as BE cctz.
-     * Repeated local times use the pre-transition offset; skipped local times map to the transition
-     * instant.
+     * Convert a local time to an instant.
+     * In a gap or an overlap, use the offset before the transition.
+     * A gap moves the input forward by its length and keeps the fraction.
+     * For example, New York 2024-03-10 02:30 becomes 03:30-04:00, or 07:30 UTC.
+     * A repeated local time uses its first occurrence. This matches BE zone.lookup(civil).pre.
      */
     public static Instant convertLocalToInstant(LocalDateTime localDateTime, ZoneId fromZone) {
-        ZoneRules rules = fromZone.getRules();
-        List<ZoneOffset> validOffsets = rules.getValidOffsets(localDateTime);
-        int size = validOffsets.size();
-        if (size == 1 || size == 2) {
-            return localDateTime.atOffset(validOffsets.get(0)).toInstant();
-        }
-        ZoneOffsetTransition transition = rules.getTransition(localDateTime);
-        return transition.getInstant();
+        return localDateTime.atZone(fromZone).toInstant();
     }
 
     /**

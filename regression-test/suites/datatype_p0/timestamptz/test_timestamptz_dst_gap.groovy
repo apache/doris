@@ -74,6 +74,32 @@ suite("test_timestamptz_dst_gap") {
             order_qt_named_zone """
                 SELECT CAST('2024-03-10 02:30:00 America/New_York' AS TIMESTAMPTZ(6))
             """
+            // Two scalar inputs cover a one-hour gap and a 30-minute gap.
+            for (def c : [cases[3], cases[7]]) {
+                sql "SET time_zone = '${c[0]}'"
+                order_qt_gap_functions """
+                    SELECT convert_tz(CAST('${c[1]}' AS DATETIMEV2(6)), '${c[0]}', 'UTC'),
+                           convert_tz(CAST('${c[1]}789' AS TIMESTAMP_NS), '${c[0]}', 'UTC'),
+                           unix_timestamp(CAST('${c[1]}' AS DATETIMEV2(6))),
+                           unix_timestamp(CAST('${c[1]}789' AS TIMESTAMP_NS))
+                """
+                sql "SET time_zone = '+00:00'"
+                order_qt_gap_named_types """
+                    SELECT CAST('${c[1]} ${c[0]}' AS DATETIMEV2(6)),
+                           CAST('${c[1]}789 ${c[0]}' AS TIMESTAMP_NS)
+                """
+            }
+            order_qt_gap_named_rounding """
+                SELECT CAST('2024-03-10 02:59:59.9999996 America/New_York' AS DATETIMEV2(6)),
+                       CAST('2024-03-10 02:59:59.4999996 America/New_York' AS DATETIMEV2(0))
+            """
+            sql "SET time_zone = 'Australia/Lord_Howe'"
+            // The local hour start is in the 30-minute gap. Keep its 15-minute position.
+            order_qt_gap_hour_origin """
+                SELECT hour_floor(CAST('2024-10-06 02:45:00.123456+11:00' AS TIMESTAMPTZ(6)),
+                                  1, CAST('2024-10-05 02:15:00.123456+11:00' AS TIMESTAMPTZ(6)))
+            """
+            sql "SET time_zone = '+00:00'"
             // A fixed offset has no gap. A repeated local time keeps its first occurrence.
             order_qt_controls """
                 SELECT CAST('2024-03-10 02:30:00-04:00' AS TIMESTAMPTZ(6)),
@@ -98,6 +124,13 @@ suite("test_timestamptz_dst_gap") {
         order_qt_gap_partition """
             SELECT d FROM test_timestamptz_gap_partition
             WHERE CAST(d AS TIMESTAMPTZ(6)) = CAST('2024-03-10 07:30:00+00:00' AS TIMESTAMPTZ(6))
+        """
+        order_qt_gap_convert_tz_partition """
+            SELECT d FROM test_timestamptz_gap_partition
+            WHERE convert_tz(d, 'America/New_York', 'UTC') = '2024-03-10 07:30:00'
+        """
+        order_qt_gap_unix_timestamp_partition """
+            SELECT d FROM test_timestamptz_gap_partition WHERE unix_timestamp(d) = 1710055800
         """
     } finally {
         sql "SET time_zone = '${originalZone}'"

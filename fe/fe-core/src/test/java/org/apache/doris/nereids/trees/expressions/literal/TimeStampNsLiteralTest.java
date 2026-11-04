@@ -109,7 +109,7 @@ class TimeStampNsLiteralTest {
         context.getSessionVariable().setTimeZone("+00:00");
         context.setThreadLocalInfo();
         try {
-            Assertions.assertEquals("2024-03-10 07:00:00.123456789",
+            Assertions.assertEquals("2024-03-10 07:30:00.123456789",
                     new TimeStampNsLiteral(
                             "2024-03-10 02:30:00.123456789America/New_York").getStringValue());
         } finally {

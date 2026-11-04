@@ -327,6 +327,11 @@ TEST(TimeStampTzValueTest, DstGapPreservesPosition) {
         TimestampTzValue converted;
         ASSERT_TRUE(converted.from_datetime(test_case.local, zone, 6, 6));
         EXPECT_EQ(converted, test_case.expected);
+        converted.convert_local_to_utc(zone, test_case.local);
+        EXPECT_EQ(converted, test_case.expected);
+        // The preferred offset selects an overlap occurrence. It must not clamp a gap.
+        converted.convert_local_to_utc(zone, test_case.local, test_case.expected.utc_offset(zone));
+        EXPECT_EQ(converted, test_case.expected);
         check_timestamptz_parsers(input, zone, test_case.expected);
         check_timestamptz_parsers(input + " " + test_case.zone, utc, test_case.expected);
     }

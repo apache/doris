@@ -93,7 +93,7 @@ public final class TimeStampNsLiteral extends DateLiteral {
 
         ZoneId zoneId = temporal.query(TemporalQueries.zone());
         if (zoneId != null) {
-            Instant instant = DateTimeLiteral.convertLocalToInstantPreservingFraction(result, zoneId);
+            Instant instant = DateUtils.convertLocalToInstant(result, zoneId);
             result = LocalDateTime.ofInstant(instant, DateUtils.getTimeZone());
         }
         return result;

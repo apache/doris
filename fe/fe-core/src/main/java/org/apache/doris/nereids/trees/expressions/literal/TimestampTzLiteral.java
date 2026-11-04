@@ -30,6 +30,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
+import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
@@ -130,13 +131,11 @@ public class TimestampTzLiteral extends DateTimeLiteral {
     }
 
     /**
-     * Convert TIMESTAMPTZ input to UTC with the offset before a time zone transition.
-     * A gap moves the input forward by its length and keeps the fraction.
-     * For example, 2024-03-10 02:30 in New York becomes 03:30, not 03:00.
-     * A repeated local time keeps the first occurrence, as in BE zone.lookup(civil).pre.
+     * Convert TIMESTAMPTZ input to UTC. Preserve its position within a time zone gap.
+     * Use the shared gap and overlap policy in {@link DateUtils#convertLocalToInstant}.
      */
     static LocalDateTime toUtc(LocalDateTime localDateTime, ZoneId zone) {
-        return localDateTime.atZone(zone).withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
+        return LocalDateTime.ofInstant(DateUtils.convertLocalToInstant(localDateTime, zone), ZoneOffset.UTC);
     }
 
     private static String getSessionTimeZone() {
