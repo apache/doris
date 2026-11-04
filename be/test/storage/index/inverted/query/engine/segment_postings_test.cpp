@@ -29,6 +29,7 @@
 
 #include "CLucene/index/DocRange.h"
 #include "CLucene/index/MultiReader.h"
+#include "storage/index/index_common_impl.h"
 #include "storage/index/inverted/clucene/spi/clucene_index_source.h"
 #include "storage/index/inverted/clucene/spi/clucene_postings_cursor.h"
 #include "storage/index/inverted/query/engine/phrase_query/phrase_scorer.h"

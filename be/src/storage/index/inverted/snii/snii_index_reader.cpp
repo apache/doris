@@ -17,7 +17,6 @@
 
 #include "storage/index/inverted/snii/snii_index_reader.h"
 
-#include <CLucene/util/stringUtil.h>
 #include <fmt/format.h>
 
 #include <algorithm>
@@ -42,6 +41,7 @@
 #include "storage/index/inverted/analysis/gram/gram_family.h"
 #include "storage/index/inverted/analysis/gram/gram_scheme.h"
 #include "storage/index/inverted/common/inverted_index_cache.h"
+#include "storage/index/inverted/common/string_helper.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/inverted/query/exec/docid_sink.h"
 #include "storage/index/inverted/query/exec/roaring_docid_sink.h"
@@ -307,7 +307,8 @@ Status SniiIndexReader::_run_leaf(const IndexQueryContextPtr& context,
                                   const index_query::logical::Node& leaf,
                                   const roaring::Roaring* candidates, bool scoring,
                                   std::shared_ptr<roaring::Roaring>* out) {
-    const std::wstring field = StringUtil::string_to_wstring(column_name);
+    // The same conversion as predicate_collector's: the collection statistics are keyed by field.
+    const std::wstring field = inverted_index::StringHelper::to_wstring(column_name);
     auto source = _bind_source(context, field, index);
     const uint32_t doc_count = source->doc_count();
     auto result = std::make_shared<roaring::Roaring>();

@@ -17,11 +17,12 @@
 
 #include "storage/index/inverted/clucene/inverted_index_writer.h"
 
-#include "storage/index/index_common.h"
+#include "storage/index/index_common_impl.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_fs_directory.h"
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "storage/index/inverted/clucene/lucene_analyzer_bridge.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/key_coder.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/faststring.h"

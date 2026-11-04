@@ -32,6 +32,17 @@
 
 namespace doris::segment_v2 {
 
+IndexFileReader::IndexFileReader(io::FileSystemSPtr fs, std::string index_path_prefix,
+                                 InvertedIndexStorageFormatPB storage_format,
+                                 InvertedIndexFileInfo idx_file_info, int64_t tablet_id)
+        : _fs(std::move(fs)),
+          _index_path_prefix(std::move(index_path_prefix)),
+          _storage_format(storage_format),
+          _idx_file_info(std::move(idx_file_info)),
+          _tablet_id(tablet_id) {}
+
+IndexFileReader::~IndexFileReader() = default;
+
 Status IndexFileReader::init(int32_t read_buffer_size, const io::IOContext* io_ctx) {
     std::unique_lock<std::shared_mutex> lock(_mutex); // Lock for writing
     if (!_inited) {
@@ -213,6 +224,13 @@ Result<InvertedIndexDirectoryMap> IndexFileReader::get_all_directories() {
         res.emplace(std::make_pair(index_id, index_suffix), std::move(ret.value()));
     }
     return res;
+}
+
+int64_t IndexFileReader::get_inverted_file_size() const {
+    if (_storage_format == InvertedIndexStorageFormatPB::SNII) {
+        return _snii_file_reader == nullptr ? 0 : _snii_file_reader->size();
+    }
+    return _stream == nullptr ? 0 : _stream->length();
 }
 
 Result<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> IndexFileReader::_open(

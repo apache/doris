@@ -47,8 +47,7 @@ TARGETS=(
     "be/src/storage/index/inverted/query/spi/index_source.h"
     "be/src/storage/index/inverted/query/engine/intersection.cpp"
     "be/src/storage/index/inverted/common/query_info.h"
-    "be/src/storage/index/inverted/analysis/tokenizer/pinyin/pinyin_alphabet_tokenizer.h"
-    "be/src/storage/index/inverted/analysis/analyzer/analyzer_provider.h"
+    "build-support/check-header-deps.py"
 )
 # Files the CLucene cases create; restore() removes them.
 PROBE_INNER="be/src/util/zz_clucene_probe_inner.h"
@@ -134,16 +133,20 @@ echo "${OUT}" | grep -q "query/engine/intersection.cpp includes <CLucene.h>" \
 cp "${BACKUP}/be/src/storage/index/inverted/query/engine/intersection.cpp" \
     "${ROOT}/be/src/storage/index/inverted/query/engine/intersection.cpp"
 
-# An exception that no longer breaks the rule fails the gate.
-sed -i '/#include <CLucene/d' \
-    "${ROOT}/be/src/storage/index/inverted/analysis/tokenizer/pinyin/pinyin_alphabet_tokenizer.h"
+# An exception that no longer breaks the rule fails the gate. The probe lists a clean file under a
+# root, query_info.h, so the case does not depend on what the tables still hold while the
+# migration empties them. Written into the existing file, which keeps its mode.
+add_clucene_exception() {
+    awk -v table="$1 = {" -v entry="    \"$2\"," '{ print } $0 == table { print entry }' \
+        "${BACKUP}/build-support/check-header-deps.py" > "${GATE}"
+}
+add_clucene_exception CLUCENE_INCLUDING_FILES "storage/index/inverted/common/query_info.h"
 OUT="$(run_gate)"; EC=$?
 [ "${EC}" -eq 1 ] || fail "stale CLucene include exception expected exit 1, got ${EC}"
 echo "${OUT}" | grep -q \
-    "CLUCENE_INCLUDING_FILES lists storage/index/inverted/analysis/tokenizer/pinyin/pinyin_alphabet_tokenizer.h" \
+    "CLUCENE_INCLUDING_FILES lists storage/index/inverted/common/query_info.h" \
     || fail "stale CLucene include exception not reported"
-cp "${BACKUP}/be/src/storage/index/inverted/analysis/tokenizer/pinyin/pinyin_alphabet_tokenizer.h" \
-    "${ROOT}/be/src/storage/index/inverted/analysis/tokenizer/pinyin/pinyin_alphabet_tokenizer.h"
+cat "${BACKUP}/build-support/check-header-deps.py" > "${GATE}"
 
 # CLucene words in comments and string literals are no dependency; a symbol in code is.
 printf '\n// lucene::analysis::Token in a comment\ninline const char* clucene_gate_probe = "CLuceneError lucene::Token";\n' \
@@ -159,16 +162,14 @@ echo "${OUT}" | grep -q "common/query_info.h:[0-9]* names the CLucene symbol luc
 cp "${BACKUP}/be/src/storage/index/inverted/common/query_info.h" \
     "${ROOT}/be/src/storage/index/inverted/common/query_info.h"
 
-# A symbol exception that no longer breaks the rule fails the gate.
-sed -i 's/lucene::/clucene_gate_probe::/g' \
-    "${ROOT}/be/src/storage/index/inverted/analysis/analyzer/analyzer_provider.h"
+# A symbol exception that no longer breaks the rule fails the gate; the same made-up entry.
+add_clucene_exception CLUCENE_SYMBOL_FILES "storage/index/inverted/common/query_info.h"
 OUT="$(run_gate)"; EC=$?
 [ "${EC}" -eq 1 ] || fail "stale CLucene symbol exception expected exit 1, got ${EC}"
 echo "${OUT}" | grep -q \
-    "CLUCENE_SYMBOL_FILES lists storage/index/inverted/analysis/analyzer/analyzer_provider.h" \
+    "CLUCENE_SYMBOL_FILES lists storage/index/inverted/common/query_info.h" \
     || fail "stale CLucene symbol exception not reported"
-cp "${BACKUP}/be/src/storage/index/inverted/analysis/analyzer/analyzer_provider.h" \
-    "${ROOT}/be/src/storage/index/inverted/analysis/analyzer/analyzer_provider.h"
+cat "${BACKUP}/build-support/check-header-deps.py" > "${GATE}"
 
 printf '#include <fmt/format.h>\n' >> "${ROOT}/be/src/core/uint24.h"
 OUT="$(run_gate)"; EC=$?
