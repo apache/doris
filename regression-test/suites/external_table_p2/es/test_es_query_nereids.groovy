@@ -36,7 +36,8 @@ suite("test_es_query_nereids", "p2,external") {
                 "type"="es",
                 "elasticsearch.hosts"="http://${externalEnvIp}:$es_6_port",
                 "elasticsearch.nodes_discovery"="false",
-                "elasticsearch.keyword_sniff"="true"
+                "elasticsearch.keyword_sniff"="true",
+                "enable_docvalue_scan"="false"
             );
         """
 
@@ -62,7 +63,20 @@ suite("test_es_query_nereids", "p2,external") {
 
         sql """switch es6_nereids"""
         order_qt_sql62 """select test1, test2, test3, test4 from test1 where test2='text#1'"""
-        order_qt_sql63 """select test1, test2, test3, test4 from test2_20220808 where test4='2022-08-08 08:00:00'"""
+        // Date-only source strings materialize at local midnight; an indexed UTC match cannot replace this predicate.
+        def expected = "internal.${context.dbName}.es_nereids_source_expected"
+        sql "drop table if exists ${expected}"
+        sql """create table ${expected} (row_id int,test1 string,test2 string,test3 double,test4 datetimev2(0))
+            distributed by hash(row_id) buckets 1 properties("replication_num"="1")"""
+        sql "insert into ${expected} select 0,test1,test2,test3,test4 from test2_20220808"
+        ["2022-08-08 00:00:00", "2022-08-08 08:00:00"].eachWithIndex { date, i ->
+            quickTest("source_date_${i}",
+                    "select test1,test2,test3,test4 from test2_20220808 where test4='${date}' order by test1",
+                    "select test1,test2,test3,test4 from ${expected} where test4='${date}' order by test1")
+        }
+        order_qt_sql63 """select test1, test2, test3, test4 from test2_20220808 where test4='2022-08-08 00:00:00'"""
+        order_qt_source_date_mismatch """select test1,test2,test3,test4 from test2_20220808
+            where test4='2022-08-08 08:00:00'"""
         order_qt_sql64 """select test1, test2, test3, test4 from test2_20220808 where substring(test2, 2) = 'ext2'"""
         // TODO(ftw): should open these annotation when nereids support ARRAY
         // order_qt_sql62 """select * from test1 where test2='text#1'"""

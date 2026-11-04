@@ -100,7 +100,8 @@ suite("test_es_scalar_materialization", "p2,external") {
         distributed by hash(row_id) buckets 1 properties("replication_num"="1")"""
     sql "insert into es_retained_range_expected values (1,1,'miss'),(2,2,'miss'),(3,3,'miss'),(4,null,'miss'),(5,1,'hit')"
     def rangeExpected = "internal.${context.dbName}.es_retained_range_expected"
-    def originalV2 = sql("show variables like 'enable_file_scanner_v2'")[0][1]
+    // SHOW prefixes deprecated variable names; scalar access keeps the compatibility name stable.
+    def originalV2 = sql("SELECT @@enable_file_scanner_v2")[0][0]
     def originalParallel = sql("show variables like 'enable_es_parallel_scroll'")[0][1]
     def originalZone = sql("show variables like 'time_zone'")[0][1]
     def originalRules = sql("show variables like 'disable_nereids_expression_rules'")[0][1]
