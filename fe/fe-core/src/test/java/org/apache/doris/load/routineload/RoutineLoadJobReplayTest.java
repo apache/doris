@@ -133,11 +133,11 @@ public class RoutineLoadJobReplayTest extends TestWithFeService {
     @Test
     public void testCreateRecordsTheGivenEncloseAndEscape() throws Exception {
         KafkaRoutineLoadJob job = createJob("CREATE ROUTINE LOAD rl_replay_db.job_high_bit ON dup_tbl\n"
-                + "PROPERTIES ('enclose' = '\u00e9', 'escape' = '\u00e9')\n"
+                + "PROPERTIES ('enclose' = 'é', 'escape' = 'é')\n"
                 + "FROM KAFKA ('kafka_broker_list' = '127.0.0.1:9092', 'kafka_topic' = 'topic_high_bit')");
         Map<String, String> jobProperties = Deencapsulation.getField(job, "jobProperties");
-        Assertions.assertEquals("\u00e9", jobProperties.get(CsvFileFormatProperties.PROP_ENCLOSE));
-        Assertions.assertEquals("\u00e9", jobProperties.get(CsvFileFormatProperties.PROP_ESCAPE));
+        Assertions.assertEquals("é", jobProperties.get(CsvFileFormatProperties.PROP_ENCLOSE));
+        Assertions.assertEquals("é", jobProperties.get(CsvFileFormatProperties.PROP_ESCAPE));
         // enclose is the low byte of the character, escape the first byte of its encoding in the default charset
         Assertions.assertEquals((byte) 0xE9, job.getEnclose());
         byte escape = job.getEscape();
@@ -162,11 +162,13 @@ public class RoutineLoadJobReplayTest extends TestWithFeService {
     @Test
     public void testByteAnOlderCreateLostIsIgnored() throws Exception {
         KafkaRoutineLoadJob job = createJob("CREATE ROUTINE LOAD rl_replay_db.job_lost_byte ON dup_tbl\n"
-                + "PROPERTIES ('enclose' = '\u00e9', 'escape' = '\u00e9')\n"
+                + "PROPERTIES ('enclose' = 'é', 'escape' = 'é')\n"
                 + "FROM KAFKA ('kafka_broker_list' = '127.0.0.1:9092', 'kafka_topic' = 'topic_lost_byte')");
         Map<String, String> jobProperties = Deencapsulation.getField(job, "jobProperties");
-        jobProperties.put(CsvFileFormatProperties.PROP_ENCLOSE, "\uFFFD");
-        jobProperties.put(CsvFileFormatProperties.PROP_ESCAPE, "\uFFFD");
+        // What an older CREATE recorded for a byte from 0x80 up
+        String lost = String.valueOf((char) 0xFFFD);
+        jobProperties.put(CsvFileFormatProperties.PROP_ENCLOSE, lost);
+        jobProperties.put(CsvFileFormatProperties.PROP_ESCAPE, lost);
 
         KafkaRoutineLoadJob replayed = replay(job);
         Assertions.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, replayed.getState());
