@@ -20,6 +20,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "exec/sink/writer/iceberg/iceberg_output_location.h"
 #include "runtime/descriptors.h"
 namespace doris {
 
@@ -34,9 +35,9 @@ class RuntimeProfile;
 class IPartitionWriterBase {
 public:
     struct WriteInfo {
-        std::string write_path;
-        std::string original_write_path;
-        std::string target_path;
+        // The directory of the partition this writer writes, in the form BE writes the file in
+        // and the form the commit records it in.
+        IcebergOutputLocation location;
         TFileType::type file_type;
         std::vector<TNetworkAddress> broker_addresses;
     };
