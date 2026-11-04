@@ -113,6 +113,32 @@ static Status decode_calculation_shape(StringRef value, const DataTypePtr& type,
     return Status::OK();
 }
 
+template <size_t N>
+static Status decode_bearing_points(const Block& block, const ColumnNumbers& arguments, size_t row,
+                                    std::array<std::optional<GeoCoordinate>, N>* points,
+                                    const char* function_name) {
+    DCHECK_EQ(arguments.size(), N);
+    for (size_t i = 0; i < N; ++i) {
+        const auto value = block.get_by_position(arguments[i]).column->get_data_at(row);
+        GeoCoordinate point;
+        // The spatial wrapper checks XY metadata and geographic ranges. Raw accessors
+        // allow POINT(1 NaN), so calculation admission must still require finite XY.
+        if (WkbParse::point_coordinates(value.data, value.size, &point.x, &point.y) ==
+                    GeoParseStatus::GEO_PARSE_OK &&
+            std::isfinite(point.x) && std::isfinite(point.y)) {
+            (*points)[i] = point;
+        } else {
+            // A valid Line/Polygon yields NULL, but EMPTY/unsupported shapes must keep
+            // their error, even after an earlier argument was already a nonpoint.
+            std::unique_ptr<GeoShape> shape;
+            RETURN_IF_ERROR(decode_calculation_shape(value, block.get_data_type(arguments[i]),
+                                                     &shape, function_name));
+            DCHECK(shape != nullptr && shape->type() != GeoShapeType::GEO_SHAPE_POINT);
+        }
+    }
+    return Status::OK();
+}
+
 static bool decode_wkb_hex(StringRef value, std::string* wkb) {
     const char* data = value.data;
     size_t size = value.size;
@@ -365,9 +391,13 @@ struct StAngle {
         res->reserve(size);
         auto null_map = ColumnUInt8::create(size, 0);
         auto& null_map_data = null_map->get_data();
-        GeoPoint legacy_point1;
-        GeoPoint legacy_point2;
-        GeoPoint legacy_point3;
+        const bool typed = is_spatial_type(p1_type);
+        std::array<std::optional<GeoPoint>, 3> legacy_points;
+        if (!typed) {
+            for (auto& point : legacy_points) {
+                point.emplace();
+            }
+        }
 
         for (size_t row = 0; row < size; ++row) {
             // Propagate NULL before using nested placeholders; a NULL geometry has an
@@ -377,52 +407,29 @@ struct StAngle {
                 res->insert_default();
                 continue;
             }
-            std::unique_ptr<GeoShape> point1;
-            std::unique_ptr<GeoShape> point2;
-            std::unique_ptr<GeoShape> point3;
-            auto* pt1 = &legacy_point1;
-            auto* pt2 = &legacy_point2;
-            auto* pt3 = &legacy_point3;
-            // Typed WKB needs shape validation; legacy STRING keeps direct point decoding
-            // and reuses the same three objects for the whole block.
-            if (is_spatial_type(p1_type)) {
-                RETURN_IF_ERROR(
-                        decode_calculation_shape(p1->get_data_at(row), p1_type, &point1, NAME));
-                RETURN_IF_ERROR(
-                        decode_calculation_shape(p2->get_data_at(row), p2_type, &point2, NAME));
-                RETURN_IF_ERROR(
-                        decode_calculation_shape(p3->get_data_at(row), p3_type, &point3, NAME));
-                pt1 = point1 ? dynamic_cast<GeoPoint*>(point1.get()) : nullptr;
-                pt2 = point2 ? dynamic_cast<GeoPoint*>(point2.get()) : nullptr;
-                pt3 = point3 ? dynamic_cast<GeoPoint*>(point3.get()) : nullptr;
-            } else {
-                const auto value1 = p1->get_data_at(row);
-                const auto value2 = p2->get_data_at(row);
-                const auto value3 = p3->get_data_at(row);
-                pt1 = legacy_point1.decode_from(value1.data, value1.size) ? pt1 : nullptr;
-                pt2 = legacy_point2.decode_from(value2.data, value2.size) ? pt2 : nullptr;
-                pt3 = legacy_point3.decode_from(value3.data, value3.size) ? pt3 : nullptr;
-            }
-            if (pt1 == nullptr || pt2 == nullptr || pt3 == nullptr) {
-                null_map_data[row] = 1;
-                res->insert_default();
-                continue;
-            }
-
             double angle = 0;
-            bool computed;
-            if (is_spatial_type(p1_type)) {
+            bool computed = false;
+            if (typed) {
+                std::array<std::optional<GeoCoordinate>, 3> points;
+                RETURN_IF_ERROR(decode_bearing_points(block, arguments, row, &points, NAME));
                 double start_bearing;
                 double end_bearing;
-                computed =
-                        geography_bearing(p2->get_data_at(row), p1->get_data_at(row),
-                                          &start_bearing) &&
-                        geography_bearing(p2->get_data_at(row), p3->get_data_at(row), &end_bearing);
+                computed = points[0] && points[1] && points[2] &&
+                           geography_bearing(*points[1], *points[0], &start_bearing) &&
+                           geography_bearing(*points[1], *points[2], &end_bearing);
                 if (computed) {
                     angle = std::fmod(end_bearing - start_bearing + 2 * M_PI, 2 * M_PI);
                 }
             } else {
-                computed = GeoPoint::ComputeAngle(pt1, pt2, pt3, &angle);
+                const auto value1 = p1->get_data_at(row);
+                const auto value2 = p2->get_data_at(row);
+                const auto value3 = p3->get_data_at(row);
+                const bool valid1 = legacy_points[0]->decode_from(value1.data, value1.size);
+                const bool valid2 = legacy_points[1]->decode_from(value2.data, value2.size);
+                const bool valid3 = legacy_points[2]->decode_from(value3.data, value3.size);
+                computed = valid1 && valid2 && valid3 &&
+                           GeoPoint::ComputeAngle(&*legacy_points[0], &*legacy_points[1],
+                                                  &*legacy_points[2], &angle);
             }
             if (!computed) {
                 null_map_data[row] = 1;
@@ -457,8 +464,13 @@ struct StAzimuth {
         res->reserve(size);
         auto null_map = ColumnUInt8::create(size, 0);
         auto& null_map_data = null_map->get_data();
-        GeoPoint legacy_point1;
-        GeoPoint legacy_point2;
+        const bool typed = is_spatial_type(left_type);
+        std::array<std::optional<GeoPoint>, 2> legacy_points;
+        if (!typed) {
+            for (auto& point : legacy_points) {
+                point.emplace();
+            }
+        }
         for (size_t row = 0; row < size; ++row) {
             // Propagate NULL before using nested placeholders; a NULL geometry has an
             // empty payload, not a WKB shape.
@@ -467,37 +479,21 @@ struct StAzimuth {
                 res->insert_default();
                 continue;
             }
-            std::unique_ptr<GeoShape> point1;
-            std::unique_ptr<GeoShape> point2;
-            auto* pt1 = &legacy_point1;
-            auto* pt2 = &legacy_point2;
-            // Preserve the reusable legacy point path; only typed WKB allocates shapes.
-            if (is_spatial_type(left_type)) {
-                RETURN_IF_ERROR(decode_calculation_shape(left_col->get_data_at(row), left_type,
-                                                         &point1, NAME));
-                RETURN_IF_ERROR(decode_calculation_shape(right_col->get_data_at(row), right_type,
-                                                         &point2, NAME));
-                pt1 = point1 ? dynamic_cast<GeoPoint*>(point1.get()) : nullptr;
-                pt2 = point2 ? dynamic_cast<GeoPoint*>(point2.get()) : nullptr;
+            double angle = 0;
+            bool computed = false;
+            if (typed) {
+                std::array<std::optional<GeoCoordinate>, 2> points;
+                RETURN_IF_ERROR(decode_bearing_points(block, arguments, row, &points, NAME));
+                computed =
+                        points[0] && points[1] && geography_bearing(*points[0], *points[1], &angle);
             } else {
                 const auto value1 = left_col->get_data_at(row);
                 const auto value2 = right_col->get_data_at(row);
-                pt1 = legacy_point1.decode_from(value1.data, value1.size) ? pt1 : nullptr;
-                pt2 = legacy_point2.decode_from(value2.data, value2.size) ? pt2 : nullptr;
+                const bool valid1 = legacy_points[0]->decode_from(value1.data, value1.size);
+                const bool valid2 = legacy_points[1]->decode_from(value2.data, value2.size);
+                computed = valid1 && valid2 &&
+                           GeoPoint::ComputeAzimuth(&*legacy_points[0], &*legacy_points[1], &angle);
             }
-
-            if (!(pt1 && pt2)) {
-                null_map_data[row] = 1;
-                res->insert_default();
-                continue;
-            }
-
-            double angle = 0;
-            // Typed longitude/latitude uses the spherical clockwise bearing path.
-            const bool computed = is_spatial_type(left_type)
-                                          ? geography_bearing(left_col->get_data_at(row),
-                                                              right_col->get_data_at(row), &angle)
-                                          : GeoPoint::ComputeAzimuth(pt1, pt2, &angle);
             if (!computed) {
                 null_map_data[row] = 1;
                 res->insert_default();

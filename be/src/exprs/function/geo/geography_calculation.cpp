@@ -404,11 +404,19 @@ static bool geography_common_great_circle(const GeoCoordinate& a, const GeoCoord
 // shape are unsafe. Closed AA shapes restore internal vertices in the OPEN model.
 class GeographyLineShape final : public S2Shape {
 public:
-    GeographyLineShape(const S2Point& a, const S2Point& b) { _edge.emplace_back(a, b); }
+    GeographyLineShape(const S2Point& a, const S2Point& b) : _edge(a, b) {}
+    // Inline Edge replaces a tracked vector buffer. Account the complete owning
+    // shape so removing that allocation does not hide its bytes from the query.
+    static void* operator new(size_t size) {
+        return Allocator<false>().alloc(size, alignof(GeographyLineShape));
+    }
+    static void operator delete(void* ptr) noexcept {
+        Allocator<false>().free(ptr, sizeof(GeographyLineShape));
+    }
     int num_edges() const override { return 1; }
     Edge edge(int i) const override {
         DCHECK_EQ(i, 0);
-        return _edge.front();
+        return _edge;
     }
     int dimension() const override { return 1; }
     ReferencePoint GetReferencePoint() const override { return ReferencePoint::Contained(false); }
@@ -427,9 +435,14 @@ public:
     }
 
 private:
-    // Owning storage is checked/accounted by the current query's allocator.
-    DorisVector<Edge> _edge;
+    Edge _edge;
 };
+
+#ifdef BE_TEST
+std::unique_ptr<S2Shape> geography_line_shape_for_test() {
+    return std::make_unique<GeographyLineShape>(S2Point(1, 0, 0), S2Point(0, 1, 0));
+}
+#endif
 
 class GeographyEdgeNodes {
 public:
@@ -1679,11 +1692,16 @@ static Status geography_relation_impl(std::string_view name, const GeoShape& lhs
     return Status::OK();
 }
 
-static std::pair<double, double> geography_point_coordinate(StringRef wkb) {
-    double longitude;
-    double latitude;
-    const auto status = WkbParse::point_coordinates(wkb.data, wkb.size, &longitude, &latitude);
+static GeoCoordinate geography_raw_point_coordinate(StringRef wkb) {
+    GeoCoordinate point;
+    const auto status = WkbParse::point_coordinates(wkb.data, wkb.size, &point.x, &point.y);
     DCHECK_EQ(status, GeoParseStatus::GEO_PARSE_OK);
+    return point;
+}
+
+static std::pair<double, double> geography_point_coordinate(const GeoCoordinate& point) {
+    double longitude = point.x;
+    double latitude = point.y;
     // Use original coordinates: reconstructing a shared longitude from two S2 vectors
     // can turn due north into a tiny negative bearing that wraps to almost 2*pi.
     if (std::abs(latitude) == 90) {
@@ -1694,8 +1712,13 @@ static std::pair<double, double> geography_point_coordinate(StringRef wkb) {
     return {longitude, latitude};
 }
 
+static std::pair<double, double> geography_point_coordinate(StringRef wkb) {
+    return geography_point_coordinate(geography_raw_point_coordinate(wkb));
+}
+
 template <typename Float>
-static bool geography_bearing_impl(StringRef from, StringRef to, double* bearing) {
+static bool geography_bearing_impl(const GeoCoordinate& from, const GeoCoordinate& to,
+                                   double* bearing) {
     const auto start = geography_point_coordinate(from);
     const auto end = geography_point_coordinate(to);
     // Coincident or antipodal positions have no unique initial bearing. Compare original degrees:
@@ -1726,6 +1749,11 @@ static bool geography_bearing_impl(StringRef from, StringRef to, double* bearing
 }
 
 bool geography_bearing(StringRef from, StringRef to, double* bearing) {
+    return geography_bearing(geography_raw_point_coordinate(from),
+                             geography_raw_point_coordinate(to), bearing);
+}
+
+bool geography_bearing(const GeoCoordinate& from, const GeoCoordinate& to, double* bearing) {
     return geography_bearing_impl<GeographyFloat>(from, to, bearing);
 }
 
@@ -1737,7 +1765,8 @@ std::array<double, 6> geography_portable_arc_for_test(double ax, double ay, doub
 }
 
 bool geography_portable_bearing_for_test(StringRef from, StringRef to, double* bearing) {
-    return geography_bearing_impl<boost::multiprecision::cpp_bin_float_quad>(from, to, bearing);
+    return geography_bearing_impl<boost::multiprecision::cpp_bin_float_quad>(
+            geography_raw_point_coordinate(from), geography_raw_point_coordinate(to), bearing);
 }
 #endif
 

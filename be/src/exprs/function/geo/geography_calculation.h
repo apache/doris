@@ -25,18 +25,23 @@
 #include "common/status.h"
 #include "core/string_ref.h"
 
+class S2Shape;
+
 namespace doris {
 class GeoShape;
+struct GeoCoordinate;
 // The calculation domain is default spherical Geography XY Point/LineString/Polygon.
 std::unique_ptr<GeoShape> decode_geography_calculation_shape(StringRef value);
 Status geography_relation(std::string_view name, const GeoShape& lhs, const GeoShape& rhs,
                           StringRef left_wkb, StringRef right_wkb, bool* result);
 bool geography_bearing(StringRef from, StringRef to, double* bearing);
+bool geography_bearing(const GeoCoordinate& from, const GeoCoordinate& to, double* bearing);
 double geography_distance(const GeoShape& left_shape, const GeoShape& right_shape,
                           StringRef left_wkb, StringRef right_wkb);
 double geography_length(StringRef wkb);
 double geography_area(const GeoShape& shape, StringRef wkb, bool square_meters);
 #ifdef BE_TEST
+std::unique_ptr<S2Shape> geography_line_shape_for_test();
 std::array<double, 6> geography_portable_arc_for_test(double ax, double ay, double bx, double by);
 bool geography_portable_bearing_for_test(StringRef from, StringRef to, double* bearing);
 size_t geography_calculation_edges_for_test(const std::string& left, const std::string& right,

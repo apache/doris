@@ -18,7 +18,9 @@
 #include <arrow/api.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
+#include <s2/mutable_s2shape_index.h>
 #include <s2/s2earth.h>
+#include <s2/s2shape.h>
 #include <stdint.h>
 
 #include <array>
@@ -2098,6 +2100,35 @@ TEST(VGeoFunctionsTest, GeographyRetracedMeridiansHaveLinearCalculationStorage) 
     }
 }
 
+TEST(VGeoFunctionsTest, GeographyAtomicLineShapeTracksOwningStorage) {
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                    "GeographyAtomicLineShape");
+    auto switch_tracker = SwitchThreadMemTrackerLimiter(tracker);
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    const auto baseline = tracker->consumption();
+    auto shape = geography_line_shape_for_test();
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    EXPECT_GT(tracker->consumption(), baseline);
+    EXPECT_EQ(shape->num_edges(), 1);
+    EXPECT_EQ(shape->num_chains(), 1);
+    EXPECT_EQ(shape->edge(0).v0, S2Point(1, 0, 0));
+    EXPECT_EQ(shape->edge(0).v1, S2Point(0, 1, 0));
+    shape.reset(); // Exercise deletion through the owning S2Shape base pointer.
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    EXPECT_EQ(tracker->consumption(), baseline);
+    {
+        MutableS2ShapeIndex index;
+        for (int i = 0; i < 4; ++i) {
+            index.Add(geography_line_shape_for_test());
+        }
+        thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+        EXPECT_GT(tracker->consumption(), baseline);
+        EXPECT_EQ(index.num_shape_ids(), 4);
+    }
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    EXPECT_EQ(tracker->consumption(), baseline);
+}
+
 static Status execute_dwithin_test(double threshold, bool null_threshold, Block* block) {
     const auto type = std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY);
     const auto wkb = spatial_test_wkb("0101000000000000000000f03f0000000000000040");
@@ -2511,6 +2542,78 @@ TEST(VGeoFunctionsTest, GeographyEmptyPolygonsFailDistanceCalculations) {
         EXPECT_FALSE(status.ok());
         EXPECT_NE(status.to_string().find("does not support this Geography WKB shape"),
                   std::string::npos);
+    }
+}
+
+TEST(VGeoFunctionsTest, GeographyBearingReturnsNullForNonpoints) {
+    const auto result_type = make_nullable(std::make_shared<DataTypeFloat64>());
+    const auto point = geography_test_hex("POINT (1 2)");
+    const Strings nonpoints {geography_test_hex("LINESTRING (0 0,1 1)"),
+                             geography_test_hex("POLYGON ((0 0,1 0,0 1,0 0))")};
+    for (const auto& name : {"st_azimuth", "st_angle"}) {
+        const size_t arity = std::string_view(name) == "st_azimuth" ? 2 : 3;
+        for (const auto& nonpoint : nonpoints) {
+            for (size_t position = 0; position < arity; ++position) {
+                Strings values(arity, point);
+                values[position] = nonpoint;
+                Block block;
+                const auto status = execute_geography_test(name, values, result_type, &block);
+                ASSERT_TRUE(status.ok()) << status;
+                EXPECT_TRUE(block.get_by_position(arity).column->is_null_at(0));
+            }
+        }
+    }
+}
+
+TEST(VGeoFunctionsTest, GeographyBearingPreservesInvalidAdmissionAfterNonpoints) {
+    const auto result_type = make_nullable(std::make_shared<DataTypeFloat64>());
+    const auto point = geography_test_hex("POINT (1 2)");
+    const Strings nonpoints {geography_test_hex("LINESTRING (0 0,1 1)"),
+                             geography_test_hex("POLYGON ((0 0,1 0,0 1,0 0))")};
+    const Strings invalid {"0101000000000000000000F87F000000000000F87F", // EMPTY Point
+                           "0101000000000000000000F03F000000000000F87F", // Single NaN
+                           "010200000000000000",                         // EMPTY LineString
+                           "010300000000000000",                         // EMPTY Polygon
+                           "010400000001000000" + point,                 // Unsupported MultiPoint
+                           point.substr(0, point.size() - 2),
+                           point + "00"};
+    for (const auto& name : {"st_azimuth", "st_angle"}) {
+        const size_t arity = std::string_view(name) == "st_azimuth" ? 2 : 3;
+        for (const auto& nonpoint : nonpoints) {
+            for (const auto& bad : invalid) {
+                for (size_t position = 0; position < arity; ++position) {
+                    // A valid nonpoint must not hide a later invalid argument.
+                    Strings values(arity, nonpoint);
+                    values[position] = bad;
+                    Block block;
+                    EXPECT_FALSE(execute_geography_test(name, values, result_type, &block).ok())
+                            << name << " argument " << position << ": " << bad;
+                }
+            }
+        }
+    }
+}
+
+TEST(VGeoFunctionsTest, GeographyBearingReadsEitherWkbByteOrder) {
+    const auto result_type = make_nullable(std::make_shared<DataTypeFloat64>());
+    const Strings origins {"010100000000000000000000000000000000000000",
+                           "000000000100000000000000000000000000000000"};
+    const Strings east {"0101000000000000000000F03F0000000000000000",
+                        "00000000013FF00000000000000000000000000000"};
+    for (size_t i = 0; i < origins.size() * east.size(); ++i) {
+        const auto& origin = origins[i / east.size()];
+        const auto& endpoint = east[i % east.size()];
+        Block azimuth;
+        ASSERT_TRUE(execute_geography_test("st_azimuth", {origin, endpoint}, result_type, &azimuth)
+                            .ok());
+        ASSERT_FALSE(azimuth.get_by_position(2).column->is_null_at(0));
+        EXPECT_DOUBLE_EQ((*azimuth.get_by_position(2).column)[0].get<TYPE_DOUBLE>(), M_PI_2);
+        Block angle;
+        ASSERT_TRUE(execute_geography_test("st_angle", {endpoint, origin, endpoint}, result_type,
+                                           &angle)
+                            .ok());
+        ASSERT_FALSE(angle.get_by_position(3).column->is_null_at(0));
+        EXPECT_DOUBLE_EQ((*angle.get_by_position(3).column)[0].get<TYPE_DOUBLE>(), 0);
     }
 }
 
