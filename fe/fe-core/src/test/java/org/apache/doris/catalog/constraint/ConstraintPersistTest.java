@@ -28,7 +28,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.journal.JournalEntity;
-import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVRelationManager;
+import org.apache.doris.mtmv.MTMVService;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.util.PlanPatternMatchSupported;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -403,31 +404,23 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
         TableNameInfo tableNameInfo = new TableNameInfo(tableIf.getNameWithFullQualifiers());
         PrimaryKeyConstraint pk = new PrimaryKeyConstraint("pk_replay_cache",
                 com.google.common.collect.ImmutableSet.of("k1"));
-        MTMV dependentMtmv = Mockito.mock(MTMV.class);
-        ConstraintManager mgr = Env.getCurrentEnv().getConstraintManager();
-
-        try (MockedStatic<MTMVUtil> mtmvUtilMock = Mockito.mockStatic(MTMVUtil.class, Mockito.CALLS_REAL_METHODS)) {
-            mtmvUtilMock.when(() -> MTMVUtil.getDependentMtmvsByBaseTables(Mockito.anyList()))
-                    .thenAnswer(invocation -> {
-                        List<BaseTableInfo> baseTableInfos = invocation.getArgument(0);
-                        Assertions.assertEquals(1, baseTableInfos.size());
-                        Assertions.assertEquals(tableNameInfo.getCtl(), baseTableInfos.get(0).getCtlName());
-                        Assertions.assertEquals(tableNameInfo.getDb(), baseTableInfos.get(0).getDbName());
-                        Assertions.assertEquals(tableNameInfo.getTbl(), baseTableInfos.get(0).getTableName());
-                        return Lists.newArrayList(dependentMtmv);
-                    });
-
+        MTMVRelationManager relations = Mockito.mock(MTMVRelationManager.class);
+        Env env = envWithRewriteCache(relations);
+        ConstraintManager mgr = env.getConstraintManager();
+        try {
             JournalEntity addJournal = new JournalEntity();
             addJournal.setData(new AlterConstraintLog(pk, tableNameInfo));
             addJournal.setOpCode(OperationType.OP_ADD_CONSTRAINT);
-            EditLog.loadJournal(Env.getCurrentEnv(), 0L, addJournal);
-            Mockito.verify(dependentMtmv).invalidateRewriteCache();
+            EditLog.loadJournal(env, 0L, addJournal);
+            Mockito.verify(relations).invalidateRewriteCaches(
+                    tableNameInfo.getCtl(), tableNameInfo.getDb(), tableNameInfo.getTbl());
 
             JournalEntity dropJournal = new JournalEntity();
             dropJournal.setData(new AlterConstraintLog(pk, tableNameInfo));
             dropJournal.setOpCode(OperationType.OP_DROP_CONSTRAINT);
-            EditLog.loadJournal(Env.getCurrentEnv(), 0L, dropJournal);
-            Mockito.verify(dependentMtmv, Mockito.times(2)).invalidateRewriteCache();
+            EditLog.loadJournal(env, 0L, dropJournal);
+            Mockito.verify(relations, Mockito.times(2)).invalidateRewriteCaches(
+                    tableNameInfo.getCtl(), tableNameInfo.getDb(), tableNameInfo.getTbl());
         } finally {
             if (mgr.getConstraint(tableNameInfo, pk.getName()) != null) {
                 mgr.dropConstraint(tableNameInfo, pk.getName(), true);
@@ -443,31 +436,38 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
         TableNameInfo tableNameInfo = new TableNameInfo(tableIf.getNameWithFullQualifiers());
         PrimaryKeyConstraint pk = new PrimaryKeyConstraint("pk_replay_invalidate_failure",
                 com.google.common.collect.ImmutableSet.of("k1"));
-        MTMV dependentMtmv = Mockito.mock(MTMV.class);
-        Mockito.doThrow(new RuntimeException("invalidate failed"))
-                .when(dependentMtmv).invalidateRewriteCache();
-        ConstraintManager mgr = Env.getCurrentEnv().getConstraintManager();
-
-        try (MockedStatic<MTMVUtil> mtmvUtilMock = Mockito.mockStatic(MTMVUtil.class, Mockito.CALLS_REAL_METHODS)) {
-            mtmvUtilMock.when(() -> MTMVUtil.getDependentMtmvsByBaseTables(Mockito.anyList()))
-                    .thenReturn(Lists.newArrayList(dependentMtmv));
-
+        MTMVRelationManager relations = Mockito.mock(MTMVRelationManager.class);
+        Mockito.doThrow(new RuntimeException("invalidate failed")).when(relations).invalidateRewriteCaches(
+                tableNameInfo.getCtl(), tableNameInfo.getDb(), tableNameInfo.getTbl());
+        Env env = envWithRewriteCache(relations);
+        ConstraintManager mgr = env.getConstraintManager();
+        try {
             JournalEntity addJournal = new JournalEntity();
             addJournal.setData(new AlterConstraintLog(pk, tableNameInfo));
             addJournal.setOpCode(OperationType.OP_ADD_CONSTRAINT);
-            Assertions.assertDoesNotThrow(() -> EditLog.loadJournal(Env.getCurrentEnv(), 0L, addJournal));
+            Assertions.assertDoesNotThrow(() -> EditLog.loadJournal(env, 0L, addJournal));
             Assertions.assertNotNull(mgr.getConstraint(tableNameInfo, pk.getName()));
 
             JournalEntity dropJournal = new JournalEntity();
             dropJournal.setData(new AlterConstraintLog(pk, tableNameInfo));
             dropJournal.setOpCode(OperationType.OP_DROP_CONSTRAINT);
-            Assertions.assertDoesNotThrow(() -> EditLog.loadJournal(Env.getCurrentEnv(), 0L, dropJournal));
+            Assertions.assertDoesNotThrow(() -> EditLog.loadJournal(env, 0L, dropJournal));
             Assertions.assertNull(mgr.getConstraint(tableNameInfo, pk.getName()));
+            Mockito.verify(relations, Mockito.times(2)).invalidateRewriteCaches(
+                    tableNameInfo.getCtl(), tableNameInfo.getDb(), tableNameInfo.getTbl());
         } finally {
             if (mgr.getConstraint(tableNameInfo, pk.getName()) != null) {
                 mgr.dropConstraint(tableNameInfo, pk.getName(), true);
             }
         }
+    }
+
+    private Env envWithRewriteCache(MTMVRelationManager relations) {
+        Env env = Mockito.spy(Env.getCurrentEnv());
+        MTMVService service = Mockito.mock(MTMVService.class);
+        Mockito.when(service.getRelationManager()).thenReturn(relations);
+        Mockito.doReturn(service).when(env).getMtmvService();
+        return env;
     }
 
     public static class RefreshCatalogProvider implements TestExternalCatalog.TestCatalogProvider {

@@ -250,7 +250,9 @@ public class SqlCacheContext {
                         usedVariables.isEmpty() && tableIf.getType() == TableType.OLAP && tableIf instanceof OlapTable
                                 && !(tableIf instanceof OlapTableWrapper)
                                 && ((OlapTable) tableIf).isPartitionedTable()
-                                ? new OlapTableSqlCacheVersion((OlapTable) tableIf, version) : null
+                                ? new OlapTableSqlCacheVersion((OlapTable) tableIf, version) : null,
+                        tableIf instanceof OlapTable ? ((OlapTable) tableIf).getBaseIndexId() : -1L,
+                        tableIf instanceof OlapTable ? ((OlapTable) tableIf).getBaseSchemaVersion() : -1
                 )
         );
     }
@@ -698,6 +700,13 @@ public class SqlCacheContext {
         public final TableType type;
         public final ConnectorSqlCacheVersion sqlCacheVersion;
         public final OlapTableSqlCacheVersion olapVersion;
+        public final long baseIndexId;
+        public final int schemaVersion;
+
+        public TableVersion(long id, long version, TableType type, ConnectorSqlCacheVersion sqlCacheVersion,
+                OlapTableSqlCacheVersion olapVersion) {
+            this(id, version, type, sqlCacheVersion, olapVersion, -1L, -1);
+        }
 
         public TableVersion(long id, long version, TableType type, ConnectorSqlCacheVersion sqlCacheVersion) {
             this(id, version, type, sqlCacheVersion, null);
@@ -712,7 +721,9 @@ public class SqlCacheContext {
             if (olapVersion != null && olapVersion.isUsable()) {
                 return olapVersion.getCacheKey();
             }
-            return sqlCacheVersion == null ? Long.toString(version) : "sql-cache:" + sqlCacheVersion.getVersion();
+            String dataVersion = sqlCacheVersion == null
+                    ? Long.toString(version) : "sql-cache:" + sqlCacheVersion.getVersion();
+            return schemaVersion < 0 ? dataVersion : dataVersion + ":schema:" + baseIndexId + ":" + schemaVersion;
         }
     }
 

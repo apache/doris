@@ -246,8 +246,10 @@ public class ExternalMetaCacheMgr {
                         cache, catalogId, "invalidateCatalog",
                         () -> cache.invalidateCatalogEntries(catalogId)));
             } finally {
-                // This cache has no catalog-scoped key, so catalog invalidation must clear it globally.
-                invalidateSortedPartitionsCache();
+                CatalogIf<?> catalog = getCatalog(catalogId);
+                if (catalog != null) {
+                    Env.getCurrentEnv().onCatalogChanged(catalog.getName());
+                }
             }
         } finally {
             rowCountCache.invalidateCatalog(catalogId);
@@ -300,7 +302,14 @@ public class ExternalMetaCacheMgr {
 
     public void invalidateDb(long catalogId, long dbId, String dbName) {
         try {
-            invalidateDbMetadataCache(catalogId, dbName);
+            try {
+                invalidateDbMetadataCache(catalogId, dbName);
+            } finally {
+                CatalogIf<?> catalog = getCatalog(catalogId);
+                if (catalog != null) {
+                    Env.getCurrentEnv().onDatabaseChanged(catalog.getName(), dbName);
+                }
+            }
         } finally {
             // Keep row-count invalidation last: it fences loads published before the metadata invalidation.
             rowCountCache.invalidateDb(catalogId, dbId);
@@ -315,8 +324,7 @@ public class ExternalMetaCacheMgr {
         } finally {
             CatalogIf<?> catalog = getCatalog(catalogId);
             if (catalog != null) {
-                Env.getCurrentEnv().getSortedPartitionsCacheManager()
-                        .invalidateTable(catalog.getName(), dbName, tableName);
+                Env.getCurrentEnv().onTableChanged(catalog.getName(), dbName, tableName);
             }
         }
     }

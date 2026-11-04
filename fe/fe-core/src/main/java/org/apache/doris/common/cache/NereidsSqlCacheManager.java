@@ -118,7 +118,6 @@ public class NereidsSqlCacheManager {
     }
 
     public void invalidateAboutTable(TableIf tableIf) {
-        Set<String> invalidateKeys = new LinkedHashSet<>();
         FullTableName invalidateTableName = null;
         DatabaseIf database = tableIf.getDatabase();
         if (database != null) {
@@ -130,13 +129,19 @@ public class NereidsSqlCacheManager {
             }
         }
 
+        invalidateAboutTable(tableIf.getId(), invalidateTableName);
+    }
+
+    /** Also accepts the identity of a table that has already been dropped or renamed. */
+    public void invalidateAboutTable(long tableId, FullTableName invalidateTableName) {
+        Set<String> invalidateKeys = new LinkedHashSet<>();
         for (Entry<String, SqlCacheContext> kv : sqlCaches.asMap().entrySet()) {
             String key = kv.getKey();
             SqlCacheContext context = kv.getValue();
             for (Entry<TableReference, TableVersion> nameToVersion : context.getUsedTables().entrySet()) {
                 FullTableName tableName = nameToVersion.getKey().tableName;
                 TableVersion tableVersion = nameToVersion.getValue();
-                if (tableVersion.id == tableIf.getId()) {
+                if (tableVersion.id == tableId) {
                     invalidateKeys.add(key);
                     break;
                 }
@@ -144,6 +149,9 @@ public class NereidsSqlCacheManager {
                     invalidateKeys.add(key);
                     break;
                 }
+            }
+            if (context.getUsedViews().containsKey(invalidateTableName)) {
+                invalidateKeys.add(key);
             }
         }
 
@@ -154,6 +162,54 @@ public class NereidsSqlCacheManager {
 
     public void invalidateAll() {
         sqlCaches.invalidateAll();
+    }
+
+    public void invalidateAboutDatabase(String catalog, String db) {
+        invalidateAboutNamespace(catalog, db);
+    }
+
+    public void invalidateAboutCatalog(String catalog) {
+        invalidateAboutNamespace(catalog, null);
+    }
+
+    private void invalidateAboutNamespace(String catalog, String db) {
+        Set<String> invalidateKeys = new LinkedHashSet<>();
+        for (Entry<String, SqlCacheContext> entry : sqlCaches.asMap().entrySet()) {
+            SqlCacheContext context = entry.getValue();
+            boolean usedTable = context.getUsedTables().keySet().stream().map(reference -> reference.tableName)
+                    .anyMatch(name -> name.catalog.equals(catalog) && (db == null || name.db.equals(db)));
+            boolean usedView = context.getUsedViews().keySet().stream()
+                    .anyMatch(name -> name.catalog.equals(catalog) && (db == null || name.db.equals(db)));
+            if (usedTable || usedView) {
+                invalidateKeys.add(entry.getKey());
+            }
+        }
+        sqlCaches.invalidateAll(invalidateKeys);
+    }
+
+    /** Keep entries whose recorded partition dependencies are unaffected by this visible transaction. */
+    public void invalidateAboutTableData(OlapTable table) {
+        Set<String> invalidateKeys = new LinkedHashSet<>();
+        for (Entry<String, SqlCacheContext> entry : sqlCaches.asMap().entrySet()) {
+            for (TableVersion dependency : entry.getValue().getUsedTables().values()) {
+                if (dependency.id != table.getId()) {
+                    continue;
+                }
+                boolean changed = true;
+                if (dependency.olapVersion != null && dependency.olapVersion.isUsable()) {
+                    try {
+                        changed = !dependency.olapVersion.matches(table, table.getVisibleVersion());
+                    } catch (RpcException e) {
+                        LOG.warn("Failed to validate SQL cache after data became visible for table {}",
+                                table.getId(), e);
+                    }
+                }
+                if (changed) {
+                    invalidateKeys.add(entry.getKey());
+                }
+            }
+        }
+        sqlCaches.invalidateAll(invalidateKeys);
     }
 
     public static synchronized void updateConfig() {
@@ -460,6 +516,12 @@ public class NereidsSqlCacheManager {
             }
             if (tableIf instanceof OlapTable) {
                 OlapTable olapTable = (OlapTable) tableIf;
+                if (olapTable.hasRowTtl()
+                        || (tableVersion.schemaVersion >= 0
+                            && (tableVersion.baseIndexId != olapTable.getBaseIndexId()
+                                || tableVersion.schemaVersion != olapTable.getBaseSchemaVersion()))) {
+                    return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
+                }
                 try {
                     long currentTableVersion = olapTable.getVisibleVersion();
                     boolean versionMatches = currentTableVersion == tableVersion.version;

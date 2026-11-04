@@ -43,7 +43,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MetaLockUtils;
@@ -411,8 +410,7 @@ public class Alter {
         }
         olapTable.writeLock();
         try {
-            NereidsSqlCacheManager sqlCacheManager = Env.getCurrentEnv().getSqlCacheManager();
-            sqlCacheManager.invalidateAboutTable(olapTable);
+            Env.getCurrentEnv().onTableChanged(olapTable);
         } finally {
             olapTable.writeUnlock();
         }
@@ -847,6 +845,9 @@ public class Alter {
             Env.getCurrentEnv().getConstraintManager().dropAndRenameConstraints(origTableInfo, newTableInfo);
         }
 
+        // Both old names can have dependent rewrite plans, including when the source is not swapped back.
+        Env.getCurrentEnv().onTableChanged(origTable);
+        Env.getCurrentEnv().onTableChanged(newTbl);
         // drop origin table and new table
         db.unregisterTable(oldTblName);
         db.unregisterTable(newTblName);
