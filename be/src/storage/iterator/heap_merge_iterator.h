@@ -36,7 +36,7 @@ class RuntimeState;
 // Sorts the key-ordered rows of several iterators into one key-ordered stream, the way the
 // read's MergeDecision orders them. It only sorts: every row of every child comes out once, and
 // what the rows of one key turn into (the newest one, a sum, a change) is up to the reader
-// above it, see SameKeyIterator.
+// above it, see UniqueKeyIterator and SameKeyIterator.
 //
 // The children are the segment iterators of a read in (rowset version, segment) order, the
 // oldest first: every segment of a rowset whose segments overlap on keys, and one

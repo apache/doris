@@ -31,7 +31,7 @@
 #include "storage/iterator/changelog_block_iterator.h"
 #include "storage/iterator/direct_block_iterator.h"
 #include "storage/iterator/sequence_map_block_iterator.h"
-#include "storage/iterator/unique_key_block_iterator.h"
+#include "storage/iterator/unique_key_iterator.h"
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif
@@ -185,6 +185,12 @@ int64_t read_cell(const IColumn& column, size_t row) {
 template <typename IteratorType>
 bool uses_iterator(const BlockReader& reader) {
     return dynamic_cast<const IteratorType*>(reader._block_iter.get()) != nullptr;
+}
+
+// Whether the rows of the read are a merge read through a UniqueKeyIterator, which keeps the
+// newest row of every key.
+bool keeps_newest_row_of_key(const BlockReader& reader) {
+    return dynamic_cast<const UniqueKeyIterator*>(reader._rows_iter.get()) != nullptr;
 }
 
 std::vector<Row> sorted(std::vector<Row> rows) {
@@ -612,7 +618,8 @@ TEST_F(BlockReaderUniqueKeysTest, QueryKeepsTheNewestVersionOfEveryKey) {
     for (size_t batch_size : {1, 3, 100}) {
         SCOPED_TRACE("batch_size=" + std::to_string(batch_size));
         auto opened = open_reader(tablet, _schema, rowsets, ReadSpec().batch(batch_size));
-        EXPECT_TRUE(uses_iterator<UniqueKeyBlockIterator>(opened->reader));
+        EXPECT_TRUE(uses_iterator<DirectBlockIterator>(opened->reader));
+        EXPECT_TRUE(keeps_newest_row_of_key(opened->reader));
 
         // A query keeps the deleted row; the FE filters it with a predicate.
         EXPECT_EQ(opened->drain(),
@@ -629,7 +636,8 @@ TEST_F(BlockReaderUniqueKeysTest, BaseCompactionDropsTheDeletedKeys) {
 
     auto opened = open_reader(tablet, _schema, rowsets,
                               ReadSpec().type(ReaderType::READER_BASE_COMPACTION).batch(3));
-    EXPECT_TRUE(uses_iterator<UniqueKeyBlockIterator>(opened->reader));
+    EXPECT_TRUE(uses_iterator<DirectBlockIterator>(opened->reader));
+    EXPECT_TRUE(keeps_newest_row_of_key(opened->reader));
 
     EXPECT_EQ(opened->drain(), (std::vector<Row> {{1, 10, 0}, {2, 200, 0}, {4, 40, 0}}));
     EXPECT_EQ(opened->reader.merged_rows(), 2);

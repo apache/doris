@@ -17,11 +17,9 @@
 
 #include "storage/iterator/same_key_iterator.h"
 
-#include <algorithm>
 #include <memory>
 #include <utility>
 
-#include "common/exception.h"
 #include "core/block/block.h"
 
 namespace doris {
@@ -55,41 +53,7 @@ void SameKeyFlags::compute(const Block& block, size_t first_row, std::vector<uin
     }
 }
 
-SameKeyIterator::SameKeyIterator(RowwiseIteratorUPtr rows, const MergeDecision& decision)
-        : _rows(std::move(rows)),
-          _drop_older_versions(decision.drop_older_versions),
-          _flags(decision.compare_ordinals) {
-    // Rows equal on a prefix of the key are not versions of one key.
-    DORIS_CHECK(!_drop_older_versions || decision.compare_whole_key);
-}
-
-Status SameKeyIterator::next_batch(Block* block) {
-    if (!_drop_older_versions) {
-        return _rows->next_batch(block);
-    }
-    const size_t first_row = block->rows();
-    while (true) {
-        RETURN_IF_ERROR(_rows->next_batch(block));
-        _flags.compute(*block, first_row, &_same_key);
-        const auto dropped = static_cast<size_t>(std::ranges::count(_same_key, 1));
-        if (dropped == 0) {
-            return Status::OK();
-        }
-        _merged_rows += dropped;
-        _filter.resize_fill(block->rows(), 1);
-        for (size_t i = 0; i < _same_key.size(); ++i) {
-            _filter[first_row + i] = !_same_key[i];
-        }
-        RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(block, _filter));
-        if (block->rows() > first_row) {
-            return Status::OK();
-        }
-        // Every row repeated the key before it: read on, an OK batch adds at least one row.
-    }
-}
-
 Status SameKeyIterator::next_batch(Block* block, std::vector<uint8_t>* same_key) {
-    DORIS_CHECK(!_drop_older_versions);
     same_key->clear();
     const size_t first_row = block->rows();
     RETURN_IF_ERROR(_rows->next_batch(block));
@@ -97,8 +61,9 @@ Status SameKeyIterator::next_batch(Block* block, std::vector<uint8_t>* same_key)
     return Status::OK();
 }
 
-RowwiseIteratorUPtr new_same_key_iterator(RowwiseIteratorUPtr rows, const MergeDecision& decision) {
-    return std::make_unique<SameKeyIterator>(std::move(rows), decision);
+RowwiseIteratorUPtr new_same_key_iterator(RowwiseIteratorUPtr rows,
+                                          std::vector<uint32_t> key_ordinals) {
+    return std::make_unique<SameKeyIterator>(std::move(rows), std::move(key_ordinals));
 }
 
 } // namespace doris

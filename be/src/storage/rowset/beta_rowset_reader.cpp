@@ -39,6 +39,7 @@
 #include "storage/iterator/heap_merge_iterator.h"
 #include "storage/iterator/same_key_iterator.h"
 #include "storage/iterator/union_iterator.h"
+#include "storage/iterator/unique_key_iterator.h"
 #include "storage/olap_define.h"
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/column_predicate.h"
@@ -327,10 +328,12 @@ Status BetaRowsetReader::new_iterator(const RowsetReaderContext* read_context,
     SCOPED_RAW_TIMER(&_stats->rowset_reader_init_iterators_timer_ns);
     if (_needs_segment_merge()) {
         // The merge only sorts; the rows of one key are told apart above it.
-        *out_iter = new_same_key_iterator(
-                new_heap_merge_iterator(std::move(iterators), _read_context->read_schema,
-                                        _read_context->merge),
-                _read_context->merge);
+        const MergeDecision& decision = _read_context->merge;
+        auto heap =
+                new_heap_merge_iterator(std::move(iterators), _read_context->read_schema, decision);
+        *out_iter = decision.drop_older_versions
+                            ? new_unique_key_iterator(std::move(heap), decision)
+                            : new_same_key_iterator(std::move(heap), decision.compare_ordinals);
     } else {
         if (_read_context->merge.reverse) {
             // reverse iterators to read backward for ORDER BY key DESC

@@ -198,7 +198,8 @@ void configure_two_rowset_merge(BlockReader& reader, std::vector<Row> rowset0_ro
     decision.older_first = true;
     // As BlockReader merges: the merge sorts, a SameKeyIterator flags the rows of one key.
     reader._rows_iter = new_same_key_iterator(
-            new_heap_merge_iterator(std::move(children), reader._read_schema, decision), decision);
+            new_heap_merge_iterator(std::move(children), reader._read_schema, decision),
+            decision.compare_ordinals);
     reader._rows_options.block_row_max = batch_size;
     ASSERT_TRUE(reader._rows_iter->init(reader._rows_options).ok());
 }

@@ -202,7 +202,7 @@ struct MergeDecision {
     // newer one does.
     bool older_first = false;
     // Keep only the newest row of a key (merge-on-read UNIQUE_KEYS without a sequence map). The
-    // merge itself only sorts; the SameKeyIterator above it drops the older rows.
+    // merge itself only sorts; the UniqueKeyIterator above it drops the older rows.
     // Never set without `compare_whole_key`: rows equal on a prefix are not versions of one key.
     bool drop_older_versions = false;
 };

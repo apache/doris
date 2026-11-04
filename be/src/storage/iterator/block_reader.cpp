@@ -40,7 +40,7 @@
 #include "storage/iterator/sequence_map_block_iterator.h"
 #include "storage/iterator/topn_block_iterator.h"
 #include "storage/iterator/union_iterator.h"
-#include "storage/iterator/unique_key_block_iterator.h"
+#include "storage/iterator/unique_key_iterator.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/row_ttl.h"
@@ -142,8 +142,10 @@ Status BlockReader::_new_rows_iter(std::vector<RowwiseIteratorUPtr> children, bo
     const MergeDecision& decision = _reader_context.merge;
     if (merge) {
         // The merge only sorts; the rows of one key are told apart above it.
-        _rows_iter = new_same_key_iterator(
-                new_heap_merge_iterator(std::move(children), _read_schema, decision), decision);
+        auto heap = new_heap_merge_iterator(std::move(children), _read_schema, decision);
+        _rows_iter = decision.drop_older_versions
+                             ? new_unique_key_iterator(std::move(heap), decision)
+                             : new_same_key_iterator(std::move(heap), decision.compare_ordinals);
     } else {
         if (decision.reverse) {
             std::ranges::reverse(children);
@@ -240,7 +242,7 @@ Status BlockReader::_init_rows_iter(const ReaderParams& read_params) {
 //   DUP_KEYS                                      -> DirectBlockIterator
 //   UNIQUE_KEYS, query on merge-on-write          -> DirectBlockIterator
 //   UNIQUE_KEYS, merged by a sequence map         -> SequenceMapBlockIterator
-//   UNIQUE_KEYS, other merge-on-read reads        -> UniqueKeyBlockIterator
+//   UNIQUE_KEYS, other merge-on-read reads        -> DirectBlockIterator over UniqueKeyIterator
 //   AGG_KEYS                                      -> AggKeyBlockIterator
 Status BlockReader::_init_block_iterator(const ReaderParams& read_params,
                                          bool merge_by_sequence_mapping) {
@@ -271,7 +273,9 @@ Status BlockReader::_init_block_iterator(const ReaderParams& read_params,
             _block_iter = std::make_unique<SequenceMapBlockIterator>(_rows_iter.get(), limits,
                                                                      _read_schema, &_merged_rows);
         } else {
-            _block_iter = std::make_unique<UniqueKeyBlockIterator>(_rows_iter.get());
+            // The UniqueKeyIterator above the merge already keeps only the newest row of every
+            // key, and rowsets read one after another hold every key once.
+            _block_iter = std::make_unique<DirectBlockIterator>(_rows_iter.get());
             // The reads that may apply the delete sign (compaction, checksum) drop the deleted
             // rows after the merge, see next_block_with_aggregation().
             _filter_delete_sign = _delete_sign_available;

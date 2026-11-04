@@ -36,8 +36,9 @@ class RowwiseIterator;
 //
 // There is exactly one implementation per (table model, read mode) pair, and every
 // implementation owns only the state its own read needs:
-//   DirectBlockIterator            DUP_KEYS, merge-on-write UNIQUE_KEYS queries, direct mode
-//   UniqueKeyBlockIterator         merge-on-read UNIQUE_KEYS without a sequence map
+//   DirectBlockIterator            DUP_KEYS, merge-on-write UNIQUE_KEYS queries, direct mode,
+//                                  merge-on-read UNIQUE_KEYS without a sequence map (over a
+//                                  UniqueKeyIterator)
 //   SequenceMapBlockIterator       merge-on-read UNIQUE_KEYS with a sequence map
 //   AggKeyBlockIterator            AGG_KEYS
 //   ChangelogMinDeltaBlockIterator changelog MIN_DELTA scans

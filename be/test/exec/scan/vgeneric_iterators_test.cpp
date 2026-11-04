@@ -39,6 +39,7 @@
 #include "storage/iterator/same_key_iterator.h"
 #include "storage/iterator/statistics_iterator.h"
 #include "storage/iterator/union_iterator.h"
+#include "storage/iterator/unique_key_iterator.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/olap_tuple.h"
@@ -170,11 +171,13 @@ static MergeDecision merge_decision(const ReadSchema& schema, int sequence_ordin
 }
 
 // The rows of a read the way BlockReader merges them: a VHeapMergeIterator that sorts the
-// children, under a SameKeyIterator that tells the rows of one key apart.
+// children, under a UniqueKeyIterator with drop_older_versions and a SameKeyIterator otherwise.
 static RowwiseIteratorUPtr new_read_merge(std::vector<RowwiseIteratorUPtr> inputs,
                                           ReadSchemaSPtr schema, const MergeDecision& decision) {
-    return new_same_key_iterator(
-            new_heap_merge_iterator(std::move(inputs), std::move(schema), decision), decision);
+    auto heap = new_heap_merge_iterator(std::move(inputs), std::move(schema), decision);
+    return decision.drop_older_versions
+                   ? new_unique_key_iterator(std::move(heap), decision)
+                   : new_same_key_iterator(std::move(heap), decision.compare_ordinals);
 }
 
 static void create_block(ReadSchema& schema, Block& block) {

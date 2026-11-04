@@ -52,40 +52,34 @@ private:
 };
 
 // The rows of a key-ordered iterator, usually a VHeapMergeIterator, with the rows of one key
-// told apart by comparing them, so that the merge below only sorts.
-//
-// With the read's `drop_older_versions` (merge-on-read UNIQUE_KEYS), next_batch(Block*) keeps
-// the first row of every key, which the merge orders first as the newest version, and drops the
-// others; merged_rows() counts them. Otherwise next_batch(Block*) passes the rows through, and
-// next_batch(Block*, same_key) flags them for the folds that join the rows of a key (AGG_KEYS,
-// a sequence map, changelog scans).
+// told apart by comparing them, so that the merge below only sorts: next_batch(Block*, same_key)
+// flags them for the folds that join the rows of a key (AGG_KEYS, a sequence map, changelog
+// scans), and next_batch(Block*) passes them through. The merge-on-read UNIQUE_KEYS reads, which
+// keep only the newest row of a key, read through a UniqueKeyIterator instead.
 class SameKeyIterator final : public RowwiseIterator {
 public:
-    SameKeyIterator(RowwiseIteratorUPtr rows, const MergeDecision& decision);
+    // `key_ordinals` are the read-schema ordinals the rows are merged by.
+    SameKeyIterator(RowwiseIteratorUPtr rows, std::vector<uint32_t> key_ordinals)
+            : _rows(std::move(rows)), _flags(std::move(key_ordinals)) {}
 
     Status init(const StorageReadOptions& opts) override { return _rows->init(opts); }
 
-    Status next_batch(Block* block) override;
+    Status next_batch(Block* block) override { return _rows->next_batch(block); }
 
-    // Not with drop_older_versions: the folds that need the flags keep every row.
     Status next_batch(Block* block, std::vector<uint8_t>* same_key) override;
 
     const ReadSchema& schema() const override { return _rows->schema(); }
 
     void update_profile(RuntimeProfile* profile) override { _rows->update_profile(profile); }
 
-    uint64_t merged_rows() const override { return _merged_rows + _rows->merged_rows(); }
+    uint64_t merged_rows() const override { return _rows->merged_rows(); }
 
 private:
     const RowwiseIteratorUPtr _rows;
-    const bool _drop_older_versions;
     SameKeyFlags _flags;
-    // Reused by next_batch(Block*) with drop_older_versions.
-    std::vector<uint8_t> _same_key;
-    IColumn::Filter _filter;
-    uint64_t _merged_rows = 0;
 };
 
-RowwiseIteratorUPtr new_same_key_iterator(RowwiseIteratorUPtr rows, const MergeDecision& decision);
+RowwiseIteratorUPtr new_same_key_iterator(RowwiseIteratorUPtr rows,
+                                          std::vector<uint32_t> key_ordinals);
 
 } // namespace doris
