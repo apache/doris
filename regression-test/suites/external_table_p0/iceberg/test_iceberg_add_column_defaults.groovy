@@ -188,6 +188,17 @@ suite("test_iceberg_add_column_defaults", "p0,external") {
         DEFAULT '2027-03-28 02:30:00.123456789CET'"""
     sql """ALTER TABLE conversion_defaults ADD COLUMN s.ns TIMESTAMP_NS NOT NULL
         DEFAULT '2027-03-28 02:30:00.123456789CET'"""
+    sql "SET time_zone = 'CET'"
+    sql """ALTER TABLE conversion_defaults ADD COLUMN (
+        overlap_implicit TIMESTAMPTZ(0) NOT NULL DEFAULT '2021-10-31 02:59:59.6',
+        overlap_explicit TIMESTAMPTZ(0) NOT NULL DEFAULT '2021-10-31 02:59:59.6CET',
+        milli_implicit TIMESTAMPTZ(3) NOT NULL DEFAULT '2021-10-31 02:59:59.9996',
+        milli_explicit TIMESTAMPTZ(3) NOT NULL DEFAULT '2021-10-31 02:59:59.9996CET')"""
+    sql """ALTER TABLE conversion_defaults ADD COLUMN s.overlap_implicit TIMESTAMPTZ(0) NOT NULL
+        DEFAULT '2021-10-31 02:59:59.6'"""
+    sql """ALTER TABLE conversion_defaults ADD COLUMN s.overlap_explicit TIMESTAMPTZ(0) NOT NULL
+        DEFAULT '2021-10-31 02:59:59.6CET'"""
+    sql "SET time_zone = 'UTC'"
     String previousSqlMode = sql("SELECT @@sql_mode")[0][0].toString()
     try {
         sql "SET sql_mode = ''"
@@ -212,6 +223,10 @@ suite("test_iceberg_add_column_defaults", "p0,external") {
     "order_qt_conversion_write_defaults" "SELECT * FROM conversion_defaults ORDER BY id"
     order_qt_conversion_string_bytes """SELECT id, HEX(label), HEX(s.label)
         FROM conversion_defaults ORDER BY id"""
+    order_qt_conversion_zoned_equality """SELECT id, overlap_implicit = overlap_explicit,
+        milli_implicit = milli_explicit,
+        overlap_implicit = CAST('2021-10-31 01:00:00+00:00' AS TIMESTAMPTZ(0)),
+        s.overlap_implicit = s.overlap_explicit FROM conversion_defaults ORDER BY id"""
     for (String type : ["FLOAT", "DOUBLE"]) {
         for (String value : ["NaN", "Infinity", "-Infinity"]) {
             // FLOAT NaN fails the existing precision check before connector conversion.
@@ -232,11 +247,30 @@ suite("test_iceberg_add_column_defaults", "p0,external") {
             }
         }
     }
+    for (def boundary : [["-08:00", "9999-12-31 23:59:59"], ["+08:00", "0000-01-01 00:00:00"]]) {
+        sql "SET time_zone = '${boundary[0]}'"
+        test {
+            sql """ALTER TABLE conversion_defaults ADD COLUMN bad_range TIMESTAMPTZ(6) NOT NULL
+                DEFAULT '${boundary[1]}'"""
+            exception "supported UTC range"
+        }
+        test {
+            sql """ALTER TABLE conversion_defaults ADD COLUMN s.bad_range TIMESTAMPTZ(6) NOT NULL
+                DEFAULT '${boundary[1]}'"""
+            exception "supported UTC range"
+        }
+        test {
+            sql """ALTER TABLE conversion_defaults ADD COLUMN
+                (not_committed_range INT, bad_range TIMESTAMPTZ(6) NOT NULL DEFAULT '${boundary[1]}')"""
+            exception "supported UTC range"
+        }
+    }
+    sql "SET time_zone = 'UTC'"
     "order_qt_conversion_after_failed_add" "SELECT * FROM conversion_defaults ORDER BY id"
     qt_conversion_failed_add_leaves_schema """SELECT COUNT(*)
         FROM iceberg_add_column_defaults.information_schema.columns
         WHERE TABLE_SCHEMA = 'add_column_defaults_db' AND TABLE_NAME = 'conversion_defaults'
-            AND COLUMN_NAME IN ('bad', 'not_committed')"""
+            AND COLUMN_NAME IN ('bad', 'not_committed', 'bad_range', 'not_committed_range')"""
 
     for (int version : [1, 2]) {
         sql "DROP TABLE IF EXISTS old_format_${version}"

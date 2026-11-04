@@ -149,6 +149,57 @@ public class IcebergAddColumnDefaultsPersistenceTest {
     }
 
     @Test
+    public void zonedDefaultsRoundAfterResolvingTheInstant() {
+        String[] zones = {"CET", "CET", "CET", "CET", "CET", "UTC", "UTC", "UTC", "UTC"};
+        String[] values = {"2021-10-31 02:59:59.6", "2021-10-31 00:59:59.6+00:00",
+                "2021-10-31 02:59:59.9996", "2021-03-28 01:59:59.6", "2021-03-28 02:30:00.6",
+                "1969-12-31 23:59:59.5", "1969-12-31 23:59:59.9995", "1969-12-31 23:59:59.4999",
+                "1704164645123456"};
+        int[] precisions = {0, 0, 3, 0, 0, 0, 3, 0, -1};
+        long[] expected = {1635642000000000L, 1635642000000000L, 1635642000000000L,
+                1616893200000000L, 1616893201000000L, 0, 0, -1000000L,
+                1704164645123456L};
+        for (int i = 0; i < values.length; i++) {
+            ConnectorSession session = session(zones[i]);
+            ConnectorType type = precisions[i] == -1 ? ConnectorType.of("TIMESTAMPTZ")
+                    : ConnectorType.of("TIMESTAMPTZ", precisions[i], 0);
+            ConnectorColumn column = column("rounded" + i, type, values[i]);
+            metadata.addColumn(session, HANDLE, column, null);
+            metadata.addNestedColumn(session, HANDLE, nested(column.getName()), column, null);
+            metadata.addColumns(session, HANDLE, Collections.singletonList(column("batch" + i, type, values[i])));
+            assertDefaults(column.getName(), expected[i]);
+            assertDefaults("s." + column.getName(), expected[i]);
+            assertDefaults("batch" + i, expected[i]);
+        }
+    }
+
+    @Test
+    public void zonedDefaultsCheckFinalUtcBoundsBeforeEveryAddPath() {
+        ConnectorType type = ConnectorType.of("TIMESTAMPTZ", 6, 0);
+        metadata.addColumns(session("UTC"), HANDLE, Arrays.asList(
+                column("minimum", type, "0000-01-01 00:00:00"),
+                column("maximum", type, "9999-12-31 23:59:59.999999")));
+        assertDefaults("minimum", -62167219200000000L);
+        assertDefaults("maximum", 253402300799999999L);
+        String before = SchemaParser.toJson(reload());
+        String[] zones = {"-08:00", "+08:00", "UTC"};
+        String[] values = {"9999-12-31 23:59:59", "0000-01-01 00:00:00", "9999-12-31 23:59:59.6"};
+        for (int i = 0; i < values.length; i++) {
+            ConnectorSession session = session(zones[i]);
+            ConnectorColumn invalid = column("invalid", ConnectorType.of("TIMESTAMPTZ", i == 2 ? 0 : 6, 0),
+                    values[i]);
+            IllegalArgumentException error = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> metadata.addColumn(session, HANDLE, invalid, null));
+            Assertions.assertTrue(error.getMessage().contains("supported UTC range"), error.getMessage());
+            Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> metadata.addNestedColumn(session, HANDLE, nested("invalid"), invalid, null));
+            Assertions.assertThrows(IllegalArgumentException.class, () -> metadata.addColumns(session, HANDLE,
+                    Arrays.asList(column("valid", ConnectorType.of("INT"), "1"), invalid)));
+            Assertions.assertEquals(before, SchemaParser.toJson(reload()));
+        }
+    }
+
+    @Test
     public void nonFiniteDefaultsLeavePublishedMetadataReadableAndUnchanged() {
         String before = SchemaParser.toJson(reload());
         for (String type : Arrays.asList("FLOAT", "DOUBLE")) {
