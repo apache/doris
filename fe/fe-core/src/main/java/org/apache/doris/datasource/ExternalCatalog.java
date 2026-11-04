@@ -514,6 +514,17 @@ public abstract class ExternalCatalog
     }
 
     /**
+     * Validate an ALTER candidate with checks that may block on the network, such as the SSRF probe of a
+     * user-supplied endpoint. {@link CatalogMgr#alterCatalogProps} calls this on a snapshot of the catalog's
+     * properties before it takes its write lock, and applies the ALTER only if the properties still equal that
+     * snapshot once it holds the lock. Replay never calls it. Checks that do not block belong in
+     * {@link #validatePropertiesBeforeUpdate}, which runs under the lock.
+     */
+    public void validatePropertiesBeforeUpdateUnlocked(
+            Map<String, String> currentProperties, Map<String, String> updatedProperties) throws DdlException {
+    }
+
+    /**
      * eg:
      * (
      * ""access_controller.class" = "org.apache.doris.mysql.privilege.RangerHiveAccessControllerFactory",
