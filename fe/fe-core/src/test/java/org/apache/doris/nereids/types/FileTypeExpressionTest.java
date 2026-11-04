@@ -100,9 +100,8 @@ public class FileTypeExpressionTest {
             flight.setRemoteIP("127.0.0.1");
             flight.setEnv(Env.getCurrentEnv());
             flight.setThreadLocalInfo();
-            String file = "cast(named_struct('uri', 'urn:x', 'offset', null, 'size', null, "
-                    + "'content_type', null, 'checksum', null, 'inline', null) as file)";
-            for (String value : Arrays.asList("cast(null as file)", file, "array(" + file + ")",
+            String file = "cast(null as file)";
+            for (String value : Arrays.asList(file, "array(" + file + ")",
                     "named_struct('f', " + file + ")", "map('key', " + file + ")")) {
                 String sql = "select " + value;
                 assertAnalysisError("Arrow Flight does not support FILE result columns",
@@ -245,9 +244,8 @@ public class FileTypeExpressionTest {
 
     @Test
     public void testToJsonAcceptsFile() {
-        for (String value : Arrays.asList("cast(null as file)",
-                "cast(named_struct('uri', 'urn:x', 'offset', null, 'size', null, "
-                        + "'content_type', null, 'checksum', null, 'inline', null) as file)")) {
+        for (String value : Arrays.asList("cast(null as file)", "array(cast(null as file))",
+                "named_struct('f', cast(null as file))", "map('f', cast(null as file))")) {
             Plan plan = PlanChecker.from(MemoTestUtils.createConnectContext())
                     .analyze("select to_json(" + value + ")").getPlan();
             Assertions.assertEquals(JsonType.INSTANCE, plan.getOutput().get(0).getDataType());
@@ -264,13 +262,13 @@ public class FileTypeExpressionTest {
                 JsonType.INSTANCE);
         Assertions.assertTrue(converted instanceof NullLiteral);
         Assertions.assertEquals(JsonType.INSTANCE, converted.getDataType());
-        Assertions.assertDoesNotThrow(() -> TypeCoercionUtils.castIfNotSameType(
+        assertAnalysisError("can not cast", () -> TypeCoercionUtils.castIfNotSameType(
                 new SlotReference("s", FileType.INSTANCE.publicStructType()), FileType.INSTANCE));
         Assertions.assertFalse(CheckCast.check(IntegerType.INSTANCE, FileType.INSTANCE, false));
     }
 
     @Test
-    public void testStructuredCastsAndNoStringParsing() {
+    public void testFileCastsAreUnsupported() {
         String metadata = "uri:STRING,offset:BIGINT,size:BIGINT,content_type:STRING,checksum:STRING";
         String fields = metadata + ",inline:VARBINARY";
         for (boolean strict : Arrays.asList(true, false)) {
@@ -278,7 +276,7 @@ public class FileTypeExpressionTest {
                     "STRUCT<inline:VARBINARY,checksum:VARCHAR(10),size:BIGINT,uri:CHAR(10),"
                             + "content_type:STRING,offset:BIGINT>")) {
                 DataType value = type(source);
-                Assertions.assertTrue(CheckCast.check(value, FileType.INSTANCE, strict), source);
+                Assertions.assertFalse(CheckCast.check(value, FileType.INSTANCE, strict), source);
                 Assertions.assertFalse(CheckCast.check(FileType.INSTANCE, value, strict), source);
                 Assertions.assertTrue(TypeCoercionUtils.implicitCast(value, FileType.INSTANCE).isPresent());
                 Assertions.assertTrue(TypeCoercionUtils.implicitCast(FileType.INSTANCE, value).isPresent());
@@ -292,13 +290,13 @@ public class FileTypeExpressionTest {
                 Assertions.assertFalse(CheckCast.check(type(source), FileType.INSTANCE, strict), source);
                 Assertions.assertFalse(CheckCast.check(FileType.INSTANCE, type(source), strict), source);
             }
-            Assertions.assertTrue(CheckCast.check(type("ARRAY<STRUCT<" + fields + ">>"),
+            Assertions.assertFalse(CheckCast.check(type("ARRAY<STRUCT<" + fields + ">>"),
                     type("ARRAY<FILE>"), strict));
             for (String wrapper : Arrays.asList("%s", "ARRAY<%s>", "MAP<STRING,%s>", "STRUCT<f:%s>",
                     "ARRAY<STRUCT<f:%s>>")) {
                 DataType source = type(String.format(wrapper, "STRUCT<" + fields + ">"));
                 DataType target = type(String.format(wrapper, "FILE"));
-                Assertions.assertTrue(CheckCast.check(source, target, strict), wrapper);
+                Assertions.assertFalse(CheckCast.check(source, target, strict), wrapper);
                 Assertions.assertFalse(CheckCast.check(target, source, strict), wrapper);
             }
             Assertions.assertTrue(CheckCast.check(StringType.INSTANCE, type("ARRAY<STRUCT<" + fields + ">>"), strict));
@@ -311,14 +309,14 @@ public class FileTypeExpressionTest {
                 new StructField("content_type", StringType.INSTANCE, true, ""),
                 new StructField("checksum", StringType.INSTANCE, true, ""),
                 new StructField("inline", NullType.INSTANCE, true, "")));
-        Assertions.assertTrue(CheckCast.check(nullableInline, FileType.INSTANCE, true));
-        Assertions.assertTrue(CheckCast.check(nullableInline, FileType.INSTANCE, false));
+        Assertions.assertFalse(CheckCast.check(nullableInline, FileType.INSTANCE, true));
+        Assertions.assertFalse(CheckCast.check(nullableInline, FileType.INSTANCE, false));
         Assertions.assertFalse(CheckCast.check(FileType.INSTANCE, nullableInline, true));
         StructType requiredInline = new StructType(FileType.INSTANCE.getFields().stream()
                 .map(field -> field.getName().equals("inline")
                         ? new StructField("inline", VarBinaryType.INSTANCE, false, "") : field)
                 .collect(java.util.stream.Collectors.toList()));
-        Assertions.assertTrue(CheckCast.check(requiredInline, FileType.INSTANCE, true));
+        Assertions.assertFalse(CheckCast.check(requiredInline, FileType.INSTANCE, true));
         Assertions.assertFalse(CheckCast.check(FileType.INSTANCE, requiredInline, true));
         Assertions.assertFalse(CheckCast.check(FileType.INSTANCE, requiredInline, false));
         Assertions.assertTrue(TypeCoercionUtils.implicitCast(NullType.INSTANCE, FileType.INSTANCE).isPresent());
@@ -404,13 +402,12 @@ public class FileTypeExpressionTest {
                     () -> PlanChecker.from(MemoTestUtils.createConnectContext())
                     .analyze("select " + expression + from), expression);
         }
-        String inline = "cast(named_struct('uri', null, 'offset', null, 'size', null, "
-                + "'content_type', null, 'checksum', null, 'inline', X'00FF80') as file)";
-        for (String expression : Arrays.asList("coalesce(cast(null as file), " + inline + ")",
-                "if(true, " + inline + ", null)", "ifnull(null, " + inline + ")",
-                "fl_get_binary(element_at(array(" + inline + ", null), 1))",
-                "fl_get_binary(element_at(named_struct('asset', " + inline + "), 'asset'))",
-                "fl_get_binary(element_at(map('asset', " + inline + "), 'asset'))")) {
+        String file = "cast(null as file)";
+        for (String expression : Arrays.asList("coalesce(cast(null as file), " + file + ")",
+                "if(true, " + file + ", null)", "ifnull(null, " + file + ")",
+                "fl_get_binary(element_at(array(" + file + ", null), 1))",
+                "fl_get_binary(element_at(named_struct('asset', " + file + "), 'asset'))",
+                "fl_get_binary(element_at(map('asset', " + file + "), 'asset'))")) {
             Assertions.assertDoesNotThrow(() -> PlanChecker.from(MemoTestUtils.createConnectContext())
                     .analyze("select " + expression), expression);
         }
@@ -607,18 +604,9 @@ public class FileTypeExpressionTest {
                 "select fl_get_binary(cast(null as file))",
                 "select fl_get_binary(null)",
                 "select element_at(cast(null as file), 'SIZE')",
-                "select cast(null as file) union all select cast(named_struct('uri', 'urn:x', 'offset', cast(0 "
-                        + "as bigint), 'size', cast(0 as bigint), 'content_type', '', 'checksum', '', "
-                        + "'inline', null) as file)",
-                "select cast(named_struct('uri', 'urn:x', 'offset', cast(0 as bigint), 'size', cast(0 as "
-                        + "bigint), 'content_type', '', 'checksum', '', "
-                        + "'inline', null) as file) union all "
-                        + "select cast(named_struct('uri', 'urn:y', 'offset', null, 'size', null, "
-                        + "'content_type', null, 'checksum', null, 'inline', null) as file) "
-                        + "union all select cast(null as file)",
+                "select cast(null as file) union all select null",
                 "select cast(null as array<file>) union all "
-                        + "select cast(array(named_struct('uri', 'urn:x', 'offset', cast(0 as bigint), 'size', "
-                        + "cast(0 as bigint), 'content_type', '', 'checksum', '', 'inline', null)) as array<file>)",
+                        + "select array(cast(null as file))",
                 "select count(f), count(*) "
                         + "from (select cast(null as file) f) t",
                 "select any_value(distinct f) from (select cast(null as file) f) t",
@@ -656,16 +644,8 @@ public class FileTypeExpressionTest {
     @Test
     public void testUnionUsesExplicitFileTargets() {
         for (String sql : Arrays.asList(
-                "select cast(named_struct('uri', 'urn:x', 'offset', cast(0 as bigint), 'size', cast(0 as "
-                        + "bigint), 'content_type', '', 'checksum', '', "
-                        + "'inline', null) as file) "
-                        + "union all select cast(null as file)",
-                "select cast(null as file) union all select cast(named_struct('uri', 'urn:x', 'offset', cast(0 "
-                        + "as bigint), 'size', cast(0 as bigint), 'content_type', '', 'checksum', '', "
-                        + "'inline', null) as file) "
-                        + "union all select cast(named_struct('uri', 'urn:z', 'offset', cast(0 as bigint), "
-                        + "'size', cast(0 as bigint), 'content_type', '', 'checksum', '', "
-                        + "'inline', null) as file)")) {
+                "select cast(null as file) union all select null",
+                "select null union all select cast(null as file) union all select null")) {
             Plan plan = PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(sql).getPlan();
             Assertions.assertEquals(FileType.INSTANCE, plan.getOutput().get(0).getDataType());
         }
