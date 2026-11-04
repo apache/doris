@@ -43,6 +43,7 @@ suite('test_flexible_partial_update_delete_sign') {
             ) UNIQUE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1
             PROPERTIES(
             "replication_num" = "1",
+            "disable_auto_compaction" = "true",
             "enable_unique_key_merge_on_write" = "true",
             "light_schema_change" = "true",
             "enable_unique_key_skip_bitmap_column" = "true",
@@ -93,6 +94,7 @@ suite('test_flexible_partial_update_delete_sign') {
             ) UNIQUE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1
             PROPERTIES(
             "replication_num" = "1",
+            "disable_auto_compaction" = "true",
             "enable_unique_key_merge_on_write" = "true",
             "light_schema_change" = "true",
             "enable_unique_key_skip_bitmap_column" = "true",
@@ -130,6 +132,7 @@ suite('test_flexible_partial_update_delete_sign') {
             ) UNIQUE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1
             PROPERTIES(
             "replication_num" = "1",
+            "disable_auto_compaction" = "true",
             "enable_unique_key_merge_on_write" = "true",
             "light_schema_change" = "true",
             "enable_unique_key_skip_bitmap_column" = "true",
@@ -161,6 +164,7 @@ suite('test_flexible_partial_update_delete_sign') {
             ) UNIQUE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1
             PROPERTIES(
             "replication_num" = "1",
+            "disable_auto_compaction" = "true",
             "enable_unique_key_merge_on_write" = "true",
             "light_schema_change" = "true",
             "enable_unique_key_skip_bitmap_column" = "true",
@@ -193,6 +197,7 @@ suite('test_flexible_partial_update_delete_sign') {
             ) UNIQUE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1
             PROPERTIES(
             "replication_num" = "1",
+            "disable_auto_compaction" = "true",
             "enable_unique_key_merge_on_write" = "true",
             "light_schema_change" = "true",
             "enable_unique_key_skip_bitmap_column" = "true",
@@ -264,6 +269,7 @@ suite('test_flexible_partial_update_delete_sign') {
             ) UNIQUE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1
             PROPERTIES(
             "replication_num" = "1",
+            "disable_auto_compaction" = "true",
             "enable_unique_key_merge_on_write" = "true",
             "light_schema_change" = "true",
             "enable_unique_key_skip_bitmap_column" = "true",
@@ -336,6 +342,7 @@ suite('test_flexible_partial_update_delete_sign') {
             ) UNIQUE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1
             PROPERTIES(
             "replication_num" = "1",
+            "disable_auto_compaction" = "true",
             "enable_unique_key_merge_on_write" = "true",
             "light_schema_change" = "true",
             "enable_unique_key_skip_bitmap_column" = "true",
