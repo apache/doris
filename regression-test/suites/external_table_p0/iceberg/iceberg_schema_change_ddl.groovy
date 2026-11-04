@@ -91,7 +91,7 @@ suite("iceberg_schema_change_ddl", "p0,external") {
     // This will throw an exception in Iceberg v2, but is allowed in v3
     test {
         sql """ ALTER TABLE ${table_name} ADD COLUMN phone STRING DEFAULT 'N/A' COMMENT 'User phone number' """
-        exception "Invalid initial default for phone: non-null default (N/A) is not supported until v3"
+        exception "format-version 3"
     }
     // Add column with comment and set position after age
     sql """ ALTER TABLE ${table_name} ADD COLUMN phone STRING COMMENT 'User phone number' after age """

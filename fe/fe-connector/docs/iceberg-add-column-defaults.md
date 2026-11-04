@@ -27,6 +27,10 @@ The conversion also retains the existing numeric epoch forms used by
 connector callers. TIMESTAMPTZ literals without an offset use the DDL
 session's time zone, and the persisted default retains that instant when
 read or written in another time zone.
+Decimal defaults are exactly rescaled to the declared scale. SQL string escapes
+follow the DDL session's SQL mode, and compact UUID constants are canonicalized.
+Non-finite FLOAT and DOUBLE defaults are rejected before metadata publication
+because they cannot round-trip through the schema JSON representation.
 
 An optional parent STRUCT, ARRAY element, or MAP value can remain NULL even
 when a child field is required. A child default does not create a non-NULL
@@ -45,7 +49,11 @@ information_schema.columns.COLUMN_DEFAULT keep their existing behavior.
 SHOW CREATE TABLE preserves source requiredness.
 
 Coverage: IcebergAddColumnDefaultsTest exercises metadata conversion and SDK
-commits. test_iceberg_add_column_defaults covers the SQL path with Parquet and
-ORC, old and new files, NULL parents, required-field failures and older formats.
+commits; IcebergAddColumnDefaultsPersistenceTest verifies Hadoop metadata
+serialization, reloading and failure atomicity. test_iceberg_add_column_defaults
+covers the SQL path with Parquet and ORC, old and new files, NULL parents,
+required-field failures and older formats.
 For local validation, `icebergAddColumnDefaultsWarehouse` can point to a
 `file://` warehouse; otherwise the suite uses the standard REST/MinIO fixture.
+The REST route uses `iceberg_scan_planning_rest_uri_port`, matching the existing
+nanosecond suite's schema-default support.

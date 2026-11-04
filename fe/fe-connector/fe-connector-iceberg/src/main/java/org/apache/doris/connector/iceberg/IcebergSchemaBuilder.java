@@ -39,6 +39,7 @@ import org.apache.iceberg.types.Types;
 
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -392,18 +393,23 @@ public final class IcebergSchemaBuilder {
 
     /**
      * Parses a column {@code DEFAULT} value string into an iceberg {@link Literal} of {@code type}, or
-     * {@code null} when {@code value} is null (no DEFAULT clause). Byte-faithful port of the legacy fe-core
-     * {@code IcebergUtils.parseIcebergLiteral} (self-contained — only iceberg + JDK types), so that an
-     * {@code ADD COLUMN ... DEFAULT} keeps its initial-default after the flip.
+     * {@code null} when {@code value} is null (no DEFAULT clause). Values are converted to the declared
+     * type's metadata representation so both initial-default and write-default survive schema serialization.
      *
      * @throws IllegalArgumentException for an unparseable value or a type that cannot carry a default
      */
     public static Literal<?> parseDefaultLiteral(String value, Type type) {
+        return parseDefaultLiteral(value, type, ZoneOffset.UTC);
+    }
+
+    /** Resolves unqualified zoned defaults in the DDL session's time zone. */
+    public static Literal<?> parseDefaultLiteral(String value, Type type, ZoneId sessionZone) {
         if (value == null) {
             return null;
         }
         switch (type.typeId()) {
             case BOOLEAN:
+                value = value.trim();
                 if ("true".equalsIgnoreCase(value) || "1".equals(value)) {
                     return Literal.of(true);
                 }
@@ -434,7 +440,7 @@ public final class IcebergSchemaBuilder {
             case TIMESTAMP:
                 if (!value.matches("[+-]?[0-9]+")) {
                     return Literal.of((Long) IcebergPartitionUtils.parsePartitionValueFromString(
-                            value, type, ZoneOffset.UTC));
+                            value, type, sessionZone));
                 }
                 return Literal.of(Long.parseLong(value));
             case LONG:
@@ -445,13 +451,22 @@ public final class IcebergSchemaBuilder {
                 }
             case FLOAT:
                 try {
-                    return Literal.of(Float.parseFloat(value));
+                    float parsed = Float.parseFloat(value);
+                    // Non-finite defaults serialize as JSON strings that the schema reader rejects.
+                    if (!Float.isFinite(parsed)) {
+                        throw new IllegalArgumentException("Non-finite Iceberg FLOAT defaults are not supported");
+                    }
+                    return Literal.of(parsed);
                 } catch (NumberFormatException e) {
                     throw new IllegalArgumentException("Invalid Float string: " + value, e);
                 }
             case DOUBLE:
                 try {
-                    return Literal.of(Double.parseDouble(value));
+                    double parsed = Double.parseDouble(value);
+                    if (!Double.isFinite(parsed)) {
+                        throw new IllegalArgumentException("Non-finite Iceberg DOUBLE defaults are not supported");
+                    }
+                    return Literal.of(parsed);
                 } catch (NumberFormatException e) {
                     throw new IllegalArgumentException("Invalid Double string: " + value, e);
                 }
@@ -470,8 +485,13 @@ public final class IcebergSchemaBuilder {
                 return Literal.of(ByteBuffer.wrap(value.getBytes()));
             case DECIMAL:
                 try {
-                    return Literal.of(new BigDecimal(value));
-                } catch (NumberFormatException e) {
+                    Types.DecimalType decimalType = (Types.DecimalType) type;
+                    BigDecimal parsed = new BigDecimal(value).setScale(decimalType.scale());
+                    if (parsed.precision() > decimalType.precision()) {
+                        throw new IllegalArgumentException("Decimal default exceeds declared precision: " + value);
+                    }
+                    return Literal.of(parsed);
+                } catch (NumberFormatException | ArithmeticException e) {
                     throw new IllegalArgumentException("Invalid Decimal string: " + value, e);
                 }
             case VARIANT:

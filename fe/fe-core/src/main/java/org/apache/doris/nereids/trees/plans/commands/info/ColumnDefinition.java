@@ -21,6 +21,7 @@ import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnNullableType;
 import org.apache.doris.analysis.DateLiteralUtils;
 import org.apache.doris.analysis.DefaultValueExprDef;
+import org.apache.doris.analysis.UuidLiteral;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
@@ -29,13 +30,17 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
@@ -303,7 +308,7 @@ public class ColumnDefinition {
                     if (exprDef != null) {
                         sb.append("DEFAULT ").append(value).append(" ");
                     } else {
-                        sb.append("DEFAULT ").append("\"").append(SqlUtils.escapeQuota(value)).append("\"")
+                        sb.append("DEFAULT ").append(SqlLiteralUtils.quoteStringLiteral(value))
                                 .append(" ");
                     }
                 } else if (type.isBitmapType()) {
@@ -569,14 +574,29 @@ public class ColumnDefinition {
                         defaultValue.get().getValue(), defaultValue.get().getDefaultValueExprDef());
                 if (!isOlap && type.isDateLikeType()
                         && defaultValue.get().getDefaultValueExprDef() == null) {
-                    // Connectors receive canonical SQL values, not numeric epoch carriers. Bind zoned
-                    // literals in the DDL session and retain the target type's fractional precision.
+                    // Preserve SQL literal time-zone and rounding semantics for civil temporal defaults.
                     String value = defaultValue.get().getValue();
-                    String normalized = type.isTimeStampTzType()
-                            ? TimestampTzLiteral.fromSessionTimeZone((TimeStampTzType) type, value).getStringValue()
-                            : Literal.fromLegacyLiteral(DateLiteralUtils.createLiteral(value, type.toCatalogDataType()),
-                                    type.toCatalogDataType()).getStringValue();
-                    defaultValue = Optional.of(new DefaultValue(normalized));
+                    Literal normalized;
+                    if (type.isTimeStampTzType()) {
+                        TimeStampTzType zonedType = (TimeStampTzType) type;
+                        // Keep unqualified values as civil text for the connector's session-zone handling.
+                        normalized = DateTimeChecker.hasTimeZone(value)
+                                ? new TimestampTzLiteral(zonedType, value)
+                                : new DateTimeV2Literal(DateTimeV2Type.of(zonedType.getScale()), value);
+                    } else if (type.isTimeStampNsType()) {
+                        normalized = new TimeStampNsLiteral(value);
+                    } else if (type.isDateTimeV2Type()) {
+                        normalized = new DateTimeV2Literal((DateTimeV2Type) type, value);
+                    } else {
+                        normalized = Literal.fromLegacyLiteral(
+                                DateLiteralUtils.createLiteral(value, type.toCatalogDataType()),
+                                type.toCatalogDataType());
+                    }
+                    defaultValue = Optional.of(new DefaultValue(normalized.getStringValue()));
+                }
+                if (!isOlap && type.isUuidType() && defaultValue.get().getDefaultValueExprDef() == null) {
+                    defaultValue = Optional.of(new DefaultValue(
+                            new UuidLiteral(defaultValue.get().getValue()).getStringValue()));
                 }
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage(), e);

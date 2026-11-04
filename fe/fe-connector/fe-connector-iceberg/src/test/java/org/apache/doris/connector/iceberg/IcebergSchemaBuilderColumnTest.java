@@ -96,11 +96,11 @@ public class IcebergSchemaBuilderColumnTest {
 
     @Test
     public void testParseBooleanDefaultSpellings() {
-        for (String value : new String[] {"1", "true", "TRUE"}) {
+        for (String value : new String[] {"1", "true", "TRUE", " 1 ", " true ", " TRUE "}) {
             Assertions.assertEquals(true,
                     IcebergSchemaBuilder.parseDefaultLiteral(value, Types.BooleanType.get()).value());
         }
-        for (String value : new String[] {"0", "false", "FALSE"}) {
+        for (String value : new String[] {"0", "false", "FALSE", " 0 ", " false ", " FALSE "}) {
             Assertions.assertEquals(false,
                     IcebergSchemaBuilder.parseDefaultLiteral(value, Types.BooleanType.get()).value());
         }

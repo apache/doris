@@ -1395,7 +1395,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             ConnectorColumn column, ConnectorColumnPosition position) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         rejectReservedMetadataColumn(column.getName());
-        IcebergColumnChange change = toAddColumnChange(column);
+        IcebergColumnChange change = toAddColumnChange(session, column);
         try {
             executeAuthenticated(() -> {
                 catalogOps.addColumn(iceHandle.getDbName(), iceHandle.getTableName(), change, position);
@@ -1415,7 +1415,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         List<IcebergColumnChange> changes = new ArrayList<>(columns.size());
         for (ConnectorColumn column : columns) {
             rejectReservedMetadataColumn(column.getName());
-            changes.add(toAddColumnChange(column));
+            changes.add(toAddColumnChange(session, column));
         }
         try {
             executeAuthenticated(() -> {
@@ -1611,7 +1611,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         validateCommonColumnInfo(column);
         Type icebergType = IcebergSchemaBuilder.buildNestedFieldType(column.getType());
         IcebergColumnChange change = new IcebergColumnChange(path.getLeafName(), icebergType,
-                column.getComment(), parseAddColumnDefault(column, icebergType), column.isNullable());
+                column.getComment(), parseAddColumnDefault(session, column, icebergType), column.isNullable());
         try {
             executeAuthenticated(() -> {
                 catalogOps.addNestedColumn(iceHandle.getDbName(), iceHandle.getTableName(), path, change, position);
@@ -1877,15 +1877,17 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * {@code addOneColumn}: reject aggregated / auto-inc columns, build the iceberg
      * type, parse the DEFAULT literal. Pure (no remote call); runs outside the auth context.
      */
-    private IcebergColumnChange toAddColumnChange(ConnectorColumn column) {
+    private IcebergColumnChange toAddColumnChange(ConnectorSession session, ConnectorColumn column) {
         validateCommonColumnInfo(column);
         Type icebergType = IcebergSchemaBuilder.buildColumnType(column.getType());
         return new IcebergColumnChange(column.getName(), icebergType, column.getComment(),
-                parseAddColumnDefault(column, icebergType), column.isNullable());
+                parseAddColumnDefault(session, column, icebergType), column.isNullable());
     }
 
-    private static Literal<?> parseAddColumnDefault(ConnectorColumn column, Type icebergType) {
-        Literal<?> defaultValue = IcebergSchemaBuilder.parseDefaultLiteral(column.getDefaultValue(), icebergType);
+    private static Literal<?> parseAddColumnDefault(ConnectorSession session,
+            ConnectorColumn column, Type icebergType) {
+        Literal<?> defaultValue = IcebergSchemaBuilder.parseDefaultLiteral(column.getDefaultValue(), icebergType,
+                IcebergTimeUtils.resolveSessionZone(session));
         if (!column.isNullable() && defaultValue == null) {
             throw new DorisConnectorException("can't add a non-nullable column to an Iceberg table: "
                     + column.getName() + " without a non-null default");

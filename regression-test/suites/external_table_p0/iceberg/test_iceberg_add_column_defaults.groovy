@@ -35,7 +35,8 @@ suite("test_iceberg_add_column_defaults", "p0,external") {
             'enable.mapping.timestamp_tz' = 'true')"""
     } else {
         String host = context.config.otherConfigs.get("externalEnvIp")
-        String restPort = context.config.otherConfigs.get("iceberg_rest_uri_port")
+        // The newer REST fixture preserves nanosecond defaults without rescaling them.
+        String restPort = context.config.otherConfigs.get("iceberg_scan_planning_rest_uri_port")
         String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
         sql """CREATE CATALOG iceberg_add_column_defaults PROPERTIES (
             'type' = 'iceberg', 'iceberg.catalog.type' = 'rest',
@@ -148,14 +149,16 @@ suite("test_iceberg_add_column_defaults", "p0,external") {
         sql "INSERT INTO typed_defaults_${format} VALUES (1, STRUCT(10)), (2, NULL)"
         sql "SET time_zone = 'Asia/Shanghai'"
         sql """ALTER TABLE typed_defaults_${format} ADD COLUMN (
-            truth BOOLEAN NOT NULL DEFAULT '1', day DATE NOT NULL DEFAULT '2024-01-02',
+            truth BOOLEAN NOT NULL DEFAULT ' 1 ', day DATE NOT NULL DEFAULT '2024-01-02',
             ts DATETIME(6) NOT NULL DEFAULT '2024-01-02 03:04:05.123456',
             compact_day DATE NOT NULL DEFAULT '20240102',
             compact_ts DATETIME(6) NOT NULL DEFAULT '20240102030405',
             zoned_ts TIMESTAMPTZ(6) NOT NULL DEFAULT '2024-01-02 03:04:05.123456',
+            compact_zoned_ts TIMESTAMPTZ(6) NOT NULL DEFAULT '20240102030405',
+            rounded_zoned_ts TIMESTAMPTZ(3) NOT NULL DEFAULT '2024-01-02 03:04:05.123999',
             rounded_ts DATETIME(3) NOT NULL DEFAULT '2024-01-02 03:04:05.123999',
-            amount DECIMAL(10,2) NOT NULL DEFAULT '1.50', label STRING NOT NULL DEFAULT 'hello')"""
-        sql "ALTER TABLE typed_defaults_${format} ADD COLUMN s.truth BOOLEAN NOT NULL DEFAULT '1'"
+            amount DECIMAL(10,2) NOT NULL DEFAULT '1.5', label STRING NOT NULL DEFAULT 'owner''s')"""
+        sql "ALTER TABLE typed_defaults_${format} ADD COLUMN s.truth BOOLEAN NOT NULL DEFAULT ' 0 '"
         sql "ALTER TABLE typed_defaults_${format} ADD COLUMN s.day DATE NOT NULL DEFAULT '2024-01-02'"
         sql """ALTER TABLE typed_defaults_${format}
             ADD COLUMN s.ts DATETIME(6) NOT NULL DEFAULT '2024-01-02 03:04:05.123456'"""
@@ -164,11 +167,76 @@ suite("test_iceberg_add_column_defaults", "p0,external") {
             ADD COLUMN s.compact_ts DATETIME(6) NOT NULL DEFAULT '20240102030405'"""
         sql """ALTER TABLE typed_defaults_${format}
             ADD COLUMN s.zoned_ts TIMESTAMPTZ(6) NOT NULL DEFAULT '2024-01-02 03:04:05.123456'"""
+        sql "ALTER TABLE typed_defaults_${format} ADD COLUMN s.amount DECIMAL(10,2) NOT NULL DEFAULT '1'"
+        sql """ALTER TABLE typed_defaults_${format}
+            ADD COLUMN uuid_value UUID NOT NULL DEFAULT '00112233445566778899aabbccddeeff'"""
+        sql """ALTER TABLE typed_defaults_${format}
+            ADD COLUMN s.uuid_value UUID NOT NULL DEFAULT '00112233445566778899aabbccddeeff'"""
         sql "SET time_zone = 'UTC'"
         "order_qt_${format}_typed_old_files" "SELECT * FROM typed_defaults_${format} ORDER BY id"
         sql "INSERT INTO typed_defaults_${format} (id) VALUES (3)"
         "order_qt_${format}_typed_write_defaults" "SELECT * FROM typed_defaults_${format} ORDER BY id"
     }
+
+    sql "DROP TABLE IF EXISTS conversion_defaults"
+    sql """CREATE TABLE conversion_defaults (id INT, s STRUCT<a:INT>)
+        PROPERTIES ('format-version' = '3', 'write.format.default' = 'parquet')"""
+    prepareLocalDataDirectory("conversion_defaults")
+    sql "INSERT INTO conversion_defaults VALUES (1, STRUCT(10)), (2, NULL)"
+    sql "SET time_zone = '+00:00'"
+    sql """ALTER TABLE conversion_defaults ADD COLUMN ns TIMESTAMP_NS
+        DEFAULT '2027-03-28 02:30:00.123456789CET'"""
+    sql """ALTER TABLE conversion_defaults ADD COLUMN s.ns TIMESTAMP_NS NOT NULL
+        DEFAULT '2027-03-28 02:30:00.123456789CET'"""
+    String previousSqlMode = sql("SELECT @@sql_mode")[0][0].toString()
+    try {
+        sql "SET sql_mode = ''"
+        sql """ALTER TABLE conversion_defaults ADD COLUMN label STRING NOT NULL
+            DEFAULT 'owner''s "field" C:\\\\tmp\\\\'"""
+        sql "SET sql_mode = 'NO_BACKSLASH_ESCAPES'"
+        sql """ALTER TABLE conversion_defaults ADD COLUMN s.label STRING NOT NULL
+            DEFAULT 'owner''s "field" C:\\tmp\\'"""
+    } finally {
+        sql "SET sql_mode = '${previousSqlMode}'"
+    }
+    "order_qt_conversion_old_files" """SELECT *,
+        ns = CAST('2027-03-28 02:30:00.123456789CET' AS TIMESTAMP_NS)
+        FROM conversion_defaults ORDER BY id"""
+    sql "INSERT INTO conversion_defaults (id) VALUES (3)"
+    try {
+        sql "SET sql_mode = 'NO_BACKSLASH_ESCAPES'"
+        sql "INSERT INTO conversion_defaults (id, label) VALUES (4, DEFAULT)"
+    } finally {
+        sql "SET sql_mode = '${previousSqlMode}'"
+    }
+    "order_qt_conversion_write_defaults" "SELECT * FROM conversion_defaults ORDER BY id"
+    order_qt_conversion_string_bytes """SELECT id, HEX(label), HEX(s.label)
+        FROM conversion_defaults ORDER BY id"""
+    for (String type : ["FLOAT", "DOUBLE"]) {
+        for (String value : ["NaN", "Infinity", "-Infinity"]) {
+            // FLOAT NaN fails the existing precision check before connector conversion.
+            String expectedError = type == "FLOAT" && value == "NaN"
+                    ? "Default value will loose precision" : "Non-finite Iceberg"
+            test {
+                sql "ALTER TABLE conversion_defaults ADD COLUMN bad ${type} NOT NULL DEFAULT '${value}'"
+                exception expectedError
+            }
+            test {
+                sql "ALTER TABLE conversion_defaults ADD COLUMN s.bad ${type} NOT NULL DEFAULT '${value}'"
+                exception expectedError
+            }
+            test {
+                sql """ALTER TABLE conversion_defaults ADD COLUMN
+                    (not_committed INT, bad ${type} NOT NULL DEFAULT '${value}')"""
+                exception expectedError
+            }
+        }
+    }
+    "order_qt_conversion_after_failed_add" "SELECT * FROM conversion_defaults ORDER BY id"
+    qt_conversion_failed_add_leaves_schema """SELECT COUNT(*)
+        FROM iceberg_add_column_defaults.information_schema.columns
+        WHERE TABLE_SCHEMA = 'add_column_defaults_db' AND TABLE_NAME = 'conversion_defaults'
+            AND COLUMN_NAME IN ('bad', 'not_committed')"""
 
     for (int version : [1, 2]) {
         sql "DROP TABLE IF EXISTS old_format_${version}"
