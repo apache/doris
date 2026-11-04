@@ -5,7 +5,7 @@
 ### What problem does this PR solve?
 
 <!-- Issue Number: "close #N" if this PR resolves the issue, "#N" if it only relates to it, "None" if there is none. A Feature needs an issue. -->
-<!-- Related PR: "#N (relation)" for each PR a reviewer should know about, such as "#123 (introduced the bug)", separated by commas. Write "None" only after searching open and closed PRs. -->
+<!-- Related PR: "#N (relation)" for each PR a reviewer should know about, such as "#123 (introduced the bug)", separated by commas. Write "None" if no related PR is known. -->
 <!-- PR Type: Bugfix, Performance, Feature, Enhancement, Refactor, Test, Build/CI/Chore, Revert, Release/Dependency, or Other. -->
 
 Issue Number:
@@ -14,12 +14,13 @@ PR Type:
 
 Problem Summary:
 
-<!-- The problem or need, who is affected, and the approach in one sentence: two to five sentences in all. -->
+<!-- Two to five sentences: the problem or need and who is affected; the approach in one sentence; when the diff is larger than that suggests, what else it had to handle, or that most of it is tests; and what existing users see after an upgrade. -->
 
 ### Details
 
 <!--
-Answer each field of your PR type on its own line, as "- **Field:** answer", in this order:
+For a diff of more than about 300 changed lines, start with "- **Change map:**": how many lines are production code, tests, generated files, and docs, then the code in parts, each with the problem it handles and its size.
+Then answer each field of your PR type on its own line, as "- **Field:** answer", in this order:
   Bugfix: Frequency, Root cause, Why existing tests missed it, Fix, Other paths and branches
   Performance: Why it was slow, Optimization, Results, Applicability and cost
   Feature: Scope, Design, Usage, Default behavior, Compatibility
@@ -40,7 +41,7 @@ Answer each field of your PR type on its own line, as "- **Field:** answer", in 
 
 ### Notes for Reviewers
 
-<!-- Optional; delete this section if there is nothing to say. Where to start reading, why each non-obvious edit was made, and what you are unsure about. -->
+<!-- Optional; delete this section if there is nothing to say. Why each non-obvious edit was made, what you are unsure about, and where to start reading if Details has no Change map. -->
 
 ### Release note
 
