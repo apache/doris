@@ -1618,8 +1618,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                     cacheBackedFileScanTasks(scan, session, table, filter, statsQueryId, readHandle),
                     exactCount, formatVersion, partitioned, orderedPartitionKeys, zone, uriNormalizer,
                     netPositionDeletes);
-        } catch (CancellationException e) {
-            // A stopped query must not restart file planning through the SDK fallback.
+        } catch (CancellationException | EncryptedCountException e) {
+            // Cancellation and deterministic encryption rejection must not restart planning through the SDK.
             throw e;
         } catch (Exception e) {
             requireActiveManifestScheduler(session);
@@ -1640,11 +1640,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         FileScanTask representative = null;
         try (CloseableIterable<FileScanTask> closeableTasks = tasks) {
             for (FileScanTask task : closeableTasks) {
-                // Manifest totals cannot prove that later files are plaintext. Inspect every live file,
-                // retaining only one representative, so COUNT cannot erase an encrypted file's BE guard.
-                if (task.file().keyMetadata() != null) {
-                    return Optional.empty();
-                }
+                // Manifest totals cannot prove that later files are plaintext; inspect every live file.
+                checkCountFileEncryption(task);
                 // Data-manifest rows and the separately netted live delete files are authoritative, but retain
                 // this defensive check for malformed metadata before exposing the aggregate as a query result.
                 if (hasNonIgnorableTaskDeletes(task, netPositionDeletes) || task.file().recordCount() < 0) {
@@ -1683,8 +1680,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                     cacheBackedFileScanTasks(scan, session, table, filter, statsQueryId, readHandle), formatVersion,
                     partitioned, orderedPartitionKeys, zone, uriNormalizer, netPositionDeletes,
                     positionDeleteRows);
-        } catch (CancellationException e) {
-            // A stopped query must not restart file planning through the SDK fallback.
+        } catch (CancellationException | EncryptedCountException e) {
+            // Cancellation and deterministic encryption rejection must not restart planning through the SDK.
             throw e;
         } catch (Exception e) {
             requireActiveManifestScheduler(session);
@@ -1707,9 +1704,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         long exactCount = 0;
         try (CloseableIterable<FileScanTask> closeableTasks = tasks) {
             for (FileScanTask task : closeableTasks) {
-                // Keep every encrypted file's descriptor instead of hiding it behind a plaintext representative.
-                if (task.file().keyMetadata() != null || hasNonIgnorableTaskDeletes(task, netPositionDeletes)
-                        || task.file().recordCount() < 0) {
+                checkCountFileEncryption(task);
+                if (hasNonIgnorableTaskDeletes(task, netPositionDeletes) || task.file().recordCount() < 0) {
                     return Optional.empty();
                 }
                 try {
@@ -1738,6 +1734,22 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         return Optional.of(Collections.singletonList(buildRange(
                 table, scanSchema, representative.file(), representative, formatVersion, partitioned,
                 orderedPartitionKeys, zone, uriNormalizer, visibleRows.getAsLong(), -1, null)));
+    }
+
+    private static void checkCountFileEncryption(FileScanTask task) {
+        if (task.file().keyMetadata() != null) {
+            // COUNT scheduling has already disabled streaming on the assumption of one collapsed range.
+            // Falling back would retain all tasks/ranges before dispatch rejects unsupported encryption.
+            throw new EncryptedCountException();
+        }
+    }
+
+    private static final class EncryptedCountException extends DorisConnectorException {
+        private static final long serialVersionUID = 1L;
+
+        private EncryptedCountException() {
+            super("Iceberg encryption [COUNT_READ_UNAVAILABLE]");
+        }
     }
 
     private static boolean hasNonIgnorableTaskDeletes(FileScanTask task, boolean netPositionDeletes) {

@@ -101,6 +101,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.FileNotFoundException;
@@ -239,41 +240,85 @@ public class IcebergScanPlanProviderTest {
         }
     }
 
-    @Test
-    public void mixedEncryptedFilesCannotCollapseMetadataCount() {
-        for (boolean cached : new boolean[] {false, true}) {
-            for (boolean missingManifestRows : new boolean[] {false, true}) {
-                Table table = createTable("mixed_count_" + cached + "_" + missingManifestRows,
-                        SCHEMA, PartitionSpec.unpartitioned());
-                byte[] metadata = new byte[22];
-                metadata[0] = 1;
-                metadata[1] = 32;
-                Arrays.fill(metadata, 2, 18, (byte) 7);
-                metadata[18] = 2;
-                metadata[19] = 2;
-                metadata[20] = 9;
-                DataFile encrypted = DataFiles.builder(table.spec()).withPath("s3://bucket/encrypted.parquet")
-                        .withFileSizeInBytes(512).withRecordCount(4).withFormat("parquet")
-                        .withEncryptionKeyMetadata(ByteBuffer.wrap(metadata)).build();
-                table.newAppend().appendFile(encrypted).commit();
-                table.newAppend().appendFile(dataFile(table.spec(), "s3://bucket/plain.parquet", 512,
-                        null, null)).commit();
-                Table plannedTable = missingManifestRows
-                        ? tableWithMissingManifestRowsAndIo(table, table.io()) : table;
-                IcebergScanPlanProvider provider = cached
-                        ? manifestProvider(manifestCacheProps(), plannedTable, new IcebergManifestCache())
-                        : new IcebergScanPlanProvider(IcebergCatalogProperties.of(Collections.emptyMap()),
-                                opsReturning(plannedTable));
-                List<ConnectorScanRange> ranges = planCount(provider, cached ? emptySession() : null, true);
-                Assertions.assertEquals(2, ranges.size(), "Every file must retain its own encryption marker");
-                for (ConnectorScanRange range : ranges) {
-                    TFileRangeDesc desc = populate(range);
-                    Assertions.assertEquals(-1, desc.getTableFormatParams().getTableLevelRowCount());
-                    Assertions.assertEquals(range.getPath().orElseThrow().endsWith("encrypted.parquet"),
-                            desc.getTableFormatParams().getIcebergParams().isSetEncryptionInfo());
-                }
+    @ParameterizedTest
+    @CsvSource({"false,false,1", "false,true,1", "true,false,1", "true,true,1",
+            "false,false,8", "false,true,8", "true,false,8", "true,true,8"})
+    public void mixedEncryptedFilesCannotCollapseMetadataCount(boolean cached, boolean missingManifestRows,
+            int manifestConcurrency) {
+        Table table = createTable("mixed_count", SCHEMA, PartitionSpec.unpartitioned(),
+                Collections.singletonMap("format-version", "2"));
+        byte[] metadata = new byte[22];
+        metadata[0] = 1;
+        metadata[1] = 32;
+        Arrays.fill(metadata, 2, 18, (byte) 7);
+        metadata[18] = 2;
+        metadata[19] = 2;
+        metadata[20] = 9;
+        DataFile encrypted = DataFiles.builder(table.spec()).withPath("s3://bucket/encrypted.parquet")
+                .withFileSizeInBytes(512).withRecordCount(4).withFormat("parquet")
+                .withEncryptionKeyMetadata(ByteBuffer.wrap(metadata)).build();
+        // New manifests precede old ones, leaving an unread tail after the encrypted manifest.
+        table.newFastAppend()
+                .appendFile(dataFile(table.spec(), "s3://bucket/tail.parquet", 512, null, null)).commit();
+        table.newFastAppend().appendFile(encrypted).commit();
+        table.newFastAppend()
+                .appendFile(dataFile(table.spec(), "s3://bucket/plain.parquet", 512, null, null)).commit();
+        Table plannedTable = missingManifestRows
+                ? tableWithMissingManifestRowsAndIo(table, table.io()) : table;
+        AtomicInteger sdkPlans = new AtomicInteger();
+        AtomicBoolean tasksClosed = new AtomicBoolean();
+        AtomicBoolean encryptedConsumed = new AtomicBoolean();
+        Table observed = (Table) observeCountPlanning(plannedTable, sdkPlans, tasksClosed, encryptedConsumed);
+        IcebergManifestCache cache = new IcebergManifestCache();
+        IcebergScanPlanProvider provider = manifestProvider(
+                cached ? manifestCacheProps() : Collections.emptyMap(), observed, cache);
+        ConnectorSession session = new FakeScanSession("UTC",
+                ImmutableMap.of("num_files_in_batch_mode", "1",
+                        "iceberg_manifest_load_concurrency", Integer.toString(manifestConcurrency)));
+        Assertions.assertEquals(3, provider.streamingSplitEstimate(session,
+                new IcebergTableHandle("db1", "mixed_count"), Optional.empty(), false));
+        Assertions.assertEquals(-1, provider.streamingSplitEstimate(session,
+                new IcebergTableHandle("db1", "mixed_count"), Optional.empty(), true));
+
+        // COUNT has already disabled streaming. Reject during bounded validation, before a normal scan
+        // can retain every task/range or treat this deterministic refusal as a cache failure.
+        DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                () -> planCount(provider, session, true));
+        Assertions.assertEquals("Iceberg encryption [COUNT_READ_UNAVAILABLE]", error.getMessage());
+        Assertions.assertEquals(cached ? 0 : 1, sdkPlans.get(), "must not restart file planning");
+        Assertions.assertEquals(0L, cache.takeStats("q")[2], "encryption rejection is not a cache failure");
+        if (cached) {
+            Assertions.assertTrue(cache.size() > 0, "must exercise the manifest-cache planner");
+            if (manifestConcurrency == 1) {
+                // Parallel loads may finish speculatively; serial loading makes the stop position exact.
+                Assertions.assertEquals(2, cache.size(), "must stop before reading the tail manifest");
             }
+        } else {
+            Assertions.assertTrue(encryptedConsumed.get());
+            Assertions.assertTrue(tasksClosed.get(), "early rejection must close SDK tasks");
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Object observeCountPlanning(Object value, AtomicInteger sdkPlans, AtomicBoolean tasksClosed,
+            AtomicBoolean encryptedConsumed) {
+        if (!(value instanceof Table) && !(value instanceof TableScan)) {
+            return value;
+        }
+        Class<?> type = value instanceof Table ? Table.class : TableScan.class;
+        return Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[] {type}, (proxy, method, args) -> {
+            Object result = invoke(method, value, args);
+            if (method.getName().equals("planFiles")) {
+                sdkPlans.incrementAndGet();
+                CloseableIterable<FileScanTask> tasks = (CloseableIterable<FileScanTask>) result;
+                return CloseableIterable.whenComplete(CloseableIterable.transform(tasks, task -> {
+                    Assertions.assertFalse(encryptedConsumed.get(), "must stop consuming after an encrypted file");
+                    encryptedConsumed.set(task.file().keyMetadata() != null);
+                    return task;
+                }), () -> tasksClosed.set(true));
+            }
+            return observeCountPlanning(result, sdkPlans, tasksClosed, encryptedConsumed);
+        });
     }
 
     // --- in-memory iceberg table helpers (offline; DataFile metadata only, no real data files) ---

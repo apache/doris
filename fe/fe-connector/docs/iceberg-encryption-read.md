@@ -174,3 +174,12 @@ Thrift descriptor receives independent mutable buffers. A null per-file metadata
 field remains plaintext, including in a mixed snapshot. This is key transport
 only: the deployment admission and backend dispatch guards remain closed until
 native decryption, encrypted deletes and pruning are integrated.
+
+Both metadata COUNT algorithms validate live file metadata while retaining only
+one representative task. A per-file encryption marker causes an immediate
+`Iceberg encryption [COUNT_READ_UNAVAILABLE]` rejection, including in a table
+without a table-level encryption declaration. COUNT scheduling has already
+disabled streaming; normal-scan fallback would retain all file tasks and ranges
+before the dispatch guard rejects them. This deterministic rejection must not
+trigger the manifest cache's SDK retry. Plaintext COUNT retains its existing
+collapse and cache-failure fallback behavior.
