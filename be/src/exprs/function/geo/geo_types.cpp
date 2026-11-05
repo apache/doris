@@ -37,6 +37,7 @@
 
 #include "core/assert_cast.h"
 // IWYU pragma: no_include <bits/std_abs.h>
+#include <algorithm>
 #include <cmath>
 #include <iomanip>
 #include <limits>
@@ -788,6 +789,7 @@ const S2Point* GeoLine::getPoint(int i) const {
 }
 
 GeoParseStatus GeoPolygon::from_coords(const GeoCoordinateListList& list) {
+    _loop_lat_lngs.clear();
     return to_s2polygon(list, &_polygon);
 }
 
@@ -800,6 +802,7 @@ void GeoPolygon::encode(std::string* buf) {
 bool GeoPolygon::decode(const void* data, size_t size) {
     Decoder decoder(data, size);
     _polygon.reset(new S2Polygon());
+    _loop_lat_lngs.clear();
     return _polygon->Decode(&decoder) && _polygon->IsValid();
 }
 
@@ -1043,17 +1046,7 @@ bool GeoPolygon::contains(const GeoShape* rhs) const {
         }
 
         // Point on the edge of polygon doesn't count as "Contians"
-        for (int i = 0; i < _polygon->num_loops(); ++i) {
-            const S2Loop* loop = _polygon->loop(i);
-            for (int j = 0; j < loop->num_vertices(); ++j) {
-                const S2Point& p1 = loop->vertex(j);
-                const S2Point& p2 = loop->vertex((j + 1) % loop->num_vertices());
-                if (compute_distance_to_line(*point->point(), p1, p2) < TOLERANCE) {
-                    return false;
-                }
-            }
-        }
-        return true;
+        return !point_on_edge(*point->point());
     }
     case GeoShapeType::GEO_SHAPE_LINE_STRING: {
         const GeoLine* line = (const GeoLine*)rhs;
@@ -1095,6 +1088,46 @@ bool GeoPolygon::contains(const GeoShape* rhs) const {
     default:
         return false;
     }
+}
+
+// Same check as compute_distance_to_line(point, p1, p2) < TOLERANCE over every edge, with the
+// vertices converted to lat/lng once per polygon instead of once per edge and call.
+bool GeoPolygon::point_on_edge(const S2Point& point) const {
+    if (_loop_lat_lngs.empty()) {
+        _loop_lat_lngs.resize(_polygon->num_loops());
+        for (int i = 0; i < _polygon->num_loops(); ++i) {
+            const S2Loop* loop = _polygon->loop(i);
+            auto& lat_lngs = _loop_lat_lngs[i];
+            lat_lngs.reserve(loop->num_vertices());
+            for (int j = 0; j < loop->num_vertices(); ++j) {
+                S2LatLng vertex(loop->vertex(j));
+                lat_lngs.emplace_back(vertex.lat().degrees(), vertex.lng().degrees(), 0.0);
+            }
+        }
+    }
+
+    S2LatLng point_lat_lng(point);
+    const S2Point query(point_lat_lng.lat().degrees(), point_lat_lng.lng().degrees(), 0.0);
+    // The point can only be within TOLERANCE of an edge if it lies in the edge's bounding box
+    // grown by TOLERANCE. The margin is doubled to stay clear of rounding in project_distance.
+    constexpr double margin = 2 * TOLERANCE;
+    for (const auto& lat_lngs : _loop_lat_lngs) {
+        const size_t num_vertices = lat_lngs.size();
+        for (size_t j = 0; j < num_vertices; ++j) {
+            const S2Point& p1 = lat_lngs[j];
+            const S2Point& p2 = lat_lngs[j + 1 == num_vertices ? 0 : j + 1];
+            if (query.x() < std::min(p1.x(), p2.x()) - margin ||
+                query.x() > std::max(p1.x(), p2.x()) + margin ||
+                query.y() < std::min(p1.y(), p2.y()) - margin ||
+                query.y() > std::max(p1.y(), p2.y()) + margin) {
+                continue;
+            }
+            if (project_distance(query, p1, p2) < TOLERANCE) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 std::double_t GeoPolygon::getArea() const {

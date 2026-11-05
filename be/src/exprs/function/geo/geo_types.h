@@ -218,7 +218,13 @@ protected:
     bool decode(const void* data, size_t size) override;
 
 private:
+    bool point_on_edge(const S2Point& point) const;
+
     std::unique_ptr<S2Polygon> _polygon;
+    // (lat, lng, 0) in degrees of every loop's vertices, for the point-on-edge check in
+    // contains(). Built on first use, so a polygon that is checked against many points converts
+    // its vertices only once.
+    mutable std::vector<std::vector<S2Point>> _loop_lat_lngs;
 };
 
 class GeoMultiPolygon : public GeoShape {
