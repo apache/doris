@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.ConnectContext.LifecycleState;
 import org.apache.doris.qe.ConnectPoolTestSupport;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.ConnectScheduler;
@@ -43,6 +42,9 @@ import org.xnio.conduits.ConduitStreamSourceChannel;
 
 import java.io.IOException;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class AcceptListenerTest {
     private boolean savedRunningUnitTest;
@@ -62,23 +64,34 @@ public class AcceptListenerTest {
     @Test
     public void testLoginResponseFailureUnregistersWithoutAChannelCallback() throws Exception {
         Env env = ConnectPoolTestSupport.envAllowing(10);
-        ConnectContext ctx = ConnectPoolTestSupport.mysqlConnection(env, UserIdentity.ROOT);
+        ConnectContext ctx = Mockito.spy(ConnectPoolTestSupport.mysqlConnection(env, UserIdentity.ROOT));
         ConnectScheduler scheduler = new ConnectScheduler(10);
         scheduler.submit(ctx);
         StreamConnection connection = Mockito.mock(StreamConnection.class);
         Mockito.when(connection.isOpen()).thenReturn(true);
+        AtomicBoolean listenerInstalled = new AtomicBoolean();
+        AtomicBoolean listenerAtResponse = new AtomicBoolean();
+        AtomicReference<ConnectContext> registrationAtResponse = new AtomicReference<>();
+        Mockito.doAnswer(call -> {
+            listenerInstalled.set(true);
+            return null;
+        }).when(connection).setCloseListener(Mockito.any());
         try (MockedStatic<MysqlProto> protocol = Mockito.mockStatic(MysqlProto.class)) {
             protocol.when(() -> MysqlProto.negotiate(ctx)).thenReturn(true);
             protocol.when(() -> MysqlProto.sendResponsePacket(ctx)).thenAnswer(call -> {
-                Assertions.assertSame(ctx, scheduler.getContext(ctx.getConnectionId()));
-                Mockito.verify(connection).setCloseListener(Mockito.any());
+                registrationAtResponse.set(scheduler.getContext(ctx.getConnectionId()));
+                listenerAtResponse.set(listenerInstalled.get());
                 throw new IOException("client disconnected during login response");
             });
             new AcceptListener(scheduler).handleConnection(ctx, connection);
         }
+        Assertions.assertSame(ctx, registrationAtResponse.get());
+        Assertions.assertTrue(listenerAtResponse.get());
+        Mockito.verify(connection).setCloseListener(Mockito.any());
         Assertions.assertEquals(0, scheduler.getConnectionNum());
-        Assertions.assertEquals(LifecycleState.CLOSED, ctx.getLifecycleState());
-        ctx.getCleanupCompletion().toCompletableFuture().join();
+        Assertions.assertFalse(ctx.tryBeginCommand());
+        Mockito.verify(ctx).releaseProtocolSession();
+        Mockito.verify(ctx).closeTxn();
         Assertions.assertNull(ConnectContext.get());
     }
 
@@ -100,8 +113,10 @@ public class AcceptListenerTest {
             currentEnv.when(Env::getCurrentEnv).thenReturn(env);
             protocol.when(() -> MysqlProto.sendResponsePacket(ctx)).thenThrow(new IOException("broken socket"));
             new AcceptListener(new ConnectScheduler(10)).handleEvent(channel);
-            Assertions.assertEquals(LifecycleState.CLOSED, ctx.getLifecycleState());
+            Assertions.assertFalse(ctx.tryBeginCommand());
             Mockito.verify(ctx).cleanup();
+            Mockito.verify(ctx).releaseProtocolSession();
+            Mockito.verify(ctx).closeTxn();
         }
     }
 
@@ -121,12 +136,19 @@ public class AcceptListenerTest {
         ConnectContext ctx = new ConnectContext(adapter);
         ctx.activate();
         ConnectProcessor processor = Mockito.mock(ConnectProcessor.class);
+        AtomicReference<ConnectContext> commandBinding = new AtomicReference<>();
+        AtomicBoolean transportClosed = new AtomicBoolean();
+        AtomicReference<Boolean> closedDuringCommand = new AtomicReference<>();
         Mockito.doAnswer(call -> {
-            Assertions.assertSame(ctx, ConnectContext.get());
+            transportClosed.set(true);
+            return null;
+        }).when(adapter).closeConnection(ctx);
+        Mockito.doAnswer(call -> {
+            commandBinding.set(ConnectContext.get());
             if (closeAfterResponse) {
                 ctx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
-                Mockito.verify(adapter, Mockito.never()).closeConnection(ctx);
             }
+            closedDuringCommand.set(transportClosed.get());
             throw new IOException("read or response write failed");
         }).when(processor).processOnce();
         ConduitStreamSourceChannel channel = Mockito.mock(ConduitStreamSourceChannel.class);
@@ -139,7 +161,9 @@ public class AcceptListenerTest {
         try (MockedStatic<XnioIoThread> ioThread = Mockito.mockStatic(XnioIoThread.class)) {
             new ReadListener(ctx, processor).handleEvent(channel);
         }
-        Assertions.assertEquals(LifecycleState.CLOSED, ctx.getLifecycleState());
+        Assertions.assertSame(ctx, commandBinding.get());
+        Assertions.assertEquals(Boolean.FALSE, closedDuringCommand.get());
+        Assertions.assertFalse(ctx.tryBeginCommand());
         Mockito.verify(adapter).closeConnection(ctx);
         Mockito.verify(adapter).releaseSession(ctx);
         Assertions.assertFalse(ctx.isClosingAfterResponse());
@@ -161,11 +185,13 @@ public class AcceptListenerTest {
         scheduler.submit(ctx);
         ctx.setConnectScheduler(scheduler);
         Assertions.assertEquals(-1, ctx.activateClientSession(scheduler.getConnectPoolMgr()));
+        AtomicInteger packetsAtClose = new AtomicInteger(-1);
+        AtomicBoolean flushedAtClose = new AtomicBoolean();
+        AtomicInteger connectionsAtClose = new AtomicInteger(-1);
         Mockito.doAnswer(call -> {
-            Assertions.assertEquals(1, mysqlChannel.getOutbound().size());
-            Assertions.assertTrue(mysqlChannel.getOutbound().get(0).isFlushed());
-            Assertions.assertEquals(LifecycleState.CLOSING, ctx.getLifecycleState());
-            Assertions.assertEquals(0, scheduler.getConnectionNum());
+            packetsAtClose.set(mysqlChannel.getOutbound().size());
+            flushedAtClose.set(mysqlChannel.getOutbound().stream().allMatch(packet -> packet.isFlushed()));
+            connectionsAtClose.set(scheduler.getConnectionNum());
             return null;
         }).when(mysqlChannel).close();
         ConduitStreamSourceChannel channel = Mockito.mock(ConduitStreamSourceChannel.class);
@@ -178,16 +204,20 @@ public class AcceptListenerTest {
         try (MockedStatic<XnioIoThread> ioThread = Mockito.mockStatic(XnioIoThread.class)) {
             new ReadListener(ctx, new MysqlConnectProcessor(ctx)).handleEvent(channel);
         }
-        ctx.getCleanupCompletion().toCompletableFuture().join();
-        Assertions.assertEquals(LifecycleState.CLOSED, ctx.getLifecycleState());
+        Assertions.assertFalse(ctx.tryBeginCommand());
+        // Assert outside cleanup callbacks: cleanup deliberately catches failures from its hooks.
+        Assertions.assertEquals(1, packetsAtClose.get());
+        Assertions.assertTrue(flushedAtClose.get());
+        Assertions.assertEquals(0, connectionsAtClose.get());
         Mockito.verify(mysqlChannel).close();
+        Mockito.verify(adapter).releaseSession(ctx);
         Mockito.verify(adapter, Mockito.never()).resumeAcceptQuery();
     }
 
     @Test
     public void testAlreadyClosedChannelCannotBeRegistered() {
-        ConnectContext ctx = ConnectPoolTestSupport.mysqlConnection(ConnectPoolTestSupport.envAllowing(10),
-                UserIdentity.ROOT);
+        ConnectContext ctx = Mockito.spy(ConnectPoolTestSupport.mysqlConnection(
+                ConnectPoolTestSupport.envAllowing(10), UserIdentity.ROOT));
         ConnectScheduler scheduler = new ConnectScheduler(10);
         scheduler.submit(ctx);
         StreamConnection connection = Mockito.mock(StreamConnection.class);
@@ -197,6 +227,8 @@ public class AcceptListenerTest {
             protocol.verifyNoInteractions();
         }
         Assertions.assertEquals(0, scheduler.getConnectionNum());
-        Assertions.assertEquals(LifecycleState.CLOSED, ctx.getLifecycleState());
+        Assertions.assertFalse(ctx.tryBeginCommand());
+        Mockito.verify(ctx).releaseProtocolSession();
+        Mockito.verify(ctx).closeTxn();
     }
 }

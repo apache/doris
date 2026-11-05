@@ -318,7 +318,9 @@ public class DorisFlightSqlProducerTest {
                         }
                         KillUtils.killByConnectionId(ctx, killConnection, ctx.getConnectionId());
                         Assertions.assertEquals(killConnection, ctx.isClosingOrClosed());
-                        Assertions.assertFalse(ctx.getCleanupCompletion().toCompletableFuture().isDone());
+                        if (killConnection) {
+                            Assertions.assertTrue(ctx.getFlightSqlChannel().getAllocatedMemory() > 0);
+                        }
                         return null;
                     }).when(mock).handleQuery(Mockito.anyString());
                 })) {
@@ -329,7 +331,7 @@ public class DorisFlightSqlProducerTest {
             if (killConnection) {
                 Assertions.assertTrue(info.getEndpoints().isEmpty());
                 Assertions.assertEquals(0, info.getRecords());
-                Assertions.assertEquals(ConnectContext.LifecycleState.CLOSED, ctx.getLifecycleState());
+                Assertions.assertFalse(ctx.tryBeginCommand());
                 Assertions.assertNull(scheduler.getContextWithPeerIdentity("self-kill-token"));
                 Assertions.assertEquals(0, ctx.getFlightSqlChannel().getAllocatedMemory());
                 // FlightService serializes the returned value after callCommand has released
@@ -346,7 +348,8 @@ public class DorisFlightSqlProducerTest {
                 Assertions.assertEquals(FlightStatusCode.UNAUTHENTICATED, error.status().code());
             } else {
                 Assertions.assertEquals(1, info.getEndpoints().size());
-                Assertions.assertEquals(ConnectContext.LifecycleState.ACTIVE, ctx.getLifecycleState());
+                Assertions.assertEquals("next command", FlightProtocolAdapter.of(ctx)
+                        .callCommand(ctx, () -> "next command"));
                 Assertions.assertSame(ctx, scheduler.getContextWithPeerIdentity("self-kill-token"));
                 Mockito.verify(running).cancel(Mockito.any(org.apache.doris.common.Status.class));
             }
@@ -752,16 +755,15 @@ public class DorisFlightSqlProducerTest {
                 rpcWorker.submit(() -> producer.closeSession(new CloseSessionRequest(),
                         callOf("close-token"), closed)).get(10, TimeUnit.SECONDS);
                 Assertions.assertEquals(CloseSessionResult.Status.CLOSED, closed.single().getStatus());
-                Assertions.assertEquals(ConnectContext.LifecycleState.CLOSING, ctx.getLifecycleState());
+                Assertions.assertFalse(ctx.tryBeginCommand());
                 Assertions.assertFalse(ctx.isClosingAfterResponse());
-                Assertions.assertFalse(ctx.getCleanupCompletion().toCompletableFuture().isDone());
                 Assertions.assertTrue(ctx.getFlightSqlChannel().getAllocatedMemory() > 0);
                 Mockito.verify(running).cancel(Mockito.any(org.apache.doris.common.Status.class), Mockito.eq(false));
                 FlightRuntimeException error = Assertions.assertThrows(FlightRuntimeException.class,
                         () -> sessions.getConnectContext("close-token"));
                 Assertions.assertEquals(FlightStatusCode.UNAUTHENTICATED, error.status().code());
             });
-            Assertions.assertEquals(ConnectContext.LifecycleState.CLOSED, ctx.getLifecycleState());
+            Assertions.assertFalse(ctx.tryBeginCommand());
             Assertions.assertEquals(0, ctx.getFlightSqlChannel().getAllocatedMemory());
         } finally {
             rpcWorker.shutdownNow();
