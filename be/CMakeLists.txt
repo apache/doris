@@ -613,11 +613,12 @@ include_directories(
     ${CMAKE_CURRENT_BINARY_DIR}/apache-orc/c++/include
 )
 
+# Not contribs-lib: only the BE UT links clucene-contribs-lib (TEST_LINK_LIBS), so its headers are
+# on doris_be_test's include path alone (be/test/CMakeLists.txt).
 include_directories(
     ${CMAKE_CURRENT_BINARY_DIR}/clucene/src/shared
     ${CONTRIB_PATH}/clucene/src/core
     ${CONTRIB_PATH}/clucene/src/shared
-    ${CONTRIB_PATH}/clucene/src/contribs-lib
 )
 
 include_directories(
@@ -777,7 +778,6 @@ set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} orc)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ic)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-core-static)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-shared-static)
-set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-contribs-lib)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} h3)
 
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${WL_END_GROUP})
@@ -911,9 +911,12 @@ else()
     endif()
 endif()
 
-# Set libraries for test
+# Set libraries for test. clucene-contribs-lib holds CLucene's LanguageBasedAnalyzer, the oracle
+# the jieba live differential (JiebaTokenizerTest, AnalysisDifferential) compares JiebaTokenizer
+# with; doris_be does not link it.
 set (TEST_LINK_LIBS ${DORIS_LINK_LIBS}
     ${WL_START_GROUP}
+    clucene-contribs-lib
     gmock
     gtest
     ${WL_END_GROUP}

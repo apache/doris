@@ -15,9 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// The two adapters between the CLucene analysis interfaces and the TextAnalyzer interface:
-// LuceneBackedTextAnalyzer, a CLucene analyzer for the new consumers, and LuceneAnalyzerBridge, a
-// TextAnalyzer for the V1 and V2 writers.
+// LuceneAnalyzerBridge, the adapter that puts a TextAnalyzer behind the CLucene analysis interfaces
+// for the V1 and V2 writers.
 
 #include <CLucene.h>
 #include <fmt/format.h>
@@ -32,7 +31,6 @@
 #include <utility>
 #include <vector>
 
-#include "CLucene/analysis/standard95/StandardAnalyzer.h"
 #include "common/exception.h"
 #include "common/status.h"
 #include "io/fs/local_file_system.h"
@@ -41,7 +39,6 @@
 #include "storage/index/inverted/analysis/text_stream_contract.h"
 #include "storage/index/inverted/clucene/inverted_index_writer.h"
 #include "storage/index/inverted/clucene/lucene_analyzer_bridge.h"
-#include "storage/index/inverted/clucene/lucene_backed_text_analyzer.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/tablet/tablet_schema.h"
 #include "testutil/tmp_file_dirs_util.h"
@@ -61,13 +58,6 @@ std::string words(size_t count) {
         text += fmt::format("w{} ", i);
     }
     return text;
-}
-
-std::string read_all(lucene::util::Reader* reader) {
-    const char* start = nullptr;
-    const int32_t length = reader->read(reinterpret_cast<const void**>(&start), 0,
-                                        static_cast<int32_t>(reader->size()));
-    return length > 0 ? std::string(start, length) : std::string();
 }
 
 // A word of a script value: words are separated by spaces, "_" is an empty term, a leading '^'
@@ -101,58 +91,6 @@ bool next_script_word(std::string_view text, size_t* position, ScriptWord* word)
     word->term = term == "_" ? term.substr(0, 0) : term;
     return true;
 }
-
-// A CLucene stream over a script value; "!" throws a CLuceneError.
-class ScriptedLuceneStream final : public lucene::analysis::TokenStream {
-public:
-    explicit ScriptedLuceneStream(std::string text) : _text(std::move(text)) {}
-
-    lucene::analysis::Token* next(lucene::analysis::Token* token) override {
-        ScriptWord word;
-        if (!next_script_word(_text, &_position, &word)) {
-            return nullptr;
-        }
-        if (word.fails) {
-            _CLTHROWA(CL_ERR_IO, "scripted CLucene failure");
-        }
-        token->setTextNoCopy(word.term.data(), static_cast<int32_t>(word.term.size()));
-        token->setPositionIncrement(word.position_increment);
-        return token;
-    }
-
-    void close() override {}
-
-private:
-    const std::string _text;
-    size_t _position = 0;
-};
-
-// A CLucene analyzer of script values; the value "!!" makes tokenStream() itself throw.
-class ScriptedLuceneAnalyzer final : public lucene::analysis::Analyzer {
-public:
-    bool isSDocOpt() override { return true; }
-
-    lucene::analysis::TokenStream* tokenStream(const TCHAR*, const ReaderPtr& reader) override {
-        std::string text = read_all(reader.get());
-        if (text == "!!") {
-            _CLTHROWA(CL_ERR_IO, "scripted CLucene failure in tokenStream");
-        }
-        return new ScriptedLuceneStream(std::move(text));
-    }
-
-    lucene::analysis::TokenStream* tokenStream(const TCHAR*, lucene::util::Reader*) override {
-        throw Exception(ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, "not used");
-    }
-
-    lucene::analysis::TokenStream* reusableTokenStream(const TCHAR*,
-                                                       lucene::util::Reader*) override {
-        throw Exception(ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, "not used");
-    }
-
-    lucene::analysis::TokenStream* reusableTokenStream(const TCHAR*, const ReaderPtr&) override {
-        throw Exception(ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, "not used");
-    }
-};
 
 // A native stream over a script value, handing out views of it; "!" throws a doris::Exception
 // from next_batch(), and a value starting with "!reset" throws from reset().
@@ -228,49 +166,6 @@ int thrown_code(const std::function<void()>& body) {
 }
 
 } // namespace
-
-TEST(LuceneBackedTextAnalyzerTest, HandsOutTheCLuceneTokens) {
-    const LuceneBackedTextAnalyzer analyzer(std::make_shared<ScriptedLuceneAnalyzer>());
-    const auto stream = analyzer.create_stream();
-    EXPECT_EQ(collect_checked(*stream, "a ^b _ c"), kScriptTokens);
-    EXPECT_EQ(stream->reserved_bytes(), 0);
-
-    TokenBatch batch;
-    std::vector<size_t> sizes;
-    const std::string long_text = words(1000);
-    stream->reset(long_text);
-    while (stream->next_batch(batch)) {
-        sizes.push_back(batch.size());
-    }
-    EXPECT_EQ(sizes, (std::vector<size_t> {256, 256, 256, 232}));
-}
-
-TEST(LuceneBackedTextAnalyzerTest, CLuceneErrorsComeOutAsDorisExceptions) {
-    const LuceneBackedTextAnalyzer analyzer(std::make_shared<ScriptedLuceneAnalyzer>());
-    const auto stream = analyzer.create_stream();
-    TokenBatch batch;
-    EXPECT_EQ(thrown_code([&] {
-                  stream->reset("a b !");
-                  while (stream->next_batch(batch)) {
-                  }
-              }),
-              ErrorCode::INVERTED_INDEX_ANALYZER_ERROR);
-    EXPECT_EQ(thrown_code([&] { stream->reset("!!"); }), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR);
-    // The next value starts over.
-    EXPECT_EQ(collect_checked(*stream, "c"), (Tokens {{.term = "c", .position_increment = 1}}));
-}
-
-TEST(LuceneBackedTextAnalyzerTest, KeepsTheTextStreamContract) {
-    const LuceneBackedTextAnalyzer scripted(std::make_shared<ScriptedLuceneAnalyzer>());
-    expect_text_stream_contract([&] { return scripted.create_stream(); },
-                                {"a ^b _ c", words(1000), words(256), "x"});
-    // A real CLucene analyzer behind the adapter: the standard one, which the builtin standard
-    // parser used before it had a tokenizer of its own.
-    const LuceneBackedTextAnalyzer standard(
-            std::make_shared<lucene::analysis::standard95::StandardAnalyzer>());
-    expect_text_stream_contract([&] { return standard.create_stream(); },
-                                {"The Quick brown fox", words(1000), "中文 mixed 文本", "x"});
-}
 
 TEST(LuceneAnalyzerBridgeTest, HandsOutTheTokensOfTheTextAnalyzer) {
     LuceneAnalyzerBridge bridge(std::make_shared<ScriptedTextAnalyzer>());
