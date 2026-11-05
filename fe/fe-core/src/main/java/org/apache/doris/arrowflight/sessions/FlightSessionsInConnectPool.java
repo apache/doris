@@ -18,6 +18,7 @@
 package org.apache.doris.arrowflight.sessions;
 
 import org.apache.doris.arrowflight.auth2.FlightAuthResult;
+import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
 import org.apache.doris.common.util.TokenMasker;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectPoolMgr;
@@ -66,28 +67,27 @@ public class FlightSessionsInConnectPool implements FlightSessionsManager {
         final String token = newToken();
         ConnectContext connectContext = FlightSessionsManager.buildConnectContext(token,
                 authResult.getUserIdentity(), authResult.getRemoteIp(), connectScheduler);
-        boolean opened = false;
-        try {
-            connectScheduler.submit(connectContext);
-            ConnectPoolMgr pool = connectScheduler.getConnectPoolMgr();
-            int res = connectContext.activateClientSession(pool);
-            if (res >= 0) {
-                String errMsg = pool.limitReachedMessage(connectContext, res);
-                LOG.warn("refuse arrow flight sql session, user: {}, remote: {}: {}",
-                        connectContext.getQualifiedUser(), connectContext.getRemoteHostPortString(), errMsg);
-                throw CallStatus.RESOURCE_EXHAUSTED.withDescription(errMsg).toRuntimeException();
-            }
-            // A token is a credential: log its masked id only.
-            LOG.info("open arrow flight sql session, connection id: {}, user: {}, remote: {}, token id: {}",
-                    connectContext.getConnectionId(), connectContext.getQualifiedUser(),
-                    connectContext.getRemoteHostPortString(), TokenMasker.tokenId(token));
-            opened = true;
-            return token;
-        } finally {
-            if (!opened) {
+        return FlightProtocolAdapter.of(connectContext).callCommand(connectContext, () -> {
+            try {
+                connectScheduler.submit(connectContext);
+                ConnectPoolMgr pool = connectScheduler.getConnectPoolMgr();
+                int res = connectContext.registerClientSession(pool);
+                if (res >= 0) {
+                    String errMsg = pool.limitReachedMessage(connectContext, res);
+                    LOG.warn("refuse arrow flight sql session, user: {}, remote: {}: {}",
+                            connectContext.getQualifiedUser(), connectContext.getRemoteHostPortString(), errMsg);
+                    throw CallStatus.RESOURCE_EXHAUSTED.withDescription(errMsg).toRuntimeException();
+                }
+                // A token is a credential: log its masked id only.
+                LOG.info("open arrow flight sql session, connection id: {}, user: {}, remote: {}, token id: {}",
+                        connectContext.getConnectionId(), connectContext.getQualifiedUser(),
+                        connectContext.getRemoteHostPortString(), TokenMasker.tokenId(token));
+                return token;
+            } catch (Throwable failure) {
                 connectContext.cleanup();
+                throw failure;
             }
-        }
+        });
     }
 
     @Override

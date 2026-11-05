@@ -24,6 +24,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.DelegatedCredential;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlResultSetEndPacket;
@@ -53,6 +54,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * FEOpExecutor is used to send request to specific FE
@@ -61,14 +63,19 @@ public class FEOpExecutor {
     private static final Logger LOG = LogManager.getLogger(FEOpExecutor.class);
 
     protected static final float RPC_TIMEOUT_COEFFICIENT = 1.2f;
+    private static final TMasterOpRequest CANCELLED_BEFORE_FORWARD = new TMasterOpRequest();
 
     protected final OriginStatement originStmt;
     protected final ConnectContext ctx;
+    protected final Env env;
     protected TMasterOpResult result;
-    // A cancel RPC replaces result with a response that has no query participants. Keep the
-    // statement's dispatched BEs until audit has consumed them.
+    // Keep the statement's dispatched BEs until audit has consumed them.
     private volatile Set<Long> auditStatisticsBackendIds = Collections.emptySet();
-    protected TNetworkAddress feAddr;
+    protected final TNetworkAddress feAddr;
+
+    // Publication belongs to execute(), after the query identity has been assigned. An earlier
+    // cancel installs the sentinel instead, preventing the statement from being forwarded.
+    private final AtomicReference<TMasterOpRequest> cancellationRequest = new AtomicReference<>();
 
     // the total time of thrift connectTime, readTime and writeTime
     protected int thriftTimeoutMs;
@@ -77,9 +84,10 @@ public class FEOpExecutor {
     protected boolean moreStmtExists = false;
 
     public FEOpExecutor(TNetworkAddress feAddress, OriginStatement originStmt, ConnectContext ctx, boolean isQuery) {
-        this.feAddr = feAddress;
+        this.feAddr = feAddress.deepCopy();
         this.originStmt = originStmt;
         this.ctx = ctx;
+        this.env = ctx.getEnv();
         this.thriftTimeoutMs = (int) (ctx.getExecTimeoutS() * 1000 * RPC_TIMEOUT_COEFFICIENT);
         // if isQuery=false, we shouldn't retry twice when catch exception because of Idempotency
         this.shouldNotRetry = !isQuery;
@@ -87,7 +95,24 @@ public class FEOpExecutor {
 
     public void execute() throws Exception {
         auditStatisticsBackendIds = Collections.emptySet();
-        result = forward(buildStmtForwardParams());
+        TMasterOpRequest request = buildStmtForwardParams();
+        TMasterOpRequest cancelRequest = new TMasterOpRequest();
+        cancelRequest.setCancelQeury(true);
+        if (request.isSetQueryId()) {
+            cancelRequest.setQueryId(request.getQueryId().deepCopy());
+        }
+        cancelRequest.setDb(request.getDb());
+        cancelRequest.setUser(request.getUser());
+        cancelRequest.setStmtId(request.getStmtId());
+        cancelRequest.setClientNodeHost(request.getClientNodeHost());
+        cancelRequest.setClientNodePort(request.getClientNodePort());
+        cancelRequest.setSql("");
+        if (!cancellationRequest.compareAndSet(null, cancelRequest)) {
+            Preconditions.checkState(cancellationRequest.get() == CANCELLED_BEFORE_FORWARD,
+                    "A forwarded statement can only be executed once");
+            throw new UserException("Query was cancelled before forwarding");
+        }
+        result = forward(request);
         rememberAuditStatisticsBackendIds();
         if (ctx.isTxnModel()) {
             if (result.isSetTxnLoadInfo()) {
@@ -103,22 +128,23 @@ public class FEOpExecutor {
     }
 
     public void cancel() throws Exception {
-        TUniqueId queryId = ctx.queryId();
-        if (queryId == null) {
-            return;
+        cancelForwardedQuery();
+    }
+
+    /**
+     * Cancel only the statement this executor dispatched, even after its session has started the
+     * next one. The private snapshot is never passed to a client or read from the context again.
+     * A cancellation response is separate from the statement response and its audit information.
+     */
+    protected TMasterOpResult cancelForwardedQuery() throws Exception {
+        if (cancellationRequest.compareAndSet(null, CANCELLED_BEFORE_FORWARD)) {
+            return null;
         }
-        Preconditions.checkNotNull(feAddr, "query with id %s is not forwarded to fe", queryId);
-        TMasterOpRequest request = new TMasterOpRequest();
-        request.setCancelQeury(true);
-        request.setQueryId(queryId);
-        request.setDb(ctx.getDatabase());
-        request.setUser(ctx.getQualifiedUser());
-        request.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
-        request.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
-        // just make the protocol happy
-        request.setSql("");
-        rememberAuditStatisticsBackendIds();
-        result = forward(request);
+        TMasterOpRequest request = cancellationRequest.get();
+        if (request == CANCELLED_BEFORE_FORWARD || !request.isSetQueryId()) {
+            return null;
+        }
+        return forward(request.deepCopy());
     }
 
     private void rememberAuditStatisticsBackendIds() {
@@ -129,7 +155,7 @@ public class FEOpExecutor {
 
     // Send request to specific fe
     protected TMasterOpResult forward(TMasterOpRequest params) throws Exception {
-        ctx.getEnv().checkReadyOrThrow();
+        env.checkReadyOrThrow();
 
         FrontendService.Client client;
         try {
@@ -140,7 +166,7 @@ public class FEOpExecutor {
         }
         final StringBuilder forwardMsg = new StringBuilder("forward to master FE " + feAddr.toString());
         if (!params.isSyncJournalOnly()) {
-            forwardMsg.append(", statement id: ").append(ctx.getStmtId());
+            forwardMsg.append(", statement id: ").append(params.getStmtId());
         }
         LOG.info(forwardMsg.toString());
 

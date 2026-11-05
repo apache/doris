@@ -24,7 +24,6 @@ import org.apache.doris.mysql.ProxyProtocolHandler.ProtocolType;
 import org.apache.doris.mysql.ProxyProtocolHandler.ProxyProtocolResult;
 import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.qe.MysqlConnectProcessor;
 
@@ -85,8 +84,10 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                 channel.getWorker().execute(() -> handleConnection(context, connection));
                 dispatched = true;
             } catch (RejectedExecutionException e) {
-                context.getState().setError(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS, "Too many connections");
-                MysqlProto.sendResponsePacket(context);
+                context.runCommand(() -> {
+                    context.getState().setError(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS, "Too many connections");
+                    MysqlProto.sendResponsePacket(context);
+                });
             } finally {
                 // Sending the refusal can itself fail; it does not own cleanup responsibility.
                 if (!dispatched) {
@@ -100,9 +101,17 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
 
     @VisibleForTesting
     public void handleConnection(ConnectContext context, StreamConnection connection) {
-        if (!context.beginInitialization()) {
-            return;
+        try {
+            context.runCommand(() -> initializeConnection(context, connection),
+                    () -> MysqlProtocolAdapter.of(context).startAcceptQuery(context,
+                            new MysqlConnectProcessor(context)));
+        } catch (Throwable failure) {
+            LOG.warn("Failed to start reading from MySQL connection {}", context, failure);
+            context.cleanup();
         }
+    }
+
+    private void initializeConnection(ConnectContext context, StreamConnection connection) {
         try {
             connection.setCloseListener(streamConnection -> context.cleanup());
             // XNIO need not replay a close that preceded listener installation.
@@ -110,8 +119,6 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                 context.cleanup();
                 return;
             }
-            // Set thread local info
-            context.setThreadLocalInfo();
             context.setConnectScheduler(connectScheduler);
 
             if (Config.enable_proxy_protocol) {
@@ -139,7 +146,7 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
             context.setUserQueryTimeout(userQueryTimeout);
             context.setUserInsertTimeout(
                     context.getEnv().getAuth().getInsertTimeout(context.getQualifiedUser()));
-            int res = context.activateClientSession(connectScheduler.getConnectPoolMgr());
+            int res = context.registerClientSession(connectScheduler.getConnectPoolMgr());
             if (res == -1) {
                 MysqlProto.sendResponsePacket(context);
             } else {
@@ -152,8 +159,6 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                 MysqlProto.sendResponsePacket(context);
                 throw new AfterConnectedException(errMsg);
             }
-            ConnectProcessor processor = new MysqlConnectProcessor(context);
-            MysqlProtocolAdapter.of(context).startAcceptQuery(context, processor);
         } catch (AfterConnectedException e) {
             // do not need to print log for this kind of exception.
             // just clean up the context;
@@ -173,12 +178,6 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
             }
             LOG.warn("connect processor exception because ", e);
             context.cleanup();
-        } finally {
-            try {
-                context.endOperation();
-            } finally {
-                ConnectContext.remove();
-            }
         }
     }
 

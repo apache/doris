@@ -79,7 +79,6 @@ public class FlightSqlDeferredQueryIdleTimeoutTest {
     // A Flight session that ran a query and has been sleeping since; the client never closed it.
     private static ConnectContext sleepingFlightSession() {
         ConnectContext ctx = ConnectContext.forFlight("test-peer-identity");
-        ctx.activate();
         ctx.setCommand(MysqlCommand.COM_SLEEP);
         ctx.setStartTime();
         return ctx;

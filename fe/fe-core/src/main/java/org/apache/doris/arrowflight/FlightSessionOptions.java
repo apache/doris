@@ -85,7 +85,7 @@ public final class FlightSessionOptions {
      * could not be set; an option absent from the result was set. {@code catalog} goes first and
      * {@code schema} second, since {@code USE} names a database of the current catalog; the others
      * follow in name order, so that a request applies the same way every time. Runs as a command of
-     * the session, under its command lock.
+     * the session, while holding its execution ownership.
      */
     public static Map<String, SetSessionOptionsResult.Error> set(ConnectContext ctx,
             Map<String, SessionOptionValue> options) {
