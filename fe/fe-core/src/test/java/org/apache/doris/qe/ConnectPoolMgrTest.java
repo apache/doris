@@ -42,9 +42,13 @@ public class ConnectPoolMgrTest {
     private static final UserIdentity BOB = UserIdentity.createAnalyzedUserIdentWithIp("bob", "%");
     private static final UserIdentity CAROL = UserIdentity.createAnalyzedUserIdentWithIp("carol", "%");
 
+    private static int register(ConnectPoolMgr pool, ConnectContext ctx) {
+        return pool.registerConnection(ctx, ctx.getEnv().getAuth().getMaxConn(ctx.getQualifiedUser()));
+    }
+
     private static ConnectContext registered(ConnectPoolMgr pool, ConnectContext ctx, int connectionId) {
         ctx.setConnectionId(connectionId);
-        Assertions.assertEquals(-1, pool.registerConnection(ctx));
+        Assertions.assertEquals(-1, register(pool, ctx));
         return ctx;
     }
 
@@ -61,9 +65,9 @@ public class ConnectPoolMgrTest {
 
         // The third connection is refused whichever protocol it speaks, with the count it was refused at,
         // and a refused registration changes no count: not the pool's, not the Flight share, not the user's.
-        Assertions.assertEquals(2, pool.registerConnection(ConnectPoolTestSupport.mysqlConnection(env, ALICE)));
+        Assertions.assertEquals(2, register(pool, ConnectPoolTestSupport.mysqlConnection(env, ALICE)));
         Assertions.assertEquals(2,
-                pool.registerConnection(ConnectPoolTestSupport.flightSession(env, ALICE, "token-3")));
+                register(pool, ConnectPoolTestSupport.flightSession(env, ALICE, "token-3")));
         Assertions.assertEquals(2, pool.getConnectionNum());
         Assertions.assertEquals(1, pool.getFlightConnectionNum());
         Assertions.assertEquals(1, pool.getUserConnectionMap().get(ALICE.getQualifiedUser()).get());
@@ -78,7 +82,7 @@ public class ConnectPoolMgrTest {
         Assertions.assertEquals(1, pool.getConnectionNum());
         Assertions.assertEquals(1, pool.getFlightConnectionNum());
         Assertions.assertEquals(-1,
-                pool.registerConnection(ConnectPoolTestSupport.flightSession(env, ALICE, "token-3")));
+                register(pool, ConnectPoolTestSupport.flightSession(env, ALICE, "token-3")));
         Assertions.assertEquals(2, pool.getFlightConnectionNum());
     }
 
@@ -89,7 +93,7 @@ public class ConnectPoolMgrTest {
 
         registered(pool, ConnectPoolTestSupport.mysqlConnection(env, ALICE), 1);
         // Alice's one connection is taken by MySQL: her Flight session is refused...
-        Assertions.assertEquals(1, pool.registerConnection(ConnectPoolTestSupport.flightSession(env, ALICE, "a")));
+        Assertions.assertEquals(1, register(pool, ConnectPoolTestSupport.flightSession(env, ALICE, "a")));
         // ...and nothing of the refused registration lingers: not in the pool, not counted anywhere.
         Assertions.assertEquals(1, pool.getConnectionNum());
         Assertions.assertEquals(0, pool.getFlightConnectionNum());
@@ -106,7 +110,7 @@ public class ConnectPoolMgrTest {
         Assertions.assertEquals(1, pool.getFlightMaxConnections());
 
         registered(pool, ConnectPoolTestSupport.flightSession(env, ALICE, "a"), 1);
-        Assertions.assertEquals(1, pool.registerConnection(ConnectPoolTestSupport.flightSession(env, BOB, "b")));
+        Assertions.assertEquals(1, register(pool, ConnectPoolTestSupport.flightSession(env, BOB, "b")));
         Assertions.assertEquals(1, pool.getConnectionNum());
         Assertions.assertEquals(1, pool.getFlightConnectionNum());
         // MySQL connections are not held to the Flight sub-quota.
@@ -133,7 +137,7 @@ public class ConnectPoolMgrTest {
         for (int i = 1; i <= 5; i++) {
             registered(pool, ConnectPoolTestSupport.flightSession(env, ALICE, "token-" + i), i);
         }
-        Assertions.assertEquals(5, pool.registerConnection(ConnectPoolTestSupport.flightSession(env, BOB, "b")));
+        Assertions.assertEquals(5, register(pool, ConnectPoolTestSupport.flightSession(env, BOB, "b")));
         registered(pool, ConnectPoolTestSupport.mysqlConnection(env, BOB), 6);
         Assertions.assertEquals(6, pool.getConnectionNum());
         Assertions.assertEquals(5, pool.getFlightConnectionNum());
@@ -256,13 +260,13 @@ public class ConnectPoolMgrTest {
         ConnectPoolMgr pool = new ConnectPoolMgr(1);
         Assertions.assertEquals(0, pool.getFlightMaxConnections());
 
-        Assertions.assertTrue(pool.registerConnection(ConnectPoolTestSupport.flightSession(env, ALICE, "t")) >= 0,
+        Assertions.assertTrue(register(pool, ConnectPoolTestSupport.flightSession(env, ALICE, "t")) >= 0,
                 "a Flight session must be refused when the sub-quota is 0");
         Assertions.assertEquals(0, pool.getFlightConnectionNum());
         Assertions.assertNull(pool.getContextWithPeerIdentity("t"));
 
         // The one pool slot is still open to a MySQL connection.
-        Assertions.assertEquals(-1, pool.registerConnection(ConnectPoolTestSupport.mysqlConnection(env, BOB)));
+        Assertions.assertEquals(-1, register(pool, ConnectPoolTestSupport.mysqlConnection(env, BOB)));
         Assertions.assertEquals(1, pool.getConnectionNum());
     }
 
@@ -300,13 +304,13 @@ public class ConnectPoolMgrTest {
         ConnectContext fitting = ConnectPoolTestSupport.mysqlConnection(env, BOB);
         fitting.setConnectionId(3);
 
-        Thread frozenThread = new Thread(() -> pool.registerConnection(frozen));
+        Thread frozenThread = new Thread(() -> register(pool, frozen));
         frozenThread.start();
         Assertions.assertTrue(frozenInGetMaxConn.await(10, TimeUnit.SECONDS),
                 "the frozen attempt never reached getMaxConn");
 
         AtomicInteger fittingResult = new AtomicInteger(Integer.MIN_VALUE);
-        Thread fittingThread = new Thread(() -> fittingResult.set(pool.registerConnection(fitting)));
+        Thread fittingThread = new Thread(() -> fittingResult.set(register(pool, fitting)));
         fittingThread.start();
         fittingThread.join();
         Assertions.assertEquals(-1, fittingResult.get(),
@@ -315,4 +319,19 @@ public class ConnectPoolMgrTest {
         releaseFrozen.countDown();
         frozenThread.join();
     }
+
+    @Test
+    public void testUnregisterAfterChangeUserStillReleasesPoolSlot() {
+        Env env = ConnectPoolTestSupport.envAllowing(100);
+        ConnectPoolMgr pool = new ConnectPoolMgr(1);
+        ConnectContext ctx = registered(pool, ConnectPoolTestSupport.mysqlConnection(env, ALICE), 1);
+        // Match COM_CHANGE_USER: authentication changes the context identity without registering again.
+        ctx.setCurrentUserIdentity(BOB);
+        Assertions.assertFalse(pool.getUserConnectionMap().containsKey(BOB.getQualifiedUser()));
+        pool.unregisterConnection(ctx);
+        Assertions.assertNull(pool.getContext(1));
+        Assertions.assertEquals(0, pool.getConnectionNum());
+        Assertions.assertEquals(-1, register(pool, ConnectPoolTestSupport.mysqlConnection(env, CAROL)));
+    }
+
 }

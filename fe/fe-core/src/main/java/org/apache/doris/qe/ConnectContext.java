@@ -188,7 +188,8 @@ import javax.annotation.Nullable;
  * <h2>Concurrency boundaries</h2>
  * Close intent, execution ownership, the pending finalizer, registration and idle-expiry decisions
  * share lifecycleLock. Lock order is lifecycleLock then the pool's admissionLock; pool changes only
- * update local indexes and quotas. Cancellation and resource release run outside both locks. The
+ * update local indexes and quotas. User-property lookups run outside lifecycleLock; timeout checks
+ * revalidate the observed statement after the lookup. Cancellation and resource release run outside both locks. The
  * MySQL idle action is exclusively a short read-scheduling operation under the handoff lock; it must
  * neither block nor run request code inline. No old request accesses session resources after handoff.
  *
@@ -1185,12 +1186,15 @@ public class ConnectContext {
 
     /** Registers a configured client session; returns -1 on success, or the refused quota count. */
     public int registerClientSession(ConnectPoolMgr pool) {
+        // Auth properties can wait on metadata locks or an external directory. Closure must remain
+        // able to interrupt initialization while this lookup is outstanding.
+        long userLimit = getEnv().getAuth().getMaxConn(getQualifiedUser());
         synchronized (lifecycleLock) {
             if (closeIntent != CloseIntent.OPEN) {
                 throw new SessionClosedException();
             }
             Preconditions.checkState(registeredPool == null, "Session is already registered");
-            int result = pool.registerConnection(this);
+            int result = pool.registerConnection(this, userLimit);
             if (result == -1) {
                 registeredPool = pool;
                 refreshStartTime();
@@ -1756,6 +1760,7 @@ public class ConnectContext {
     public void checkTimeout(long now) {
         boolean idleClose = false;
         StmtExecutor timedOut = null;
+        long queryStartTime = 0;
         synchronized (lifecycleLock) {
             if (closeIntent == CloseIntent.STOPPING || startTime <= 0) {
                 return;
@@ -1773,9 +1778,9 @@ public class ConnectContext {
                     idleClose = requestCloseLocked(CloseMode.IMMEDIATE);
                     timedOut = executor;
                 }
-            } else if (delta > getExecTimeoutS() * 1000L) {
-                // Cancel the executor observed here, never one installed by a later statement.
+            } else {
                 timedOut = executor;
+                queryStartTime = startTime;
             }
         }
         if (idleClose) {
@@ -1783,14 +1788,28 @@ public class ConnectContext {
                     getConnectType(), connectionId, sessionVariable.getWaitTimeoutS());
             interruptAndPublishFinalizer(timedOut);
         } else if (timedOut != null) {
-            LOG.warn("cancel timeout query for connection {}, connection type: {}", connectionId, getConnectType());
-            timedOut.cancel(new Status(TStatusCode.TIMEOUT, "query is timeout, killed by timeout checker"), false);
+            cancelIfQueryTimedOut(now, timedOut, queryStartTime);
         } else if (protocolAdapter instanceof FlightProtocolAdapter) {
             runIdleMaintenance(() -> {
                 ((FlightProtocolAdapter) protocolAdapter).expirePendingResults();
                 reapIdleFlightSqlDeferredExecutors(now);
             });
         }
+    }
+
+    private void cancelIfQueryTimedOut(long now, StmtExecutor observed, long queryStartTime) {
+        // This can acquire Auth locks or access LDAP. Do not prevent closure while waiting for it.
+        int timeoutS = getExecTimeoutS();
+        synchronized (lifecycleLock) {
+            // A different statement can start during the lookup. Its kind, session overrides and
+            // deadline may differ, so leave it to the next tick instead of applying this timeout.
+            if (closeIntent == CloseIntent.STOPPING || executor != observed || startTime != queryStartTime
+                    || command == MysqlCommand.COM_SLEEP || now - queryStartTime <= timeoutS * 1000L) {
+                return;
+            }
+        }
+        LOG.warn("cancel timeout query for connection {}, connection type: {}", connectionId, getConnectType());
+        observed.cancel(new Status(TStatusCode.TIMEOUT, "query is timeout, killed by timeout checker"), false);
     }
 
     // Helper to dump connection information.

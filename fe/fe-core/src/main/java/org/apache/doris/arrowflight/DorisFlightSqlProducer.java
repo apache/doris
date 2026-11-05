@@ -249,9 +249,9 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
 
     private ExecutedQuery executeQueryStatement(String peerIdentity, ConnectContext connectContext, String query,
             final FlightDescriptor descriptor) {
-        Preconditions.checkState(null != connectContext);
-        Preconditions.checkState(!query.isEmpty());
         try {
+            Preconditions.checkState(null != connectContext);
+            Preconditions.checkState(!query.isEmpty());
             // Drops what the previous request left on the session: its deferred coordinator (Arrow
             // Flight keeps it alive across GetFlightInfo -> DoGet so the BE can fetch external-table
             // splits during DoGet, and by now that DoGet is done, #62259), a result no
@@ -264,7 +264,6 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                 }
 
                 StmtExecutor executor = connectContext.getExecutor();
-
                 if (connectContext.isReturnResultFromLocal()) {
                     // set/use etc. stmt returns an OK result by default.
                     if (connectContext.getFlightSqlChannel().resultNum() == 0) {
@@ -359,7 +358,9 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             String errMsg = "get flight info statement failed, " + e.getMessage() + ", " + Util.getRootCauseMessage(e)
                     + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
                     + connectContext.getState().getErrorMessage();
-            discardFailedQuery(connectContext, errMsg);
+            connectContext.cancelFlightSqlDeferredExecutors(new Status(TStatusCode.CANCELLED, errMsg));
+            // No ticket was returned for any cached result or endpoints either.
+            FlightProtocolAdapter.of(connectContext).beginRequest();
             LOG.error(errMsg, e);
             throw queryFailure(connectContext.getState(), errMsg, e);
         } finally {
@@ -416,53 +417,41 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         // what the previous request left is dropped before them, as executeQueryStatement does for a statement
         // (which then finds nothing left). Prepare and GetSchema are metadata requests and leave it.
         FlightProtocolAdapter.of(connectContext).beginRequest();
-        try {
-            PreparedQuery prepared = preparedQuery(connectContext, preparedStatementId);
-            if (prepared.getSchema() == null) {
-                // Prepare could not tell this statement's result schema and advertised the placeholder, so
-                // its executions have no schema to be checked against.
-                return executeQueryStatement(peerIdentity, connectContext, prepared.getSql(), descriptor).info;
-            }
-            Schema schema = checkPreparedSchema(connectContext, preparedStatementId, prepared);
-            ExecutedQuery executed = executeQueryStatement(peerIdentity, connectContext, prepared.getSql(), descriptor);
-            // Another session's DDL can change the result after reanalysis but before execution
-            // acquires table locks. Reject the actual schema before publishing a DoGet ticket.
-            boolean matches = executed.resultFromLocal
-                    // A frontend-side result is a header of nullable strings, exactly as Prepare advertised it.
-                    ? schema.equals(executed.info.getSchema())
-                    // BE labels may carry the SQL text of an expression or a TVF prefix, and constant folding
-                    // can narrow nullability: compare the final planner's labels and the positional types.
-                    : FlightSqlQuerySchema.matchesExecutionSchema(schema, executed.info.getSchema(),
-                            ((LogicalPlanAdapter) executed.executor.getParsedStmt()).getColLabels());
-            if (!matches) {
-                connectContext.removePreparedQuery(preparedStatementId);
-                try {
-                    executed.executor.cancel(new Status(TStatusCode.CANCELLED, "prepared statement schema changed"));
-                } catch (Exception e) {
-                    LOG.warn("Failed to cancel Flight query after prepared schema changed", e);
-                } finally {
-                    // The captured executor is cancelled even when it was not deferred. Remove the
-                    // response now so the common failure path does not cancel its deferred entry twice.
-                    FlightProtocolAdapter.of(connectContext).beginRequest();
-                }
-                throw CallStatus.NOT_FOUND.withDescription("Prepared statement schema changed; prepare again")
-                        .toRuntimeException();
-            }
-            // A successful USE or SWITCH in this statement moves its namespace. Rebind only this handle;
-            // the other handles still reject a namespace change made outside them.
-            prepared.rebind(connectContext.getDefaultCatalog(), connectContext.getDatabase());
-            return executed.info;
-        } catch (Throwable failure) {
-            discardFailedQuery(connectContext, "prepared statement execution failed");
-            throw failure;
+        PreparedQuery prepared = preparedQuery(connectContext, preparedStatementId);
+        if (prepared.getSchema() == null) {
+            // Prepare could not tell this statement's result schema and advertised the placeholder, so
+            // its executions have no schema to be checked against.
+            return executeQueryStatement(peerIdentity, connectContext, prepared.getSql(), descriptor).info;
         }
-    }
-
-    private static void discardFailedQuery(ConnectContext connectContext, String reason) {
-        // beginRequest already removed the preceding request's resources. Everything here belongs
-        // to this failed request, which returned no usable ticket, including post-execution schema errors.
-        connectContext.cancelFlightSqlDeferredExecutors(new Status(TStatusCode.CANCELLED, reason));
-        FlightProtocolAdapter.of(connectContext).beginRequest();
+        Schema schema = checkPreparedSchema(connectContext, preparedStatementId, prepared);
+        ExecutedQuery executed = executeQueryStatement(peerIdentity, connectContext, prepared.getSql(), descriptor);
+        // Another session's DDL can change the result after reanalysis but before execution
+        // acquires table locks. Reject the actual schema before publishing a DoGet ticket.
+        boolean matches = executed.resultFromLocal
+                // A frontend-side result is a header of nullable strings, exactly as Prepare advertised it.
+                ? schema.equals(executed.info.getSchema())
+                // BE labels may carry the SQL text of an expression or a TVF prefix, and constant folding
+                // can narrow nullability: compare the final planner's labels and the positional types.
+                : FlightSqlQuerySchema.matchesExecutionSchema(schema, executed.info.getSchema(),
+                        ((LogicalPlanAdapter) executed.executor.getParsedStmt()).getColLabels());
+        if (!matches) {
+            connectContext.removePreparedQuery(preparedStatementId);
+            try {
+                executed.executor.cancel(new Status(TStatusCode.CANCELLED, "prepared statement schema changed"));
+            } catch (Exception e) {
+                LOG.warn("Failed to cancel Flight query after prepared schema changed", e);
+            } finally {
+                // No DoGet will pull this result: drop what the request left behind as the next request
+                // would -- its deferred coordinator, the result cached on the channel and its endpoints.
+                FlightProtocolAdapter.of(connectContext).beginRequest();
+            }
+            throw CallStatus.NOT_FOUND.withDescription("Prepared statement schema changed; prepare again")
+                    .toRuntimeException();
+        }
+        // A successful USE or SWITCH in this statement moves its namespace. Rebind only this handle;
+        // the other handles still reject a namespace change made outside them.
+        prepared.rebind(connectContext.getDefaultCatalog(), connectContext.getDatabase());
+        return executed.info;
     }
 
     @Override
@@ -686,8 +675,8 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public void getStreamSqlInfo(final CommandGetSqlInfo command, final CallContext context,
             final ServerStreamListener listener) {
-        streamMetadata(context, listener,
-                connectContext -> sqlInfoBuilder.send(command.getInfoList(), listener));
+        requireOpenSession(context);
+        sqlInfoBuilder.send(command.getInfoList(), listener);
     }
 
     @Override
@@ -955,9 +944,18 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
 
     private <T extends Message> FlightInfo getFlightInfoForSchema(final T request, final CallContext context,
             final FlightDescriptor descriptor, final Schema schema) {
+        requireOpenSession(context);
+        return getFlightInfoForSchema(request, descriptor, schema);
+    }
+
+    // Static metadata neither borrows mutable session resources nor counts as command activity.
+    // Admission is checked here; a close afterwards cannot invalidate the independent response.
+    private void requireOpenSession(final CallContext context) {
         ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
-        return FlightProtocolAdapter.of(connectContext).callCommand(connectContext,
-                () -> getFlightInfoForSchema(request, descriptor, schema));
+        if (connectContext.isClosingOrClosed()) {
+            throw CallStatus.UNAUTHENTICATED.withDescription("this Arrow Flight SQL session is closing, connection id: "
+                    + connectContext.getConnectionId() + "; reconnect to run further commands").toRuntimeException();
+        }
     }
 
     private <T extends Message> FlightInfo getFlightInfoForSchema(final T request, final FlightDescriptor descriptor,

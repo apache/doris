@@ -77,17 +77,20 @@ public class FEOpExecutorCancellationTest {
             Mockito.when(context.getQualifiedUser()).thenReturn("next_user");
             allowCancellation.countDown();
             cancellation.get(10, TimeUnit.SECONDS);
+            // Another cancellation must keep the same target and leave the SQL response intact.
+            executor.cancel();
 
-            Assertions.assertEquals(2, executor.requests.size());
+            Assertions.assertEquals(3, executor.requests.size());
             executor.requests.remove();
-            TMasterOpRequest cancelled = executor.requests.remove();
-            Assertions.assertTrue(cancelled.isCancelQeury());
-            Assertions.assertEquals(new TUniqueId(11, 12), cancelled.getQueryId());
-            Assertions.assertEquals("original_db", cancelled.getDb());
-            Assertions.assertEquals("original_user", cancelled.getUser());
-            Assertions.assertEquals("127.0.0.1", cancelled.getClientNodeHost());
-            Assertions.assertEquals(9010, cancelled.getClientNodePort());
-            Assertions.assertEquals(7, cancelled.getStmtId());
+            for (TMasterOpRequest cancelled : executor.requests) {
+                Assertions.assertTrue(cancelled.isCancelQeury());
+                Assertions.assertEquals(new TUniqueId(11, 12), cancelled.getQueryId());
+                Assertions.assertEquals("original_db", cancelled.getDb());
+                Assertions.assertEquals("original_user", cancelled.getUser());
+                Assertions.assertEquals("127.0.0.1", cancelled.getClientNodeHost());
+                Assertions.assertEquals(9010, cancelled.getClientNodePort());
+                Assertions.assertEquals(7, cancelled.getStmtId());
+            }
             Assertions.assertEquals(new TUniqueId(11, 12), executor.getQueryId());
             Assertions.assertEquals(0, executor.getStatusCode());
             Assertions.assertEquals(Set.of(10001L, 10002L), executor.getAuditStatisticsBackendIds());

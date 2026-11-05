@@ -94,6 +94,7 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -497,6 +498,51 @@ public class DorisFlightSqlProducerTest {
     }
 
     @Test
+    public void testStaticMetadataDoesNotWaitForCommandOrRenewSession() throws Exception {
+        ConnectContext ctx = Mockito.spy(ConnectContext.forFlight("metadata-token"));
+        DorisFlightSqlProducer producer = new DorisFlightSqlProducer(
+                Location.forGrpcInsecure("127.0.0.1", 9090), sessionsOf(ctx));
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        try {
+            Future<?> owner = workers.submit(() -> {
+                ctx.runCommand(() -> {
+                    entered.countDown();
+                    Assertions.assertTrue(release.await(10, TimeUnit.SECONDS));
+                });
+                return null;
+            });
+            Assertions.assertTrue(entered.await(10, TimeUnit.SECONDS));
+            Future<?> metadata = workers.submit(() -> {
+                FlightDescriptor descriptor = FlightDescriptor.command(new byte[0]);
+                Assertions.assertEquals(1, producer.getFlightInfoCatalogs(CommandGetCatalogs.getDefaultInstance(),
+                        callOf("metadata-token"), descriptor).getEndpoints().size());
+                Assertions.assertEquals(1, producer.getFlightInfoSqlInfo(CommandGetSqlInfo.getDefaultInstance(),
+                        callOf("metadata-token"), descriptor).getEndpoints().size());
+                ServerStreamListener listener = Mockito.mock(ServerStreamListener.class);
+                producer.getStreamSqlInfo(CommandGetSqlInfo.getDefaultInstance(), callOf("metadata-token"), listener);
+                Mockito.verify(listener).completed();
+                Mockito.verify(listener, Mockito.never()).error(Mockito.any(Throwable.class));
+            });
+            metadata.get(5, TimeUnit.SECONDS);
+            Assertions.assertFalse(owner.isDone(), "static metadata waited for the running command");
+            Mockito.verify(ctx).refreshStartTime();
+            release.countDown();
+            owner.get(5, TimeUnit.SECONDS);
+            producer.getFlightInfoCatalogs(CommandGetCatalogs.getDefaultInstance(), callOf("metadata-token"),
+                    FlightDescriptor.command(new byte[0]));
+            Mockito.verify(ctx).refreshStartTime();
+        } finally {
+            release.countDown();
+            workers.shutdownNow();
+            Assertions.assertTrue(workers.awaitTermination(10, TimeUnit.SECONDS));
+            ctx.cleanup();
+            producer.close();
+        }
+    }
+
+    @Test
     public void testDrainingSessionRejectsNewMetadataTickets() throws Exception {
         ConnectContext ctx = ConnectContext.forFlight("metadata-token");
         ctx.getFlightSqlChannel().addOKResult("pending", "SELECT 1");
@@ -510,8 +556,14 @@ public class DorisFlightSqlProducerTest {
             FlightRuntimeException sqlInfo = Assertions.assertThrows(FlightRuntimeException.class,
                     () -> producer.getFlightInfoSqlInfo(CommandGetSqlInfo.getDefaultInstance(),
                             callOf("metadata-token"), descriptor));
+            ServerStreamListener listener = Mockito.mock(ServerStreamListener.class);
+            FlightRuntimeException stream = Assertions.assertThrows(FlightRuntimeException.class,
+                    () -> producer.getStreamSqlInfo(CommandGetSqlInfo.getDefaultInstance(),
+                            callOf("metadata-token"), listener));
             Assertions.assertEquals(FlightStatusCode.UNAUTHENTICATED, catalogs.status().code());
             Assertions.assertEquals(FlightStatusCode.UNAUTHENTICATED, sqlInfo.status().code());
+            Assertions.assertEquals(FlightStatusCode.UNAUTHENTICATED, stream.status().code());
+            Mockito.verifyNoInteractions(listener);
             Assertions.assertEquals(1, ctx.getFlightSqlChannel().resultNum());
         } finally {
             ctx.cleanup();
