@@ -192,7 +192,7 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
     }
 
     @Override
-    public String validateAndGetUri(Map<String, String> loadProps) throws UserException {
+    protected String validateAndGetLocation(Map<String, String> loadProps) throws UserException {
         String uri = loadProps.get("uri");
         return validateUri(uri);
     }

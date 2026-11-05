@@ -22,6 +22,7 @@ import org.apache.doris.common.UserException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -435,5 +436,66 @@ public class StoragePropertiesTest {
         Map<String, String> props = new HashMap<>();
         String region = AbstractS3CompatibleProperties.getRegionFromProperties(props);
         Assertions.assertNull(region);
+    }
+
+    // A single-location key and `uris` are mutually exclusive; supplying both is rejected.
+
+    @Test
+    public void testOneLocationPathRejectsUris() {
+        Map<String, String> props = new HashMap<>();
+        props.put(LocalProperties.PROP_FILE_PATH, "/data/a.lance");
+        props.put(Uris.KEY, "[\"/data/a.lance\", \"/data/b.lance\"]");
+        LocalProperties properties = new LocalProperties(props);
+        Exception e = Assertions.assertThrows(Exception.class, () -> properties.validateAndGetUri(props));
+        Assertions.assertTrue(e.getMessage().contains("mutually exclusive"), e.getMessage());
+    }
+
+    @Test
+    public void testOneLocationPathStillReadsTheSingleLocation() throws UserException {
+        Map<String, String> props = new HashMap<>();
+        props.put(LocalProperties.PROP_FILE_PATH, "/data/a.lance");
+        LocalProperties properties = new LocalProperties(props);
+        Assertions.assertEquals("/data/a.lance", properties.validateAndGetUri(props));
+    }
+
+    @Test
+    public void testSeveralLocationsPathRejectsUri() {
+        Map<String, String> props = new HashMap<>();
+        props.put(LocalProperties.PROP_FILE_PATH, "/data/a.lance");
+        props.put(Uris.KEY, "[\"/data/a.lance\"]");
+        LocalProperties properties = new LocalProperties(props);
+        Exception e = Assertions.assertThrows(Exception.class,
+                () -> properties.validateAndNormalizeUris(props));
+        Assertions.assertTrue(e.getMessage().contains("mutually exclusive"), e.getMessage());
+    }
+
+    @Test
+    public void testSeveralLocationsPathReadsEveryElementInOrder() throws UserException {
+        Map<String, String> props = new HashMap<>();
+        props.put(Uris.KEY, "[\"/data/b.lance\", \"/data/a.lance\"]");
+        LocalProperties properties = new LocalProperties(props);
+        Assertions.assertEquals(Arrays.asList("/data/b.lance", "/data/a.lance"),
+                properties.validateAndNormalizeUris(props));
+    }
+
+    @Test
+    public void testS3UriRejectsUris() {
+        Map<String, String> props = new HashMap<>();
+        props.put(StorageProperties.URI_KEY, "/data/a.lance");
+        props.put(Uris.KEY, "[\"/data/a.lance\", \"/data/b.lance\"]");
+        S3Properties properties = new S3Properties(props);
+        Exception e = Assertions.assertThrows(Exception.class, () -> properties.validateAndGetUri(props));
+        Assertions.assertTrue(e.getMessage().contains("mutually exclusive"), e.getMessage());
+    }
+
+    @Test
+    public void testS3UrisRejectsUri() {
+        Map<String, String> props = new HashMap<>();
+        props.put(StorageProperties.URI_KEY, "/data/a.lance");
+        props.put(Uris.KEY, "[\"/data/a.lance\"]");
+        S3Properties properties = new S3Properties(props);
+        Exception e = Assertions.assertThrows(Exception.class,
+                () -> properties.validateAndNormalizeUris(props));
+        Assertions.assertTrue(e.getMessage().contains("mutually exclusive"), e.getMessage());
     }
 }

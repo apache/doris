@@ -29,7 +29,6 @@ import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -144,11 +143,11 @@ public class OBSProperties extends AbstractS3CompatibleProperties {
         if (!Strings.isNullOrEmpty(value)) {
             return value.contains("myhuaweicloud.com");
         }
-        Optional<String> uriValue = origProps.entrySet().stream()
-                .filter(e -> e.getKey().equalsIgnoreCase("uri"))
-                .map(Map.Entry::getValue)
-                .findFirst();
-        return uriValue.isPresent() && uriValue.get().contains("myhuaweicloud.com");
+        // Normalize to a single location (the 'uri' value, or the first of 'uris') and enforce that
+        // 'uri' and 'uris' are mutually exclusive.
+        boolean singleForm = isSingleLocationForm(origProps, URI_KEY);
+        String location = getPrimaryLocation(singleForm, origProps);
+        return location != null && location.contains("myhuaweicloud.com");
     }
 
     @Override

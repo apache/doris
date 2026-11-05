@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.common.security.authentication.HadoopSimpleAuthenticator;
 import org.apache.doris.common.security.authentication.SimpleAuthenticationConfig;
@@ -54,6 +55,11 @@ public abstract class HdfsCompatibleProperties extends StorageProperties {
     @Override
     protected Set<String> schemas() {
         return ImmutableSet.of("hdfs");
+    }
+
+    @Override
+    protected void requireMutuallyExclusive(Map<String, String> loadProps) throws UserException {
+        requireMutuallyExclusive(loadProps, URI_KEY);
     }
 
 }

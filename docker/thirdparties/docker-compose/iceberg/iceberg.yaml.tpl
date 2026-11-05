@@ -244,6 +244,8 @@ services:
       fi;
       /usr/bin/mc mirror --overwrite --remove /mnt/preinstalled_data/lance/ minio/warehouse/lance/ &&
       /usr/bin/mc mv --recursive minio/warehouse/lance/unicode_branch.lance/tree/dev_u1c89/ minio/warehouse/lance/unicode_branch.lance/tree/devᲉ/ || exit 1;
+      /usr/bin/mc mirror --overwrite --remove /mnt/preinstalled_data/lance_1/ minio/warehouse/lance_1/;
+      /usr/bin/mc mirror --overwrite --remove /mnt/preinstalled_data/lance_2/ minio/warehouse/lance_2/;
       /usr/bin/mc cp -r /mnt/preinstalled_data/iceberg/ minio/warehouse/wh/multi_catalog/;
       "
 
