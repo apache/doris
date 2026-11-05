@@ -186,6 +186,9 @@ class CompactedPolicyEngineTest {
             ServicePolicies initial = hive(1, policy(1, "alice", "select", resources("db", "t", "c1")));
             original.setPolicies(copy(initial));
             compacted.setPolicies(copy(initial));
+            compare(original, compacted, "alice", "db", "t", "c1");
+            Assertions.assertEquals(Long.valueOf(1), compacted.isAccessAllowed(
+                    request("alice", "db", "t", "c1")).getPolicyVersion());
             for (int version = 2; version <= 12; version++) {
                 String column = version % 2 == 0 ? "c2" : "c1";
                 RangerPolicy replacement = policy(1, "alice", "select", resources("db", "t", column));
@@ -204,7 +207,9 @@ class CompactedPolicyEngineTest {
                 Assertions.assertEquals(version, compacted.getPoliciesVersion());
                 compare(original, compacted, "alice", "db", "t", "c1");
                 compare(original, compacted, "alice", "db", "t", "c2");
-                Assertions.assertTrue(compacted.isAccessAllowed(request("alice", "db", "t", column)).getIsAllowed());
+                RangerAccessResult allowed = compacted.isAccessAllowed(request("alice", "db", "t", column));
+                Assertions.assertTrue(allowed.getIsAllowed());
+                Assertions.assertEquals(Long.valueOf(version), allowed.getPolicyVersion());
                 String revoked = "c1".equals(column) ? "c2" : "c1";
                 Assertions.assertFalse(compacted.isAccessAllowed(request("alice", "db", "t", revoked)).getIsAllowed());
             }
@@ -232,6 +237,8 @@ class CompactedPolicyEngineTest {
         Assertions.assertNotNull(actual);
         Assertions.assertEquals(expected.getIsAllowed(), actual.getIsAllowed());
         Assertions.assertEquals(expected.getPolicyId(), actual.getPolicyId());
+        Assertions.assertEquals(expected.getPolicyVersion(), actual.getPolicyVersion());
+        Assertions.assertEquals(expected.getPolicyPriority(), actual.getPolicyPriority());
         Assertions.assertEquals(expected.getIsAudited(), actual.getIsAudited());
         Assertions.assertEquals(expected.getAuditPolicyId(), actual.getAuditPolicyId());
     }
