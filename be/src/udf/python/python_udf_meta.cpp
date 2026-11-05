@@ -100,8 +100,8 @@ Status PythonUDFMeta::serialize_to_json(std::string* json_str) const {
     {
         // Serialize base64 input types to json
         std::shared_ptr<arrow::Schema> input_schema;
-        RETURN_IF_ERROR(convert_types_to_schema(input_types, TimezoneUtils::default_time_zone,
-                                                &input_schema, datetime_naive));
+        RETURN_IF_ERROR(
+                convert_types_to_schema(input_types, timezone, &input_schema, datetime_naive));
         std::shared_ptr<arrow::Buffer> input_schema_buffer;
         RETURN_IF_ERROR(serialize_arrow_schema(input_schema, &input_schema_buffer));
         std::string base64_str =
@@ -113,8 +113,8 @@ Status PythonUDFMeta::serialize_to_json(std::string* json_str) const {
     {
         // Serialize base64 return type to json
         std::shared_ptr<arrow::Schema> return_schema;
-        RETURN_IF_ERROR(convert_types_to_schema({return_type}, TimezoneUtils::default_time_zone,
-                                                &return_schema, datetime_naive));
+        RETURN_IF_ERROR(
+                convert_types_to_schema({return_type}, timezone, &return_schema, datetime_naive));
         std::shared_ptr<arrow::Buffer> return_schema_buffer;
         RETURN_IF_ERROR(serialize_arrow_schema(return_schema, &return_schema_buffer));
         std::string base64_str =

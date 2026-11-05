@@ -49,10 +49,10 @@
 
 namespace doris {
 
-PythonUDTFFunction::PythonUDTFFunction(const TFunction& t_fn) : TableFunction(), _t_fn(t_fn) {
+PythonUDTFFunction::PythonUDTFFunction(const TFunction& t_fn, const std::string& timezone,
+                                       const cctz::time_zone& timezone_obj)
+        : TableFunction(), _t_fn(t_fn), _timezone(timezone), _timezone_obj(timezone_obj) {
     _fn_name = _t_fn.name.function_name;
-    DORIS_CHECK(
-            TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, _timezone_obj));
 
     // Like Java UDTF, FE passes the element type T, and we wrap it into array<T> here
     // This makes the behavior consistent with Java UDTF
@@ -81,6 +81,7 @@ Status PythonUDTFFunction::open() {
 
     python_udf_meta.client_type = PythonClientType::UDTF;
     python_udf_meta.datetime_naive = PythonUDFMeta::uses_naive_datetime(_t_fn);
+    python_udf_meta.timezone = _timezone;
 
     if (python_udf_meta.type == PythonUDFLoadType::MODULE) {
         RETURN_IF_ERROR(UserFunctionCache::instance()->get_pypath(
@@ -138,8 +139,8 @@ Status PythonUDTFFunction::process_init(Block* block, RuntimeState* state) {
     }
     int64_t input_rows = block->rows();
     std::shared_ptr<arrow::RecordBatch> input_batch;
-    PythonArrowBlockConvertor converter(input_block, TimezoneUtils::default_time_zone,
-                                        _timezone_obj, PythonUDFMeta::uses_naive_datetime(_t_fn));
+    PythonArrowBlockConvertor converter(input_block, _timezone, _timezone_obj,
+                                        PythonUDFMeta::uses_naive_datetime(_t_fn));
     RETURN_IF_ERROR(converter.init());
     if (child_column_idxs.empty()) {
         RETURN_IF_ERROR(

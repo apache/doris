@@ -25,6 +25,7 @@
 #include "common/status.h"
 #include "core/data_type/data_type.h"
 #include "format/arrow/arrow_row_batch.h"
+#include "util/timezone_utils.h"
 
 namespace doris {
 
@@ -44,6 +45,7 @@ struct PythonUDFMeta {
     std::string inline_code;
     bool always_nullable = false;
     bool datetime_naive = false;
+    std::string timezone = TimezoneUtils::default_time_zone;
     DataTypes input_types;
     DataTypePtr return_type;
     PythonUDFLoadType type = PythonUDFLoadType::UNKNOWN;

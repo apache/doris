@@ -165,7 +165,7 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
     } else if (_fn.binary_type == TFunctionBinaryType::PYTHON_UDF) {
         if (config::enable_python_udf_support) {
             _function = AggregatePythonUDAF::create(_fn, argument_types, _data_type);
-            RETURN_IF_ERROR(static_cast<AggregatePythonUDAF*>(_function.get())->open());
+            RETURN_IF_ERROR(static_cast<AggregatePythonUDAF*>(_function.get())->open(state));
             LOG(INFO) << fmt::format(
                     "Created Python UDAF: {}, runtime_version: {}, function_code: {}",
                     _fn.name.function_name, _fn.runtime_version, _fn.function_code);

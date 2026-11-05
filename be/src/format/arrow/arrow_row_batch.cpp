@@ -50,6 +50,7 @@
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/arrow/arrow_utils.h"
 #include "runtime/descriptors.h"
+#include "util/timezone_utils.h"
 
 namespace doris {
 
@@ -261,9 +262,13 @@ std::string DorisArrowSchemaConvertor::timestamp_timezone(PrimitiveType) const {
 
 std::string PythonArrowSchemaConvertor::timestamp_timezone(PrimitiveType type) const {
     // A zone on DATETIME would shift naive Python return values, e.g. 10:00 becomes 18:00.
-    return type == TYPE_DATETIMEV2 && _datetime_naive
-                   ? ""
-                   : DorisArrowSchemaConvertor::timestamp_timezone(type);
+    if (type == TYPE_DATETIMEV2 && _datetime_naive) {
+        return "";
+    }
+    const auto timezone = DorisArrowSchemaConvertor::timestamp_timezone(type);
+    std::string normalized;
+    // PyArrow recognizes +08:00 but cannot resolve Doris names such as UTC+08:00.
+    return TimezoneUtils::normalize_timezone_name(timezone, &normalized) ? normalized : timezone;
 }
 
 Status ArrowFlightSchemaConvertor::convert_to_arrow_type(

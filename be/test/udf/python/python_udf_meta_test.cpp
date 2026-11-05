@@ -27,6 +27,8 @@
 
 #include <memory>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "common/status.h"
 #include "core/data_type/data_type_array.h"
@@ -535,6 +537,49 @@ TEST_F(PythonUDFMetaTest, DatetimeSchemasPreserveWallClockSemantics) {
             auto output = decode_arrow_schema(doc["return_type"].GetString());
             ASSERT_TRUE(output.ok()) << output.status().ToString();
             EXPECT_TRUE((*output)->field(0)->type()->Equals((*input)->field(3)->type()));
+        }
+    }
+}
+
+TEST_F(PythonUDFMetaTest, TimestamptzSchemasUseSessionTimezone) {
+    auto type = DataTypeFactory::instance().create_data_type(TYPE_TIMESTAMPTZ, true, 0, 6);
+    auto array_type = std::make_shared<DataTypeArray>(type);
+    const std::vector<std::pair<std::string, std::string>> zones = {
+            {"UTC", "UTC"},
+            {"Z", "UTC"},
+            {"GMT", "GMT"},
+            {"+06:00", "+06:00"},
+            {"+05:45", "+05:45"},
+            {"-03:30", "-03:30"},
+            {"America/New_York", "America/New_York"},
+            {"UTC+08:00", "+08:00"},
+            {"GMT+08:00", "+08:00"},
+            {"UTC+05:45", "+05:45"},
+            {"GMT-03:30", "-03:30"},
+            {"UTC+00:00", "+00:00"}};
+    for (const auto& [zone, expected_zone] : zones) {
+        for (auto client_type :
+             {PythonClientType::UDF, PythonClientType::UDAF, PythonClientType::UDTF}) {
+            PythonUDFMeta meta;
+            meta.timezone = zone;
+            meta.datetime_naive = true;
+            meta.client_type = client_type;
+            meta.input_types = {type, array_type};
+            meta.return_type = array_type;
+            std::string json;
+            ASSERT_TRUE(meta.serialize_to_json(&json).ok());
+            rapidjson::Document doc;
+            doc.Parse(json.c_str());
+            ASSERT_FALSE(doc.HasParseError());
+            auto input = decode_arrow_schema(doc["input_types"].GetString());
+            auto output = decode_arrow_schema(doc["return_type"].GetString());
+            ASSERT_TRUE(input.ok()) << input.status().ToString();
+            ASSERT_TRUE(output.ok()) << output.status().ToString();
+            EXPECT_TRUE((*input)->field(0)->type()->Equals(
+                    arrow::timestamp(arrow::TimeUnit::MICRO, expected_zone)));
+            EXPECT_TRUE((*input)->field(1)->type()->Equals(
+                    arrow::list(arrow::timestamp(arrow::TimeUnit::MICRO, expected_zone))));
+            EXPECT_TRUE((*output)->field(0)->type()->Equals((*input)->field(1)->type()));
         }
     }
 }

@@ -28,6 +28,111 @@ suite("test_python_arrow_time_types") {
            (3, '2023-04-20 00:00:00.123456'),
            (4, '2026-10-10 10:00:00.123456'), (5, NULL)"""
     try {
+        sql "DROP FUNCTION IF EXISTS python_arrow_timestamptz_format(TIMESTAMPTZ(6))"
+        sql """CREATE FUNCTION python_arrow_timestamptz_format(TIMESTAMPTZ(6)) RETURNS STRING
+            PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+                       "runtime_version"="${runtimeVersion}") AS \$\$
+def evaluate(value):
+    return None if value is None else value.strftime('%Y-%m-%d %H:%M:%S.%f')
+\$\$"""
+        sql "SET time_zone = '+06:00'"
+        quickTest("timestamptz_session_timezone", """SELECT python_arrow_timestamptz_format(
+            CAST('2026-10-10 10:00:00.123456+06:00' AS TIMESTAMPTZ(6)))""",
+            "SELECT '2026-10-10 10:00:00.123456'")
+        ["scalar", "list", "series"].each { mode ->
+            def annotation = mode == "list" ? ": list" : (mode == "series" ? ": pd.Series" : "")
+            sql "DROP FUNCTION IF EXISTS python_arrow_timestamptz_${mode}(TIMESTAMPTZ(6))"
+            sql """CREATE FUNCTION python_arrow_timestamptz_${mode}(TIMESTAMPTZ(6))
+                RETURNS TIMESTAMPTZ(6)
+                PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+                           "runtime_version"="${runtimeVersion}") AS \$\$
+import pandas as pd
+
+def evaluate(value${annotation}):
+    return value
+\$\$"""
+        }
+        sql "DROP FUNCTION IF EXISTS python_arrow_timestamptz_array(ARRAY<TIMESTAMPTZ(6)>)"
+        sql """CREATE FUNCTION python_arrow_timestamptz_array(ARRAY<TIMESTAMPTZ(6)>)
+            RETURNS ARRAY<TIMESTAMPTZ(6)>
+            PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+                       "runtime_version"="${runtimeVersion}") AS \$\$
+def evaluate(value):
+    return value
+\$\$"""
+        ["max", "hour"].each { result ->
+            def returnType = result == "max" ? "TIMESTAMPTZ(6)" : "INT"
+            def finish = result == "max" ? "self.value" : "None if self.value is None else self.value.hour"
+            sql "DROP FUNCTION IF EXISTS python_arrow_timestamptz_${result}(TIMESTAMPTZ(6))"
+            sql """CREATE AGGREGATE FUNCTION python_arrow_timestamptz_${result}(TIMESTAMPTZ(6))
+                RETURNS ${returnType}
+                PROPERTIES("type"="PYTHON_UDF", "symbol"="Maximum",
+                           "runtime_version"="${runtimeVersion}") AS \$\$
+class Maximum:
+    def __init__(self):
+        self.value = None
+    def accumulate(self, value):
+        if value is not None and (self.value is None or value > self.value):
+            self.value = value
+    @property
+    def aggregate_state(self):
+        return self.value
+    def merge(self, value):
+        self.accumulate(value)
+    def finish(self):
+        return ${finish}
+    def reset(self):
+        self.value = None
+\$\$"""
+        }
+        sql "DROP FUNCTION IF EXISTS python_arrow_timestamptz_rows(TIMESTAMPTZ(6))"
+        sql """CREATE TABLES FUNCTION python_arrow_timestamptz_rows(TIMESTAMPTZ(6))
+            RETURNS ARRAY<STRUCT<ts:TIMESTAMPTZ(6), local_time:STRING>>
+            PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+                       "runtime_version"="${runtimeVersion}") AS \$\$
+def evaluate(value):
+    yield (value, None if value is None else value.strftime('%Y-%m-%d %H:%M:%S.%f'))
+\$\$"""
+        def zonedInput = """SELECT id,
+            CAST(concat(CAST(ts AS STRING), '+06:00') AS TIMESTAMPTZ(6)) AS zoned_ts
+            FROM python_arrow_time_values
+            UNION ALL SELECT 6, CAST('2026-01-10 10:00:00.123456+06:00' AS TIMESTAMPTZ(6))
+            UNION ALL SELECT 7, CAST('2026-07-10 10:00:00.123456+06:00' AS TIMESTAMPTZ(6))"""
+        ["UTC", "+06:00", "+05:45", "-03:30", "America/New_York",
+         "UTC+08:00", "GMT+08:00", "UTC+05:45", "GMT-03:30", "UTC+00:00"].eachWithIndex { zone, index ->
+            sql "SET time_zone = '${zone}'"
+            quickTest("timestamptz_format_${index}", """SELECT id,
+                python_arrow_timestamptz_format(zoned_ts) FROM (${zonedInput}) input ORDER BY id""",
+                """SELECT id, date_format(zoned_ts, '%Y-%m-%d %H:%i:%s.%f')
+                FROM (${zonedInput}) input ORDER BY id""")
+            quickTest("timestamptz_round_trip_${index}", """SELECT id,
+                python_arrow_timestamptz_scalar(zoned_ts) <=> zoned_ts,
+                python_arrow_timestamptz_list(zoned_ts) <=> zoned_ts,
+                python_arrow_timestamptz_series(zoned_ts) <=> zoned_ts,
+                python_arrow_timestamptz_array(array(zoned_ts, NULL)) <=> array(zoned_ts, NULL)
+                FROM (${zonedInput}) input ORDER BY id""",
+                "SELECT id, true, true, true, true FROM (${zonedInput}) input ORDER BY id")
+            quickTest("timestamptz_aggregate_${index}", """SELECT
+                python_arrow_timestamptz_max(zoned_ts), python_arrow_timestamptz_hour(zoned_ts)
+                FROM (${zonedInput}) input""", """SELECT max(zoned_ts), hour(max(zoned_ts))
+                FROM (${zonedInput}) input""")
+            quickTest("timestamptz_groups_${index}", """SELECT id % 3,
+                python_arrow_timestamptz_max(zoned_ts), python_arrow_timestamptz_hour(zoned_ts)
+                FROM (${zonedInput}) input GROUP BY id % 3 ORDER BY 1""", """SELECT id % 3,
+                max(zoned_ts), hour(max(zoned_ts))
+                FROM (${zonedInput}) input GROUP BY id % 3 ORDER BY 1""")
+            quickTest("timestamptz_window_${index}", """SELECT id,
+                python_arrow_timestamptz_hour(zoned_ts) OVER (
+                    ORDER BY id ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)
+                FROM (${zonedInput}) input ORDER BY id""", """SELECT id,
+                hour(max(zoned_ts) OVER (ORDER BY id ROWS BETWEEN 1 PRECEDING AND CURRENT ROW))
+                FROM (${zonedInput}) input ORDER BY id""")
+            quickTest("timestamptz_table_${index}", """SELECT id, result.value.ts, result.value.local_time
+                FROM (${zonedInput}) input
+                LATERAL VIEW python_arrow_timestamptz_rows(zoned_ts) result AS value ORDER BY id""",
+                """SELECT id, zoned_ts, date_format(zoned_ts, '%Y-%m-%d %H:%i:%s.%f')
+                FROM (${zonedInput}) input ORDER BY id""")
+        }
         [0, 3, 6].each { scale ->
             def name = "python_arrow_datetime_constant_${scale}"
             def micros = scale == 0 ? 0 : (scale == 3 ? 123000 : 123456)
