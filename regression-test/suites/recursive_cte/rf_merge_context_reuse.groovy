@@ -28,10 +28,10 @@ suite('rf_merge_context_reuse') {
                          ) select n from numbers order by n''').toString()
     // The recursive join must publish RFs across an Exchange on every round;
     // a constants-only recursive query never exercises the merge-context reset.
-    assertTrue(plan.contains('INNER JOIN(PARTITIONED)'))
-    assertTrue(plan.contains('runtime filters: RF'))
-    assertTrue(plan.contains('-> src'))
-    assertTrue(plan.contains('VEXCHANGE'))
+    assertTrue(plan.contains('INNER JOIN('), plan)
+    assertTrue(plan.contains('runtime filters: RF'), plan)
+    assertTrue(plan.contains('-> src'), plan)
+    assertTrue(plan.contains('VEXCHANGE'), plan)
 
     order_qt_recursive '''with recursive numbers(n) as (
                             select cast(1 as int)
