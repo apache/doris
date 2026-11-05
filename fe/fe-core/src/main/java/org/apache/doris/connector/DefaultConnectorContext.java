@@ -25,6 +25,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.EnvUtils;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.connector.cache.ConnectorCacheOwner;
 import org.apache.doris.connector.cache.MetaCacheCleanup;
@@ -46,6 +47,7 @@ import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.SpiSwitchingFileSystem;
 import org.apache.doris.kerberos.ExecutionAuthenticator;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -192,6 +194,19 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
     @Override
     public int getClusterId() {
         return Env.getCurrentEnv().getClusterId();
+    }
+
+    @Override
+    public void recordWriteEvent(String event) {
+        if (MetricRepo.isInit) {
+            MetricRepo.COUNTER_CONNECTOR_WRITE_EVENTS
+                    .getOrAdd(event).increase(1L);
+        }
+    }
+
+    @Override
+    public boolean isDebugPointEnabled(String name) {
+        return DebugPointUtil.isEnable(name);
     }
 
     @Override

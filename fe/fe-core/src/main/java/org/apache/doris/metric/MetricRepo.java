@@ -325,6 +325,8 @@ public final class MetricRepo {
     public static AutoMappedMetric<LongCounterMetric> COUNTER_AGENT_TASK_TOTAL;
     public static AutoMappedMetric<LongCounterMetric> COUNTER_AGENT_TASK_RESEND_TOTAL;
 
+    public static AutoMappedMetric<LongCounterMetric> COUNTER_CONNECTOR_WRITE_EVENTS;
+
     // TSO
     public static LongCounterMetric COUNTER_TSO_CLOCK_DRIFT_DETECTED;
     public static LongCounterMetric COUNTER_TSO_CLOCK_BACKWARD_DETECTED;
@@ -1237,6 +1239,10 @@ public final class MetricRepo {
                 "number of dynamic partition tables where partition count exceeded 80% of max_dynamic_partition_num",
                 0L);
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_DYNAMIC_PARTITION_NEAR_LIMIT);
+
+        COUNTER_CONNECTOR_WRITE_EVENTS = addLabeledMetrics("event", () ->
+                new LongCounterMetric("connector_write_events_total", MetricUnit.NOUNIT,
+                        "Connector write transaction events"));
 
         COUNTER_AGENT_TASK_REQUEST_TOTAL = new LongCounterMetric("agent_task_request_total", MetricUnit.NOUNIT,
                 "total agent batch task request send to BE");

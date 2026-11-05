@@ -51,6 +51,15 @@ public interface ConnectorContext {
         return session.getTaskScheduler(ConnectorTaskScheduler.Stage.METADATA);
     }
 
+    /** Records a bounded, connector-prefixed event label, such as {@code paimon:committed}. */
+    default void recordWriteEvent(String event) {
+    }
+
+    /** Whether an operator-enabled test fault is active. Disabled in standalone connectors. */
+    default boolean isDebugPointEnabled(String name) {
+        return false;
+    }
+
     /** Returns the catalog name. */
     String getCatalogName();
 

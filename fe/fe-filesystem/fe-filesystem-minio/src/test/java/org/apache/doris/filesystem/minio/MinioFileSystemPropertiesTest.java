@@ -154,4 +154,19 @@ class MinioFileSystemPropertiesTest {
         Assertions.assertTrue(exception.getMessage().contains("Property minio.endpoint is required."),
                 exception.getMessage());
     }
+
+    @Test
+    void dottedPathStyleAliasReachesBackendAndHadoopProperties() {
+        for (String value : new String[] {"true", "false"}) {
+            MinioFileSystemProperties properties = MinioFileSystemProperties.of(Map.of(
+                    "s3.endpoint", "http://127.0.0.1:9000", "s3.region", "us-east-1",
+                    "s3.access_key", "ak", "s3.secret_key", "sk", "s3.path.style.access", value));
+            Assertions.assertEquals(value, properties.getUsePathStyle());
+            Assertions.assertEquals(value, properties.toBackendProperties().orElseThrow().toMap()
+                    .get("use_path_style"));
+            Assertions.assertEquals(value, properties.toHadoopProperties().orElseThrow()
+                    .toHadoopConfigurationMap().get("fs.s3a.path.style.access"));
+        }
+    }
+
 }

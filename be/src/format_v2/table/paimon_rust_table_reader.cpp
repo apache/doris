@@ -33,6 +33,7 @@
 #include "core/data_type/data_type_string.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
+#include "format/table/paimon/paimon_table_descriptor.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/table/paimon_rust_predicate_converter.h"
 #include "runtime/descriptors.h"
@@ -223,7 +224,7 @@ Status PaimonRustTableReader::prepare_split(const format::SplitReadOptions& opti
         // Open may dominate the scan or fail before get_block; include it in the parent timer.
         SCOPED_TIMER(_rust_total_time);
         SCOPED_TIMER(_rust_open_split_time);
-        RETURN_IF_ERROR(_open_split_reader(options.current_range));
+        RETURN_IF_ERROR(_open_split_reader());
     }
     return Status::OK();
 }
@@ -330,18 +331,6 @@ std::string PaimonRustTableReader::TEST_format_options(
         const std::map<std::string, std::string>& options) {
     return format_options(options);
 }
-
-std::map<std::string, std::string> PaimonRustTableReader::TEST_build_options(
-        TFileScanRangeParams* scan_params, const TFileRangeDesc& range) {
-    TFileScanRangeParams* previous_params = _scan_params;
-    TFileRangeDesc previous_range = _current_range;
-    _scan_params = scan_params;
-    _current_range = range;
-    std::map<std::string, std::string> options = _build_options();
-    _scan_params = previous_params;
-    _current_range = std::move(previous_range);
-    return options;
-}
 #endif
 
 Status PaimonRustTableReader::close() {
@@ -371,86 +360,47 @@ Status PaimonRustTableReader::_validate_rust_split(const TFileRangeDesc& range) 
                 "invalid reader_type for paimon rust reader, possibly caused by FE/BE protocol "
                 "mismatch");
     }
-    if (!_resolve_table_path(range).has_value()) {
-        return Status::InternalError(
-                "paimon-rust missing paimon_table; cannot resolve paimon table location");
+    if (_scan_params == nullptr || !_scan_params->__isset.paimon_table_desc) {
+        return Status::InvalidArgument(
+                "Paimon Rust reader missing scan-level paimon_table_desc; upgrade the FE");
     }
-    if (!_resolve_db_name(range).has_value()) {
-        return Status::InternalError(
-                "paimon-rust missing db_name; cannot open paimon table via schema json");
-    }
-    if (!_resolve_table_name(range).has_value()) {
-        return Status::InternalError(
-                "paimon-rust missing table_name; cannot open paimon table via schema json");
-    }
-    if (!_resolve_table_schema_json(range).has_value()) {
-        return Status::InternalError(
-                "paimon-rust missing paimon_table_schema_json; cannot open paimon table via "
-                "schema json");
-    }
-    return Status::OK();
+    return doris::paimon::validate_table_descriptor(_scan_params->paimon_table_desc);
 }
 
-Status PaimonRustTableReader::_open_split_reader(const TFileRangeDesc& range) {
-    // 1. Decode the FE-planned split first so we fail fast (and without any
-    // filesystem IO) when it is missing or malformed.
-    std::string split_bytes;
-    RETURN_IF_ERROR(_decode_split_bytes(&split_bytes));
-
-    // 2. Resolve identifier + table_path + FE-supplied TableSchema JSON.
-    auto table_path = _resolve_table_path(range).value();
-    auto db_name = _resolve_db_name(range).value();
-    auto table_name = _resolve_table_name(range).value();
-    auto schema_json = _resolve_table_schema_json(range).value();
-    auto branch_opt = _resolve_branch(range);
-
-    // 3. Assemble storage options: FE-supplied paimon options + hadoop_conf +
-    // OSS/S3 → AWS_* translations. These feed FileIO only (per
-    // paimon_table_from_schema_json contract); they are NOT merged into the
-    // supplied table schema.
-    auto options = _build_options();
-
+Status PaimonRustTableReader::_open_table() {
+    const auto& descriptor = _scan_params->paimon_table_desc;
     auto opened_table_key =
-            std::make_tuple(table_path, schema_json, db_name, table_name, branch_opt, options);
+            std::make_tuple(descriptor.table_path, descriptor.schema_json, descriptor.database_name,
+                            descriptor.table_name, descriptor.branch, descriptor.storage_options);
     if (!_handles || !_handles->table || _opened_table_key != opened_table_key) {
-        // A paimon scan reads one table, so the handle is opened at most once per
-        // distinct identity (e.g. re-created after a close); splits of the same
-        // table reuse it and only rebuild the read pipeline below.
         _close_table();
         _handles = std::make_unique<PaimonHandles>();
-
-        std::vector<paimon_option> c_options;
-        c_options.reserve(options.size());
-        for (const auto& kv : options) {
-            c_options.push_back(paimon_option {kv.first.c_str(), kv.second.c_str()});
-        }
-
-        LOG(INFO) << "paimon-rust opening table via schema json: db=" << db_name
-                  << " table=" << table_name << " path=" << table_path
-                  << " branch=" << (branch_opt.has_value() ? branch_opt.value() : "main")
-                  << " storage_options=[" << format_options(options) << "]";
-
-        // Build the table directly from the FE-supplied schema JSON. The Rust
-        // side rejects null / empty branch, so we default to paimon's canonical
-        // "main" sentinel when FE did not set paimon_branch (i.e. the table is
-        // on the main branch — matches upstream Identifier.DEFAULT_MAIN_BRANCH).
-        const std::string& branch_str = branch_opt.has_value() ? branch_opt.value() : "main";
-        paimon_result_get_table tbl_res = paimon_table_from_schema_json(
-                table_path.c_str(), schema_json.c_str(), db_name.c_str(), table_name.c_str(),
-                branch_str.c_str(), c_options.empty() ? nullptr : c_options.data(),
-                c_options.size());
+        LOG(INFO) << "paimon-rust opening pinned table: db=" << descriptor.database_name
+                  << " table=" << descriptor.table_name << " path=" << descriptor.table_path
+                  << " branch=" << descriptor.branch << " storage_options=["
+                  << format_options(descriptor.storage_options) << "]";
+        auto tbl_res = doris::paimon::open_table_from_descriptor(descriptor);
         if (tbl_res.error != nullptr) {
             return Status::InternalError(
-                    "paimon-rust table_from_schema_json failed: db={} table={} err={}", db_name,
-                    table_name, consume_error(tbl_res.error));
+                    "paimon-rust table_from_schema_json failed: db={} table={} err={}",
+                    descriptor.database_name, descriptor.table_name, consume_error(tbl_res.error));
         }
         _handles->table.reset(tbl_res.table);
         _opened_table_key = std::move(opened_table_key);
     }
 
-    // 4. Build the read pipeline: read_builder -> case-insensitive -> projection.
-    // Bound the Rust Arrow allocation itself: wide rows must respect the scanner's
-    // adaptive probe size before they are materialized into a Doris block.
+    return Status::OK();
+}
+
+Status PaimonRustTableReader::_open_split_reader() {
+    // Decode the FE-planned split first so we fail fast (and without any
+    // filesystem IO) when it is missing or malformed.
+    std::string split_bytes;
+    RETURN_IF_ERROR(_decode_split_bytes(&split_bytes));
+
+    RETURN_IF_ERROR(_open_table());
+
+    // Bound Rust Arrow batches to the scanner's adaptive probe before materializing a block.
     const auto batch_size = std::to_string(
             _batch_size > 0 ? _batch_size : std::max(1, _runtime_state->batch_size()));
     const paimon_option batch_option {"read.batch-size", batch_size.c_str()};
@@ -488,10 +438,7 @@ Status PaimonRustTableReader::_open_split_reader(const TFileRangeDesc& range) {
     // Convert the scanner conjuncts into a paimon-rust filter and apply it.
     RETURN_IF_ERROR(_apply_predicate());
 
-    // 5. Deserialize the FE-planned split into a one-split plan, so this
-    // scanner reads exactly the split it was assigned rather than replanning
-    // the whole table. The wire form is identical to what paimon-cpp consumes
-    // (`paimon::table::DataSplit::serialize`).
+    // Read only the FE-planned split, using Paimon's shared DataSplit serialization.
     paimon_result_plan plan_res = paimon_plan_from_split_bytes(
             reinterpret_cast<const uint8_t*>(split_bytes.data()), split_bytes.size());
     if (plan_res.error != nullptr) {
@@ -506,7 +453,7 @@ Status PaimonRustTableReader::_open_split_reader(const TFileRangeDesc& range) {
         return Status::OK();
     }
 
-    // 6. Open the arrow stream over the plan.
+    // Open the arrow stream over the plan.
     paimon_result_new_read read_res = paimon_read_builder_new_read(_handles->read_builder.get());
     if (read_res.error != nullptr) {
         return Status::InternalError("paimon-rust new read failed: {}",
@@ -764,59 +711,6 @@ Status PaimonRustTableReader::_decode_split_bytes(std::string* out) const {
     return Status::OK();
 }
 
-std::optional<std::string> PaimonRustTableReader::_resolve_table_path(
-        const TFileRangeDesc& range) const {
-    if (range.__isset.table_format_params && range.table_format_params.__isset.paimon_params &&
-        range.table_format_params.paimon_params.__isset.paimon_table &&
-        !range.table_format_params.paimon_params.paimon_table.empty()) {
-        return range.table_format_params.paimon_params.paimon_table;
-    }
-    return std::nullopt;
-}
-
-std::optional<std::string> PaimonRustTableReader::_resolve_db_name(
-        const TFileRangeDesc& range) const {
-    if (range.__isset.table_format_params && range.table_format_params.__isset.paimon_params &&
-        range.table_format_params.paimon_params.__isset.db_name &&
-        !range.table_format_params.paimon_params.db_name.empty()) {
-        return range.table_format_params.paimon_params.db_name;
-    }
-    return std::nullopt;
-}
-
-std::optional<std::string> PaimonRustTableReader::_resolve_table_name(
-        const TFileRangeDesc& range) const {
-    if (range.__isset.table_format_params && range.table_format_params.__isset.paimon_params &&
-        range.table_format_params.paimon_params.__isset.table_name &&
-        !range.table_format_params.paimon_params.table_name.empty()) {
-        return range.table_format_params.paimon_params.table_name;
-    }
-    return std::nullopt;
-}
-
-std::optional<std::string> PaimonRustTableReader::_resolve_table_schema_json(
-        const TFileRangeDesc& range) const {
-    if (range.__isset.table_format_params && range.table_format_params.__isset.paimon_params &&
-        range.table_format_params.paimon_params.__isset.paimon_table_schema_json &&
-        !range.table_format_params.paimon_params.paimon_table_schema_json.empty()) {
-        return range.table_format_params.paimon_params.paimon_table_schema_json;
-    }
-    return std::nullopt;
-}
-
-std::optional<std::string> PaimonRustTableReader::_resolve_branch(
-        const TFileRangeDesc& range) const {
-    // FE only sets paimon_branch when the branch is not `main` (matches
-    // upstream paimon commit 742da63: null-if-DEFAULT_MAIN_BRANCH). Unset here
-    // means main-branch semantics.
-    if (range.__isset.table_format_params && range.table_format_params.__isset.paimon_params &&
-        range.table_format_params.paimon_params.__isset.paimon_branch &&
-        !range.table_format_params.paimon_params.paimon_branch.empty()) {
-        return range.table_format_params.paimon_params.paimon_branch;
-    }
-    return std::nullopt;
-}
-
 std::vector<std::string> PaimonRustTableReader::_build_read_columns() const {
     std::vector<std::string> columns;
     columns.reserve(_projected_columns.size());
@@ -827,118 +721,6 @@ std::vector<std::string> PaimonRustTableReader::_build_read_columns() const {
         columns.emplace_back(column.name);
     }
     return columns;
-}
-
-std::map<std::string, std::string> PaimonRustTableReader::_build_options() const {
-    std::map<std::string, std::string> options;
-    if (_scan_params && _scan_params->__isset.paimon_options &&
-        !_scan_params->paimon_options.empty()) {
-        options.insert(_scan_params->paimon_options.begin(), _scan_params->paimon_options.end());
-    } else if (_current_range.__isset.table_format_params &&
-               _current_range.table_format_params.__isset.paimon_params &&
-               _current_range.table_format_params.paimon_params.__isset.paimon_options) {
-        options.insert(_current_range.table_format_params.paimon_params.paimon_options.begin(),
-                       _current_range.table_format_params.paimon_params.paimon_options.end());
-    }
-
-    if (_scan_params && _scan_params->__isset.properties && !_scan_params->properties.empty()) {
-        for (const auto& kv : _scan_params->properties) {
-            options[kv.first] = kv.second;
-        }
-    } else if (_current_range.__isset.table_format_params &&
-               _current_range.table_format_params.__isset.paimon_params &&
-               _current_range.table_format_params.paimon_params.__isset.hadoop_conf) {
-        for (const auto& kv : _current_range.table_format_params.paimon_params.hadoop_conf) {
-            options[kv.first] = kv.second;
-        }
-    }
-
-    auto copy_if_missing = [&](const char* from_key, const char* to_key) {
-        if (options.find(to_key) != options.end()) {
-            return;
-        }
-        auto it = options.find(from_key);
-        if (it != options.end() && !it->second.empty()) {
-            options[to_key] = it->second;
-        }
-    };
-
-    // The pinned paimon-rust storage dispatcher (io/storage.rs) selects the
-    // FileIO parser from the table path's URI scheme, and libpaimon_c.a
-    // compiles in separate COS, OBS, GCS and Azdls parsers besides the OSS
-    // and S3 ones. Doris's FE normalizes every object store's credentials
-    // into the AWS_* / use_path_style aliases, which this bridge can only
-    // translate into the two key families those two parsers read:
-    //   oss://        -> fs.oss.endpoint / fs.oss.accessKeyId /
-    //                    fs.oss.accessKeySecret (+ fs.oss.securityToken STS)
-    //   s3:// / s3a:// -> paimon-java's s3.* family (access-key, secret-key,
-    //                    session.token, endpoint, region, path-style-access,
-    //                    normalized from the fs.s3a. / s3a. / s3. prefixes)
-    // The FE therefore gates the rust reader to exactly these schemes
-    // (PaimonScanNode: cosn:// / obs:// / gs:// / abfs:// warehouses fall
-    // back to JNI before the split is encoded — their parsers read the
-    // fs.cosn.userinfo.* / fs.obs.* / gcs.* / azure.* families the AWS_*
-    // aliases cannot express). The mapping here is scoped the same way so a
-    // version-skewed FE cannot smuggle AWS_* aliases into another parser's
-    // property map: a cosn:// table reaching this bridge with synthesized
-    // s3.* keys would hit the COS parser without
-    // fs.cosn.userinfo.secretId / secretKey and fail the open with a
-    // misleading auth error instead of the JNI fallback.
-    const std::string table_path = _resolve_table_path(_current_range).value_or("");
-    std::string scheme;
-    if (const auto sep = table_path.find("://"); sep != std::string::npos) {
-        scheme = to_lower(table_path.substr(0, sep));
-    }
-    if (scheme == "oss") {
-        // The OSS parser reads only the four fs.oss.* keys (and retry
-        // settings); native fs.oss.* options pass through untouched. It has
-        // no region / anonymous / assume-role handling, so nothing else is
-        // mapped for this scheme.
-        copy_if_missing("AWS_ENDPOINT", "fs.oss.endpoint");
-        copy_if_missing("AWS_ACCESS_KEY", "fs.oss.accessKeyId");
-        copy_if_missing("AWS_SECRET_KEY", "fs.oss.accessKeySecret");
-        copy_if_missing("AWS_TOKEN", "fs.oss.securityToken");
-        return options;
-    }
-    if (scheme == "s3" || scheme == "s3a") {
-        copy_if_missing("AWS_ACCESS_KEY", "s3.access-key");
-        copy_if_missing("AWS_SECRET_KEY", "s3.secret-key");
-        copy_if_missing("AWS_TOKEN", "s3.session.token");
-        copy_if_missing("AWS_ENDPOINT", "s3.endpoint");
-        copy_if_missing("AWS_REGION", "s3.region");
-        copy_if_missing("use_path_style", "s3.path-style-access");
-        // Authentication modes: the FE storage-properties channel marks anonymous
-        // access with AWS_CREDENTIALS_PROVIDER_TYPE=ANONYMOUS (emitted when no
-        // static credentials are configured) and assume-role with
-        // AWS_ROLE_ARN / AWS_EXTERNAL_ID (from the s3.role_arn / s3.external_id
-        // catalog properties). The crate reads s3.anonymous (skip_signature) and
-        // the s3.assumed.role.* family, so map both; without these, anonymous
-        // catalogs would consult the ambient credential chain and role-only
-        // catalogs would never assume the requested role. The remaining provider
-        // modes are ambient JVM credential chains (ENV, SYSTEM_PROPERTIES,
-        // WEB_IDENTITY, CONTAINER, INSTANCE_PROFILE) with no paimon-rust
-        // equivalent — the FE gates those away from the rust reader before the
-        // split is encoded.
-        if (options.contains("AWS_CREDENTIALS_PROVIDER_TYPE") &&
-            options.at("AWS_CREDENTIALS_PROVIDER_TYPE") == "ANONYMOUS") {
-            options["s3.anonymous"] = "true";
-        }
-        copy_if_missing("AWS_ROLE_ARN", "s3.assumed.role.arn");
-        copy_if_missing("AWS_EXTERNAL_ID", "s3.assumed.role.externalId");
-        // OSS-shaped options on an S3 warehouse (cross-protocol alias): map them
-        // to the s3.* family as well.
-        copy_if_missing("fs.oss.accessKeyId", "s3.access-key");
-        copy_if_missing("fs.oss.accessKeySecret", "s3.secret-key");
-        copy_if_missing("fs.oss.sessionToken", "s3.session.token");
-        copy_if_missing("fs.oss.endpoint", "s3.endpoint");
-        copy_if_missing("fs.oss.region", "s3.region");
-    }
-    // Every other scheme passes through untouched: hdfs:// tables read their
-    // hadoop conf as delivered, scheme-less / file:// paths need no
-    // credentials, and the COS / OBS / GCS / Azdls families are gated to JNI
-    // on the FE — synthesizing s3.* keys for any of them would be dead
-    // weight at best and a silent misconfiguration at worst.
-    return options;
 }
 
 } // namespace doris::format::paimon

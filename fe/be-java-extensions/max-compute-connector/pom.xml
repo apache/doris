@@ -49,8 +49,8 @@ under the License.
         </dependency>
         <!--
           Compile, not provided: the write path calls FrontendService for block ids, so the plugin
-          needs the generated thrift and libthrift under it inside its own directory. Every other
-          plugin gets by without thrift; this is the exception the SPI deliberately does not carry.
+          needs the generated thrift and libthrift inside its own directory. The shared SPI
+          deliberately does not carry them.
         -->
         <dependency>
             <groupId>org.apache.doris</groupId>

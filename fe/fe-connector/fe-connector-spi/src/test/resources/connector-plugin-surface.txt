@@ -75,6 +75,8 @@ org.apache.doris.connector.spi.ConnectorContext#getEnvironment():java.util.Map
 org.apache.doris.connector.spi.ConnectorContext#getHttpSecurityHook():org.apache.doris.connector.spi.ConnectorHttpSecurityHook
 org.apache.doris.connector.spi.ConnectorContext#getMetadataTaskScheduler(org.apache.doris.connector.spi.ConnectorSession):org.apache.doris.connector.spi.ConnectorTaskScheduler
 org.apache.doris.connector.spi.ConnectorContext#getStorageContext():org.apache.doris.connector.spi.ConnectorStorageContext
+org.apache.doris.connector.spi.ConnectorContext#isDebugPointEnabled(java.lang.String):boolean
+org.apache.doris.connector.spi.ConnectorContext#recordWriteEvent(java.lang.String):void
 org.apache.doris.connector.spi.ConnectorContext#sanitizeOutboundUrl(java.lang.String):java.lang.String
 org.apache.doris.connector.spi.ConnectorContext#submitMetadataTask(java.util.concurrent.Callable):java.util.concurrent.RunnableFuture
 org.apache.doris.connector.spi.ConnectorProvider#acceptedCreateTableEngineNames():java.util.Set
@@ -161,6 +163,15 @@ org.apache.doris.connector.spi.DiagnosticException#getDiagnosticStackTrace(java.
 org.apache.doris.connector.spi.handle.ConnectorColumnHandle#equals(java.lang.Object):boolean
 org.apache.doris.connector.spi.handle.ConnectorColumnHandle#hashCode():int
 org.apache.doris.connector.spi.handle.ConnectorColumnHandle#withProjectedFieldIds(java.util.Set):org.apache.doris.connector.spi.handle.ConnectorColumnHandle
+org.apache.doris.connector.spi.handle.ConnectorTransaction#addCommitData(byte[]):void
+org.apache.doris.connector.spi.handle.ConnectorTransaction#applyWriteConstraint(org.apache.doris.connector.spi.pushdown.ConnectorPredicate):void
+org.apache.doris.connector.spi.handle.ConnectorTransaction#close():void
+org.apache.doris.connector.spi.handle.ConnectorTransaction#commit():void
+org.apache.doris.connector.spi.handle.ConnectorTransaction#getProfileInfo():java.util.Map
+org.apache.doris.connector.spi.handle.ConnectorTransaction#getTransactionId():long
+org.apache.doris.connector.spi.handle.ConnectorTransaction#getUpdateCnt():long
+org.apache.doris.connector.spi.handle.ConnectorTransaction#profileLabel():java.lang.String
+org.apache.doris.connector.spi.handle.ConnectorTransaction#rollback():void
 org.apache.doris.connector.spi.handle.ConnectorWriteHandle#getBeExecVersion():int
 org.apache.doris.connector.spi.handle.ConnectorWriteHandle#getBoundTargetColumns():java.util.List
 org.apache.doris.connector.spi.handle.ConnectorWriteHandle#getBoundWriteMetadataIdentity():java.lang.String

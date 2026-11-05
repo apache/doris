@@ -183,13 +183,13 @@ void retain_resources_after_failed_close(std::unique_ptr<PaimonJniMemoryManager>
 // ────────────────────────────────────────────────────────────
 
 const char* const PAIMON_JNI_WRITER_OPEN_SIGNATURE =
-        "(Ljava/lang/String;Ljava/util/Map;[Ljava/lang/String;JLjava/lang/String;ZZLjava/lang/"
+        "([BLjava/util/Map;[Ljava/lang/String;JLjava/lang/String;ZZLjava/lang/"
         "String;JJJ)V";
 
 PaimonJniWriterOpenMode PaimonJniWriterOpenMode::from_write_mode(
         TPaimonWriteMode::type write_mode) {
-    return {static_cast<jboolean>(write_mode == TPaimonWriteMode::OVERWRITE),
-            static_cast<jboolean>(write_mode == TPaimonWriteMode::CHANGELOG)};
+    return {.overwrite = static_cast<jboolean>(write_mode == TPaimonWriteMode::OVERWRITE),
+            .changelog = static_cast<jboolean>(write_mode == TPaimonWriteMode::CHANGELOG)};
 }
 
 JniPaimonWriteBackend::JniPaimonWriteBackend() = default;
@@ -287,7 +287,7 @@ Status JniPaimonWriteBackend::_check_jni_exception(JNIEnv* env, const std::strin
 
 static Status _get_paimon_arrow_schema(JNIEnv* env, jobject writer, jmethodID get_schema_id,
                                        std::shared_ptr<arrow::Schema>* schema) {
-    auto schema_bytes = static_cast<jbyteArray>(env->CallObjectMethod(writer, get_schema_id));
+    auto* schema_bytes = static_cast<jbyteArray>(env->CallObjectMethod(writer, get_schema_id));
     RETURN_IF_ERROR(Jni::Env::GetJniExceptionMsg(
             env, false, "JNI exception in PaimonJniWriter.getArrowSchema: "));
     if (schema_bytes == nullptr) {
@@ -316,6 +316,34 @@ static Status _get_paimon_arrow_schema(JNIEnv* env, jobject writer, jmethodID ge
     *schema = reader_result.ValueOrDie()->schema();
     return Status::OK();
 }
+
+Status JniPaimonWriteBackend::_open_java_writer(JNIEnv* env, const TPaimonTableSink& sink,
+                                                RuntimeState* state, jmethodID open_id) {
+    const std::map<std::string, std::string> empty_config;
+    Jni::LocalArray j_table_desc;
+    RETURN_IF_ERROR(Jni::Util::SerializeThriftMsg(env, &sink.table_desc, &j_table_desc));
+    Jni::LocalObject j_hadoop_config;
+    RETURN_IF_ERROR(Jni::Util::convert_to_java_map(
+            env, sink.__isset.hadoop_config ? sink.hadoop_config : empty_config, &j_hadoop_config));
+    Jni::LocalString j_commit_user;
+    RETURN_IF_ERROR(Jni::LocalString::new_string_utf8(env, sink.commit_user, &j_commit_user));
+    Jni::LocalString j_time_zone;
+    RETURN_IF_ERROR(Jni::LocalString::new_string_utf8(env, state->timezone(), &j_time_zone));
+
+    jobjectArray j_cols = nullptr;
+    RETURN_IF_ERROR(Jni::Util::create_string_array_utf8(env, sink.column_names, &j_cols));
+
+    PaimonJniWriterOpenMode open_mode = PaimonJniWriterOpenMode::from_write_mode(sink.write_mode);
+    env->CallVoidMethod(
+            _jni_writer_obj.get(), open_id, j_table_desc.get(), j_hadoop_config.get(), j_cols,
+            static_cast<jlong>(sink.transaction_id), j_commit_user.get(), open_mode.overwrite,
+            open_mode.changelog, j_time_zone.get(),
+            static_cast<jlong>(_memory_manager->memory_limit()),
+            reinterpret_cast<jlong>(_memory_manager.get()),
+            _spill_session == nullptr ? 0 : reinterpret_cast<jlong>(_spill_session.get()));
+    return _check_jni_exception(env, "open PaimonJniWriter");
+}
+
 Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* state,
                                    RuntimeProfile* profile) {
     if (paimon_jni_close_failed().load(std::memory_order_acquire)) {
@@ -326,8 +354,9 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     _arrow_schema.reset();
     DORIS_CHECK(sink.__isset.column_names);
     DORIS_CHECK(sink.__isset.write_mode);
-    DORIS_CHECK(sink.__isset.serialized_table);
-    DORIS_CHECK(!sink.serialized_table.empty());
+    if (!sink.__isset.table_desc) {
+        return Status::NotSupported("Paimon writes require a table descriptor; upgrade the FE");
+    }
     DORIS_CHECK(sink.__isset.transaction_id);
     DORIS_CHECK(sink.transaction_id > 0);
     DORIS_CHECK(sink.__isset.commit_user);
@@ -355,7 +384,7 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
                                                        &_jni_writer_obj, &_writer_api));
     Jni::LocalClass writer_class;
     RETURN_IF_ERROR(Jni::Util::get_object_class(env, _jni_writer_obj, &writer_class));
-    auto raw_writer_class = static_cast<jclass>(writer_class.get());
+    auto* raw_writer_class = static_cast<jclass>(writer_class.get());
     RETURN_IF_ERROR(PaimonJniMemoryManager::register_natives(env, raw_writer_class));
     RETURN_IF_ERROR(_register_spill_natives(env, raw_writer_class));
 
@@ -380,31 +409,7 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
                 spill_relative_path, state->get_query_ctx(), &_spill_session));
     }
 
-    // Step 4: Build Java arguments and call PaimonJniWriter.open().
-    const std::map<std::string, std::string> empty_config;
-    Jni::LocalString j_serialized_table;
-    RETURN_IF_ERROR(
-            Jni::LocalString::new_string_utf8(env, sink.serialized_table, &j_serialized_table));
-    Jni::LocalObject j_hadoop_config;
-    RETURN_IF_ERROR(Jni::Util::convert_to_java_map(
-            env, sink.__isset.hadoop_config ? sink.hadoop_config : empty_config, &j_hadoop_config));
-    Jni::LocalString j_commit_user;
-    RETURN_IF_ERROR(Jni::LocalString::new_string_utf8(env, sink.commit_user, &j_commit_user));
-    Jni::LocalString j_time_zone;
-    RETURN_IF_ERROR(Jni::LocalString::new_string_utf8(env, state->timezone(), &j_time_zone));
-
-    jobjectArray j_cols = nullptr;
-    RETURN_IF_ERROR(Jni::Util::create_string_array_utf8(env, sink.column_names, &j_cols));
-
-    PaimonJniWriterOpenMode open_mode = PaimonJniWriterOpenMode::from_write_mode(sink.write_mode);
-    env->CallVoidMethod(
-            _jni_writer_obj.get(), open_id, j_serialized_table.get(), j_hadoop_config.get(), j_cols,
-            static_cast<jlong>(sink.transaction_id), j_commit_user.get(), open_mode.overwrite,
-            open_mode.changelog, j_time_zone.get(),
-            static_cast<jlong>(_memory_manager->memory_limit()),
-            reinterpret_cast<jlong>(_memory_manager.get()),
-            _spill_session == nullptr ? 0 : reinterpret_cast<jlong>(_spill_session.get()));
-    Status st = _check_jni_exception(env, "open PaimonJniWriter");
+    Status st = _open_java_writer(env, sink, state, open_id);
 
     if (st.ok()) {
         st = _get_paimon_arrow_schema(env, _jni_writer_obj.get(), get_arrow_schema_id,
@@ -510,7 +515,7 @@ Status JniPaimonWriter::prepare_commit(std::vector<TPaimonCommitMessage>& messag
     jsize num_payloads = env->GetArrayLength(j_payloads);
 
     for (jsize i = 0; i < num_payloads; ++i) {
-        auto j_bytes = static_cast<jbyteArray>(env->GetObjectArrayElement(j_payloads, i));
+        auto* j_bytes = static_cast<jbyteArray>(env->GetObjectArrayElement(j_payloads, i));
         if (j_bytes == nullptr) {
             env->DeleteLocalRef(j_payloads);
             return Status::InternalError("PaimonJniWriter.prepareCommit returned a null payload");

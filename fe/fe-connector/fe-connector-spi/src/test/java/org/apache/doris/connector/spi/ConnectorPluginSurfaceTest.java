@@ -88,8 +88,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 29 adds typed table-absence errors after the upstream API 28 changes.
-        Assertions.assertEquals("29.0", version.getProperty("api.version"));
+        // Major 30 adds write diagnostics to the upstream API 29 surface.
+        Assertions.assertEquals("30.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
@@ -116,6 +116,7 @@ public class ConnectorPluginSurfaceTest {
             ConnectorScanRequest.Builder.class,
             org.apache.doris.connector.spi.scan.ConnectorScanContext.class,
             ConnectorWriteHandle.class,
+            org.apache.doris.connector.spi.handle.ConnectorTransaction.class,
             ConnectorChangelogMode.class,
             ConnectorRowLevelDmlRequest.class,
             org.apache.doris.connector.spi.write.ConnectorWriteDistribution.class,
