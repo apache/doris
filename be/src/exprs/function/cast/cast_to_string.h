@@ -34,6 +34,7 @@ struct CastToString {
     static inline std::string from_uint128(uint128_t value);
     static inline std::string from_uint128(UInt128 value);
     static inline std::string from_uuid(UUIDValueType value);
+    static inline void push_uuid(UUIDValueType value, ColumnString::Chars& chars);
     static inline void push_uuid(UUIDValueType value, BufferWritable& bw);
 
     template <class SRC>
@@ -80,7 +81,11 @@ struct CastToString {
 
     static inline void push_datetimev2(const DateV2Value<DateTimeV2ValueType>& from, UInt32 scale,
                                        BufferWritable& bw);
+    static inline void push_timestamp_ns(const TimeStampNsValue& from, ColumnString::Chars& chars);
     static inline void push_timestamp_ns(const TimeStampNsValue& from, BufferWritable& bw);
+    static inline void push_timestamptz(const TimestampTzValue& from, UInt32 scale,
+                                        ColumnString::Chars& chars,
+                                        const DataTypeSerDe::FormatOptions& options);
     static inline void push_timestamptz(const TimestampTzValue& from, UInt32 scale,
                                         BufferWritable& bw,
                                         const DataTypeSerDe::FormatOptions& options);
@@ -89,10 +94,15 @@ struct CastToString {
     static inline std::string from_ip(const SRC& from);
 
     template <class SRC>
+    static inline void push_ip(const SRC& from, ColumnString::Chars& chars);
+
+    template <class SRC>
     static inline void push_ip(const SRC& from, BufferWritable& bw);
 
     static inline std::string from_time(const TimeValue::TimeType& from, UInt32 scale);
 
+    static inline void push_time(const TimeValue::TimeType& from, UInt32 scale,
+                                 ColumnString::Chars& chars);
     static inline void push_time(const TimeValue::TimeType& from, UInt32 scale, BufferWritable& bw);
 
     template <PrimitiveType T>
@@ -512,10 +522,25 @@ inline void CastToString::push_datetimev2(const DateV2Value<DateTimeV2ValueType>
     bw.write(buf, pos - buf - 1);
 }
 
+inline void CastToString::push_timestamp_ns(const TimeStampNsValue& from,
+                                            ColumnString::Chars& chars) {
+    char buf[40];
+    const int32_t length = from.to_buffer(buf);
+    chars.insert(buf, buf + length);
+}
+
 inline void CastToString::push_timestamp_ns(const TimeStampNsValue& from, BufferWritable& bw) {
     char buf[40];
     const int32_t length = from.to_buffer(buf);
     bw.write(buf, length);
+}
+
+inline void CastToString::push_timestamptz(const TimestampTzValue& from, UInt32 scale,
+                                           ColumnString::Chars& chars,
+                                           const DataTypeSerDe::FormatOptions& options) {
+    char buffer[64];
+    const int len = from.to_buffer(buffer, *options.timezone, scale);
+    chars.insert(buffer, buffer + len);
 }
 
 inline void CastToString::push_timestamptz(const TimestampTzValue& from, UInt32 scale,
@@ -534,6 +559,13 @@ inline std::string CastToString::from_ip(const IPv4& from) {
 }
 
 template <>
+inline void CastToString::push_ip(const IPv4& from, ColumnString::Chars& chars) {
+    auto value = IPv4Value(from);
+    std::string str = value.to_string();
+    chars.insert(str.data(), str.data() + str.size());
+}
+
+template <>
 inline void CastToString::push_ip(const IPv4& from, BufferWritable& bw) {
     auto value = IPv4Value(from);
     std::string str = value.to_string();
@@ -549,6 +581,13 @@ inline std::string CastToString::from_ip(const IPv6& from) {
 }
 
 template <>
+inline void CastToString::push_ip(const IPv6& from, ColumnString::Chars& chars) {
+    auto value = IPv6Value(from);
+    std::string str = value.to_string();
+    chars.insert(str.data(), str.data() + str.size());
+}
+
+template <>
 inline void CastToString::push_ip(const IPv6& from, BufferWritable& bw) {
     auto value = IPv6Value(from);
     std::string str = value.to_string();
@@ -561,6 +600,12 @@ inline std::string CastToString::from_time(const TimeValue::TimeType& from, UInt
 }
 
 inline void CastToString::push_time(const TimeValue::TimeType& from, UInt32 scale,
+                                    ColumnString::Chars& chars) {
+    std::string str = timev2_to_buffer_from_double(from, scale);
+    chars.insert(str.data(), str.data() + str.size());
+}
+
+inline void CastToString::push_time(const TimeValue::TimeType& from, UInt32 scale,
                                     BufferWritable& bw) {
     std::string str = timev2_to_buffer_from_double(from, scale);
     bw.write(str.data(), str.size());
@@ -568,6 +613,12 @@ inline void CastToString::push_time(const TimeValue::TimeType& from, UInt32 scal
 
 inline std::string CastToString::from_uuid(UUIDValueType value) {
     return UUIDValue::to_string(value);
+}
+
+inline void CastToString::push_uuid(UUIDValueType value, ColumnString::Chars& chars) {
+    const size_t old_size = chars.size();
+    chars.resize(old_size + UUIDValue::TEXT_LENGTH);
+    UUIDValue::to_string(value, reinterpret_cast<char*>(chars.data() + old_size));
 }
 
 inline void CastToString::push_uuid(UUIDValueType value, BufferWritable& bw) {
