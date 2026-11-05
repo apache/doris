@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantField;
 import org.apache.doris.nereids.types.VariantType;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -62,9 +63,14 @@ public class ParseToVariant extends ScalarFunction
         this.returnType = returnType;
     }
 
-    /** The same call typed with {@code type}; the signature is recomputed for the new return type. */
+    /**
+     * The same call typed with {@code type}. The signature changes with the type, so the origin's cached
+     * signature must not be reused: the Rewriter and the fast VALUES analyzer run under
+     * keepFunctionSignature(true), where getFunctionParams hands the origin's signature on.
+     */
     public ParseToVariant withReturnType(VariantType type) {
-        return new ParseToVariant(getFunctionParams(children()), type);
+        return MoreFieldsThread.keepFunctionSignature(false,
+                () -> new ParseToVariant(getFunctionParams(children()), type));
     }
 
     public VariantType getReturnType() {
