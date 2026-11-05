@@ -53,7 +53,8 @@ try:
     spark.sql(f"""CREATE OR REPLACE TABLE {table} (id BIGINT, payload STRING)
         USING delta LOCATION '{path}'
         TBLPROPERTIES ('delta.enableDeletionVectors'='true')""")
-    (spark.range(0, 10000, 1, 1).selectExpr("id", "repeat('x', 64) AS payload")
+    # A row-specific payload makes a lazy column read at the wrong position visible after pruning.
+    (spark.range(0, 10000, 1, 1).selectExpr("id", "rpad(concat('row-', cast(id as string)), 64, 'x') AS payload")
      .write.format("delta").mode("overwrite")
      .save(path))
     spark.sql(f"DELETE FROM {table} WHERE id IN (0, 5, 101, 105, 119, 199, 200, 9005, 9019, 9999)")

@@ -47,8 +47,8 @@ suite("test_deltalake_parquet_deletion_vector", "p0,external") {
         }
         return values
     }
-    List<String> requiredCounters = ["RowGroupsFilteredByMinMax", "FilteredRowsByPage", "PageIndexReadCalls",
-            "NumDeleteRows"]
+    List<String> pageCounters = ["FilteredRowsByPage", "PageIndexReadCalls", "NumDeleteRows"]
+    List<String> rangeCounters = pageCounters + ["RowGroupsFilteredByMinMax"]
     sql "set enable_profile=true"
     sql "set enable_sql_cache=false"
     ["filesystem", "hms"].each { String metastore ->
@@ -62,6 +62,19 @@ suite("test_deltalake_parquet_deletion_vector", "p0,external") {
             's3.access_key'='admin', 's3.secret_key'='password', 'use_path_style'='true'
         )"""
 
+        def checkPrunedRows = { String name, String predicate, List<String> counters ->
+            String token = UUID.randomUUID().toString()
+            "order_qt_${metastore}_${name}"("""
+                select /* ${token} */ id, payload from ${table} where ${predicate} order by id
+            """)
+            String profile = profileAction.getProfileBySql(token, counters)
+            counters.each { String counter ->
+                assertTrue(counterValues(profile, counter).any { it > 0 },
+                        "${metastore}/${name}: expected positive ${counter}; ${profile}")
+            }
+            return profile
+        }
+
         // First row group, around the start of the second page of the id column, near the page edge at about id 200,
         // and a row group far from the start of the file.
         Map<String, List<Integer>> ranges = ["early": [100, 120], "page_edge": [195, 205], "late": [9000, 9020]]
@@ -70,29 +83,52 @@ suite("test_deltalake_parquet_deletion_vector", "p0,external") {
             int upper = bounds[1]
             // The one file overlaps this predicate, so Kernel cannot prune the file itself.
             explain {
-                sql "select id, length(payload) from ${table} where id >= ${lower} and id < ${upper}"
+                sql "select id, payload from ${table} where id >= ${lower} and id < ${upper}"
                 contains "inputSplitNum=1"
             }
-            String token = UUID.randomUUID().toString()
-            "order_qt_${metastore}_${range}"("""
-                select /* ${token} */ id, length(payload)
-                from ${table} where id >= ${lower} and id < ${upper} order by id
-            """)
-            String profile = profileAction.getProfileBySql(token, requiredCounters)
-            requiredCounters.each { String counter ->
-                assertTrue(counterValues(profile, counter).sum(0L) > 0L,
-                        "${metastore}/${range}: ${counter} did not show pruning with a deletion vector; ${profile}")
-            }
+            checkPrunedRows(range, "id >= ${lower} and id < ${upper}", rangeCounters)
             "order_qt_${metastore}_${range}_no_pruning"("""
-                select id, length(payload)
+                select id, payload
                 from ${table} where abs(id) >= ${lower} and abs(id) < ${upper} order by id
             """)
             "qt_${metastore}_${range}_count"(
                     "select count(*) from ${table} where id >= ${lower} and id < ${upper}")
         }
 
+        // On the first selected page only id 5 matches, and it is deleted. Continue past the gap for 201 and 204.
+        String disjoint = checkPrunedRows("disjoint_pages", "id in (5, 200, 201, 204)",
+                rangeCounters + ["SelectedRowRanges", "RowGroupsReadNum"])
+        assertEquals(1L, counterValues(disjoint, "RowGroupsReadNum").max(), disjoint)
+        assertTrue(counterValues(disjoint, "SelectedRowRanges").max() >= 2, disjoint)
+
+        String deleted = "id >= 199 and id < 201"
+        checkPrunedRows("all_deleted", deleted, rangeCounters)
+        "qt_${metastore}_all_deleted_aggregates"(
+                "select count(*), min(id), max(id) from ${table} where ${deleted}")
+
+        def previousSplitSize = sql("select @@file_split_size")[0][0]
+        try {
+            sql "set file_split_size=32768"
+            String predicate = "id in (101, 102, 9005, 9006)"
+            explain {
+                sql "select id, payload from ${table} where ${predicate}"
+                check { String plan ->
+                    def splits = plan =~ /\binputSplitNum=(\d+)/
+                    return splits.find() && splits.group(1).toInteger() > 1
+                }
+            }
+            // Deleted positions 101 and 9005 still refer to the whole file when its later split starts.
+            String splitProfile = checkPrunedRows("cross_split", predicate, pageCounters + ["RowGroupsReadNum"])
+            assertTrue(counterValues(splitProfile, "RowGroupsReadNum").max() >= 2, splitProfile)
+        } finally {
+            sql "set file_split_size=${previousSplitSize}"
+        }
+
         // Footer statistics still count deleted rows. Ids 0 and 9999 are deleted, so MIN and MAX must not use them.
         "qt_${metastore}_count"("select count(*) from ${table}")
         "qt_${metastore}_min_max"("select min(id), max(id) from ${table}")
+        "qt_${metastore}_misaligned_payloads"("""
+            select count(*) from ${table} where not (payload <=> rpad(concat('row-', cast(id as string)), 64, 'x'))
+        """)
     }
 }
