@@ -25,6 +25,9 @@ Maven build and adds no production dependency. It measures in-process policy
 installation and authorization, **not SQL execution, FE throughput or OIDC login**.
 It does not connect to Ranger or start background download threads.
 
+Recorded local measurements and their limits are in [RESULTS.txt](RESULTS.txt).
+They include the full authorization sequence and a separate column-only check.
+
 ## Runtime policy storage
 
 Ranger keeps an installed policy engine in FE memory. A SQL authorization question
@@ -35,10 +38,20 @@ snapshot or policy deltas, and the old engine remains reachable while active
 readers finish. Full refresh therefore needs room for old and new state plus
 temporary construction objects.
 
+Ranger 2.8/2.9 libraries default `ranger.plugin.<type>.supports.policy.deltas`
+to false. An unchanged policy version avoids rebuilding; without compatible
+client/admin delta support, a changed version normally delivers a full snapshot.
+The benchmark below installs full snapshots directly and does not measure that
+transport negotiation.
+
 Resource compaction runs after Ranger's string deduplication and before the
-evaluators retain resource maps. It uses compact immutable maps and shares equal
-single-value resource descriptors within one downloaded payload. Flags and the
-values in each OR block stay intact. The construction pool has a bound of 16384
+evaluators retain resource maps. It shares equal single-value resource
+descriptors within one downloaded payload. Resource maps remain ordinary
+HashMaps: alternate map implementations increased allocation in a column-only
+diagnostic. HashMaps freshly normalized by string deduplication are reused by
+replacing equal descriptor references; other input maps are copied into HashMaps
+sized for their resource count. Flags and the values in each OR block stay
+intact. The construction pool has a bound of 16384
 descriptors per resource level and is discarded after that payload. It never
 retains previous engines or creates a global interning cache.
 
@@ -58,6 +71,14 @@ read grants, deny/exception rules, conditions or validity schedules, tag policie
 security zones, custom matchers and resource-name transformations disable scope
 pruning. This includes an otherwise simple service that has a default group
 policy. Resource compaction remains independent of scope-pruning eligibility.
+
+In the checked Ranger 2.9 runtime, enabled in-place policy deltas can change
+permissions without advancing the engine's exposed service policy version. The
+version guard then disables the summary, and native Ranger continues deciding
+requests until a verifiable full replacement permits rebuilding it. The in-place
+regression compares stock and optimized grants, revocation and result policy
+versions; it does not manufacture an engine version change. The full-refresh
+benchmark uses the default configuration with in-place updates disabled.
 
 ## Run
 
@@ -145,7 +166,12 @@ P50/P95/P99, and native call counts. Heap peaks are polled every 5 ms; they are
 observations, not a JVM capacity upper bound. A full replacement policy snapshot
 is then generated while the old engine is still live. The tool checks revocation
 of `ad_0:t0`, the new grant on `ad_0:t800` (with default dimensions), and retained
-heap after refresh. Generation and installation times are separate.
+heap after refresh. Installation time is recorded separately from the wider
+measurement window. `initialPreparationAndInstallSeconds` also includes the
+post-install retained-heap measurement. `fullRefreshPreparationAndInstallSeconds`
+includes the revocation/new-grant checks and retained-heap measurement. The
+sampled refresh peak covers that entire window, including those checks and
+explicit GC; it is not a construction-only peak.
 
 The heap includes the locally generated policy objects retained by the engine.
 It excludes the rest of an FE, Ranger user stores, real audit sinks, HTTP/JSON
@@ -155,3 +181,7 @@ Use the output for relative engine cost and memory sizing; validate the actual
 FE package and workload before claiming a production SLA. Tail percentiles from
 a small sample are diagnostic and require larger repeated runs for capacity
 planning.
+
+The summary is invalidated during policy installation and rebuilding, so queries
+in that window temporarily use the native path. The steady-request percentiles
+above do not measure concurrent SQL tail latency during refresh.

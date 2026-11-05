@@ -1,0 +1,116 @@
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+
+Local Ranger policy benchmark measurements
+
+These diagnostic measurements are not a production capacity or SQL latency SLA.
+Hardware: Intel Xeon Platinum 8369B, 16 logical CPUs, shared host, no CPU pinning.
+JVM: Oracle JDK 17.0.10, G1, Xms256m, Xmx12g, separate serial JVMs per variant.
+Model: 5000 physical tables, 800 OR resource blocks per user, one SELECT policy
+per user. Each block has catalog/database/table and three real columns plus
+a user-named fourth column. The user-named column retains its Ranger meaning.
+Request mix: seed83, 20 warmups, 120 samples, half allowed and half denied.
+Requirement: ADMIN OR SELECT, global/catalog/database/table then three columns.
+Initialization: actual RangerBasePlugin constructor, explicit model supplier V2.
+User stores and context enrichers are disabled. No audit sink, Ranger HTTP
+download, policy-cache disk IO, SQL planning/execution or login is measured.
+Input generation is local and precedes installation. Peaks include generation,
+installation and explicit GC. The refresh peak window also includes the two
+revocation/new-grant checks; it is not a construction-only peak.
+Different Ranger versions use their matching dependency classpaths. Compare
+before/after within each version; cross-version changes are not isolated.
+
+Measured optimized implementation: ef4721353bd. Unchanged stock results are
+reused from the earlier serial stock runs after checking input, driver, native
+library hashes and policy/audit fingerprints. Baselines and optimized results
+were measured at different times on the shared host.
+The standalone runner and its workload are in this directory. Use README.md
+for portable setup and reproduction. The recorded numbers are one short batch;
+tail percentiles need larger repeated runs for production capacity planning.
+
+Retained policy heap and authorization sequence latency
+All pairs below are before -> after. Memory MiB; latency ms.
+Ranger | users | retained MiB | reduction % | P50 | P95 | P99 | P50 speedup
+2.8.0 | 260 | 321.2 -> 276.1 | 14.02 | 545.56 -> 40.96 | 745.41 -> 82.33 | 792.59 -> 90.67 | 13.32x
+2.8.0 | 500 | 625.6 -> 540.4 | 13.61 | 1234.18 -> 83.15 | 1625.21 -> 169.36 | 1852.61 -> 212.57 | 14.84x
+2.8.0 | 3000 | 3631.5 -> 3106.5 | 14.46 | 7782.27 -> 502.47 | 8892.60 -> 1094.05 | 9371.09 -> 1287.82 | 15.49x
+2.9.0 | 260 | 319.2 -> 275.8 | 13.60 | 618.98 -> 46.90 | 821.00 -> 97.82 | 880.68 -> 112.08 | 13.20x
+2.9.0 | 500 | 625.0 -> 538.3 | 13.87 | 1343.13 -> 89.28 | 1754.36 -> 171.92 | 1857.04 -> 196.67 | 15.04x
+2.9.0 | 3000 | 3629.0 -> 3104.8 | 14.45 | 8624.89 -> 491.57 | 9694.45 -> 1057.81 | 11512.09 -> 1107.04 | 17.55x
+
+Install and in-memory full replacement
+Seconds for installation only; peaks are total sampled JVM heap MiB.
+Ranger | users | initial install s | initial peak MiB | refresh install s | refresh peak MiB | retained after refresh MiB
+2.8.0 | 260 | 2.92 -> 2.67 | 712.25 -> 665.26 | 1.66 -> 2.32 | 1253.13 -> 1000.12 | 319.88 -> 275.74
+2.8.0 | 500 | 4.16 -> 5.12 | 1049.11 -> 1001.22 | 4.88 -> 3.83 | 1605.53 -> 1672.05 | 620.52 -> 538.22
+2.8.0 | 3000 | 26.49 -> 27.96 | 4883.72 -> 5198.79 | 28.34 -> 24.19 | 9018.41 -> 6917.35 | 3627.10 -> 3115.63
+2.9.0 | 260 | 2.79 -> 2.68 | 551.92 -> 489.32 | 2.22 -> 2.43 | 1033.73 -> 798.63 | 320.12 -> 275.62
+2.9.0 | 500 | 4.82 -> 5.09 | 980.53 -> 1193.96 | 4.55 -> 3.96 | 1615.57 -> 1548.91 | 620.18 -> 539.14
+2.9.0 | 3000 | 28.94 -> 26.15 | 5012.53 -> 4310.55 | 30.39 -> 24.46 | 9441.01 -> 6858.29 | 3633.05 -> 3116.24
+
+Allowed/denied paths and temporary allocation
+Cumulative allocation is over 120 requests, not simultaneously live heap.
+Ranger | users | allowed P50 ms | denied P50 ms | native calls | allocated MiB | mean allocated MiB/request
+2.8.0 | 260 | 556.66 -> 62.53 | 527.03 -> 27.61 | 1440 -> 480 | 7730.1 -> 397.7 | 64.4 -> 3.3
+2.8.0 | 500 | 1266.78 -> 125.73 | 1152.29 -> 56.51 | 1440 -> 480 | 15965.7 -> 761.7 | 133.0 -> 6.3
+2.8.0 | 3000 | 8096.38 -> 863.20 | 7485.24 -> 366.65 | 1440 -> 480 | 97695.2 -> 4735.8 | 814.1 -> 39.5
+2.9.0 | 260 | 626.70 -> 72.39 | 599.32 -> 31.38 | 1440 -> 480 | 7730.2 -> 397.7 | 64.4 -> 3.3
+2.9.0 | 500 | 1368.89 -> 132.32 | 1293.80 -> 59.03 | 1440 -> 480 | 15965.8 -> 761.7 | 133.0 -> 6.3
+2.9.0 | 3000 | 8904.83 -> 906.00 | 8251.13 -> 375.98 | 1440 -> 480 | 97695.3 -> 4735.8 | 814.1 -> 39.5
+
+Interpretation and remaining costs
+- Descriptor sharing reduces retained resource memory. Normalized HashMaps are
+  reused to avoid an extra construction copy. Native
+  evaluators, column resources and indexes still retain millions of blocks.
+- Conservative scope pruning skips impossible parent SELF checks. Original
+  Ranger still decides columns. The mixed workload speedup is not the same as
+  the allowed-only speedup and must not be described as SQL execution speedup.
+- Groups/roles, deny/exception, condition/validity, tag/zone, custom matching
+  and audit-processor cases fall back. A default group policy can disable
+  pruning for the whole service. Actual snapshot eligibility needs checking.
+- Installation and full refresh are not guaranteed to become faster. Extra
+  compaction work trades construction cost for retained heap and request cost.
+- Peaks sampled every5ms are observed values, not safe heap capacity bounds.
+  They exclude the rest of an FE and real download/JSON/audit/user-store costs.
+- Installation seconds exclude the wider validation/retained-heap measurement
+  window included in PreparationAndInstallSeconds fields in raw JSON output.
+- Descriptor sharing is payload-local. Separate small deltas do not re-intern
+  the entire retained engine and can reduce full-load sharing gains over time.
+- The checked Ranger2.9 in-place delta mode changes permissions without
+  advancing exposed service version. Summary version guards then fall back
+  to native checks until a verifiable full replacement. Stock parity and
+  revocation are covered; the formal full-refresh measurements use defaults
+  with in-place updates disabled.
+- The earlier MapN representation saved more retained heap but increased
+  column-query allocation. It was replaced; these are corrected HashMap results.
+- Each full-refresh pair verifies a revoked old table and a newly granted one.
+  Policy/audit fingerprints and logical question counts agree before/after.
+- A library-compatible run with Ranger2.8 is not a tested source backport or
+  a binary plugin replacement for an older FE. Actual FE deployment, actual
+  policy export, heap configuration and concurrent SQL remain separate checks.
+- 3000 authorized principals do not specify 3000 concurrent SQL clients. The
+  optimized allowed path still has substantial native column-matching cost.
+- Queries during installation/summary rebuilding temporarily use native checks.
+  Steady-request percentiles do not measure concurrent refresh-time SQL tails.
+
+Separate single-column diagnostic on the final resource-sharing implementation
+Ranger2.8, 3000 users, same policy model, column mode, 10 warmups/40 samples.
+This asks ADMIN OR SELECT for c0 only; it does not include parent questions.
+The diagnostic is separate from the three-column cascade matrix above.
+P50/P95/P99 ms: 356.58 -> 352.12 / 450.94 -> 411.83 / 501.89 -> 471.34
+Native engine calls: 80 -> 80. Policy/audit fingerprints match; full refresh
+revocation was checked for both variants.
