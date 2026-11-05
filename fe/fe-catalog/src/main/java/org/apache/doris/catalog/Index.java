@@ -182,6 +182,9 @@ public class Index implements Writable {
     // local mode supports light add for bf index, inverted index, ann index and ngram_bf index
     // the rest of the index types do not support light add
     public boolean isLightAddIndexSupported(boolean enableAddIndexForNewData) {
+        if (isVariantValuesIndex()) {
+            return enableAddIndexForNewData;
+        }
         if (Config.isCloudMode()) {
             if (indexType == IndexType.INVERTED) {
                 return isInvertedIndexParserNone() && enableAddIndexForNewData;
