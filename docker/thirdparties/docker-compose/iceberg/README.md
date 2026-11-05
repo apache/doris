@@ -262,7 +262,7 @@ Set these in `regression-test/conf/regression-conf-custom.groovy`, together with
 
 ```bash
 bash run-regression-test.sh --run -d external_table_p0/deltalake \
-    -s test_deltalake_basic,test_deltalake_skipping,test_deltalake_features,test_deltalake_metadata,test_deltalake_hive,test_deltalake_errors,test_deltalake_parquet,test_deltalake_metrics
+    -s test_deltalake_basic,test_deltalake_skipping,test_deltalake_features,test_deltalake_metadata,test_deltalake_hive,test_deltalake_errors,test_deltalake_parquet,test_deltalake_parquet_deletion_vector,test_deltalake_metrics,test_deltalake_hms_registration
 ```
 
 The tests use both Delta HMS/filesystem catalogs and a Hive catalog's Delta

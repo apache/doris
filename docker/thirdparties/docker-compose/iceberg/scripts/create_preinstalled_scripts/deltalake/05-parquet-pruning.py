@@ -46,5 +46,17 @@ try:
         column = "id" if mode == "none" else "renamed"
         spark.sql(f"SELECT {column}, length(payload) FROM {table} "
                   f"WHERE {column} >= 100 AND {column} < 120 ORDER BY {column}").show()
+    # Deleted rows sit inside the ranges the regression predicates keep, in early and late row groups
+    # and at both ends of the table, so skipped pages or row groups cannot hide a wrong row position.
+    table = "delta_m1.parquet_pruning_dv"
+    path = "s3a://delta/warehouse/delta_m1/parquet_pruning_dv"
+    spark.sql(f"""CREATE OR REPLACE TABLE {table} (id BIGINT, payload STRING)
+        USING delta LOCATION '{path}'
+        TBLPROPERTIES ('delta.enableDeletionVectors'='true')""")
+    (spark.range(0, 10000, 1, 1).selectExpr("id", "repeat('x', 64) AS payload")
+     .write.format("delta").mode("overwrite")
+     .save(path))
+    spark.sql(f"DELETE FROM {table} WHERE id IN (0, 5, 101, 105, 119, 199, 200, 9005, 9019, 9999)")
+    spark.sql(f"SELECT id FROM {table} WHERE id >= 100 AND id < 120 ORDER BY id").show()
 finally:
     spark.stop()
