@@ -282,7 +282,8 @@ public class SearchSignature {
             Optional<Literal> literalAfterUnwrapNullable = ExpressionUtils.getLiteralAfterUnwrapNullable(argument);
             if (!argument.isNullLiteral() && literalAfterUnwrapNullable.isPresent() && realType.isStringLikeType()) {
                 String literalValue = literalAfterUnwrapNullable.get().getStringValue();
-                realType = TypeCoercionUtils.literalTypeCoercion(argument, sigArgType).orElse(argument).getDataType();
+                realType = TypeCoercionUtils.characterLiteralTypeCoercion(literalValue, sigArgType)
+                        .orElse(argument).getDataType();
                 if (!realType.isStringLikeType()) {
                     stringLiteralCoersionCount++;
                 }
@@ -314,7 +315,7 @@ public class SearchSignature {
         // Unlike character literal parsing, this must not turn a lossy temporal conversion into
         // an identical match or change the preference for a native NS overload.
         return !realType.isTimeStampNsType() || !signatureType.isDateLikeType()
-                || TypeCoercionUtils.literalTypeCoercion(argument, signatureType).isPresent();
+                || TypeCoercionUtils.getExactTimeStampNsLiteralCastType(argument, signatureType).isPresent();
     }
 
     private static boolean hasHomogeneousDateLikeArguments(FunctionSignature signature) {

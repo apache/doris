@@ -86,10 +86,12 @@ public class Pmod extends ScalarFunction
         boolean leftCouldBeBigInt = false;
         boolean rightCouldBeBigInt = false;
         if (getArgument(0) instanceof StringLikeLiteral) {
-            leftCouldBeBigInt = TypeCoercionUtils.literalTypeCoercion(getArgument(0), BigIntType.INSTANCE).isPresent();
+            leftCouldBeBigInt = TypeCoercionUtils.characterLiteralTypeCoercion(
+                    ((StringLikeLiteral) getArgument(0)).getStringValue(), BigIntType.INSTANCE).isPresent();
         }
         if (getArgument(1) instanceof StringLikeLiteral) {
-            rightCouldBeBigInt = TypeCoercionUtils.literalTypeCoercion(getArgument(1), BigIntType.INSTANCE).isPresent();
+            rightCouldBeBigInt = TypeCoercionUtils.characterLiteralTypeCoercion(
+                    ((StringLikeLiteral) getArgument(1)).getStringValue(), BigIntType.INSTANCE).isPresent();
         }
         if ((getArgument(0).getDataType().isIntegerLikeType() || leftCouldBeBigInt)
                 && (getArgument(1).getDataType().isIntegerLikeType() || rightCouldBeBigInt)) {

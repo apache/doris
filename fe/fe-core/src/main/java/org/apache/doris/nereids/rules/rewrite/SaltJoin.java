@@ -45,7 +45,6 @@ import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -165,8 +164,8 @@ public class SaltJoin extends OneRewriteRuleFactory {
             return null;
         }
         int factor = getSaltFactor();
-        Optional<Expression> literalType = TypeCoercionUtils.literalTypeCoercion(
-                new StringLiteral(String.valueOf(factor)), TinyIntType.INSTANCE);
+        Optional<Expression> literalType = TypeCoercionUtils.characterLiteralTypeCoercion(
+                String.valueOf(factor), TinyIntType.INSTANCE);
         if (!literalType.isPresent()) {
             return null;
         }

@@ -248,7 +248,7 @@ public class TypeCoercionUtils {
 
     /**
      * Resolve a primitive argument conversion using Nereids type rules. Value-dependent
-     * exceptions belong to literalTypeCoercion; CAST legality is checked by CheckCast.
+     * NS-literal admission is handled separately; CAST legality is checked by CheckCast.
      */
     private static Optional<DataType> implicitCastPrimitive(DataType input, DataType expected) {
         if (input.equals(expected) || expected instanceof AnyDataType) {
@@ -269,7 +269,7 @@ public class TypeCoercionUtils {
         }
         if (input.isTimeStampNsType()) {
             // General NS arguments must not silently lose fractional precision. A particular
-            // literal can still be admitted by literalTypeCoercion after its value is checked.
+            // literal can still be admitted after its value passes the exact-cast check.
             return expected instanceof FloatType || expected instanceof DoubleType || expected instanceof CharacterType
                     ? Optional.of(expected.defaultConcreteType()) : Optional.empty();
         }
@@ -652,11 +652,13 @@ public class TypeCoercionUtils {
         }
         if (left instanceof Literal && ((Literal) left).isStringLikeLiteral()
                 && !right.getDataType().isStringLikeType()) {
-            left = TypeCoercionUtils.literalTypeCoercion(left, right.getDataType()).orElse(left);
+            left = characterLiteralTypeCoercion(((Literal) left).getStringValue(),
+                    right.getDataType()).orElse(left);
         }
         if (right instanceof Literal && ((Literal) right).isStringLikeLiteral()
                 && !left.getDataType().isStringLikeType()) {
-            right = TypeCoercionUtils.literalTypeCoercion(right, left.getDataType()).orElse(right);
+            right = characterLiteralTypeCoercion(((Literal) right).getStringValue(),
+                    left.getDataType()).orElse(right);
 
         }
         if (left != op.left() || right != op.right()) {
@@ -666,42 +668,11 @@ public class TypeCoercionUtils {
     }
 
     /**
-     * Coerce a literal when its value permits a conversion that type-only matching cannot decide.
-     * Character literals use value parsing; NS literals require exact temporal representability.
-     * Signature search uses the result for matching/type inference. When inserting an argument
-     * CAST, keep the original expression, including its enclosing CASTs and nullable wrappers.
+     * Parse a character literal into a candidate value for type inference. The candidate may
+     * widen the requested type (for example, '128' requested as TINYINT becomes SMALLINT).
+     * A parse failure returns empty; this method does not evaluate an expression or a CAST.
      */
-    public static Optional<Expression> literalTypeCoercion(Expression expression, DataType dataType) {
-        Expression evaluated = expression;
-        if (expression instanceof Cast && expression.getDataType().isTimeStampNsType()
-                && dataType.isDateLikeType() && !dataType.isTimeStampNsType()) {
-            // Respect legality, strictness and TRY_CAST before inspecting the resulting value.
-            evaluated = ExpressionUtils.foldConstantArgument(expression);
-        }
-        Optional<Literal> literal = ExpressionUtils.getLiteralAfterUnwrapNullable(evaluated);
-        if (!literal.isPresent()) {
-            return Optional.empty();
-        }
-        if (literal.get() instanceof TimeStampNsLiteral) {
-            if (!TemporalConversionProperties.isTimeStampNsLiteralExactlyRepresentable(
-                    (TimeStampNsLiteral) literal.get(), dataType)) {
-                return Optional.empty();
-            }
-            if (dataType instanceof AdjustableScaleTimeType
-                    && ((AdjustableScaleTimeType) dataType).getScale() < 0) {
-                // Signature wildcards describe a family, whereas value conversion needs a concrete scale.
-                AdjustableScaleTimeType temporalType = (AdjustableScaleTimeType) dataType;
-                dataType = temporalType.withScale(
-                        temporalType.scaleTypeForType(literal.get().getDataType()).getScale());
-            }
-            Expression converted = ExpressionUtils.foldConstantArgument(new Cast(literal.get(), dataType));
-            return converted instanceof Literal && !converted.isNullLiteral()
-                    ? Optional.of(converted) : Optional.empty();
-        }
-        if (!literal.get().isStringLikeLiteral()) {
-            return Optional.empty();
-        }
-        String value = literal.get().getStringValue();
+    public static Optional<Expression> characterLiteralTypeCoercion(String value, DataType dataType) {
         Expression ret = null;
         try {
             if (dataType instanceof BooleanType) {
@@ -807,6 +778,41 @@ public class TypeCoercionUtils {
 
     }
 
+    /**
+     * Resolve a concrete target type for an exact NS-literal conversion. Evaluate a CAST argument
+     * through normal FE semantics before checking the resulting value; strict failures propagate.
+     * The target CAST must also fold to a non-NULL literal.
+     *
+     * <p>This returns a conversion type, not a replacement expression. Argument insertion must
+     * retain the original expression, while signature search only checks admissibility and keeps
+     * the actual NS type when ranking overloads.
+     */
+    public static Optional<DataType> getExactTimeStampNsLiteralCastType(Expression expression, DataType targetType) {
+        if (!expression.getDataType().isTimeStampNsType()
+                || !targetType.isDateLikeType() || targetType.isTimeStampNsType()) {
+            return Optional.empty();
+        }
+        Expression evaluated = expression instanceof Cast
+                ? ExpressionUtils.foldConstantArgument(expression) : expression;
+        Optional<Literal> literal = ExpressionUtils.getLiteralAfterUnwrapNullable(evaluated);
+        if (!literal.isPresent() || !(literal.get() instanceof TimeStampNsLiteral)) {
+            return Optional.empty();
+        }
+        TimeStampNsLiteral nsLiteral = (TimeStampNsLiteral) literal.get();
+        if (!TemporalConversionProperties.isTimeStampNsLiteralExactlyRepresentable(nsLiteral, targetType)) {
+            return Optional.empty();
+        }
+        if (targetType instanceof AdjustableScaleTimeType
+                && ((AdjustableScaleTimeType) targetType).getScale() < 0) {
+            // Signature wildcards describe a family, whereas value conversion needs a concrete scale.
+            AdjustableScaleTimeType temporalType = (AdjustableScaleTimeType) targetType;
+            targetType = temporalType.withScale(temporalType.scaleTypeForType(nsLiteral.getDataType()).getScale());
+        }
+        Expression converted = ExpressionUtils.foldConstantArgument(new Cast(nsLiteral, targetType));
+        return converted instanceof Literal && !converted.isNullLiteral()
+                ? Optional.of(converted.getDataType()) : Optional.empty();
+    }
+
     public static Expression implicitCastInputTypes(Expression expr, List<DataType> expectedInputTypes) {
         List<Optional<DataType>> inputImplicitCastTypes
                 = getInputImplicitCastTypes(expr.children(), expectedInputTypes);
@@ -860,7 +866,8 @@ public class TypeCoercionUtils {
             DataType expectedType = expectedTypes.get(i);
             Optional<DataType> castType = implicitCast(input.getDataType(), expectedType);
             if (!castType.isPresent()) {
-                castType = literalTypeCoercion(input, expectedType).map(Expression::getDataType);
+                // Exact NS literals can admit a conversion rejected by the type-only rules.
+                castType = getExactTimeStampNsLiteralCastType(input, expectedType);
             }
             implicitCastTypes.add(castType);
         }
@@ -1632,8 +1639,9 @@ public class TypeCoercionUtils {
             while (iterator.hasNext()) {
                 Expression origOption = iterator.next();
                 if (origOption instanceof Literal && ((Literal) origOption).isStringLikeLiteral()) {
-                    Optional<Expression> option = TypeCoercionUtils.literalTypeCoercion(
-                            origOption, inPredicate.getCompareExpr().getDataType());
+                    Optional<Expression> option = characterLiteralTypeCoercion(
+                            ((Literal) origOption).getStringValue(),
+                            inPredicate.getCompareExpr().getDataType());
                     if (option.isPresent()) {
                         iterator.set(option.get());
                         hitString = true;

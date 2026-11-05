@@ -198,23 +198,37 @@ class TemporalConversionTest {
     }
 
     @Test
-    void wildcardLiteralCoercionProducesConcretePrecisionWithoutRounding() {
+    void exactNsCastTypeResolvesWildcardPrecisionWithoutRounding() {
         Expression exact = new TimeStampNsLiteral("2024-01-02 03:04:05.123456000");
         Expression inexact = new TimeStampNsLiteral("2024-01-02 03:04:05.123456001");
         List<DataType> targets = List.of(DateTimeV2Type.WILDCARD, TimeStampTzType.WILDCARD);
         List<DataType> concreteTypes = List.of(DateTimeV2Type.MAX, TimeStampTzType.MAX);
         for (int i = 0; i < targets.size(); i++) {
             DataType target = targets.get(i);
-            Expression coerced = TypeCoercionUtils.literalTypeCoercion(exact, target).orElseThrow();
-            Assertions.assertInstanceOf(Literal.class, coerced);
-            Assertions.assertEquals(concreteTypes.get(i), coerced.getDataType());
-            Assertions.assertTrue(TypeCoercionUtils.literalTypeCoercion(inexact, target).isEmpty());
+            Assertions.assertEquals(Optional.of(concreteTypes.get(i)),
+                    TypeCoercionUtils.getExactTimeStampNsLiteralCastType(exact, target));
+            Assertions.assertTrue(TypeCoercionUtils.getExactTimeStampNsLiteralCastType(inexact, target).isEmpty());
             FunctionSignature signature = FunctionSignature.ret(target).args(target);
             Assertions.assertEquals(Optional.of(signature), searchSignature(List.of(signature), List.of(exact)));
             Assertions.assertTrue(searchSignature(List.of(signature), List.of(inexact)).isEmpty());
         }
         Assertions.assertEquals("2024-01-02 03:04:05.123456000", ((Literal) exact).getStringValue());
         Assertions.assertEquals("2024-01-02 03:04:05.123456001", ((Literal) inexact).getStringValue());
+    }
+
+    @Test
+    void exactNsCastTypeRejectsOtherSourcesAndTargets() {
+        for (Expression input : List.of(new StringLiteral("2024-01-02 00:00:00"),
+                new DateV2Literal("2024-01-02"), new IntegerLiteral(7),
+                new Cast(new StringLiteral("invalid"), DateTimeV2Type.MAX, false, true))) {
+            Assertions.assertTrue(TypeCoercionUtils.getExactTimeStampNsLiteralCastType(
+                    input, DateTimeV2Type.MAX).isEmpty());
+        }
+        Expression ns = new TimeStampNsLiteral("2024-01-02 00:00:00");
+        for (DataType target : List.of(TimeStampNsType.INSTANCE, TimeV2Type.MAX,
+                StringType.INSTANCE, BigIntType.INSTANCE)) {
+            Assertions.assertTrue(TypeCoercionUtils.getExactTimeStampNsLiteralCastType(ns, target).isEmpty());
+        }
     }
 
     @Test
@@ -320,7 +334,7 @@ class TemporalConversionTest {
         Assertions.assertEquals(accepted ? Optional.of(signature) : Optional.empty(),
                 searchSignature(List.of(signature), List.of(input)));
         Assertions.assertEquals(accepted ? Optional.of(target) : Optional.empty(),
-                TypeCoercionUtils.literalTypeCoercion(input, target).map(Expression::getDataType));
+                TypeCoercionUtils.getExactTimeStampNsLiteralCastType(input, target));
         // Exercise parameter insertion with the same expected type. The proof must not replace
         // the original argument or strip an explicitly requested CAST from its expression tree.
         Expression argument = TypeCoercionUtils.implicitCastInputTypes(
@@ -342,7 +356,7 @@ class TemporalConversionTest {
         Assertions.assertEquals(expected.getMessage(), Assertions.assertThrows(CastException.class,
                 () -> searchSignature(signatures, List.of(input))).getMessage());
         Assertions.assertEquals(expected.getMessage(), Assertions.assertThrows(CastException.class,
-                () -> TypeCoercionUtils.literalTypeCoercion(input, target)).getMessage());
+                () -> TypeCoercionUtils.getExactTimeStampNsLiteralCastType(input, target)).getMessage());
         Assertions.assertEquals(expected.getMessage(), Assertions.assertThrows(CastException.class,
                 () -> TypeCoercionUtils.implicitCastInputTypes(new Nullable(input), List.of(target))).getMessage());
     }

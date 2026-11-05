@@ -68,6 +68,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
@@ -753,13 +754,13 @@ public class TypeCoercionUtilsTest {
     @Test
     public void testTimestampNsLiteralAndCommonTypeCoercion() {
         String timestamp = "2024-01-02 03:04:05.123456789";
-        Optional<Expression> literal = TypeCoercionUtils.literalTypeCoercion(
-                new StringLiteral(timestamp), TimeStampNsType.INSTANCE);
+        Optional<Expression> literal = TypeCoercionUtils.characterLiteralTypeCoercion(
+                timestamp, TimeStampNsType.INSTANCE);
         Assertions.assertTrue(literal.isPresent());
         Assertions.assertInstanceOf(TimeStampNsLiteral.class, literal.get());
         Assertions.assertEquals(TimeStampNsType.INSTANCE, literal.get().getDataType());
-        Assertions.assertTrue(TypeCoercionUtils.literalTypeCoercion(
-                new StringLiteral("2024-02-30 03:04:05.123456789"), TimeStampNsType.INSTANCE).isEmpty());
+        Assertions.assertTrue(TypeCoercionUtils.characterLiteralTypeCoercion(
+                "2024-02-30 03:04:05.123456789", TimeStampNsType.INSTANCE).isEmpty());
 
         SlotReference timestampSlot = new SlotReference("ts", TimeStampNsType.INSTANCE);
         EqualTo rightString = TypeCoercionUtils.processCharacterLiteralInBinaryOperator(
@@ -792,8 +793,8 @@ public class TypeCoercionUtilsTest {
         Assertions.assertEquals(Optional.of(normalizedNestedTimestamp),
                 TypeCoercionUtils.findWiderTypeForTwo(
                         nestedTimestamp, VariantType.INSTANCE, false, false));
-        Optional<Expression> dateTargetWithTime = TypeCoercionUtils.literalTypeCoercion(
-                new StringLiteral("2024-01-02 03:04:05.123456"), DateV2Type.INSTANCE);
+        Optional<Expression> dateTargetWithTime = TypeCoercionUtils.characterLiteralTypeCoercion(
+                "2024-01-02 03:04:05.123456", DateV2Type.INSTANCE);
         Assertions.assertTrue(dateTargetWithTime.isPresent());
         Assertions.assertEquals(DateTimeV2Type.of(6), dateTargetWithTime.get().getDataType());
     }
@@ -1343,22 +1344,27 @@ public class TypeCoercionUtilsTest {
 
     @Test
     public void testCharacterLiteralTypeCoercion() {
-        StringLiteral date = new StringLiteral("2020-02-02");
+        // Character parsing may choose a wider type instead of narrowing the literal's value.
+        Assertions.assertEquals(new SmallIntLiteral((short) 128),
+                TypeCoercionUtils.characterLiteralTypeCoercion("128", TinyIntType.INSTANCE).orElseThrow());
+        Assertions.assertTrue(TypeCoercionUtils.characterLiteralTypeCoercion(
+                "invalid", TinyIntType.INSTANCE).isEmpty());
+        String date = "2020-02-02";
         // datev2
         Assertions.assertEquals(DateV2Type.INSTANCE,
-                TypeCoercionUtils.literalTypeCoercion(date, DateV2Type.INSTANCE).get().getDataType());
+                TypeCoercionUtils.characterLiteralTypeCoercion(date, DateV2Type.INSTANCE).get().getDataType());
         // datetimev2
         Assertions.assertEquals(DateTimeV2Type.of(0),
-                TypeCoercionUtils.literalTypeCoercion(date, DateTimeV2Type.of(0)).get().getDataType());
+                TypeCoercionUtils.characterLiteralTypeCoercion(date, DateTimeV2Type.of(0)).get().getDataType());
         // date
         Assertions.assertEquals(DateV2Type.INSTANCE,
-                TypeCoercionUtils.literalTypeCoercion(date, DateType.INSTANCE).get().getDataType());
+                TypeCoercionUtils.characterLiteralTypeCoercion(date, DateType.INSTANCE).get().getDataType());
         // datetime
         Assertions.assertEquals(DateTimeV2Type.SYSTEM_DEFAULT,
-                TypeCoercionUtils.literalTypeCoercion(date, DateTimeType.INSTANCE).get().getDataType());
+                TypeCoercionUtils.characterLiteralTypeCoercion(date, DateTimeType.INSTANCE).get().getDataType());
         // timestamptz wildcard
         Assertions.assertEquals(TimeStampTzType.SYSTEM_DEFAULT,
-                TypeCoercionUtils.literalTypeCoercion(new StringLiteral("2023-08-17T01:41:18Z"), TimeStampTzType.WILDCARD)
+                TypeCoercionUtils.characterLiteralTypeCoercion("2023-08-17T01:41:18Z", TimeStampTzType.WILDCARD)
                         .get().getDataType());
         // No-zone TIMESTAMPTZ coercion uses the session timezone to define the local civil time.
         ConnectContext connectContext = new ConnectContext();
@@ -1367,7 +1373,7 @@ public class TypeCoercionUtilsTest {
         try {
             // timestamptz without explicit timezone keeps the literal scale during signature search
             Assertions.assertEquals(TimeStampTzType.SYSTEM_DEFAULT,
-                    TypeCoercionUtils.literalTypeCoercion(new StringLiteral("2004-12-31"), TimeStampTzType.MAX)
+                    TypeCoercionUtils.characterLiteralTypeCoercion("2004-12-31", TimeStampTzType.MAX)
                             .get().getDataType());
         } finally {
             ConnectContext.remove();
