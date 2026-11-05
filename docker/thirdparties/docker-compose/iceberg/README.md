@@ -253,7 +253,7 @@ full Iceberg stack.
 | Compose environment variable | Default | Regression setting |
 | --- | --- | --- |
 | `MINIO_API_PORT` | 19001 | `deltalakeMinioPort` |
-| `DELTALAKE_HMS_PORT` | 9383 | `deltalakeHmsPort` |
+| `DELTALAKE_HMS_PORT` | 19383 | `deltalakeHmsPort` |
 | `DELTALAKE_SPARK_PORT` | 11002 | `deltalakeSparkPort` |
 
 Set these in `regression-test/conf/regression-conf-custom.groovy`, together with

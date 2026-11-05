@@ -114,7 +114,7 @@ services:
       CORE_CONF_fs_defaultFS: file:///
       HADOOP_CLASSPATH: /opt/hadoop-3.2.1/share/hadoop/tools/lib/*
     ports:
-      - ${DELTALAKE_HMS_PORT:-9383}:9083
+      - ${DELTALAKE_HMS_PORT:-19383}:9083
     volumes:
       - ./scripts/deltalake/hive-site.xml:/opt/hive/conf/hive-site.xml:ro
       - ./scripts/deltalake/start-hms.sh:/fixtures/start-hms.sh:ro

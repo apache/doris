@@ -154,7 +154,7 @@ enableDeltaLakeBenchmarkTest=false
 deltalakeBenchmarkQueryPattern=".*"
 deltalakeStoragePropertiesFile=""
 deltalakeMinioPort=19001
-deltalakeHmsPort=9383
+deltalakeHmsPort=19383
 deltalakeSparkPort=11002
 deltalakeWarehouse="s3a://delta/warehouse"
 
