@@ -416,10 +416,15 @@ static void check_date_like_minmax_request(RuntimeFilterWrapper& producer,
     ASSERT_TRUE(receiver.assign(request, nullptr).ok());
     EXPECT_EQ(receiver.get_state(), RuntimeFilterWrapper::State::READY);
     EXPECT_EQ(receiver.column_type(), params.column_return_type);
-    check_date_like_minmax_bound(receiver.minmax_func()->get_min(), time_type,
-                                 params.column_return_type, min_text, data_type);
-    check_date_like_minmax_bound(receiver.minmax_func()->get_max(), time_type,
-                                 params.column_return_type, max_text, data_type);
+    // MIN_FILTER and MAX_FILTER serialize only their owned bound, so the other bound is absent.
+    if (params.filter_type != RuntimeFilterType::MAX_FILTER) {
+        check_date_like_minmax_bound(receiver.minmax_func()->get_min(), time_type,
+                                     params.column_return_type, min_text, data_type);
+    }
+    if (params.filter_type != RuntimeFilterType::MIN_FILTER) {
+        check_date_like_minmax_bound(receiver.minmax_func()->get_max(), time_type,
+                                     params.column_return_type, max_text, data_type);
+    }
 }
 
 static void check_date_like_minmax_round_trip(
