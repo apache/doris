@@ -229,9 +229,8 @@ public:
 
     static HyperLogLog empty() { return HyperLogLog {}; }
 
-    // Check if input slice is a valid serialized binary of HyperLogLog.
-    // This function only check the encoded type in slice, whose complex
-    // function is O(1).
+    // Check that the serialized fields fit in the slice and every SPARSE register
+    // index is in range. SPARSE validation is linear in its number of entries.
     static bool is_valid(const Slice& slice);
 
     // only for debug

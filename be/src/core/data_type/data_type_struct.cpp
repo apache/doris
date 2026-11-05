@@ -235,30 +235,28 @@ char* DataTypeStruct::serialize(const IColumn& column, char* buf, int be_exec_ve
 }
 const char* DataTypeStruct::deserialize(const char* buf, MutableColumnPtr* column,
                                         int be_exec_version) const {
-    if (be_exec_version >= USE_CONST_SERDE) {
-        auto* origin_column = column->get();
-        [[maybe_unused]] size_t real_have_saved_num = 0;
-        buf = deserialize_const_flag_and_row_num(buf, column, &real_have_saved_num);
+    return deserialize(buf, nullptr, column, be_exec_version);
+}
 
-        auto* struct_column = assert_cast<ColumnStruct*>(origin_column);
-        DCHECK(elems.size() == struct_column->tuple_size());
-        for (size_t i = 0; i < elems.size(); ++i) {
-            auto child_column = std::move(*struct_column->get_column_ptr(i)).mutate();
-            buf = elems[i]->deserialize(buf, &child_column, be_exec_version);
-            struct_column->get_column_ptr(i) = std::move(child_column);
-        }
-        return buf;
-    } else {
-        auto* struct_column = assert_cast<ColumnStruct*>(column->get());
-        DCHECK(elems.size() == struct_column->tuple_size());
-
-        for (size_t i = 0; i < elems.size(); ++i) {
-            auto child_column = std::move(*struct_column->get_column_ptr(i)).mutate();
-            buf = elems[i]->deserialize(buf, &child_column, be_exec_version);
-            struct_column->get_column_ptr(i) = std::move(child_column);
-        }
-        return buf;
+const char* DataTypeStruct::deserialize(const char* buf, const char* end, MutableColumnPtr* column,
+                                        int be_exec_version) const {
+    if (end != nullptr && end < buf) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Malformed struct column: invalid input range");
     }
+    auto* origin_column = column->get();
+    if (be_exec_version >= USE_CONST_SERDE) {
+        size_t saved_rows = 0;
+        buf = deserialize_const_flag_and_row_num(buf, end, column, &saved_rows);
+    }
+    auto* struct_column = assert_cast<ColumnStruct*>(origin_column);
+    DCHECK(elems.size() == struct_column->tuple_size());
+    for (size_t i = 0; i < elems.size(); ++i) {
+        auto child_column = std::move(*struct_column->get_column_ptr(i)).mutate();
+        buf = elems[i]->deserialize(buf, end, &child_column, be_exec_version);
+        struct_column->get_column_ptr(i) = std::move(child_column);
+    }
+    return buf;
 }
 
 void DataTypeStruct::to_pb_column_meta(PColumnMeta* col_meta) const {

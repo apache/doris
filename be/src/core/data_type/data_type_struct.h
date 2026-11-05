@@ -102,6 +102,8 @@ public:
     char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
     const char* deserialize(const char* buf, MutableColumnPtr* column,
                             int be_exec_version) const override;
+    const char* deserialize(const char* buf, const char* end, MutableColumnPtr* column,
+                            int be_exec_version) const override;
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
     bool get_have_explicit_names() const { return have_explicit_names; }
     using SerDeType = DataTypeStructSerDe;

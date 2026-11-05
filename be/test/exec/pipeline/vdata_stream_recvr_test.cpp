@@ -19,16 +19,20 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <memory>
+#include <mutex>
 #include <thread>
 #include <vector>
 
+#include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_number.h"
 #include "exec/exchange/vdata_stream_mgr.h"
 #include "exec/operator/multi_cast_data_streamer.h"
 #include "exec/pipeline/dependency.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
+#include "util/unaligned.h"
 
 namespace doris {
 
@@ -61,6 +65,14 @@ public:
         recvr = std::make_shared<MockVDataStreamRecvr>(_mock_state.get(), _mock_counter.get(),
                                                        _mock_profile.get(), num_senders,
                                                        is_merging);
+    }
+
+    void expect_empty_queue_accounting(VDataStreamRecvr::SenderQueue* sender) {
+        EXPECT_TRUE(sender->_block_queue.empty());
+        EXPECT_TRUE(sender->_pending_closures.empty());
+        EXPECT_EQ(_mock_counter->current_value(), 0);
+        EXPECT_EQ(sender->_queue_mem_tracker->consumption(), 0);
+        EXPECT_EQ(recvr->_mem_tracker->consumption(), 0);
     }
 
     std::shared_ptr<MockVDataStreamRecvr> recvr;
@@ -323,6 +335,25 @@ void to_pblock(Block& block, PBlock* pblock) {
                                 segment_v2::CompressionTypePB::NO_COMPRESSION));
 }
 
+std::unique_ptr<PBlock> make_invalid_hll_pblock() {
+    constexpr size_t hll_header_size = sizeof(bool) + 2 * sizeof(size_t);
+    constexpr uint8_t invalid_hll_type = 0x04;
+    auto hll_type =
+            DataTypeFactory::instance().create_data_type(FieldType::OLAP_FIELD_TYPE_HLL, 0, 0);
+    auto column = hll_type->create_column();
+    column->insert_default();
+
+    auto block = Block({ColumnWithTypeAndName(std::move(column), std::move(hll_type), "hll")});
+    auto pblock = std::make_unique<PBlock>();
+    to_pblock(block, pblock.get());
+
+    auto* values = pblock->mutable_column_values();
+    DCHECK_GE(values->size(), hll_header_size + sizeof(size_t) + 1);
+    unaligned_store<size_t>(values->data() + hll_header_size, 1);
+    (*values)[hll_header_size + sizeof(size_t)] = static_cast<char>(invalid_hll_type);
+    return pblock;
+}
+
 TEST_F(DataStreamRecvrTest, TestRemoteSender) {
     create_recvr(3, false);
     EXPECT_EQ(recvr->sender_queues().size(), 1);
@@ -398,6 +429,126 @@ TEST_F(DataStreamRecvrTest, TestRemoteMemLimitSender) {
         }
     }
     sender->close();
+}
+
+TEST_F(DataStreamRecvrTest, RejectedRemoteBlockReleasesCallbackAndAccounting) {
+    create_recvr(1, false);
+    recvr->always_exceeds_limit = true;
+    auto* sender = recvr->sender_queues().back();
+
+    int callback_count = 0;
+    MockClosure closure;
+    closure._cb = [&]() { ++callback_count; };
+    google::protobuf::Closure* done = &closure;
+
+    auto st = sender->add_block(make_invalid_hll_pblock(), 1, 1, &done, 0, 0);
+    ASSERT_TRUE(st) << st.msg();
+    ASSERT_EQ(done, nullptr);
+    ASSERT_GT(_mock_counter->current_value(), 0);
+
+    Block block;
+    bool eos = false;
+    st = sender->get_batch(&block, &eos);
+    EXPECT_FALSE(st.ok());
+    EXPECT_EQ(callback_count, 1);
+    EXPECT_EQ(_mock_counter->current_value(), 0);
+
+    recvr->close();
+    EXPECT_EQ(callback_count, 1);
+    EXPECT_EQ(_mock_counter->current_value(), 0);
+}
+
+class DataStreamRecvrCallbackTest : public DataStreamRecvrTest,
+                                    public ::testing::WithParamInterface<bool> {
+public:
+    static std::unique_ptr<PBlock> make_valid_pblock() {
+        auto block = ColumnHelper::create_block<DataTypeInt32>({1});
+        auto pblock = std::make_unique<PBlock>();
+        to_pblock(block, pblock.get());
+        return pblock;
+    }
+
+    void run_concurrent_add_and_cancel(VDataStreamRecvr::SenderQueue* sender,
+                                       google::protobuf::Closure* pending,
+                                       google::protobuf::Closure* incoming) {
+        // The running callback must own neither the lock nor a slot in the pending deque.
+        std::unique_lock<std::mutex> lock(sender->_lock, std::try_to_lock);
+        ASSERT_TRUE(lock.owns_lock());
+        ASSERT_EQ(sender->_pending_closures.size(), 1);
+        ASSERT_EQ(sender->_pending_closures.front().first, pending);
+        lock.unlock();
+        std::thread rpc([&]() {
+            google::protobuf::Closure* done = incoming;
+            EXPECT_TRUE(sender->add_block(make_valid_pblock(), 1, 3, &done, 0, 0));
+            EXPECT_EQ(done, nullptr);
+            // Follow the error-EOS RPC path while the consumer's callback is running.
+            recvr->remove_sender(0, 1, Status::InternalError("test cancellation"));
+        });
+        rpc.join();
+    }
+};
+
+TEST_P(DataStreamRecvrCallbackTest, PendingCallbackDetachedBeforeConcurrentAddAndCancel) {
+    bool invalid_block = GetParam();
+    create_recvr(1, false);
+    recvr->always_exceeds_limit = true;
+    auto* sender = recvr->sender_queues().back();
+    MockClosure first;
+    MockClosure second;
+    MockClosure third;
+    std::array<int, 3> callback_counts {};
+    const std::array<int, 3> expected_counts {1, 1, 1};
+    second._cb = [&]() { ++callback_counts[1]; };
+    third._cb = [&]() { ++callback_counts[2]; };
+    first._cb = [&]() {
+        ++callback_counts[0];
+        run_concurrent_add_and_cancel(sender, &second, &third);
+    };
+    google::protobuf::Closure* done = &first;
+    ASSERT_TRUE(sender->add_block(invalid_block ? make_invalid_hll_pblock() : make_valid_pblock(),
+                                  1, 1, &done, 0, 0));
+    ASSERT_EQ(done, nullptr);
+    done = &second;
+    ASSERT_TRUE(sender->add_block(make_valid_pblock(), 1, 2, &done, 0, 0));
+    ASSERT_EQ(done, nullptr);
+
+    Block block;
+    bool eos = false;
+    auto st = sender->get_batch(&block, &eos);
+    EXPECT_EQ(st.ok(), !invalid_block);
+    EXPECT_EQ(callback_counts, expected_counts);
+    EXPECT_TRUE(sender->_pending_closures.empty());
+    EXPECT_TRUE(sender->_is_cancelled);
+    recvr->close();
+    expect_empty_queue_accounting(sender);
+    EXPECT_EQ(callback_counts, expected_counts);
+}
+
+INSTANTIATE_TEST_SUITE_P(BlockDecodeResults, DataStreamRecvrCallbackTest, ::testing::Bool());
+
+TEST_F(DataStreamRecvrTest, CloseReleasesQueuedLocalAndRemoteAccounting) {
+    create_recvr(1, false);
+    recvr->always_exceeds_limit = true;
+    auto* sender = recvr->sender_queues().back();
+    auto local = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
+    sender->add_block(&local, true);
+    MockClosure closure;
+    int callback_count = 0;
+    closure._cb = [&]() { ++callback_count; };
+    google::protobuf::Closure* done = &closure;
+    ASSERT_TRUE(
+            sender->add_block(DataStreamRecvrCallbackTest::make_valid_pblock(), 1, 1, &done, 0, 0));
+    ASSERT_EQ(done, nullptr);
+    ASSERT_EQ(sender->_block_queue.size(), 2);
+    ASSERT_GT(_mock_counter->current_value(), 0);
+    ASSERT_GT(sender->_queue_mem_tracker->consumption(), 0);
+    recvr->close();
+    expect_empty_queue_accounting(sender);
+    EXPECT_EQ(callback_count, 1);
+    sender->close();
+    recvr->close();
+    expect_empty_queue_accounting(sender);
+    EXPECT_EQ(callback_count, 1);
 }
 
 TEST_F(DataStreamRecvrTest, TestRemoteMultiSender) {
