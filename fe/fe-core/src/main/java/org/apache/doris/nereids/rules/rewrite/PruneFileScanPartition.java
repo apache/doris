@@ -94,8 +94,12 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
         Optional<SortedPartitionRanges<String>> sortedPartitionRanges = Optional.empty();
         boolean enableBinarySearch = ctx.getConnectContext() == null
                 || ctx.getConnectContext().getSessionVariable().enableBinarySearchFilteringPartitions;
-        if (enableBinarySearch) {
-            sortedPartitionRanges = (Optional) externalTable.getSortedPartitionRanges(scan);
+        if (enableBinarySearch && !nameToPartitionItem.isEmpty()) {
+            if (nameToPartitionItem.size() < scan.getSelectedPartitions().totalPartitionNum) {
+                sortedPartitionRanges = Optional.ofNullable(SortedPartitionRanges.build(nameToPartitionItem));
+            } else {
+                sortedPartitionRanges = (Optional) externalTable.getSortedPartitionRanges(scan);
+            }
         }
         PartitionPruneResult<String> result = PartitionPruner.pruneWithResult(
                 partitionSlots, filter.getPredicate(), nameToPartitionItem, ctx,
@@ -105,8 +109,10 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
         for (String name : prunedPartitions) {
             selectedPartitionItems.put(name, nameToPartitionItem.get(name));
         }
-        return new SelectedPartitions(nameToPartitionItem.size(), selectedPartitionItems, true,
-                result.hasPartitionPredicate);
+        boolean hasPartitionPredicate = result.hasPartitionPredicate
+                || scan.getSelectedPartitions().hasPartitionPredicate;
+        return new SelectedPartitions(scan.getSelectedPartitions().totalPartitionNum, selectedPartitionItems, true,
+                hasPartitionPredicate);
     }
 
     static List<Column> getPartitionColumnsForScan(ExternalTable externalTable, LogicalFileScan scan) {
