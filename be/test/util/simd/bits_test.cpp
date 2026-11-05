@@ -220,6 +220,26 @@ TEST(BitsTest, BytesMaskToBitsMask) {
     EXPECT_EQ(full_mask, bits_mask_all());
 }
 
+// Every branch of bytes32_mask_to_bits32_mask (AVX2, SSE2, NEON, scalar) against the scalar rule:
+// bit i is set when byte i is 1.
+TEST(BitsTest, Bytes32MaskToBits32MaskSetsTheBitOfEveryOneByte) {
+    uint8_t data[32] = {};
+    for (size_t bit = 0; bit < 32; ++bit) {
+        std::ranges::fill(data, 0);
+        data[bit] = 1;
+        EXPECT_EQ(bytes32_mask_to_bits32_mask(data), uint32_t {1} << bit) << bit;
+    }
+    std::mt19937 random(20261103);
+    for (int round = 0; round < 10000; ++round) {
+        uint32_t expected = 0;
+        for (size_t i = 0; i < 32; ++i) {
+            data[i] = static_cast<uint8_t>(random() & 1);
+            expected |= static_cast<uint32_t>(data[i]) << i;
+        }
+        ASSERT_EQ(bytes32_mask_to_bits32_mask(data), expected);
+    }
+}
+
 TEST(BitsTest, CountZeroNum) {
     // Case 1: empty
     const int8_t* empty = nullptr;

@@ -19,40 +19,34 @@
 
 #include <gtest/gtest.h>
 
+#include <memory>
+#include <string>
+#include <string_view>
+
 namespace doris::segment_v2::inverted_index {
 
-ReaderPtr create_char_replace_filter(const std::string& text, const std::string& pattern,
-                                     const std::string& replacement = " ") {
-    ReaderPtr reader = std::make_shared<lucene::util::SStringReader<char>>();
-    reader->init(text.data(), text.size(), false);
-
+std::unique_ptr<TextCharFilter> create_char_replace_filter(const std::string& pattern,
+                                                           const std::string& replacement = " ") {
     Settings settings;
     settings.set(CHAR_REPLACE_PATTERN, pattern);
     settings.set(CHAR_REPLACE_REPLACEMENT, replacement);
 
     CharReplaceCharFilterFactory factory;
     factory.initialize(settings);
-    auto char_filter = factory.create(reader);
-    return char_filter;
+    return factory.create();
 }
-
-struct ExpectedOutput {
-    std::string text;
-    std::string expected;
-};
 
 class CharReplaceCharFilterFactoryTest : public ::testing::Test {
 protected:
     void assert_char_filter_output(const std::string& input_text, const std::string& pattern,
                                    const std::string& expected_output,
                                    const std::string& replacement = " ") {
-        auto char_filter = create_char_replace_filter(input_text, pattern, replacement);
+        auto char_filter = create_char_replace_filter(pattern, replacement);
 
-        const void* data = nullptr;
-        int32_t read_len = char_filter->read(&data, 0, char_filter->size());
-        ASSERT_GT(read_len, 0) << "Failed to read from char filter";
+        std::string scratch;
+        const std::string_view result = char_filter->apply(input_text, scratch);
+        ASSERT_GT(result.size(), 0) << "Failed to read from char filter";
 
-        std::string result(static_cast<const char*>(data), read_len);
         EXPECT_EQ(result, expected_output) << "Char filter output mismatch";
     }
 };
@@ -78,15 +72,14 @@ TEST_F(CharReplaceCharFilterFactoryTest, NoMatch) {
 }
 
 TEST_F(CharReplaceCharFilterFactoryTest, EmptyInput) {
-    auto char_filter = create_char_replace_filter("", ",");
+    auto char_filter = create_char_replace_filter(",");
 
-    const void* data = nullptr;
-    int32_t read_len = char_filter->read(&data, 0, char_filter->size());
+    std::string scratch;
+    const std::string_view result = char_filter->apply("", scratch);
 
-    // For empty input, read should return -1 (EOF)
-    EXPECT_EQ(read_len, -1) << "Empty input should return EOF";
-    EXPECT_TRUE(data == nullptr || char_filter->size() == 0)
-            << "No data should be available for empty input";
+    // An empty value stays empty
+    EXPECT_TRUE(result.empty()) << "Empty input should give empty text";
+    EXPECT_TRUE(scratch.empty()) << "No data should be written for empty input";
 }
 
 TEST_F(CharReplaceCharFilterFactoryTest, EmptyPattern) {
@@ -144,17 +137,13 @@ TEST_F(CharReplaceCharFilterFactoryTest, FactoryCreateFilter) {
     CharReplaceCharFilterFactory factory;
     factory.initialize(settings);
 
-    ReaderPtr input_reader = std::make_shared<lucene::util::SStringReader<char>>();
-    input_reader->init("test,data", 9, false);
-
-    auto char_filter = factory.create(input_reader);
+    auto char_filter = factory.create();
     ASSERT_NE(char_filter, nullptr);
 
-    const void* data = nullptr;
-    int32_t read_len = char_filter->read(&data, 0, char_filter->size());
-    ASSERT_GT(read_len, 0);
+    std::string scratch;
+    const std::string_view result = char_filter->apply("test,data", scratch);
+    ASSERT_GT(result.size(), 0);
 
-    std::string result(static_cast<const char*>(data), read_len);
     EXPECT_EQ(result, "test data");
 }
 
@@ -166,16 +155,12 @@ TEST_F(CharReplaceCharFilterFactoryTest, DefaultReplacement) {
     CharReplaceCharFilterFactory factory;
     factory.initialize(settings);
 
-    ReaderPtr input_reader = std::make_shared<lucene::util::SStringReader<char>>();
-    input_reader->init("a,b,c", 5, false);
+    auto char_filter = factory.create();
 
-    auto char_filter = factory.create(input_reader);
+    std::string scratch;
+    const std::string_view result = char_filter->apply("a,b,c", scratch);
+    ASSERT_GT(result.size(), 0);
 
-    const void* data = nullptr;
-    int32_t read_len = char_filter->read(&data, 0, char_filter->size());
-    ASSERT_GT(read_len, 0);
-
-    std::string result(static_cast<const char*>(data), read_len);
     EXPECT_EQ(result, "a b c");
 }
 

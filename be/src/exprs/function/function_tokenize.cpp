@@ -27,8 +27,6 @@
 #include <memory>
 #include <utility>
 
-#include "CLucene/StdHeader.h"
-#include "CLucene/config/repl_wchar.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
@@ -160,6 +158,10 @@ void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
                                     bool support_phrase,
                                     const MutableColumnPtr& dest_column_ptr) const {
     ColumnArray::Offset64 src_offsets_size = src_column_string.get_offsets().size();
+    const std::unique_ptr<segment_v2::inverted_index::TextTokenStream> stream =
+            analyzer_ctx.analyzer->create_stream();
+    segment_v2::inverted_index::TokenBatch batch;
+    std::vector<segment_v2::TermInfo> analyzer_tokens;
     for (size_t i = 0; i < src_offsets_size; i++) {
         const StringRef tokenize_str = src_column_string.get_data_at(i);
         if (tokenize_str.size == 0) {
@@ -167,10 +169,8 @@ void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
             continue;
         }
 
-        auto reader = InvertedIndexAnalyzer::create_reader(analyzer_ctx.char_filter_map);
-        reader->init(tokenize_str.data, (int)tokenize_str.size, true);
-        auto analyzer_tokens =
-                InvertedIndexAnalyzer::get_analyse_result(reader, analyzer_ctx.analyzer.get());
+        InvertedIndexAnalyzer::get_analyse_result(tokenize_str.to_string_view(), *stream, batch,
+                                                  &analyzer_tokens);
 
         rapidjson::Document doc;
         doc.SetArray();
@@ -247,14 +247,11 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
             bool support_phrase = get_parser_phrase_support_string_from_properties(properties) ==
                                   INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES;
 
-            std::shared_ptr<lucene::analysis::Analyzer> analyzer_holder;
+            segment_v2::inverted_index::TextAnalyzerPtr analyzer_holder;
             try {
                 analyzer_holder =
                         doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_analyzer(
                                 &config);
-            } catch (CLuceneError& e) {
-                return Status::Error<doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
-                        "inverted index create analyzer failed: {}", e.what());
             } catch (Exception& e) {
                 return Status::Error<doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
                         "inverted index create analyzer failed: {}", e.what());

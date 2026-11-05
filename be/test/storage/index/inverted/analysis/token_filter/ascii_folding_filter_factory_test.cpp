@@ -19,25 +19,23 @@
 
 #include <gtest/gtest.h>
 
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "storage/index/inverted/analysis/text_stream_contract.h"
 #include "storage/index/inverted/analysis/tokenizer/keyword/keyword_tokenizer_factory.h"
 
 namespace doris::segment_v2::inverted_index {
 
-TokenStreamPtr create_filter(const std::string& text, Settings token_filter_settings) {
-    ReaderPtr reader = std::make_shared<lucene::util::SStringReader<char>>();
-    reader->init(text.data(), text.size(), false);
-
+std::unique_ptr<TextTokenStream> create_filter(Settings token_filter_settings) {
     Settings settings;
     KeywordTokenizerFactory tokenizer_factory;
     tokenizer_factory.initialize(settings);
-    auto tokenizer = tokenizer_factory.create();
-    tokenizer->set_reader(reader);
 
     ASCIIFoldingFilterFactory token_filter_factory;
     token_filter_factory.initialize(token_filter_settings);
-    auto token_filter = token_filter_factory.create(tokenizer);
-    token_filter->reset();
-    return token_filter;
+    return token_filter_factory.create(tokenizer_factory.create());
 }
 
 struct ExpectedToken {
@@ -55,14 +53,13 @@ protected:
         } else {
             settings.set("preserve_original", "false");
         }
-        auto filter = create_filter(text, settings);
+        auto filter = create_filter(settings);
 
-        Token t;
         size_t i = 0;
-        while (filter->next(&t)) {
-            std::string term(t.termBuffer<char>(), t.termLength<char>());
+        for (const CollectedToken& t : collect_checked(*filter, text)) {
+            const std::string& term = t.term;
             EXPECT_EQ(term, expected[i].term) << "Term mismatch at index " << i;
-            EXPECT_EQ(t.getPositionIncrement(), expected[i].pos_inc)
+            EXPECT_EQ(t.position_increment, expected[i].pos_inc)
                     << "Pos increment mismatch at index " << i;
             ++i;
         }
