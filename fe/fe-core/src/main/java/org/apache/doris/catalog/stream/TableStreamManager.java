@@ -50,6 +50,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -318,6 +319,37 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
         }
         try {
             stream.unprotectedPrunePartitionOffsets(entry.getPartitionIds());
+        } finally {
+            stream.writeUnlock();
+        }
+    }
+
+    /**
+     * Record the counters the estimate of a stream read is built from for the partitions whose
+     * offset has just moved. Called after the offset update succeeded, which is why the counters
+     * may describe a slightly later moment than the offset does: an estimate that is a little too
+     * large only makes the optimizer plan the read differently, while one that is too small lets a
+     * large read become the build side of a broadcast join. See PartitionStreamState.
+     */
+    public void recordPartitionStreamStates(long dbId, long streamId, Collection<Long> partitionIds) {
+        if (partitionIds.isEmpty()) {
+            return;
+        }
+        Optional<Database> db = Env.getCurrentInternalCatalog().getDb(dbId);
+        if (!db.isPresent()) {
+            return;
+        }
+        Optional<Table> table = db.get().getTable(streamId);
+        if (!table.isPresent() || !(table.get() instanceof OlapTableStream)) {
+            return;
+        }
+        OlapTableStream stream = (OlapTableStream) table.get();
+        if (!stream.writeLockIfExist()) {
+            LOG.warn("stream {}.{} write lock acquire failed", db.get().getFullName(), stream.getName());
+            return;
+        }
+        try {
+            stream.unprotectedRecordPartitionStreamStates(partitionIds);
         } finally {
             stream.writeUnlock();
         }
