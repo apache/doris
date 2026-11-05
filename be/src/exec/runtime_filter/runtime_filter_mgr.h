@@ -23,6 +23,7 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <glog/logging.h>
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <map>
@@ -91,6 +92,13 @@ struct LocalMergeContext {
 };
 
 struct GlobalMergeContext {
+    struct Completion {
+        std::atomic<bool> publish_dispatch_finished {false};
+        std::atomic<bool> size_dispatch_finished {true};
+        std::atomic<bool> failed {false};
+        std::atomic<int> pending_callbacks {0};
+    };
+
     std::mutex mtx;
     std::shared_ptr<RuntimeFilterMerger> merger;
     TRuntimeFilterDesc runtime_filter_desc;
@@ -101,6 +109,7 @@ struct GlobalMergeContext {
             sync_size_callbacks;
     std::vector<std::shared_ptr<HandleErrorBrpcCallback<PPublishFilterResponse>>> publish_callbacks;
     std::atomic<bool> done = false;
+    std::shared_ptr<Completion> completion;
 
     // for represent the round number of recursive cte
     // if lower stage rf input to higher stage, we just discard the rf
@@ -183,10 +192,8 @@ private:
     bool _has_merge_addr = false;
 };
 
-// controller -> <query-id, entity>
-// RuntimeFilterMergeControllerEntity is the context used by runtimefilter for merging
-// During a query, only the last sink node owns this class, with the end of the query,
-// the class is destroyed with the last fragment_exec.
+// The QueryContext owns the merge controller. FragmentMgr retains an additional QueryContext
+// owner until a single-use query has completed its initial deployment and remote RF dispatches.
 class RuntimeFilterMergeControllerEntity {
 public:
     Status init(std::shared_ptr<QueryContext> query_ctx,
@@ -206,6 +213,12 @@ public:
         return _filter_map.empty();
     }
 
+    void mark_initial_fragments_prepared() {
+        _initial_fragments_prepared.store(true, std::memory_order_release);
+    }
+
+    bool can_release_query_context();
+
     Status reset_global_rf(QueryContext* query_ctx,
                            const google::protobuf::RepeatedField<int32_t>& filter_ids);
 
@@ -224,5 +237,7 @@ private:
     std::shared_ptr<MemTracker> _mem_tracker;
 
     std::map<int, GlobalMergeContext> _filter_map GUARDED_BY(_filter_map_mutex);
+    bool _single_use = false;
+    std::atomic<bool> _initial_fragments_prepared {false};
 };
 } // namespace doris

@@ -642,6 +642,16 @@ Status PInternalService::_exec_plan_fragment_impl(
                         fragment, QuerySource::INTERNAL_FRONTEND, t_request));
             }
         }
+        // The first local-only fragment can finish before this batch's later simplified
+        // fragments are prepared. Only a completely successful batch may release the
+        // merge controller's extra QueryContext owner. A cancelled query may disappear
+        // before this lookup; a query without RF legitimately has no controller.
+        if (auto query_ctx =
+                    _exec_env->fragment_mgr()->get_query_ctx(fragment_list.front().query_id)) {
+            if (auto controller = query_ctx->get_merge_controller_handler()) {
+                controller->mark_initial_fragments_prepared();
+            }
+        }
         timer.stop();
         double cost_secs = static_cast<double>(timer.elapsed_time()) / 1000000000ULL;
         if (cost_secs > 5) {

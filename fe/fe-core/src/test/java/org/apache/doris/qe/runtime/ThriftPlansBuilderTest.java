@@ -21,13 +21,16 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.scan.FileQueryScanNode;
+import org.apache.doris.nereids.trees.plans.distribute.PipelineDistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.DefaultScanSource;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.LocalShuffleAssignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.ScanRanges;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.UnassignedJob;
+import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.RecursiveCteNode;
 import org.apache.doris.planner.RecursiveCteScanNode;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SortNode;
@@ -52,8 +55,33 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
 
 public class ThriftPlansBuilderTest {
+    @Test
+    public void testRfMergeSingleUseRequiresCompleteNonrecursivePlan() {
+        Assertions.assertFalse(ThriftPlansBuilder.isRfMergeContextSingleUse(Collections.emptyList()));
+
+        PipelineDistributedPlan mergePlan = mockPlanWithRoot(Mockito.mock(PlanNode.class));
+        PipelineDistributedPlan recursivePlan = mockPlanWithRoot(Mockito.mock(RecursiveCteNode.class));
+        PipelineDistributedPlan recursiveScanPlan = mockPlanWithRoot(Mockito.mock(RecursiveCteScanNode.class));
+
+        Assertions.assertTrue(ThriftPlansBuilder.isRfMergeContextSingleUse(List.of(mergePlan)));
+        // The merge BE's own fragment is ordinary; another BE can still reset its RF.
+        Assertions.assertFalse(ThriftPlansBuilder.isRfMergeContextSingleUse(List.of(mergePlan, recursivePlan)));
+        Assertions.assertFalse(ThriftPlansBuilder.isRfMergeContextSingleUse(List.of(mergePlan, recursiveScanPlan)));
+    }
+
+    private static PipelineDistributedPlan mockPlanWithRoot(PlanNode root) {
+        PipelineDistributedPlan plan = Mockito.mock(PipelineDistributedPlan.class, Mockito.RETURNS_DEEP_STUBS);
+        Mockito.when(plan.getFragmentJob().getFragment().getPlanRoot()).thenReturn(root);
+        Mockito.when(root.collectInCurrentFragment(Mockito.any())).thenAnswer(invocation -> {
+            Predicate<PlanNode> predicate = invocation.getArgument(0);
+            return predicate.test(root) ? List.of(root) : Collections.emptyList();
+        });
+        return plan;
+    }
+
     @Test
     public void testSetRuntimePredicateForNonOlapScanNode() {
         ScanNode scanNode = Mockito.mock(ScanNode.class);

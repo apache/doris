@@ -110,6 +110,7 @@ public class ThriftPlansBuilder {
         List<PipelineDistributedPlan> distributedPlans = coordinatorContext.distributedPlans;
         Set<Integer> fragmentToNotifyClose = setParamsForRecursiveCteNode(distributedPlans,
                 coordinatorContext.runtimeFilters);
+        boolean rfMergeContextSingleUse = isRfMergeContextSingleUse(distributedPlans);
 
         // Determine whether this query is assigned to a single backend and propagate it to
         // TQueryOptions so that BE can apply more appropriate optimization strategies (e.g.
@@ -157,7 +158,7 @@ public class ThriftPlansBuilder {
             for (Entry<DistributedPlanWorker, TPipelineFragmentParams> kv : workerToCurrentFragment.entrySet()) {
                 TPipelineFragmentParamsList fragments = fragmentsGroupByWorker.computeIfAbsent(
                         kv.getKey(), w -> beToThrift(kv.getKey(), runtimeFiltersThriftBuilder,
-                                topNFilterThriftSupplier));
+                                topNFilterThriftSupplier, rfMergeContextSingleUse));
                 fragments.addToParamsList(kv.getValue());
             }
         }
@@ -406,16 +407,34 @@ public class ThriftPlansBuilder {
         return destination;
     }
 
+    static boolean isRfMergeContextSingleUse(List<PipelineDistributedPlan> distributedPlans) {
+        // A recursive node on another BE can reset this BE's merge controller after its local
+        // fragments finish. Inspect the entire query, not only the merge BE's fragment.
+        if (distributedPlans.isEmpty()) {
+            return false;
+        }
+        for (PipelineDistributedPlan plan : distributedPlans) {
+            PlanNode root = plan.getFragmentJob().getFragment().getPlanRoot();
+            if (root == null || !root.collectInCurrentFragment(RecursiveCteNode.class::isInstance).isEmpty()
+                    || !root.collectInCurrentFragment(RecursiveCteScanNode.class::isInstance).isEmpty()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private static TPipelineFragmentParamsList beToThrift(
             DistributedPlanWorker worker,
             RuntimeFiltersThriftBuilder runtimeFiltersThriftBuilder,
-            Supplier<List<TTopnFilterDesc>> topNFilterThriftSupplier) {
+            Supplier<List<TTopnFilterDesc>> topNFilterThriftSupplier,
+            boolean rfMergeContextSingleUse) {
         TPipelineFragmentParamsList beParam = new TPipelineFragmentParamsList();
         TRuntimeFilterInfo runtimeFilterInfo = new TRuntimeFilterInfo();
         runtimeFilterInfo.setTopnFilterDescs(topNFilterThriftSupplier.get());
 
         TRuntimeFilterParams runtimeFilterParams = new TRuntimeFilterParams();
         runtimeFilterParams.setRuntimeFilterMergeAddr(runtimeFiltersThriftBuilder.mergeAddress);
+        runtimeFilterParams.setRfMergeContextSingleUse(rfMergeContextSingleUse);
         if (worker.host().equals(runtimeFiltersThriftBuilder.mergeAddress.getHostname())
                 && worker.brpcPort() == runtimeFiltersThriftBuilder.mergeAddress.getPort()) {
             // only set following information for merge BE node

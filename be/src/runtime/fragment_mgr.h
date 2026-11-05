@@ -214,6 +214,8 @@ private:
             const std::map<TNetworkAddress, FrontendInfo>& running_fes,
             timespec check_invalid_query_last_timestamp);
 
+    void _release_finished_rf_query_contexts();
+
     void _check_brpc_available(const std::shared_ptr<PBackendService_Stub>& brpc_stub,
                                const BrpcItem& brpc_item);
 
