@@ -28,9 +28,10 @@ suite("test_non_nullable_hive_mtmv", "p0,external,hive,external_docker,external_
         sql """CREATE CATALOG ${catalog} PROPERTIES (
             "type" = "hms", "hive.metastore.uris" = "thrift://${host}:${port}"
         )"""
-        checkNonNullableMvRewrite("${catalog}.default.mtmv_base1", "id", "non_nullable_${version}_mv")
+        // The helper reuses this name in DESC and MV queries, where default is a reserved keyword.
+        checkNonNullableMvRewrite("`${catalog}`.`default`.`mtmv_base1`", "id", "non_nullable_${version}_mv")
         for (String format : ["orc", "parquet"]) {
-            String source = "${catalog}.default.non_nullable_vector_${format}"
+            String source = "`${catalog}`.`default`.`non_nullable_vector_${format}`"
             sql "DROP TABLE IF EXISTS ${source}"
             sql """CREATE TABLE ${source} (id INT, vec ARRAY<FLOAT>) ENGINE=HIVE
                 PROPERTIES ("file_format" = "${format}")"""

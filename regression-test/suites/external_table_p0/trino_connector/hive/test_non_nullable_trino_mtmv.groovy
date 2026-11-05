@@ -29,5 +29,6 @@ suite("test_non_nullable_trino_mtmv", "p0,external") {
         "type" = "trino-connector", "trino.connector.name" = "hive",
         "trino.hive.metastore.uri" = "thrift://${host}:${port}"
     )"""
-    checkNonNullableMvRewrite("non_nullable_mv_trino.default.mtmv_base1", "id", "non_nullable_trino_mv")
+    // Quote the reserved schema name before the helper embeds it in DESC and MV queries.
+    checkNonNullableMvRewrite("`non_nullable_mv_trino`.`default`.`mtmv_base1`", "id", "non_nullable_trino_mv")
 }
