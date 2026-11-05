@@ -479,6 +479,17 @@ class Suite implements GroovyInterceptable {
             .until(actionSupplier)
     }
 
+    /** Wait for cache admission before a test exercises invalidation of a published result. */
+    void waitForSqlCache(String query) {
+        // Metadata changes during planning can deliberately reject the first publication.
+        awaitUntil(60, 0.1) {
+            sql(query)
+            sql("explain physical plan ${query}").any { row ->
+                row[0].toString().contains("PhysicalSqlCache")
+            }
+        }
+    }
+
     // more explaination can see example file: demo_p0/docker_action.groovy
     public void docker(ClusterOptions options = new ClusterOptions(), Closure actionSupplier) throws Exception {
         if (context.config.excludeDockerTest) {

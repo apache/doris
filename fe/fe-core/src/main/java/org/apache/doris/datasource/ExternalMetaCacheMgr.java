@@ -240,15 +240,23 @@ public class ExternalMetaCacheMgr {
     }
 
     public void invalidateCatalog(long catalogId) {
+        CatalogIf<?> catalog = getCatalog(catalogId);
+        invalidateCatalogCaches(catalogId, catalog == null ? null : catalog.getName(), "invalidateCatalog",
+                cache -> cache.invalidateCatalogEntries(catalogId));
+    }
+
+    private void invalidateCatalogCaches(long catalogId, String catalogName, String operation,
+            Consumer<ExternalMetaCache> invalidation) {
         try {
             try {
                 routeCatalogEngines(catalogId, cache -> safeInvalidate(
-                        cache, catalogId, "invalidateCatalog",
-                        () -> cache.invalidateCatalogEntries(catalogId)));
+                        cache, catalogId, operation, () -> invalidation.accept(cache)));
             } finally {
-                CatalogIf<?> catalog = getCatalog(catalogId);
-                if (catalog != null) {
-                    Env.getCurrentEnv().onCatalogChanged(catalog.getName());
+                if (catalogName != null) {
+                    Env.getCurrentEnv().onCatalogChanged(catalogName);
+                } else {
+                    // Legacy ID-only removals may reach this after the catalog has been unpublished.
+                    invalidateSortedPartitionsCache();
                 }
             }
         } finally {
@@ -263,17 +271,13 @@ public class ExternalMetaCacheMgr {
     }
 
     public void removeCatalog(long catalogId) {
-        try {
-            try {
-                routeCatalogEngines(catalogId, cache -> safeInvalidate(
-                        cache, catalogId, "removeCatalog",
-                        () -> cache.invalidateCatalog(catalogId)));
-            } finally {
-                invalidateSortedPartitionsCache();
-            }
-        } finally {
-            rowCountCache.invalidateCatalog(catalogId);
-        }
+        CatalogIf<?> catalog = getCatalog(catalogId);
+        removeCatalog(catalogId, catalog == null ? null : catalog.getName());
+    }
+
+    /** Retirement can follow unpublication, so retain the owner's name without looking it up again. */
+    public void removeCatalog(long catalogId, String catalogName) {
+        invalidateCatalogCaches(catalogId, catalogName, "removeCatalog", cache -> cache.invalidateCatalog(catalogId));
     }
 
     public void removeCatalogByEngine(long catalogId, String engine) {

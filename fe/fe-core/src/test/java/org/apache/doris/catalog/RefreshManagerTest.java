@@ -22,6 +22,7 @@ import org.apache.doris.catalog.constraint.ConstraintManager;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.cache.NereidsSqlCacheManager;
+import org.apache.doris.common.cache.SqlCacheMetadataVersions;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.cache.CacheSpec;
@@ -45,6 +46,7 @@ import org.apache.doris.datasource.test.TestExternalTable;
 import org.apache.doris.mtmv.MTMVRelationManager;
 import org.apache.doris.mtmv.MTMVService;
 import org.apache.doris.nereids.SqlCacheContext;
+import org.apache.doris.nereids.SqlCacheContext.FullTableName;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.gson.GsonUtils;
 
@@ -98,8 +100,8 @@ public class RefreshManagerTest {
 
     @BeforeEach
     public void setUp() {
-        Map<String, String> properties = Collections.singletonMap(
-                "catalog_provider.class", EmptyCatalogProvider.class.getName());
+        Map<String, String> properties = new HashMap<>(Collections.singletonMap(
+                "catalog_provider.class", EmptyCatalogProvider.class.getName()));
         catalog = new TestExternalCatalog(CATALOG_ID, CATALOG_NAME, "", properties, "");
         catalog.setInitializedForTest(true);
 
@@ -204,6 +206,47 @@ public class RefreshManagerTest {
         Assertions.assertSame(unrelated, sqlCache.getSqlCaches().getIfPresent("unrelated"));
         Mockito.verify(relations).invalidateRewriteCaches(CATALOG_NAME, DATABASE_NAME, null);
         Mockito.verify(relations, Mockito.never()).invalidateRewriteCaches(CATALOG_NAME, "other_db", null);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"remove", "reset", "properties", "detached", "failure"})
+    public void testCatalogRetirementInvalidatesQueryCaches(String operation) {
+        NereidsSqlCacheManager sqlCache = new NereidsSqlCacheManager();
+        Mockito.doReturn(sqlCache).when(testingEnv).getSqlCacheManager();
+        MTMVRelationManager relations = Mockito.mock(MTMVRelationManager.class);
+        MTMVService service = Mockito.mock(MTMVService.class);
+        Mockito.when(service.getRelationManager()).thenReturn(relations);
+        Mockito.doReturn(service).when(testingEnv).getMtmvService();
+        SqlCacheMetadataVersions.Snapshot affected = sqlCache.newMetadataSnapshot();
+        affected.addTable(TABLE_ID, new FullTableName(CATALOG_NAME, DATABASE_NAME, TABLE_NAME));
+        SqlCacheMetadataVersions.Snapshot unrelated = sqlCache.newMetadataSnapshot();
+        unrelated.addTable(TABLE_ID + 1L, new FullTableName("other_catalog", DATABASE_NAME, TABLE_NAME));
+
+        switch (operation) {
+            case "remove":
+                metaCacheMgr.removeCatalog(CATALOG_ID);
+                break;
+            case "reset":
+                catalog.resetToUninitialized(false);
+                break;
+            case "properties":
+                catalog.modifyCatalogProps(Collections.singletonMap("metadata_refresh_interval_sec", "10"));
+                break;
+            case "detached":
+                testingCatalogMgr.setCatalog(null);
+                catalog.onClose();
+                break;
+            case "failure":
+                engineCache.failCatalogInvalidation = true;
+                Assertions.assertThrows(IllegalStateException.class, () -> metaCacheMgr.removeCatalog(CATALOG_ID));
+                break;
+            default:
+                throw new AssertionError(operation);
+        }
+
+        Assertions.assertFalse(affected.isCurrent());
+        Assertions.assertTrue(unrelated.isCurrent());
+        Mockito.verify(relations).invalidateRewriteCaches(CATALOG_NAME, null, null);
     }
 
     @Test
@@ -895,6 +938,7 @@ public class RefreshManagerTest {
         private final AtomicInteger invalidateDbCalls = new AtomicInteger();
         private final AtomicInteger invalidateTableCalls = new AtomicInteger();
         private boolean failDbInvalidation;
+        private boolean failCatalogInvalidation;
         private long lastCatalogId;
         private String lastDatabaseName;
         private String lastTableName;
@@ -930,6 +974,9 @@ public class RefreshManagerTest {
 
         @Override
         public void invalidateCatalog(long catalogId) {
+            if (failCatalogInvalidation) {
+                throw new IllegalStateException("catalog metadata invalidation failed");
+            }
         }
 
         @Override

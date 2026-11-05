@@ -64,6 +64,7 @@ suite("sql_cache_partial_mtmv") {
             }
             sql "set enable_sql_cache=true"
             order_qt_before_write query
+            waitForSqlCache(query)
             explain {
                 sql "physical plan ${query}"
                 contains "PhysicalSqlCache"
@@ -76,6 +77,7 @@ suite("sql_cache_partial_mtmv") {
                 notContains "PhysicalSqlCache"
             }
             order_qt_after_write query
+            waitForSqlCache(query)
             explain {
                 sql "physical plan ${query}"
                 contains "PhysicalSqlCache"
