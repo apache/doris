@@ -22,6 +22,7 @@ import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.rules.expression.check.CheckCast;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.TryCast;
@@ -32,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ImplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.NullOrIdenticalSignature;
 import org.apache.doris.nereids.trees.expressions.functions.SearchSignature;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -68,6 +70,7 @@ import java.time.DateTimeException;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -363,34 +366,82 @@ class TemporalConversionTest {
     }
 
     @Test
-    void mixedTemporalDetectionIncludesNestedTypes() {
+    void nestedTemporalArgumentsKeepStrictRangeChecks() {
         DataType nsArray = ArrayType.of(TimeStampNsType.INSTANCE);
         DataType dates = MapType.of(StringType.INSTANCE, DateTimeV2Type.MAX);
+        DataType nsDates = MapType.of(StringType.INSTANCE, TimeStampNsType.INSTANCE);
         DataType both = new StructType(List.of(
                 new StructField("ns", nsArray, true, ""), new StructField("dates", dates, true, "")));
-        Assertions.assertTrue(TemporalTypeCoercion.containsMixedTimeStampNsDateLikeTypes(List.of(both)));
-        Assertions.assertTrue(TemporalTypeCoercion.containsMixedTimeStampNsDateLikeTypes(List.of(nsArray, dates)));
-        Assertions.assertTrue(TemporalTypeCoercion.containsMixedTimeStampNsDateLikeTypes(List.of(dates, nsArray)));
-        Assertions.assertTrue(TemporalTypeCoercion.containsMixedTimeStampNsDateLikeTypes(
-                List.of(MapType.of(TimeStampNsType.INSTANCE, TimeStampTzType.MAX))));
-        Assertions.assertFalse(TemporalTypeCoercion.containsMixedTimeStampNsDateLikeTypes(List.of(nsArray)));
-        Assertions.assertFalse(TemporalTypeCoercion.containsMixedTimeStampNsDateLikeTypes(List.of(dates)));
-        Assertions.assertFalse(TemporalTypeCoercion.containsMixedTimeStampNsDateLikeTypes(List.of()));
+        DataType promotedBoth = new StructType(List.of(
+                new StructField("ns", nsArray, true, ""), new StructField("dates", nsDates, true, "")));
+        try (MockedStatic<SessionVariable> session = Mockito.mockStatic(SessionVariable.class)) {
+            session.when(SessionVariable::enableStrictCast).thenReturn(false);
+            assertNestedArgumentRangeChecks(List.of(both), List.of(promotedBoth), true);
+            assertNestedArgumentRangeChecks(List.of(nsArray, dates), List.of(nsArray, nsDates), true);
+            assertNestedArgumentRangeChecks(List.of(dates, nsArray), List.of(nsDates, nsArray), true);
+            assertNestedArgumentRangeChecks(List.of(MapType.of(TimeStampNsType.INSTANCE, TimeStampTzType.MAX)),
+                    List.of(MapType.of(TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE)), true);
+            assertNestedArgumentRangeChecks(List.of(nsArray), List.of(nsArray), false);
+            assertNestedArgumentRangeChecks(List.of(dates), List.of(nsDates), false);
+            Assertions.assertTrue(TypeCoercionUtils.implicitCastInputTypes(new Array(), List.of()).children().isEmpty());
+        }
+    }
+
+    private void assertNestedArgumentRangeChecks(List<DataType> sourceTypes, List<DataType> targetTypes,
+            boolean strict) {
+        List<Expression> arguments = new ArrayList<>();
+        for (int i = 0; i < sourceTypes.size(); i++) {
+            arguments.add(new SlotReference("argument" + i, sourceTypes.get(i)));
+        }
+        Expression converted = TypeCoercionUtils.implicitCastInputTypes(
+                new CreateStruct(arguments.toArray(new Expression[0])), targetTypes);
+        for (int i = 0; i < arguments.size(); i++) {
+            Expression argument = converted.child(i);
+            Assertions.assertEquals(targetTypes.get(i), argument.getDataType());
+            if (sourceTypes.get(i).equals(targetTypes.get(i))) {
+                Assertions.assertSame(arguments.get(i), argument);
+            } else {
+                Assertions.assertInstanceOf(Cast.class, argument);
+                Assertions.assertEquals(strict, ((Cast) argument).isStrict());
+                Assertions.assertSame(arguments.get(i), argument.child(0));
+            }
+        }
     }
 
     @Test
-    void temporalPairDetectionIsSymmetricAndExcludesIdenticalNsTypes() {
+    void timestampNsComparisonsPreserveRangeWithoutChangingOtherPairs() {
         DataType ns = TimeStampNsType.INSTANCE;
-        for (DataType other : List.of(DateV2Type.INSTANCE, DateTimeV2Type.MAX, TimeStampTzType.MAX)) {
-            Assertions.assertTrue(TemporalTypeCoercion.isTimeStampNsAndDateLikePair(ns, other));
-            Assertions.assertTrue(TemporalTypeCoercion.isTimeStampNsAndDateLikePair(other, ns));
-            Assertions.assertEquals(Optional.of(ns), TemporalTypeCoercion.getCommonDataTypeWithTimeStampNsType(other));
+        try (MockedStatic<SessionVariable> session = Mockito.mockStatic(SessionVariable.class)) {
+            session.when(SessionVariable::enableStrictCast).thenReturn(false);
+            for (DataType other : List.of(DateV2Type.INSTANCE, DateTimeV2Type.MAX, TimeStampTzType.MAX)) {
+                assertComparisonCoercion(ns, other, ns, true);
+            }
+            assertComparisonCoercion(ns, ns, ns, false);
+            assertComparisonCoercion(ns, StringType.INSTANCE, ns, false);
+            assertComparisonCoercion(DateV2Type.INSTANCE, DateTimeV2Type.MAX, DateTimeV2Type.MAX, false);
         }
-        Assertions.assertFalse(TemporalTypeCoercion.isTimeStampNsAndDateLikePair(ns, ns));
-        Assertions.assertFalse(TemporalTypeCoercion.isTimeStampNsAndDateLikePair(ns, StringType.INSTANCE));
-        Assertions.assertFalse(TemporalTypeCoercion.isTimeStampNsAndDateLikePair(StringType.INSTANCE, ns));
-        Assertions.assertFalse(TemporalTypeCoercion.isTimeStampNsAndDateLikePair(
-                DateV2Type.INSTANCE, DateTimeV2Type.MAX));
+    }
+
+    private void assertComparisonCoercion(DataType leftType, DataType rightType, DataType targetType, boolean strict) {
+        Expression left = new SlotReference("left", leftType);
+        Expression right = new SlotReference("right", rightType);
+        for (List<Expression> arguments : List.of(List.of(left, right), List.of(right, left))) {
+            Assertions.assertEquals(Optional.of(targetType), TypeCoercionUtils.findWiderTypeForTwo(
+                    arguments.get(0).getDataType(), arguments.get(1).getDataType(), false, false));
+            Expression comparison = TypeCoercionUtils.processComparisonPredicate(
+                    new EqualTo(arguments.get(0), arguments.get(1)));
+            for (int i = 0; i < arguments.size(); i++) {
+                Expression argument = comparison.child(i);
+                Assertions.assertEquals(targetType, argument.getDataType());
+                if (arguments.get(i).getDataType().equals(targetType)) {
+                    Assertions.assertSame(arguments.get(i), argument);
+                } else {
+                    Assertions.assertInstanceOf(Cast.class, argument);
+                    Assertions.assertEquals(strict, ((Cast) argument).isStrict());
+                    Assertions.assertSame(arguments.get(i), argument.child(0));
+                }
+            }
+        }
     }
 
     @Test

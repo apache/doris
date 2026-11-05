@@ -34,8 +34,8 @@ import java.util.List;
  * literal exactness and nullable output layout. Shared by implicit coercion and explicit CAST.
  *
  * <p>This class does not choose target types, admit function overloads or select a cast mode.
- * {@link TemporalTypeCoercion} supplies temporal common-type rules; {@link TypeCoercionUtils}
- * applies implicit conversion and constructs casts. Rewrite rules also consume these properties.
+ * {@link TypeCoercionUtils} chooses common types, applies implicit conversion and constructs casts.
+ * Rewrite rules also consume these properties.
  * Explicit CAST legality remains in CheckCast, and
  * timezone value conversion is implemented by {@link TemporalValueConversion}.
  */

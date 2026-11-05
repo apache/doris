@@ -162,6 +162,10 @@ public class TypeCoercionUtils {
             TinyIntType.INSTANCE
     );
 
+    private static final int HAS_TIMESTAMP_NS = 1;
+    private static final int HAS_OTHER_DATE_LIKE = 2;
+    private static final int HAS_BOTH_TEMPORAL_FAMILIES = HAS_TIMESTAMP_NS | HAS_OTHER_DATE_LIKE;
+
     private static final Logger LOG = LogManager.getLogger(TypeCoercionUtils.class);
     private static final Set<String> UNSUPPORTED_VARBINARY_COLLECTIONS = ImmutableSet.of(
             "array_contains", "array_position", "countequal", "array_distinct", "array_remove",
@@ -806,9 +810,46 @@ public class TypeCoercionUtils {
     public static Expression implicitCastInputTypes(Expression expr, List<DataType> expectedInputTypes) {
         List<Optional<DataType>> inputImplicitCastTypes
                 = getInputImplicitCastTypes(expr.children(), expectedInputTypes);
-        boolean strictTimeStampNsCoercion = TemporalTypeCoercion.containsMixedTimeStampNsDateLikeTypes(
+        boolean strictTimeStampNsCoercion = containsMixedTimeStampNsDateLikeTypes(
                 expr.children().stream().map(Expression::getDataType).collect(Collectors.toList()));
         return castInputs(expr, inputImplicitCastTypes, strictTimeStampNsCoercion);
+    }
+
+    /** Detect TIMESTAMP_NS and other date-like types in one traversal, including nested types. */
+    private static boolean containsMixedTimeStampNsDateLikeTypes(List<DataType> dataTypes) {
+        int found = 0;
+        for (DataType dataType : dataTypes) {
+            found = collectTemporalFamilies(dataType, found);
+            if (found == HAS_BOTH_TEMPORAL_FAMILIES) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static int collectTemporalFamilies(DataType dataType, int found) {
+        if (found == HAS_BOTH_TEMPORAL_FAMILIES) {
+            return found;
+        }
+        if (dataType instanceof ArrayType) {
+            return collectTemporalFamilies(((ArrayType) dataType).getItemType(), found);
+        } else if (dataType instanceof MapType) {
+            MapType map = (MapType) dataType;
+            return collectTemporalFamilies(map.getValueType(), collectTemporalFamilies(map.getKeyType(), found));
+        } else if (dataType instanceof StructType) {
+            for (StructField field : ((StructType) dataType).getFields()) {
+                found = collectTemporalFamilies(field.getDataType(), found);
+                if (found == HAS_BOTH_TEMPORAL_FAMILIES) {
+                    break;
+                }
+            }
+            return found;
+        } else if (dataType.isTimeStampNsType()) {
+            return found | HAS_TIMESTAMP_NS;
+        } else if (dataType.isDateLikeType()) {
+            return found | HAS_OTHER_DATE_LIKE;
+        }
+        return found;
     }
 
     private static List<Optional<DataType>> getInputImplicitCastTypes(
@@ -1147,6 +1188,15 @@ public class TypeCoercionUtils {
         return Optional.empty();
     }
 
+    /** Choose the common type when one operand is TIMESTAMP_NS. */
+    private static Optional<DataType> getCommonDataTypeWithTimeStampNsType(DataType otherType) {
+        if (otherType.isDateLikeType() || otherType.isNumericType()
+                || otherType instanceof TimeV2Type || otherType.isStringLikeType()) {
+            return Optional.of(TimeStampNsType.INSTANCE);
+        }
+        return Optional.empty();
+    }
+
     /**
      * left type must be TimeV2Type Type
      */
@@ -1345,9 +1395,9 @@ public class TypeCoercionUtils {
         }
 
         if (leftType instanceof TimeStampNsType) {
-            return TemporalTypeCoercion.getCommonDataTypeWithTimeStampNsType(rightType);
+            return getCommonDataTypeWithTimeStampNsType(rightType);
         } else if (rightType instanceof TimeStampNsType) {
-            return TemporalTypeCoercion.getCommonDataTypeWithTimeStampNsType(leftType);
+            return getCommonDataTypeWithTimeStampNsType(leftType);
         }
 
         // we process date like type first
@@ -1507,7 +1557,7 @@ public class TypeCoercionUtils {
         left = comparisonPredicate.left();
         right = comparisonPredicate.right();
 
-        boolean timeStampNsDateLikePair = TemporalTypeCoercion.isTimeStampNsAndDateLikePair(
+        boolean timeStampNsDateLikePair = isTimeStampNsAndDateLikePair(
                 left.getDataType(), right.getDataType());
         Optional<DataType> commonType;
         if (timeStampNsDateLikePair) {
@@ -1546,6 +1596,14 @@ public class TypeCoercionUtils {
         } else {
             return comparisonPredicate;
         }
+    }
+
+    /** Whether a comparison must preserve NS precision and check the temporal peer for overflow. */
+    private static boolean isTimeStampNsAndDateLikePair(DataType left, DataType right) {
+        if (left.isTimeStampNsType()) {
+            return right.isDateLikeType() && !right.isTimeStampNsType();
+        }
+        return right.isTimeStampNsType() && left.isDateLikeType();
     }
 
     /**
@@ -1752,7 +1810,7 @@ public class TypeCoercionUtils {
      */
     public static Optional<DataType> findWiderCommonType(List<DataType> dataTypes,
             boolean overflowToDouble, boolean stringIsHighPriority) {
-        if (TemporalTypeCoercion.containsTimeStampNsAndOnlyCompatibleTemporalTypes(dataTypes)) {
+        if (containsTimeStampNsAndOnlyCompatibleTemporalTypes(dataTypes)) {
             return Optional.of(TimeStampNsType.INSTANCE);
         }
         return dataTypes.stream().map(Optional::of).reduce(Optional.of(NullType.INSTANCE),
@@ -1763,6 +1821,19 @@ public class TypeCoercionUtils {
                         return Optional.empty();
                     }
                 });
+    }
+
+    /** Recognize an all-temporal NS group before order-sensitive legacy common-type reduction. */
+    private static boolean containsTimeStampNsAndOnlyCompatibleTemporalTypes(List<DataType> dataTypes) {
+        boolean containsTimeStampNs = false;
+        for (DataType dataType : dataTypes) {
+            if (dataType.isTimeStampNsType()) {
+                containsTimeStampNs = true;
+            } else if (!dataType.isDateLikeType() && !dataType.isNullType() && !(dataType instanceof TimeV2Type)) {
+                return false;
+            }
+        }
+        return containsTimeStampNs;
     }
 
     public static Optional<DataType> findWiderCommonTypeByVariable(List<DataType> dataTypes,
@@ -1833,7 +1904,7 @@ public class TypeCoercionUtils {
     @Deprecated
     private static Optional<DataType> findWiderCommonTypeForComparison(
             List<DataType> dataTypes, boolean intStringToString) {
-        if (TemporalTypeCoercion.containsTimeStampNsAndOnlyCompatibleTemporalTypes(dataTypes)) {
+        if (containsTimeStampNsAndOnlyCompatibleTemporalTypes(dataTypes)) {
             return Optional.of(TimeStampNsType.INSTANCE);
         }
         Map<Boolean, List<DataType>> partitioned = dataTypes.stream()
@@ -1941,9 +2012,9 @@ public class TypeCoercionUtils {
         }
 
         if (leftType instanceof TimeStampNsType) {
-            return TemporalTypeCoercion.getCommonDataTypeWithTimeStampNsType(rightType);
+            return getCommonDataTypeWithTimeStampNsType(rightType);
         } else if (rightType instanceof TimeStampNsType) {
-            return TemporalTypeCoercion.getCommonDataTypeWithTimeStampNsType(leftType);
+            return getCommonDataTypeWithTimeStampNsType(leftType);
         }
 
         // decimal v3
@@ -2096,7 +2167,7 @@ public class TypeCoercionUtils {
      */
     @Deprecated
     public static Optional<DataType> findWiderCommonTypeForCaseWhen(List<DataType> dataTypes) {
-        if (TemporalTypeCoercion.containsTimeStampNsAndOnlyCompatibleTemporalTypes(dataTypes)) {
+        if (containsTimeStampNsAndOnlyCompatibleTemporalTypes(dataTypes)) {
             return Optional.of(TimeStampNsType.INSTANCE);
         }
         Map<Boolean, List<DataType>> partitioned = dataTypes.stream()
@@ -2233,10 +2304,10 @@ public class TypeCoercionUtils {
         }
 
         if (t1 instanceof TimeStampNsType) {
-            return TemporalTypeCoercion.getCommonDataTypeWithTimeStampNsType(t2);
+            return getCommonDataTypeWithTimeStampNsType(t2);
         }
         if (t2 instanceof TimeStampNsType) {
-            return TemporalTypeCoercion.getCommonDataTypeWithTimeStampNsType(t1);
+            return getCommonDataTypeWithTimeStampNsType(t1);
         }
 
         // decimal with date should return double
