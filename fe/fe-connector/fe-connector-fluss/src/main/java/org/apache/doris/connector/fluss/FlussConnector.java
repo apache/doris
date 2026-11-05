@@ -100,8 +100,8 @@ public class FlussConnector implements Connector {
     // Outlives the per-node scan providers; see FlussLakePropertiesCache.
     private final FlussLakePropertiesCache lakeProperties;
 
-    // Outlives the per-statement admin ops; see FlussPartitionListCache.
-    private final FlussPartitionListCache partitionLists;
+    // Each metadata scope owns its pruning list so a new statement cannot miss newly created partitions.
+    private final long partitionCacheTtlSec;
 
     public FlussConnector(FlussCatalogProperties properties, ConnectorContext context) {
         this.properties = properties;
@@ -111,9 +111,9 @@ public class FlussConnector implements Connector {
                 .getOrDefault(FlussTableInfoCache.TTL_PROPERTY, String.valueOf(FlussTableInfoCache.DEFAULT_TTL_SEC))));
         this.lakeProperties = new FlussLakePropertiesCache(Long.parseLong(properties.getRawCatalogProperties()
                 .getOrDefault(FlussTableInfoCache.TTL_PROPERTY, String.valueOf(FlussTableInfoCache.DEFAULT_TTL_SEC))));
-        this.partitionLists = new FlussPartitionListCache(Long.parseLong(properties.getRawCatalogProperties()
+        this.partitionCacheTtlSec = Long.parseLong(properties.getRawCatalogProperties()
                 .getOrDefault(FlussPartitionListCache.TTL_PROPERTY,
-                        String.valueOf(FlussPartitionListCache.DEFAULT_TTL_SEC))));
+                        String.valueOf(FlussPartitionListCache.DEFAULT_TTL_SEC)));
     }
 
     @Override
@@ -247,7 +247,6 @@ public class FlussConnector implements Connector {
     @Override
     public synchronized void invalidateTable(String dbName, String tableName) {
         tableInfos.invalidate(TablePath.of(dbName, tableName));
-        partitionLists.invalidate(TablePath.of(dbName, tableName));
         lakeProperties.invalidateAll();
         if (lakeSibling != null) {
             // Keep the mapping until the table is resolved again (which replaces it) or the whole catalog
@@ -263,7 +262,6 @@ public class FlussConnector implements Connector {
     @Override
     public synchronized void invalidateDb(String dbName) {
         tableInfos.invalidateDb(dbName);
-        partitionLists.invalidateDb(dbName);
         lakeProperties.invalidateAll();
         if (lakeSibling != null) {
             Set<String> lakeDatabases = new LinkedHashSet<>();
@@ -284,7 +282,6 @@ public class FlussConnector implements Connector {
     @Override
     public synchronized void invalidateAll() {
         tableInfos.invalidateAll();
-        partitionLists.invalidateAll();
         lakeProperties.invalidateAll();
         lakeTablePaths.clear();
         if (lakeSibling != null) {
@@ -296,7 +293,6 @@ public class FlussConnector implements Connector {
     public synchronized void invalidatePartition(
             String dbName, String tableName, List<String> partitionNames) {
         tableInfos.invalidate(TablePath.of(dbName, tableName));
-        partitionLists.invalidate(TablePath.of(dbName, tableName));
         lakeProperties.invalidateAll();
         if (lakeSibling != null) {
             TablePath lakePath = lakeTablePaths.get(TablePath.of(dbName, tableName));
@@ -365,7 +361,7 @@ public class FlussConnector implements Connector {
 
     private FlussAdminOps adminOps() {
         return new ConnectionBackedFlussAdminOps(getOrCreateConnection(), catalogName,
-                properties.getBootstrapServers(), tableInfos, partitionLists);
+                properties.getBootstrapServers(), tableInfos, new FlussPartitionListCache(partitionCacheTtlSec));
     }
 
     private synchronized Connection getOrCreateConnection() {
