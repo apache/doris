@@ -211,9 +211,9 @@ TEST_F(VIcebergPartitionWriterTest, UnsupportedParquetCodecDoesNotCreateFile) {
     iceberg::Schema schema(std::vector<iceberg::NestedField> {});
     std::string schema_json;
     std::map<std::string, std::string> hadoop_conf;
-    IPartitionWriterBase::WriteInfo write_info;
-    write_info.file_type = TFileType::FILE_LOCAL;
-    write_info.write_path = ".";
+    IPartitionWriterBase::WriteInfo write_info {.location = IcebergOutputLocation(".", "."),
+                                                .file_type = TFileType::FILE_LOCAL,
+                                                .broker_addresses = {}};
     auto writer = std::make_unique<VIcebergPartitionWriter>(
             make_table_sink(std::nullopt), std::vector<std::string> {}, output_exprs, schema,
             &schema_json, std::vector<std::string> {}, std::move(write_info),
