@@ -213,10 +213,8 @@ public class DateTimeV2Literal extends DateTimeLiteral {
             }
         }
         if (targetType.isTimeStampTzType()) {
-            DateTimeV2Literal dtV2Lit = inTimeZone(ConnectContext.get().getSessionVariable().timeZone, "UTC");
-            return new TimestampTzLiteral((TimeStampTzType) targetType,
-                    dtV2Lit.getYear(), dtV2Lit.getMonth(), dtV2Lit.getDay(),
-                    dtV2Lit.getHour(), dtV2Lit.getMinute(), dtV2Lit.getSecond(), dtV2Lit.getMicroSecond());
+            return TimestampTzLiteral.fromTimeZone((TimeStampTzType) targetType, this,
+                    ConnectContext.get().getSessionVariable().timeZone);
         }
         return super.uncheckedCastTo(targetType);
     }

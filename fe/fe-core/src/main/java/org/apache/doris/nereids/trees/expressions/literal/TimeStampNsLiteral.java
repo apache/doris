@@ -28,7 +28,6 @@ import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.util.DateUtils;
-import org.apache.doris.nereids.util.TemporalValueConversion;
 
 import java.math.BigInteger;
 import java.time.Instant;
@@ -312,8 +311,10 @@ public final class TimeStampNsLiteral extends DateLiteral {
         if (targetType.isTimeStampTzType()) {
             int scale = ((TimeStampTzType) targetType).getScale();
             LocalDateTime rounded = roundToScale(scale);
-            LocalDateTime utc = TemporalValueConversion.convertZonePreservingFraction(
-                    rounded, DateUtils.getTimeZone(), ZoneOffset.UTC);
+            // Round before resolving the local time: a carry can cross a DST transition.
+            Instant instant = DateTimeLiteral.convertLocalToInstantPreservingFraction(
+                    rounded, DateUtils.getTimeZone());
+            LocalDateTime utc = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
             return new TimestampTzLiteral((TimeStampTzType) targetType,
                     utc.getYear(), utc.getMonthValue(), utc.getDayOfMonth(), utc.getHour(),
                     utc.getMinute(), utc.getSecond(), utc.getNano() / 1000);

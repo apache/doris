@@ -250,7 +250,7 @@ public class TypeCoercionUtils {
      * Resolve a primitive argument conversion using Nereids type rules. Value-dependent
      * exceptions belong to literalTypeCoercion; CAST legality is checked by CheckCast.
      */
-    public static Optional<DataType> implicitCastPrimitive(DataType input, DataType expected) {
+    private static Optional<DataType> implicitCastPrimitive(DataType input, DataType expected) {
         if (input.equals(expected) || expected instanceof AnyDataType) {
             return Optional.of(input);
         }

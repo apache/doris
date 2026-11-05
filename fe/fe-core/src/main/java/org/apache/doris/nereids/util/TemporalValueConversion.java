@@ -38,12 +38,4 @@ public final class TemporalValueConversion {
         Instant instant = DateTimeLiteral.convertLocalToInstant(datetime, fromZone);
         return LocalDateTime.ofInstant(instant, toZone);
     }
-
-    /**
-     * Convert an already resolved zone while retaining the fraction. NS casts round to the target
-     * scale before this step; the legacy string-zone path above keeps its existing DST behavior.
-     */
-    public static LocalDateTime convertZonePreservingFraction(LocalDateTime value, ZoneId from, ZoneId to) {
-        return LocalDateTime.ofInstant(DateTimeLiteral.convertLocalToInstantPreservingFraction(value, from), to);
-    }
 }

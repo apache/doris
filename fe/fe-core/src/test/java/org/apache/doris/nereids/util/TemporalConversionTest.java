@@ -59,6 +59,7 @@ import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
 import org.junit.jupiter.api.Assertions;
@@ -67,9 +68,6 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.time.DateTimeException;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -445,14 +443,24 @@ class TemporalConversionTest {
     }
 
     @Test
-    void timezoneConversionRetainsDstAndFractionSemantics() {
-        DateTimeV2Literal local = new DateTimeV2Literal("2024-11-03 01:30:00.123456");
-        Assertions.assertEquals("2024-11-03 05:30:00.123456",
-                local.inTimeZone("America/New_York", "UTC").getStringValue());
-        LocalDateTime gap = LocalDateTime.of(2024, 3, 10, 2, 30, 0, 123456789);
-        Assertions.assertEquals(LocalDateTime.of(2024, 3, 10, 7, 0, 0, 123456789),
-                TemporalValueConversion.convertZonePreservingFraction(
-                        gap, ZoneId.of("America/New_York"), ZoneOffset.UTC));
+    void timezoneCastsRetainDstFractionAndRoundingOrder() {
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setTimeZone("America/New_York");
+        context.setThreadLocalInfo();
+        try {
+            DateTimeV2Literal local = new DateTimeV2Literal("2024-11-03 01:30:00.123456");
+            Assertions.assertEquals("2024-11-03 05:30:00.123456+00:00",
+                    ((Literal) local.checkedCastTo(TimeStampTzType.of(6))).getStringValue());
+            TimeStampNsLiteral gap = new TimeStampNsLiteral("2024-03-10 02:30:00.123456789");
+            Assertions.assertEquals("2024-03-10 07:00:00.123457+00:00",
+                    ((Literal) gap.checkedCastTo(TimeStampTzType.of(6))).getStringValue());
+            // Rounding into 02:00 selects the post-transition offset, not the overlap's earlier offset.
+            TimeStampNsLiteral carry = new TimeStampNsLiteral("2024-11-03 01:59:59.999999999");
+            Assertions.assertEquals("2024-11-03 07:00:00.000000+00:00",
+                    ((Literal) carry.checkedCastTo(TimeStampTzType.of(6))).getStringValue());
+        } finally {
+            ConnectContext.remove();
+        }
     }
 
     @Test
