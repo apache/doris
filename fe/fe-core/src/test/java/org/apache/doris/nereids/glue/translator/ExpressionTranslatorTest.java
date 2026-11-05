@@ -19,6 +19,7 @@ package org.apache.doris.nereids.glue.translator;
 
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.analysis.ColumnRefExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.FunctionCallExpr;
@@ -32,15 +33,19 @@ import org.apache.doris.indexpolicy.IndexPolicy;
 import org.apache.doris.indexpolicy.IndexPolicyMgr;
 import org.apache.doris.indexpolicy.IndexPolicyTypeEnum;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.BitNot;
 import org.apache.doris.nereids.trees.expressions.MatchAny;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySort;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.thrift.TExprNode;
@@ -126,5 +131,27 @@ public class ExpressionTranslatorTest {
         Assertions.assertTrue(translated.isShortCircuitEvaluation());
         Assertions.assertTrue(thriftNode.isSetShortCircuitEvaluation());
         Assertions.assertTrue(thriftNode.isShortCircuitEvaluation());
+    }
+
+    @Test
+    public void testArraySortKeepsComparatorArgumentNames() {
+        SlotReference arr = new SlotReference("arr", ArrayType.of(IntegerType.INSTANCE), false);
+        ArrayItemReference x = new ArrayItemReference("x", arr);
+        ArrayItemReference y = new ArrayItemReference("y", arr);
+        Lambda lambda = new Lambda(ImmutableList.of("x", "y"), new IntegerLiteral(0), ImmutableList.of(x, y));
+        ArraySort arraySort = new ArraySort(lambda);
+
+        PlanTranslatorContext context = new PlanTranslatorContext();
+        context.addExprIdSlotRefPair(arr.getExprId(),
+                new SlotRef(org.apache.doris.catalog.ArrayType.create(Type.INT, true), false));
+
+        ExpressionTranslator.INSTANCE.visitArraySort(arraySort, context);
+
+        ColumnRefExpr first = context.findColumnRef(x.getExprId());
+        ColumnRefExpr second = context.findColumnRef(y.getExprId());
+        Assertions.assertEquals("x", first.getName());
+        Assertions.assertEquals(0, first.getColumnId());
+        Assertions.assertEquals("y", second.getName());
+        Assertions.assertEquals(1, second.getColumnId());
     }
 }
