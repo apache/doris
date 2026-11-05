@@ -143,6 +143,34 @@ public class VariantValuesIndexChangeTest extends TestWithFeService {
     }
 
     @Test
+    public void testRejectValuesIndexAlterAddOnMor() throws Exception {
+        createTable("CREATE TABLE values_index_change.mor_alter (id INT, v VARIANT) "
+                + "UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
+                + "PROPERTIES('replication_num'='1','inverted_index_storage_format'='SNII',"
+                + "'enable_unique_key_merge_on_write'='false')");
+        for (String selector : List.of("parser", "analyzer", "built_in_analyzer")) {
+            assertRejected("ALTER TABLE values_index_change.mor_alter ADD INDEX root_idx(v) USING INVERTED "
+                    + "PROPERTIES('variant_index_scope'='values','" + selector + "'='english')",
+                    "UNIQUE_KEYS table with merge_on_write disable");
+        }
+        Assertions.assertTrue(table("mor_alter").getIndexes().isEmpty());
+    }
+
+    @Test
+    public void testRejectValuesIndexCreateOnMor() throws Exception {
+        createTable("CREATE TABLE values_index_change.mor_create (id INT, v VARIANT) "
+                + "UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
+                + "PROPERTIES('replication_num'='1','inverted_index_storage_format'='SNII',"
+                + "'enable_unique_key_merge_on_write'='false')");
+        for (String selector : List.of("parser", "analyzer", "built_in_analyzer")) {
+            assertRejected("CREATE INDEX root_idx ON values_index_change.mor_create(v) USING INVERTED "
+                    + "PROPERTIES('variant_index_scope'='values','" + selector + "'='english')",
+                    "UNIQUE_KEYS table with merge_on_write disable");
+        }
+        Assertions.assertTrue(table("mor_create").getIndexes().isEmpty());
+    }
+
+    @Test
     public void testNewDataOnlyAddInBothModes() {
         for (boolean cloud : List.of(false, true)) {
             try (MockedStatic<Config> config = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS)) {
