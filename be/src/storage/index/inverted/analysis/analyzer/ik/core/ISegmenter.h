@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "CLucene/_ApiHeader.h"
 #include "storage/index/inverted/analysis/analyzer/ik/core/AnalyzeContext.h"
 
 namespace doris::segment_v2 {

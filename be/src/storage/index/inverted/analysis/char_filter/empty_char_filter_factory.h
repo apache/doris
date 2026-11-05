@@ -22,26 +22,12 @@
 
 namespace doris::segment_v2::inverted_index {
 
-class EmptyCharFilter : public DorisCharFilter {
+// Leaves the text as it is.
+class EmptyCharFilter final : public TextCharFilter {
 public:
-    EmptyCharFilter(ReaderPtr in) : DorisCharFilter(std::move(in)) {}
-    ~EmptyCharFilter() override = default;
-
-    void initialize() override {}
-
-    void init(const void* _value, int32_t _length, bool copyData) override {
-        _reader->init(_value, _length, copyData);
+    std::string_view apply(std::string_view text, std::string& /*scratch*/) override {
+        return text;
     }
-
-    int32_t read(const void** start, int32_t min, int32_t max) override {
-        return _reader->read(start, min, max);
-    }
-
-    int32_t readCopy(void* start, int32_t off, int32_t len) override {
-        return _reader->readCopy(start, off, len);
-    }
-
-    size_t size() override { return _reader->size(); }
 };
 
 class EmptyCharFilterFactory : public CharFilterFactory {
@@ -51,10 +37,8 @@ public:
 
     void initialize(const Settings& settings) override {}
 
-    ReaderPtr create(const ReaderPtr& reader) override {
-        auto filter = std::make_shared<EmptyCharFilter>(reader);
-        filter->initialize();
-        return filter;
+    std::unique_ptr<TextCharFilter> create() const override {
+        return std::make_unique<EmptyCharFilter>();
     }
 };
 
