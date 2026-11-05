@@ -352,12 +352,15 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             String errMsg = "get flight info statement failed, " + e.getMessage() + ", " + Util.getRootCauseMessage(e)
                     + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
                     + connectContext.getState().getErrorMessage();
-            connectContext.cancelFlightSqlDeferredExecutors(new Status(TStatusCode.CANCELLED, errMsg));
+            Status cancelReason = new Status(TStatusCode.CANCELLED, errMsg);
+            List<TUniqueId> cancelled = connectContext.cancelFlightSqlDeferredExecutors(cancelReason);
             if (begun) {
                 // No ticket is handed out for this request's results either, so no BE can report an early
-                // close of them: drop the cancellation routes its queries registered, which its session's
+                // close of them. The request's queries that were not deferred have closed their coordinators
+                // already and would run on until the BE's result buffer timer: cancel them on all their BEs
+                // through the cancellation routes they registered, and drop the routes, which the session's
                 // next request no longer drops.
-                FlightSqlQueryCancellation.INSTANCE.unregister(connectContext);
+                FlightSqlQueryCancellation.INSTANCE.cancelFailedRequest(connectContext, cancelled, cancelReason);
             }
             LOG.error(errMsg, e);
             throw queryFailure(connectContext.getState(), errMsg, e);

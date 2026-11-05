@@ -41,14 +41,15 @@ import java.util.stream.Collectors;
 
 /**
  * Routes the early close of a Flight result stream, which a BE reports through cancelFlightQuery, to every BE of
- * the stream's query. A route outlives the request and the session that registered it: the client reads the
- * results from the BEs, so it can still hold a stream of the query open after its session has started another
- * request or has been torn down, and close that stream early then. A route goes when its cancellation succeeds,
- * when the request that registered it fails before answering with tickets for its results ({@link #unregister}),
- * when its query's execution timeout (plus 5 s) has passed, and when newer routes push it out of the bounds:
- * {@link #MAX_ROUTED_RESULTS} result ids and {@link #MAX_ROUTED_BACKENDS} BE addresses. Those go oldest first, as
- * the oldest routes are the likeliest to belong to streams that have ended; a query whose route was pushed out
- * ends at its timeout, as every Flight query did before routes existed.
+ * the stream's query, and cancels the queries of a request that fails before answering with tickets for their
+ * results ({@link #cancelFailedRequest}). A route outlives the request and the session that registered it: the
+ * client reads the results from the BEs, so it can still hold a stream of the query open after its session has
+ * started another request or has been torn down, and close that stream early then. A route goes when its
+ * cancellation succeeds, when the request that registered it fails before answering with tickets for its results
+ * ({@link #unregister}), when its query's execution timeout (plus 5 s) has passed, and when newer routes push it
+ * out of the bounds: {@link #MAX_ROUTED_RESULTS} result ids and {@link #MAX_ROUTED_BACKENDS} BE addresses. Those go
+ * oldest first, as the oldest routes are the likeliest to belong to streams that have ended; a query whose route
+ * was pushed out ends at its timeout, as every Flight query did before routes existed.
  */
 public final class FlightSqlQueryCancellation {
     private static final Logger LOG = LogManager.getLogger(FlightSqlQueryCancellation.class);
@@ -91,6 +92,22 @@ public final class FlightSqlQueryCancellation {
      */
     public void unregister(ConnectContext context) {
         take(resultIds(context));
+    }
+
+    /**
+     * Like {@link #unregister}, and cancels on all its BEs the query of each route that goes, unless
+     * {@code cancelledQueries} names it. Such a query has closed its coordinator already, so nothing else
+     * would cancel it before the BE's result buffer timer (execution_timeout + 5 s) ends it; the named ones
+     * were cancelled through their deferred coordinators. The BEs' answers are not awaited, as a deferred
+     * coordinator's cancellation does not await them either: the routes go whatever they are, so there is no
+     * retry to drive, and the failed request's error should not wait for them.
+     */
+    public void cancelFailedRequest(ConnectContext context, List<TUniqueId> cancelledQueries, Status reason) {
+        for (Route route : take(resultIds(context))) {
+            if (!cancelledQueries.contains(route.queryId)) {
+                sendCancellation(route, reason);
+            }
+        }
     }
 
     public void register(TUniqueId queryId, List<TUniqueId> resultIds,
@@ -143,19 +160,10 @@ public final class FlightSqlQueryCancellation {
             return new TStatus(TStatusCode.NOT_FOUND);
         }
         Status reason = new Status(TStatusCode.CANCELLED, "Arrow Flight stream closed before EOF");
-        TStatus status = new TStatus(TStatusCode.OK);
-        List<Future<PCancelPlanFragmentResult>> futures = new ArrayList<>();
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
-        for (TNetworkAddress backend : route.backends) {
-            try {
-                // The existing RPC is understood by older result BEs and bypasses the Flight read pool.
-                futures.add(BackendServiceProxy.getInstance()
-                        .cancelPipelineXPlanFragmentAsync(backend, route.queryId, reason));
-            } catch (Exception e) {
-                LOG.warn("Failed to send Flight cancellation for {} to {}", route.queryId, backend, e);
-                status = new TStatus(TStatusCode.INTERNAL_ERROR);
-            }
-        }
+        List<Future<PCancelPlanFragmentResult>> futures = sendCancellation(route, reason);
+        TStatus status = new TStatus(
+                futures.size() == route.backends.size() ? TStatusCode.OK : TStatusCode.INTERNAL_ERROR);
         for (Future<PCancelPlanFragmentResult> future : futures) {
             try {
                 PCancelPlanFragmentResult response = future.get(Math.max(0L, deadline - System.nanoTime()),
@@ -188,6 +196,22 @@ public final class FlightSqlQueryCancellation {
 
     synchronized long routedBackends() {
         return routedBackends;
+    }
+
+    // Sends the cancellation of the route's query to each of its BEs and returns the answers to come; a BE it
+    // could not be sent to has none.
+    private static List<Future<PCancelPlanFragmentResult>> sendCancellation(Route route, Status reason) {
+        List<Future<PCancelPlanFragmentResult>> futures = new ArrayList<>();
+        for (TNetworkAddress backend : route.backends) {
+            try {
+                // The existing RPC is understood by older result BEs and bypasses the Flight read pool.
+                futures.add(BackendServiceProxy.getInstance()
+                        .cancelPipelineXPlanFragmentAsync(backend, route.queryId, reason));
+            } catch (Exception e) {
+                LOG.warn("Failed to send Flight cancellation for {} to {}", route.queryId, backend, e);
+            }
+        }
+        return futures;
     }
 
     private static List<TUniqueId> resultIds(ConnectContext context) {

@@ -34,6 +34,7 @@ import org.apache.doris.qe.protocol.ProtocolAdapter;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TResultSinkType;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -448,19 +449,23 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
      * Like {@link #closeDeferredExecutors()}, for a request that failed after deferring its query:
      * no DoGet will ever pull the result, so the query is cancelled on the backends first -- a query
      * still producing would otherwise run on until the BE's result buffer timer
-     * (execution_timeout + 5s) -- and the executor is then finalized.
+     * (execution_timeout + 5s) -- and the executor is then finalized. Returns the ids of the queries it
+     * cancelled, which the request's cancellation routes then need not cancel again.
      */
-    public void cancelDeferredExecutors(Status cancelReason) {
+    public List<TUniqueId> cancelDeferredExecutors(Status cancelReason) {
         List<StmtExecutor> taken = takeDeferredExecutors();
+        List<TUniqueId> cancelled = new ArrayList<>();
         for (StmtExecutor deferredExecutor : taken) {
             try {
                 deferredExecutor.cancel(cancelReason);
+                cancelled.add(deferredExecutor.getDeferredQueryId());
             } catch (Throwable t) {
                 LOG.warn("failed to cancel deferred arrow flight query {}",
                         DebugUtil.printId(deferredExecutor.getDeferredQueryId()), t);
             }
         }
         finalizeDeferredExecutors(taken);
+        return cancelled;
     }
 
     private List<StmtExecutor> takeDeferredExecutors() {
