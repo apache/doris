@@ -22,6 +22,7 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.scan.FileQueryScanNode;
 import org.apache.doris.nereids.trees.plans.distribute.PipelineDistributedPlan;
+import org.apache.doris.nereids.trees.plans.distribute.worker.BackendWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.DefaultScanSource;
@@ -34,6 +35,7 @@ import org.apache.doris.planner.RecursiveCteNode;
 import org.apache.doris.planner.RecursiveCteScanNode;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SortNode;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRange;
@@ -75,11 +77,41 @@ public class ThriftPlansBuilderTest {
     private static PipelineDistributedPlan mockPlanWithRoot(PlanNode root) {
         PipelineDistributedPlan plan = Mockito.mock(PipelineDistributedPlan.class, Mockito.RETURNS_DEEP_STUBS);
         Mockito.when(plan.getFragmentJob().getFragment().getPlanRoot()).thenReturn(root);
+        Mockito.when(plan.getInstanceJobs()).thenReturn(Collections.emptyList());
         Mockito.when(root.collectInCurrentFragment(Mockito.any())).thenAnswer(invocation -> {
             Predicate<PlanNode> predicate = invocation.getArgument(0);
             return predicate.test(root) ? List.of(root) : Collections.emptyList();
         });
         return plan;
+    }
+
+    @Test
+    public void testRfMergeSingleUseRejectsDistinctWorkersAtSameEndpoint() {
+        Backend backend = new Backend(1, "127.0.0.1", 9050);
+        backend.setBrpcPort(8060);
+        Backend otherBackend = new Backend(2, "127.0.0.2", 9050);
+        otherBackend.setBrpcPort(8060);
+        DistributedPlanWorker internalWorker = new BackendWorker(1, backend);
+        DistributedPlanWorker catalogWorker = new BackendWorker(2, backend);
+        DistributedPlanWorker remoteWorker = new BackendWorker(1, otherBackend);
+        AssignedJob firstJob = newAssignedJob(internalWorker, new TUniqueId(1, 1));
+        AssignedJob catalogJob = newAssignedJob(catalogWorker, new TUniqueId(2, 2));
+        AssignedJob sameWorkerJob = newAssignedJob(internalWorker, new TUniqueId(2, 2));
+        AssignedJob remoteJob = newAssignedJob(remoteWorker, new TUniqueId(2, 2));
+
+        PipelineDistributedPlan firstPlan = mockPlanWithRoot(Mockito.mock(PlanNode.class));
+        PipelineDistributedPlan secondPlan = mockPlanWithRoot(Mockito.mock(PlanNode.class));
+        Mockito.when(firstPlan.getInstanceJobs()).thenReturn(List.of(firstJob));
+        Mockito.when(secondPlan.getInstanceJobs()).thenReturn(List.of(catalogJob));
+        Assertions.assertEquals(internalWorker.brpcAddress(), catalogWorker.brpcAddress());
+        Assertions.assertNotEquals(internalWorker, catalogWorker);
+        Assertions.assertFalse(ThriftPlansBuilder.isRfMergeContextSingleUse(List.of(firstPlan, secondPlan)));
+
+        Mockito.when(secondPlan.getInstanceJobs()).thenReturn(List.of(sameWorkerJob));
+        Assertions.assertTrue(ThriftPlansBuilder.isRfMergeContextSingleUse(List.of(firstPlan, secondPlan)));
+
+        Mockito.when(secondPlan.getInstanceJobs()).thenReturn(List.of(remoteJob));
+        Assertions.assertTrue(ThriftPlansBuilder.isRfMergeContextSingleUse(List.of(firstPlan, secondPlan)));
     }
 
     @Test

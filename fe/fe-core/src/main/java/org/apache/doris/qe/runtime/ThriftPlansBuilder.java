@@ -413,7 +413,17 @@ public class ThriftPlansBuilder {
         if (distributedPlans.isEmpty()) {
             return false;
         }
+        Map<String, DistributedPlanWorker> endpointOwners = Maps.newHashMap();
         for (PipelineDistributedPlan plan : distributedPlans) {
+            for (AssignedJob job : plan.getInstanceJobs()) {
+                DistributedPlanWorker worker = job.getAssignedWorker();
+                DistributedPlanWorker owner = endpointOwners.putIfAbsent(worker.brpcAddress(), worker);
+                // Different catalog workers can share a BE but receive separate query-wide start RPCs.
+                // The first start may finish the query before the second start reaches that BE.
+                if (owner != null && !owner.equals(worker)) {
+                    return false;
+                }
+            }
             PlanNode root = plan.getFragmentJob().getFragment().getPlanRoot();
             if (root == null || !root.collectInCurrentFragment(RecursiveCteNode.class::isInstance).isEmpty()
                     || !root.collectInCurrentFragment(RecursiveCteScanNode.class::isInstance).isEmpty()) {
