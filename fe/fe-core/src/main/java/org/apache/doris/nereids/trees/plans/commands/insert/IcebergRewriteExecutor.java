@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergTransaction;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.transaction.TransactionType;
@@ -41,6 +42,13 @@ public class IcebergRewriteExecutor extends BaseExternalTableInsertExecutor {
             Optional<InsertCommandContext> insertCtx,
             boolean emptyInsert, long jobId) {
         super(ctx, table, labelName, planner, insertCtx, emptyInsert, jobId);
+    }
+
+    /** Bind the enclosing rewrite transaction after this group's sink has been finalized. */
+    public void bindTransaction(long transactionId) throws UserException {
+        IcebergTransaction transaction = (IcebergTransaction) transactionManager.getTransaction(transactionId);
+        transaction.addCommitLocations(dataSink.toThrift());
+        coordinator.setTxnId(transactionId);
     }
 
     @Override

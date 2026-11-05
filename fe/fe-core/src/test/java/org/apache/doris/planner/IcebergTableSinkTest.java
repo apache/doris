@@ -23,7 +23,10 @@ import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.property.storage.OSSProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
+import org.apache.doris.thrift.TIcebergDeleteSink;
+import org.apache.doris.thrift.TIcebergMergeSink;
 import org.apache.doris.thrift.TIcebergTableSink;
 
 import org.apache.iceberg.PartitionSpec;
@@ -131,6 +134,41 @@ public class IcebergTableSinkTest {
                 thriftSink.getHadoopConfig().get("AWS_ENDPOINT"));
         Assertions.assertEquals("oss-ak", thriftSink.getHadoopConfig().get("AWS_ACCESS_KEY"));
         Assertions.assertEquals("s3://bucket/table/data", thriftSink.getOriginalOutputPath());
+
+        // Every writer must receive the same data directory in the storage and metadata forms.
+        // Custom write.data.path and its trailing slash must also survive DELETE and MERGE planning.
+        Mockito.when(table.location()).thenReturn("oss://bucket/table");
+        Map<String, String> dataLocations = new HashMap<>();
+        dataLocations.put("oss://bucket/table/data", "s3://bucket/table/data");
+        dataLocations.put("oss://bucket/custom/data/", "s3://bucket/custom/data");
+        for (Map.Entry<String, String> location : dataLocations.entrySet()) {
+            String rawLocation = location.getKey();
+            String outputPath = location.getValue();
+            for (String version : new String[] {"2", "3"}) {
+                Map<String, String> tableProperties = new HashMap<>();
+                tableProperties.put(TableProperties.FORMAT_VERSION, version);
+                tableProperties.put(TableProperties.WRITE_DATA_LOCATION, rawLocation);
+                Mockito.when(table.properties()).thenReturn(tableProperties);
+
+                IcebergTableSink tableSink = new IcebergTableSink(targetTable, table);
+                tableSink.bindDataSink(Optional.empty());
+                Assertions.assertEquals(outputPath, tableSink.tDataSink.getIcebergTableSink().getOutputPath());
+                Assertions.assertEquals(rawLocation, tableSink.tDataSink.getIcebergTableSink().getOriginalOutputPath());
+
+                IcebergDeleteSink deleteSink = new IcebergDeleteSink(targetTable, table, new DeleteCommandContext());
+                deleteSink.bindDataSink(Optional.empty());
+                TIcebergDeleteSink thriftDeleteSink = deleteSink.tDataSink.getIcebergDeleteSink();
+                Assertions.assertEquals(outputPath, thriftDeleteSink.getOutputPath());
+                Assertions.assertEquals(rawLocation, thriftDeleteSink.getTableLocation());
+
+                IcebergMergeSink mergeSink = new IcebergMergeSink(targetTable, table, new DeleteCommandContext(), true);
+                mergeSink.bindDataSink(Optional.empty());
+                TIcebergMergeSink thriftMergeSink = mergeSink.tDataSink.getIcebergMergeSink();
+                Assertions.assertEquals(outputPath, thriftMergeSink.getOutputPath());
+                Assertions.assertEquals(rawLocation, thriftMergeSink.getOriginalOutputPath());
+                Assertions.assertEquals(rawLocation, thriftMergeSink.getTableLocation());
+            }
+        }
     }
 
     @Test
