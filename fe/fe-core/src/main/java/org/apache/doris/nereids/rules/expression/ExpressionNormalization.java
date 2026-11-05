@@ -32,6 +32,7 @@ import org.apache.doris.nereids.rules.expression.rules.MergeDateTrunc;
 import org.apache.doris.nereids.rules.expression.rules.NormalizeBinaryPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rules.NormalizeElementAt;
 import org.apache.doris.nereids.rules.expression.rules.RewriteDefaultExpression;
+import org.apache.doris.nereids.rules.expression.rules.RewriteTypeOf;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyArithmeticComparisonRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyArithmeticRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyCastRule;
@@ -68,6 +69,8 @@ public class ExpressionNormalization extends ExpressionRewrite {
                 LogToLn.INSTANCE,
                 ConcatWsMultiArrayToOne.INSTANCE,
                 TimestampToAddTime.INSTANCE,
+                // Keep typeof out of BE plans even when BE constant folding is enabled.
+                RewriteTypeOf.INSTANCE,
                 FoldConstantRule.INSTANCE,
                 SimplifyCastRule.INSTANCE,
                 DigitalMaskingConvert.INSTANCE,
