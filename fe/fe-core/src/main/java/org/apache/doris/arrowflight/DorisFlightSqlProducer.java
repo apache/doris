@@ -239,6 +239,9 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
 
     private ExecutedQuery executeQueryStatement(String peerIdentity, ConnectContext connectContext, String query,
             final FlightDescriptor descriptor) {
+        // Until this request begins, the session's endpoints are those of the previous request, whose
+        // results a client may still be pulling.
+        boolean begun = false;
         try {
             Preconditions.checkState(null != connectContext);
             Preconditions.checkState(!query.isEmpty());
@@ -247,6 +250,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             // splits during DoGet, and by now that DoGet is done, #62259), a result no
             // getStreamStatement took away, and its endpoints.
             FlightProtocolAdapter.of(connectContext).beginRequest();
+            begun = true;
             try (FlightSqlConnectProcessor flightSQLConnectProcessor = new FlightSqlConnectProcessor(connectContext)) {
                 flightSQLConnectProcessor.handleQuery(query);
                 if (connectContext.getState().getStateType() == MysqlStateType.ERR) {
@@ -349,6 +353,12 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                     + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
                     + connectContext.getState().getErrorMessage();
             connectContext.cancelFlightSqlDeferredExecutors(new Status(TStatusCode.CANCELLED, errMsg));
+            if (begun) {
+                // No ticket is handed out for this request's results either, so no BE can report an early
+                // close of them: drop the cancellation routes its queries registered, which its session's
+                // next request no longer drops.
+                FlightSqlQueryCancellation.INSTANCE.unregister(connectContext);
+            }
             LOG.error(errMsg, e);
             throw queryFailure(connectContext.getState(), errMsg, e);
         } finally {
@@ -430,7 +440,9 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                 LOG.warn("Failed to cancel Flight query after prepared schema changed", e);
             } finally {
                 // No DoGet will pull this result: drop what the request left behind as the next request
-                // would -- its deferred coordinator, the result cached on the channel and its endpoints.
+                // would -- its deferred coordinator, the result cached on the channel and its endpoints --
+                // and, first, the cancellation routes of those endpoints, which the next request leaves.
+                FlightSqlQueryCancellation.INSTANCE.unregister(connectContext);
                 FlightProtocolAdapter.of(connectContext).beginRequest();
             }
             throw CallStatus.NOT_FOUND.withDescription("Prepared statement schema changed; prepare again")

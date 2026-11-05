@@ -44,6 +44,7 @@ import java.util.stream.Collectors;
  * the stream's query. A route outlives the request and the session that registered it: the client reads the
  * results from the BEs, so it can still hold a stream of the query open after its session has started another
  * request or has been torn down, and close that stream early then. A route goes when its cancellation succeeds,
+ * when the request that registered it fails before answering with tickets for its results ({@link #unregister}),
  * when its query's execution timeout (plus 5 s) has passed, and when newer routes push it out of the bounds:
  * {@link #MAX_ROUTED_RESULTS} result ids and {@link #MAX_ROUTED_BACKENDS} BE addresses. Those go oldest first, as
  * the oldest routes are the likeliest to belong to streams that have ended; a query whose route was pushed out
@@ -78,9 +79,18 @@ public final class FlightSqlQueryCancellation {
      * kept, so neither its next request nor its teardown drops the route.
      */
     public void register(ConnectContext context, Coordinator coord) {
-        register(coord.getQueryId(), context.getFlightSqlEndpointsLocations().stream()
-                        .map(FlightSqlEndpointsLocation::getFinstId).distinct().collect(Collectors.toList()),
-                coord.getBackendBrpcAddresses(), coord.getQueryOptions().getExecutionTimeout());
+        register(coord.getQueryId(), resultIds(context), coord.getBackendBrpcAddresses(),
+                coord.getQueryOptions().getExecutionTimeout());
+    }
+
+    /**
+     * Drops the routes of the results the session collected for a request that fails before answering with
+     * tickets for them: no client can pull those results, so no BE can report an early close of them. Called
+     * only once the request has begun, so the session's endpoints are its own and not those of the previous
+     * request, whose streams may still be open.
+     */
+    public void unregister(ConnectContext context) {
+        take(resultIds(context));
     }
 
     public void register(TUniqueId queryId, List<TUniqueId> resultIds,
@@ -178,6 +188,26 @@ public final class FlightSqlQueryCancellation {
 
     synchronized long routedBackends() {
         return routedBackends;
+    }
+
+    private static List<TUniqueId> resultIds(ConnectContext context) {
+        return context.getFlightSqlEndpointsLocations().stream()
+                .map(FlightSqlEndpointsLocation::getFinstId).distinct().collect(Collectors.toList());
+    }
+
+    // Removes the routes that the result ids map to, each as a whole, and returns them. A result id maps to none
+    // when its query failed before registering the route, when the route expired or was pushed out, and when an
+    // earlier id of the same route took it.
+    private synchronized List<Route> take(List<TUniqueId> resultIds) {
+        List<Route> taken = new ArrayList<>();
+        for (TUniqueId resultId : resultIds) {
+            Route route = results.get(resultId);
+            if (route != null) {
+                remove(route);
+                taken.add(route);
+            }
+        }
+        return taken;
     }
 
     // Removes the route's result ids that still map to it. Guarded by this.

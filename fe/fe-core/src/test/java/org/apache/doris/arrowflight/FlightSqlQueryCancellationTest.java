@@ -52,14 +52,14 @@ public class FlightSqlQueryCancellationTest {
                 .setStatus(PStatus.newBuilder().setStatusCode(status.getValue())).build();
     }
 
-    private static BackendServiceProxy cancellingProxy(TUniqueId queryId) throws Exception {
+    static BackendServiceProxy cancellingProxy(TUniqueId queryId) throws Exception {
         BackendServiceProxy proxy = Mockito.mock(BackendServiceProxy.class);
         Mockito.when(proxy.cancelPipelineXPlanFragmentAsync(Mockito.any(), Mockito.eq(queryId), Mockito.any()))
                 .thenReturn(Futures.immediateFuture(response(TStatusCode.OK)));
         return proxy;
     }
 
-    private static FlightSqlEndpointsLocation endpoint(TUniqueId resultId) {
+    static FlightSqlEndpointsLocation endpoint(TUniqueId resultId) {
         return new FlightSqlEndpointsLocation(resultId, new TNetworkAddress("127.0.0.1", 8070),
                 new TNetworkAddress("127.0.0.1", 8060), new ArrayList<>());
     }
@@ -196,6 +196,26 @@ public class FlightSqlQueryCancellationTest {
             mocked.when(BackendServiceProxy::getInstance).thenReturn(proxy);
             Assertions.assertEquals(TStatusCode.OK, routes.cancel(newFirst).getStatusCode());
         }
+        Assertions.assertEquals(0, routes.routedBackends());
+    }
+
+    // A request that fails before answering with tickets drops the routes of its endpoints, each as a whole: a
+    // route goes with any of its result ids, and its addresses go with it.
+    @Test
+    public void unregisterDropsWholeRoutes() {
+        FlightSqlQueryCancellation routes =
+                new FlightSqlQueryCancellation(() -> 0L, FlightSqlQueryCancellation.MAX_ROUTED_RESULTS,
+                        FlightSqlQueryCancellation.MAX_ROUTED_BACKENDS);
+        routes.register(QUERY, ImmutableList.of(FIRST, SECOND), ImmutableList.of(FINISHED_BE, ACTIVE_BE), 120);
+        ConnectContext ctx = ConnectContext.forFlight("flight-query-cancellation-unregister-peer");
+        ctx.addFlightSqlEndpointsLocation(endpoint(FIRST));
+        routes.unregister(ctx);
+        Assertions.assertEquals(0, routes.routedResults());
+        Assertions.assertEquals(0, routes.routedBackends());
+        Assertions.assertEquals(TStatusCode.NOT_FOUND, routes.cancel(SECOND).getStatusCode());
+        // Nothing is left to drop the second time.
+        routes.unregister(ctx);
+        Assertions.assertEquals(0, routes.routedResults());
         Assertions.assertEquals(0, routes.routedBackends());
     }
 
