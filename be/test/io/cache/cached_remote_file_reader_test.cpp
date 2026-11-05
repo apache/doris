@@ -29,6 +29,7 @@
 #include "io/cache/inflight_write_buffer_index.h"
 #include "io/cache/partial_block_writeback_manager.h"
 #include "io/cache/range_cache_writeback.h"
+#include "io/cache/remote_scan_cache_write_limiter.h"
 #include "io/file_factory.h"
 #include "io/fs/hdfs_file_reader.h"
 #include "io/fs/read_ahead_metrics.h"
@@ -2200,6 +2201,7 @@ protected:
         std::lock_guard lock(adaptor._mutex);
         adaptor._buckets = {};
         adaptor._requests_since_probe = 0;
+        adaptor._next_probe_bucket = 0;
         adaptor._next_probe_us = 0;
         adaptor._probe_inflight = false;
     }
@@ -2218,6 +2220,33 @@ protected:
                 adaptor.record_remote(bytes, 1000);
             }
         }
+    }
+    void verify_inflight_hit_without_disk(const std::shared_ptr<CachedRemoteFileReader>& reader,
+                                          const std::shared_ptr<CountingFileReader>& remote,
+                                          IOContext context, const std::string& expected) {
+        FileCacheStatistics stats;
+        context.enable_file_cache_io_adaptor = true;
+        context.file_cache_stats = &stats;
+        std::string actual(expected.size(), '\xff');
+        size_t count = 0;
+        std::future<Status> read;
+        {
+            // A complete memory hit must finish even while unrelated disk work holds this lock.
+            std::lock_guard cache_lock(cache()->_mutex);
+            read = std::async(std::launch::async, [&] {
+                SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
+                return reader->read_at(0, Slice(actual), &count, &context);
+            });
+            EXPECT_EQ(read.wait_for(std::chrono::seconds(2)), std::future_status::ready);
+        }
+        ASSERT_TRUE(read.get().ok());
+        EXPECT_EQ(actual, expected);
+        EXPECT_EQ(count, actual.size());
+        EXPECT_EQ(remote->read_count(), 0);
+        EXPECT_EQ(stats.io_adaptor_bypass_count, 0);
+        EXPECT_EQ(stats.io_adaptor_lookup_count, 0);
+        EXPECT_EQ(stats.inflight_write_buffer_index_hit, 1);
+        EXPECT_EQ(stats.async_cache_write_submitted, 0);
     }
     void verify_remote_probe_cleanup(int failure) {
         create_cache("adaptive_probe_cleanup");
@@ -2802,30 +2831,45 @@ TEST_F(AdaptiveCachedRemoteFileReaderTest, inflight_payload_still_avoids_remote_
     Defer remove_entry {
             [&] { static_cast<void>(index->remove_if(reader->_cache_hash, 0, entry)); }};
     seed_slow_disk();
-    FileCacheStatistics stats;
     IOContext context;
-    context.enable_file_cache_io_adaptor = true;
-    context.file_cache_stats = &stats;
     context.cache_write_mode_override = CacheWriteMode::ASYNC_WRITE;
-    std::string actual(expected.size(), '\0');
-    size_t count = 0;
-    std::future<Status> read;
-    {
-        // Enabled external reads backed entirely by memory must not wait for cache-disk work.
-        std::lock_guard cache_lock(cache()->_mutex);
-        read = std::async(std::launch::async, [&] {
-            SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
-            return reader->read_at(0, Slice(actual), &count, &context);
-        });
-        EXPECT_EQ(read.wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    verify_inflight_hit_without_disk(reader, remote, context, expected);
+}
+
+TEST_F(AdaptiveCachedRemoteFileReaderTest,
+       read_only_inflight_hit_avoids_disk_after_disabling_async) {
+    create_cache("adaptive_read_only_inflight");
+    auto remote = std::make_shared<CountingFileReader>(open_remote_file());
+    auto reader = external_reader(remote);
+    auto* index = cache()->inflight_write_buffer_index();
+    AsyncCacheWriteBufferPtr payload;
+    ASSERT_TRUE(cache()->async_write_manager()->allocate_tracked_buffer(1_mb, &payload).ok());
+    const std::string expected(1_mb, '0');
+    memcpy(payload->data(), expected.data(), expected.size());
+    auto entry = std::make_shared<InflightWriteBufferEntry>(payload, 0, expected.size(),
+                                                            MonotonicMicros());
+    ASSERT_EQ(index->insert_if_absent(reader->_cache_hash, 0, entry), nullptr);
+    Defer remove_entry {
+            [&] { static_cast<void>(index->remove_if(reader->_cache_hash, 0, entry)); }};
+    // Disabling new async writes does not invalidate already accepted payloads. A zero query
+    // write budget still selects the memory-first remote-only-on-miss planner in this state.
+    config::enable_async_file_cache_write = false;
+    RemoteScanCacheWriteLimiter limiter(TUniqueId(), 0);
+    for (const auto mode :
+         {CacheWriteMode::NO_WRITE, CacheWriteMode::SYNC_WRITE, CacheWriteMode::DEFAULT}) {
+        IOContext context;
+        if (mode == CacheWriteMode::DEFAULT) {
+            context.remote_scan_cache_write_limiter = &limiter;
+            EXPECT_EQ(reader->_resolve_cache_write_mode(&context), CacheWriteMode::SYNC_WRITE);
+        } else {
+            context.cache_write_mode_override = mode;
+            if (mode == CacheWriteMode::SYNC_WRITE) {
+                context.file_cache_miss_policy = FileCacheMissPolicy::REMOTE_ONLY_ON_MISS;
+            }
+        }
+        ASSERT_NO_FATAL_FAILURE(
+                verify_inflight_hit_without_disk(reader, remote, context, expected));
     }
-    ASSERT_TRUE(read.get().ok());
-    EXPECT_EQ(actual, expected);
-    EXPECT_EQ(count, actual.size());
-    EXPECT_EQ(remote->read_count(), 0);
-    EXPECT_EQ(stats.io_adaptor_bypass_count, 0);
-    EXPECT_GT(stats.inflight_write_buffer_index_hit, 0);
-    EXPECT_EQ(stats.async_cache_write_submitted, 0);
 }
 
 // Opt-in end-to-end cache-path benchmark. Injected service times model a congested cache disk;
@@ -2925,8 +2969,17 @@ TEST_F(AdaptiveCachedRemoteFileReaderTest, DISABLED_fast_local_latency_controlle
                       << " requests=200 request_bytes=" << expected.size()
                       << " local_service_us=1000 remote_service_us=8000 wall_ns=" << elapsed
                       << " bypass_count=" << stats.io_adaptor_bypass_count << std::endl;
-            EXPECT_EQ(remote->read_count(), previous_reads);
-            EXPECT_EQ(stats.io_adaptor_bypass_count, 0);
+            // A fast disk still needs bounded remote probes to observe a later path change.
+            // Every remote read here must be a probe, never an ordinary slow-remote bypass.
+            EXPECT_EQ(remote->read_count() - previous_reads, stats.io_adaptor_remote_probes);
+            EXPECT_EQ(stats.io_adaptor_bypass_count, stats.io_adaptor_remote_probes);
+            EXPECT_EQ(stats.io_adaptor_local_probes, 0);
+            if (enabled) {
+                EXPECT_GT(stats.io_adaptor_remote_probes, 0);
+                EXPECT_LE(stats.io_adaptor_remote_probes, 4);
+            } else {
+                EXPECT_EQ(stats.io_adaptor_remote_probes, 0);
+            }
             EXPECT_EQ(stats.bytes_write_into_cache, 0);
         }
     }

@@ -1393,8 +1393,8 @@ bool read_adaptor_cached_blocks(BlockFileCache* cache, const UInt128Wrapper& has
     return true;
 }
 
-// Inspect memory coverage without taking the disk-cache mutex. The ordinary async planner
-// retains responsibility for copying data and counting inflight hits or misses exactly once.
+// Inspect memory coverage without taking the disk-cache mutex. The ordinary memory-first planners
+// retain responsibility for copying data and counting inflight hits or misses exactly once.
 bool fully_covered_by_inflight_buffers(BlockFileCache* cache, const UInt128Wrapper& hash,
                                        size_t offset, size_t bytes_req) {
     const size_t block_size = config::file_cache_each_block_size;
@@ -1444,10 +1444,13 @@ Status CachedRemoteFileReader::_try_read_with_io_adaptor(
         size_t* bytes_read, const IOContext* io_ctx, ReadStatistics& stats,
         SourceReadBreakdown& sources, bool* handled) {
     *handled = false;
-    // Async writes may already own every requested byte in memory. Preserve the planner's
-    // inflight path instead of waiting for unrelated disk eviction under _cache->_mutex.
-    if (cache_write_mode == CacheWriteMode::ASYNC_WRITE &&
-        config::enable_async_file_cache_write_inflight_write_buffer_index &&
+    // Accepted async payloads remain readable after async writes are disabled. NO_WRITE and
+    // remote-only-on-miss also check memory first (e.g. a query with zero cache-write budget),
+    // so none of these planners should wait for unrelated disk eviction under _cache->_mutex.
+    const bool memory_first = cache_write_mode == CacheWriteMode::ASYNC_WRITE ||
+                              cache_write_mode == CacheWriteMode::NO_WRITE ||
+                              use_remote_only_on_cache_miss(io_ctx);
+    if (memory_first && config::enable_async_file_cache_write_inflight_write_buffer_index &&
         fully_covered_by_inflight_buffers(_cache, _cache_hash, offset, bytes_req)) {
         return Status::OK();
     }
