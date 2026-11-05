@@ -365,6 +365,13 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
     }
 
     int32_t col_idx = tablet_schema->field_index(left_slot_ref->column_name());
+    if (!sd->column_paths().empty()) {
+        // Display names flatten both ["a.b"] and ["a", "b"] to v.a.b. Resolve the same
+        // encoded path as OlapScanner, including percent escaping, before selecting an index.
+        const auto& root = tablet_schema->column_by_uid(sd->col_unique_id());
+        col_idx = tablet_schema->field_index(make_variant_storage_path(
+                root.name_lower_case(), sd->column_paths(), root.variant_escape_dots_in_keys()));
+    }
     if (col_idx == -1) {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                 "Index statistics collection failed: Cannot find column index for column={}",
