@@ -96,8 +96,8 @@ struct ReadStatistics {
     int64_t io_adaptor_bypass_bytes = 0;
     int64_t io_adaptor_remote_bytes = 0;
     int64_t io_adaptor_remote_time_ns = 0;
-    int64_t io_adaptor_local_feedbacks = 0;
-    int64_t io_adaptor_remote_feedbacks = 0;
+    int64_t io_adaptor_local_probes = 0;
+    int64_t io_adaptor_remote_probes = 0;
     int64_t io_adaptor_remote_failures = 0;
     int64_t io_adaptor_fallback_local = 0;
     int64_t async_cache_write_submitted = 0;

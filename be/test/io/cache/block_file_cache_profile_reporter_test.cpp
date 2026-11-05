@@ -62,8 +62,8 @@ io::FileCacheStatistics make_file_cache_stats(int64_t multiplier) {
     stats.io_adaptor_bypass_bytes = multiplier * 65;
     stats.io_adaptor_remote_bytes = multiplier * 66;
     stats.io_adaptor_remote_time_ns = multiplier * 67;
-    stats.io_adaptor_local_feedbacks = multiplier * 68;
-    stats.io_adaptor_remote_feedbacks = multiplier * 69;
+    stats.io_adaptor_local_probes = multiplier * 68;
+    stats.io_adaptor_remote_probes = multiplier * 69;
     stats.io_adaptor_remote_failures = multiplier * 70;
     stats.io_adaptor_fallback_local = multiplier * 71;
     stats.async_cache_write_submitted = multiplier * 45;
@@ -104,8 +104,8 @@ void expect_file_cache_stats_eq(const io::FileCacheStatistics& actual,
     EXPECT_EQ(actual.io_adaptor_bypass_bytes, expected.io_adaptor_bypass_bytes);
     EXPECT_EQ(actual.io_adaptor_remote_bytes, expected.io_adaptor_remote_bytes);
     EXPECT_EQ(actual.io_adaptor_remote_time_ns, expected.io_adaptor_remote_time_ns);
-    EXPECT_EQ(actual.io_adaptor_local_feedbacks, expected.io_adaptor_local_feedbacks);
-    EXPECT_EQ(actual.io_adaptor_remote_feedbacks, expected.io_adaptor_remote_feedbacks);
+    EXPECT_EQ(actual.io_adaptor_local_probes, expected.io_adaptor_local_probes);
+    EXPECT_EQ(actual.io_adaptor_remote_probes, expected.io_adaptor_remote_probes);
     EXPECT_EQ(actual.io_adaptor_remote_failures, expected.io_adaptor_remote_failures);
     EXPECT_EQ(actual.io_adaptor_fallback_local, expected.io_adaptor_fallback_local);
     EXPECT_EQ(actual.num_local_io_total, expected.num_local_io_total);
@@ -233,10 +233,10 @@ TEST(FileCacheProfileReporterTest, ReporterAggregatesDeltaReportsToExactFinalTot
               after_second_report.io_adaptor_remote_bytes);
     EXPECT_EQ(profile->get_counter("IOAdaptorRemoteReadTime")->value(),
               after_second_report.io_adaptor_remote_time_ns);
-    EXPECT_EQ(profile->get_counter("IOAdaptorLocalFeedbackCount")->value(),
-              after_second_report.io_adaptor_local_feedbacks);
-    EXPECT_EQ(profile->get_counter("IOAdaptorRemoteFeedbackCount")->value(),
-              after_second_report.io_adaptor_remote_feedbacks);
+    EXPECT_EQ(profile->get_counter("IOAdaptorLocalProbeCount")->value(),
+              after_second_report.io_adaptor_local_probes);
+    EXPECT_EQ(profile->get_counter("IOAdaptorRemoteProbeCount")->value(),
+              after_second_report.io_adaptor_remote_probes);
     EXPECT_EQ(profile->get_counter("IOAdaptorRemoteFailureCount")->value(),
               after_second_report.io_adaptor_remote_failures);
     EXPECT_EQ(profile->get_counter("IOAdaptorFallbackLocalCount")->value(),

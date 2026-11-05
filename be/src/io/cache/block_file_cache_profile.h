@@ -98,8 +98,8 @@ struct FileCacheProfileReporter {
     RuntimeProfile::Counter* io_adaptor_bypass_bytes = nullptr;
     RuntimeProfile::Counter* io_adaptor_remote_bytes = nullptr;
     RuntimeProfile::Counter* io_adaptor_remote_time_ns = nullptr;
-    RuntimeProfile::Counter* io_adaptor_local_feedbacks = nullptr;
-    RuntimeProfile::Counter* io_adaptor_remote_feedbacks = nullptr;
+    RuntimeProfile::Counter* io_adaptor_local_probes = nullptr;
+    RuntimeProfile::Counter* io_adaptor_remote_probes = nullptr;
     RuntimeProfile::Counter* io_adaptor_remote_failures = nullptr;
     RuntimeProfile::Counter* io_adaptor_fallback_local = nullptr;
     RuntimeProfile::Counter* async_cache_write_submitted = nullptr;
