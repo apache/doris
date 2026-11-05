@@ -92,6 +92,18 @@ public class RangerDorisPlugin extends LoadedRangerPlugin {
         }
     }
 
+    @Override
+    public void cleanup() {
+        readScopes = null;
+        try {
+            // Do not hold the policy-install monitor while Ranger joins its refresher thread.
+            super.cleanup();
+        } finally {
+            // A refresh already in flight may have published a summary while cleanup stopped it.
+            readScopes = null;
+        }
+    }
+
     boolean mayGrantReadPrivilege(String user, RangerDorisResource resource) {
         ReadScopes current = readScopes;
         if (current == null || getResultProcessor() != null || current.engine != getPolicyEngine()

@@ -45,6 +45,7 @@ import org.apache.ranger.plugin.util.ServicePolicies;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -389,6 +390,35 @@ class RangerReadScopeSummaryTest {
         } finally {
             plugin.cleanup();
         }
+    }
+
+    @Test
+    void cleanupDropsTheSummaryEngineReferenceAndPermitsASeparateInstallation() throws Exception {
+        CountingPlugin plugin = new CountingPlugin();
+        Field summary = RangerDorisPlugin.class.getDeclaredField("readScopes");
+        summary.setAccessible(true);
+        try {
+            plugin.setPolicies(snapshot(1, policy(1, "alice", "SELECT", resource("db", "t", "c1"))));
+            Assertions.assertNotNull(summary.get(plugin));
+            Assertions.assertFalse(plugin.mayGrantReadPrivilege("alice", scoped(DorisObjectType.TABLE)));
+
+            plugin.cleanup();
+            Assertions.assertNull(plugin.engine());
+            Assertions.assertNull(summary.get(plugin), "a retained closed plugin must not retain the old engine");
+            Assertions.assertTrue(plugin.mayGrantReadPrivilege("alice", scoped(DorisObjectType.TABLE)));
+
+            plugin.setPolicies(snapshot(2, policy(2, "alice", "SELECT", resource("db", "t", "c2"))));
+            Assertions.assertEquals(2, plugin.getPoliciesVersion());
+            Assertions.assertNotNull(summary.get(plugin));
+            Assertions.assertFalse(plugin.mayGrantReadPrivilege("alice", scoped(DorisObjectType.TABLE)));
+            Assertions.assertTrue(plugin.isAccessAllowed(request("alice", "SELECT",
+                    new RangerDorisResource(DorisObjectType.COLUMN, "internal", "db", "t", "c2"))).getIsAllowed());
+            Assertions.assertFalse(plugin.isAccessAllowed(request("alice", "SELECT",
+                    new RangerDorisResource(DorisObjectType.COLUMN, "internal", "db", "t", "c1"))).getIsAllowed());
+        } finally {
+            plugin.cleanup();
+        }
+        Assertions.assertNull(summary.get(plugin));
     }
 
     private static RangerDorisResource scoped(DorisObjectType type) {
