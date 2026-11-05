@@ -381,7 +381,7 @@ suite("agg_sync_mv") {
 
     qt_select_stddev """select id, stddev(kint) from agg_mv_test group by id order by id;"""
     sql """drop materialized view if exists mv_sync40 on agg_mv_test;"""
-    createMV("""create materialized view mv_sync40 as select id as g2, stddev(kint) from agg_mv_test group by id order by id;""")
+    createMV("""create materialized view mv_sync40 as select id as g2, stddev(kint) as g2_stddev from agg_mv_test group by id order by id;""")
     mv_rewrite_success("select id, stddev(kint) from agg_mv_test group by id order by id;", "mv_sync40")
     qt_select_stddev_mv """select id, stddev(kint) from agg_mv_test group by id order by id;"""
 
@@ -393,7 +393,7 @@ suite("agg_sync_mv") {
 
     qt_select_stddev_samp """select id, stddev_samp(kint) from agg_mv_test group by id order by id;"""
     sql """drop materialized view if exists mv_sync42 on agg_mv_test;"""
-    createMV("""create materialized view mv_sync42 as select id as g4, stddev_samp(kint) from agg_mv_test group by id order by id;""")
+    createMV("""create materialized view mv_sync42 as select id as g4, stddev_samp(kint) as g4_stddev_samp from agg_mv_test group by id order by id;""")
     mv_rewrite_success("select id, stddev_samp(kint) from agg_mv_test group by id order by id;", "mv_sync42")
     qt_select_stddev_samp_mv """select id, stddev_samp(kint) from agg_mv_test group by id order by id;"""
 
@@ -423,7 +423,7 @@ suite("agg_sync_mv") {
 
     qt_select_variance """select id, variance(kint) from agg_mv_test group by id order by id;"""
     sql """drop materialized view if exists mv_sync47 on agg_mv_test;"""
-    createMV("""create materialized view mv_sync47 as select id as s3, variance(kint) from agg_mv_test group by id order by id;""")
+    createMV("""create materialized view mv_sync47 as select id as s3, variance(kint) as s3_variance from agg_mv_test group by id order by id;""")
     mv_rewrite_any_success("select id, variance(kint) from agg_mv_test group by id order by id;", ["mv_sync47", "mv_sync48"])
     qt_select_variance_mv """select id, variance(kint) from agg_mv_test group by id order by id;"""
 
@@ -435,7 +435,7 @@ suite("agg_sync_mv") {
 
     qt_select_variance_samp """select id, variance_samp(kint) from agg_mv_test group by id order by id;"""
     sql """drop materialized view if exists mv_sync49 on agg_mv_test;"""
-    createMV("""create materialized view mv_sync49 as select id as s5, variance_samp(kint) from agg_mv_test group by id order by id;""")
+    createMV("""create materialized view mv_sync49 as select id as s5, variance_samp(kint) as s5_variance_samp from agg_mv_test group by id order by id;""")
     mv_rewrite_success("select id, variance_samp(kint) from agg_mv_test group by id order by id;", "mv_sync49")
     qt_select_variance_samp_mv """select id, variance_samp(kint) from agg_mv_test group by id order by id;"""
 
