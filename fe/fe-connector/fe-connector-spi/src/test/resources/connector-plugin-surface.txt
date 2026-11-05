@@ -219,6 +219,7 @@ org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#planScanForPartiti
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#populateScanLevelParams(org.apache.doris.thrift.TFileScanRangeParams,java.util.Map):void
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#releaseReadTransaction(java.lang.String):void
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#scannedPartitionCount(java.util.List):java.util.OptionalLong
+org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#streamPartitionSources(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.scan.ConnectorScanRequest,int,int):java.util.Optional
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#streamSplits(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.scan.ConnectorScanRequest):org.apache.doris.connector.spi.scan.ConnectorSplitSource
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#streamingSplitEstimate(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,java.util.Optional,boolean):long
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#supportsBatchScan(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle):boolean
@@ -272,6 +273,7 @@ org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder#requiredPartiti
 org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder#scanContext(org.apache.doris.connector.spi.scan.ConnectorScanContext):org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder
 org.apache.doris.connector.spi.scan.ConnectorSplitSource#close():void
 org.apache.doris.connector.spi.scan.ConnectorSplitSource#hasNext():boolean
+org.apache.doris.connector.spi.scan.ConnectorSplitSource#isBlocked():java.util.concurrent.CompletableFuture
 org.apache.doris.connector.spi.scan.ConnectorSplitSource#next():org.apache.doris.connector.spi.scan.ConnectorScanRange
 org.apache.doris.connector.spi.scan.ConnectorSplitSource#onMoreSplitsRequested():void
 org.apache.doris.connector.spi.scan.ScanNodePropertyKeys#field:FILE_FORMAT_TYPE:java.lang.String=file_format_type

@@ -51,12 +51,75 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 class PluginDrivenScanNodePartitionBatchTest {
+    @Test
+    void cooperatingSourcesYieldWhileMetadataIsUnavailable() throws Exception {
+        Fixture fixture = new Fixture(1, Collections.emptySet());
+        ConnectorScanRequest request = ConnectorScanRequest.builder(new ConnectorTableHandle() {
+        }, Collections.emptyList()).build();
+        Iterator<ConnectorScanRange> ranges = fixture.provider.planScanForPartitionBatch(
+                null, request, Collections.singletonList("0")).iterator();
+        AtomicBoolean loading = new AtomicBoolean(true);
+        CompletableFuture<Void> ready = new CompletableFuture<>();
+        AtomicInteger closed = new AtomicInteger();
+        ConnectorSplitSource connectorSource = new ConnectorSplitSource() {
+            @Override
+            public CompletableFuture<Void> isBlocked() {
+                return loading.get() ? ready : null;
+            }
+
+            @Override
+            public boolean hasNext() {
+                return !loading.get() && ranges.hasNext();
+            }
+
+            @Override
+            public ConnectorScanRange next() {
+                return ranges.next();
+            }
+
+            @Override
+            public void close() {
+                closed.incrementAndGet();
+            }
+        };
+        AtomicReference<ConnectorScanRequest> captured = new AtomicReference<>();
+        Mockito.doAnswer(call -> {
+            captured.set(call.getArgument(1));
+            Assertions.assertEquals(16, call.<Integer>getArgument(2));
+            Assertions.assertEquals(3, call.<Integer>getArgument(3));
+            return Optional.of(Collections.singletonList(connectorSource));
+        }).when(fixture.provider).streamPartitionSources(Mockito.any(), Mockito.any(), Mockito.anyInt(),
+                Mockito.anyInt());
+        List<SplitProducer.BatchSource> sources = fixture.sources(1000, 16, 3);
+        Assertions.assertEquals(1, sources.size());
+        Assertions.assertEquals(1000, captured.get().getRequiredPartitions().size());
+        try (SplitProducer.BatchSource source = sources.get(0)) {
+            Assertions.assertTrue(source.getNextBatch().isEmpty());
+            Assertions.assertSame(ready, source.isBlocked());
+            Assertions.assertFalse(ready.isDone());
+            loading.set(false);
+            ready.complete(null);
+            for (long identity = 0; identity < 3; identity++) {
+                Assertions.assertEquals(identity, source.getNextBatch().get(0).getStart());
+                Assertions.assertNull(source.isBlocked());
+            }
+            Assertions.assertTrue(source.getNextBatch().isEmpty());
+            Assertions.assertNull(source.isBlocked());
+        }
+        Assertions.assertEquals(1, closed.get());
+        Mockito.verify(fixture.provider, Mockito.never()).streamSplits(Mockito.any(), Mockito.any());
+    }
+
     @ParameterizedTest
     @ValueSource(ints = {1, 1024})
     void batchesRetainConfiguredSizeAcrossPartitions(int partitionsPerBatch) throws Exception {
