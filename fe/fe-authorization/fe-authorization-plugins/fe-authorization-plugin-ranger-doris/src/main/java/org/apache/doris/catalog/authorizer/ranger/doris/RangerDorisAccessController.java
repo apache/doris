@@ -283,6 +283,11 @@ public class RangerDorisAccessController extends RangerAccessController {
     private boolean checkPrivilegeByPlugin(AuthorizedSubject subject, DorisAccessType accessType,
             RangerDorisResource resource, AccessContext context) {
         return decideWhileOpen(() -> {
+            if ((accessType == DorisAccessType.SELECT || accessType == DorisAccessType.ADMIN)
+                    && dorisPlugin instanceof RangerDorisPlugin
+                    && !((RangerDorisPlugin) dorisPlugin).mayGrantReadPrivilege(subject.getUser(), resource)) {
+                return false;
+            }
             RangerAccessRequestImpl request = createRequest(subject, accessType, context);
             request.setResource(resource);
             if (LOG.isDebugEnabled()) {
