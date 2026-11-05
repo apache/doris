@@ -80,12 +80,17 @@ public class PublishVersionTask extends AgentTask {
         return transactionId;
     }
 
-    public Map<Long, Long> getSuccTablets() {
+    public synchronized Map<Long, Long> getSuccTablets() {
         return succTablets;
     }
 
-    public void setSuccTablets(Map<Long, Long> succTablets) {
-        this.succTablets = (succTablets == null) ? Maps.newHashMap() : succTablets;
+    public synchronized void setSuccTablets(Map<Long, Long> succTablets) {
+        if (succTablets != null) {
+            // Publish readers keep a stable snapshot while later batches are merged.
+            Map<Long, Long> merged = Maps.newHashMap(this.succTablets);
+            merged.putAll(succTablets);
+            this.succTablets = merged;
+        }
     }
 
     public synchronized List<Long> getErrorTablets() {

@@ -302,8 +302,7 @@ public class PublishVersionDaemon extends MasterDaemon {
             });
             transactionState.pruneAfterVisible();
             if (MetricRepo.isInit) {
-                long publishTime = transactionState.getLastPublishVersionTime()
-                        - transactionState.getCommitTime();
+                long publishTime = transactionState.getFinishTime() - transactionState.getCommitTime();
                 MetricRepo.HISTO_TXN_PUBLISH_LATENCY.update(publishTime);
             }
         }
