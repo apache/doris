@@ -26,9 +26,6 @@ public class MysqlHandshakePacket extends MysqlPacket {
     private static final int PROTOCOL_VERSION = 10;
     // 33 stands for UTF-8 character set
     private static final int CHARACTER_SET = 33;
-    // use default capability for all
-    private static final MysqlCapability CAPABILITY = MysqlCapability.DEFAULT_CAPABILITY;
-    private static final MysqlCapability SSL_CAPABILITY = MysqlCapability.SSL_CAPABILITY;
     // status flags not supported in palo
     private static final int STATUS_FLAGS = 0;
     public static final String AUTH_PLUGIN_NAME = "mysql_native_password";
@@ -37,8 +34,13 @@ public class MysqlHandshakePacket extends MysqlPacket {
     private int connectionId;
     private byte[] authPluginData;
 
-    public MysqlHandshakePacket(int connectionId) {
+    // the capability advertised to the client, the connection's one (MysqlProtocolAdapter builds it once,
+    // so the handshake and the negotiation see the same flags); SSL is added on top when the server offers it
+    private final MysqlCapability serverCapability;
+
+    public MysqlHandshakePacket(int connectionId, MysqlCapability serverCapability) {
         this.connectionId = connectionId;
+        this.serverCapability = serverCapability;
         authPluginData = MysqlPassword.createRandomString(SCRAMBLE_LENGTH);
     }
 
@@ -48,7 +50,7 @@ public class MysqlHandshakePacket extends MysqlPacket {
 
     @Override
     public void writeTo(MysqlSerializer serializer) {
-        MysqlCapability capability = MysqlProto.SERVER_USE_SSL ? SSL_CAPABILITY : CAPABILITY;
+        MysqlCapability capability = MysqlProto.SERVER_USE_SSL ? serverCapability.withSsl() : serverCapability;
 
         serializer.writeInt1(PROTOCOL_VERSION);
         serializer.writeNulTerminateString(GlobalVariable.version);
