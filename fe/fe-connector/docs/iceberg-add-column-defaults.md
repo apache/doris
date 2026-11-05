@@ -23,6 +23,8 @@ Boolean defaults accept `0`/`1` and `false`/`true`. DATE and DATETIME defaults
 accept validated SQL date and timestamp strings, preserving fractional
 seconds. External SQL defaults, including compact forms such as `20240102`,
 are normalized to canonical text before connector conversion.
+Compact DATETIME and TIMESTAMPTZ defaults accept fractional seconds with or
+without a decimal point, retaining their original offset or named time zone.
 The conversion also retains the existing numeric epoch forms used by
 connector callers. TIMESTAMPTZ literals without an offset use the DDL
 session's time zone, and the persisted default retains that instant when

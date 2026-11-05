@@ -61,12 +61,17 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * column definition
  * TODO: complex types will not work, we will support them later.
  */
 public class ColumnDefinition {
+    private static final Pattern COMPACT_DATETIME_FRACTION =
+            Pattern.compile("^([0-9]{8}T?[0-9]{6})([0-9]{1,6})(.*)$");
+
     private final String name;
     private DataType type;
     private boolean isKey;
@@ -419,6 +424,15 @@ public class ColumnDefinition {
         validateInternal(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, true, false);
     }
 
+    private static String normalizeCompactDateTimeFraction(String value) {
+        Matcher matcher = COMPACT_DATETIME_FRACTION.matcher(value.trim());
+        // The DEFAULT validator also accepts compact fractional seconds without a decimal point.
+        if (matcher.matches()) {
+            return matcher.group(1) + "." + matcher.group(2) + matcher.group(3);
+        }
+        return value;
+    }
+
     private void validateInternal(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet,
             boolean isEnableMergeOnWrite, KeysType keysType, boolean nestedColumn, boolean isSystemGeneratedTable) {
         try {
@@ -576,6 +590,9 @@ public class ColumnDefinition {
                         && defaultValue.get().getDefaultValueExprDef() == null) {
                     // Preserve SQL literal time-zone and rounding semantics for civil temporal defaults.
                     String value = defaultValue.get().getValue();
+                    if (type.isDateTimeV2Type() || type.isTimeStampTzType()) {
+                        value = normalizeCompactDateTimeFraction(value);
+                    }
                     Literal normalized;
                     if (type.isTimeStampTzType()) {
                         TimeStampTzType zonedType = (TimeStampTzType) type;
