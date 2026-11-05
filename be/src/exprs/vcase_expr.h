@@ -27,6 +27,7 @@
 #include "core/column/column_decimal.h"
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_spatial.h"
 #include "core/column/column_struct.h"
 #include "core/column/column_varbinary.h"
 #include "core/column/variant_v2/column_variant_v2.h"
@@ -81,12 +82,15 @@ private:
                                           size_t rows_count) const {
         auto result_column_ptr = data_type()->create_column();
         result_column_ptr->reserve(rows_count);
+        // Spatial StringViews require insert_from to copy WKB into the result's arena;
+        // the fixed-width SIMD path would copy only the views.
         if constexpr (std::is_same_v<ColumnType, ColumnString> ||
                       std::is_same_v<ColumnType, ColumnVarbinary> ||
                       std::is_same_v<ColumnType, ColumnBitmap> ||
                       std::is_same_v<ColumnType, ColumnArray> ||
                       std::is_same_v<ColumnType, ColumnMap> ||
                       std::is_same_v<ColumnType, ColumnStruct> ||
+                      std::is_same_v<ColumnType, ColumnSpatial> ||
                       std::is_same_v<ColumnType, ColumnVariantV2> ||
                       std::is_same_v<ColumnType, ColumnHLL> ||
                       std::is_same_v<ColumnType, ColumnQuantileState> ||
@@ -148,6 +152,8 @@ private:
             CASE_TYPE(TYPE_TIMESTAMPTZ, ColumnTimeStampTz)
             CASE_TYPE(TYPE_IPV6, ColumnIPv6)
             CASE_TYPE(TYPE_UUID, ColumnUUID)
+            CASE_TYPE(TYPE_GEOMETRY, ColumnSpatial)
+            CASE_TYPE(TYPE_GEOGRAPHY, ColumnSpatial)
             CASE_TYPE(TYPE_IPV4, ColumnIPv4)
             CASE_TYPE(TYPE_ARRAY, ColumnArray)
             CASE_TYPE(TYPE_MAP, ColumnMap)

@@ -56,8 +56,17 @@ public class SqlUtils {
 
     /** Quote a value as a SQL string literal under the requested backslash-escape mode. */
     public static String quoteStringLiteral(String value, boolean noBackslashEscapes) {
+        return quoteStringLiteral(value, noBackslashEscapes, "\"");
+    }
+
+    /** Quote a spatial type parameter while preserving its existing single-quoted SQL form. */
+    public static String quoteSingleQuotedStringLiteral(String value, boolean noBackslashEscapes) {
+        return quoteStringLiteral(value, noBackslashEscapes, "'");
+    }
+
+    private static String quoteStringLiteral(String value, boolean noBackslashEscapes, String delimiter) {
         String escaped = noBackslashEscapes ? value : value.replace("\\", "\\\\");
-        return "\"" + escaped.replace("\"", "\"\"") + "\"";
+        return delimiter + escaped.replace(delimiter, delimiter + delimiter) + delimiter;
     }
 
     public static List<String> splitMultiStmts(String sql) {

@@ -162,6 +162,10 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
         return PGenericType::FIXEDLENGTHOBJECT;
     case doris::PrimitiveType::TYPE_VARBINARY:
         return PGenericType::VARBINARY;
+    case PrimitiveType::TYPE_GEOMETRY:
+        return PGenericType::GEOMETRY;
+    case PrimitiveType::TYPE_GEOGRAPHY:
+        return PGenericType::GEOGRAPHY;
     default:
         break;
     }

@@ -22,6 +22,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.connector.converter.ConnectorSpatialWriteNormalizer;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -306,10 +307,17 @@ public class ExternalRowLevelMergePlanBuilder {
         List<NamedExpression> output = new ArrayList<>();
         for (int i = 0; i < finalProjections.get(0).size(); i++) {
             DataType outputType = outputTypes.get(i);
+            boolean spatialTarget = outputType.toCatalogDataType().typeContainsSpatialType();
             Expression project = new NullLiteral(outputType);
             for (int j = 0; j < finalProjections.size(); j++) {
-                Expression branch = TypeCoercionUtils.castUnbound(
-                        finalProjections.get(j).get(i), outputType);
+                Expression value = finalProjections.get(j).get(i);
+                // Binding ARRAY(CAST(NULL AS INT)) to ARRAY<GEOMETRY> otherwise rejects
+                // the eager complex cast before sink NULL normalization. Retag only proven
+                // NULL leaves; retain actual values and ordinary siblings for normal validation.
+                if (spatialTarget) {
+                    value = ConnectorSpatialWriteNormalizer.normalizeSpatialNullsBeforeBinding(value, outputType);
+                }
+                Expression branch = TypeCoercionUtils.castUnbound(value, outputType);
                 project = MergeUtils.selectBranch(
                         new EqualTo(new UnboundSlot(BRANCH_LABEL), new IntegerLiteral(j)),
                         branch, project);

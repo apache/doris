@@ -214,7 +214,7 @@ class ConnectorColumnConverterTest {
 
     @Test
     void testUnknownTypeDefaultsToUnsupported() {
-        ConnectorType ct = ConnectorType.of("GEOMETRY", -1, -1);
+        ConnectorType ct = ConnectorType.of("UNKNOWN_TYPE", -1, -1);
         Type back = ConnectorColumnConverter.convertType(ct);
         Assertions.assertTrue(back.isUnsupported());
     }
@@ -459,6 +459,15 @@ class ConnectorColumnConverterTest {
         MapType notNullValue = new MapType(ScalarType.createStringType(), ScalarType.INT, true, false);
         ConnectorType ct = ConnectorColumnConverter.toConnectorType(notNullValue);
         Assertions.assertFalse(ct.isChildNullable(1));
+    }
+
+    @Test
+    void convertArrayTypeCarriesElementNullability() {
+        ConnectorType required = ConnectorType.arrayOf(ConnectorType.of("GEOMETRY"), false);
+        Column converted = ConnectorColumnConverter.convertColumn(
+                new ConnectorColumn("payload", required, null, true, null));
+        Assertions.assertFalse(converted.getChildren().get(0).isAllowNull(),
+                "required Iceberg LIST elements must remain non-null in Doris type conversion");
     }
 
     @Test

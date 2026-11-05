@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScala
 import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
@@ -45,7 +46,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalQualify;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.logical.OutputPrunable;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -129,6 +132,7 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                     checkExpressionInputTypes(plan);
                     checkUnexpectedExpressions(plan);
                     checkAggregateFunction(plan);
+                    checkSpatialWindowPartitions(plan);
                     checkGroupingScalarFunction(plan);
                     checkIvmExpression(plan, ctx.connectContext);
                     return null;
@@ -223,10 +227,39 @@ public class CheckAnalysis implements AnalysisRuleFactory {
         }
     }
 
+    private void checkSpatialWindowPartitions(Plan plan) {
+        for (Expression expression : plan.getExpressions()) {
+            expression.foreachUp(node -> {
+                if (node instanceof WindowExpression) {
+                    for (Expression key : ((WindowExpression) node).getPartitionKeys()) {
+                        if (key.getDataType().toCatalogDataType().typeContainsSpatialType()) {
+                            throw new AnalysisException("Window PARTITION BY does not support spatial keys: "
+                                    + key.toSql());
+                        }
+                    }
+                }
+            });
+        }
+    }
+
     private void checkAggregateFunction(Plan plan) {
+        if (plan instanceof LogicalSetOperation) {
+            LogicalSetOperation set = (LogicalSetOperation) plan;
+            if (!(set instanceof LogicalUnion) || set.getQualifier() != Qualifier.ALL) {
+                for (NamedExpression output : set.getOutputs()) {
+                    checkSpatialGroupingType(output);
+                }
+            }
+        }
+        if (plan instanceof LogicalProject && ((LogicalProject<?>) plan).isDistinct()) {
+            for (NamedExpression expression : ((LogicalProject<?>) plan).getProjects()) {
+                checkSpatialGroupingType(expression);
+            }
+        }
         if (plan instanceof Aggregate) {
             Aggregate<?> aggregate = (Aggregate<?>) plan;
             for (Expression expr : aggregate.getGroupByExpressions()) {
+                checkSpatialGroupingType(expr);
                 if (ExpressionUtils.hasNonWindowAggregateFunction(expr)) {
                     throw new AnalysisException(
                             "GROUP BY expression must not contain aggregate functions: " + expr.toSql());
@@ -254,6 +287,12 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                     }
                 }
             }
+        }
+    }
+
+    private void checkSpatialGroupingType(Expression expression) {
+        if (expression.getDataType().toCatalogDataType().typeContainsSpatialType()) {
+            throw new AnalysisException("GROUP BY and DISTINCT do not support spatial keys: " + expression.toSql());
         }
     }
 

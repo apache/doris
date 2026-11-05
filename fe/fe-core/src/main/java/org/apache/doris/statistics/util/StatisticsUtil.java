@@ -516,7 +516,7 @@ public class StatisticsUtil {
     }
 
     public static boolean isUnsupportedType(Type type) {
-        if (ColumnStatistic.UNSUPPORTED_TYPE.contains(type)) {
+        if (ColumnStatistic.isUnsupportedType(type)) {
             return true;
         }
         return type instanceof ArrayType

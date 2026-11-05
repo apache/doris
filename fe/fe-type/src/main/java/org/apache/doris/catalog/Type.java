@@ -412,6 +412,15 @@ public abstract class Type {
         return toSql(0);
     }
 
+    /** Render for a caller's SQL mode without changing the stable metastore representation. */
+    public final String toSql(boolean noBackslashEscapes) {
+        return toSql(0, noBackslashEscapes);
+    }
+
+    protected String toSql(int depth, boolean noBackslashEscapes) {
+        return toSql(depth);
+    }
+
     /**
      * Recursive helper for toSql() to be implemented by subclasses. Keeps track of the
      * nesting depth and terminates the recursion if MAX_NESTING_DEPTH is reached.
@@ -469,6 +478,25 @@ public abstract class Type {
                     || PrimitiveType.typeWithPrecision.contains(((MapType) this).getValueType().getPrimitiveType());
         } else if (isArrayType()) {
             return PrimitiveType.typeWithPrecision.contains(((ArrayType) this).getItemType().getPrimitiveType());
+        }
+        return false;
+    }
+
+    /** Whether this type or a nested complex type contains spatial values. */
+    public boolean typeContainsSpatialType() {
+        if (getPrimitiveType() == PrimitiveType.GEOMETRY || getPrimitiveType() == PrimitiveType.GEOGRAPHY) {
+            return true;
+        } else if (isStructType()) {
+            return ((StructType) this).getFields().stream()
+                    .anyMatch(field -> field.getType().typeContainsSpatialType());
+        } else if (isMapType()) {
+            MapType mapType = (MapType) this;
+            return mapType.getKeyType().typeContainsSpatialType()
+                    || mapType.getValueType().typeContainsSpatialType();
+        } else if (isArrayType()) {
+            return ((ArrayType) this).getItemType().typeContainsSpatialType();
+        } else if (isAggStateType()) {
+            return ((AggStateType) this).getSubTypes().stream().anyMatch(Type::typeContainsSpatialType);
         }
         return false;
     }
@@ -565,7 +593,7 @@ public abstract class Type {
             }
             return "struct<" + StringUtils.join(fieldDesc, ",") + ">";
         } else if (isToSql) {
-            return this.toSql();
+            return this.toSql(noBackslashEscapes);
         }
         return this.toString();
     }
@@ -1008,7 +1036,17 @@ public abstract class Type {
             case SCALAR: {
                 Preconditions.checkState(node.isSetScalarType());
                 TScalarType scalarType = node.getScalarType();
-                if (scalarType.getType() == TPrimitiveType.CHAR) {
+                if (scalarType.getType() == TPrimitiveType.GEOMETRY) {
+                    Preconditions.checkArgument(scalarType.isSetSpatialCrs(), "Missing geometry CRS");
+                    Preconditions.checkArgument(!scalarType.isSetSpatialAlgorithm(),
+                            "Geometry must not specify a geography algorithm");
+                    type = ScalarType.createGeometryType(scalarType.getSpatialCrs());
+                } else if (scalarType.getType() == TPrimitiveType.GEOGRAPHY) {
+                    Preconditions.checkArgument(scalarType.isSetSpatialCrs()
+                            && scalarType.isSetSpatialAlgorithm(), "Missing geography CRS or algorithm");
+                    type = ScalarType.createGeographyType(scalarType.getSpatialCrs(),
+                            scalarType.getSpatialAlgorithm());
+                } else if (scalarType.getType() == TPrimitiveType.CHAR) {
                     Preconditions.checkState(scalarType.isSetLen());
                     type = ScalarType.createCharType(scalarType.getLen());
                 } else if (scalarType.getType() == TPrimitiveType.VARCHAR) {

@@ -18,6 +18,7 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.schema.external.TField;
@@ -34,6 +35,7 @@ import org.apache.iceberg.data.GenericRecord;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.mapping.MappingUtil;
 import org.apache.iceberg.mapping.NameMappingParser;
+import org.apache.iceberg.types.EdgeAlgorithm;
 import org.apache.iceberg.types.Types;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.protocol.TBinaryProtocol;
@@ -220,6 +222,58 @@ public class IcebergSchemaUtilsTest {
 
         Assertions.assertEquals("ID", fields.get(0).getFieldPtr().getName());
         Assertions.assertEquals("Name", fields.get(1).getFieldPtr().getName());
+    }
+
+    @Test
+    public void schemaCarriersPreserveSpatialMetadata() throws Exception {
+        Types.GeometryType geometry = Types.GeometryType.of("EPSG:3857");
+        Types.GeographyType geography = Types.GeographyType.of("EPSG:4326", EdgeAlgorithm.KARNEY);
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "geom", geometry),
+                Types.NestedField.optional(3, "geog", geography),
+                Types.NestedField.optional(4, "default_geom", Types.GeometryType.crs84()),
+                Types.NestedField.optional(5, "default_geog",
+                        Types.GeographyType.of("OGC:CRS84", EdgeAlgorithm.SPHERICAL)),
+                Types.NestedField.optional(6, "payload", Types.StructType.of(
+                        Types.NestedField.optional(7, "items", Types.ListType.ofOptional(8, geometry)),
+                        Types.NestedField.optional(9, "props", Types.MapType.ofOptional(
+                                10, 11, Types.StringType.get(), geography)))));
+        Table table = createTable("spatial_carrier", SCHEMA);
+        for (boolean enableVarbinary : new boolean[] {false, true}) {
+            for (String encoded : Arrays.asList(
+                    IcebergSchemaUtils.encodeSchemaEvolutionProp(table, schema, Collections.emptyList(),
+                            false, enableVarbinary, false),
+                    IcebergSchemaUtils.encodeEqualitySchemaEvolutionProp(table, schema.columns(),
+                            false, enableVarbinary, false))) {
+                Map<String, TField> fields = topFields(decode(encoded).getHistorySchemaInfo().get(0));
+                assertSpatialCarrier(fields.get("geom"), TPrimitiveType.GEOMETRY, "EPSG:3857", null);
+                assertSpatialCarrier(fields.get("geog"), TPrimitiveType.GEOGRAPHY, "EPSG:4326", "karney");
+                assertSpatialCarrier(fields.get("default_geom"), TPrimitiveType.GEOMETRY, "OGC:CRS84", null);
+                assertSpatialCarrier(fields.get("default_geog"), TPrimitiveType.GEOGRAPHY,
+                        "OGC:CRS84", "spherical");
+                TField payload = fields.get("payload");
+                assertSpatialCarrier(childByName(payload, "items").getNestedField()
+                        .getArrayField().getItemField().getFieldPtr(),
+                        TPrimitiveType.GEOMETRY, "EPSG:3857", null);
+                TField props = childByName(payload, "props");
+                assertSpatialCarrier(props.getNestedField().getMapField().getValueField().getFieldPtr(),
+                        TPrimitiveType.GEOGRAPHY, "EPSG:4326", "karney");
+                Assertions.assertEquals(TPrimitiveType.STRING, props.getNestedField().getMapField()
+                        .getKeyField().getFieldPtr().getType().getType());
+                Assertions.assertFalse(fields.get("id").getType().isSetSpatialCrs());
+                Assertions.assertFalse(fields.get("id").getType().isSetSpatialAlgorithm());
+            }
+        }
+    }
+
+    private static void assertSpatialCarrier(TField field, TPrimitiveType kind, String crs, String algorithm) {
+        TColumnType type = field.getType();
+        Assertions.assertEquals(kind, type.getType());
+        Assertions.assertTrue(type.isSetSpatialCrs());
+        Assertions.assertEquals(crs, type.getSpatialCrs());
+        Assertions.assertEquals(algorithm != null, type.isSetSpatialAlgorithm());
+        Assertions.assertEquals(algorithm, type.getSpatialAlgorithm());
     }
 
     @Test

@@ -19,6 +19,8 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.spi.ConnectorType;
 
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.types.EdgeAlgorithm;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
@@ -63,6 +65,18 @@ public class IcebergTypeMappingReadTest {
     // ---------------------------------------------------------------------
 
     @Test
+    public void defaultGeographyCaseSurvivesExternalSchemaImport() {
+        for (String crs : List.of("ogc:crs84", "OgC:CrS84")) {
+            Schema external = new Schema(Types.NestedField.optional(1, "shape",
+                    Types.GeographyType.of(crs, EdgeAlgorithm.SPHERICAL)));
+            ConnectorType imported = mapOff(external.findType("shape"));
+            Assertions.assertEquals("GEOGRAPHY", imported.getTypeName());
+            Assertions.assertEquals(crs, imported.getSpatialCrs());
+            Assertions.assertEquals("spherical", imported.getSpatialAlgorithm());
+        }
+    }
+
+    @Test
     public void flagIndependentPrimitivesMatchLegacy() {
         // WHY: these eight Iceberg primitives map to a fixed Doris type regardless of either mapping
         // flag; legacy returns Type.BOOLEAN/INT/BIGINT/FLOAT/DOUBLE/STRING, DateV2, and DatetimeV2(6)
@@ -86,23 +100,31 @@ public class IcebergTypeMappingReadTest {
     }
 
     @Test
-    public void unknownAndV3TypesDegradeToUnsupportedByDesign() {
-        // WHY (user decision 2026-07-13, DV-051): iceberg primitive types Doris cannot represent —
-        // Zoned TIMESTAMP_NANO / GEOMETRY / GEOGRAPHY / UNKNOWN — must map to UNSUPPORTED WITHOUT throwing,
-        // so the table still loads and only the exotic column is
-        // present-but-unqueryable. This deliberately DIVERGES from legacy fe-core, which threw
-        // IllegalArgumentException("Cannot transform unknown type") at schema-load and failed the whole table.
-        // This test PINS the graceful-degradation choice: MUTATION making either default arm throw -> red,
-        // surfacing that the accepted deviation was reverted. (The write direction toIcebergPrimitive still
-        // throws — see toIcebergPrimitiveRejectsUnrepresentableTypes if present / the connector's CREATE path.)
+    public void unknownTypesDegradeButSpatialTypesRemainTyped() {
+        // Preserve unzoned nanosecond timestamps and spatial metadata; unsupported types still degrade.
         Assertions.assertEquals("TIMESTAMP_NS", mapOff(Types.TimestampNanoType.withoutZone()).getTypeName());
         Assertions.assertEquals("UNSUPPORTED", mapOff(Types.TimestampNanoType.withZone()).getTypeName());
-        Assertions.assertEquals("UNSUPPORTED", mapOff(Types.GeometryType.crs84()).getTypeName());
-        Assertions.assertEquals("UNSUPPORTED", mapOff(Types.GeographyType.crs84()).getTypeName());
+        Assertions.assertEquals("GEOMETRY", mapOff(Types.GeometryType.crs84()).getTypeName());
+        Assertions.assertEquals("OGC:CRS84", mapOff(Types.GeometryType.crs84()).getSpatialCrs());
+        Assertions.assertEquals("GEOGRAPHY", mapOff(Types.GeographyType.crs84()).getTypeName());
+        Assertions.assertEquals("spherical", mapOff(Types.GeographyType.crs84()).getSpatialAlgorithm());
         Assertions.assertEquals("UNSUPPORTED", mapOff(Types.UnknownType.get()).getTypeName());
         Assertions.assertEquals("VARIANT_COMPUTE_V2", mapOff(Types.VariantType.get()).getTypeName());
-        // The mapping flags do not rescue an unrepresentable type (both arms are flag-independent).
-        Assertions.assertEquals("UNSUPPORTED", mapOn(Types.GeometryType.crs84()).getTypeName());
+        Assertions.assertEquals("GEOMETRY", mapOn(Types.GeometryType.crs84()).getTypeName());
+    }
+
+    @Test
+    public void spatialMetadataRoundTripsThroughConnectorType() {
+        ConnectorType geometry = ConnectorType.of("GEOMETRY")
+                .withSpatialMetadata("EPSG:4326", null);
+        Type geometryType = IcebergTypeMapping.toIcebergPrimitive(geometry);
+        Assertions.assertEquals("EPSG:4326", ((Types.GeometryType) geometryType).crs());
+
+        ConnectorType geography = ConnectorType.of("GEOGRAPHY")
+                .withSpatialMetadata("EPSG:4326", "vincenty");
+        Type geographyType = IcebergTypeMapping.toIcebergPrimitive(geography);
+        Assertions.assertEquals("EPSG:4326", ((Types.GeographyType) geographyType).crs());
+        Assertions.assertEquals("vincenty", ((Types.GeographyType) geographyType).algorithm().toString());
     }
 
     @Test

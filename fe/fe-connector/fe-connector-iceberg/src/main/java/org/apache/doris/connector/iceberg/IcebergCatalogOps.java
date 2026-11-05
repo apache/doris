@@ -197,7 +197,8 @@ public interface IcebergCatalogOps {
     default void addNestedColumn(String dbName, String tableName, ConnectorColumnPath path,
             IcebergColumnChange column, ConnectorColumnPosition position) {
         withTable(dbName, tableName, table -> {
-            IcebergNestedColumnEvolution.addColumn(table, path, column, position);
+            IcebergNestedColumnEvolution.addColumn(IcebergSpatialSchemaValidator.forDdl(table,
+                    IcebergSpatialSchemaValidator.containsSpatial(column.getType())), path, column, position);
             return null;
         });
     }
@@ -223,7 +224,8 @@ public interface IcebergCatalogOps {
             IcebergColumnChange column, boolean nullableSpecified, boolean commentSpecified,
             ConnectorColumnPosition position) {
         withTable(dbName, tableName, table -> {
-            IcebergNestedColumnEvolution.modifyColumn(table, path, column,
+            IcebergNestedColumnEvolution.modifyColumn(IcebergSpatialSchemaValidator.forDdl(table,
+                    IcebergSpatialSchemaValidator.containsSpatial(column.getType())), path, column,
                     nullableSpecified, commentSpecified, position);
             return null;
         });
@@ -511,7 +513,8 @@ public interface IcebergCatalogOps {
         @Override
         public void setTableProperties(String dbName, String tableName, Map<String, String> properties) {
             withTable(dbName, tableName, table -> {
-                UpdateProperties updateProperties = table.updateProperties();
+                UpdateProperties updateProperties = IcebergSpatialSchemaValidator.forDdl(table,
+                        IcebergSpatialSchemaValidator.containsFormatProperty(properties)).updateProperties();
                 properties.forEach(updateProperties::set);
                 updateProperties.commit();
                 return null;
@@ -543,7 +546,8 @@ public interface IcebergCatalogOps {
                 IcebergWriterHelper.validateNotRowLineageColumn(table, column.getName(), "add");
                 IcebergNestedColumnEvolution.validateNoCaseInsensitiveSiblingCollision(
                         table.schema().asStruct(), "", column.getName(), null, "add");
-                UpdateSchema updateSchema = table.updateSchema();
+                UpdateSchema updateSchema = IcebergSpatialSchemaValidator.forDdl(table,
+                        IcebergSpatialSchemaValidator.containsSpatial(column.getType())).updateSchema();
                 updateSchema.addColumn(column.getName(), column.getType(), column.getComment(),
                         column.getDefaultValue());
                 applyPosition(updateSchema, position, column.getName());
@@ -562,7 +566,9 @@ public interface IcebergCatalogOps {
                     IcebergWriterHelper.validateNotRowLineageColumn(table, column.getName(), "add");
                 }
                 IcebergNestedColumnEvolution.validateNoCaseInsensitiveTopLevelCollisions(table.schema(), columns);
-                UpdateSchema updateSchema = table.updateSchema();
+                UpdateSchema updateSchema = IcebergSpatialSchemaValidator.forDdl(table,
+                        columns.stream().anyMatch(column ->
+                                IcebergSpatialSchemaValidator.containsSpatial(column.getType()))).updateSchema();
                 for (IcebergColumnChange column : columns) {
                     updateSchema.addColumn(column.getName(), column.getType(), column.getComment(),
                             column.getDefaultValue());
@@ -608,7 +614,8 @@ public interface IcebergCatalogOps {
                     throw new DorisConnectorException(
                             "Can not change nullable column " + column.getName() + " to not null");
                 }
-                UpdateSchema updateSchema = table.updateSchema();
+                UpdateSchema updateSchema = IcebergSpatialSchemaValidator.forDdl(table,
+                        IcebergSpatialSchemaValidator.containsSpatial(column.getType())).updateSchema();
                 Type newType = column.getType();
                 // #65329 omit-preserves: an omitted COMMENT keeps the field's current doc rather than clearing it
                 // (mirror of IcebergNestedColumnEvolution.modifyColumn / legacy IcebergMetadataOps).

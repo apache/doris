@@ -155,6 +155,13 @@ public class IcebergConnectorTest {
     }
 
     @Test
+    public void declaresNestedSpatialTypesCapability() {
+        // Without this opt-in, generic column validation rejects ARRAY<GEOMETRY> before connector DDL runs.
+        IcebergConnector connector = new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
+        Assertions.assertTrue(connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_NESTED_SPATIAL_TYPES));
+    }
+
+    @Test
     public void ownsHandleOnlyForIcebergTableHandle() {
         // WHY (hms 3-way sibling routing): a flipped hms gateway embeds this connector as a sibling and asks it
         // "is this foreign handle yours?" to route a scan/metadata call, because the concrete handle type is

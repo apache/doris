@@ -36,10 +36,13 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.GeographyType;
+import org.apache.doris.nereids.types.GeometryType;
 import org.apache.doris.nereids.types.IPv4Type;
 import org.apache.doris.nereids.types.IPv6Type;
 import org.apache.doris.nereids.types.IntegerType;
@@ -104,6 +107,23 @@ class IvmUtilTest {
         Assertions.assertEquals(0L, dateSequence.getYear());
         Assertions.assertEquals(1L, dateSequence.getMonth());
         Assertions.assertEquals(1L, dateSequence.getDay());
+    }
+
+    @Test
+    void testSpatialTypesHaveNoHiddenSlotDefault() {
+        for (DataType type : ImmutableList.of(new GeometryType("OGC:CRS84"),
+                new GeometryType("EPSG:3857"), new GeometryType("projjson:custom"),
+                new GeographyType("OGC:CRS84", "spherical"),
+                new GeographyType("EPSG:3857", "spherical"),
+                new GeographyType("projjson:custom", "spherical"),
+                new GeographyType("OGC:CRS84", "vincenty"))) {
+            Assertions.assertTrue(type.zeroValue().isEmpty());
+            IvmException error = Assertions.assertThrows(IvmException.class,
+                    () -> IvmUtil.getCommonHiddenSlotDefault(Column.SEQUENCE_COL, type));
+            Assertions.assertEquals(IvmFailureReason.PLAN_REWRITE_FAILED, error.getFailureReason());
+            Assertions.assertEquals("no default value for IVM hidden slot: " + Column.SEQUENCE_COL
+                    + ", type=" + type, error.getMessage());
+        }
     }
 
     @Test

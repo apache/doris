@@ -32,6 +32,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.connector.spi.ConnectorCapability;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Sets;
@@ -188,16 +191,19 @@ public class AddColumnOp extends AlterTableOp {
             throw new AnalysisException("ADD COLUMN does not support UUID dynamic default values");
         }
         boolean isOlap = false;
+        boolean allowNestedSpatialTypes = false;
         OlapTable olapTable = null;
         Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         boolean isEnableMergeOnWrite = false;
         KeysType keysType = KeysType.DUP_KEYS;
         Set<String> clusterKeySet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         if (tableName != null) {
-            TableIf table = Env.getCurrentEnv().getCatalogMgr()
-                    .getCatalogOrDdlException(tableName.getCtl())
-                    .getDbOrDdlException(tableName.getDb())
-                    .getTableOrDdlException(tableName.getTbl());
+            CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogOrDdlException(tableName.getCtl());
+            TableIf table = catalog.getDbOrDdlException(tableName.getDb()).getTableOrDdlException(tableName.getTbl());
+            allowNestedSpatialTypes = columnDef.containsNestedSpatialType()
+                    && catalog instanceof PluginDrivenExternalCatalog
+                    && ((PluginDrivenExternalCatalog) catalog)
+                            .hasConnectorCapability(ConnectorCapability.SUPPORTS_NESTED_SPATIAL_TYPES);
             if (table instanceof OlapTable) {
                 isOlap = true;
                 olapTable = (OlapTable) table;
@@ -235,9 +241,11 @@ public class AddColumnOp extends AlterTableOp {
         }
 
         if (nestedColumn) {
-            columnDef.validateNestedColumn(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType);
+            columnDef.validateNestedColumn(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType,
+                    allowNestedSpatialTypes);
         } else {
-            columnDef.validate(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType);
+            columnDef.validate(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, false,
+                    allowNestedSpatialTypes);
         }
         if (!columnDef.isNullable() && !columnDef.hasDefaultValue()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DEFAULT_FOR_FIELD, columnDef.getName());

@@ -36,6 +36,7 @@
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_spatial.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/vexpr_context.h"
@@ -343,6 +344,21 @@ DataTypePtr restore_current_primitive_type(const schema::external::TField& field
     }
     DORIS_CHECK(fallback_type != nullptr);
     const auto primitive_type = thrift_to_type(field.type.type);
+    // A hidden equality-delete key can fall back to unannotated VARBINARY. The table's
+    // declared GEOGRAPHY('EPSG:4326', 'karney') must come from the schema, not that file.
+    if (primitive_type == TYPE_GEOMETRY || primitive_type == TYPE_GEOGRAPHY) {
+        DORIS_CHECK(field.type.__isset.spatial_crs);
+        DORIS_CHECK(primitive_type != TYPE_GEOGRAPHY || field.type.__isset.spatial_algorithm);
+        DataTypePtr spatial = std::make_shared<DataTypeSpatial>(
+                primitive_type, field.type.spatial_crs, field.type.spatial_algorithm);
+        return fallback_type->is_nullable() ? make_nullable(spatial) : spatial;
+    }
+    // Legacy schema carriers used STRING placeholders. Retain an already resolved spatial
+    // type for those descriptors, including its CRS and algorithm.
+    const auto fallback_primitive = fallback_type->get_primitive_type();
+    if (fallback_primitive == TYPE_GEOMETRY || fallback_primitive == TYPE_GEOGRAPHY) {
+        return fallback_type;
+    }
     if (is_complex_type(primitive_type)) {
         return fallback_type;
     }

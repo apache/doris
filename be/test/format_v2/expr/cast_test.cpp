@@ -29,7 +29,9 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_spatial.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "core/field.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
@@ -57,6 +59,8 @@ protected:
         RETURN_IF_ERROR(context->open(&state));
         return context->execute(block, result_column_id);
     }
+
+    void expect_nullable_binary_wkb_to_spatial(PrimitiveType primitive);
 
     MockRuntimeState state;
 };
@@ -108,6 +112,81 @@ TEST_F(CastTest, CastStringSlotToNullableInt) {
     EXPECT_EQ(null_map[2], 0);
 
     context->close();
+}
+
+void CastTest::expect_nullable_binary_wkb_to_spatial(PrimitiveType primitive) {
+    const std::string wkb(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
+    const auto source_type = make_nullable(std::make_shared<DataTypeVarbinary>());
+    const auto spatial_type = std::make_shared<DataTypeSpatial>(
+            primitive, primitive == TYPE_GEOMETRY ? "EPSG:3857" : "OGC:CRS84",
+            primitive == TYPE_GEOGRAPHY ? "vincenty" : "");
+    const auto return_type = make_nullable(spatial_type);
+    auto source = source_type->create_column();
+    auto& nullable = assert_cast<ColumnNullable&>(*source);
+    nullable.get_nested_column().insert_data(wkb.data(), wkb.size());
+    nullable.get_nested_column().insert_default();
+    nullable.get_nested_column().insert_data(wkb.data(), wkb.size());
+    nullable.get_null_map_data().assign({0, 1, 0});
+    Block block;
+    block.insert({std::move(source), source_type, "wkb"});
+    auto context = create_context(return_type, source_type);
+    int result_column_id = -1;
+    const auto status = prepare_open_execute(context.get(), &block, &result_column_id);
+    ASSERT_TRUE(status.ok()) << status;
+    const auto& result = block.get_by_position(result_column_id);
+    ASSERT_TRUE(result.type->equals(*return_type));
+    const auto& result_nullable = assert_cast<const ColumnNullable&>(*result.column);
+    const auto& values = assert_cast<const ColumnSpatial&>(result_nullable.get_nested_column());
+    EXPECT_EQ(values.get_primitive_type(), primitive);
+    EXPECT_EQ(result_nullable.get_null_map_data()[1], 1);
+    EXPECT_EQ(result_nullable.get_null_map_data()[0], 0);
+    EXPECT_EQ(result_nullable.get_null_map_data()[2], 0);
+    for (const auto row : {0, 2}) {
+        const auto value = values.get_data_at(row);
+        EXPECT_EQ(std::string(value.data, value.size), wkb);
+    }
+    context->close();
+}
+
+TEST_F(CastTest, CastNullableBinaryWkbToSpatial) {
+    for (const auto primitive : {TYPE_GEOMETRY, TYPE_GEOGRAPHY}) {
+        expect_nullable_binary_wkb_to_spatial(primitive);
+    }
+}
+
+TEST_F(CastTest, CastBinaryToSpatialRejectsInvalidWkb) {
+    const auto source_type = std::make_shared<DataTypeVarbinary>();
+    const auto target_type = std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY);
+    for (const auto& wkb : {std::string(), std::string("\x01\x01\x00\x00\x00", 5)}) {
+        auto source = source_type->create_column();
+        source->insert_data(wkb.data(), wkb.size());
+        Block block;
+        block.insert({std::move(source), source_type, "invalid_wkb"});
+        auto context = create_context(target_type, source_type);
+        int result_column_id = -1;
+        const auto status = prepare_open_execute(context.get(), &block, &result_column_id);
+        ASSERT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("Invalid WKB"), std::string::npos);
+        context->close();
+    }
+}
+
+TEST_F(CastTest, CastSpatialRejectsMetadataChange) {
+    const auto source_type = std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY, "EPSG:3857");
+    for (const auto target_primitive : {TYPE_GEOMETRY, TYPE_GEOGRAPHY}) {
+        const auto target_type = std::make_shared<DataTypeSpatial>(target_primitive);
+        Block block;
+        auto source = source_type->create_column();
+        source->insert_default();
+        block.insert({std::move(source), source_type, "geometry"});
+        auto context = create_context(target_type, source_type);
+        int result_column_id = -1;
+        const auto status = prepare_open_execute(context.get(), &block, &result_column_id);
+        ASSERT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("only supports raw Varbinary WKB"), std::string::npos);
+        context->close();
+    }
 }
 
 TEST_F(CastTest, CastLiteralToString) {

@@ -17,14 +17,19 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.AggCombinerFunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
+import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
@@ -36,6 +41,7 @@ import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Check all supported DataTypes
@@ -109,6 +115,20 @@ public class CheckDataTypes implements CustomRewriter {
                 for (StructField field : ((StructType) dataType).getFields()) {
                     checkTypes(field.getDataType());
                 }
+            } else if (dataType instanceof AggStateType && dataType.toCatalogDataType().typeContainsSpatialType()) {
+                AggStateType stateType = (AggStateType) dataType;
+                for (DataType subType : stateType.getSubTypes()) {
+                    checkTypes(subType);
+                }
+                // A declared state, including a typed NULL, has no aggregate producer to check.
+                // Typed NULLs preserve argument types without treating serialized constants as slots.
+                List<Expression> arguments = stateType.getSubTypes().stream()
+                        .map(NullLiteral::new).collect(Collectors.toList());
+                String name = stateType.getFunctionName() + AggCombinerFunctionBuilder.STATE_SUFFIX;
+                BoundFunction nested = Env.getCurrentEnv().getFunctionRegistry()
+                        .findFunctionBuilder(name, arguments).build(name, arguments).second;
+                nested.checkLegalityBeforeTypeCoercion();
+                nested.getDataType();
             } else if (UNSUPPORTED_TYPE.contains(dataType.getClass())) {
                 throw new AnalysisException(String.format("type %s is unsupported for Nereids", dataType));
             }

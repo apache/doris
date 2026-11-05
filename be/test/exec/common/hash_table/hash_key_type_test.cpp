@@ -23,6 +23,7 @@
 
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_spatial.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_varbinary.h"
 
@@ -57,6 +58,14 @@ TEST(HashKeyTypeTest, SingleStructUsesSerializedKey) {
             DataTypes {make_nullable(std::make_shared<DataTypeInt32>())}));
 
     EXPECT_EQ(HashKeyType::serialized, get_hash_key_type({struct_type}));
+}
+
+TEST(HashKeyTypeTest, SingleSpatialKeysUseColumnSerialization) {
+    for (const auto primitive : {TYPE_GEOMETRY, TYPE_GEOGRAPHY}) {
+        const auto spatial = std::make_shared<DataTypeSpatial>(primitive);
+        EXPECT_EQ(HashKeyType::serialized, get_hash_key_type({spatial}));
+        EXPECT_EQ(HashKeyType::serialized, get_hash_key_type({make_nullable(spatial)}));
+    }
 }
 
 TEST(HashKeyTypeTest, NumericKeysUseFixedKey) {

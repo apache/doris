@@ -99,6 +99,20 @@ public class MysqlSerializerVarbinaryTest {
     }
 
     @Test
+    public void testSpatialFieldPacketsAdvertiseBinaryWkb() {
+        for (Type type : new Type[] {ScalarType.createGeometryType(), ScalarType.createGeographyType()}) {
+            MysqlSerializer serializer = MysqlSerializer.newInstance();
+            serializer.writeField("shape", type);
+            byte[] packet = serializer.toArray();
+            int offset = skipFieldHeaderStrings(packet);
+            Assertions.assertEquals(63, leUInt2(packet, offset));
+            offset += 6; // charset and display length
+            Assertions.assertEquals(MysqlColType.MYSQL_TYPE_VARSTRING.getCode(), packet[offset] & 0xFF);
+            Assertions.assertEquals(128, leUInt2(packet, offset + 1));
+        }
+    }
+
+    @Test
     public void testFieldPacketForVarcharUsesUtf8Collation() {
         MysqlSerializer ser = MysqlSerializer.newInstance();
         String colName = "name";

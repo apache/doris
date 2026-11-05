@@ -18,14 +18,22 @@
 #include "format/transformer/viceberg_parquet_writer.h"
 
 #include <parquet/api/reader.h>
+#include <parquet/arrow/schema.h>
+#include <parquet/file_writer.h>
 #include <parquet/schema.h>
 
 #include <algorithm>
+#include <boost/algorithm/string/predicate.hpp>
+#include <numeric>
 #include <optional>
+#include <string>
 #include <unordered_set>
 
+#include "exprs/function/geo/spatial_wkb_validation.h"
 #include "format/table/iceberg/iceberg_arrow_block_convertor.h"
+#include "format/table/iceberg/spatial_parquet_schema.h"
 #include "format/table/parquet_utils.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
@@ -94,6 +102,28 @@ VIcebergParquetWriter::VIcebergParquetWriter(RuntimeState* state, io::FileWriter
           _iceberg_schema_json(iceberg_schema_json == nullptr ? "" : *iceberg_schema_json),
           _nan_count_field_ids(nan_count_field_ids) {}
 
+arrow::Status VIcebergParquetWriter::_open_file_writer() {
+    bool has_spatial_column = false;
+    for (const auto& column : _iceberg_schema.columns()) {
+        has_spatial_column = has_spatial_column || contains_spatial_type(column.field_type());
+    }
+    if (!has_spatial_column) {
+        return VParquetWriter::_open_file_writer();
+    }
+
+    ARROW_ASSIGN_OR_RAISE(
+            auto parquet_schema,
+            make_iceberg_parquet_schema(_arrow_convertor()->arrow_schema(), _iceberg_schema,
+                                        _writer_properties(), _arrow_writer_properties()));
+    auto parquet_writer = ::parquet::ParquetFileWriter::Open(
+            _output_stream(), std::move(parquet_schema), _writer_properties());
+    ARROW_RETURN_NOT_OK(::parquet::arrow::FileWriter::Make(
+            ExecEnv::GetInstance()->arrow_memory_pool(), std::move(parquet_writer),
+            _arrow_convertor()->arrow_schema(), _arrow_writer_properties(),
+            &_parquet_file_writer()));
+    return arrow::Status::OK();
+}
+
 Status VIcebergParquetWriter::open() {
     RETURN_IF_ERROR(VParquetWriter::open());
     _nan_value_counter.emplace(_iceberg_schema, _nan_count_field_ids);
@@ -104,6 +134,9 @@ Status VIcebergParquetWriter::write(const Block& block) {
     if (block.rows() == 0) {
         return Status::OK();
     }
+    ColumnNumbers column_numbers(block.columns());
+    std::iota(column_numbers.begin(), column_numbers.end(), 0);
+    RETURN_IF_ERROR(validate_spatial_wkb_inputs(block, column_numbers));
     _nan_value_counter->count(block);
     return VParquetWriter::write(block);
 }

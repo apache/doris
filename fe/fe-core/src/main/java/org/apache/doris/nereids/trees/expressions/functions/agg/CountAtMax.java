@@ -64,6 +64,9 @@ public class CountAtMax extends NotNullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        if (getArgumentType(0).toCatalogDataType().typeContainsSpatialType()) {
+            throw new AnalysisException("count_at_max does not support spatial arguments");
+        }
         if (distinct) {
             throw new AnalysisException("COUNT_AT_MAX does not support DISTINCT");
         }
