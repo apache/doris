@@ -20,7 +20,8 @@ suite("dotted_key_escape_added_column_rewrite", "p0,nonConcurrent") {
     sql "set describe_extend_variant_column=true"
     sql "drop table if exists dotted_key_escape_added_column"
     sql """create table dotted_key_escape_added_column(id int,
-        v variant<properties("variant_enable_nested_group"="false")>,padding int default '0')
+        v variant<properties("variant_enable_nested_group"="false", "variant_max_subcolumns_count"="2048",
+            "variant_sparse_hash_shard_count"="1")>,padding int default '0')
         duplicate key(id) distributed by hash(id) buckets 1 properties("replication_num"="1",
         "disable_auto_compaction"="true", "light_schema_change"="true")"""
     sql """insert into dotted_key_escape_added_column values
@@ -28,7 +29,7 @@ suite("dotted_key_escape_added_column_rewrite", "p0,nonConcurrent") {
         (3,parse_to_variant('{"a":{"b":203},"a%2Eb":303}'),0)"""
     sql """alter table dotted_key_escape_added_column add column e variant<properties(
         "variant_escape_dots_in_keys"="true", "variant_enable_nested_group"="false",
-        "variant_max_subcolumns_count"="0")>"""
+        "variant_max_subcolumns_count"="0", "variant_sparse_hash_shard_count"="1")>"""
     sql """insert into dotted_key_escape_added_column(id,v,padding,e) values
         (2,parse_to_variant('{"a.b":102,"a%2Eb":302}'),0,
            parse_to_variant('{"a.b":112,"a":{"b":212},"a%2Eb":312}')),

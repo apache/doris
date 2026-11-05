@@ -57,7 +57,8 @@ suite("dotted_key_escape_document_examples", "p0,nonConcurrent") {
         sql "drop table if exists dotted_key_escape_glob"
         sql """create table dotted_key_escape_glob(id int, v variant<
             MATCH_NAME_GLOB 'a%2Eb.*':bigint, MATCH_NAME_GLOB 'a.b.*':string,
-            properties("variant_escape_dots_in_keys"="true", "variant_enable_nested_group"="false")>)
+            properties("variant_escape_dots_in_keys"="true", "variant_enable_nested_group"="false",
+                "variant_max_subcolumns_count"="2048", "variant_sparse_hash_shard_count"="1")>)
             duplicate key(id) distributed by hash(id) buckets 1
             properties("replication_num"="1")"""
         sql """insert into dotted_key_escape_glob values

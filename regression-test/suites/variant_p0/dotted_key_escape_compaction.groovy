@@ -95,7 +95,13 @@ suite("dotted_key_escape_compaction", "p0") {
                     assertEquals(0, code, err)
                     return parseJson(out)
                 }
-                def rowsetIds = { status -> status.rowsets.collect { it.split(/\s+/)[4] }.toSet() }
+                // Cloud keeps the empty initial [0-1] rowset outside full compaction.
+                // Every other input must still be replaced by the new output.
+                def rowsetIds = { status ->
+                    status.rowsets.collect { it.split(/\s+/) }
+                            .findAll { !(it[0] == "[0-1]" && it[1] == "0") }
+                            .collect { it[4] }.toSet()
+                }
                 def inputs = tablets.collectEntries { tablet -> [(tablet.TabletId): rowsetIds(readStatus(tablet))] }
                 // Six rows with five-row batches leave a one-row final batch in round 0.
                 // Its hot_c value is dense in the input but loses promotion to the dotted paths.

@@ -89,6 +89,10 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
 
     def auto_compaction_disabled = sql("show create table ${table_name}")[0][1].contains('"disable_auto_compaction" = "true"')
     def is_time_series_compaction = sql("show create table ${table_name}")[0][1].contains('"compaction_policy" = "time_series"')
+    // No-work results and explicitly allowed fault-injection errors are not successful
+    // rewrites. Callers requiring a rewrite must also verify replacement of input rowsets.
+    def expected_errors = ["e-2000", "e-2008", "e-2010", "e-808"] +
+            ignored_errors.collect { it.toLowerCase() }
 
     // 1. cache compaction status
     def be_tablet_compaction_status = [:]
@@ -140,16 +144,9 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                 continue
             } else if (!auto_compaction_disabled) {
                 // ignore the error if auto compaction enabled
-            } else if (status_lower.contains("e-2000") || status_lower.contains("e-2010")
-                    || status_lower.contains("e-808")) {
-                // ignore this tablet compaction.
-                // e-2000/e-2010: cumulative has no suitable version;
-                // e-808 (BE_NO_SUITABLE_VERSION): base compaction has nothing to merge on this
-                // replica (e.g. only [0-1]+[2-y] with an empty [0-1]) — a by-design no-op, the
-                // base analogue of e-2000. Replica layouts can legitimately diverge here when a
-                // lagging publish made an earlier cumulative trigger a no-op on one replica.
-            } else if (ignored_errors.any { error -> status_lower.contains(error.toLowerCase()) }) {
-                // ignore this tablet compaction if the error is in the ignored_errors list
+            } else if (expected_errors.any { error -> status_lower.contains(error) }) {
+                // e-2000/e-2010: cumulative, e-2008: full, e-808: base/cloud full
+                // have no suitable input versions. Replica layouts may legitimately differ.
             } else {
                 throw new Exception("trigger compaction failed, be host: ${be_host}, tablet id: ${tablet.TabletId}, status: ${trigger_status.status}")
             }
@@ -215,8 +212,13 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
             def failureTimeUnchanged = oldStatus["last ${compaction_type} failure time"] ==
                     tabletStatus["last ${compaction_type} failure time"]
             // A failed asynchronous task also advances a timestamp, but leaves the input
-            // rowsets readable. It must fail the caller instead of satisfying this wait.
+            // rowsets readable. Unexpected failures must fail the caller, not finish the wait.
             if (!running && !failureTimeUnchanged && !handedOffToBaseCompactionAfterDeleteVersion) {
+                def status_lower = "${tabletStatus["last ${compaction_type} status"]}".toLowerCase()
+                if (expected_errors.any { error -> status_lower.contains(error) }) {
+                    logger.info("compaction returned an expected result, be host: ${be_host}, tablet id: ${tablet.TabletId}, status: ${status_lower}")
+                    continue
+                }
                 assert tabletStatus["last ${compaction_type} status"] == "[OK]":
                         "compaction failed, be host: ${be_host}, tablet id: ${tablet.TabletId}, status: ${tabletStatus["last ${compaction_type} status"]}"
             }
