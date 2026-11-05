@@ -29,14 +29,15 @@ import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
 /**
- * The partition lists the engine prunes over, kept across statements for a short time.
+ * The partition lists the engine prunes over, reused only within one metadata scope.
  *
  * <p>The engine lists a partitioned table's partitions on every statement, before it knows the statement is a
  * point lookup whose key already names its partition. A fluss server reads every list from ZooKeeper, the
  * table and each of its partitions, and under concurrent lookups those lists queue on the server: the list,
- * not the lookup, sets the rate. Only pruning reads from here; scan planning lists the partitions afresh, so
- * a dropped partition is never planned. A partition created within the TTL is not yet seen by pruning: a
- * statement that filters on it finds nothing until the entry expires or the table is refreshed.
+ * not the lookup, sets the rate. Each per-statement admin ops owns this cache, so the first pruning list of
+ * a new statement is always live. Sharing entries across statements could prune away a newly created
+ * partition before scan planning can discover it. Scan planning still lists live partitions separately,
+ * so a dropped partition is never planned. The TTL bounds reuse only inside the current metadata scope.
  */
 final class FlussPartitionListCache {
 
@@ -71,7 +72,7 @@ final class FlussPartitionListCache {
         if (entry != null && now - entry.loadedAtNanos() < ttlNanos) {
             return entry.partitions();
         }
-        // Coalesce concurrent misses. REFRESH swaps the map, so an in-flight load cannot repopulate it.
+        // Coalesce concurrent misses. Invalidation swaps the map so an old load cannot repopulate it.
         Entry loaded = current.compute(tablePath, (key, previous) -> {
             long time = nanoTime.getAsLong();
             return previous != null && time - previous.loadedAtNanos() < ttlNanos

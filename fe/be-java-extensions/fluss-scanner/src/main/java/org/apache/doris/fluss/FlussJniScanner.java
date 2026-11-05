@@ -251,12 +251,13 @@ public class FlussJniScanner extends JniScanner {
      * The table, built from the info {@link FlussTableInfoCache} keeps for it rather than asked of the
      * cluster by every range. A TTL of zero asks the way every range used to, metadata refresh included.
      */
-    private Table openTable(Map<String, String> config) {
+    private Table openTable(Map<String, String> config) throws Exception {
         TablePath tablePath = TablePath.of(required(DB_NAME), required(TABLE_NAME));
         long ttlNanos = TimeUnit.SECONDS.toNanos(Long.parseLong(params.getOrDefault(
                 FlussTableInfoCache.TTL_PROPERTY, String.valueOf(FlussTableInfoCache.DEFAULT_TTL_SEC))));
         if (ttlNanos <= 0) {
-            return connection.getTable(tablePath);
+            // Cache policy changes reuse, never which table may consume the planned bucket/offset range.
+            return validatePlannedIdentity(connection.getTable(tablePath));
         }
         Supplier<TableInfo> load = () -> connection.getAdmin().getTableInfo(tablePath).join();
         TableInfo info = FlussTableInfoCache.INSTANCE.get(config, tablePath, ttlNanos, load);
@@ -265,11 +266,16 @@ public class FlussJniScanner extends JniScanner {
             // Planned against a newer schema than the kept one: a column was added or renamed since.
             info = FlussTableInfoCache.INSTANCE.reload(config, tablePath, ttlNanos, load);
         }
-        if (!matchesPlannedIdentity(info)) {
+        return validatePlannedIdentity(new FlussTable((FlussConnection) connection, tablePath, info));
+    }
+
+    private Table validatePlannedIdentity(Table openedTable) throws Exception {
+        if (!matchesPlannedIdentity(openedTable.getTableInfo())) {
             // A reused table name or changed field type cannot be decoded with the old planned schema.
+            openedTable.close();
             throw new IllegalStateException("Fluss table identity or schema changed after planning; refresh and retry");
         }
-        return new FlussTable((FlussConnection) connection, tablePath, info);
+        return openedTable;
     }
 
     private boolean matchesPlannedIdentity(TableInfo info) {

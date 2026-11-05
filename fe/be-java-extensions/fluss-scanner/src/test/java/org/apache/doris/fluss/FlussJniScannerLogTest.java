@@ -32,6 +32,7 @@ import org.apache.fluss.metadata.Schema;
 import org.apache.fluss.metadata.TableBucket;
 import org.apache.fluss.metadata.TableChange;
 import org.apache.fluss.metadata.TableDescriptor;
+import org.apache.fluss.metadata.TableInfo;
 import org.apache.fluss.metadata.TablePath;
 import org.apache.fluss.row.BinaryString;
 import org.apache.fluss.row.Decimal;
@@ -622,6 +623,29 @@ public class FlussJniScannerLogTest {
         IOException failure = Assertions.assertThrows(IOException.class,
                 () -> scanAll(tablePath, requested, 0, 1, 1024));
         Assertions.assertTrue(rootMessage(failure).contains("identity or schema changed"), rootMessage(failure));
+    }
+
+    @Test
+    public void disabledMetadataCacheRejectsStalePlannedIdentity() throws Exception {
+        TablePath tablePath = TablePath.of(db, "uncached_planned_identity");
+        createIntTable(tablePath);
+        appendInts(tablePath, 0, 1);
+        TableInfo info = admin.getTableInfo(tablePath).get();
+        for (String ttl : Arrays.asList("0", "-1")) {
+            Map<String, String> planned = columns("id", "int");
+            planned.put(FlussTableInfoCache.TTL_PROPERTY, ttl);
+            planned.put("fluss.table_id", String.valueOf(info.getTableId()));
+            planned.put("fluss.schema_id", String.valueOf(info.getSchemaId()));
+            Assertions.assertArrayEquals(new Object[][] {{0}}, scanAll(tablePath, planned, 0, 1, 1024));
+            for (String key : Arrays.asList("fluss.table_id", "fluss.schema_id")) {
+                Map<String, String> stale = new HashMap<>(planned);
+                stale.put(key, String.valueOf(Long.parseLong(planned.get(key)) + 1));
+                IOException failure = Assertions.assertThrows(IOException.class,
+                        () -> scanAll(tablePath, stale, 0, 1, 1024));
+                Assertions.assertTrue(rootMessage(failure).contains("identity or schema changed"),
+                        rootMessage(failure));
+            }
+        }
     }
 
     // ---------------------------------------------------------------- helpers

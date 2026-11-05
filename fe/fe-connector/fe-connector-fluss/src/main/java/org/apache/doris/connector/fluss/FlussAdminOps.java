@@ -64,8 +64,9 @@ public interface FlussAdminOps {
     List<PartitionInfo> listPartitionInfos(TablePath tablePath);
 
     /**
-     * The partitions the engine prunes over. Unlike {@link #listPartitionInfos(TablePath)} it may answer from
-     * a short-lived cache, so scan planning, which must not plan a dropped partition, does not use it.
+     * The partitions the engine prunes over. Results may be reused within this statement's metadata scope,
+     * but never across statements: an earlier list could prune away a newly created partition. Scan
+     * planning, which must not plan a dropped partition, uses {@link #listPartitionInfos(TablePath)}.
      */
     default List<PartitionInfo> listPartitionInfosForPruning(TablePath tablePath) {
         return listPartitionInfos(tablePath);
