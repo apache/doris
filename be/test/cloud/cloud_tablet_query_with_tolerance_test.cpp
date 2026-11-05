@@ -23,8 +23,10 @@
 #include <chrono>
 #include <cstdint>
 
+#include "cloud/cloud_cluster_info.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
+#include "runtime/exec_env.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_meta.h"
@@ -41,12 +43,18 @@ public:
     TestFreshnessTolerance() : _engine(CloudStorageEngine(EngineOptions {})) {}
 
     void SetUp() override {
+        // Compaction diagnostics consult cluster state; do not inherit a previous fixture's pointer.
+        _previous_cluster_info = ExecEnv::GetInstance()->cluster_info();
+        ExecEnv::GetInstance()->set_cluster_info(&_cluster_info);
         config::read_cluster_cache_opt_verbose_log = true;
         _tablet_meta.reset(new TabletMeta(1, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}},
                                           UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
                                           TCompressionType::LZ4F));
     }
-    void TearDown() override { config::read_cluster_cache_opt_verbose_log = false; }
+    void TearDown() override {
+        config::read_cluster_cache_opt_verbose_log = false;
+        ExecEnv::GetInstance()->set_cluster_info(_previous_cluster_info);
+    }
 
     RowsetSharedPtr create_rowset_without_visible_time(Version version) {
         auto rs_meta = std::make_shared<RowsetMeta>();
@@ -202,6 +210,8 @@ protected:
     TabletMetaSharedPtr _tablet_meta;
 
 private:
+    CloudClusterInfo _cluster_info;
+    ClusterInfo* _previous_cluster_info = nullptr;
     CloudStorageEngine _engine;
 };
 
