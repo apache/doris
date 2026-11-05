@@ -55,7 +55,7 @@ final class CompactedServicePolicies extends ServicePolicies {
         }
         CompactedServicePolicies compacted = new CompactedServicePolicies(source);
         if (!deduplicateStrings) {
-            compacted.compact();
+            compacted.compact(false);
         }
         return compacted;
     }
@@ -63,11 +63,11 @@ final class CompactedServicePolicies extends ServicePolicies {
     @Override
     public void dedupStrings() {
         super.dedupStrings();
-        compact();
+        compact(true);
     }
 
-    private void compact() {
-        ResourcePool pool = new ResourcePool();
+    private void compact(boolean reuseNormalizedMaps) {
+        ResourcePool pool = new ResourcePool(reuseNormalizedMaps);
         pool.compactPolicies(getPolicies());
         pool.compactDeltas(getPolicyDeltas());
         if (getTagPolicies() != null) {
@@ -86,6 +86,11 @@ final class CompactedServicePolicies extends ServicePolicies {
         private static final int MAX_DESCRIPTORS_PER_LEVEL = 16_384;
 
         private final Map<String, Map<RangerPolicyResource, RangerPolicyResource>> descriptors = new HashMap<>();
+        private final boolean reuseNormalizedMaps;
+
+        private ResourcePool(boolean reuseNormalizedMaps) {
+            this.reuseNormalizedMaps = reuseNormalizedMaps;
+        }
 
         private void compactPolicies(List<RangerPolicy> policies) {
             if (policies == null) {
@@ -129,6 +134,13 @@ final class CompactedServicePolicies extends ServicePolicies {
                     // Leave malformed resources to Ranger's existing validation/scrubbing path.
                     return resource;
                 }
+            }
+            if (reuseNormalizedMaps && resource.getClass() == HashMap.class) {
+                // Ranger's string dedup already copied this map at a capacity based on its size.
+                for (Map.Entry<String, RangerPolicyResource> entry : resource.entrySet()) {
+                    entry.setValue(descriptor(entry.getKey(), entry.getValue()));
+                }
+                return resource;
             }
             Map<String, RangerPolicyResource> result = new HashMap<>(resource.size());
             for (Map.Entry<String, RangerPolicyResource> entry : resource.entrySet()) {

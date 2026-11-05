@@ -93,6 +93,38 @@ class CompactedServicePoliciesTest {
     }
 
     @Test
+    void sharingPreservesTheCallersResourceMapEntriesWithAndWithoutStringDeduplication() {
+        RangerBaseModelObject.setNullSafeSupplier(RangerBaseModelObject.NULL_SAFE_SUPPLIER_V2);
+        for (boolean deduplicateStrings : Arrays.asList(true, false)) {
+            Map<String, RangerPolicyResource> firstMap = resource("db", "t1", "c1", "ad_one");
+            Map<String, RangerPolicyResource> additionalMap = resource("db", "t2", "c2", "ad_one");
+            Map<String, RangerPolicyResource> secondMap = resource("db", "t1", "c1", "ad_two");
+            RangerPolicyResource firstDescriptor = firstMap.get("catalog");
+            RangerPolicyResource additionalDescriptor = additionalMap.get("catalog");
+            RangerPolicyResource secondDescriptor = secondMap.get("catalog");
+            RangerPolicy first = policy("one", firstMap);
+            first.setAdditionalResources(Collections.singletonList(additionalMap));
+            RangerPolicy second = policy("two", secondMap);
+            ServicePolicies source = policies(first, second);
+            ObjectMapper mapper = new ObjectMapper();
+            Object before = mapper.valueToTree(source);
+
+            ServicePolicies compacted = CompactedServicePolicies.wrap(source, deduplicateStrings);
+            if (deduplicateStrings) {
+                compacted.dedupStrings();
+            }
+
+            Assertions.assertSame(firstDescriptor, firstMap.get("catalog"));
+            Assertions.assertSame(additionalDescriptor, additionalMap.get("catalog"));
+            Assertions.assertSame(secondDescriptor, secondMap.get("catalog"));
+            Assertions.assertSame(first.getResources().get("catalog"), second.getResources().get("catalog"));
+            Assertions.assertSame(first.getResources().get("catalog"),
+                    first.getAdditionalResources().get(0).get("catalog"));
+            Assertions.assertEquals(before, mapper.valueToTree(compacted));
+        }
+    }
+
+    @Test
     void diskCacheRoundTripPreservesFullSnapshotAndDeltaHeaders() throws Exception {
         for (String supplier : Arrays.asList("v1", "v2")) {
             RangerBaseModelObject.setNullSafeSupplier(supplier);
