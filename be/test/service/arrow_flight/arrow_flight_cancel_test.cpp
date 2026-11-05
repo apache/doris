@@ -514,6 +514,38 @@ TEST_F(ArrowFlightRemoteCancelTest, CloseMovesPastUnreachableFrontend) {
     EXPECT_TRUE(_state.get_query_ctx()->is_cancelled());
 }
 
+TEST_F(ArrowFlightRemoteCancelTest, CloseAsksReachableFrontendsFirst) {
+    fill_buffer();
+    auto reader = ArrowFlightBatchRemoteReader::Create(_statement);
+    ASSERT_TRUE(reader.ok()) << reader.status();
+    // An FE that accepts connections and never answers, which the master reports with process UUID 0,
+    // and that sorts before the FE that planned the query. The kernel completes its handshakes, so a
+    // call to it waits out the 2 s receive timeout.
+    std::unique_ptr<apache::thrift::transport::TServerSocket> hung;
+    for (int port = 10000; port < _fe_address.port && hung == nullptr; ++port) {
+        auto socket = std::make_unique<apache::thrift::transport::TServerSocket>("127.0.0.1", port);
+        try {
+            socket->listen();
+            hung = std::move(socket);
+        } catch (const apache::thrift::transport::TTransportException&) {
+            // The port is taken; try the next one.
+        }
+    }
+    ASSERT_NE(hung, nullptr);
+    TFrontendInfo stopped;
+    stopped.coordinator_address.hostname = _fe_address.hostname;
+    stopped.coordinator_address.port = hung->getPort();
+    TFrontendInfo planner;
+    planner.coordinator_address = _fe_address;
+    planner.__set_process_uuid(1);
+    ExecEnv::GetInstance()->update_frontends({stopped, planner});
+    auto start = std::chrono::steady_clock::now();
+    ASSERT_TRUE((*reader)->Close().ok());
+    EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(1));
+    EXPECT_EQ(_coordinator->calls, 1);
+    EXPECT_TRUE(_state.get_query_ctx()->is_cancelled());
+}
+
 TEST_F(ArrowFlightRemoteCancelTest, OlderResultBackendReceivesQueryCancellation) {
     fill_buffer();
     auto reader = ArrowFlightBatchRemoteReader::Create(_statement);

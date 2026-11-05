@@ -24,6 +24,7 @@
 #include <gen_cpp/internal_service.pb.h>
 
 #include <condition_variable>
+#include <vector>
 
 #include "core/block/block.h"
 #include "format/arrow/arrow_block_convertor.h"
@@ -107,7 +108,18 @@ void ArrowFlightBatchReaderBase::close(const Status& reason) {
     }
     // A result endpoint can outlive its local fragment. Find the owning FE by buffer ID,
     // then use its query-wide cancellation route, including for older result BEs.
+    // Only the FE that planned the query holds the route, and the master reaches that FE unless it
+    // has lost the master's heartbeat since. So the FEs the master reaches go first, and those it
+    // reports with process UUID 0 (it cannot reach them, and they stay on the list until dropped)
+    // go last: a stopped FE then delays an early close only when no reachable FE holds the route.
+    std::vector<TNetworkAddress> frontends;
+    std::vector<TNetworkAddress> unknown_state_frontends;
     for (const auto& [address, info] : env->get_running_frontends()) {
+        (info.info.process_uuid != 0 ? frontends : unknown_state_frontends).push_back(address);
+    }
+    frontends.insert(frontends.end(), unknown_state_frontends.begin(),
+                     unknown_state_frontends.end());
+    for (const auto& address : frontends) {
         Status status;
         // One retry: the FE keeps the route when an attempt fails (for example a BE missed the
         // FE's one-second deadline), and a cached connection to the FE may have gone stale.
