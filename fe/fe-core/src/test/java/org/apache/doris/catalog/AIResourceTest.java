@@ -32,19 +32,30 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.Privilege;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.SqlCacheContext;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AIAgg;
 import org.apache.doris.nereids.trees.expressions.functions.ai.AIGenerate;
 import org.apache.doris.nereids.trees.expressions.functions.ai.Embed;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.persist.DropResourceOperationLog;
 import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import mockit.Expectations;
 import mockit.Injectable;
@@ -122,6 +133,7 @@ public class AIResourceTest {
         context.setCurrentUserIdentity(user);
         context.setRemoteIP("127.0.0.1");
         context.getSessionVariable().defaultAIResource = resourceName;
+        context.getSessionVariable().setEnableSqlCache(true);
         context.setThreadLocalInfo();
         try {
             auth.replayCreateUser(new PrivInfo(user, null, new byte[0], null, PasswordOptions.UNSET_OPTION));
@@ -136,8 +148,23 @@ public class AIResourceTest {
             auth.replayGrant(usagePrivilege(user, resourceName));
             Assertions.assertTrue(Env.getCurrentEnv().getAccessManager()
                     .checkResourcePriv(context, resourceName, PrivPredicate.USAGE));
-            function.checkLegalityBeforeTypeCoercion();
-            function.checkLegalityAfterRewrite();
+            for (Expression expression : ImmutableList.of(function,
+                    new UnboundFunction(function.getName(), function.getArguments()))) {
+                StatementContext statementContext = new StatementContext(context, new OriginStatement("SELECT 1", 0));
+                context.setStatementContext(statementContext);
+                SqlCacheContext sqlCacheContext = statementContext.getSqlCacheContext()
+                        .orElseThrow(IllegalStateException::new);
+                function.checkLegalityBeforeTypeCoercion();
+                function.checkLegalityAfterRewrite();
+                Assertions.assertTrue(sqlCacheContext.supportSqlCache());
+                LogicalEmptyRelation plan = new LogicalEmptyRelation(new RelationId(0), ImmutableList.of());
+                CascadesContext cascadesContext = CascadesContext.initContext(statementContext,
+                        plan, PhysicalProperties.ANY);
+                Expression analyzed = ExpressionAnalyzer.analyzeFunction(plan, cascadesContext, expression);
+                Assertions.assertFalse(sqlCacheContext.supportSqlCache());
+                Assertions.assertFalse(function.isDeterministic());
+                Assertions.assertTrue(analyzed.containsNondeterministic());
+            }
 
             auth.replayRevoke(usagePrivilege(user, resourceName));
             Assertions.assertFalse(Env.getCurrentEnv().getAccessManager()

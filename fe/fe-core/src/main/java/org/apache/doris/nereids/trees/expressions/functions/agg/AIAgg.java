@@ -74,6 +74,11 @@ public class AIAgg extends NullableAggregateFunction
     }
 
     @Override
+    public boolean isDeterministic() {
+        return false;
+    }
+
+    @Override
     public void checkLegalityAfterRewrite() {
         if (!child(arity() - 1).isLiteral()) {
             throw new AnalysisException("AI_AGG must accept literal for the task.");
