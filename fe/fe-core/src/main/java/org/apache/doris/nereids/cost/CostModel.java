@@ -22,6 +22,9 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.datasource.mvcc.PluginDrivenMvccSnapshot;
 import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.hint.Hint;
@@ -42,6 +45,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
@@ -81,6 +85,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 
 class CostModel extends PlanVisitor<Cost, PlanContext> {
@@ -220,7 +225,22 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
     @Override
     public Cost visitPhysicalFileScan(PhysicalFileScan physicalFileScan, PlanContext context) {
         Statistics statistics = context.getStatisticsWithCheck();
-        return Cost.ofCpu(context.getCostWeight(), statistics.getRowCount() * EXTERNAL_TABLE_SCAN_FACTOR);
+        double scanRowCount = statistics.getRowCount();
+        SelectedPartitions selected = physicalFileScan.getSelectedPartitions();
+        if (selected.isPruned && selected.state == SelectedPartitions.State.MATERIALIZED) {
+            Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(physicalFileScan.getTable(),
+                    physicalFileScan.getTableSnapshot(), physicalFileScan.getScanParams());
+            if (snapshot.isPresent() && snapshot.get() instanceof PluginDrivenMvccSnapshot) {
+                OptionalLong selectedRows = ((PluginDrivenMvccSnapshot) snapshot.get())
+                        .getSelectedPartitionRowCount(selected.selectedPartitions.keySet());
+                if (selectedRows.isPresent()) {
+                    // Partition metadata measures scan work. Keep the table-level cardinality and column
+                    // statistics together so retained filters do not apply pruning selectivity twice.
+                    scanRowCount = selectedRows.getAsLong();
+                }
+            }
+        }
+        return Cost.ofCpu(context.getCostWeight(), scanRowCount * EXTERNAL_TABLE_SCAN_FACTOR);
     }
 
     @Override
