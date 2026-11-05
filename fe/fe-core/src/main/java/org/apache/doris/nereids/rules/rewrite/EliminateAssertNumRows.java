@@ -21,6 +21,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement.Assertion;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
@@ -38,11 +39,34 @@ public class EliminateAssertNumRows extends OneRewriteRuleFactory {
         return logicalAssertNumRows()
                 .then(assertNumRows -> {
                     Plan checkPlan = assertNumRows.child();
-                    while (skipPlan(checkPlan) != checkPlan) {
-                        checkPlan = skipPlan(checkPlan);
+                    boolean rowCountPreserved = true;
+                    Plan skippedPlan = skipPlan(checkPlan);
+                    while (skippedPlan != checkPlan) {
+                        // the number of rows of the checked plan is only the number of rows of the
+                        // assertion when the skipped nodes keep the rows of their child, which a
+                        // filter and the preserved side of a semi/anti join do not
+                        rowCountPreserved = rowCountPreserved && !mayReduceRowCount(checkPlan);
+                        checkPlan = skippedPlan;
+                        skippedPlan = skipPlan(checkPlan);
                     }
-                    return canEliminate(assertNumRows, checkPlan) ? assertNumRows.child() : null;
+                    return canEliminate(assertNumRows, checkPlan, rowCountPreserved)
+                            ? assertNumRows.child() : null;
                 }).toRule(RuleType.ELIMINATE_ASSERT_NUM_ROWS);
+    }
+
+    /**
+     * A filter and the preserved side of a semi/anti join only keep the rows which satisfy them, so
+     * such a node may return less rows than its child.
+     */
+    private boolean mayReduceRowCount(Plan plan) {
+        if (plan instanceof LogicalFilter) {
+            return true;
+        }
+        if (plan instanceof LogicalJoin) {
+            JoinType joinType = ((LogicalJoin<?, ?>) plan).getJoinType();
+            return joinType.isLeftSemiOrAntiJoin() || joinType.isRightSemiOrAntiJoin();
+        }
+        return false;
     }
 
     private Plan skipPlan(Plan plan) {
@@ -58,7 +82,8 @@ public class EliminateAssertNumRows extends OneRewriteRuleFactory {
         return plan;
     }
 
-    private boolean canEliminate(LogicalAssertNumRows<?> assertNumRows, Plan plan) {
+    private boolean canEliminate(LogicalAssertNumRows<?> assertNumRows, Plan plan,
+            boolean rowCountPreserved) {
         long maxOutputRowcount;
         AssertNumRowsElement assertNumRowsElement = assertNumRows.getAssertNumRowsElement();
         Assertion assertion = assertNumRowsElement.getAssertion();
@@ -68,7 +93,12 @@ public class EliminateAssertNumRows extends OneRewriteRuleFactory {
             maxOutputRowcount = ((LogicalLimit<?>) plan).getLimit();
         } else if (plan instanceof LogicalAggregate && ((LogicalAggregate<?>) plan).getGroupByExpressions().isEmpty()) {
             if (assertion == Assertion.EQ && assertNum == 1) {
-                return true;
+                // a global aggregate always returns exactly one row, so the assertion of a scalar
+                // subquery can never fail and the operator never builds the null row of an empty
+                // input. That is only guaranteed when the aggregation is not filtered above it:
+                // a HAVING clause can remove the row of the aggregation, and the assertion is then
+                // what turns the empty subquery into its null value.
+                return rowCountPreserved;
             } else {
                 maxOutputRowcount = 1;
             }

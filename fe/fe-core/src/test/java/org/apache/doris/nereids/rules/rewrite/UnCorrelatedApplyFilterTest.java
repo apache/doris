@@ -18,12 +18,30 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.pattern.GeneratedPlanPatterns;
+import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RulePromise;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
+import java.util.Optional;
 
 class UnCorrelatedApplyFilterTest extends TestWithFeService implements GeneratedPlanPatterns {
 
@@ -62,6 +80,35 @@ class UnCorrelatedApplyFilterTest extends TestWithFeService implements Generated
                 .applyBottomUp(new UnCorrelatedApplyFilter())
                 .matches(logicalApply(any(), logicalFilter())
                         .when(e -> e.right().getPredicate().toSql().equals("(col1 > 0)")));
+    }
+
+    @Test
+    void testPredicateWhichWasAlreadyPulledIsKept() {
+        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
+        Slot x = left.getOutput().get(0); // t1.id
+        LogicalOlapScan right = PlanConstructor.newLogicalOlapScan(1, "t2", 1);
+        Slot r1 = right.getOutput().get(0); // t2.id
+        Slot r2 = right.getOutput().get(1); // t2.name
+
+        Expression pulledPredicate = new EqualTo(x, r2);
+        Expression correlatedPredicate = new GreaterThan(r1, x);
+        LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(
+                ImmutableSet.of(correlatedPredicate, new GreaterThan(r1, new BigIntLiteral(0))), right);
+        LogicalApply<LogicalOlapScan, LogicalFilter<LogicalOlapScan>> apply =
+                new LogicalApply<>(ImmutableList.of(x), LogicalApply.SubQueryType.EXITS_SUBQUERY, false,
+                        Optional.empty(), Optional.empty(), Optional.of(pulledPredicate), Optional.empty(),
+                        false, false, left, filter);
+
+        Rule rule = new UnCorrelatedApplyFilter().build();
+        List<Plan> transformed = rule.transform(apply, MemoTestUtils.createCascadesContext(connectContext, apply));
+        Assertions.assertEquals(1, transformed.size());
+        LogicalApply<?, ?> rewritten = (LogicalApply<?, ?>) transformed.get(0);
+        Assertions.assertTrue(rewritten.getCorrelationFilter().isPresent());
+        List<Expression> conjuncts = ExpressionUtils.extractConjunction(rewritten.getCorrelationFilter().get());
+        Assertions.assertTrue(conjuncts.contains(pulledPredicate),
+                "the predicate which was already pulled into the apply must not be dropped");
+        Assertions.assertTrue(conjuncts.contains(correlatedPredicate),
+                "the predicate which this rule pulls has to be kept as well");
     }
 
     @Override
