@@ -134,8 +134,8 @@ final class CompactedServicePolicies extends ServicePolicies {
             for (Map.Entry<String, RangerPolicyResource> entry : resource.entrySet()) {
                 result.put(entry.getKey(), descriptor(entry.getKey(), entry.getValue()));
             }
-            // JDK's small immutable map stores pairs in one array, without one HashMap node per pair.
-            return Map.copyOf(result);
+            // Preserve HashMap for Ranger's hot matcher: other map types increased request allocations.
+            return result;
         }
 
         private RangerPolicyResource descriptor(String level, RangerPolicyResource resource) {
