@@ -95,8 +95,8 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
     private void applyMock() {
         new MockUp<DistinctAggregateRewriter>() {
             @Mock
-            boolean shouldUseMultiDistinct(LogicalAggregate<? extends Plan> aggregate) {
-                return false;
+            Strategy chooseStrategy(LogicalAggregate<? extends Plan> aggregate) {
+                return Strategy.SPLIT_IN_REWRITE;
             }
         };
     }
