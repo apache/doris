@@ -395,6 +395,26 @@ TEST(FunctionVariantParseTest, DecimalTemplatePathsOnTheResultTypeParseNumbersFr
     EXPECT_EQ(std::string::npos, variant_json_at(plain.output, 0).find("123456789012.345678"));
 }
 
+TEST(FunctionVariantParseTest, DecimalTemplatePathsStopAtAnArrayInsideAnArray) {
+    const DataTypePtr string_type = std::make_shared<DataTypeString>();
+    auto paths = std::make_shared<const VariantDecimalPathSet>(std::vector<VariantTemplatePath> {
+            {.pattern = "prices", .is_glob = false, .is_decimal = true}});
+    const DataTypePtr typed = std::make_shared<DataTypeVariantV2>(0, false, paths);
+    // Scalars directly inside the declared array are the ARRAY<DECIMAL> field's: read from text.
+    ExecutionResult direct = execute_parse(
+            "parse_to_variant", make_strings({R"({"prices":[1.50]})"}), string_type, 1, typed);
+    ASSERT_TRUE(direct.status.ok()) << direct.status.to_string();
+    EXPECT_NE(std::string::npos, variant_json_at(direct.output, 0).find(R"("prices":[1.50])"));
+    // An array nested inside it is off the template's path like an object element: the template
+    // addresses an array as a leaf, so its number keeps the parser's double, rendered 1.5.
+    ExecutionResult nested = execute_parse(
+            "parse_to_variant", make_strings({R"({"prices":[[1.50]]})"}), string_type, 1, typed);
+    ASSERT_TRUE(nested.status.ok()) << nested.status.to_string();
+    const std::string json = variant_json_at(nested.output, 0);
+    EXPECT_NE(std::string::npos, json.find(R"("prices":[[1.5]])")) << json;
+    EXPECT_EQ(std::string::npos, json.find("1.50")) << json;
+}
+
 TEST(FunctionVariantParseTest, DecimalTemplatePathsDoNotRescueALeadingZero) {
     const DataTypePtr string_type = std::make_shared<DataTypeString>();
     auto paths = std::make_shared<const VariantDecimalPathSet>(std::vector<VariantTemplatePath> {

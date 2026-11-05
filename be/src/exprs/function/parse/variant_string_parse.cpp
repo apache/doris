@@ -305,7 +305,10 @@ private:
         return false;
     }
 
-    // Elements keep their array's path, so an ARRAY<DECIMAL> template covers them.
+    // Elements keep their array's path, so an ARRAY<DECIMAL> template covers the scalars directly
+    // inside it. The template addresses an array as a leaf, so an array that is itself an array
+    // element is as far off every declared path as an object element: {"prices":[[1.50]]} with
+    // 'prices' declared keeps the double 1.5 the shredder stores.
     bool collect_array(simdjson::ondemand::value& value, uint32_t depth) {
         simdjson::ondemand::array array;
         if (value.get_array().get(array) != simdjson::SUCCESS) {
@@ -313,6 +316,9 @@ private:
         }
         auto scope = _builder.start_array();
         const bool was_in_array = _in_array;
+        if (was_in_array) {
+            ++_unmatched;
+        }
         _in_array = true;
         for (auto entry : array) {
             simdjson::ondemand::value element;
@@ -322,6 +328,9 @@ private:
             }
         }
         _in_array = was_in_array;
+        if (was_in_array) {
+            --_unmatched;
+        }
         scope.finish();
         return true;
     }
@@ -376,9 +385,9 @@ private:
     const JsonToVariantOptions& _options;
     const VariantDecimalPathSet& _paths;
     std::string _path;
-    // Set while an array's elements are collected; an object element raises `_unmatched` for its
-    // whole subtree. A `false` return abandons the collector with its row, so neither is restored
-    // on that path.
+    // Set while an array's elements are collected; an object or array element raises `_unmatched`
+    // for its whole subtree. A `false` return abandons the collector with its row, so neither is
+    // restored on that path.
     bool _in_array = false;
     uint32_t _unmatched = 0;
 };

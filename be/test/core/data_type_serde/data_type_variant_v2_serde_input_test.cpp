@@ -425,6 +425,10 @@ TEST(DataTypeVariantV2SerdeInputTest, DecimalTemplatePathsStopAtAnObjectInsideAn
     const std::string sibling = json_at(serde, *column, 4);
     EXPECT_NE(std::string::npos, sibling.find(R"("x":[{"a":{"b":1.5}}])")) << sibling;
     EXPECT_NE(std::string::npos, sibling.find(R"("a":{"b":1.50})")) << sibling;
+    // An array nested inside the declared array is off the path like an object element.
+    ASSERT_TRUE(deserialize_json(serde, *column, R"({"prices":[[1.50]]})").ok());
+    EXPECT_NE(std::string::npos, json_at(serde, *column, 5).find(R"("prices":[[1.5]])"));
+    EXPECT_EQ(std::string::npos, json_at(serde, *column, 5).find("1.50"));
 }
 
 TEST(DataTypeVariantV2SerdeInputTest, DecimalTemplatePathsKeepTheLenientVerdictOnAMalformedTail) {
