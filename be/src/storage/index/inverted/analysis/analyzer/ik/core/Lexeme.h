@@ -22,7 +22,6 @@
 #include <stdexcept>
 #include <string>
 
-#include "CLucene/_ApiHeader.h"
 #include "storage/index/inverted/analysis/analyzer/ik/core/CharacterUtil.h"
 
 namespace doris::segment_v2 {

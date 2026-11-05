@@ -47,7 +47,6 @@
 #include "util/string_parser.hpp"
 
 namespace doris {
-using namespace ErrorCode;
 
 uint32_t olap_adler32_init() {
     return (uint32_t)adler32(0, Z_NULL, 0);
@@ -62,11 +61,11 @@ Status gen_timestamp_string(std::string* out_string) {
     tm local_tm;
 
     if (localtime_r(&now, &local_tm) == nullptr) {
-        return Status::Error<OS_ERROR>("fail to localtime_r time. time={}", now);
+        return Status::Error<ErrorCode::OS_ERROR>("fail to localtime_r time. time={}", now);
     }
     char time_suffix[16] = {0}; // Example: 20150706111404's length is 15
     if (strftime(time_suffix, sizeof(time_suffix), "%Y%m%d%H%M%S", &local_tm) == 0) {
-        return Status::Error<OS_ERROR>("fail to strftime time. time={}", now);
+        return Status::Error<ErrorCode::OS_ERROR>("fail to strftime time. time={}", now);
     }
 
     *out_string = time_suffix;
@@ -93,13 +92,13 @@ Status read_write_test_file(const std::string& test_file_path) {
     char* write_test_buff = nullptr;
     char* read_test_buff = nullptr;
     if (posix_memalign((void**)&write_test_buff, DIRECT_IO_ALIGNMENT, TEST_FILE_BUF_SIZE) != 0) {
-        return Status::Error<MEM_ALLOC_FAILED>("fail to allocate write buffer memory. size={}",
-                                               TEST_FILE_BUF_SIZE);
+        return Status::Error<ErrorCode::MEM_ALLOC_FAILED>(
+                "fail to allocate write buffer memory. size={}", TEST_FILE_BUF_SIZE);
     }
     std::unique_ptr<char, decltype(&std::free)> write_buff(write_test_buff, &std::free);
     if (posix_memalign((void**)&read_test_buff, DIRECT_IO_ALIGNMENT, TEST_FILE_BUF_SIZE) != 0) {
-        return Status::Error<MEM_ALLOC_FAILED>("fail to allocate read buffer memory. size={}",
-                                               TEST_FILE_BUF_SIZE);
+        return Status::Error<ErrorCode::MEM_ALLOC_FAILED>(
+                "fail to allocate read buffer memory. size={}", TEST_FILE_BUF_SIZE);
     }
     std::unique_ptr<char, decltype(&std::free)> read_buff(read_test_buff, &std::free);
     // generate random numbers

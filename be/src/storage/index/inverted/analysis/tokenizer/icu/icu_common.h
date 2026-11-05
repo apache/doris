@@ -19,8 +19,7 @@
 
 #include <memory>
 
-#include "CLucene.h"
-#include "CLucene/debug/error.h"
+#include "common/exception.h"
 #include "unicode/brkiter.h"
 #include "unicode/rbbi.h"
 #include "unicode/ubrk.h"

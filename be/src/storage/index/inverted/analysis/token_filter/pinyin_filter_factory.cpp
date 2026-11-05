@@ -54,16 +54,17 @@ void PinyinFilterFactory::initialize(const Settings& settings) {
     config_->limitFirstLetterLength = settings.get_int("limit_first_letter_length", 16);
 }
 
-TokenFilterPtr PinyinFilterFactory::create(const TokenStreamPtr& in) {
+std::unique_ptr<TextTokenStream> PinyinFilterFactory::create(
+        std::unique_ptr<TextTokenStream> in) const {
     if (!config_) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "PinyinFilterFactory not initialized. Call initialize() first.");
     }
 
-    auto filter = std::make_shared<PinyinFilter>(in, config_);
+    auto filter = std::make_unique<PinyinFilter>(std::move(in), config_);
     filter->initialize();
     if (!config_->ignorePinyinOffset) {
-        filter->set_source_byte_offsets_enabled(true);
+        filter->set_strict_utf8(true);
     }
     return filter;
 }
