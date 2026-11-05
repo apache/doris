@@ -121,6 +121,143 @@ def evaluate(value):
 def evaluate(value):
     yield (None if value is None else value.strftime('%Y-%m-%d %H:%M:%S.%f'),)
 \$\$"""
+        ["scalar", "list", "series"].each { mode ->
+            def name = "python_arrow_time_${mode}"
+            def annotation = mode == "list" ? ": list" : (mode == "series" ? ": pd.Series" : "")
+            sql "DROP FUNCTION IF EXISTS ${name}(TIME(6))"
+            sql """CREATE FUNCTION ${name}(TIME(6)) RETURNS TIME(6)
+                PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+                           "runtime_version"="${runtimeVersion}") AS \$\$
+import pandas as pd
+
+def evaluate(value${annotation}):
+    return value
+\$\$"""
+        }
+        [0, 3].each { scale ->
+            def name = "python_arrow_time_precision_${scale}"
+            sql "DROP FUNCTION IF EXISTS ${name}(TIME(6))"
+            sql """CREATE FUNCTION ${name}(TIME(6)) RETURNS TIME(${scale})
+                PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+                           "runtime_version"="${runtimeVersion}") AS \$\$
+def evaluate(value):
+    return value
+\$\$"""
+        }
+        sql "DROP FUNCTION IF EXISTS python_arrow_time_array(ARRAY<TIME(6)>)"
+        sql """CREATE FUNCTION python_arrow_time_array(ARRAY<TIME(6)>) RETURNS ARRAY<TIME(6)>
+            PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+                       "runtime_version"="${runtimeVersion}") AS \$\$
+def evaluate(value):
+    return value
+\$\$"""
+        sql "DROP FUNCTION IF EXISTS python_arrow_time_inspect(TIME(6))"
+        sql """CREATE FUNCTION python_arrow_time_inspect(TIME(6)) RETURNS STRING
+            PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+                       "runtime_version"="${runtimeVersion}") AS \$\$
+def evaluate(value):
+    return f"{type(value).__name__}:{value}"
+\$\$"""
+        sql "DROP FUNCTION IF EXISTS python_arrow_time_max(TIME(6))"
+        sql """CREATE AGGREGATE FUNCTION python_arrow_time_max(TIME(6)) RETURNS TIME(6)
+            PROPERTIES("type"="PYTHON_UDF", "symbol"="Maximum",
+                       "runtime_version"="${runtimeVersion}") AS \$\$
+class Maximum:
+    def __init__(self):
+        self.value = None
+    def accumulate(self, value):
+        if value is not None and (self.value is None or value > self.value):
+            self.value = value
+    @property
+    def aggregate_state(self):
+        return self.value
+    def merge(self, value):
+        self.accumulate(value)
+    def finish(self):
+        return self.value
+    def reset(self):
+        self.value = None
+\$\$"""
+        sql "DROP FUNCTION IF EXISTS python_arrow_time_rows(TIME(6))"
+        sql """CREATE TABLES FUNCTION python_arrow_time_rows(TIME(6)) RETURNS ARRAY<TIME(6)>
+            PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+                       "runtime_version"="${runtimeVersion}") AS \$\$
+def evaluate(value):
+    yield (value,)
+\$\$"""
+        sql "DROP FUNCTION IF EXISTS python_arrow_time_value(INT)"
+        sql """CREATE FUNCTION python_arrow_time_value(INT) RETURNS TIME(6)
+            PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+                       "runtime_version"="${runtimeVersion}") AS \$\$
+def evaluate(index):
+    return [float('nan'), float('inf'), float('-inf'),
+            839.0 * 3600 * 1000000, -839.0 * 3600 * 1000000, 0.5, -0.5,
+            float(839 * 3600 * 1000000 - 1), -float(839 * 3600 * 1000000 - 1)][index]
+\$\$"""
+        def timeRows = ["00:00:00.000000", "00:00:01.234500", "-00:00:01.234500",
+                        "100:02:03.123456", "-100:02:03.123456", "838:59:59.000000",
+                        "-838:59:59.000000", "00:00:00.000001", "-00:00:00.000001", null,
+                        "838:59:59.999999", "-838:59:59.999999"]
+        def timeInput = timeRows.withIndex().collect { value, index ->
+            def literal = value == null ? "NULL" : "'${value}'"
+            "SELECT ${index} AS id, ${literal} AS text_value, CAST(${literal} AS TIME(6)) AS time_value"
+        }.join(" UNION ALL ")
+        quickTest("time_round_trip_matches_native", """SELECT id,
+            python_arrow_time_scalar(time_value) <=> time_value,
+            python_arrow_time_list(time_value) <=> time_value,
+            python_arrow_time_series(time_value) <=> time_value,
+            python_arrow_time_array(array(time_value, NULL)) <=> array(time_value, NULL)
+            FROM (${timeInput}) input ORDER BY id""", """SELECT id,
+            true, true, true, true FROM (${timeInput}) input ORDER BY id""")
+        [0, 3].each { scale ->
+            def expectedValues = scale == 0
+                ? ["00:00:00", "00:00:01", "-00:00:01", "100:02:03", "-100:02:03",
+                   "838:59:59", "-838:59:59", "00:00:00", "00:00:00", null]
+                : ["00:00:00.000", "00:00:01.235", "-00:00:01.235", "100:02:03.123", "-100:02:03.123",
+                   "838:59:59.000", "-838:59:59.000", "00:00:00.000", "00:00:00.000", null]
+            def expectedRows = expectedValues.withIndex().collect { value, index ->
+                def literal = value == null ? "NULL" : "'${value}'"
+                "SELECT ${index} AS id, CAST(${literal} AS STRING) AS result"
+            }.join(" UNION ALL ")
+            quickTest("time_precision_${scale}", """SELECT id,
+                CAST(python_arrow_time_precision_${scale}(time_value) AS STRING)
+                FROM (${timeInput}) input WHERE id < 10 ORDER BY id""",
+                "SELECT * FROM (${expectedRows}) expected ORDER BY id")
+            [7, 8].each { index ->
+                test {
+                    sql "SELECT python_arrow_time_precision_${scale}(python_arrow_time_value(${index}))"
+                    exception "Doris TIME range after rounding"
+                }
+            }
+        }
+        quickTest("time_input_is_float_microseconds", """SELECT
+            python_arrow_time_inspect(CAST('00:00:01' AS TIME(6)))""", "SELECT 'float:1000000.0'")
+        quickTest("time_boundary_microseconds", """SELECT
+            python_arrow_time_inspect(python_arrow_time_value(7)),
+            python_arrow_time_inspect(python_arrow_time_value(8))""",
+            "SELECT 'float:3020399999999.0', 'float:-3020399999999.0'")
+        quickTest("time_maximum_matches_native", """SELECT python_arrow_time_max(time_value) <=> max(time_value)
+            FROM (${timeInput}) input""", "SELECT true")
+        quickTest("time_groups_match_native", """SELECT id % 3,
+            python_arrow_time_max(time_value) <=> max(time_value)
+            FROM (${timeInput}) input GROUP BY id % 3 ORDER BY 1""", """SELECT id % 3,
+            true FROM (${timeInput}) input GROUP BY id % 3 ORDER BY 1""")
+        quickTest("time_window_matches_native", """SELECT id,
+            python_arrow_time_max(time_value) OVER (
+                ORDER BY id ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)
+            <=> max(time_value) OVER (ORDER BY id ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)
+            FROM (${timeInput}) input ORDER BY id""",
+            "SELECT id, true FROM (${timeInput}) input ORDER BY id")
+        quickTest("time_table_matches_native", """SELECT id, result.value <=> time_value
+            FROM (${timeInput}) input
+            LATERAL VIEW python_arrow_time_rows(time_value) result AS value ORDER BY id""",
+            "SELECT id, true FROM (${timeInput}) input ORDER BY id")
+        (0..6).each { index ->
+            test {
+                sql "SELECT python_arrow_time_value(${index})"
+                exception (index < 5 ? "Doris TIME range" : "whole microseconds")
+            }
+        }
         ["UTC", "+06:00", "+05:45", "-03:30", "Asia/Shanghai"].eachWithIndex { zone, index ->
             sql "SET time_zone = '${zone}'"
             quickTest("constants_match_native_${index}", """SELECT

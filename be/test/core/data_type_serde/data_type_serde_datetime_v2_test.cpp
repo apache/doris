@@ -52,6 +52,7 @@
 #include "core/data_type_serde/data_type_nullable_serde.h"
 #include "core/data_type_serde/data_type_time_serde.h"
 #include "core/types.h"
+#include "core/value/time_value.h"
 #include "testutil/test_util.h"
 #include "util/slice.h"
 #include "util/string_util.h"
@@ -519,6 +520,85 @@ TEST_F(DataTypeDateTimeV2SerDeTest, RejectsInvalidArrowTimeValues) {
                                           arrow::default_memory_pool());
     ASSERT_TRUE(next_day_builder.Append(86400000000).ok());
     expect_invalid(&next_day_builder, 6);
+}
+
+TEST_F(DataTypeDateTimeV2SerDeTest, ArrowDoubleMicrosecondsToTimeV2) {
+    const double limit = TimeValue::MAX_TIME;
+    const std::vector<double> values {std::numeric_limits<double>::quiet_NaN(),
+                                      0.0,
+                                      1234500.0,
+                                      -1234500.0,
+                                      360000000001.0,
+                                      -360000000001.0,
+                                      limit,
+                                      -limit};
+    arrow::DoubleBuilder builder;
+    ASSERT_TRUE(
+            builder.AppendValues(values, {false, true, true, true, true, true, true, true}).ok());
+    std::shared_ptr<arrow::Array> array;
+    ASSERT_TRUE(builder.Finish(&array).ok());
+    for (int scale : {0, 3, 6}) {
+        SCOPED_TRACE(scale);
+        const double fraction = scale == 0 ? 1000000.0 : (scale == 3 ? 1235000.0 : 1234500.0);
+        const double duration = scale == 6 ? 360000000001.0 : 360000000000.0;
+        const std::vector<double> expected {0.0,      0.0,       fraction, -fraction,
+                                            duration, -duration, limit,    -limit};
+        auto column = ColumnTimeV2::create();
+        column->insert_value(42000000.0);
+        DataTypeTimeV2SerDe serde(scale);
+        auto status = serde.read_column_from_arrow(*column, array.get(), 0, array->length(),
+                                                   cctz::utc_time_zone());
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_EQ(expected.size() + 1, column->size());
+        EXPECT_DOUBLE_EQ(42000000.0, column->get_data()[0]);
+        for (size_t row = 0; row < expected.size(); ++row) {
+            EXPECT_DOUBLE_EQ(expected[row], column->get_data()[row + 1]);
+        }
+        auto slice_column = ColumnTimeV2::create();
+        ASSERT_TRUE(serde.read_column_from_arrow(*slice_column, array.get(), 2, 4,
+                                                 cctz::utc_time_zone())
+                            .ok());
+        EXPECT_DOUBLE_EQ(fraction, slice_column->get_data()[0]);
+        EXPECT_DOUBLE_EQ(-fraction, slice_column->get_data()[1]);
+    }
+    const double max_micros = TimeValue::MAX_TIME + TimeValue::ONE_SECOND_MICROSECONDS - 1;
+    arrow::DoubleBuilder bounds_builder;
+    ASSERT_TRUE(bounds_builder.AppendValues({max_micros, -max_micros}).ok());
+    std::shared_ptr<arrow::Array> bounds;
+    ASSERT_TRUE(bounds_builder.Finish(&bounds).ok());
+    for (int scale : {0, 3, 6}) {
+        auto column = ColumnTimeV2::create();
+        DataTypeTimeV2SerDe serde(scale);
+        auto status =
+                serde.read_column_from_arrow(*column, bounds.get(), 0, 2, cctz::utc_time_zone());
+        if (scale == 6) {
+            ASSERT_TRUE(status.ok()) << status;
+            EXPECT_DOUBLE_EQ(max_micros, column->get_data()[0]);
+            EXPECT_DOUBLE_EQ(-max_micros, column->get_data()[1]);
+        } else {
+            EXPECT_FALSE(status.ok());
+        }
+    }
+}
+
+TEST_F(DataTypeDateTimeV2SerDeTest, RejectsInvalidArrowDoubleTimeValues) {
+    for (double value :
+         {std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity(),
+          -std::numeric_limits<double>::infinity(),
+          static_cast<double>(TimeValue::MAX_TIME + TimeValue::ONE_SECOND_MICROSECONDS),
+          -static_cast<double>(TimeValue::MAX_TIME + TimeValue::ONE_SECOND_MICROSECONDS), 0.5,
+          -0.5}) {
+        SCOPED_TRACE(value);
+        arrow::DoubleBuilder builder;
+        ASSERT_TRUE(builder.Append(value).ok());
+        std::shared_ptr<arrow::Array> array;
+        ASSERT_TRUE(builder.Finish(&array).ok());
+        auto column = ColumnTimeV2::create();
+        DataTypeTimeV2SerDe serde(6);
+        EXPECT_FALSE(serde.read_column_from_arrow(*column, array.get(), 0, 1, cctz::utc_time_zone())
+                             .ok());
+        EXPECT_TRUE(column->empty());
+    }
 }
 
 // Run with UBSan enabled to catch misalignment errors.
