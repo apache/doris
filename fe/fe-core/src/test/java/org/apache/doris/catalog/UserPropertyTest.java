@@ -228,4 +228,18 @@ public class UserPropertyTest {
             ConnectContext.remove();
         }
     }
+
+    @Test
+    public void testMaxConnectionsWithoutLegacyLimit() throws UserException {
+        UserProperty property = new UserProperty();
+        property.update(Lists.newArrayList(Pair.of("max_user_connections", "10001")));
+        Assert.assertEquals(10001, property.getMaxConn());
+        property.update(Lists.newArrayList(Pair.of("max_user_connections", Long.toString(Long.MAX_VALUE))));
+        Assert.assertEquals(Long.MAX_VALUE, property.getMaxConn());
+        for (String invalid : new String[] {"0", "-1", "9223372036854775808"}) {
+            Assert.assertThrows(UserException.class,
+                    () -> property.update(Lists.newArrayList(Pair.of("max_user_connections", invalid))));
+        }
+    }
+
 }
