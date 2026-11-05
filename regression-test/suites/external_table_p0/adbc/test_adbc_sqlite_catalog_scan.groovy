@@ -122,6 +122,7 @@ suite("test_adbc_sqlite_catalog_scan", "p0,external") {
     logger.info("adbc sqlite fixture at ${dbFile.absolutePath}, driver ${driverPath}")
 
     String catalogName = "test_adbc_sqlite_catalog_scan_catalog"
+    String dialectCatalog = "${catalogName}_doris_sql"
     // SQLite reports catalog "main" and an empty db_schema, so the Doris database name is "main".
     String dbName = "main"
 
@@ -136,6 +137,20 @@ suite("test_adbc_sqlite_catalog_scan", "p0,external") {
 
     try {
         // ---- metadata ----
+
+        sql "DROP CATALOG IF EXISTS ${dialectCatalog}"
+        sql """CREATE CATALOG ${dialectCatalog} PROPERTIES (
+            "type" = "adbc", "driver_url" = "${driverPath}",
+            "uri" = "file:${dbFile.absolutePath}", "sql_dialect" = "doris")"""
+        // A rendering override must not send Doris-only discovery SQL to the SQLite source.
+        assertEquals(sql("SHOW DATABASES FROM ${catalogName}"),
+                sql("SHOW DATABASES FROM ${dialectCatalog}"))
+        assertEquals(sql("SHOW TABLES FROM ${catalogName}.${dbName}"),
+                sql("SHOW TABLES FROM ${dialectCatalog}.${dbName}"))
+        assertEquals(sql("DESC ${catalogName}.${dbName}.t1"),
+                sql("DESC ${dialectCatalog}.${dbName}.t1"))
+        assertEquals(sql("SELECT id, name, score FROM ${catalogName}.${dbName}.t1 ORDER BY id"),
+                sql("SELECT id, name, score FROM ${dialectCatalog}.${dbName}.t1 ORDER BY id"))
 
         def databases = sql """SHOW DATABASES FROM ${catalogName}"""
         def reportedNames = databases.collect { it[0].toString() }
@@ -388,6 +403,7 @@ suite("test_adbc_sqlite_catalog_scan", "p0,external") {
             exception "meta.cache.adbc.metadata.ttl-second"
         }
     } finally {
+        sql "DROP CATALOG IF EXISTS ${dialectCatalog}"
         sql """DROP CATALOG IF EXISTS ${catalogName}"""
     }
 }

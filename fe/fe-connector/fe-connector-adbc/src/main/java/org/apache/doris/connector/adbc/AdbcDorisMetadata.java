@@ -37,6 +37,11 @@ final class AdbcDorisMetadata {
     private AdbcDorisMetadata() {
     }
 
+    static boolean isDorisSource(AdbcClient client) {
+        // sql_dialect changes SQL rendering, not the remote vendor's metadata capabilities.
+        return client.vendorName().map(String::trim).filter(DIALECT::matchesVendor).isPresent();
+    }
+
     static List<AdbcNamespace> readNamespaces(AdbcConnection connection) throws AdbcException, IOException {
         List<String> catalogs = new ArrayList<>(1);
         // Older Doris servers expose the current catalog through SQL but lack Flight GetSessionOptions.

@@ -17,11 +17,6 @@
 
 package org.apache.doris.connector.adbc;
 
-import org.apache.arrow.adbc.core.AdbcConnection;
-import org.apache.arrow.adbc.core.AdbcInfoCode;
-import org.apache.arrow.vector.FieldVector;
-import org.apache.arrow.vector.VectorSchemaRoot;
-import org.apache.arrow.vector.ipc.ArrowReader;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -105,7 +100,7 @@ public final class AdbcDialectSelector {
 
     private Optional<String> probeVendorName(Supplier<AdbcClient> connectionSource) {
         try {
-            return connectionSource.get().withConnection(AdbcDialectSelector::readVendorName);
+            return connectionSource.get().vendorName();
         } catch (Exception e) {
             // Includes the driver refusing getInfo outright. Not knowing the vendor is the normal case for
             // an arbitrary ADBC source, and ANSI is exactly the answer for it.
@@ -113,42 +108,5 @@ public final class AdbcDialectSelector {
                     e.toString());
             return Optional.empty();
         }
-    }
-
-    /**
-     * Reads {@code VENDOR_NAME} out of the {@code getInfo} result.
-     *
-     * <p>The result is a two-column table -- an integer info code and a dense union holding the value in
-     * whichever of six types that code uses. Both columns are read through the generic
-     * {@code ValueVector.getObject} rather than by casting to a concrete vector class: the union's child
-     * layout is the driver's to choose, and a cast that assumed one would fail on a driver that laid it out
-     * differently, for a probe whose whole purpose is to tolerate not being answered.
-     *
-     * <p>The requested code is re-checked per row because a driver may answer with more rows than were
-     * asked for.
-     */
-    private static Optional<String> readVendorName(AdbcConnection connection) throws Exception {
-        try (ArrowReader reader = connection.getInfo(new AdbcInfoCode[] {AdbcInfoCode.VENDOR_NAME})) {
-            VectorSchemaRoot root = reader.getVectorSchemaRoot();
-            while (reader.loadNextBatch()) {
-                FieldVector codes = root.getVector("info_name");
-                FieldVector values = root.getVector("info_value");
-                if (codes == null || values == null) {
-                    return Optional.empty();
-                }
-                for (int row = 0; row < root.getRowCount(); row++) {
-                    Object code = codes.getObject(row);
-                    if (!(code instanceof Number)
-                            || ((Number) code).intValue() != AdbcInfoCode.VENDOR_NAME.getValue()) {
-                        continue;
-                    }
-                    Object value = values.getObject(row);
-                    if (value != null) {
-                        return Optional.of(String.valueOf(value));
-                    }
-                }
-            }
-        }
-        return Optional.empty();
     }
 }

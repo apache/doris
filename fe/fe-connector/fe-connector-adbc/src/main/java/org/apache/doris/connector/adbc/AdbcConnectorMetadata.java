@@ -69,8 +69,7 @@ public class AdbcConnectorMetadata implements ConnectorMetadata {
     private final AdbcMetadataCache cache;
 
     /**
-     * @param dialect resolved lazily for source-specific metadata and SQL generation, since resolving it
-     *                can cost a remote call
+     * @param dialect resolved lazily for SQL generation, since resolving it can cost a remote call
      * @param cache   the catalog's, shared with every other statement
      */
     public AdbcConnectorMetadata(AdbcClient client, AdbcSchemaStrategy schemaStrategy,
@@ -184,7 +183,7 @@ public class AdbcConnectorMetadata implements ConnectorMetadata {
     // ========= internals =========
 
     private List<AdbcNamespace> readNamespaces() {
-        if (DorisDialect.NAME.equals(dialect.get().name())) {
+        if (AdbcDorisMetadata.isDorisSource(client)) {
             return client.withConnection(AdbcDorisMetadata::readNamespaces);
         }
         return client.withConnection(connection -> {
@@ -227,7 +226,7 @@ public class AdbcConnectorMetadata implements ConnectorMetadata {
     }
 
     private List<String> readTableNames(AdbcNamespace namespace) {
-        if (DorisDialect.NAME.equals(dialect.get().name())) {
+        if (AdbcDorisMetadata.isDorisSource(client)) {
             return client.withConnection(connection -> AdbcDorisMetadata.readTableNames(connection, namespace));
         }
         return client.withConnection(connection -> {

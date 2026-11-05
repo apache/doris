@@ -21,14 +21,18 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 
 import org.apache.arrow.adbc.core.AdbcConnection;
 import org.apache.arrow.adbc.core.AdbcException;
+import org.apache.arrow.adbc.core.AdbcInfoCode;
 import org.apache.arrow.adbc.core.AdbcStatement;
 import org.apache.arrow.adbc.core.AdbcStatusCode;
 import org.apache.arrow.memory.RootAllocator;
+import org.apache.arrow.vector.UInt4Vector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.complex.DenseUnionVector;
 import org.apache.arrow.vector.ipc.ArrowReader;
 import org.apache.arrow.vector.ipc.ArrowStreamReader;
 import org.apache.arrow.vector.ipc.ArrowStreamWriter;
+import org.apache.arrow.vector.types.UnionMode;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.FieldType;
@@ -48,6 +52,60 @@ import java.util.List;
 import java.util.Map;
 
 class AdbcDorisMetadataTest {
+    @Test
+    void nonDorisSourceKeepsStandardMetadataWithDorisSqlDialect() {
+        try (RecordingClient client = new RecordingClient("main", List.of())) {
+            client.vendorName = "SQLite";
+            client.standardMetadata = true;
+            AdbcConnectorMetadata metadata = metadata(client);
+            Assertions.assertEquals(List.of("main"),
+                    Assertions.assertDoesNotThrow(() -> metadata.listDatabaseNames(null)));
+            Assertions.assertEquals(List.of("base_table"), metadata.listTableNames(null, "main"));
+            Assertions.assertTrue(client.queries.isEmpty());
+            Assertions.assertEquals(1, client.vendorProbes);
+        }
+    }
+
+    @Test
+    void dorisSourceStaysScopedWithAnOverriddenSqlDialect() {
+        try (RecordingClient client = new RecordingClient("internal", List.of(List.of("db_one")))) {
+            client.vendorName = "  dOrIsFE  ";
+            AdbcConnectorMetadata metadata = metadata(client, AnsiDialect.NAME);
+            Assertions.assertEquals(List.of("db_one"),
+                    Assertions.assertDoesNotThrow(() -> metadata.listDatabaseNames(null)));
+            client.rows = List.of(List.of("base_table", "BASE TABLE"));
+            Assertions.assertEquals(List.of("base_table"), metadata.listTableNames(null, "db_one"));
+            Assertions.assertEquals(List.of("SELECT CURRENT_CATALOG()", "SHOW DATABASES FROM `internal`",
+                    "SHOW FULL TABLES FROM `internal`.`db_one`"), client.queries);
+            Assertions.assertEquals(1, client.vendorProbes);
+        }
+    }
+
+    @Test
+    void unavailableVendorDoesNotTurnAnSqlOverrideIntoSourceIdentification() {
+        try (RecordingClient client = new RecordingClient("main", List.of())) {
+            client.vendorFailure = new AdbcException("vendor not supported", null,
+                    AdbcStatusCode.NOT_IMPLEMENTED, null, 0);
+            client.standardMetadata = true;
+            AdbcConnectorMetadata metadata = metadata(client);
+            Assertions.assertEquals(List.of("main"),
+                    Assertions.assertDoesNotThrow(() -> metadata.listDatabaseNames(null)));
+            Assertions.assertEquals(List.of("base_table"), metadata.listTableNames(null, "main"));
+            Assertions.assertTrue(client.queries.isEmpty());
+            Assertions.assertEquals(1, client.vendorProbes);
+        }
+    }
+
+    @Test
+    void automaticDialectAndMetadataShareTheVendorProbe() {
+        try (RecordingClient client = new RecordingClient("internal", List.of(List.of("db_one")))) {
+            AdbcDialectSelector selector = new AdbcDialectSelector("");
+            Assertions.assertEquals(DorisDialect.NAME, selector.select(() -> client).name());
+            Assertions.assertEquals(List.of("db_one"), metadata(client).listDatabaseNames(null));
+            Assertions.assertEquals(1, client.vendorProbes);
+        }
+    }
+
     @Test
     void namespacesStayInsideTheCurrentRemoteCatalog() {
         try (RecordingClient client = new RecordingClient("warehouse`one", List.of(
@@ -120,7 +178,12 @@ class AdbcDorisMetadataTest {
     }
 
     private static AdbcConnectorMetadata metadata(RecordingClient client) {
-        return new AdbcConnectorMetadata(client, new AdbcSchemaStrategy(), DorisDialect::new,
+        return metadata(client, DorisDialect.NAME);
+    }
+
+    private static AdbcConnectorMetadata metadata(RecordingClient client, String configuredDialect) {
+        AdbcDialectSelector selector = new AdbcDialectSelector(configuredDialect);
+        return new AdbcConnectorMetadata(client, new AdbcSchemaStrategy(), () -> selector.select(() -> client),
                 new AdbcMetadataCache(Map.of()));
     }
 
@@ -131,6 +194,10 @@ class AdbcDorisMetadataTest {
         private AdbcException currentCatalogFailure;
         private List<List<String>> rows;
         private int closedStatements;
+        private String vendorName = "DorisFE";
+        private AdbcException vendorFailure;
+        private boolean standardMetadata;
+        private int vendorProbes;
 
         private RecordingClient(String currentCatalog, List<List<String>> rows) {
             super(Path.of("unused.so"), "unused.so", null, "grpc://localhost:1", null, null, Map.of());
@@ -153,14 +220,31 @@ class AdbcDorisMetadataTest {
                     @Override
                     public ArrowReader getObjects(GetObjectsDepth depth, String catalogPattern,
                             String dbSchemaPattern, String tableNamePattern, String[] tableTypes,
-                            String columnNamePattern) {
+                            String columnNamePattern) throws AdbcException {
                         // An unscoped Flight metadata request reenters the catalog being loaded on a loopback source.
-                        throw new AssertionError("Unscoped GetObjects would recursively load this ADBC catalog");
+                        if (!standardMetadata) {
+                            throw new AssertionError("Unscoped GetObjects would recursively load this ADBC catalog");
+                        }
+                        try {
+                            return AdbcObjectsReaderTest.response(allocator, AdbcObjectsReaderTest.catalog("main",
+                                    AdbcObjectsReaderTest.schema("", new Object[] {"base_table", "TABLE"},
+                                            new Object[] {"view_table", "VIEW"})));
+                        } catch (IOException e) {
+                            throw new UncheckedIOException(e);
+                        }
                     }
 
                     @Override
-                    public ArrowReader getInfo(int[] infoCodes) {
-                        throw new AssertionError("The configured dialect needs no vendor probe");
+                    public ArrowReader getInfo(int[] infoCodes) throws AdbcException {
+                        vendorProbes++;
+                        if (vendorFailure != null) {
+                            throw vendorFailure;
+                        }
+                        try {
+                            return vendorResponse();
+                        } catch (IOException e) {
+                            throw new UncheckedIOException(e);
+                        }
                     }
 
                     @Override
@@ -206,6 +290,28 @@ class AdbcDorisMetadataTest {
             } catch (Exception e) {
                 throw new IllegalStateException(e);
             }
+        }
+
+        private ArrowReader vendorResponse() throws IOException {
+            Schema schema = new Schema(List.of(Field.nullable("info_name", new ArrowType.Int(32, false)),
+                    new Field("info_value", FieldType.nullable(new ArrowType.Union(UnionMode.Dense, new int[] {0})),
+                            List.of(Field.nullable("string_value", ArrowType.Utf8.INSTANCE)))));
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            try (VectorSchemaRoot root = VectorSchemaRoot.create(schema, allocator);
+                    ArrowStreamWriter writer = new ArrowStreamWriter(root, null, Channels.newChannel(bytes))) {
+                root.allocateNew();
+                ((UInt4Vector) root.getVector("info_name")).setSafe(0, AdbcInfoCode.VENDOR_NAME.getValue());
+                DenseUnionVector values = (DenseUnionVector) root.getVector("info_value");
+                values.setTypeId(0, (byte) 0);
+                values.setOffset(0, 0);
+                ((VarCharVector) values.getVectorByType((byte) 0)).setSafe(0,
+                        vendorName.getBytes(StandardCharsets.UTF_8));
+                root.setRowCount(1);
+                writer.start();
+                writer.writeBatch();
+                writer.end();
+            }
+            return new ArrowStreamReader(new ByteArrayInputStream(bytes.toByteArray()), allocator);
         }
 
         private ArrowReader response() throws IOException {
