@@ -38,7 +38,7 @@ public class TransposeSemiJoinAggProject extends OneRewriteRuleFactory {
                 .then(join -> {
                     LogicalProject<LogicalAggregate<Plan>> project = join.left();
                     LogicalAggregate<Plan> aggregate = project.child();
-                    if (!TransposeSemiJoinAgg.canTranspose(aggregate, join)) {
+                    if (!TransposeSemiJoinAgg.canTranspose(aggregate, join, project)) {
                         return null;
                     }
                     Plan newPlan = aggregate.withChildren(join.withChildren(aggregate.child(), join.right()));
