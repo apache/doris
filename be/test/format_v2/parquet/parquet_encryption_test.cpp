@@ -268,6 +268,73 @@ TEST(ParquetEncryptionTest, RejectsAmplifiedNativeContainersBeforeResize) {
     EXPECT_TRUE(parsed.schema.empty());
 }
 
+TEST(ParquetEncryptionTest, NativeContainerBudgetDoesNotTrustWireElementTypes) {
+    using namespace apache::thrift::protocol;
+    constexpr uint32_t values_per_container = 4096;
+    for (const auto container_type : {T_LIST, T_SET, T_MAP}) {
+        SCOPED_TRACE(container_type);
+        const size_t elements_per_entry = container_type == T_MAP ? 2 : 1;
+        const size_t container_count =
+                MAX_ENCRYPTED_PARQUET_MODULE_BYTES / (values_per_container * elements_per_entry *
+                                                      sizeof(tparquet::ColumnChunk)) +
+                1;
+        auto transport = std::make_shared<apache::thrift::transport::TMemoryBuffer>();
+        TCompactProtocol writer(transport);
+        writer.writeStructBegin("FileMetaData");
+        writer.writeFieldBegin("version", T_I32, 1);
+        writer.writeI32(1);
+        writer.writeFieldEnd();
+        writer.writeFieldBegin("schema", T_LIST, 2);
+        writer.writeListBegin(T_STRUCT, 0);
+        writer.writeListEnd();
+        writer.writeFieldEnd();
+        writer.writeFieldBegin("num_rows", T_I64, 3);
+        writer.writeI64(0);
+        writer.writeFieldEnd();
+        writer.writeFieldBegin("row_groups", T_LIST, 4);
+        writer.writeListBegin(T_STRUCT, 0);
+        writer.writeListEnd();
+        writer.writeFieldEnd();
+        // Skippable fields exercise cumulative accounting without allocating large native vectors.
+        // Generated readers can resize struct vectors regardless of the advertised element type.
+        for (size_t field = 0; field < container_count; ++field) {
+            writer.writeFieldBegin("unknown", container_type, static_cast<int16_t>(100 + field));
+            if (container_type == T_LIST) {
+                writer.writeListBegin(T_BYTE, values_per_container);
+            } else if (container_type == T_SET) {
+                writer.writeSetBegin(T_BYTE, values_per_container);
+            } else {
+                writer.writeMapBegin(T_BYTE, T_BYTE, values_per_container);
+            }
+            for (uint32_t value = 0; value < values_per_container; ++value) {
+                writer.writeByte(0);
+                if (container_type == T_MAP) {
+                    writer.writeByte(0);
+                }
+            }
+            if (container_type == T_LIST) {
+                writer.writeListEnd();
+            } else if (container_type == T_SET) {
+                writer.writeSetEnd();
+            } else {
+                writer.writeMapEnd();
+            }
+            writer.writeFieldEnd();
+        }
+        writer.writeFieldStop();
+        writer.writeStructEnd();
+        uint8_t* bytes = nullptr;
+        uint32_t size = 0;
+        transport->getBuffer(&bytes, &size);
+        ASSERT_LT(size, 1 << 20);
+        tparquet::FileMetaData parsed;
+        uint32_t consumed = 0;
+        auto status = deserialize_crypto_metadata(std::span(bytes, size), &consumed, &parsed);
+        EXPECT_FALSE(status.ok());
+        EXPECT_EQ(consumed, 0);
+    }
+}
+
 tparquet::FileCryptoMetaData crypto_metadata() {
     tparquet::AesGcmV1 aes;
     aes.__set_aad_file_unique("12345678");

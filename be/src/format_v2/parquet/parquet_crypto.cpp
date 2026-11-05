@@ -39,7 +39,6 @@ using apache::thrift::protocol::TList;
 using apache::thrift::protocol::TMap;
 using apache::thrift::protocol::TProtocolException;
 using apache::thrift::protocol::TSet;
-using apache::thrift::protocol::TType;
 using apache::thrift::transport::TMemoryBuffer;
 
 class BoundedCryptoProtocol final : public TCompactProtocol {
@@ -50,27 +49,27 @@ public:
 protected:
     void checkReadBytesAvailable(TList& list) override {
         TCompactProtocol::checkReadBytesAvailable(list);
-        charge(list.size_, list.elemType_);
+        charge(list.size_);
     }
     void checkReadBytesAvailable(TSet& set) override {
         TCompactProtocol::checkReadBytesAvailable(set);
-        charge(set.size_, set.elemType_);
+        charge(set.size_);
     }
     void checkReadBytesAvailable(TMap& map) override {
         TCompactProtocol::checkReadBytesAvailable(map);
-        charge(map.size_, map.keyType_);
-        charge(map.size_, map.valueType_);
+        // Both the key and value containers contribute to the native allocation budget.
+        charge(map.size_);
+        charge(map.size_);
     }
 
 private:
-    void charge(uint32_t count, TType type) {
-        // Compact structs may occupy one wire byte, while ColumnChunk/SchemaElement own large
-        // native objects. For example, a 64KB list must not resize a 64MB+ native vector unchecked.
-        const size_t unit =
-                type == apache::thrift::protocol::T_STRUCT
-                        ? std::max({sizeof(tparquet::ColumnChunk), sizeof(tparquet::SchemaElement),
-                                    sizeof(tparquet::RowGroup)})
-                        : 64;
+    void charge(uint32_t count) {
+        // Generated readers resize their statically typed vectors without checking the wire element
+        // type: a list advertised as BYTE can still allocate ColumnChunks. Charge every element at
+        // the largest native size; trusting the wire type would undercount those allocations.
+        constexpr size_t unit =
+                std::max({sizeof(tparquet::ColumnChunk), sizeof(tparquet::SchemaElement),
+                          sizeof(tparquet::RowGroup)});
         if (count > _budget / unit) {
             throw TProtocolException(TProtocolException::SIZE_LIMIT);
         }
