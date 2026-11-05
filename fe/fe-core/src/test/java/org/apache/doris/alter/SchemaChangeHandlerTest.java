@@ -204,37 +204,42 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
 
     @Test
     public void testValuesIndexDdlRestrictions() throws Exception {
-        String ddl = "CREATE TABLE test.values_ddl (id INT, v VARIANT, "
-                + "INDEX values_idx(v) USING INVERTED PROPERTIES "
-                + "('variant_index_scope'='values','parser'='unicode')%s) "
-                + "DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
-                + "PROPERTIES('replication_num'='1','inverted_index_storage_format'='SNII')";
-        createTable(String.format(ddl, ""));
-        for (Map.Entry<String, String> rejected : Map.of(
-                "ALTER TABLE test.values_ddl DROP INDEX values_idx", "DROP INDEX",
-                "ALTER TABLE test.values_ddl ADD INDEX another_values(v) USING INVERTED "
-                        + "PROPERTIES('variant_index_scope'='values','parser'='english')", "CREATE TABLE",
-                "CREATE INDEX added_values ON test.values_ddl(v) USING INVERTED "
-                        + "PROPERTIES('variant_index_scope'='values','parser'='english')", "CREATE TABLE",
-                "BUILD INDEX values_idx ON test.values_ddl", "BUILD INDEX is not supported on a table with"
-                        + " a VARIANT values index").entrySet()) {
-            Exception error = Assertions.assertThrows(Exception.class, () -> executeNereidsSql(rejected.getKey()));
-            Assertions.assertTrue(error.getMessage().contains(rejected.getValue()), error.getMessage());
+        boolean enableAddIndexForNewData = connectContext.getSessionVariable().isEnableAddIndexForNewData();
+        connectContext.getSessionVariable().setEnableAddIndexForNewData(true);
+        try {
+            String ddl = "CREATE TABLE test.values_ddl (id INT, v VARIANT, "
+                    + "INDEX values_idx(v) USING INVERTED PROPERTIES "
+                    + "('variant_index_scope'='values','parser'='unicode')%s) "
+                    + "DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
+                    + "PROPERTIES('replication_num'='1','inverted_index_storage_format'='SNII')";
+            createTable(String.format(ddl, ""));
+            for (Map.Entry<String, String> rejected : Map.of(
+                    "ALTER TABLE test.values_ddl ADD INDEX another_values(v) USING INVERTED "
+                            + "PROPERTIES('variant_index_scope'='values','parser'='english')", "only one values index",
+                    "CREATE INDEX added_values ON test.values_ddl(v) USING INVERTED "
+                            + "PROPERTIES('variant_index_scope'='values','parser'='english')", "only one values index",
+                    "BUILD INDEX values_idx ON test.values_ddl", "BUILD INDEX is not supported on a table with"
+                            + " a VARIANT values index").entrySet()) {
+                Exception error = Assertions.assertThrows(Exception.class, () -> executeNereidsSql(rejected.getKey()));
+                Assertions.assertTrue(error.getMessage().contains(rejected.getValue()), error.getMessage());
+            }
+            try (MockedStatic<Config> config = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS)) {
+                config.when(Config::isCloudMode).thenReturn(true);
+                Exception error = Assertions.assertThrows(Exception.class,
+                        () -> executeNereidsSql("BUILD INDEX ON test.values_ddl"));
+                Assertions.assertTrue(error.getMessage().contains("BUILD INDEX is not supported on a table with"
+                                + " a VARIANT values index"),
+                        error.getMessage());
+            }
+            Exception duplicate = Assertions.assertThrows(Exception.class,
+                    () -> createTable(String.format(ddl.replace("values_ddl", "duplicate_values_ddl"),
+                            ", INDEX duplicate_idx(v) USING INVERTED PROPERTIES "
+                                    + "('variant_index_scope'='values','parser'='english')")));
+            Assertions.assertTrue(duplicate.getMessage().contains("VARIANT column supports only one values index"),
+                    duplicate.getMessage());
+        } finally {
+            connectContext.getSessionVariable().setEnableAddIndexForNewData(enableAddIndexForNewData);
         }
-        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS)) {
-            config.when(Config::isCloudMode).thenReturn(true);
-            Exception error = Assertions.assertThrows(Exception.class,
-                    () -> executeNereidsSql("BUILD INDEX ON test.values_ddl"));
-            Assertions.assertTrue(error.getMessage().contains("BUILD INDEX is not supported on a table with"
-                            + " a VARIANT values index"),
-                    error.getMessage());
-        }
-        Exception duplicate = Assertions.assertThrows(Exception.class,
-                () -> createTable(String.format(ddl.replace("values_ddl", "duplicate_values_ddl"),
-                        ", INDEX duplicate_idx(v) USING INVERTED PROPERTIES "
-                                + "('variant_index_scope'='values','parser'='english')")));
-        Assertions.assertTrue(duplicate.getMessage().contains("VARIANT column supports only one values index"),
-                duplicate.getMessage());
     }
 
     @Test

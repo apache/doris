@@ -215,45 +215,6 @@
 8
 9
 
--- !rejected_9_root --
-1
-10
-11
-2
-3
-4
-5
-6
-7
-8
-9
-
--- !rejected_9_path --
-1
-10
-11
-2
-3
-4
-5
-6
-7
-8
-9
-
--- !rejected_9_template --
-1
-10
-11
-2
-3
-4
-5
-6
-7
-8
-9
-
 -- !final_values --
 1	11	{"s":"hello world","tagA":"alpha"}
 2	12	{"s":"hello world","tagA":"alpha"}
@@ -265,13 +226,11 @@
 8	18	{"s":"hello world","tagA":"alpha"}
 9	19	{"s":"hello world","tagA":"alpha"}
 10	20	{"s":"hello world","tagA":"alpha"}
-11	21	{"s":"hello world","tagA":"alpha"}
 
 -- !path_idx_partition_root --
 1
 10
 101
-11
 2
 3
 4
@@ -290,7 +249,6 @@
 -- !path_idx_dropped_partition_path --
 1
 10
-11
 2
 3
 4
@@ -303,7 +261,6 @@
 -- !path_idx_dropped_partition_template --
 1
 10
-11
 2
 3
 4
@@ -317,7 +274,6 @@
 1
 10
 101
-11
 2
 3
 4
@@ -336,7 +292,6 @@
 -- !tag_idx_dropped_partition_path --
 1
 10
-11
 2
 3
 4
@@ -349,7 +304,6 @@
 -- !tag_idx_dropped_partition_template --
 1
 10
-11
 2
 3
 4

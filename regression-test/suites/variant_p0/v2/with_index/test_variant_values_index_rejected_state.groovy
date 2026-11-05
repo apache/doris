@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_variant_values_index_rejected_state", "p0,nonConcurrent") {
+    sql "SET enable_add_index_for_new_data=true"
     sql "SET default_variant_enable_nested_group=false"
     sql "SET default_variant_enable_doc_mode=false"
     sql "SET default_variant_max_subcolumns_count=10"
@@ -48,10 +49,9 @@ suite("test_variant_values_index_rejected_state", "p0,nonConcurrent") {
          sql("SHOW PROC '/dbs/${dbId}/${meta.table_id}/index_schema'")]
     }
     def rejected = [
-        ['ALTER TABLE vvi_rejected_state ADD COLUMN extra INT, DROP INDEX values_idx', 'DROP INDEX is not supported for a VARIANT values index'],
-        ['CREATE INDEX new_values ON vvi_rejected_state(v) USING INVERTED PROPERTIES("variant_index_scope"="values","parser"="english")', 'VARIANT values index can only be declared in CREATE TABLE'],
-        ['ALTER TABLE vvi_rejected_state ADD INDEX new_values(v) USING INVERTED PROPERTIES("variant_index_scope"="values","parser"="english")', 'VARIANT values index can only be declared in CREATE TABLE'],
-        ['DROP INDEX values_idx ON vvi_rejected_state', 'DROP INDEX is not supported for a VARIANT values index'],
+        ['ALTER TABLE vvi_rejected_state ADD COLUMN extra INT, ADD INDEX new_values(v) USING INVERTED PROPERTIES("variant_index_scope"="values","parser"="english")', 'ADD VARIANT values index can not be combined with other schema changes'],
+        ['CREATE INDEX new_values ON vvi_rejected_state(v) USING INVERTED PROPERTIES("variant_index_scope"="values","parser"="english")', 'VARIANT column supports only one values index'],
+        ['ALTER TABLE vvi_rejected_state ADD INDEX new_values(v) USING INVERTED PROPERTIES("variant_index_scope"="values","parser"="english")', 'VARIANT column supports only one values index'],
         ['DROP INDEX values_idx ON vvi_rejected_state PARTITION(p1)', 'DROP INDEX is not supported for a VARIANT values index'],
         [isCloudMode() ? 'BUILD INDEX ON vvi_rejected_state' : 'BUILD INDEX path_idx ON vvi_rejected_state', 'BUILD INDEX is not supported on a table with a VARIANT values index'],
         ['ALTER TABLE vvi_rejected_state ADD INDEX new_template(v) USING INVERTED PROPERTIES("field_pattern"="tag*","parser"="chinese")', 'Can not create index with field pattern'],
