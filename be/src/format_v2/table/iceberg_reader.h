@@ -75,8 +75,8 @@ public:
         }
         if (!_data_reader.file_schema.empty() && supports_iceberg_scan_semantics_v2(_scan_params) &&
             !_scan_has_any_authoritative_name_mapping()) {
-            // ID-less migrated files are name-readable only while Iceberg's explicit default name
-            // mapping exists; current names must not resurrect file fields after it is removed.
+            // Parquet annotation supplies positional IDs. Other ID-less files remain unreadable
+            // without an explicit default name mapping; current names must not resurrect fields.
             return format::TableColumnMappingMode::BY_FIELD_ID;
         }
         return format::TableColumnMappingMode::BY_NAME;
@@ -90,6 +90,20 @@ protected:
     }
     // Iceberg UUID uses the same 16-byte STRING/VARBINARY carrier in data, defaults and deletes.
     bool preserve_binary_uuid() const override { return true; }
+
+    // Match Iceberg's ParquetSchemaUtil.addFallbackIds: when a Parquet file has neither field IDs
+    // nor an authoritative name mapping, annotate only its top-level fields with IDs 1..N.
+    // Nested children keep their original identifiers and remain missing without a name mapping.
+    // Legacy FE plans retain name matching, and ORC retains its existing behavior.
+    Status annotate_file_schema(std::vector<format::ColumnDefinition>* file_schema) override;
+
+    // Changing the name mapping can change a positional binding without changing the file or
+    // table-predicate digest. Such splits must neither read nor publish cached filter results.
+    bool _should_enable_condition_cache(
+            const format::FileScanRequest& file_request) const override {
+        return !_positional_id_fallback &&
+               format::TableReader::_should_enable_condition_cache(file_request);
+    }
 
     void configure_mapper_options(format::TableColumnMapperOptions* options) const override {
         options->enable_row_lineage_virtual_columns = true;
@@ -203,6 +217,8 @@ private:
     size_t _row_position_block_position = 0;
     std::optional<TIcebergFileDesc> _iceberg_params;
     bool _delete_predicates_initialized = false;
+    // Per-split positional binding state, used by condition-cache eligibility and debug_string().
+    bool _positional_id_fallback = false;
     format::DeleteRows _position_delete_rows_storage;
     struct EqualityDeleteFilter {
         std::vector<int> field_ids;
