@@ -92,7 +92,58 @@ class AdbcDorisMetadataTest {
                     Assertions.assertDoesNotThrow(() -> metadata.listDatabaseNames(null)));
             Assertions.assertEquals(List.of("base_table"), metadata.listTableNames(null, "main"));
             Assertions.assertTrue(client.queries.isEmpty());
+            Assertions.assertEquals(AnsiDialect.NAME, new AdbcDialectSelector("").select(() -> client).name());
             Assertions.assertEquals(1, client.vendorProbes);
+        }
+    }
+
+    @Test
+    void metadataRetriesVendorAfterATemporaryInfoFailure() {
+        try (RecordingClient client = new RecordingClient("internal", List.of(List.of("db_one")))) {
+            client.standardMetadata = true;
+            client.vendorFailure = new AdbcException("temporary getInfo failure", null,
+                    AdbcStatusCode.IO, null, 0);
+            AdbcConnectorMetadata metadata = metadata(client);
+            Assertions.assertThrows(DorisConnectorException.class, () -> metadata.listDatabaseNames(null));
+            // A failed identity lookup must not issue the unscoped RPC that can recurse on a loopback source.
+            Assertions.assertEquals(0, client.standardMetadataReads);
+            Assertions.assertEquals(1, client.vendorProbes);
+            client.vendorFailure = null;
+            Assertions.assertEquals(List.of("db_one"), metadata.listDatabaseNames(null));
+            Assertions.assertEquals(DorisDialect.NAME, new AdbcDialectSelector("").select(() -> client).name());
+            Assertions.assertEquals(2, client.vendorProbes);
+            Assertions.assertEquals(0, client.standardMetadataReads);
+        }
+    }
+
+    @Test
+    void metadataRetriesVendorAfterATemporaryConnectionFailure() {
+        try (RecordingClient client = new RecordingClient("internal", List.of(List.of("db_one")))) {
+            client.standardMetadata = true;
+            client.connectionFailure = new DorisConnectorException("temporary connection failure");
+            AdbcConnectorMetadata metadata = metadata(client);
+            Assertions.assertThrows(DorisConnectorException.class, () -> metadata.listDatabaseNames(null));
+            Assertions.assertEquals(0, client.vendorProbes);
+            client.connectionFailure = null;
+            Assertions.assertEquals(List.of("db_one"), metadata.listDatabaseNames(null));
+            Assertions.assertEquals(DorisDialect.NAME, new AdbcDialectSelector("").select(() -> client).name());
+            Assertions.assertEquals(1, client.vendorProbes);
+            Assertions.assertEquals(0, client.standardMetadataReads);
+        }
+    }
+
+    @Test
+    void automaticDialectRetriesVendorAfterATemporaryFailure() {
+        try (RecordingClient client = new RecordingClient("internal", List.of(List.of("db_one")))) {
+            client.vendorFailure = new AdbcException("temporary getInfo failure", null,
+                    AdbcStatusCode.IO, null, 0);
+            AdbcDialectSelector selector = new AdbcDialectSelector("");
+            Assertions.assertThrows(DorisConnectorException.class, () -> selector.select(() -> client));
+            client.vendorFailure = null;
+            Assertions.assertEquals(DorisDialect.NAME, selector.select(() -> client).name());
+            Assertions.assertEquals("`demo`", selector.select(() -> client).quoteIdentifier("demo"));
+            Assertions.assertEquals(List.of("db_one"), metadata(client).listDatabaseNames(null));
+            Assertions.assertEquals(2, client.vendorProbes);
         }
     }
 
@@ -196,8 +247,10 @@ class AdbcDorisMetadataTest {
         private int closedStatements;
         private String vendorName = "DorisFE";
         private AdbcException vendorFailure;
+        private DorisConnectorException connectionFailure;
         private boolean standardMetadata;
         private int vendorProbes;
+        private int standardMetadataReads;
 
         private RecordingClient(String currentCatalog, List<List<String>> rows) {
             super(Path.of("unused.so"), "unused.so", null, "grpc://localhost:1", null, null, Map.of());
@@ -207,6 +260,10 @@ class AdbcDorisMetadataTest {
 
         @Override
         public <T> T withConnection(AdbcConnectionCall<T> body) {
+            // Connection acquisition may fail before the optional getInfo call even starts.
+            if (connectionFailure != null) {
+                throw connectionFailure;
+            }
             try {
                 return body.apply(new AdbcConnection() {
                     @Override
@@ -221,6 +278,7 @@ class AdbcDorisMetadataTest {
                     public ArrowReader getObjects(GetObjectsDepth depth, String catalogPattern,
                             String dbSchemaPattern, String tableNamePattern, String[] tableTypes,
                             String columnNamePattern) throws AdbcException {
+                        standardMetadataReads++;
                         // An unscoped Flight metadata request reenters the catalog being loaded on a loopback source.
                         if (!standardMetadata) {
                             throw new AssertionError("Unscoped GetObjects would recursively load this ADBC catalog");
@@ -285,6 +343,8 @@ class AdbcDorisMetadataTest {
                     public void close() {
                     }
                 });
+            } catch (AdbcException e) {
+                throw AdbcClient.translate(e, "ADBC operation failed");
             } catch (RuntimeException | Error e) {
                 throw e;
             } catch (Exception e) {
