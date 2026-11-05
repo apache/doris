@@ -42,6 +42,7 @@ import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.connector.ConnectorStatementScopeImpl;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorPushdownOps;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorTaskScheduler;
@@ -1894,7 +1895,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
         List<ConnectorColumnHandle> columns = buildColumnHandles();
         tryPushDownProjection(columns);
-        Optional<ConnectorExpression> remainingFilter = buildRemainingFilter();
+        Optional<ConnectorExpression> remainingFilter = buildRemainingFilter(scanProvider);
         // Pin the MVCC snapshot onto currentHandle AFTER projection/filter pushdown rebuilt it and
         // immediately before planScan consumes it, so the native split path reads at the pinned
         // snapshot. getSplits already declares UserException, so a getTargetTable() failure propagates.
@@ -2199,7 +2200,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             boolean countPushdown = isTableLevelCountStarPushdown();
             long estimate = readMetadata(() -> onPluginClassLoader(scanProvider,
                     () -> scanProvider.streamingSplitEstimate(
-                            connectorSession, currentHandle, buildRemainingFilter(), countPushdown)));
+                            connectorSession, currentHandle, buildRemainingFilter(scanProvider), countPushdown)));
             if (estimate >= 0) {
                 // Streaming does not know the final scanned-partition count before dispatch. Partition
                 // rules need that count now; use synchronous planning, which publishes the connector count.
@@ -2343,7 +2344,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // request, just as getSplits does. Batch scans deliberately omit LIMIT and COUNT(*) pushdown.
         List<ConnectorColumnHandle> columns = buildColumnHandles();
         tryPushDownProjection(columns);
-        Optional<ConnectorExpression> remainingFilter = buildRemainingFilter();
+        Optional<ConnectorExpression> remainingFilter = buildRemainingFilter(resolveScanProvider());
         // The pre-pin streaming estimate is only a scheduling hint; the source reads the pinned handle.
         pinMvccSnapshot();
         pinRewriteFileScope();
@@ -2677,7 +2678,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 // (same unchecked error channel as create() above) rather than dropped.
                 try {
                     columns = buildColumnHandles();
-                    filter = buildRemainingFilter();
+                    filter = buildRemainingFilter(scanProvider);
                     pinMvccSnapshot();
                 } catch (UserException e) {
                     throw new RuntimeException("Failed to build column handles / pin MVCC snapshot"
@@ -2888,7 +2889,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * If no conjuncts remain, returns {@link Optional#empty()}.
      * Filters out CAST-containing predicates when the connector does not support CAST pushdown.
      */
-    private Optional<ConnectorExpression> buildRemainingFilter() {
+    private Optional<ConnectorExpression> buildRemainingFilter(ConnectorScanPlanProvider scanProvider) {
         if (conjuncts == null || conjuncts.isEmpty()) {
             filteredToOriginalIndex = null;
             return Optional.empty();
@@ -2896,6 +2897,12 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         List<Expr> pushableConjuncts = new ArrayList<>();
         filteredToOriginalIndex = new ArrayList<>();
         boolean supportsCast = metadata().supportsCastPredicatePushdown(connectorSession);
+        // A gateway's metadata policy covers the catalog. Its per-table scan provider can also
+        // reject CASTs before the expression converter unwraps them for file pruning.
+        if (supportsCast && scanProvider instanceof ConnectorPushdownOps) {
+            supportsCast = onPluginClassLoader(scanProvider,
+                    () -> ((ConnectorPushdownOps) scanProvider).supportsCastPredicatePushdown(connectorSession));
+        }
         for (int i = 0; i < conjuncts.size(); i++) {
             Expr conjunct = conjuncts.get(i);
             // The neutral converter strips CASTs. Instant casts can depend on the Doris session

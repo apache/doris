@@ -21,15 +21,18 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorPushdownOps;
 import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 
@@ -74,7 +77,7 @@ public class PluginDrivenScanNodeCastPredicateTest extends TestWithFeService {
         List<Expr> before = Expr.cloneList(conjuncts);
 
         PluginDrivenScanNode node = nodeWith(conjuncts, false);
-        Optional<ConnectorExpression> filter = Deencapsulation.invoke(node, "buildRemainingFilter");
+        Optional<ConnectorExpression> filter = buildFilter(node, Mockito.mock(ConnectorScanPlanProvider.class));
 
         Assertions.assertFalse(filter.isPresent(), predicate);
         // Nothing was sent to the connector, so the source LIMIT must stay off ...
@@ -93,7 +96,7 @@ public class PluginDrivenScanNodeCastPredicateTest extends TestWithFeService {
         List<Expr> before = Expr.cloneList(conjuncts);
 
         PluginDrivenScanNode node = nodeWith(conjuncts, false);
-        Optional<ConnectorExpression> filter = Deencapsulation.invoke(node, "buildRemainingFilter");
+        Optional<ConnectorExpression> filter = buildFilter(node, Mockito.mock(ConnectorScanPlanProvider.class));
 
         Assertions.assertTrue(filter.isPresent());
         Assertions.assertTrue(filter.get() instanceof ConnectorComparison, filter.get().toString());
@@ -111,7 +114,7 @@ public class PluginDrivenScanNodeCastPredicateTest extends TestWithFeService {
         Assertions.assertFalse(conjuncts.stream().anyMatch(PluginDrivenScanNode::containsCastExpr), predicate);
 
         PluginDrivenScanNode node = nodeWith(conjuncts, false);
-        Optional<ConnectorExpression> filter = Deencapsulation.invoke(node, "buildRemainingFilter");
+        Optional<ConnectorExpression> filter = buildFilter(node, Mockito.mock(ConnectorScanPlanProvider.class));
 
         Assertions.assertTrue(filter.isPresent(), predicate);
         // Every conjunct went to the connector, so no index remapping is needed.
@@ -123,11 +126,31 @@ public class PluginDrivenScanNodeCastPredicateTest extends TestWithFeService {
         List<Expr> conjuncts = planConjuncts("cast(code as int) = 5");
 
         PluginDrivenScanNode node = nodeWith(conjuncts, true);
-        Optional<ConnectorExpression> filter = Deencapsulation.invoke(node, "buildRemainingFilter");
+        Optional<ConnectorExpression> filter = buildFilter(node, Mockito.mock(ConnectorScanPlanProvider.class));
 
         // The same conjunct is pushed once the connector accepts CASTs, so the rule above is the switch.
         Assertions.assertTrue(filter.isPresent());
         Assertions.assertNull(Deencapsulation.getField(node, "filteredToOriginalIndex"));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"true,false", "false,true", "true,true"})
+    public void tableScanCanVetoCastsWithoutRelaxingCatalogPolicy(boolean catalogAccepts, boolean readerAccepts)
+            throws Exception {
+        List<Expr> conjuncts = planConjuncts("cast(amount as bigint) = 123");
+        Assertions.assertTrue(conjuncts.stream().anyMatch(PluginDrivenScanNode::containsCastExpr));
+        PluginDrivenScanNode node = nodeWith(conjuncts, catalogAccepts);
+        ConnectorScanPlanProvider provider = Mockito.mock(ConnectorScanPlanProvider.class,
+                Mockito.withSettings().extraInterfaces(ConnectorPushdownOps.class));
+        Mockito.when(((ConnectorPushdownOps) provider).supportsCastPredicatePushdown(Mockito.any()))
+                .thenReturn(readerAccepts);
+
+        Assertions.assertEquals(catalogAccepts && readerAccepts, buildFilter(node, provider).isPresent());
+    }
+
+    private static Optional<ConnectorExpression> buildFilter(PluginDrivenScanNode node,
+            ConnectorScanPlanProvider provider) {
+        return Deencapsulation.invoke(node, "buildRemainingFilter", provider);
     }
 
     private List<Expr> planConjuncts(String predicate) throws Exception {

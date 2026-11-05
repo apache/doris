@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.deltalake;
 
+import org.apache.doris.connector.spi.ConnectorPushdownOps;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScopes;
 import org.apache.doris.connector.spi.DorisConnectorException;
@@ -51,7 +52,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 
-final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
+final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider, ConnectorPushdownOps {
     private static final String SCHEMA_MAPPING = "deltalake.schema_mapping";
     private static final long DEFAULT_SPLIT_SIZE = 128L << 20;
     private final DeltaLakeRuntime runtime;
@@ -61,6 +62,12 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
 
     DeltaLakeScanPlanProvider(DeltaLakeRuntime runtime) {
         this.runtime = runtime;
+    }
+
+    @Override
+    public boolean supportsCastPredicatePushdown(ConnectorSession session) {
+        // CAST(123.45 AS BIGINT) matches 123. The unwrapped decimal predicate would skip its file.
+        return false;
     }
 
     @Override
