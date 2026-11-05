@@ -378,7 +378,10 @@ public class IndexDefinition {
                         + " or key columns of AGG_KEYS table. invalid index: " + name);
                 } else if (keysType == KeysType.UNIQUE_KEYS && !enableUniqueKeyMergeOnWrite
                         && indexType == IndexType.INVERTED && properties != null
-                        && properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)) {
+                        && (properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
+                            || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY_ALIAS)
+                            || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_ANALYZER_NAME_KEY)
+                            || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_NORMALIZER_NAME_KEY))) {
                     throw new AnalysisException("INVERTED index with parser can NOT be used in value columns of"
                         + " UNIQUE_KEYS table with merge_on_write disable. invalid index: " + name);
                 }
