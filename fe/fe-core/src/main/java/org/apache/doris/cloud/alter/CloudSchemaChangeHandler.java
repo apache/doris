@@ -151,20 +151,15 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
         List<Partition> partitions = Lists.newArrayList();
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
         UpdatePartitionMetaParam param = new UpdatePartitionMetaParam();
+        TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat = null;
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT)) {
-            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat =
+            invertedIndexFileStorageFormat =
                     PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(new HashMap<>(properties));
             if (invertedIndexFileStorageFormat == null) {
                 return;
             }
             olapTable.readLock();
             try {
-                // New partitions must retain the format required by the table's values indexes.
-                if (invertedIndexFileStorageFormat != TInvertedIndexFileStorageFormat.SNII
-                        && olapTable.getIndexes().stream().anyMatch(Index::isVariantValuesIndex)) {
-                    throw new DdlException(
-                            "VARIANT values index requires partition.inverted_index_storage_format=SNII");
-                }
                 if (invertedIndexFileStorageFormat == olapTable.getPartitionInvertedIndexFileStorageFormat()) {
                     LOG.info("partitionInvertedIndexFileStorageFormat:{} is equal with table format:{}",
                             invertedIndexFileStorageFormat, olapTable.getPartitionInvertedIndexFileStorageFormat());
@@ -425,6 +420,13 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
 
         olapTable.writeLockOrDdlException();
         try {
+            // Serialize this invariant with values-index ADD, which also holds the table write lock.
+            if (invertedIndexFileStorageFormat != null
+                    && invertedIndexFileStorageFormat != TInvertedIndexFileStorageFormat.SNII
+                    && olapTable.getIndexes().stream().anyMatch(Index::isVariantValuesIndex)) {
+                throw new DdlException(
+                        "VARIANT values index requires partition.inverted_index_storage_format=SNII");
+            }
             checkPartitionRetentionCount(olapTable, properties);
             Env.getCurrentEnv().modifyTableProperties(db, olapTable, properties);
         } finally {
