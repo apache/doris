@@ -17,6 +17,7 @@
 
 #include "exec/scan/file_scanner_v2.h"
 
+#include <bvar/reducer.h>
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 
@@ -91,6 +92,8 @@ const std::string FileScannerV2::FileReadBytesProfile = "FileReadBytes";
 const std::string FileScannerV2::FileReadTimeProfile = "FileReadTime";
 
 namespace {
+
+bvar::Adder<uint64_t> file_not_found("file_scanner_file_not_found");
 
 std::string table_format_name(const TFileRangeDesc& range);
 
@@ -451,21 +454,17 @@ Status FileScannerV2::_get_block_wrapped(RuntimeState* state, Block* block, bool
                 _table_reader->set_batch_size(_predict_reader_batch_rows());
             }
             const auto status = _table_reader->get_block(block, eof);
-            if (_should_skip_not_found(
-                        status,
-                        can_ignore_not_found_file(
-                                _current_range, config::ignore_not_found_file_in_external_table))) {
+            const auto ignored = _observe_split_status(status);
+            if (ignored == IgnoredSplitStatus::NOT_FOUND) {
                 RETURN_IF_ERROR(_table_reader->abort_split());
                 COUNTER_UPDATE(_not_found_file_counter, 1);
-                LOG(INFO) << "Skip missing file: query_id=" << print_id(_state->query_id())
-                          << ", path=" << _current_range.path << ", reason=NOT_FOUND";
                 RETURN_IF_ERROR(_complete_current_split());
                 _has_prepared_split = false;
                 block->clear_column_data(cast_set<int64_t>(_projected_columns.size()));
                 *eof = false;
                 continue;
             }
-            if (_should_skip_empty(status, _should_stop || _io_ctx->should_stop)) {
+            if (ignored == IgnoredSplitStatus::EMPTY) {
                 // END_OF_FILE here means the reader discovered a valid split with no data while
                 // opening or probing it, not that the Scanner has exhausted all splits, e.g. a
                 // zero-byte CSV with an explicit schema. Treat it like V1's empty-file path: finish
@@ -542,18 +541,14 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
         RETURN_IF_ERROR(_generate_partition_values(_current_range, &partition_values));
         const auto status =
                 _prepare_table_reader_split(_current_range, std::move(partition_values));
-        if (_should_skip_not_found(
-                    status,
-                    can_ignore_not_found_file(_current_range,
-                                              config::ignore_not_found_file_in_external_table))) {
+        const auto ignored = _observe_split_status(status);
+        if (ignored == IgnoredSplitStatus::NOT_FOUND) {
             RETURN_IF_ERROR(_table_reader->abort_split());
             COUNTER_UPDATE(_not_found_file_counter, 1);
-            LOG(INFO) << "Skip missing file: query_id=" << print_id(_state->query_id())
-                      << ", path=" << _current_range.path << ", reason=NOT_FOUND";
             RETURN_IF_ERROR(_complete_current_split());
             continue;
         }
-        if (_should_skip_empty(status, _should_stop || _io_ctx->should_stop)) {
+        if (ignored == IgnoredSplitStatus::EMPTY) {
             // Schema discovery can reach EOF before a split becomes prepared. A header-only Native
             // file follows this path, while a reader that discovers emptiness on its first
             // get_block() follows the symmetric branch in _get_block_impl(). Both paths must
@@ -575,11 +570,7 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
             bool was_split = false;
             const auto split_status = _table_reader->build_physical_splits(
                     _current_split, &generated_splits, &was_split);
-            const auto ignored_split_status = _classify_ignored_split_status(
-                    split_status,
-                    can_ignore_not_found_file(_current_range,
-                                              config::ignore_not_found_file_in_external_table),
-                    _should_stop || _io_ctx->should_stop);
+            const auto ignored_split_status = _observe_split_status(split_status);
             if (ignored_split_status == IgnoredSplitStatus::NOT_FOUND) {
                 RETURN_IF_ERROR(_table_reader->abort_split());
                 COUNTER_UPDATE(_not_found_file_counter, 1);
@@ -843,6 +834,25 @@ Status FileScannerV2::_prepare_table_reader_split(const TFileRangeDesc& range,
             .predicate_snapshot = _predicate_snapshot,
     }));
     return Status::OK();
+}
+
+FileScannerV2::IgnoredSplitStatus FileScannerV2::_observe_split_status(const Status& status) const {
+    if (status.ok()) {
+        return IgnoredSplitStatus::NONE;
+    }
+    const auto ignored = _classify_ignored_split_status(
+            status,
+            can_ignore_not_found_file(_current_range,
+                                      config::ignore_not_found_file_in_external_table),
+            _should_stop || _io_ctx->should_stop);
+    if (status.is<ErrorCode::NOT_FOUND>()) {
+        file_not_found << 1;
+        LOG(WARNING) << "FileScanner file not found: query_id=" << print_id(_state->query_id())
+                     << " path=" << _current_range.path << " error=" << status.to_string()
+                     << " ignored="
+                     << (ignored == IgnoredSplitStatus::NOT_FOUND ? "true" : "false");
+    }
+    return ignored;
 }
 
 bool FileScannerV2::_should_skip_not_found(const Status& status, bool ignore_not_found) {

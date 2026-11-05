@@ -186,6 +186,7 @@ private:
                                            std::unique_ptr<format::TableReader>* reader) const;
     Status _prepare_table_reader_split(const TFileRangeDesc& range,
                                        std::map<std::string, Field> partition_values);
+    IgnoredSplitStatus _observe_split_status(const Status& status) const;
     static bool _should_skip_not_found(const Status& status, bool ignore_not_found);
     static bool _should_skip_empty(const Status& status, bool stopped);
     static IgnoredSplitStatus _classify_ignored_split_status(const Status& status,

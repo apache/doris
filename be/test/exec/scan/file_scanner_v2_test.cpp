@@ -17,7 +17,9 @@
 
 #include "exec/scan/file_scanner_v2.h"
 
+#include <bvar/variable.h>
 #include <gen_cpp/PlanNodes_types.h>
+#include <glog/logging.h>
 #include <gtest/gtest.h>
 
 #include <atomic>
@@ -28,6 +30,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <typeinfo>
 #include <unordered_map>
@@ -59,8 +62,13 @@
 #include "format_v2/file_scan_context.h"
 #include "format_v2/predicate_snapshot.h"
 #include "format_v2/table/fluss_hybrid_reader.h"
+#include "format_v2/table/hive_reader.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/local_file_system.h"
 #include "storage/id_manager.h"
 #include "testutil/mock/mock_runtime_state.h"
+#include "testutil/scoped_temp_dir.h"
+#include "util/defer_op.h"
 #include "util/timezone_utils.h"
 
 namespace doris {
@@ -192,10 +200,212 @@ public:
         return read_status;
     }
 
+    Status build_physical_splits(const FileScanSplit&, std::vector<FileScanSplit>*,
+                                 bool* was_split) override {
+        *was_split = false;
+        return split_status;
+    }
+
     Status prepare_status;
     Status refresh_status;
+    Status split_status;
     Status read_status;
 };
+
+class MissingFileLogSink : public google::LogSink {
+public:
+    explicit MissingFileLogSink(std::string path) : _path(std::move(path)) {
+        google::AddLogSink(this);
+    }
+    ~MissingFileLogSink() override { google::RemoveLogSink(this); }
+
+    void send(google::LogSeverity severity, const char*, const char* base_filename, int,
+              const google::LogMessageTime&, const char* message, size_t message_len) override {
+        std::string text(message, message_len);
+        if (severity == google::GLOG_WARNING &&
+            std::string_view(base_filename) == "file_scanner_v2.cpp" &&
+            text.find("FileScanner file not found:") != std::string::npos &&
+            text.find(_path) != std::string::npos) {
+            std::lock_guard lock(_mutex);
+            _messages.emplace_back(std::move(text));
+        }
+    }
+
+    std::vector<std::string> messages() const {
+        std::lock_guard lock(_mutex);
+        return _messages;
+    }
+
+private:
+    const std::string _path;
+    mutable std::mutex _mutex;
+    std::vector<std::string> _messages;
+};
+
+struct ReaderFailurePoint {
+    const char* name;
+    Status ErrorContextTableReader::*status;
+};
+
+struct ExpectedScanObservation {
+    int warnings = 0;
+    int skipped = 0;
+    int empty = 0;
+    bool eof = false;
+};
+
+void expect_scan_output(FileScannerV2& scanner, RuntimeState& state, const std::string& prefix,
+                        const Status& expected_status, ExpectedScanObservation expected) {
+    constexpr auto metric = "file_scanner_file_not_found";
+    const auto before = bvar::Variable::describe_exposed(metric);
+    ASSERT_FALSE(before.empty());
+    MissingFileLogSink warnings(prefix);
+    Block block;
+    bool eof = false;
+    const auto result = scanner._get_block_impl(&state, &block, &eof);
+    if (expected.eof || expected_status.ok()) {
+        EXPECT_TRUE(result.ok()) << result;
+    } else {
+        EXPECT_EQ(result.code(), expected_status.code()) << result;
+        EXPECT_EQ(result.msg(), std::string(expected_status.msg()) + ". cur path: " + prefix + "0");
+    }
+    EXPECT_EQ(eof, expected.eof);
+    EXPECT_EQ(scanner._not_found_file_counter->value(), expected.skipped);
+    EXPECT_EQ(scanner._empty_file_counter->value(), expected.empty);
+    EXPECT_EQ(bvar::Variable::describe_exposed(metric),
+              std::to_string(std::stoull(before) + expected.warnings));
+    std::vector<std::string> expected_messages;
+    for (int i = 0; i < expected.warnings; ++i) {
+        expected_messages.push_back(
+                "FileScanner file not found: query_id=" + print_id(state.query_id()) +
+                " path=" + prefix + std::to_string(i) + " error=" + expected_status.to_string() +
+                " ignored=" + (expected.skipped ? "true" : "false"));
+    }
+    EXPECT_EQ(warnings.messages(), expected_messages);
+}
+
+void check_scan_observation(std::unique_ptr<format::TableReader> reader,
+                            const TFileRangeDesc& range_template, const std::string& prefix,
+                            bool ignore, const Status& expected_status, int range_count,
+                            ExpectedScanObservation expected) {
+    SCOPED_TRACE(testing::Message()
+                 << "format=" << range_template.format_type << " table="
+                 << range_template.table_format_params.table_format_type << " ignore=" << ignore
+                 << " status=" << expected_status << " ranges=" << range_count);
+    const bool saved = config::ignore_not_found_file_in_external_table;
+    Defer restore([&] { config::ignore_not_found_file_in_external_table = saved; });
+    config::ignore_not_found_file_in_external_table = ignore;
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    state._query_id.__set_lo(0x1234);
+    RuntimeProfile profile("missing_file_observation");
+    ObjectPool pool;
+    TDescriptorTable thrift_descriptors;
+    TTupleDescriptor tuple;
+    tuple.__set_id(0);
+    thrift_descriptors.tupleDescriptors.push_back(tuple);
+    DescriptorTbl* descriptors = nullptr;
+    ASSERT_TRUE(DescriptorTbl::create(&pool, thrift_descriptors, &descriptors).ok());
+    TPlanNode plan;
+    plan.__set_node_id(0);
+    plan.__set_node_type(TPlanNodeType::FILE_SCAN_NODE);
+    plan.__set_limit(-1);
+    plan.__set_row_tuples({0});
+    TFileScanNode scan;
+    scan.__set_tuple_id(0);
+    plan.__set_file_scan_node(scan);
+    FileScanOperatorX parent(&pool, plan, 0, *descriptors, 1);
+    FileScanLocalState local_state(&state, &parent);
+    TFileScanRangeParams params;
+    params.__set_format_type(range_template.format_type);
+    params.__set_file_type(TFileType::FILE_LOCAL);
+    TFileTextScanRangeParams text_params;
+    text_params.__set_column_separator(",");
+    text_params.__set_line_delimiter("\n");
+    TFileAttributes attributes;
+    attributes.__set_text_params(text_params);
+    params.__set_file_attributes(attributes);
+    TScanRangeParams split;
+    for (int i = 0; i < range_count; ++i) {
+        auto range = range_template;
+        range.__set_file_size(1024);
+        range.__set_size(1024);
+        range.__set_path(prefix + std::to_string(i));
+        split.scan_range.ext_scan_range.file_scan_range.ranges.push_back(std::move(range));
+    }
+    FileScannerV2 scanner(&state, &profile, std::move(reader));
+    scanner._params = &params;
+    scanner._local_state = &local_state;
+    scanner._io_ctx = std::make_shared<io::IOContext>();
+    const auto init = scanner._init_table_reader(range_template);
+    ASSERT_TRUE(init.ok()) << init;
+    scanner._constructed_scanners = 2;
+    scanner._split_source = std::make_shared<LocalSplitSourceConnector>(
+            std::vector<TScanRangeParams> {std::move(split)}, 1);
+    scanner._file_counter = ADD_COUNTER(&profile, "FileNumber", TUnit::UNIT);
+    scanner._not_found_file_counter = ADD_COUNTER(&profile, "NotFoundFileNum", TUnit::UNIT);
+    scanner._empty_file_counter = ADD_COUNTER(&profile, "EmptyFileNum", TUnit::UNIT);
+    scanner._adaptive_batch_predicted_rows_counter =
+            ADD_COUNTER(&profile, "Predicted", TUnit::UNIT);
+    scanner._adaptive_batch_actual_bytes_counter = ADD_COUNTER(&profile, "Actual", TUnit::BYTES);
+
+    expect_scan_output(scanner, state, prefix, expected_status, expected);
+}
+
+class FileScannerMissingFileTest : public testing::TestWithParam<ReaderFailurePoint> {
+protected:
+    void check_scan(TFileFormatType::type format, const char* table, bool ignore,
+                    const Status& injected, int range_count, ExpectedScanObservation expected) {
+        auto reader = std::make_unique<ErrorContextTableReader>();
+        reader.get()->*(GetParam().status) = injected;
+        check_scan_observation(std::move(reader), range_with_format(table, format),
+                               "/missing-file-observation/input-", ignore, injected, range_count,
+                               expected);
+    }
+};
+
+TEST(FileScannerV2Test, ReportsMissingFilesFromLocalParquetAndCsvReaders) {
+    const test::ScopedTempDirectory dir("doris_file_scanner_missing_files");
+    const auto prefix = (dir.path() / "input-").string();
+    io::FileReaderOptions options;
+    options.file_size = 1024;
+    io::FileReaderSPtr file;
+    const auto missing = io::global_local_filesystem()->open_file(prefix + "0", &file, &options);
+    ASSERT_TRUE(missing.is<ErrorCode::NOT_FOUND>()) << missing;
+    for (auto file_format : {TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_CSV_PLAIN}) {
+        for (bool ignore : {false, true}) {
+            check_scan_observation(
+                    format::hive::HiveReader::create_unique(),
+                    range_with_format("hive", file_format), prefix, ignore, missing, 1,
+                    {.warnings = 1, .skipped = static_cast<int>(ignore), .eof = ignore});
+        }
+    }
+}
+
+TEST_P(FileScannerMissingFileTest, ReportsMissingFilesWithEffectivePolicy) {
+    const auto missing = Status::NotFound<false>("missing reader input");
+    for (auto format : {TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_CSV_PLAIN}) {
+        check_scan(format, "hive", true, missing, 2, {.warnings = 2, .skipped = 2, .eof = true});
+        check_scan(format, "hive", false, missing, 1, {.warnings = 1});
+        check_scan(format, "iceberg", true, missing, 1, {.warnings = 1});
+    }
+}
+
+TEST_P(FileScannerMissingFileTest, ReportsOnlyNotFoundStatus) {
+    const auto format = TFileFormatType::FORMAT_PARQUET;
+    check_scan(format, "hive", true, Status::IOError<false>("NOT_FOUND is only text"), 1, {});
+    check_scan(format, "hive", true, Status::EndOfFile("empty input"), 1,
+               {.empty = 1, .eof = true});
+    check_scan(format, "hive", true, Status::NotFound<false>("unused status"), 0, {.eof = true});
+    check_scan(format, "hive", true, Status::OK(), 1, {});
+}
+
+INSTANTIATE_TEST_SUITE_P(
+        ReaderStages, FileScannerMissingFileTest,
+        testing::Values(ReaderFailurePoint {"Prepare", &ErrorContextTableReader::prepare_status},
+                        ReaderFailurePoint {"PlanSplits", &ErrorContextTableReader::split_status},
+                        ReaderFailurePoint {"Read", &ErrorContextTableReader::read_status}),
+        [](const auto& info) { return info.param.name; });
 
 TEST(FileScannerV2Test, ReaderErrorsRetainCurrentPathAndOrcContext) {
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
