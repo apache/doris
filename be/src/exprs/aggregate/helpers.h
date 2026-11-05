@@ -276,16 +276,21 @@ struct creator_without_type {
         }
         std::unique_ptr<IAggregateFunction> result(std::make_unique<AggregateFunctionTemplate>(
                 std::forward<TArgs>(args)..., remove_nullable(argument_types_)));
-        if (have_nullable(argument_types_)) {
+        if (have_nullable(argument_types_) || AggregateFunctionTemplate::needs_input_validity) {
             std::visit(
                     [&](auto result_is_nullable) {
+                        // Preserve input validity independently of final nullability.
+                        // V1 retains its stream codec (also used by persisted AGG_STATE),
+                        // while V2 retains the native intermediate column.
                         if (attr.enable_aggregate_function_null_v2) {
-                            result.reset(new NullableV2T<false, result_is_nullable,
-                                                         AggregateFunctionTemplate>(
+                            result.reset(new AggregateFunctionNullUnaryInlineV2<
+                                         AggregateFunctionTemplate, result_is_nullable,
+                                         AggregateFunctionTemplate::needs_input_validity>(
                                     result.release(), argument_types_, attr.is_window_function));
                         } else {
-                            result.reset(new NullableT<false, result_is_nullable,
-                                                       AggregateFunctionTemplate>(
+                            result.reset(new AggregateFunctionNullUnaryInline<
+                                         AggregateFunctionTemplate, result_is_nullable,
+                                         AggregateFunctionTemplate::needs_input_validity>(
                                     result.release(), argument_types_, attr.is_window_function));
                         }
                     },
