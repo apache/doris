@@ -63,6 +63,8 @@ private:
     struct Bucket {
         Window local;
         Window remote;
+        // A silent bucket must not reserve the shared probe slot indefinitely.
+        size_t idle_requests = PROBE_REQUEST_INTERVAL;
     };
     static size_t bucket_index(size_t bytes);
     Decision _select(size_t bytes, double skip_read_factor, int64_t now_us);
@@ -71,6 +73,7 @@ private:
     std::array<Bucket, BUCKET_COUNT> _buckets;
     // Probe limits span all size buckets: adding request sizes must not multiply disk pressure.
     size_t _requests_since_probe = 0;
+    size_t _next_probe_bucket = 0;
     int64_t _next_probe_us = 0;
     bool _probe_inflight = false;
 };

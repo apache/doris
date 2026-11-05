@@ -1110,6 +1110,53 @@ Status CachedRemoteFileReader::_read_from_indirect_cache(size_t offset, Slice re
     return Status::OK();
 }
 
+bool CachedRemoteFileReader::_try_read_from_inflight_buffers(size_t offset, Slice result,
+                                                             size_t bytes_req, bool is_dryrun,
+                                                             ReadStatistics& stats) {
+    if (!config::enable_async_file_cache_write_inflight_write_buffer_index) {
+        return false;
+    }
+    auto* inflight_index = _cache->inflight_write_buffer_index();
+    DORIS_CHECK(inflight_index != nullptr);
+    const auto block_size = static_cast<size_t>(config::file_cache_each_block_size);
+    DORIS_CHECK(block_size > 0);
+    const size_t request_end = offset + bytes_req;
+    std::vector<size_t> block_offsets;
+    for (size_t block_offset = offset / block_size * block_size; block_offset < request_end;
+         block_offset += block_size) {
+        block_offsets.emplace_back(block_offset);
+    }
+    auto entries = inflight_index->lookup_all(_cache_hash, block_offsets);
+    bool fully_covered = true;
+    for (const auto& item : entries) {
+        if (item.entry == nullptr) {
+            ++stats.inflight_write_buffer_index_miss;
+            fully_covered = false;
+        } else {
+            ++stats.inflight_write_buffer_index_hit;
+        }
+    }
+    if (!fully_covered) {
+        return false;
+    }
+    for (const auto& item : entries) {
+        const auto& entry = item.entry;
+        DORIS_CHECK(entry->buffer != nullptr);
+        DORIS_CHECK(entry->buffer_offset == item.block_offset);
+        const size_t copy_left = std::max(offset, item.block_offset);
+        const size_t copy_end = std::min(request_end, item.block_offset + block_size);
+        const size_t copy_size = copy_end - copy_left;
+        const size_t buffer_offset = copy_left - item.block_offset;
+        DORIS_CHECK(buffer_offset <= entry->buffer_size);
+        DORIS_CHECK(copy_size <= entry->buffer_size - buffer_offset);
+        if (!is_dryrun) [[likely]] {
+            std::memcpy(result.data + copy_left - offset, entry->buffer->data() + buffer_offset,
+                        copy_size);
+        }
+    }
+    return true;
+}
+
 Status CachedRemoteFileReader::_read_remote_only_on_cache_miss(
         size_t offset, Slice result, size_t bytes_req, bool is_dryrun, size_t* bytes_read,
         ReadStatistics& stats, SourceReadBreakdown& source_read_breakdown,
@@ -1138,6 +1185,20 @@ Status CachedRemoteFileReader::_read_remote_only_on_cache_miss(
     };
 
     g_read_cache_indirect_num << 1;
+    // A zero write budget must not hide buffers accepted before async writes were disabled.
+    // Check full memory coverage before disk metadata, matching the memory-first async planner.
+    if (_try_read_from_inflight_buffers(offset, result, bytes_req, is_dryrun, stats)) {
+        const size_t local_read_bytes = is_dryrun ? 0 : bytes_req;
+        if (is_dryrun) [[unlikely]] {
+            g_skip_local_cache_io_sum_bytes << bytes_req;
+        }
+        *bytes_read = bytes_req;
+        stats.hit_cache = true;
+        source_read_breakdown.local_bytes += local_read_bytes;
+        g_read_cache_indirect_bytes << local_read_bytes;
+        g_read_cache_indirect_total_bytes << bytes_req;
+        return Status::OK();
+    }
     CacheContext cache_context(io_ctx);
     cache_context.stats = &stats;
     cache_context.tablet_id = _tablet_id;
@@ -1230,8 +1291,8 @@ bool read_adaptor_cached_blocks(BlockFileCache* cache, const UInt128Wrapper& has
     return true;
 }
 
-// Inspect memory coverage without taking the disk-cache mutex. The ordinary async planner
-// retains responsibility for copying data and counting inflight hits or misses exactly once.
+// Inspect memory coverage without taking the disk-cache mutex. The ordinary memory-first planners
+// retain responsibility for copying data and counting inflight hits or misses exactly once.
 bool fully_covered_by_inflight_buffers(BlockFileCache* cache, const UInt128Wrapper& hash,
                                        size_t offset, size_t bytes_req) {
     const size_t block_size = config::file_cache_each_block_size;
@@ -1281,10 +1342,12 @@ Status CachedRemoteFileReader::_try_read_with_io_adaptor(
         size_t* bytes_read, const IOContext* io_ctx, ReadStatistics& stats,
         SourceReadBreakdown& sources, bool* handled) {
     *handled = false;
-    // Async writes may already own every requested byte in memory. Preserve the planner's
-    // inflight path instead of waiting for unrelated disk eviction under _cache->_mutex.
-    if (cache_write_mode == CacheWriteMode::ASYNC_WRITE &&
-        config::enable_async_file_cache_write_inflight_write_buffer_index &&
+    // Accepted async payloads remain readable after async writes are disabled. The
+    // remote-only-on-miss planner still checks memory first for a query with zero write budget,
+    // so it must not wait for unrelated disk eviction under _cache->_mutex either.
+    const bool memory_first = cache_write_mode == CacheWriteMode::ASYNC_WRITE ||
+                              use_remote_only_on_cache_miss(io_ctx);
+    if (memory_first && config::enable_async_file_cache_write_inflight_write_buffer_index &&
         fully_covered_by_inflight_buffers(_cache, _cache_hash, offset, bytes_req)) {
         return Status::OK();
     }
