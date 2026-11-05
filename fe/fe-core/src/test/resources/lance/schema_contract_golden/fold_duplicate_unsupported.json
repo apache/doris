@@ -1,0 +1,20 @@
+{
+  "dataset_dir": "fold_dup.lance",
+  "version": 1,
+  "column": "Vec",
+  "verdict": "unsupported",
+  "expected_contract": {
+    "scv": 1,
+    "flds": [
+      {
+        "fid": 0,
+        "nn": "vec",
+        "nt": "fixed_size_list",
+        "nul": false,
+        "fsd": 4,
+        "vet": "float32",
+        "ven": true
+      }
+    ]
+  }
+}
