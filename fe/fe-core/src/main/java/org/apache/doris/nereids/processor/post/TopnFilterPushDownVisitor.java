@@ -17,6 +17,10 @@
 
 package org.apache.doris.nereids.processor.post;
 
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapChangelogTableWrapper;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.OlapTableWrapper;
 import org.apache.doris.nereids.processor.post.TopnFilterPushDownVisitor.PushDownContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -301,13 +305,21 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
     }
 
     private boolean supportPhysicalRelations(PhysicalRelation relation) {
-        if (relation instanceof PhysicalOlapScan
-                && ((PhysicalOlapScan) relation).getTable().hasRowTtl()) {
-            return false;
+        if (relation instanceof PhysicalOlapScan) {
+            PhysicalOlapScan scan = (PhysicalOlapScan) relation;
+            OlapTable table = scan.getTable();
+            if (table.hasRowTtl() || table instanceof OlapChangelogTableWrapper) {
+                return false;
+            }
+            // A late bound can remove only part of a logical row before storage merges it.
+            // Check the selected index: a DUP table can also have an aggregate index.
+            // Changelog wrappers report DUP_KEYS but can still fold multiple stored events.
+            KeysType keysType = table.getIndexMetaByIndexId(scan.getSelectedIndexId()).getKeysType();
+            OlapTable storageTable = table instanceof OlapTableWrapper
+                    ? ((OlapTableWrapper) table).getOriginTable() : table;
+            return keysType == KeysType.DUP_KEYS
+                    || (keysType == KeysType.UNIQUE_KEYS && storageTable.getEnableUniqueKeyMergeOnWrite());
         }
-        return relation instanceof PhysicalOlapScan
-                || relation instanceof PhysicalOdbcScan
-                || relation instanceof PhysicalFileScan
-                || relation instanceof PhysicalLazyMaterializeOlapScan;
+        return relation instanceof PhysicalOdbcScan || relation instanceof PhysicalFileScan;
     }
 }

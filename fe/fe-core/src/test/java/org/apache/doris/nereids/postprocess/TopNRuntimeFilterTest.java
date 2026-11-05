@@ -17,11 +17,16 @@
 
 package org.apache.doris.nereids.postprocess;
 
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.datasets.ssb.SSBTestBase;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.post.TopnFilterContext;
+import org.apache.doris.nereids.processor.post.TopnFilterPushDownVisitor;
+import org.apache.doris.nereids.processor.post.TopnFilterPushDownVisitor.PushDownContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -35,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
@@ -42,11 +48,14 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TSortAlgorithm;
 import org.apache.doris.thrift.TSortNode;
+import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTopnFilterDesc;
+import org.apache.doris.tso.TSOTimestamp;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -57,17 +66,121 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMatchSupported {
+    private boolean previousEnableChangelog;
+
     @Override
     public void runBeforeAll() throws Exception {
         super.runBeforeAll();
+        previousEnableChangelog = Config.enable_feature_changelog;
+        Config.enable_feature_changelog = true;
         createTable("CREATE TABLE topn_safety (id INT, k INT, d DATE, ts BIGINT) DUPLICATE KEY(id) "
                 + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')");
+        createTable("CREATE TABLE topn_storage_agg (k INT, v BIGINT SUM) AGGREGATE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1')");
+        createTable("CREATE TABLE topn_storage_dup (k INT, v BIGINT) DUPLICATE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1')");
+        createTable("CREATE TABLE topn_storage_mor (k INT, v BIGINT) UNIQUE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1', "
+                + "'enable_unique_key_merge_on_write'='false')");
+        createTable("CREATE TABLE topn_storage_mow (k INT, v BIGINT) UNIQUE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1', "
+                + "'enable_unique_key_merge_on_write'='true', 'changelog.enable'='true', "
+                + "'changelog.need_historical_value'='true')");
         createTable("CREATE TABLE uuid_topn (id INT, u UUID) DUPLICATE KEY(id) "
                 + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')");
         createTable("CREATE TABLE topn_nested_fields (id INT, "
                 + "ts STRUCT<a: TIMESTAMPTZ(0), b: TIMESTAMPTZ(0)>, "
                 + "si STRUCT<a: INT, b: INT>, sd STRUCT<a: DATE, b: DATE>) DUPLICATE KEY(id) "
                 + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')");
+    }
+
+    @Override
+    protected void runAfterAll() throws Exception {
+        Config.enable_feature_changelog = previousEnableChangelog;
+        super.runAfterAll();
+    }
+
+    @Test
+    public void testTopNFilterDoesNotCrossStorageMerge() {
+        double previousRatio = connectContext.getSessionVariable().topnFilterRatio;
+        String previousAlgorithm = connectContext.getSessionVariable().forceSortAlgorithm;
+        String previousRules = String.join(",", connectContext.getSessionVariable().getDisableNereidsRuleNames());
+        connectContext.getSessionVariable().topnFilterRatio = 1000000;
+        connectContext.getSessionVariable().forceSortAlgorithm = "heap";
+        connectContext.getSessionVariable().setDisableNereidsRules(previousRules
+                + ",PRUNE_EMPTY_PARTITION,PUSH_DOWN_TOP_N_THROUGH_UNION");
+        try {
+            for (String source : List.of("topn_storage_agg", "topn_storage_mor", "topn_storage_mow",
+                    "topn_storage_mow@incr('incrementType'='MIN_DELTA')",
+                    "topn_storage_mow@incr('incrementType'='DETAIL')")) {
+                for (String key : List.of("k", "abs(k)")) {
+                    for (String direction : List.of("ASC", "DESC")) {
+                        String sql = "SELECT k,v FROM (SELECT k,v FROM " + source
+                                + " UNION ALL SELECT k,v FROM topn_storage_dup) u ORDER BY "
+                                + key + " " + direction + " NULLS LAST LIMIT 1";
+                        PlanChecker checker = PlanChecker.from(connectContext).parse(sql);
+                        // Direct analyzer tests must supply the planner's changelog reference timestamp.
+                        checker.getCascadesContext().getStatementContext().getOrRegisterChangelogReferenceTso(
+                                () -> TSOTimestamp.composePhysicalTimestamp(System.currentTimeMillis()));
+                        checker.analyze().rewrite().implement();
+                        PhysicalPlan plan = new PlanPostProcessors(checker.getCascadesContext())
+                                .process(checker.getPhysicalPlan());
+                        // The unsafe aggregation happens inside the reader, not in a SQL aggregate node.
+                        Assertions.assertFalse(plan.anyMatch(PhysicalHashAggregate.class::isInstance),
+                                plan.treeString());
+                        List<TopnFilter> filters = checker.getCascadesContext().getTopnFilterContext().getTopnFilters();
+                        Assertions.assertEquals(1, filters.size(), plan.treeString());
+                        TopnFilter filter = filters.get(0);
+                        boolean safeSource = source.equals("topn_storage_mow");
+                        Assertions.assertEquals(safeSource ? 2 : 1, filter.targets.size(), plan.treeString());
+                        Assertions.assertTrue(filter.targets.keySet().stream().anyMatch(target ->
+                                ((PhysicalOlapScan) target).getTable().getName().equals("topn_storage_dup")));
+                        new PhysicalPlanTranslator(new PlanTranslatorContext(checker.getCascadesContext()))
+                                .translatePlan(plan);
+                        Assertions.assertEquals(safeSource ? 2 : 1,
+                                filter.toThrift().getTargetNodeIdToTargetExprSize());
+                    }
+                }
+            }
+        } finally {
+            connectContext.getSessionVariable().topnFilterRatio = previousRatio;
+            connectContext.getSessionVariable().forceSortAlgorithm = previousAlgorithm;
+            connectContext.getSessionVariable().setDisableNereidsRules(previousRules);
+        }
+    }
+
+    @Test
+    public void testTopNFilterChecksSelectedIndexThroughLazyScan() {
+        double previousRatio = connectContext.getSessionVariable().topnFilterRatio;
+        String previousRules = String.join(",", connectContext.getSessionVariable().getDisableNereidsRuleNames());
+        connectContext.getSessionVariable().topnFilterRatio = 1000000;
+        connectContext.getSessionVariable().setDisableNereidsRules(previousRules + ",PRUNE_EMPTY_PARTITION");
+        try {
+            PlanChecker checker = PlanChecker.from(connectContext)
+                    .analyze("SELECT k,v FROM topn_storage_dup ORDER BY k LIMIT 1").rewrite().implement();
+            PhysicalPlan plan = checker.getPhysicalPlan();
+            PhysicalOlapScan scan = plan.<PhysicalOlapScan>collectToList(PhysicalOlapScan.class::isInstance).get(0);
+            PhysicalTopN<?> topn = plan.<PhysicalTopN<?>>collectToList(PhysicalTopN.class::isInstance).get(0);
+            OlapTable table = PlanConstructor.newOlapTable(10001, "topn_index_model", 0, KeysType.DUP_KEYS);
+            table.setIndexMeta(10002, "aggregate_index", table.getFullSchema(), 0, 0, (short) 0,
+                    TStorageType.COLUMN, KeysType.AGG_KEYS);
+            for (long indexId : List.of(table.getBaseIndexId(), 10002L)) {
+                PhysicalOlapScan selectedScan = Mockito.spy(scan);
+                Mockito.doReturn(table).when(selectedScan).getTable();
+                Mockito.doReturn(indexId).when(selectedScan).getSelectedIndexId();
+                for (PhysicalOlapScan target : List.of(selectedScan, new PhysicalLazyMaterializeOlapScan(
+                        selectedScan, Mockito.mock(SlotReference.class), List.of()))) {
+                    TopnFilterContext context = new TopnFilterContext();
+                    boolean accepted = target.accept(new TopnFilterPushDownVisitor(context),
+                            new PushDownContext(topn, scan.getOutput().get(0), false));
+                    Assertions.assertEquals(indexId == table.getBaseIndexId(), accepted);
+                    Assertions.assertEquals(indexId == table.getBaseIndexId() ? 1 : 0, context.getTopnFilters().size());
+                }
+            }
+        } finally {
+            connectContext.getSessionVariable().topnFilterRatio = previousRatio;
+            connectContext.getSessionVariable().setDisableNereidsRules(previousRules);
+        }
     }
 
     @Test
