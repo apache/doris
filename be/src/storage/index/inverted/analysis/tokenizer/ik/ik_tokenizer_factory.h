@@ -26,24 +26,28 @@ namespace doris::segment_v2::inverted_index {
 
 class IKTokenizerFactory : public TokenizerFactory {
 public:
-    explicit IKTokenizerFactory(bool use_smart) : _use_smart(use_smart) {}
+    // A custom ik tokenizer always lowercases its words; the builtin ik parser follows lower_case.
+    explicit IKTokenizerFactory(bool use_smart, bool lowercase = true)
+            : _config(std::make_shared<Configuration>(use_smart, true)), _lowercase(lowercase) {
+        _config->setDictPath(config::inverted_index_dict_path + "/ik");
+    }
     ~IKTokenizerFactory() override = default;
 
     void initialize(const Settings& settings) override {}
 
-    TokenizerPtr create() override {
-        auto ik_config = std::make_shared<Configuration>(_use_smart, true);
-        ik_config->setDictPath(config::inverted_index_dict_path + "/ik");
-        Dictionary::initial(*ik_config);
-        return std::make_shared<IKTokenizer>(ik_config, true, false);
-    }
+    // Loads the dictionaries unless they are loaded already; throws when they cannot be.
+    void load_dictionary() const { Dictionary::initial(*_config); }
 
-    PositionCapability position_capability() const override {
-        return PositionCapability::kAlwaysUnitIncrement;
+    std::unique_ptr<TextTokenizer> create() const override {
+        load_dictionary();
+        return std::make_unique<IKTokenizer>(_config, _lowercase);
     }
 
 private:
-    bool _use_smart;
+    // Dictionary matching always lowercases ASCII; `_lowercase` only applies to the words. The
+    // streams share this configuration and only read it.
+    const std::shared_ptr<Configuration> _config;
+    const bool _lowercase;
 };
 
 } // namespace doris::segment_v2::inverted_index

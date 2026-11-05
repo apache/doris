@@ -19,19 +19,9 @@
 
 #include <gtest/gtest.h>
 
+#include "storage/index/inverted/analysis/text_stream_contract.h"
+
 namespace doris::segment_v2::inverted_index {
-
-TokenStreamPtr create_standard_tokenizer(const std::string& text, Settings settings = Settings()) {
-    ReaderPtr reader = std::make_shared<lucene::util::SStringReader<char>>();
-    reader->init(text.data(), text.size(), false);
-
-    StandardTokenizerFactory factory;
-    factory.initialize(settings);
-    auto tokenizer = factory.create();
-    tokenizer->set_reader(reader);
-    tokenizer->reset();
-    return tokenizer;
-}
 
 struct ExpectedToken {
     std::string term;
@@ -47,19 +37,18 @@ protected:
         if (max_token_length != StandardTokenizer::DEFAULT_MAX_TOKEN_LENGTH) {
             settings.set("max_token_length", std::to_string(max_token_length));
         }
-        auto tokenizer = create_standard_tokenizer(text, settings);
+        StandardTokenizerFactory factory;
+        factory.initialize(settings);
+        auto tokenizer = factory.create();
+        const std::vector<CollectedToken> tokens = collect_checked(*tokenizer, text);
 
-        Token t;
-        size_t i = 0;
-        while (tokenizer->next(&t)) {
+        for (size_t i = 0; i < tokens.size(); ++i) {
             ASSERT_LT(i, expected.size()) << "More tokens produced than expected";
-            std::string term(t.termBuffer<char>(), t.termLength<char>());
-            EXPECT_EQ(term, expected[i].term) << "Term mismatch at index " << i;
-            EXPECT_EQ(t.getPositionIncrement(), expected[i].pos_inc)
+            EXPECT_EQ(tokens[i].term, expected[i].term) << "Term mismatch at index " << i;
+            EXPECT_EQ(tokens[i].position_increment, expected[i].pos_inc)
                     << "Pos increment mismatch at index " << i;
-            ++i;
         }
-        EXPECT_EQ(i, expected.size()) << "Number of tokens mismatch";
+        EXPECT_EQ(tokens.size(), expected.size()) << "Number of tokens mismatch";
     }
 };
 
@@ -124,7 +113,7 @@ TEST_F(StandardTokenizerTest, FactoryInitialization) {
     factory.initialize(settings);
 
     auto tokenizer = factory.create();
-    auto standard_tokenizer = std::dynamic_pointer_cast<StandardTokenizer>(tokenizer);
+    auto* standard_tokenizer = dynamic_cast<StandardTokenizer*>(tokenizer.get());
     ASSERT_NE(standard_tokenizer, nullptr);
 }
 

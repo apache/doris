@@ -205,9 +205,6 @@ public:
         try {
             *out = inverted_index::InvertedIndexAnalyzer::normalize(value,
                                                                     binding->index_properties);
-        } catch (const CLuceneError& e) {
-            return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
-                    "search: normalizing '{}' failed: {}", value, e.what());
         } catch (const Exception& e) {
             return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
                     "search: normalizing '{}' failed: {}", value, e.what());
