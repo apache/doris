@@ -50,7 +50,7 @@ suite("topn_runtime_filter_storage_merge") {
     sql "SET force_sort_algorithm='heap'"
     sql "SET disable_nereids_rules='PUSH_DOWN_TOP_N_THROUGH_UNION'"
 
-    def checkMerge = { String name, String source, String validPayload, int targets ->
+    def checkMerge = { String name, String source, String validPayload ->
         for (String key : ["k", "abs(k)"]) {
             for (String direction : ["ASC", "DESC"]) {
                 String tag = "${name}_${key == 'k' ? 'slot' : 'expr'}_${direction.toLowerCase()}"
@@ -70,16 +70,15 @@ suite("topn_runtime_filter_storage_merge") {
                     sql query
                     contains "UNION"
                     contains "TOP-N"
-                    // Detect the unsafe target without relying on the arrival time of the bound.
-                    // The safe UNION sibling must still receive its filter.
-                    multiContains "TOPN OPT:", targets
+                    // Keep both targets. BE retains ties on the merging scan only.
+                    multiContains "TOPN OPT:", 2
                 }
                 "order_qt_${tag}_enabled"(query)
             }
         }
     }
-    checkMerge("agg", "topn_storage_merge_agg", "v <=> 30 OR v <=> 999", 1)
-    checkMerge("mor", "topn_storage_merge_mor", "v <=> 20 OR v <=> 999", 1)
+    checkMerge("agg", "topn_storage_merge_agg", "v <=> 30 OR v <=> 999")
+    checkMerge("mor", "topn_storage_merge_mor", "v <=> 20 OR v <=> 999")
     // Ordinary MOW reads do not merge contributions at query time and remain eligible.
-    checkMerge("mow", "topn_storage_merge_mow", "v <=> 20 OR v <=> 999", 2)
+    checkMerge("mow", "topn_storage_merge_mow", "v <=> 20 OR v <=> 999")
 }

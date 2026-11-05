@@ -106,11 +106,11 @@ bool topn_string_matches(int comparison, RawComparisonOp op) {
     return topn_raw_scalar_matches(comparison, 0, op);
 }
 
-RawComparisonOp topn_comparison_op(const RuntimePredicate& predicate) {
+RawComparisonOp topn_comparison_op(const RuntimePredicate& predicate, int target_node_id) {
     if (predicate.is_asc()) {
-        return predicate.is_strict() ? RawComparisonOp::LT : RawComparisonOp::LE;
+        return predicate.is_strict(target_node_id) ? RawComparisonOp::LT : RawComparisonOp::LE;
     }
-    return predicate.is_strict() ? RawComparisonOp::GT : RawComparisonOp::GE;
+    return predicate.is_strict(target_node_id) ? RawComparisonOp::GT : RawComparisonOp::GE;
 }
 
 } // namespace
@@ -190,7 +190,7 @@ Status VTopNPred::execute_on_raw_fixed_values(const uint8_t* values, size_t num_
                                      type_to_string(bound.get_type()),
                                      type_to_string(primitive_type));
     }
-    const auto op = topn_comparison_op(*_predicate);
+    const auto op = topn_comparison_op(*_predicate, _target_node_id);
     switch (primitive_type) {
     case TYPE_INT:
         execute_topn_raw_comparison<int32_t, TYPE_INT>(values, num_values, bound, op, matches);
@@ -279,7 +279,7 @@ Status VTopNPred::execute_on_raw_binary_values(const StringRef* values, size_t n
                                      type_to_string(bound.get_type()),
                                      type_to_string(primitive_type));
     }
-    const auto op = topn_comparison_op(*_predicate);
+    const auto op = topn_comparison_op(*_predicate, _target_node_id);
     for (size_t row = 0; row < num_values; ++row) {
         matches[row] &= topn_string_matches(values[row].compare(bound_ref), op) ? 1 : 0;
     }
@@ -317,7 +317,7 @@ ZoneMapFilterResult VTopNPred::evaluate_dictionary_filter(const DictionaryEvalCo
     if (!expr_zonemap::field_types_compatible(bound.get_type(), primitive_type)) {
         return ZoneMapFilterResult::kUnsupported;
     }
-    const auto op = topn_comparison_op(*_predicate);
+    const auto op = topn_comparison_op(*_predicate, _target_node_id);
     for (const Field& value : dictionary->values) {
         if (value.is_null()) {
             continue;

@@ -91,9 +91,14 @@ struct SortOperatorTest : public ::testing::Test {
         plan_node.__set_node_id(source_node_id);
         plan_node.__set_node_type(TPlanNodeType::SORT_NODE);
         plan_node.__set_sort_node(sort_node);
+        plan_node.__set_num_children(1);
+        TPlanNode scan_node;
+        scan_node.__set_node_id(target_node_id);
+        scan_node.__set_node_type(TPlanNodeType::FILE_SCAN_NODE);
+        scan_node.__set_limit(-1);
         TPipelineFragmentParams source_params;
         if (mode != 0) {
-            source_params.fragment.plan.__set_nodes({plan_node});
+            source_params.fragment.plan.__set_nodes({plan_node, scan_node});
         }
         // The request can list the target fragment before the source fragment.
         runtime_state.get_query_ctx()->init_runtime_predicates(
@@ -101,12 +106,12 @@ struct SortOperatorTest : public ::testing::Test {
         auto& predicate = runtime_state.get_query_ctx()->get_runtime_predicate(source_node_id);
         ASSERT_TRUE(predicate.init_target(target_node_id, {}, -1).ok());
         const bool expected_strict = mode == 2 && algorithm == TSortAlgorithm::HEAP_SORT;
-        EXPECT_EQ(predicate.is_strict(), expected_strict);
-        EXPECT_STREQ(predicate.comparison_function(), expected_strict ? "lt" : "le");
+        EXPECT_EQ(predicate.is_strict(target_node_id), expected_strict);
+        EXPECT_STREQ(predicate.comparison_function(target_node_id), expected_strict ? "lt" : "le");
         ASSERT_TRUE(sort_sink.init(plan_node, &runtime_state).ok());
 
         EXPECT_EQ(predicate.enable(), actual_algorithm == TSortAlgorithm::HEAP_SORT);
-        EXPECT_EQ(predicate.is_strict(), expected_strict);
+        EXPECT_EQ(predicate.is_strict(target_node_id), expected_strict);
     }
 
     void create_operator(TSortAlgorithm::type type, int64_t limit, int64_t offset) {
@@ -239,13 +244,13 @@ TEST_F(SortOperatorTest, QueryContextSelectsModeBeforeSourceInitialization) {
 TEST_F(SortOperatorTest, QueryContextMatchesEachFilterToItsSourcePlan) {
     const auto target_expr = TRuntimeFilterDescBuilder::get_default_expr();
     std::vector<TTopnFilterDesc> filters;
-    TPipelineFragmentParams params;
+    std::vector<TPipelineFragmentParams> params;
     for (const auto source_id : {10, 20, 30}) {
         TTopnFilterDesc filter;
         filter.__set_source_node_id(source_id);
         filter.__set_is_asc(true);
         filter.__set_null_first(false);
-        filter.__set_target_node_id_to_target_expr({{40, target_expr}});
+        filter.__set_target_node_id_to_target_expr({{source_id + 100, target_expr}});
         filters.push_back(filter);
 
         TSortNode sort;
@@ -256,14 +261,22 @@ TEST_F(SortOperatorTest, QueryContextMatchesEachFilterToItsSourcePlan) {
         node.__set_node_id(source_id);
         node.__set_node_type(TPlanNodeType::SORT_NODE);
         node.__set_sort_node(sort);
-        params.fragment.plan.nodes.push_back(node);
+        node.__set_num_children(1);
+        TPlanNode scan;
+        scan.__set_node_id(source_id + 100);
+        scan.__set_node_type(TPlanNodeType::FILE_SCAN_NODE);
+        scan.__set_limit(-1);
+        TPipelineFragmentParams fragment;
+        fragment.fragment.plan.__set_nodes({node, scan});
+        params.push_back(fragment);
     }
     // Descriptor order is independent of the preorder node order in the fragment plan.
     std::ranges::reverse(filters);
-    state->get_query_ctx()->init_runtime_predicates(filters, {params});
+    state->get_query_ctx()->init_runtime_predicates(filters, params);
     for (const auto source_id : {10, 20, 30}) {
-        EXPECT_EQ(state->get_query_ctx()->get_runtime_predicate(source_id).is_strict(),
-                  source_id == 20);
+        EXPECT_EQ(
+                state->get_query_ctx()->get_runtime_predicate(source_id).is_strict(source_id + 100),
+                source_id == 20);
     }
 }
 

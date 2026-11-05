@@ -46,8 +46,7 @@ suite("topn_runtime_filter_fe_guards") {
             contains "UNION"
             contains "TOP-N"
             contains operator
-            // This assertion detects unsafe targets without depending on when a
-            // sibling publishes its boundary. The unaffected sibling must remain.
+            // Verify the eligible paths, including inclusive aggregate targets.
             multiContains "TOPN OPT:", targets
         }
         "order_qt_${name}_enabled"(query)
@@ -60,7 +59,7 @@ suite("topn_runtime_filter_fe_guards") {
         SELECT k,v AS s FROM topn_runtime_filter_fe_guards WHERE id=9
     ) u ORDER BY k NULLS LAST LIMIT 1"""
     // Emptying SUM's input can synthesize (1,NULL), absent from the original result.
-    checkQuery("scalar_sum", validateRow(scalarQuery, "s <=> 2 OR s <=> 999"), "AGGREGATE", 1)
+    checkQuery("scalar_sum", validateRow(scalarQuery, "s <=> 2 OR s <=> 999"), "AGGREGATE", 2)
 
     def groupedQuery = """SELECT k,s FROM (
         SELECT k,SUM(v + 1) AS s FROM (
@@ -72,7 +71,7 @@ suite("topn_runtime_filter_fe_guards") {
         SELECT k,v AS s FROM topn_runtime_filter_fe_guards WHERE id=9
     ) u ORDER BY ABS(k) NULLS LAST LIMIT 1"""
     // Separate inputs expose a group that can consume a prefix before a bound arrives.
-    checkQuery("grouped_sum", validateRow(groupedQuery, "s <=> 4 OR s <=> 999"), "AGGREGATE", 1)
+    checkQuery("grouped_sum", validateRow(groupedQuery, "s <=> 4 OR s <=> 999"), "AGGREGATE", 3)
 
     def antiQuery = """SELECT k,p FROM (
         SELECT b.k,b.v AS p

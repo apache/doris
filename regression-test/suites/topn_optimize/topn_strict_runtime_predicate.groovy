@@ -90,18 +90,17 @@ suite("topn_strict_runtime_predicate") {
     qt_grouped_strict """SELECT k,count(*) FROM topn_strict_runtime_predicate
         GROUP BY k ORDER BY k NULLS LAST LIMIT 3"""
 
-    // Reject the scan filter itself, independently of when a dynamic bound reaches the scan.
-    // A group that has already consumed a prefix must still consume all of its remaining rows.
+    // Group-key targets keep inclusive bounds, so boundary groups retain all contributions.
     explain {
         sql """SELECT /*+ SET_VAR(push_topn_to_agg=false) */ k,count(*)
             FROM topn_strict_runtime_predicate GROUP BY k ORDER BY k NULLS LAST LIMIT 3"""
         contains "AGGREGATE"
-        notContains "TOPN OPT:"
+        contains "TOPN OPT:"
     }
     explain {
         sql """SELECT /*+ SET_VAR(push_topn_to_agg=false) */ k,sum(id + 1)
             FROM topn_strict_runtime_predicate GROUP BY k ORDER BY k NULLS LAST LIMIT 3"""
         contains "AGGREGATE"
-        notContains "TOPN OPT:"
+        contains "TOPN OPT:"
     }
 }

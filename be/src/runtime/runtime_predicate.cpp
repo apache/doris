@@ -29,11 +29,23 @@
 
 namespace doris {
 
-RuntimePredicate::RuntimePredicate(const TTopnFilterDesc& desc, bool is_strict)
-        : _nulls_first(desc.null_first), _is_asc(desc.is_asc), _is_strict(is_strict) {
+RuntimePredicate::RuntimePredicate(const TTopnFilterDesc& desc,
+                                   const std::unordered_set<int32_t>& strict_target_node_ids)
+        : _nulls_first(desc.null_first), _is_asc(desc.is_asc) {
     DCHECK(!desc.target_node_id_to_target_expr.empty());
-    for (auto p : desc.target_node_id_to_target_expr) {
-        _contexts[p.first].expr = p.second;
+    for (const auto& [target_id, expression] : desc.target_node_id_to_target_expr) {
+        auto& ctx = _contexts[target_id];
+        ctx.expr = expression;
+        ctx.is_strict = strict_target_node_ids.contains(target_id);
+        // A sibling scan can discard ties, but an aggregate target must retain every
+        // contribution at the boundary: SUM(10, 20) must not become SUM(10).
+        if (ctx.is_strict) {
+            ctx.pred_constructor = _is_asc ? create_comparison_predicate<PredicateType::LT>
+                                           : create_comparison_predicate<PredicateType::GT>;
+        } else {
+            ctx.pred_constructor = _is_asc ? create_comparison_predicate<PredicateType::LE>
+                                           : create_comparison_predicate<PredicateType::GE>;
+        }
     }
 
     _type = thrift_to_type(desc.target_node_id_to_target_expr.begin()
@@ -45,15 +57,6 @@ RuntimePredicate::RuntimePredicate(const TTopnFilterDesc& desc, bool is_strict)
         desc.target_node_id_to_target_expr.begin()->second.nodes[0].printTo(ss);
         throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid type, type={}, expr={}",
                         type_to_string(_type), ss.str());
-    }
-
-    // QueryContext fixes the mode before scanners prepare their comparison functions.
-    if (_is_strict) {
-        _pred_constructor = _is_asc ? create_comparison_predicate<PredicateType::LT>
-                                    : create_comparison_predicate<PredicateType::GT>;
-    } else {
-        _pred_constructor = _is_asc ? create_comparison_predicate<PredicateType::LE>
-                                    : create_comparison_predicate<PredicateType::GE>;
     }
 }
 
@@ -125,8 +128,7 @@ Status RuntimePredicate::update(const Field& value) {
     if (!updated) {
         return Status::OK();
     }
-    for (auto p : _contexts) {
-        auto ctx = p.second;
+    for (const auto& [target_id, ctx] : _contexts) {
         if (ctx.predicate == nullptr) {
             // 1. `init_target` will not create predicate. example : `order by abs(col1) limit x;`
             // So don't need create new `ColumnPredicate`,
@@ -145,8 +147,8 @@ Status RuntimePredicate::update(const Field& value) {
             continue;
         }
         std::shared_ptr<ColumnPredicate> pred =
-                _pred_constructor(ctx.predicate->column_id(), ctx.col_name, ctx.col_data_type,
-                                  _orderby_extrem, false);
+                ctx.pred_constructor(ctx.predicate->column_id(), ctx.col_name, ctx.col_data_type,
+                                     _orderby_extrem, false);
 
         // For NULLS FIRST, wrap a AcceptNullPredicate to return true for NULL
         // since ORDER BY ASC/DESC should get NULL first but pred returns NULL

@@ -101,7 +101,7 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
     }
 
     @Test
-    public void testTopNFilterDoesNotCrossStorageMerge() {
+    public void testTopNFilterPreservesStorageMergeTargets() {
         double previousRatio = connectContext.getSessionVariable().topnFilterRatio;
         String previousAlgorithm = connectContext.getSessionVariable().forceSortAlgorithm;
         String previousRules = String.join(",", connectContext.getSessionVariable().getDisableNereidsRuleNames());
@@ -125,20 +125,18 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
                         checker.analyze().rewrite().implement();
                         PhysicalPlan plan = new PlanPostProcessors(checker.getCascadesContext())
                                 .process(checker.getPhysicalPlan());
-                        // The unsafe aggregation happens inside the reader, not in a SQL aggregate node.
+                        // BE detects the storage merge even when there is no SQL aggregate node.
                         Assertions.assertFalse(plan.anyMatch(PhysicalHashAggregate.class::isInstance),
                                 plan.treeString());
                         List<TopnFilter> filters = checker.getCascadesContext().getTopnFilterContext().getTopnFilters();
                         Assertions.assertEquals(1, filters.size(), plan.treeString());
                         TopnFilter filter = filters.get(0);
-                        boolean safeSource = source.equals("topn_storage_mow");
-                        Assertions.assertEquals(safeSource ? 2 : 1, filter.targets.size(), plan.treeString());
+                        Assertions.assertEquals(2, filter.targets.size(), plan.treeString());
                         Assertions.assertTrue(filter.targets.keySet().stream().anyMatch(target ->
                                 ((PhysicalOlapScan) target).getTable().getName().equals("topn_storage_dup")));
                         new PhysicalPlanTranslator(new PlanTranslatorContext(checker.getCascadesContext()))
                                 .translatePlan(plan);
-                        Assertions.assertEquals(safeSource ? 2 : 1,
-                                filter.toThrift().getTargetNodeIdToTargetExprSize());
+                        Assertions.assertEquals(2, filter.toThrift().getTargetNodeIdToTargetExprSize());
                     }
                 }
             }
@@ -150,7 +148,7 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
     }
 
     @Test
-    public void testTopNFilterChecksSelectedIndexThroughLazyScan() {
+    public void testTopNFilterRetainsSelectedIndexThroughLazyScan() {
         double previousRatio = connectContext.getSessionVariable().topnFilterRatio;
         String previousRules = String.join(",", connectContext.getSessionVariable().getDisableNereidsRuleNames());
         connectContext.getSessionVariable().topnFilterRatio = 1000000;
@@ -173,8 +171,8 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
                     TopnFilterContext context = new TopnFilterContext();
                     boolean accepted = target.accept(new TopnFilterPushDownVisitor(context),
                             new PushDownContext(topn, scan.getOutput().get(0), false));
-                    Assertions.assertEquals(indexId == table.getBaseIndexId(), accepted);
-                    Assertions.assertEquals(indexId == table.getBaseIndexId() ? 1 : 0, context.getTopnFilters().size());
+                    Assertions.assertTrue(accepted);
+                    Assertions.assertEquals(1, context.getTopnFilters().size());
                 }
             }
         } finally {
@@ -246,7 +244,7 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
     }
 
     @Test
-    public void testTopNFilterDoesNotCrossAggregation() {
+    public void testTopNFilterCrossesAggregationOnGroupingKeys() {
         double previousRatio = connectContext.getSessionVariable().topnFilterRatio;
         boolean previousPushTopn = connectContext.getSessionVariable().pushTopnToAgg;
         boolean previousJoinReorder = connectContext.getSessionVariable().isDisableJoinReorder();
@@ -266,13 +264,19 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
                             + "GROUP BY k HAVING total > 10) t JOIN customer c ON t.k = c.c_custkey "
                             + "ORDER BY t.k LIMIT 1",
                     "SELECT k, sum(ts) FROM topn_safety GROUP BY GROUPING SETS((k)) ORDER BY k LIMIT 2")) {
-                // A bound arriving after a group's first input must not truncate its remaining inputs.
+                // Inclusive target bounds retain all contributions at the boundary.
                 PlanChecker.from(connectContext).checkPlannerResult(sql, planner -> {
                     String explain = planner.getFragments().stream()
                             .map(fragment -> fragment.getExplainString(TExplainLevel.NORMAL))
                             .collect(Collectors.joining("\n"));
-                    Assertions.assertFalse(explain.contains("TOPN OPT:"), explain);
+                    Assertions.assertTrue(explain.contains("TOPN OPT:"), explain);
                 });
+            }
+            for (String sql : List.of(
+                    "SELECT k, sum(ts) AS s FROM topn_safety GROUP BY k ORDER BY s LIMIT 1",
+                    "SELECT k, count(*) FROM topn_safety GROUP BY GROUPING SETS((k), ()) "
+                            + "ORDER BY k NULLS FIRST LIMIT 1")) {
+                assertTopNFilterPresence(sql, false);
             }
         } finally {
             connectContext.getSessionVariable().topnFilterRatio = previousRatio;
@@ -283,7 +287,7 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
     }
 
     @Test
-    public void testTopNFilterDoesNotCrossAggregateUnionBranch() {
+    public void testTopNFilterPreservesAggregateAndUnionTargets() {
         double previousRatio = connectContext.getSessionVariable().topnFilterRatio;
         String previousAlgorithm = connectContext.getSessionVariable().forceSortAlgorithm;
         boolean previousPushTopn = connectContext.getSessionVariable().pushTopnToAgg;
@@ -321,10 +325,12 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
                                         aggregate.anyMatch(node -> node == filter.topn)))
                                 .collect(Collectors.toList());
                         Assertions.assertEquals(1, outerFilters.size(), plan.treeString());
-                        // The sibling can publish an early bound, but cannot change the aggregate's inputs.
-                        Assertions.assertEquals(1, outerFilters.get(0).targets.size(), plan.treeString());
-                        Assertions.assertTrue(outerFilters.get(0).targets.keySet().stream()
-                                .noneMatch(aggregateScans::contains), plan.treeString());
+                        // An inner TopN remains a barrier for the outer source. Otherwise BE
+                        // keeps equality on the aggregate target and may prune ties on its sibling.
+                        int expectedTargets = innerOrder.isEmpty() ? 2 : 1;
+                        Assertions.assertEquals(expectedTargets, outerFilters.get(0).targets.size(), plan.treeString());
+                        Assertions.assertEquals(innerOrder.isEmpty(), outerFilters.get(0).targets.keySet().stream()
+                                .anyMatch(aggregateScans::contains), plan.treeString());
                         // The independent TopN inside the aggregate can still filter its own scan.
                         long innerFilters = filters.stream()
                                 .filter(filter -> aggregates.stream().anyMatch(aggregate ->
@@ -334,7 +340,7 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
                         Assertions.assertEquals(innerOrder.isEmpty() ? 0 : 1, innerFilters, plan.treeString());
                         new PhysicalPlanTranslator(new PlanTranslatorContext(checker.getCascadesContext()))
                                 .translatePlan(plan);
-                        Assertions.assertEquals(1, outerFilters.get(0).legacyTargets.size());
+                        Assertions.assertEquals(expectedTargets, outerFilters.get(0).legacyTargets.size());
                         Assertions.assertFalse(outerFilters.get(0).toThrift().getTargetNodeIdToTargetExpr().isEmpty());
                     }
                 }

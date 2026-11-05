@@ -17,10 +17,6 @@
 
 package org.apache.doris.nereids.processor.post;
 
-import org.apache.doris.catalog.KeysType;
-import org.apache.doris.catalog.OlapChangelogTableWrapper;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.OlapTableWrapper;
 import org.apache.doris.nereids.processor.post.TopnFilterPushDownVisitor.PushDownContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -44,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
@@ -180,8 +177,19 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
     @Override
     public Boolean visitPhysicalHashAggregate(PhysicalHashAggregate<? extends Plan> aggregate,
             PushDownContext ctx) {
-        // A late bound can truncate a group whose aggregation has already started. Emptying
-        // a scalar aggregate's input can also change its result instead of removing the row.
+        // BE uses inclusive bounds for this target path. A candidate group's key passes
+        // every earlier, wider bound, so all of its contributions remain. Do not substitute
+        // aggregate results with input values: SUM(v) <= bound does not imply v <= bound.
+        if (!aggregate.getGroupByExpressions().containsAll(ctx.probeExpr.getInputSlots())) {
+            return false;
+        }
+        return aggregate.child().accept(this, ctx);
+    }
+
+    @Override
+    public Boolean visitPhysicalRepeat(PhysicalRepeat<? extends Plan> repeat, PushDownContext ctx) {
+        // GROUPING SETS can replace a non-NULL input key with NULL in another output group.
+        // Removing the aggregate barrier must not admit a filter with a different output key.
         return false;
     }
 
@@ -306,19 +314,8 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
 
     private boolean supportPhysicalRelations(PhysicalRelation relation) {
         if (relation instanceof PhysicalOlapScan) {
-            PhysicalOlapScan scan = (PhysicalOlapScan) relation;
-            OlapTable table = scan.getTable();
-            if (table.hasRowTtl() || table instanceof OlapChangelogTableWrapper) {
-                return false;
-            }
-            // A late bound can remove only part of a logical row before storage merges it.
-            // Check the selected index: a DUP table can also have an aggregate index.
-            // Changelog wrappers report DUP_KEYS but can still fold multiple stored events.
-            KeysType keysType = table.getIndexMetaByIndexId(scan.getSelectedIndexId()).getKeysType();
-            OlapTable storageTable = table instanceof OlapTableWrapper
-                    ? ((OlapTableWrapper) table).getOriginTable() : table;
-            return keysType == KeysType.DUP_KEYS
-                    || (keysType == KeysType.UNIQUE_KEYS && storageTable.getEnableUniqueKeyMergeOnWrite());
+            // BE uses inclusive comparisons when the selected index or reader merges rows.
+            return !((PhysicalOlapScan) relation).getTable().hasRowTtl();
         }
         return relation instanceof PhysicalOdbcScan || relation instanceof PhysicalFileScan;
     }

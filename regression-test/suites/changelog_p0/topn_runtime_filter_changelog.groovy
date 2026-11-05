@@ -51,8 +51,8 @@ suite("topn_runtime_filter_changelog") {
                 sql query
                 contains "UNION"
                 contains "TOP-N"
-                // The control scan remains a target; the changelog reader must see every event.
-                multiContains "TOPN OPT:", 1
+                // Inclusive bounds retain every event at the changelog boundary.
+                multiContains "TOPN OPT:", 2
             }
             "order_qt_${tag}_enabled"(query)
         }

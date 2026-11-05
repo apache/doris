@@ -22,6 +22,7 @@
 #include <mutex>
 #include <shared_mutex>
 #include <string>
+#include <unordered_set>
 
 #include "common/status.h"
 #include "core/arena.h"
@@ -40,7 +41,8 @@ class ColumnPredicate;
 
 class RuntimePredicate {
 public:
-    RuntimePredicate(const TTopnFilterDesc& desc, bool is_strict);
+    RuntimePredicate(const TTopnFilterDesc& desc,
+                     const std::unordered_set<int32_t>& strict_target_node_ids);
 
     Status init_target(int32_t target_node_id,
                        phmap::flat_hash_map<int, SlotDescriptor*> slot_id_to_slot_desc,
@@ -86,20 +88,23 @@ public:
 
     bool is_asc() const { return _is_asc; }
 
-    bool is_strict() const { return _is_strict; }
-
-    const char* comparison_function() const {
-        if (_is_asc) {
-            return _is_strict ? "lt" : "le";
-        }
-        return _is_strict ? "gt" : "ge";
+    bool is_strict(int32_t target_node_id) const {
+        check_target_node_id(target_node_id);
+        return _contexts.find(target_node_id)->second.is_strict;
     }
 
-    TExprOpcode::type comparison_opcode() const {
+    const char* comparison_function(int32_t target_node_id) const {
         if (_is_asc) {
-            return is_strict() ? TExprOpcode::LT : TExprOpcode::LE;
+            return is_strict(target_node_id) ? "lt" : "le";
         }
-        return is_strict() ? TExprOpcode::GT : TExprOpcode::GE;
+        return is_strict(target_node_id) ? "gt" : "ge";
+    }
+
+    TExprOpcode::type comparison_opcode(int32_t target_node_id) const {
+        if (_is_asc) {
+            return is_strict(target_node_id) ? TExprOpcode::LT : TExprOpcode::LE;
+        }
+        return is_strict(target_node_id) ? TExprOpcode::GT : TExprOpcode::GE;
     }
 
     bool nulls_first() const { return _nulls_first; }
@@ -133,9 +138,14 @@ private:
     }
     struct TargetContext {
         TExpr expr;
+        // Fixed before QueryContext is published. Targets share a bound, not its inclusiveness.
+        bool is_strict = false;
         std::string col_name;
         DataTypePtr col_data_type;
         std::shared_ptr<ColumnPredicate> predicate;
+        std::function<std::shared_ptr<ColumnPredicate>(const int, const std::string&,
+                                                       const DataTypePtr&, const Field&, bool)>
+                pred_constructor;
 
         bool target_is_slot() const {
             return expr.nodes[0].node_type == TExprNodeType::SLOT_REF &&
@@ -149,14 +159,9 @@ private:
 
     bool _nulls_first;
     bool _is_asc;
-    const bool _is_strict;
     std::map<int32_t, TargetContext> _contexts;
 
     Field _orderby_extrem {PrimitiveType::TYPE_NULL};
-    std::function<std::shared_ptr<ColumnPredicate>(const int cid, const std::string& col_name,
-                                                   const DataTypePtr& data_type, const Field& value,
-                                                   bool opposite)>
-            _pred_constructor;
     bool _detected_source = false;
     bool _detected_target = false;
     bool _has_value = false;

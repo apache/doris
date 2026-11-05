@@ -66,30 +66,142 @@ public:
     std::unique_ptr<ThreadPoolToken> token_;
 };
 
-void QueryContext::init_runtime_predicates(
-        const std::vector<TTopnFilterDesc>& topn_filter_descs,
-        const std::vector<TPipelineFragmentParams>& fragment_params) {
-    std::unordered_set<TPlanNodeId> strict_sources;
+namespace {
+
+struct TopnPlanNode {
+    const TPlanNode* node;
+    TPlanNodeId parent;
+};
+
+using TopnPlanNodes = std::unordered_map<TPlanNodeId, TopnPlanNode>;
+
+bool topn_join_allows_strict_bounds(TJoinOp::type join) {
+    switch (join) {
+    case TJoinOp::INNER_JOIN:
+    case TJoinOp::CROSS_JOIN:
+    case TJoinOp::LEFT_OUTER_JOIN:
+    case TJoinOp::LEFT_SEMI_JOIN:
+    case TJoinOp::LEFT_ANTI_JOIN:
+    case TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN:
+    case TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN:
+    case TJoinOp::ASOF_LEFT_INNER_JOIN:
+    case TJoinOp::ASOF_LEFT_OUTER_JOIN:
+        return true;
+    default:
+        // Removing a probe can create an unmatched build row or change its mark.
+        return false;
+    }
+}
+
+bool topn_node_allows_strict_bounds(const TPlanNode& node) {
+    if (node.limit >= 0) {
+        // Removing a tie can let a different row pass an intermediate LIMIT.
+        return false;
+    }
+    switch (node.node_type) {
+    case TPlanNodeType::OLAP_SCAN_NODE: {
+        const auto& scan = node.olap_scan_node;
+        // Use the selected index's model. Storage aggregation, MOR version selection,
+        // and changelog folding must retain every contribution at the boundary.
+        return scan.__isset.keyType && !(scan.__isset.read_changelog && scan.read_changelog) &&
+               (scan.keyType == TKeysType::DUP_KEYS ||
+                (scan.keyType == TKeysType::UNIQUE_KEYS &&
+                 scan.__isset.enable_unique_key_merge_on_write &&
+                 scan.enable_unique_key_merge_on_write));
+    }
+    case TPlanNodeType::HASH_JOIN_NODE:
+        return topn_join_allows_strict_bounds(node.hash_join_node.join_op);
+    case TPlanNodeType::CROSS_JOIN_NODE:
+        return topn_join_allows_strict_bounds(node.nested_loop_join_node.join_op);
+    case TPlanNodeType::FILE_SCAN_NODE:
+    case TPlanNodeType::ODBC_SCAN_NODE:
+    case TPlanNodeType::SELECT_NODE:
+    case TPlanNodeType::SORT_NODE:
+    case TPlanNodeType::EXCHANGE_NODE:
+    case TPlanNodeType::LOCAL_EXCHANGE_NODE:
+    case TPlanNodeType::UNION_NODE:
+    case TPlanNodeType::INTERSECT_NODE:
+    case TPlanNodeType::EXCEPT_NODE:
+    case TPlanNodeType::TABLE_FUNCTION_NODE:
+    case TPlanNodeType::MATERIALIZATION_NODE:
+        return true;
+    default:
+        // Aggregates need complete groups. Repeat, windows, and row-count assertions
+        // can change surviving rows or create new ones. Unknown operators need proof.
+        return false;
+    }
+}
+
+TopnPlanNodes collect_topn_plan_nodes(const std::vector<TPipelineFragmentParams>& fragment_params) {
+    TopnPlanNodes nodes;
     for (const auto& params : fragment_params) {
+        std::vector<std::pair<TPlanNodeId, int>> parents;
+        // An exchange ends the serialized tree. Its sending fragment continues the
+        // same source-to-target path, possibly with an aggregate below the exchange.
+        const auto& sink = params.fragment.output_sink;
+        const TPlanNodeId destination =
+                sink.__isset.stream_sink ? sink.stream_sink.dest_node_id : -1;
         for (const auto& node : params.fragment.plan.nodes) {
-            if (node.node_type == TPlanNodeType::SORT_NODE) {
-                const auto& sort = node.sort_node;
-                // A heap retains LIMIT + OFFSET candidates before publishing a bound. With one
-                // key, another boundary tie cannot improve them. Multiple keys must keep ties:
-                // (1, 2) can still beat (1, 9). Missing algorithms execute as FULL_SORT.
-                if (sort.__isset.algorithm && sort.algorithm == TSortAlgorithm::HEAP_SORT &&
-                    sort.sort_info.ordering_exprs.size() == 1) {
-                    strict_sources.insert(node.node_id);
-                }
+            while (!parents.empty() && parents.back().second == 0) {
+                parents.pop_back();
+            }
+            const auto parent = parents.empty() ? destination : parents.back().first;
+            nodes.insert_or_assign(node.node_id, TopnPlanNode {.node = &node, .parent = parent});
+            if (!parents.empty()) {
+                --parents.back().second;
+            }
+            if (node.num_children > 0) {
+                parents.emplace_back(node.node_id, node.num_children);
             }
         }
     }
+    return nodes;
+}
+
+bool topn_target_can_use_strict_bounds(const TopnPlanNodes& nodes, TPlanNodeId source_id,
+                                       TPlanNodeId target_id) {
+    const auto source = nodes.find(source_id);
+    if (source == nodes.end() || source->second.node->node_type != TPlanNodeType::SORT_NODE) {
+        // A backend request can omit the source fragment. There is then no proof of
+        // either its algorithm or its complete path to this target.
+        return false;
+    }
+    const auto& sort = source->second.node->sort_node;
+    if (!sort.__isset.algorithm || sort.algorithm != TSortAlgorithm::HEAP_SORT ||
+        sort.sort_info.ordering_exprs.size() != 1) {
+        // Missing algorithms execute as FULL_SORT. Multiple keys must keep ties:
+        // (1, 2) can still beat (1, 9), even after the heap has LIMIT + OFFSET rows.
+        return false;
+    }
+    for (auto current = nodes.find(target_id); current != nodes.end();
+         current = nodes.find(current->second.parent)) {
+        if (current->first == source_id) {
+            return true;
+        }
+        if (!topn_node_allows_strict_bounds(*current->second.node)) {
+            return false;
+        }
+    }
+    // An unavailable sender fragment or a multicast boundary leaves the path unknown.
+    return false;
+}
+
+} // namespace
+
+void QueryContext::init_runtime_predicates(
+        const std::vector<TTopnFilterDesc>& topn_filter_descs,
+        const std::vector<TPipelineFragmentParams>& fragment_params) {
+    const auto nodes = collect_topn_plan_nodes(fragment_params);
     // Run before publishing QueryContext: a target fragment can prepare its cached comparison
     // function before the source SortSink is initialized. Keep the mode immutable thereafter.
-    // If the source fragment is absent from this request, retain inclusive comparisons.
     for (const auto& desc : topn_filter_descs) {
-        _runtime_predicates.try_emplace(desc.source_node_id, desc,
-                                        strict_sources.contains(desc.source_node_id));
+        std::unordered_set<int32_t> strict_targets;
+        for (const auto& [target_id, expression] : desc.target_node_id_to_target_expr) {
+            if (topn_target_can_use_strict_bounds(nodes, desc.source_node_id, target_id)) {
+                strict_targets.insert(target_id);
+            }
+        }
+        _runtime_predicates.try_emplace(desc.source_node_id, desc, strict_targets);
     }
 }
 
