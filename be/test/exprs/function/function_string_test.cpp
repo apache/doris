@@ -81,6 +81,34 @@ DataSet make_md5_varbinary_dataset(const std::vector<std::string>& inputs) {
 
 } // namespace
 
+TEST(function_string_test, ngram_search_gram_num) {
+    const InputTypeSet input_types = {Notnull {TYPE_STRING}, ConstedNotnull {TYPE_STRING},
+                                      ConstedNotnull {TYPE_INT}};
+    // 2 * |intersection| / (|text grams| + |pattern grams|); one row per data set because the
+    // const arguments are built from a single value.
+    const DataSet data_set = {{{std::string("abc"), std::string("abc"), int32_t(3)}, 1.0},
+                              {{std::string("ab"), std::string("abc"), int32_t(3)}, 0.0},
+                              {{std::string("ab"), std::string("abc"), int32_t(1)}, 0.8}};
+    for (const auto& row : data_set) {
+        ASSERT_TRUE(check_function<DataTypeFloat64>("ngram_search", input_types, {row}).ok());
+    }
+}
+
+TEST(function_string_test, ngram_search_nonpositive_gram_num) {
+    // FE folds a constant expression like `crc32('abc') % 3 - 3` on BE before it can check the
+    // value, so BE must reject a nonpositive gram_num instead of using it as a substring length.
+    const InputTypeSet input_types = {Notnull {TYPE_STRING}, ConstedNotnull {TYPE_STRING},
+                                      ConstedNotnull {TYPE_INT}};
+    for (int32_t gram_num : {0, -1}) {
+        const DataSet data_set = {{{std::string("abc"), std::string("abc"), gram_num}, 0.0}};
+        auto st = check_function<DataTypeFloat64>("ngram_search", input_types, data_set, -1, -1,
+                                                  true);
+        EXPECT_TRUE(st.is<ErrorCode::INVALID_ARGUMENT>()) << st;
+        EXPECT_NE(st.to_string().find("gram_num must be a positive constant"), std::string::npos)
+                << st;
+    }
+}
+
 TEST(function_string_test, parse_data_size_nullable) {
     const InputTypeSet input_types = {PrimitiveType::TYPE_STRING};
     const DataSet data_set = {{{Null()}, Null()},
