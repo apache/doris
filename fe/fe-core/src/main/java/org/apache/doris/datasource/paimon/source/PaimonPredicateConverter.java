@@ -100,6 +100,15 @@ public class PaimonPredicateConverter {
         }
         String colName = slotRef.getColumnName();
         int idx = getFieldIndex(colName);
+        // Not a column of the Paimon table, so there is no field index to build an IN
+        // predicate against. Reader-produced synthetic columns land here: the PK-vector
+        // rewrite turns `dist_fn(vec, q) < x` into a comparison on
+        // __paimon_search_score_to_dis, which exists only in the scan's output. Returning
+        // null drops this conjunct from the push-down; Doris still evaluates it itself, so
+        // the result stays correct -- whereas indexing with -1 threw and killed the query.
+        if (idx < 0) {
+            return null;
+        }
         DataType dataType = paimonFieldTypes.get(idx);
         List<Object> valueList = new ArrayList<>();
         for (int i = 1; i < predicate.getChildren().size(); i++) {
@@ -133,6 +142,12 @@ public class PaimonPredicateConverter {
         }
         String colName = slotRef.getColumnName();
         int idx = getFieldIndex(colName);
+        // Same guard as doInPredicate: a comparison on a column the Paimon table does not
+        // have (e.g. the reader-produced PK-vector distance column) must be skipped, not
+        // fatal. Doris still evaluates the conjunct itself.
+        if (idx < 0) {
+            return null;
+        }
         DataType dataType = paimonFieldTypes.get(idx);
         Object value = dataType.accept(new PaimonValueConverter(literalExpr));
         if (value == null) {

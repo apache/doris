@@ -31,6 +31,7 @@ import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.types.VectorType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -239,12 +240,30 @@ public class PaimonColumnValue implements ColumnValue {
 
     @Override
     public void unpackArray(List<ColumnValue> values) {
-        InternalArray recordArray = record.getArray(idx);
+        // A Paimon VECTOR is exposed to Doris as ARRAY (PaimonUtil
+        // .paimonPrimitiveTypeToDorisType), so it lands here too -- but it is a distinct
+        // type, not an ArrayType subclass, and it has its own physical layout:
+        // readVectorData carries a 4-byte element count that readArrayData does not.
+        // Hence both the accessor and the element type must be chosen by type:
+        //   - getVector vs getArray: BinaryRow.getArray on a vector field would decode
+        //     vector bytes as a BinaryArray, i.e. silently wrong values rather than an
+        //     error. (The columnar path special-cases the vector column vector, which
+        //     is why only this cast crashed.)
+        //   - the element type cast: this is where "VectorType cannot be cast to
+        //     ArrayType" came from when reading a vector column through the JNI scanner.
+        InternalArray recordArray;
+        DataType elementPaimonType;
+        if (dataType instanceof VectorType) {
+            recordArray = record.getVector(idx);
+            elementPaimonType = ((VectorType) dataType).getElementType();
+        } else {
+            recordArray = record.getArray(idx);
+            elementPaimonType = ((ArrayType) dataType).getElementType();
+        }
         if (arrayValues == null) {
             arrayValues = new ArrayList<>();
         }
         ColumnType elementDorisType = dorisType.getChildTypes().get(0);
-        DataType elementPaimonType = ((ArrayType) dataType).getElementType();
         for (int i = 0; i < recordArray.size(); i++) {
             values.add(reuseColumnValue(arrayValues, i, (DataGetters) recordArray, i,
                     elementDorisType, elementPaimonType));

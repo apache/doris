@@ -27,8 +27,6 @@ import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.fs.local.LocalFileIO;
-import org.apache.paimon.privilege.PrivilegeChecker;
-import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
@@ -58,6 +56,31 @@ import java.util.Map;
 
 public class PaimonHistoricalSchemaOptionsTest {
     @Test
+    public void latestDeltaCannotBecomeAFullSnapshotRead(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "latest_delta");
+            catalog.createTable(id, Schema.newBuilder().column("id", DataTypes.INT())
+                    .column("value", DataTypes.INT()).primaryKey("id")
+                    .option("bucket", "1").option("write-only", "true").build(), false);
+            FileStoreTable table = (FileStoreTable) catalog.getTable(id);
+            for (int value = 1; value <= 3; value++) {
+                append(table, GenericRow.of(value, value * 100));
+            }
+            Table latest = catalog.getTable(id);
+            Map<String, String> options = Collections.singletonMap("scan.mode", "latest-delta");
+            // The SDK returns only the last commit. Replacing it with snapshot 3 would return
+            // every committed row, so OPTIONS must reject the mode instead of widening the read.
+            Assertions.assertEquals(Collections.singletonList("3:300"), readRows(latest.copy(options)));
+            Assertions.assertEquals(Arrays.asList("1:100", "2:200", "3:300"), readRows(
+                    latest.copy(Collections.singletonMap("scan.snapshot-id", "3"))));
+            Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> PaimonScanParams.resolveOptions(latest, options));
+        }
+    }
+
+    @Test
     public void historicalOptionsProjectionKeepsSelectedSchemaAndSnapshot(@TempDir Path warehouse) throws Exception {
         try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
                 new org.apache.paimon.fs.Path(warehouse.toUri()))) {
@@ -85,11 +108,12 @@ public class PaimonHistoricalSchemaOptionsTest {
             for (Map<String, String> selector : Arrays.asList(
                     Collections.singletonMap("scan.snapshot-id", "1"),
                     Collections.singletonMap("scan.tag-name", "before_rename"))) {
-                FileStoreTable selected = (FileStoreTable) PaimonScanParams.applyOptions(latest, selector);
-                PrivilegeChecker checker = Mockito.mock(PrivilegeChecker.class);
-                Mockito.doThrow(new SecurityException("read-only principal")).when(checker)
-                        .assertCanInsert(Mockito.any());
-                selected = PrivilegedFileStoreTable.wrap(selected, checker, id);
+                FileStoreTable selected = Mockito.spy(
+                        (FileStoreTable) PaimonScanParams.applyOptions(latest, selector));
+                // Paimon 2.1 removed the legacy privilege wrapper. Keep the read-only check
+                // on the SDK write entry point: snapshot projection must not create a writer.
+                Mockito.doThrow(new SecurityException("read-only principal")).when(selected)
+                        .newBatchWriteBuilder();
                 PaimonSnapshotCacheValue projection = loader.load(
                         NameMapping.createForTest("db", "projection_history"), selected);
                 Assertions.assertEquals(1L, projection.getSnapshot().getSnapshotId());

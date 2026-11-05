@@ -143,6 +143,12 @@ public final class PaimonScanParams {
         PaimonReaderOptions.validateReaderOptions(options);
 
         String scanMode = options.get(CoreOptions.SCAN_MODE.key());
+        if ("latest-delta".equalsIgnoreCase(scanMode)) {
+            // This resolver fixes startup selectors with scan.snapshot-id, which selects a full
+            // snapshot. Paimon 2.1's latest-delta needs a pinned delta range instead.
+            throw new IllegalArgumentException("Paimon scan mode 'latest-delta' is not supported by Doris "
+                    + "OPTIONS. Use @incr with an explicit snapshot range for incremental reads.");
+        }
         if ("from-creation-timestamp".equalsIgnoreCase(scanMode)
                 && options.get(CoreOptions.SCAN_CREATION_TIME_MILLIS.key()) == null) {
             // Paimon 1.4.2 does not validate this mode, but its starting scanner

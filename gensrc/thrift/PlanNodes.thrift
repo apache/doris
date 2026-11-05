@@ -360,6 +360,27 @@ enum TPaimonReaderType {
     PAIMON_RUST = 3,
 }
 
+// Payload kind for Paimon primary-key vector (ANN) search.
+// v1 only uses BUCKET_SPLIT_BYTES; v2 (delayed materialization) will add
+// MATERIALIZE_OPAQUE_BYTES. Kept as an enum from v1 so the wire protocol is
+// shared between v1 and v2 and does not need to change again.
+enum TPaimonVectorPayloadType {
+    // v1 / v2 candidate stage: serialized BucketVectorSearchSplit
+    // (magic "PKVSPLIT", version 1, big-endian; decoded by paimon-rust
+    //  paimon_bucket_vector_search_split_deserialize).
+    BUCKET_SPLIT_BYTES = 0,
+    // v2 materialize stage: opaque bytes produced by the merge/rerank step.
+    MATERIALIZE_OPAQUE_BYTES = 1,
+}
+
+// Per-split vector payload carried on TPaimonFileDesc. The bytes are the raw
+// BucketVectorSearchSplit.serialize form (NOT base64, NOT a Java
+// ObjectOutputStream envelope) whose meaning is determined by payload_type.
+struct TPaimonVectorPayload {
+    1: optional TPaimonVectorPayloadType payload_type;
+    2: optional binary bytes;
+}
+
 struct TPaimonFileDesc {
     1: optional string paimon_split
     2: optional string paimon_column_names
@@ -385,6 +406,12 @@ struct TPaimonFileDesc {
     // paimon-rust: non-default branch name. Unset means main branch (matches
     // upstream paimon commit 742da63: null-if-DEFAULT_MAIN_BRANCH).
     19: optional string paimon_branch
+    // Primary-key vector (ANN) search payload for this split. When set, BE
+    // routes to the paimon-rust vector-search read path instead of the normal
+    // split read; paimon_split is set but empty in that case.
+    // Field 20 is reserved for original_file_path on master; fields 21-23 are
+    // reserved for blob_files, anchor_first_row_id and anchor_row_count on branch-4.1.
+    24: optional TPaimonVectorPayload vector_payload;
 }
 
 struct TTrinoConnectorFileDesc {
@@ -568,6 +595,20 @@ struct TVectorSearchOptions {
     6: optional TVectorApproxMode approx_mode
 }
 
+// Paimon-only vector search tuning. Mirrors TVectorSearchOptions: the logical query stays
+// in TVectorSearchParams, provider-specific knobs live here so TExternalSearchRequest stays
+// provider-neutral. The options map is passed straight through to the paimon-rust vector
+// search builder (refine_factor, ivf.nprobe, and the "<algo>.metric" key that matches
+// Paimon's algorithm options).
+struct TPaimonVectorSearchOptions {
+    1: optional map<string, string> options
+    // TVFs expose Lance-compatible _distance: squared L2 or negative inner product.
+    // Unset preserves the ordinary SQL distance functions and their existing output column.
+    2: optional bool tvf_distance = false
+    // Only the TVF's explicit prefilter affects candidate generation; outer WHERE stays residual.
+    3: optional list<Exprs.TExpr> prefilter
+}
+
 // The active union field identifies the logical search kind. A future hybrid field can contain both
 // vector and full-text subqueries plus its fusion parameters without changing either existing field.
 union TExternalSearchQuery {
@@ -576,7 +617,8 @@ union TExternalSearchQuery {
 }
 
 // A provider-independent logical search request. Physical target information remains in the
-// provider FileDesc (for example, dataset_uri/version/fragment_ids in TLanceFileDesc).
+// provider FileDesc (for example, dataset_uri/version/fragment_ids in TLanceFileDesc, or
+// vector_payload in TPaimonFileDesc).
 struct TExternalSearchRequest {
     1: optional i32 schema_version = 1
     2: optional TExternalSearchQuery search_query
@@ -585,6 +627,9 @@ struct TExternalSearchRequest {
     // Applies only to search_filter. Defaults to false (postfilter); Doris WHERE predicates remain
     // residuals regardless of this setting.
     5: optional bool prefilter
+    // Paimon-specific vector search tuning. Field 4 stays Lance-neutral, so Paimon's
+    // string-map knobs travel here instead; unset for Lance requests.
+    6: optional TPaimonVectorSearchOptions paimon_options
 }
 
 // A catalog/S3 range reads fragments from a fixed snapshot. A local TVF range uses version zero
@@ -740,6 +785,14 @@ struct TFileScanRangeParams {
     39: optional i32 parquet_timestamp_semantics_version
     // Hybrid Paimon/Hudi scans keep FORMAT_JNI while individual ranges can be native Parquet.
     40: optional bool contains_native_parquet
+    // Provider-independent external (vector / full-text) search request, set for a Paimon
+    // primary-key vector (ANN) top-N pushed down into the scan. Set at ScanNode level
+    // (shared by all splits); the per-split physical payload stays in
+    // TPaimonFileDesc.vector_payload. Lance requests use lance_scan_params instead.
+    // Field 42: id 41 is reserved as `fluss_properties` on master and must not be
+    // reused here — a mixed-version cluster skips mismatched wire types instead
+    // of receiving either field.
+    42: optional TExternalSearchRequest external_search_request
 }
 
 struct TFileRangeDesc {

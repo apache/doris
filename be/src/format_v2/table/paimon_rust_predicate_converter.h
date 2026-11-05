@@ -42,6 +42,27 @@ namespace doris {} // namespace doris
 
 namespace doris {
 
+// Reader-produced PK-vector search distance column, as Doris names it. Wire
+// contract shared with FE (PaimonVectorSearch.SEARCH_DISTANCE_COLUMN). It is never
+// a projectable table column and never a pushable predicate column, so both the
+// projection builder and the predicate converter must exclude it.
+//
+// It holds the metric-native DISTANCE, not paimon-rust's score: paimon-rust emits
+// an Arrow field named kPaimonRustScoreField carrying a higher-is-better score, and
+// the rust table reader inverts that transform in place while filling the block so
+// the value matches what l2_distance_approximate / inner_product_approximate are
+// defined to return. Lower-is-better for l2.
+//
+// The two names deliberately differ, since the two values mean different things --
+// and keeping them distinct leaves __paimon_search_score free should a later
+// version want to expose the raw score as its own column.
+constexpr const char* kPaimonSearchDistanceColumn = "__paimon_search_score_to_dis";
+
+// The Arrow field name paimon-rust auto-appends to a vector-search batch (see the
+// bindings' materialize_search_result), so it cannot be changed from here; the
+// reader maps it onto kPaimonSearchDistanceColumn when filling the block.
+constexpr const char* kPaimonRustScoreField = "__paimon_search_score";
+
 // Converts Doris push-down conjuncts into a paimon-rust filter predicate.
 //
 // This mirrors PaimonPredicateConverter (the paimon-cpp variant) but targets the

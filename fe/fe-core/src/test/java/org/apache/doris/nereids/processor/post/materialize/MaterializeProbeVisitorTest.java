@@ -188,6 +188,7 @@ public class MaterializeProbeVisitorTest {
         PhysicalTVFRelation relation = Mockito.mock(PhysicalTVFRelation.class);
         VectorSearch function = Mockito.mock(VectorSearch.class);
         Mockito.when(function.getName()).thenReturn(VectorSearchTableValuedFunction.NAME);
+        Mockito.when(function.getCatalogFunction()).thenReturn(Mockito.mock(VectorSearchTableValuedFunction.class));
         Mockito.when(relation.getFunction()).thenReturn(function);
         return relation;
     }
