@@ -27,6 +27,8 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TokenMasker;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
+import org.apache.doris.qe.ConnectContext.ContextAction;
+import org.apache.doris.qe.ConnectContext.ContextCommand;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
@@ -54,7 +56,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * The Arrow Flight SQL side of a session: the bearer token it is known by, the cache of results
@@ -63,8 +64,8 @@ import java.util.concurrent.locks.ReentrantLock;
  *
  * <p>Arrow Flight SQL has no connection in the MySQL sense: every gRPC call of a session may
  * arrive on its own thread, and nothing in the transport serializes them. {@link #runCommand}
- * does, so that a session's {@link ConnectContext}, which is not thread-safe, is only ever used
- * by one command at a time.
+ * delegates admission, serial execution and the final cleanup handoff to {@link ConnectContext},
+ * so a session's mutable state is only used by one command at a time.
  *
  * <p>Nor does a query end where the frontend's command does. The client pulls the results from the
  * backends by itself (DoGet), and the frontend hears nothing of it -- not when it starts, not when
@@ -92,7 +93,7 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
 
     private final String peerIdentity;
     private final FlightSqlChannel channel = new FlightSqlChannel();
-    // Only used by the commands of the session, under the command lock; teardown does not touch it.
+    // Only used by the session's execution owner; teardown does not touch it.
     private final Map<String, PreparedQuery> preparedQuerys = new HashMap<>();
     private String runningQuery;
     private final List<FlightSqlEndpointsLocation> endpointsLocations = Lists.newArrayList();
@@ -114,11 +115,9 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     // on this connection, when the connection is torn down, or by the idle reaper in
     // ConnectContext.checkTimeout once each one's own bound has passed since its query started.
     // See #62259 and #67503, and the class comment for who owns them. Guarded by its own monitor:
-    // the commands of the session add and take under the command lock, the timeout checker and
+    // the session's execution owner adds and takes, while the timeout checker and
     // teardown take without it.
     private final List<StmtExecutor> deferredExecutors = new ArrayList<>();
-    // Serializes the commands of this session, see runCommand.
-    private final ReentrantLock commandLock = new ReentrantLock();
 
     public FlightProtocolAdapter(String peerIdentity) {
         this.peerIdentity = peerIdentity;
@@ -568,17 +567,6 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
         }
     }
 
-    @FunctionalInterface
-    public interface SessionAction<E extends Exception> {
-        void run() throws E;
-    }
-
-    /** The body of a command run by {@link #callCommand}. */
-    @FunctionalInterface
-    public interface SessionCommand<T, E extends Exception> {
-        T call() throws E;
-    }
-
     /**
      * Runs one command of the session, and no other one at the same time: a statement, a prepared
      * statement action, a DoGet of a frontend-side result, a metadata request, a session option
@@ -588,11 +576,12 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
      * finds another one still running waits for it up to the session's execution timeout and then
      * fails with {@code UNAVAILABLE} instead of running concurrently on the same context.
      *
-     * <p>Session teardown (CloseSession, KILL, the timeout checker) does not go through here and
-     * does not wait for the running command to exit; ConnectContext delays resource release until
-     * it exits. A command that gets its turn after closure fails with {@code UNAUTHENTICATED}.
+     * <p>Session teardown (CloseSession, KILL, the timeout checker) does not acquire execution
+     * ownership here. ConnectContext releases resources only after both the running command and
+     * the teardown's synchronous interruption have finished. A command that gets its turn after
+     * closure fails with {@code UNAUTHENTICATED}.
      */
-    public <E extends Exception> void runCommand(ConnectContext ctx, SessionAction<E> action) throws E {
+    public <E extends Exception> void runCommand(ConnectContext ctx, ContextAction<E> action) throws E {
         this.<Void, E>callCommand(ctx, () -> {
             action.run();
             return null;
@@ -601,53 +590,25 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
 
     /**
      * {@link #runCommand} for a command that returns a value. The return value must no longer
-     * borrow session resources: endOperation may release them before gRPC serializes the response.
+     * borrow session resources: yielding execution ownership may release them before gRPC serializes it.
      * Streaming commands must finish using their Arrow buffers within the command body instead.
      */
-    public <T, E extends Exception> T callCommand(ConnectContext ctx, SessionCommand<T, E> command) throws E {
-        acquireCommandLock(ctx);
-        ConnectContext previous = ConnectContext.get();
-        boolean admitted = false;
-        try {
-            admitted = ctx.tryBeginCommand();
-            if (!admitted) {
-                throw CallStatus.UNAUTHENTICATED.withDescription(String.format("this Arrow Flight SQL session "
-                        + "was closed, connection id: %d; reconnect to run further commands", ctx.getConnectionId()))
-                        .toRuntimeException();
-            }
-            ctx.setThreadLocalInfo();
-            return command.call();
-        } finally {
-            try {
-                if (admitted) {
-                    ctx.endOperation();
-                }
-            } finally {
-                if (previous == null) {
-                    ConnectContext.remove();
-                } else {
-                    previous.setThreadLocalInfo();
-                }
-                commandLock.unlock();
-            }
-        }
-    }
-
-    private void acquireCommandLock(ConnectContext ctx) {
-        // Wait as long as the running command is allowed to run: for a synchronous load statement
-        // that is max(insert_timeout, query_timeout), the bound the timeout checker applies to it.
+    public <T, E extends Exception> T callCommand(ConnectContext ctx, ContextCommand<T, E> command) throws E {
+        // The context owns both serialization and final cleanup. Waiting RPCs own no resources;
+        // closure wakes them to reject admission without waiting for the running RPC to exit.
         long waitS = ctx.getExecTimeoutS();
-        boolean locked;
         try {
-            locked = commandLock.tryLock(waitS, TimeUnit.SECONDS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+            return ctx.executeCommand(TimeUnit.SECONDS.toMillis(waitS), command);
+        } catch (ConnectContext.SessionClosedException e) {
+            throw CallStatus.UNAUTHENTICATED.withDescription(String.format("this Arrow Flight SQL session "
+                    + "was closed, connection id: %d; reconnect to run further commands", ctx.getConnectionId()))
+                    .toRuntimeException();
+        } catch (ConnectContext.SessionWaitInterruptedException e) {
             LOG.warn("interrupted while waiting for the running command of Arrow Flight SQL connection {}",
                     ctx.getConnectionId());
             throw CallStatus.CANCELLED.withDescription("interrupted while waiting for the previous command of "
-                    + "this Arrow Flight SQL session to finish").withCause(e).toRuntimeException();
-        }
-        if (!locked) {
+                    + "this Arrow Flight SQL session to finish").withCause(e.getCause()).toRuntimeException();
+        } catch (ConnectContext.SessionBusyException e) {
             LOG.warn("a command of Arrow Flight SQL connection {} gave up after waiting {}s for the running one",
                     ctx.getConnectionId(), waitS);
             throw CallStatus.UNAVAILABLE.withDescription(String.format("another command of this Arrow Flight SQL "

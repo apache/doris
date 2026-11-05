@@ -60,8 +60,8 @@ public interface FlightSessionsManager {
 
     /**
      * Requests immediate closure for the client's CloseSession: every later call under the token
-     * is {@code UNAUTHENTICATED}, while resource release waits for cancelled operations to exit.
-     * Ending a session that has already ended is not an error.
+     * is {@code UNAUTHENTICATED}, while resource release waits for the cancelled request and its
+     * interruption to finish. Ending a session that has already ended is not an error.
      */
     void closeConnectContext(String peerIdentity);
 

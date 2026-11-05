@@ -64,6 +64,8 @@ import org.apache.arrow.flight.sql.impl.FlightSql.ActionCreatePreparedStatementR
 import org.apache.arrow.flight.sql.impl.FlightSql.CommandStatementQuery;
 import org.apache.arrow.vector.ipc.ReadChannel;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
+import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -75,6 +77,7 @@ import org.mockito.Mockito;
 import java.io.ByteArrayInputStream;
 import java.nio.channels.Channels;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
@@ -124,7 +127,7 @@ public class DorisFlightSqlProducerTest {
     }
 
     // A Flight status chosen by the session layer reaches the client as is, whatever it is: the
-    // session's command lock (UNAVAILABLE), a closed session (UNAUTHENTICATED), a refused session
+    // session's execution owner (UNAVAILABLE), a closed session (UNAUTHENTICATED), a refused session
     // (RESOURCE_EXHAUSTED). Only a non-Flight failure is wrapped as INTERNAL.
     @Test
     public void testGetFlightInfoPassesOtherFlightErrorsThrough() throws Exception {
@@ -203,7 +206,6 @@ public class DorisFlightSqlProducerTest {
         // A real flight session context owns a real FlightSqlChannel (and thus a real Arrow allocator),
         // so allocator bookkeeping is exercised for real instead of mocked away.
         ConnectContext connectContext = ConnectContext.forFlight("test-peer-identity");
-        connectContext.activate();
         FlightSqlChannel channel = connectContext.getFlightSqlChannel();
         Assertions.assertEquals(0L, channel.getAllocatedMemory(), "channel allocator should start empty");
 
@@ -298,7 +300,7 @@ public class DorisFlightSqlProducerTest {
         ConnectScheduler scheduler = new ConnectScheduler(10, 10);
         ctx.setConnectScheduler(scheduler);
         scheduler.submit(ctx);
-        Assertions.assertEquals(-1, ctx.activateClientSession(scheduler.getConnectPoolMgr()));
+        Assertions.assertEquals(-1, ctx.registerClientSession(scheduler.getConnectPoolMgr()));
         StmtExecutor running = Mockito.mock(StmtExecutor.class);
         DorisFlightSqlProducer producer = new DorisFlightSqlProducer(
                 Location.forGrpcInsecure("127.0.0.1", 9090), sessionsOf(ctx));
@@ -321,10 +323,12 @@ public class DorisFlightSqlProducerTest {
                     "KILL " + (killConnection ? "CONNECTION " : "QUERY ") + ctx.getConnectionId()).build();
             FlightInfo info = producer.getFlightInfoStatement(request, callOf("self-kill-token"),
                     FlightDescriptor.command(new byte[0]));
+            Assertions.assertEquals(new Schema(Collections.singletonList(
+                    Field.nullable("StatusResult", new ArrowType.Utf8()))), info.getSchema());
             if (killConnection) {
                 Assertions.assertTrue(info.getEndpoints().isEmpty());
                 Assertions.assertEquals(0, info.getRecords());
-                Assertions.assertFalse(ctx.tryBeginCommand());
+                Assertions.assertTrue(ctx.isClosingOrClosed());
                 Assertions.assertNull(scheduler.getContextWithPeerIdentity("self-kill-token"));
                 Assertions.assertEquals(0, ctx.getFlightSqlChannel().getAllocatedMemory());
                 // FlightService serializes the returned value after callCommand has released
@@ -362,7 +366,6 @@ public class DorisFlightSqlProducerTest {
     @Test
     public void testGetFlightInfoFinalizesDeferredExecutorWhenSchemaFetchFails() throws Exception {
         ConnectContext ctx = Mockito.spy(ConnectContext.forFlight("token"));
-        ctx.activate();
 
         // Stands in for the just-planned external-table query whose results DoGet would pull from BE.
         StmtExecutor deferred = Mockito.mock(StmtExecutor.class);
@@ -458,7 +461,6 @@ public class DorisFlightSqlProducerTest {
     @Test
     public void testSessionOptionsAreAnsweredThroughTheListener() throws Exception {
         ConnectContext ctx = ConnectContext.forFlight("token");
-        ctx.activate();
         DorisFlightSqlProducer producer = new DorisFlightSqlProducer(
                 Location.forGrpcInsecure("127.0.0.1", 9090), sessionsOf(ctx));
         try {
@@ -492,7 +494,6 @@ public class DorisFlightSqlProducerTest {
     @Test
     public void testSessionOptionsWaitForTheRunningCommand() throws Exception {
         ConnectContext ctx = ConnectContext.forFlight("token");
-        ctx.activate();
         ctx.getSessionVariable().setQueryTimeoutS(1);
         FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
         DorisFlightSqlProducer producer = new DorisFlightSqlProducer(
@@ -542,7 +543,7 @@ public class DorisFlightSqlProducerTest {
         ConnectScheduler scheduler = new ConnectScheduler(10, 10);
         ctx.setConnectScheduler(scheduler);
         scheduler.submit(ctx);
-        Assertions.assertEquals(-1, ctx.activateClientSession(scheduler.getConnectPoolMgr()));
+        Assertions.assertEquals(-1, ctx.registerClientSession(scheduler.getConnectPoolMgr()));
         ctx.setCommand(MysqlCommand.COM_SLEEP);
         ctx.setStartTime();
         long waitTimeoutMs = ctx.getSessionVariable().getWaitTimeoutS() * 1000L;
@@ -628,7 +629,7 @@ public class DorisFlightSqlProducerTest {
         ConnectScheduler scheduler = new ConnectScheduler(10, 10);
         ctx.setConnectScheduler(scheduler);
         scheduler.submit(ctx);
-        Assertions.assertEquals(-1, ctx.activateClientSession(scheduler.getConnectPoolMgr()));
+        Assertions.assertEquals(-1, ctx.registerClientSession(scheduler.getConnectPoolMgr()));
         FlightSessionsManager sessions = new FlightSessionsInConnectPool(scheduler);
         DorisFlightSqlProducer producer = new DorisFlightSqlProducer(
                 Location.forGrpcInsecure("127.0.0.1", 9090), sessions);
@@ -639,11 +640,11 @@ public class DorisFlightSqlProducerTest {
                 ctx.setExecutor(running);
                 ctx.getFlightSqlChannel().addOKResult("result", "SELECT 1");
                 Answer<CloseSessionResult> closed = new Answer<>();
-                // Another RPC must finish without acquiring the commandLock held by this thread.
+                // Another RPC must finish without taking execution ownership from this thread.
                 rpcWorker.submit(() -> producer.closeSession(new CloseSessionRequest(),
                         callOf("close-token"), closed)).get(10, TimeUnit.SECONDS);
                 Assertions.assertEquals(CloseSessionResult.Status.CLOSED, closed.single().getStatus());
-                Assertions.assertFalse(ctx.tryBeginCommand());
+                Assertions.assertTrue(ctx.isClosingOrClosed());
                 Assertions.assertFalse(ctx.isClosingAfterResponse());
                 Assertions.assertTrue(ctx.getFlightSqlChannel().getAllocatedMemory() > 0);
                 Mockito.verify(running).cancel(Mockito.any(org.apache.doris.common.Status.class), Mockito.eq(false));
@@ -651,7 +652,7 @@ public class DorisFlightSqlProducerTest {
                         () -> sessions.getConnectContext("close-token"));
                 Assertions.assertEquals(FlightStatusCode.UNAUTHENTICATED, error.status().code());
             });
-            Assertions.assertFalse(ctx.tryBeginCommand());
+            Assertions.assertTrue(ctx.isClosingOrClosed());
             Assertions.assertEquals(0, ctx.getFlightSqlChannel().getAllocatedMemory());
         } finally {
             rpcWorker.shutdownNow();

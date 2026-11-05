@@ -108,100 +108,85 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.annotation.Nullable;
 
 
 /**
- * Owns session state, command admission and resource cleanup. ProtocolAdapter owns the protocol
- * resources; ConnectPoolMgr only maintains local indexes and quotas. Neither GC nor detaching
- * the thread-local binding closes a session.
+ * Owns session state, serial execution and final cleanup. ProtocolAdapter owns protocol resources;
+ * ConnectPoolMgr maintains local indexes and quotas. Neither GC nor removing a thread-local binding
+ * closes a session. There is no activation step or reference-counted operation API.
  *
- * <h2>Admission and close requests</h2>
- * One control value decides whether work can begin and who closes the transport:
+ * <h2>Creation and use</h2>
+ * Configure a new context privately before publishing it. Client protocol entries wrap initialization
+ * in {@link #runCommand(ContextAction)} and call {@link #registerClientSession(ConnectPoolMgr)} after
+ * authentication. Registration returns -1 on success and a nonnegative connection count on quota
+ * refusal. The creator must close abandoned initialization, including failed registration or login
+ * responses. Install a transport close listener, then check whether the transport had already closed.
+ *
+ * <p>MySQL's initialization and read listeners use {@link #runCommand(ContextAction, Runnable)}.
+ * Its idle action only rearms nonblocking reads, after the response, business finally blocks and
+ * thread-local restoration. Flight's runCommand/callCommand entry uses
+ * {@link #executeCommand(long, ContextCommand)} to wait a bounded time for the same execution slot.
+ * Business code inside these entries needs no lifecycle calls. Helpers borrow the current context;
+ * they must not recursively enter a top-level command. An unregistered internal context can be used
+ * privately and closed by its creating scope without activation or per-statement bookkeeping.
+ *
+ * <p>Only one initialization, request or finalizer owns execution at a time. Queued requests acquire
+ * ownership when they actually start, not when submitted. A stale pool lookup grants no admission.
+ * Rejected or discarded initialization/request tasks remain their submitter's responsibility.
+ * Asynchronous work must finish borrowing session resources before the request exits, or take
+ * ownership of independent query resources. Thread-local binding alone does not grant ownership.
+ *
+ * <h2>Closing and handoff</h2>
+ * The close intent is monotonic:
  * <pre>
- * INITIALIZING -- activate / successful activateClientSession --&gt; ACTIVE
- * INITIALIZING / ACTIVE -- AFTER_RESPONSE, operations remain ---&gt; CLOSE_PENDING
- * INITIALIZING / ACTIVE -- IMMEDIATE, or no operations ---------&gt; CLOSE_STARTED
- * CLOSE_PENDING -- IMMEDIATE, or last operation exits ---------&gt; CLOSE_STARTED
+ * OPEN -- AFTER_RESPONSE -----------------&gt; AFTER_RESPONSE
+ * OPEN / AFTER_RESPONSE -- IMMEDIATE -----&gt; STOPPING
+ * AFTER_RESPONSE -- finalizer takes turn -&gt; STOPPING
  * </pre>
- * CLOSE_STARTED is terminal. It means transport closure has been claimed, not that resource
- * release has finished. There is no second cleanup state machine or completion callback API.
- * QueryState, thread-local binding and pool membership are separate from command admission.
+ * STOPPING is terminal; it does not promise that resource release has completed. There is no
+ * separate CLOSED state, cleanup phase or completion-wait API. Pool registration is revoked on the
+ * first close request, before final resource release, and cannot be acquired again.
  *
- * <h2>Caller responsibilities</h2>
- * <ol>
- * <li><b>Initialization.</b> Configure the environment, identity and session properties. A client
- * creator calls {@link ConnectScheduler#submit(ConnectContext)}, {@link #setConnectScheduler},
- * then {@link #activateClientSession(ConnectPoolMgr)}. A result of -1 means activation succeeded;
- * a nonnegative result means quota refusal and leaves the context INITIALIZING. An owned internal
- * context can instead call {@link #activate()} without joining the client pool. Activation is
- * allowed once. The creator must call {@link #cleanup()} on every abandoned initialization,
- * including refusal and a failed login response after activation.
+ * <p>{@link #requestClose(CloseMode)} with AFTER_RESPONSE preserves the current response and places
+ * a finalizer behind its owner. MySQL finishes flushing its response before yielding. Flight finishes
+ * consuming streaming buffers, or returns a value independent of session resources; gRPC may serialize
+ * that value later. Neither boundary promises client receipt. A closing Flight response must not
+ * require a later DoGet with the revoked token. The finalizer claims STOPPING before closing transport
+ * and releasing resources. An immediate upgrade invalidates a pending deferred finalizer.
  *
- * <p>Before exposing initialization to a close callback, call {@link #beginInitialization()}.
- * On success, pair it with {@link #endOperation()} in finally. This protects the handshake and
- * login response even after activation. Install the transport close callback before registration
- * and handle a transport that closed before listener installation.</li>
+ * <p>{@link #cleanup()} requests IMMEDIATE closure. Its unique winner closes transport and cancels
+ * execution outside the handoff lock. MySQL socket closure unblocks incomplete packet reads. Flight
+ * has no per-session gRPC transport to close. Cancellation can invoke synchronous callbacks, so the
+ * winner publishes the finalizer only in its finally, after interruption and thread-local restoration.
+ * An exiting request must not clean up just because it sees STOPPING: cancellation may still be using
+ * resources. A late executor published by the current owner observes STOPPING and is cancelled too.
  *
- * <li><b>Commands.</b> Apply protocol serialization, then call {@link #tryBeginCommand()}. Reject
- * the request if it returns false: a pool/token lookup alone does not admit work. On success,
- * bind the context for the command and always call {@link #endOperation()} in finally, after its
- * response boundary. Admission also refreshes idle activity time. MySQL flushes the response
- * before ending the operation. Flight builds a self-contained synchronous response, or finishes
- * streaming its Arrow buffers, before ending the operation; gRPC may serialize the return value
- * afterwards. Neither boundary guarantees client receipt. A closing Flight response must not
- * require a later DoGet using the revoked token.
+ * <p>Finalizer publication and owner exit share lifecycleLock. With an owner, publication leaves the
+ * task for that owner's exit. Without one, the publisher claims execution and runs it inline. This
+ * handles either ordering without waiting for the request, counting references or submitting cleanup
+ * to another executor. The finalizer releases protocol state, rolls back transactions, invokes the
+ * existing temporary-table/session hooks and clears statement state. Each step is attempted once;
+ * failures are logged and remaining steps continue. Reentrant close callbacks see STOPPING and return.
+ * Cleanup binds this context for rollback helpers, then restores an unrelated caller's binding.
  *
- * <p>Restore the previous thread-local binding on exit. {@link #clear()}, {@link #remove()} and
- * {@link #resetConnection()} do not close a session. Borrowing another scope's context does not
- * transfer ownership and must not trigger cleanup.</li>
+ * <h2>Concurrency boundaries</h2>
+ * Close intent, execution ownership, the pending finalizer, registration and idle-expiry decisions
+ * share lifecycleLock. Lock order is lifecycleLock then the pool's admissionLock; pool changes only
+ * update local indexes and quotas. Cancellation and resource release run outside both locks. The
+ * MySQL idle action is exclusively a short read-scheduling operation under the handoff lock; it must
+ * neither block nor run request code inline. No old request accesses session resources after handoff.
  *
- * <li><b>Closure.</b> {@link #requestClose(CloseMode)} rejects new work and unregisters the session.
- * AFTER_RESPONSE, used by COM_QUIT and self KILL CONNECTION, lets admitted operations finish
- * without cancellation; the last one initiates transport closure. IMMEDIATE, also requested by
- * {@link #cleanup()}, cancels the current executor and closes transport without waiting for
- * commands. It upgrades a pending deferred close, never the other way around. A late executor
- * published by an admitted command is also cancelled. KILL QUERY and query timeout only cancel
- * execution and retain the session.
- *
- * <p>MySQL transport closure unblocks packet readers. Flight has no session-owned gRPC transport
- * to close: its channel, cached results and deferred executors are released together after
- * admitted operations exit. CloseSession and external KILL do not acquire Flight's command lock.
- * Do not call pool removal, protocol release or transaction rollback independently as a substitute
- * for cleanup. A return from cleanup does not mean a running command has exited.</li>
- * </ol>
- *
- * <h2>Resource ownership and concurrency</h2>
- * The context starts with one session reference. Each admitted initialization or command adds
- * one reference and returns it in endOperation. The thread that claims CLOSE_STARTED owns the
- * session reference until cancellation and transport closure finish, returning it in finally.
- * Thus closing never has to acquire a new reference or resurrect a zero count.
- *
- * <p>The last reference return performs final cleanup, whether it belongs to the closer or an
- * operation. No references can be acquired after closing starts, so the transition to zero has
- * exactly one owner. That owner releases protocol resources, rolls back the transaction, invokes
- * existing temporary-table/session cleanup hooks and clears statement state. Failures are logged
- * and remaining steps are still attempted; repeated or reentrant cleanup never retries a step.
- * Cleanup temporarily binds this context for rollback helpers, restores a different caller's
- * binding, and detaches this context when its final operation has exited.
- *
- * <p>Activation, admission, reference accounting and idle-expiry decisions share lifecycleLock.
- * Registration/removal follow lifecycleLock then the pool's admissionLock. Pool operations only
- * update local bookkeeping; protocol calls, cancellation and final release run outside these
- * locks. A reference protects lifetime, not command serialization: MySQL read scheduling and
- * Flight's command lock still serialize session work. The admitted caller always owns its finally
- * block, including after pool removal; neither timeout scanning nor GC can replace it.
- *
- * <p>The scheduler's existing timeout scan requests immediate closure on idle expiry. A Flight
- * metadata command can show COM_SLEEP while running and must not be expired as idle. A MySQL
- * reader blocked on an incomplete packet still needs wait_timeout to close its transport.
- * Deferred Flight results have their own expiry and can be released without closing the session.
- *
- * <p>Legacy internal task, HTTP and borrowed scopes are migrated separately. Construction or
- * thread-local binding alone does not opt them into command tracking. Remote cleanup retries and
- * cross-FE crash reclamation are outside this local ownership protocol.
+ * <p>The pool timeout checker requests closure on session idle expiry. Flight metadata may report
+ * COM_SLEEP while owning execution and is not idle. A MySQL incomplete-packet reader still needs
+ * wait_timeout to interrupt the socket. Deferred Flight query expiry transfers each query out of its
+ * collection once and releases it independently. KILL QUERY and query timeout retain the session:
+ * their query-owned cancellation handles must keep a stable target and support concurrent termination,
+ * rather than rereading the session's current query identity. Safe final release requires the request
+ * and the close interruption to return; GC and forced release cannot replace either responsibility.
  */
 public class ConnectContext {
     private static final Logger LOG = LogManager.getLogger(ConnectContext.class);
@@ -231,19 +216,18 @@ public class ConnectContext {
         IMMEDIATE, AFTER_RESPONSE
     }
 
-    // Controls admission and claims transport closure once. CLOSE_STARTED is terminal.
-    private enum Control {
-        INITIALIZING, ACTIVE, CLOSE_PENDING, CLOSE_STARTED
+    private enum CloseIntent {
+        OPEN, AFTER_RESPONSE, STOPPING
     }
 
-    // Lock order: lifecycleLock -> ConnectPoolMgr.admissionLock. The pool never calls back into
-    // the lifecycle. Cancellation, channel callbacks and resource release run outside both locks.
+    // Lock order: lifecycleLock -> ConnectPoolMgr.admissionLock. No cancellation or cleanup
+    // callbacks run under these locks. Only the MySQL nonblocking read rearm runs at handoff.
     private final Object lifecycleLock = new Object();
-    private volatile Control control = Control.INITIALIZING;
+    private volatile CloseIntent closeIntent = CloseIntent.OPEN;
+    // Guarded by lifecycleLock. Ownership covers the entire request, including its finally blocks.
+    private Thread owner;
+    private Runnable pendingFinalizer;
     private ConnectPoolMgr registeredPool;
-    // Guarded by lifecycleLock: the session reference (returned after transport closure) plus
-    // admitted operations. Only the unique decrement to zero can perform final resource release.
-    private int resourceUsers = 1;
     // set this id before analyze
     protected volatile long stmtId;
     protected volatile long forwardedStmtId;
@@ -1130,9 +1114,10 @@ public class ConnectContext {
     public void setExecutor(StmtExecutor executor) {
         boolean cancelOnPublication;
         synchronized (lifecycleLock) {
-            Preconditions.checkState(control != Control.CLOSE_STARTED || resourceUsers > 0, "Context is closed");
+            Preconditions.checkState(closeIntent != CloseIntent.STOPPING || owner == Thread.currentThread(),
+                    "Context is closed");
             this.executor = executor;
-            cancelOnPublication = control == Control.CLOSE_STARTED;
+            cancelOnPublication = closeIntent == CloseIntent.STOPPING;
         }
         // An immediate close may win before the command publishes its executor. StmtExecutor
         // remembers cancellation before coordinator publication. A deferred close lets the
@@ -1184,78 +1169,171 @@ public class ConnectContext {
         protocolAdapter.releaseSession(this);
     }
 
-    /** Activate an owned internal context without putting it in the client connection pool. */
-    public void activate() {
+    /** Registers a configured client session; returns -1 on success, or the refused quota count. */
+    public int registerClientSession(ConnectPoolMgr pool) {
         synchronized (lifecycleLock) {
-            Preconditions.checkState(control == Control.INITIALIZING,
-                    "Cannot activate a context in %s", control);
-            control = Control.ACTIVE;
-        }
-    }
-
-    /** Returns -1 on admission, or the pool's connection count on quota refusal. */
-    public int activateClientSession(ConnectPoolMgr pool) {
-        synchronized (lifecycleLock) {
-            Preconditions.checkState(control == Control.INITIALIZING,
-                    "Cannot register a context in %s", control);
+            if (closeIntent != CloseIntent.OPEN) {
+                throw new SessionClosedException();
+            }
+            Preconditions.checkState(registeredPool == null, "Session is already registered");
             int result = pool.registerConnection(this);
             if (result == -1) {
                 registeredPool = pool;
                 refreshStartTime();
-                control = Control.ACTIVE;
             }
             return result;
         }
     }
 
-    /** Pin resources while a protocol entry initializes the context, before publication. */
-    public boolean beginInitialization() {
-        synchronized (lifecycleLock) {
-            if (control != Control.INITIALIZING) {
-                return false;
-            }
-            resourceUsers++;
-            return true;
+    @FunctionalInterface
+    public interface ContextAction<E extends Exception> {
+        void run() throws E;
+    }
+
+    @FunctionalInterface
+    public interface ContextCommand<T, E extends Exception> {
+        T call() throws E;
+    }
+
+    public static class SessionClosedException extends IllegalStateException {
+        private SessionClosedException() {
+            super("Session is closing");
         }
     }
 
-    /** Admission and idle-timeout decisions share this lock; a stale lookup grants no admission. */
-    public boolean tryBeginCommand() {
+    public static class SessionBusyException extends IllegalStateException {
+        private SessionBusyException() {
+            super("Timed out waiting for the session's current command");
+        }
+    }
+
+    public static class SessionWaitInterruptedException extends IllegalStateException {
+        private SessionWaitInterruptedException(InterruptedException cause) {
+            super("Interrupted while waiting for the session's current command", cause);
+        }
+    }
+
+    /** Runs a non-waiting protocol entry; false means closure rejected it before it began. */
+    public <E extends Exception> boolean runCommand(ContextAction<E> action) throws E {
+        return runCommand(action, null);
+    }
+
+    /** The idle action may only schedule MySQL reads; it must not block or execute request code. */
+    public <E extends Exception> boolean runCommand(ContextAction<E> action, Runnable onIdle) throws E {
+        try {
+            acquireExecution(0);
+        } catch (SessionClosedException closed) {
+            return false;
+        }
+        executeOwned(() -> {
+            action.run();
+            return null;
+        }, onIdle);
+        return true;
+    }
+
+    /** Runs a protocol request with bounded admission waiting, preserving the body's own exceptions. */
+    public <T, E extends Exception> T executeCommand(long waitMillis, ContextCommand<T, E> command) throws E {
+        acquireExecution(waitMillis);
+        return executeOwned(command, null);
+    }
+
+    private void acquireExecution(long waitMillis) {
         synchronized (lifecycleLock) {
-            if (control != Control.ACTIVE) {
-                return false;
+            Preconditions.checkState(owner != Thread.currentThread(), "Nested session command");
+            long remaining = TimeUnit.MILLISECONDS.toNanos(waitMillis);
+            long started = System.nanoTime();
+            while (closeIntent == CloseIntent.OPEN && owner != null) {
+                if (remaining <= 0) {
+                    throw new SessionBusyException();
+                }
+                try {
+                    TimeUnit.NANOSECONDS.timedWait(lifecycleLock, remaining);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new SessionWaitInterruptedException(interrupted);
+                }
+                remaining = TimeUnit.MILLISECONDS.toNanos(waitMillis) - (System.nanoTime() - started);
             }
-            resourceUsers++;
+            if (closeIntent != CloseIntent.OPEN) {
+                throw new SessionClosedException();
+            }
+            owner = Thread.currentThread();
             refreshStartTime();
-            return true;
         }
     }
 
-    /** Paired with a successful beginInitialization/tryBeginCommand, including exceptional exits. */
-    public void endOperation() {
-        releaseReference();
-    }
-
-    // Shared by exiting operations and the sole transport closer returning the session reference.
-    private void releaseReference() {
-        boolean closeTransport;
-        synchronized (lifecycleLock) {
-            Preconditions.checkState(resourceUsers > 0, "No context resource reference to release");
-            if (resourceUsers == 1) {
-                Preconditions.checkState(control == Control.CLOSE_STARTED, "Session reference is still owned");
-            }
-            resourceUsers--;
-            closeTransport = resourceUsers == 1 && control == Control.CLOSE_PENDING;
-            if (closeTransport) {
-                control = Control.CLOSE_STARTED;
-            } else if (resourceUsers != 0) {
-                return;
+    private <T, E extends Exception> T executeOwned(ContextCommand<T, E> command, Runnable onIdle) throws E {
+        ConnectContext previous = ConnectContext.get();
+        try {
+            setThreadLocalInfo();
+            return command.call();
+        } finally {
+            try {
+                restoreThreadContext(previous);
+            } finally {
+                yieldExecution(onIdle);
             }
         }
-        if (closeTransport) {
-            closeTransport(false);
+    }
+
+    private void restoreThreadContext(ConnectContext previous) {
+        if (previous == null) {
+            ConnectContext.remove();
         } else {
-            finishCleanup();
+            previous.setThreadLocalInfo();
+        }
+    }
+
+    // Atomically returns execution or hands it directly to the already-ready finalizer. A close
+    // whose synchronous interruption is still running has not published a finalizer yet.
+    private void yieldExecution(Runnable onIdle) {
+        Runnable finalizer;
+        Throwable rearmFailure = null;
+        StmtExecutor toCancel = null;
+        synchronized (lifecycleLock) {
+            Preconditions.checkState(owner == Thread.currentThread(), "Execution belongs to another thread");
+            owner = null;
+            finalizer = claimFinalizerLocked();
+            if (finalizer == null && closeIntent == CloseIntent.OPEN && onIdle != null) {
+                try {
+                    onIdle.run();
+                } catch (RuntimeException | Error failure) {
+                    rearmFailure = failure;
+                    requestCloseLocked(CloseMode.IMMEDIATE);
+                    toCancel = executor;
+                }
+            }
+            lifecycleLock.notifyAll();
+        }
+        if (rearmFailure != null) {
+            interruptAndPublishFinalizer(toCancel);
+            if (rearmFailure instanceof Error) {
+                throw (Error) rearmFailure;
+            }
+            throw (RuntimeException) rearmFailure;
+        }
+        runFinalizer(finalizer);
+    }
+
+    // All callers hold lifecycleLock. Pending work is consumed once, together with execution.
+    private Runnable claimFinalizerLocked() {
+        if (owner != null || pendingFinalizer == null) {
+            return null;
+        }
+        owner = Thread.currentThread();
+        Runnable finalizer = pendingFinalizer;
+        pendingFinalizer = null;
+        return finalizer;
+    }
+
+    private void runFinalizer(Runnable finalizer) {
+        if (finalizer != null) {
+            try {
+                finalizer.run();
+            } finally {
+                yieldExecution(null);
+            }
         }
     }
 
@@ -1302,48 +1380,64 @@ public class ConnectContext {
         cleanup();
     }
 
-    /** Requests immediate closure; resource release still waits for in-flight operations to exit. */
+    /** Requests immediate closure. A running request retains execution until its entire exit completes. */
     public void cleanup() {
         requestClose(CloseMode.IMMEDIATE);
     }
 
-    /**
-     * Revoke admission now. AFTER_RESPONSE lets admitted operations finish their responses before
-     * closing transport; IMMEDIATE also cancels execution and closes transport without waiting.
-     * A later immediate request upgrades a deferred close, never the other way around.
-     */
+    /** Revokes admission now; only IMMEDIATE interrupts the current response. */
     public void requestClose(CloseMode mode) {
         Preconditions.checkNotNull(mode, "close mode");
-        boolean closeTransport;
+        boolean interrupt;
+        Runnable finalizer;
+        StmtExecutor toCancel;
         synchronized (lifecycleLock) {
-            closeTransport = requestCloseLocked(mode);
+            interrupt = requestCloseLocked(mode);
+            toCancel = executor;
+            finalizer = claimFinalizerLocked();
         }
-        if (closeTransport) {
-            closeTransport(mode == CloseMode.IMMEDIATE);
+        if (interrupt) {
+            interruptAndPublishFinalizer(toCancel);
+        } else {
+            runFinalizer(finalizer);
         }
     }
 
-    // Called with lifecycleLock held, including by idle expiry so that its decision cannot race
-    // with command admission. The return value gives this caller the session reference and the
-    // responsibility to close transport. No callback or resource release runs under this lock.
+    // The return value identifies the unique immediate interruption owner. Deferred tasks are
+    // ready now; immediate cleanup becomes ready only after all synchronous interruption returns.
     private boolean requestCloseLocked(CloseMode mode) {
-        if (control == Control.CLOSE_STARTED) {
+        if (closeIntent == CloseIntent.STOPPING
+                || (closeIntent == CloseIntent.AFTER_RESPONSE && mode == CloseMode.AFTER_RESPONSE)) {
             return false;
         }
-        boolean closeTransport = mode == CloseMode.IMMEDIATE || resourceUsers == 1;
-        control = closeTransport ? Control.CLOSE_STARTED : Control.CLOSE_PENDING;
+        boolean interrupt = mode == CloseMode.IMMEDIATE;
+        closeIntent = interrupt ? CloseIntent.STOPPING : CloseIntent.AFTER_RESPONSE;
+        pendingFinalizer = interrupt ? null : this::finishAfterResponse;
         ConnectPoolMgr pool = registeredPool;
         registeredPool = null;
         if (pool != null) {
-            // Normal removal only changes local indexes/quotas. Report an unexpected failure
-            // here as well: it must not prevent the closer from returning the session reference.
             cleanupStep("unregister connection", () -> pool.unregisterConnection(this));
         }
-        return closeTransport;
+        lifecycleLock.notifyAll();
+        return interrupt;
     }
 
-    // Only the unique reference decrement to zero in CLOSE_STARTED reaches this method. No
-    // additional cleanup flag or phase is needed, including during reentrant callbacks/failure.
+    private void finishAfterResponse() {
+        synchronized (lifecycleLock) {
+            if (closeIntent == CloseIntent.STOPPING) {
+                // An immediate close won after this task claimed execution. Its finalizer will
+                // be published after interruption, and this task must not release resources.
+                return;
+            }
+            Preconditions.checkState(closeIntent == CloseIntent.AFTER_RESPONSE);
+            closeIntent = CloseIntent.STOPPING;
+        }
+        cleanupStep("close transport", this::closeChannel);
+        finishCleanup();
+    }
+
+    // Reached only by the unique finalizer holding execution, after the current response and
+    // immediate interruption have both stopped using session resources.
     private void finishCleanup() {
         // Transaction rollback/forwarding uses ConnectContext.get(). Bind the closing context,
         // even when the caller is the timeout checker or another connection's KILL command.
@@ -1370,28 +1464,28 @@ public class ConnectContext {
         }
     }
 
-    private void closeTransport(boolean cancelExecution) {
+    private void interruptAndPublishFinalizer(StmtExecutor toCancel) {
         ConnectContext previous = ConnectContext.get();
-        setThreadLocalInfo();
         try {
-            if (cancelExecution) {
-                cleanupStep("cancel query", () -> {
-                    StmtExecutor running = executor;
-                    if (running != null) {
-                        running.cancel(new Status(TStatusCode.CANCELLED, "session closed"), false);
-                    }
-                });
-            }
+            setThreadLocalInfo();
+            // Wake packet readers even if query cancellation subsequently waits on a remote FE.
             cleanupStep("close transport", this::closeChannel);
+            cleanupStep("cancel query", () -> {
+                if (toCancel != null) {
+                    toCancel.cancel(new Status(TStatusCode.CANCELLED, "session closed"), false);
+                }
+            });
         } finally {
             try {
-                if (previous == null) {
-                    ConnectContext.remove();
-                } else {
-                    previous.setThreadLocalInfo();
-                }
+                restoreThreadContext(previous);
             } finally {
-                releaseReference(); // Return the session reference even when cancellation/closure fails.
+                Runnable finalizer;
+                synchronized (lifecycleLock) {
+                    Preconditions.checkState(pendingFinalizer == null, "Cleanup was already published");
+                    pendingFinalizer = this::finishCleanup;
+                    finalizer = claimFinalizerLocked();
+                }
+                runFinalizer(finalizer);
             }
         }
     }
@@ -1473,12 +1567,11 @@ public class ConnectContext {
 
     /** True only while the current response is allowed to finish before transport closure. */
     public boolean isClosingAfterResponse() {
-        return control == Control.CLOSE_PENDING;
+        return closeIntent == CloseIntent.AFTER_RESPONSE;
     }
 
     public boolean isClosingOrClosed() {
-        Control state = control;
-        return state == Control.CLOSE_PENDING || state == Control.CLOSE_STARTED;
+        return closeIntent != CloseIntent.OPEN;
     }
 
     public void setQueryId(TUniqueId queryId) {
@@ -1602,7 +1695,7 @@ public class ConnectContext {
         boolean idleClose = false;
         StmtExecutor timedOut = null;
         synchronized (lifecycleLock) {
-            if (control != Control.ACTIVE || startTime <= 0) {
+            if (closeIntent != CloseIntent.OPEN || startTime <= 0) {
                 return;
             }
             long delta = now - startTime;
@@ -1610,9 +1703,10 @@ public class ConnectContext {
                 // Flight metadata/option commands can show COM_SLEEP while using session resources.
                 // MySQL, however, can block reading an incomplete packet before dispatch sets its
                 // command. Keep wait_timeout able to close that transport and unblock the reader.
-                boolean idle = resourceUsers == 1 || getConnectType() == ConnectType.MYSQL;
+                boolean idle = owner == null || getConnectType() == ConnectType.MYSQL;
                 if (idle && delta > sessionVariable.getWaitTimeoutS() * 1000L) {
                     idleClose = requestCloseLocked(CloseMode.IMMEDIATE);
+                    timedOut = executor;
                 }
             } else if (delta > getExecTimeoutS() * 1000L) {
                 // Cancel the executor observed here, never one installed by a later statement.
@@ -1622,7 +1716,7 @@ public class ConnectContext {
         if (idleClose) {
             LOG.warn("kill wait timeout connection, connection type: {}, connectionId: {}, wait timeout: {}",
                     getConnectType(), connectionId, sessionVariable.getWaitTimeoutS());
-            closeTransport(true);
+            interruptAndPublishFinalizer(timedOut);
         } else if (timedOut != null) {
             LOG.warn("cancel timeout query for connection {}, connection type: {}", connectionId, getConnectType());
             timedOut.cancel(new Status(TStatusCode.TIMEOUT, "query is timeout, killed by timeout checker"), false);
@@ -1671,7 +1765,9 @@ public class ConnectContext {
      * @return exact execution timeout
      */
     public int getExecTimeoutS() {
-        if (executor != null && executor.isSyncLoadKindStmt()) {
+        // Timeout scanning and Flight command admission can overlap the preceding command's clear().
+        StmtExecutor running = executor;
+        if (running != null && running.isSyncLoadKindStmt()) {
             // particular for insert stmt, we can expand other type of timeout in the same way
             return Math.max(getInsertTimeoutS(), getQueryTimeoutS());
         } else {

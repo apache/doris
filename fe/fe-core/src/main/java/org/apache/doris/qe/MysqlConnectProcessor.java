@@ -628,19 +628,18 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         MysqlProtocolAdapter.of(ctx).finishCommand(ctx, executor);
     }
 
-    /** Blocking driver for an activated context; each response owns one operation boundary. */
+    /** Blocking driver; the protocol entry owns each complete command and its response. */
     public void loop() {
-        while (ctx.tryBeginCommand()) {
+        while (ctx.runCommand(() -> {
             try {
                 processOnce();
-            } catch (Exception e) {
+            } catch (Throwable e) {
                 // TODO(zhaochun): something wrong
                 LOG.warn("Exception happened in one session(" + ctx + ").", e);
                 ctx.cleanup();
-                break;
-            } finally {
-                ctx.endOperation();
             }
+        })) {
+            // The next iteration acquires execution only after the previous response has finished.
         }
     }
 }

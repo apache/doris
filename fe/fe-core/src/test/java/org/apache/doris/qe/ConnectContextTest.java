@@ -366,7 +366,6 @@ public class ConnectContextTest {
     @Test
     public void testSleepTimeout() {
         ConnectContext ctx = new ConnectContext();
-        ctx.activate();
         ctx.setCommand(MysqlCommand.COM_SLEEP);
 
         // sleep no time out

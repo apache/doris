@@ -20,6 +20,7 @@ package org.apache.doris.arrowflight;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
 import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
+import org.apache.doris.arrowflight.sessions.FlightSessionsInConnectPool;
 import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -37,8 +38,10 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.parser.SqlDialectHelper;
 import org.apache.doris.nereids.trees.plans.commands.RevokeTablePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.commands.utils.KillUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -52,6 +55,7 @@ import org.apache.doris.utframe.TestWithFeService;
 import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
 import org.apache.arrow.flight.FlightDescriptor;
+import org.apache.arrow.flight.FlightInfo;
 import org.apache.arrow.flight.FlightProducer.CallContext;
 import org.apache.arrow.flight.FlightProducer.StreamListener;
 import org.apache.arrow.flight.FlightRuntimeException;
@@ -135,7 +139,7 @@ public class DorisFlightSqlSchemaTest extends TestWithFeService {
     protected void runAfterAll() throws Exception {
         FeConstants.runningUnitTest = previousUnitTest;
         producer.close();
-        flightContext.getFlightSqlChannel().close();
+        flightContext.cleanup();
     }
 
     private Schema schema(String sql) {
@@ -144,6 +148,11 @@ public class DorisFlightSqlSchemaTest extends TestWithFeService {
     }
 
     private ActionCreatePreparedStatementResult prepare(String sql) throws Exception {
+        return prepare(producer, callContext, sql);
+    }
+
+    private static ActionCreatePreparedStatementResult prepare(DorisFlightSqlProducer producer,
+            CallContext callContext, String sql) throws Exception {
         CompletableFuture<ActionCreatePreparedStatementResult> result = new CompletableFuture<>();
         producer.createPreparedStatement(ActionCreatePreparedStatementRequest.newBuilder().setQuery(sql).build(),
                 callContext, new StreamListener<Result>() {
@@ -169,6 +178,74 @@ public class DorisFlightSqlSchemaTest extends TestWithFeService {
                     }
                 });
         return result.get(30, java.util.concurrent.TimeUnit.SECONDS);
+    }
+
+    @Test
+    void preparedSelfKillConnectionReturnsItsAdvertisedSchemaWithoutATicket() throws Exception {
+        verifyPreparedSelfKill(true);
+    }
+
+    @Test
+    void preparedSelfKillQueryPreservesItsHandleAndSession() throws Exception {
+        verifyPreparedSelfKill(false);
+    }
+
+    private void verifyPreparedSelfKill(boolean killConnection) throws Exception {
+        String token = "prepared-kill-peer";
+        ConnectContext session = ConnectContext.forFlight(token);
+        session.setCurrentUserIdentity(connectContext.getCurrentUserIdentity());
+        session.setRemoteIP(connectContext.getRemoteIP());
+        session.setEnv(Env.getCurrentEnv());
+        session.setSessionVariable(VariableMgr.cloneSessionVariable(connectContext.getSessionVariable()));
+        session.setDatabase("schema_test");
+        ConnectScheduler scheduler = new ConnectScheduler(10, 10);
+        session.setConnectScheduler(scheduler);
+        scheduler.submit(session);
+        Assertions.assertEquals(-1, session.registerClientSession(scheduler.getConnectPoolMgr()));
+        CallContext call = Mockito.mock(CallContext.class);
+        Mockito.when(call.peerIdentity()).thenReturn(token);
+        StmtExecutor running = Mockito.mock(StmtExecutor.class);
+        try (DorisFlightSqlProducer localProducer = new DorisFlightSqlProducer(
+                Location.forGrpcInsecure("127.0.0.1", 0), new FlightSessionsInConnectPool(scheduler))) {
+            String sql = "KILL " + (killConnection ? "CONNECTION " : "QUERY ") + session.getConnectionId();
+            ActionCreatePreparedStatementResult prepared = prepare(localProducer, call, sql);
+            Schema expected = new Schema(Collections.singletonList(
+                    Field.nullable("StatusResult", new ArrowType.Utf8())));
+            Assertions.assertEquals(expected, datasetSchema(prepared));
+            try (MockedConstruction<FlightSqlConnectProcessor> processors = Mockito.mockConstruction(
+                    FlightSqlConnectProcessor.class, (processor, construction) -> {
+                        Mockito.doAnswer(invocation -> {
+                            session.setExecutor(running);
+                            KillUtils.killByConnectionId(session, killConnection, session.getConnectionId());
+                            return null;
+                        }).when(processor).handleQuery(sql);
+                    })) {
+                FlightDescriptor descriptor = FlightDescriptor.command(new byte[0]);
+                FlightInfo info = localProducer.getFlightInfoPreparedStatement(command(prepared), call, descriptor);
+                Assertions.assertEquals(expected, info.getSchema());
+                if (killConnection) {
+                    Assertions.assertTrue(info.getEndpoints().isEmpty());
+                    Assertions.assertEquals(0, info.getRecords());
+                    Assertions.assertNull(scheduler.getContextWithPeerIdentity(token));
+                    Assertions.assertTrue(session.isClosingOrClosed());
+                    Assertions.assertEquals(0, session.getFlightSqlChannel().getAllocatedMemory());
+                    Assertions.assertEquals(expected, FlightInfo.deserialize(info.serialize()).getSchema());
+                    Mockito.verifyNoInteractions(running);
+                    FlightRuntimeException closed = Assertions.assertThrows(FlightRuntimeException.class,
+                            () -> localProducer.getFlightInfoPreparedStatement(command(prepared), call, descriptor));
+                    Assertions.assertEquals(FlightStatusCode.UNAUTHENTICATED, closed.status().code());
+                } else {
+                    Assertions.assertEquals(1, info.getEndpoints().size());
+                    Assertions.assertSame(session, scheduler.getContextWithPeerIdentity(token));
+                    FlightInfo next = localProducer.getFlightInfoPreparedStatement(command(prepared), call, descriptor);
+                    Assertions.assertEquals(expected, next.getSchema());
+                    Assertions.assertEquals(1, next.getEndpoints().size());
+                    Mockito.verify(running, Mockito.times(2)).cancel(Mockito.any(Status.class));
+                }
+            }
+        } finally {
+            session.cleanup();
+        }
     }
 
     private static String preparedId(ActionCreatePreparedStatementResult result) {
@@ -661,7 +738,7 @@ public class DorisFlightSqlSchemaTest extends TestWithFeService {
                 }
             });
             Assertions.assertTrue(executing.await(10, java.util.concurrent.TimeUnit.SECONDS));
-            // Execution waits for the session's command lock until the analysis put the session variables back.
+            // Execution waits for the session's execution owner until the analysis put the session variables back.
             Assertions.assertThrows(TimeoutException.class,
                     () -> execution.get(200, java.util.concurrent.TimeUnit.MILLISECONDS));
             release.countDown();

@@ -34,6 +34,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
+import org.xnio.ChannelListener;
 import org.xnio.StreamConnection;
 import org.xnio.XnioIoThread;
 import org.xnio.XnioWorker;
@@ -41,7 +42,10 @@ import org.xnio.channels.AcceptingChannel;
 import org.xnio.conduits.ConduitStreamSourceChannel;
 
 import java.io.IOException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -89,7 +93,7 @@ public class AcceptListenerTest {
         Assertions.assertTrue(listenerAtResponse.get());
         Mockito.verify(connection).setCloseListener(Mockito.any());
         Assertions.assertEquals(0, scheduler.getConnectionNum());
-        Assertions.assertFalse(ctx.tryBeginCommand());
+        Assertions.assertFalse(ctx.runCommand(() -> Assertions.fail("closed session admitted a command")));
         Mockito.verify(ctx).releaseProtocolSession();
         Mockito.verify(ctx).closeTxn();
         Assertions.assertNull(ConnectContext.get());
@@ -113,7 +117,7 @@ public class AcceptListenerTest {
             currentEnv.when(Env::getCurrentEnv).thenReturn(env);
             protocol.when(() -> MysqlProto.sendResponsePacket(ctx)).thenThrow(new IOException("broken socket"));
             new AcceptListener(new ConnectScheduler(10)).handleEvent(channel);
-            Assertions.assertFalse(ctx.tryBeginCommand());
+            Assertions.assertFalse(ctx.runCommand(() -> Assertions.fail("closed session admitted a command")));
             Mockito.verify(ctx).cleanup();
             Mockito.verify(ctx).releaseProtocolSession();
             Mockito.verify(ctx).closeTxn();
@@ -134,7 +138,6 @@ public class AcceptListenerTest {
         MysqlProtocolAdapter adapter = Mockito.mock(MysqlProtocolAdapter.class);
         Mockito.when(adapter.type()).thenReturn(ConnectContext.ConnectType.MYSQL);
         ConnectContext ctx = new ConnectContext(adapter);
-        ctx.activate();
         ConnectProcessor processor = Mockito.mock(ConnectProcessor.class);
         AtomicReference<ConnectContext> commandBinding = new AtomicReference<>();
         AtomicBoolean transportClosed = new AtomicBoolean();
@@ -163,7 +166,7 @@ public class AcceptListenerTest {
         }
         Assertions.assertSame(ctx, commandBinding.get());
         Assertions.assertEquals(Boolean.FALSE, closedDuringCommand.get());
-        Assertions.assertFalse(ctx.tryBeginCommand());
+        Assertions.assertFalse(ctx.runCommand(() -> Assertions.fail("closed session admitted a command")));
         Mockito.verify(adapter).closeConnection(ctx);
         Mockito.verify(adapter).releaseSession(ctx);
         Assertions.assertFalse(ctx.isClosingAfterResponse());
@@ -184,7 +187,7 @@ public class AcceptListenerTest {
         ConnectScheduler scheduler = new ConnectScheduler(10);
         scheduler.submit(ctx);
         ctx.setConnectScheduler(scheduler);
-        Assertions.assertEquals(-1, ctx.activateClientSession(scheduler.getConnectPoolMgr()));
+        Assertions.assertEquals(-1, ctx.registerClientSession(scheduler.getConnectPoolMgr()));
         AtomicInteger packetsAtClose = new AtomicInteger(-1);
         AtomicBoolean flushedAtClose = new AtomicBoolean();
         AtomicInteger connectionsAtClose = new AtomicInteger(-1);
@@ -204,7 +207,7 @@ public class AcceptListenerTest {
         try (MockedStatic<XnioIoThread> ioThread = Mockito.mockStatic(XnioIoThread.class)) {
             new ReadListener(ctx, new MysqlConnectProcessor(ctx)).handleEvent(channel);
         }
-        Assertions.assertFalse(ctx.tryBeginCommand());
+        Assertions.assertFalse(ctx.runCommand(() -> Assertions.fail("closed session admitted a command")));
         // Assert outside cleanup callbacks: cleanup deliberately catches failures from its hooks.
         Assertions.assertEquals(1, packetsAtClose.get());
         Assertions.assertTrue(flushedAtClose.get());
@@ -227,8 +230,92 @@ public class AcceptListenerTest {
             protocol.verifyNoInteractions();
         }
         Assertions.assertEquals(0, scheduler.getConnectionNum());
-        Assertions.assertFalse(ctx.tryBeginCommand());
+        Assertions.assertFalse(ctx.runCommand(() -> Assertions.fail("closed session admitted a command")));
         Mockito.verify(ctx).releaseProtocolSession();
         Mockito.verify(ctx).closeTxn();
+    }
+
+    @Test
+    public void testInitialReadStartsAfterLoginResponseAndBindingRestore() throws Exception {
+        MysqlProtocolAdapter adapter = Mockito.mock(MysqlProtocolAdapter.class);
+        Mockito.when(adapter.type()).thenReturn(ConnectContext.ConnectType.MYSQL);
+        ConnectContext ctx = new ConnectContext(adapter);
+        ctx.setEnv(ConnectPoolTestSupport.envAllowing(10));
+        ctx.setCurrentUserIdentity(UserIdentity.ROOT);
+        ConnectScheduler scheduler = new ConnectScheduler(10);
+        scheduler.submit(ctx);
+        StreamConnection connection = Mockito.mock(StreamConnection.class);
+        Mockito.when(connection.isOpen()).thenReturn(true);
+        ConnectContext previous = new ConnectContext();
+        AtomicBoolean responseFinished = new AtomicBoolean();
+        AtomicBoolean responseFinishedAtRead = new AtomicBoolean();
+        AtomicReference<ConnectContext> bindingAtRead = new AtomicReference<>();
+        Mockito.doAnswer(call -> {
+            bindingAtRead.set(ConnectContext.get());
+            responseFinishedAtRead.set(responseFinished.get());
+            return null;
+        }).when(adapter).startAcceptQuery(Mockito.eq(ctx), Mockito.any(ConnectProcessor.class));
+        previous.setThreadLocalInfo();
+        try (MockedStatic<MysqlProto> protocol = Mockito.mockStatic(MysqlProto.class)) {
+            protocol.when(() -> MysqlProto.negotiate(ctx)).thenReturn(true);
+            protocol.when(() -> MysqlProto.sendResponsePacket(ctx)).thenAnswer(call -> {
+                responseFinished.set(true);
+                return null;
+            });
+            new AcceptListener(scheduler).handleConnection(ctx, connection);
+        }
+        Assertions.assertTrue(responseFinishedAtRead.get());
+        Assertions.assertSame(previous, bindingAtRead.get());
+        Assertions.assertSame(previous, ConnectContext.get());
+        Assertions.assertSame(ctx, scheduler.getContext(ctx.getConnectionId()));
+        Mockito.verify(adapter).startAcceptQuery(Mockito.eq(ctx), Mockito.any(ConnectProcessor.class));
+        ctx.cleanup();
+        previous.cleanup();
+    }
+
+    @Test
+    public void testDisconnectDuringHandshakeCannotPublishOrReleaseAnActiveInitializer() throws Exception {
+        MysqlProtocolAdapter adapter = Mockito.mock(MysqlProtocolAdapter.class);
+        Mockito.when(adapter.type()).thenReturn(ConnectContext.ConnectType.MYSQL);
+        ConnectContext ctx = new ConnectContext(adapter);
+        ctx.setEnv(ConnectPoolTestSupport.envAllowing(10));
+        ctx.setCurrentUserIdentity(UserIdentity.ROOT);
+        ConnectScheduler scheduler = new ConnectScheduler(10);
+        scheduler.submit(ctx);
+        StreamConnection connection = Mockito.mock(StreamConnection.class);
+        Mockito.when(connection.isOpen()).thenReturn(true);
+        AtomicReference<ChannelListener<? super StreamConnection>> closeListener = new AtomicReference<>();
+        AtomicBoolean released = new AtomicBoolean();
+        AtomicBoolean releasedDuringHandshake = new AtomicBoolean();
+        AtomicBoolean closeReturnedDuringHandshake = new AtomicBoolean();
+        Mockito.doAnswer(call -> {
+            closeListener.set(call.getArgument(0));
+            return null;
+        }).when(connection).setCloseListener(Mockito.any());
+        Mockito.doAnswer(call -> {
+            released.set(true);
+            return null;
+        }).when(adapter).releaseSession(ctx);
+        ExecutorService closer = Executors.newSingleThreadExecutor();
+        try (MockedStatic<MysqlProto> protocol = Mockito.mockStatic(MysqlProto.class)) {
+            protocol.when(() -> MysqlProto.negotiate(ctx)).thenAnswer(call -> {
+                closer.submit(() -> closeListener.get().handleEvent(connection)).get(5, TimeUnit.SECONDS);
+                closeReturnedDuringHandshake.set(true);
+                releasedDuringHandshake.set(released.get());
+                return true;
+            });
+            new AcceptListener(scheduler).handleConnection(ctx, connection);
+            protocol.verify(() -> MysqlProto.sendResponsePacket(ctx), Mockito.never());
+        } finally {
+            closer.shutdownNow();
+            Assertions.assertTrue(closer.awaitTermination(5, TimeUnit.SECONDS));
+        }
+        Assertions.assertFalse(releasedDuringHandshake.get());
+        Assertions.assertTrue(closeReturnedDuringHandshake.get());
+        Assertions.assertTrue(released.get());
+        Assertions.assertEquals(0, scheduler.getConnectionNum());
+        Mockito.verify(adapter, Mockito.never()).startAcceptQuery(Mockito.any(), Mockito.any());
+        Mockito.verify(adapter).releaseSession(ctx);
+        Assertions.assertFalse(ctx.runCommand(() -> Assertions.fail("closed initializer admitted a command")));
     }
 }
