@@ -22,6 +22,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.thrift.TAnalyticWindow;
 import org.apache.doris.thrift.TAnalyticWindowBoundary;
 import org.apache.doris.thrift.TAnalyticWindowBoundaryType;
@@ -41,7 +42,6 @@ public class AnalyticWindow {
     public static final AnalyticWindow DEFAULT_WINDOW = new AnalyticWindow(Type.RANGE,
             new Boundary(BoundaryType.UNBOUNDED_PRECEDING, null),
             new Boundary(BoundaryType.CURRENT_ROW, null));
-    private static final BigDecimal MAX_ROWS_OFFSET_VALUE = BigDecimal.valueOf(Long.MAX_VALUE);
 
     public enum Type {
         ROWS("ROWS"),
@@ -201,8 +201,8 @@ public class AnalyticWindow {
             TAnalyticWindowBoundary result = new TAnalyticWindowBoundary(type.toThrift());
 
             if (type.isOffset() && windowType == Type.ROWS) {
-                Preconditions.checkState(offsetValue.compareTo(MAX_ROWS_OFFSET_VALUE) <= 0,
-                        "ROWS window offset must not exceed " + Long.MAX_VALUE);
+                Preconditions.checkState(offsetValue.compareTo(WindowFrame.MAX_ROWS_OFFSET) <= 0,
+                        "ROWS window offset must not exceed " + WindowFrame.MAX_ROWS_OFFSET);
                 result.setRowsOffsetValue(offsetValue.longValueExact());
             }
 
@@ -363,7 +363,6 @@ public class AnalyticWindow {
 
         return sb.toString();
     }
-
 
     public TAnalyticWindow toThrift() {
         TAnalyticWindow result = new TAnalyticWindow(type.toThrift());
