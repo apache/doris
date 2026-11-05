@@ -33,6 +33,8 @@ under the License.
     <description>Client dependency bundle for the native MongoDB connector.</description>
     <properties>
         <mongodb.driver.version>5.14.0</mongodb.driver.version>
+        <!-- Override the older FE-wide pin to reject oversized Snappy allocations and fix stream handling. -->
+        <mongodb.snappy-java.version>1.1.10.10</mongodb.snappy-java.version>
         <mongodb.zstd-jni.version>1.5.7-25</mongodb.zstd-jni.version>
     </properties>
     <dependencyManagement>
@@ -56,6 +58,7 @@ under the License.
         <dependency>
             <groupId>org.xerial.snappy</groupId>
             <artifactId>snappy-java</artifactId>
+            <version>${mongodb.snappy-java.version}</version>
             <scope>runtime</scope>
         </dependency>
         <dependency>
