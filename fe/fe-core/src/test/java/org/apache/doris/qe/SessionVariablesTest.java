@@ -249,6 +249,42 @@ public class SessionVariablesTest extends TestWithFeService {
     }
 
     @Test
+    public void testIcebergPartitionOverwriteMode() throws Exception {
+        SessionVariable sessionVar = new SessionVariable();
+        Assertions.assertEquals("static", sessionVar.getIcebergPartitionOverwriteMode());
+        VariableMgr.setVar(sessionVar, new SetVar(SetType.SESSION,
+                SessionVariable.ICEBERG_PARTITION_OVERWRITE_MODE, new StringLiteral(" DyNaMiC ")));
+        Assertions.assertEquals("dynamic", sessionVar.getIcebergPartitionOverwriteMode());
+        Assertions.assertEquals("dynamic",
+                sessionVar.getForwardVariables().get(SessionVariable.ICEBERG_PARTITION_OVERWRITE_MODE));
+        SessionVariable forwarded = new SessionVariable();
+        forwarded.setForwardedSessionVariables(sessionVar.getForwardVariables());
+        Assertions.assertEquals("dynamic", forwarded.getIcebergPartitionOverwriteMode());
+        sessionVar.setIcebergPartitionOverwriteMode("StAtIc");
+        Assertions.assertEquals("static", sessionVar.getIcebergPartitionOverwriteMode());
+        for (String invalid : new String[] {null, "", "replace"}) {
+            Assertions.assertThrows(UnsupportedOperationException.class,
+                    () -> sessionVar.checkIcebergPartitionOverwriteMode(invalid));
+        }
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "iceberg_partition_overwrite_mode must be 'dynamic' or 'static'",
+                () -> VariableMgr.setVar(sessionVar, new SetVar(SetType.SESSION,
+                        SessionVariable.ICEBERG_PARTITION_OVERWRITE_MODE, new StringLiteral("replace"))));
+    }
+
+    @Test
+    public void testIcebergPartitionOverwriteModeInHint() {
+        connectContext.setThreadLocalInfo();
+        new NereidsParser().parseSQL("select /*+ set_var(iceberg_partition_overwrite_mode='DyNaMiC') */ "
+                + "* from test_t1");
+        Assertions.assertEquals("dynamic", connectContext.getSessionVariable().getIcebergPartitionOverwriteMode());
+        RuntimeException exception = Assertions.assertThrows(RuntimeException.class,
+                () -> new NereidsParser().parseSQL(
+                        "select /*+ set_var(iceberg_partition_overwrite_mode='replace') */ * from test_t1"));
+        Assertions.assertTrue(exception.getMessage().contains("iceberg_partition_overwrite_mode"));
+    }
+
+    @Test
     public void testSetVarInHint() {
         String sql = "insert into test_t1 select /*+ set_var(enable_nereids_dml_with_pipeline=false)*/ * from test_t1 where enable_nereids_dml_with_pipeline=true";
         new NereidsParser().parseSQL(sql);
