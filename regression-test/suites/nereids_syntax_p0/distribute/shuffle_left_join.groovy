@@ -78,8 +78,8 @@ suite("shuffle_left_join") {
         }
     }
 
-    def sqlStr = """
-            select *
+    def joinSql = { boolean bucketShuffle -> """
+            select /*+ SET_VAR(enable_bucket_shuffle_join=${bucketShuffle}, bucket_shuffle_downgrade_ratio=0) */ *
             from
             (
               select id2
@@ -89,13 +89,14 @@ suite("shuffle_left_join") {
             inner join [shuffle]
             test_shuffle_left b
             on a.id2=b.id;
-        """
+        """ }
 
-    extractFragment(sqlStr, "INNER JOIN(PARTITIONED)") { exchangeNum ->
+    // Select the distribution explicitly; the removed planner switch no longer changes it.
+    extractFragment(joinSql(false), "INNER JOIN(PARTITIONED)") { exchangeNum ->
         assertTrue(exchangeNum == 2)
     }
-
-    order_qt_shuffle_left_and_right sqlStr
+    order_qt_shuffle_left_and_right joinSql(false)
+    String sqlStr = joinSql(true)
 
     multi_sql """
         set enable_nereids_distribute_planner=true;

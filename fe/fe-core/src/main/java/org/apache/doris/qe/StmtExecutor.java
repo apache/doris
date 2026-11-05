@@ -785,6 +785,9 @@ public class StmtExecutor {
                 // Replanning reuses StatementContext, but the failed attempt's cleanup closes its connector
                 // scope. Old producers retain that scope until termination; new sessions need a fresh one.
                 statementContext.resetConnectorStatementScope();
+                // The failed attempt's partition-policy proofs stay revoked, but this is a real replan: start
+                // the new attempt from fresh planning state instead of failing every later planning step.
+                statementContext.beginPartitionPolicyReplan();
                 profile.clearPlan();
             } catch (Exception e) {
                 profile.getSummaryProfile().recordFailedAttempt(context.queryId());
@@ -1254,13 +1257,7 @@ public class StmtExecutor {
             }
             parsedStmt = statements.get(originStmt.idx);
         }
-        // In the proxy flow (multi-FE forwarding), the StatementContext is created fresh
-        // without a parsedStatement. Propagate it so that downstream code like
-        // canUseNereidsDistributePlanner can correctly identify the Nereids execution
-        // context, ensuring EnvFactory creates a NereidsCoordinator instead of a legacy
-        // Coordinator (which would fail with "fragment has no children").
-        // Only do this when isProxy is true, because other code paths like
-        // executeInternalQuery() rely on legacy Coordinator behavior with mock backends.
+        // Forwarded statements use a fresh StatementContext; retain the parsed statement for later consumers.
         if (isProxy) {
             this.context.getStatementContext().setParsedStatement(parsedStmt);
         }
@@ -1788,6 +1785,7 @@ public class StmtExecutor {
 
     // Process a select statement.
     private void handleQueryStmt() throws Exception {
+        statementContext.validateOrRevalidatePartitionPoliciesForExecution(planner);
         if (LOG.isDebugEnabled()) {
             LOG.debug("Handling query {} with query id {}",
                     originStmt.originStmt, DebugUtil.printId(context.queryId));
@@ -1896,13 +1894,6 @@ public class StmtExecutor {
             coordBase = new PointQueryExecutor(shortCircuitQueryContext,
                     context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
             context.getState().setIsQuery(true);
-        } else if (planner instanceof NereidsPlanner && ((NereidsPlanner) planner).getDistributedPlans() != null) {
-            setCoord(new NereidsCoordinator(context,
-                    (NereidsPlanner) planner, context.getStatsErrorEstimator()));
-            profile.addExecutionProfile(coord.getExecutionProfile());
-            QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
-                    new QueryInfo(context, originStmt.originStmt, coord));
-            coordBase = coord;
         } else {
             setCoord(EnvFactory.getInstance().createCoordinator(
                     context, planner, context.getStatsErrorEstimator()));

@@ -87,8 +87,34 @@ suite("test_es_query", "p2,external") {
         );
         """
 
+        def verifySourcePredicates = { String version ->
+            // Unfiltered source materialization keeps values omitted by ignore_above out of the oracle's index path.
+            def expected = "internal.${context.dbName}.es_query_source_expected"
+            sql "drop table if exists ${expected}"
+            sql """create table ${expected} (row_id int, test1 string, test2 string)
+                distributed by hash(row_id) buckets 1 properties("replication_num"="1")"""
+            sql "insert into ${expected} select 0, test1, test2 from test1"
+            ["test1 like 'string%'", "test2 like 'text%'"].eachWithIndex { predicate, i ->
+                quickTest("es_${version}_source_like_${i}",
+                        "select test1,test2 from test1 where ${predicate} order by test1,test2",
+                        "select test1,test2 from ${expected} where ${predicate} order by test1,test2")
+            }
+            if (version == "7" || version == "8") {
+                // An absent source field is NULL even when another document has an indexed value.
+                def levelExpected = "internal.${context.dbName}.es_query_level_expected"
+                sql "drop table if exists ${levelExpected}"
+                sql """create table ${levelExpected} (row_id int,test1 string,level string)
+                    distributed by hash(row_id) buckets 1 properties("replication_num"="1")"""
+                sql "insert into ${levelExpected} select 0,test1,level from test1"
+                quickTest("es_${version}_source_level",
+                        "select test1,level from test1 where level = 'debug' order by test1",
+                        "select test1,level from ${levelExpected} where level = 'debug' order by test1")
+            }
+        }
+
         def query_catalogs = { ->
             sql """switch test_es_query_es5"""
+            verifySourcePredicates("5")
             order_qt_sql_5_02 """select * from test1 where test2='text#1'"""
             order_qt_sql_5_03 """select * from test2_20220808 where test4 >= '2022-08-08 00:00:00' and test4 < '2022-08-08 23:59:59'"""
             order_qt_sql_5_04 """select * from test2_20220808 where substring(test2, 2) = 'ext2'"""
@@ -122,6 +148,7 @@ suite("test_es_query", "p2,external") {
             order_qt_sql_5_32 """select test7 from test2;"""
 
             sql """switch test_es_query_es6"""
+            verifySourcePredicates("6")
             // order_qt_sql_6_01 """show tables"""
             order_qt_sql_6_02 """select * from test1 where test2='text#1'"""
             order_qt_sql_6_03 """select * from test2_20220808 where test4 >= '2022-08-08 00:00:00' and test4 < '2022-08-08 23:59:59'"""
@@ -176,6 +203,7 @@ suite("test_es_query", "p2,external") {
             assertTrue(containHide)
 
             sql """switch test_es_query_es7"""
+            verifySourcePredicates("7")
             // order_qt_sql_7_01 """show tables"""
             order_qt_sql_7_02 """select * from test1 where test2='text#1'"""
             order_qt_sql_7_03 """select * from test2_20220808 where test4 >= '2022-08-08 00:00:00' and test4 < '2022-08-08 23:59:59'"""
@@ -239,6 +267,7 @@ suite("test_es_query", "p2,external") {
             order_qt_sql_7_50 """select * from test3_20231005"""
 
             sql """switch test_es_query_es8"""
+            verifySourcePredicates("8")
             order_qt_sql_8_01 """select * from test1 where test2='text#1'"""
             order_qt_sql_8_02 """select * from test2_20220808 where test4 >= '2022-08-08 00:00:00' and test4 < '2022-08-08 23:59:59'"""
             order_qt_sql_8_03 """select c_bool[1], c_byte[1], c_short[1], c_integer[1], c_long[1], c_unsigned_long[1], c_float[1], c_half_float[1], c_double[1], c_scaled_float[1], c_date[1], c_datetime[1], c_keyword[1], c_text[1], c_ip[1], json_extract(c_person, '\$.[0]') from test1"""

@@ -20,9 +20,9 @@ suite("eliminate_distinct_constant") {
     sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET ignore_shape_nodes='PhysicalDistribute'"
-    sql 'DROP DATABASE IF EXISTS test_aggregate_constant'
-    sql 'CREATE DATABASE IF NOT EXISTS test_aggregate_constant'
-    sql 'use test_aggregate_constant'
+    sql 'DROP DATABASE IF EXISTS test_distinct_constant'
+    sql 'CREATE DATABASE IF NOT EXISTS test_distinct_constant'
+    sql 'use test_distinct_constant'
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
 

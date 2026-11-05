@@ -31,12 +31,21 @@ import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
+import org.apache.doris.mtmv.MTMVRelation;
+import org.apache.doris.mtmv.MTMVRewriteUtil;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.rewrite.QueryPartitionCollector;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ArrayListMultimap;
@@ -55,6 +64,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -445,7 +455,7 @@ public class PartitionCompensatorTest extends TestWithFeService {
         Mockito.when(mvPctInfo.getPctInfos()).thenReturn(ImmutableList.of(colInfo1, colInfo2));
         // All MV partitions contain data
         Mockito.when(mtmv.selectNonEmptyPartitionIds(ArgumentMatchers.any(), ArgumentMatchers.any()))
-                .thenReturn(ImmutableList.of(1L));
+                .thenAnswer(invocation -> ImmutableList.copyOf(invocation.<Collection<Long>>getArgument(0)));
 
         AsyncMaterializationContext matCtx = Mockito.mock(AsyncMaterializationContext.class);
         Mockito.when(matCtx.getMtmv()).thenReturn(mtmv);
@@ -502,7 +512,7 @@ public class PartitionCompensatorTest extends TestWithFeService {
         Mockito.when(mtmv.getId()).thenReturn(100L);
         Mockito.when(mtmv.getDatabase()).thenReturn(mvDb);
         Mockito.when(mtmv.selectNonEmptyPartitionIds(ArgumentMatchers.any(), ArgumentMatchers.any()))
-                .thenReturn(ImmutableList.of(1L));
+                .thenAnswer(invocation -> ImmutableList.copyOf(invocation.<Collection<Long>>getArgument(0)));
 
         long validMvPartitionId = 101L;
         long partiallyStaleMvPartitionId = 102L;
@@ -580,7 +590,7 @@ public class PartitionCompensatorTest extends TestWithFeService {
         Mockito.when(mtmv.getId()).thenReturn(100L);
         Mockito.when(mtmv.getDatabase()).thenReturn(mvDb);
         Mockito.when(mtmv.selectNonEmptyPartitionIds(ArgumentMatchers.any(), ArgumentMatchers.any()))
-                .thenReturn(ImmutableList.of(1L));
+                .thenAnswer(invocation -> ImmutableList.copyOf(invocation.<Collection<Long>>getArgument(0)));
 
         long mvP20260301Id = 101L;
         long mvP20260401Id = 102L;
@@ -647,6 +657,128 @@ public class PartitionCompensatorTest extends TestWithFeService {
         Assertions.assertEquals(ImmutableSet.of("mv_p20260301", "mv_p20260403", "mv_p20260428"),
                 result.key().get(new BaseTableInfo(mtmv)));
         Assertions.assertEquals(ImmutableSet.of("p20260403"), result.value().get(colInfo));
+    }
+
+    @Test
+    public void unavailablePartitionViewRejectsMixedGraceRewrite() throws Exception {
+        List<String> qualifiers = List.of("hive_catalog", "db", "h");
+        for (SelectedPartitions selection : List.of(
+                SelectedPartitions.DEFERRED_PARTITION_PRUNING, SelectedPartitions.NOT_PRUNED)) {
+            ConnectContext context = Mockito.mock(ConnectContext.class);
+            SessionVariable variables = new SessionVariable();
+            Mockito.when(context.getSessionVariable()).thenReturn(variables);
+            StatementContext statement = new StatementContext(context, new OriginStatement("select id from h", 0));
+            CascadesContext cascades = Mockito.mock(CascadesContext.class);
+            Mockito.when(cascades.getStatementContext()).thenReturn(statement);
+            Mockito.when(cascades.getConnectContext()).thenReturn(context);
+            PluginDrivenMvccExternalTable table = Mockito.mock(PluginDrivenMvccExternalTable.class);
+            Mockito.when(table.getId()).thenReturn(41L);
+            Mockito.when(table.getDatabase()).thenReturn(Mockito.mock(DatabaseIf.class));
+            Mockito.when(table.getFullQualifiers()).thenReturn(qualifiers);
+            Mockito.when(table.supportsExternalMetadataPreload()).thenReturn(true);
+            Mockito.when(table.supportInternalPartitionPruned()).thenReturn(true);
+            Mockito.when(table.getAndCopyPartitionItems(Mockito.any()))
+                    .thenThrow(new AnalysisException("Partition view is unavailable"));
+            statement.registerExternalTableForPreload(table, Optional.empty(), Optional.empty());
+            statement.getExternalTablePreloadInfo(table.getId()).get().setScanPartitionView(Optional.empty());
+
+            LogicalFileScan scan = Mockito.mock(LogicalFileScan.class);
+            Mockito.when(scan.getTable()).thenReturn(table);
+            Mockito.when(scan.getRelationId()).thenReturn(new RelationId(1));
+            Mockito.when(scan.getSelectedPartitions()).thenReturn(selection);
+            Mockito.when(scan.getTableSnapshot()).thenReturn(Optional.empty());
+            Mockito.when(scan.getScanParams()).thenReturn(Optional.empty());
+            new QueryPartitionCollector().visitLogicalCatalogRelation(scan, cascades);
+
+            Partition recent = Mockito.mock(Partition.class);
+            Mockito.when(recent.getId()).thenReturn(1L);
+            Mockito.when(recent.getVisibleVersionTime()).thenReturn(9900L);
+            Partition expired = Mockito.mock(Partition.class);
+            Mockito.when(expired.getId()).thenReturn(2L);
+            Mockito.when(expired.getVisibleVersionTime()).thenReturn(1000L);
+            MTMV mtmv = Mockito.mock(MTMV.class);
+            Mockito.when(mtmv.getPartitions()).thenReturn(List.of(recent, expired));
+            Mockito.when(mtmv.getPartitionIds()).thenReturn(List.of(1L, 2L));
+            Mockito.when(mtmv.getGracePeriod()).thenReturn(1000L);
+            Mockito.when(mtmv.canBeCandidate()).thenReturn(true);
+            MTMVRelation relation = Mockito.mock(MTMVRelation.class);
+            Mockito.when(relation.getBaseTables()).thenReturn(Set.of());
+            Mockito.when(mtmv.getRelation()).thenReturn(relation);
+            MTMVPartitionInfo partitionInfo = Mockito.mock(MTMVPartitionInfo.class);
+            Mockito.when(partitionInfo.getPctTables()).thenReturn(Set.of(table));
+            Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(partitionInfo);
+            Mockito.when(mtmv.calculatePartitionMappings(Mockito.anyMap(), Mockito.isNull()))
+                    .thenAnswer(invocation -> {
+                        table.getAndCopyPartitionItems(Optional.empty());
+                        return Map.of();
+                    });
+
+            Map<List<String>, Set<String>> queryPartitions =
+                    PartitionCompensator.getQueryUsedPartitions(statement, new BitSet());
+            Assertions.assertNull(queryPartitions.get(qualifiers));
+            Assertions.assertEquals(List.of(recent), List.copyOf(MTMVRewriteUtil.getMTMVCanRewritePartitions(
+                    mtmv, context, 10000L, false, queryPartitions)));
+            Assertions.assertEquals(List.of(1L, 2L), mtmv.getPartitionIds());
+
+            AsyncMaterializationContext materialization = Mockito.mock(AsyncMaterializationContext.class);
+            Mockito.when(materialization.getMtmv()).thenReturn(mtmv);
+            StructInfo query = Mockito.mock(StructInfo.class);
+            BitSet relationIds = new BitSet();
+            relationIds.set(1);
+            Mockito.when(query.getRelationBitSet()).thenReturn(relationIds);
+            UnknownPartitionTestRule rule = new UnknownPartitionTestRule();
+            for (boolean unionEnabled : List.of(true, false)) {
+                variables.enableMaterializedViewUnionRewrite = unionEnabled;
+                Assertions.assertTrue(rule.rewriteCandidate(query, cascades, materialization).isEmpty());
+            }
+            Mockito.verify(materialization, Mockito.times(2)).recordFailReason(Mockito.eq(query),
+                    Mockito.eq("Query partition coverage is unavailable"), Mockito.any());
+            Mockito.verify(materialization, Mockito.never()).getScanPlan(Mockito.any(), Mockito.any());
+            statement.close();
+        }
+    }
+
+    @Test
+    public void nativeAllAndUnrelatedUnknownKeepTheirOwnMeaning() throws Exception {
+        List<String> qualifiers = List.of("hive_catalog", "db", "h");
+        StatementContext statement = new StatementContext();
+        PluginDrivenMvccExternalTable table = Mockito.mock(PluginDrivenMvccExternalTable.class);
+        Mockito.when(table.getFullQualifiers()).thenReturn(qualifiers);
+        Mockito.when(table.supportInternalPartitionPruned()).thenReturn(true);
+        MTMVPartitionInfo partitionInfo = Mockito.mock(MTMVPartitionInfo.class);
+        Mockito.when(partitionInfo.getPctTables()).thenReturn(Set.of(table));
+        Mockito.when(partitionInfo.getPctInfos()).thenReturn(List.of(Mockito.mock(BaseColInfo.class)));
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(partitionInfo);
+        PartitionInfo mvPartitions = Mockito.mock(PartitionInfo.class);
+        Mockito.when(mvPartitions.getType()).thenReturn(PartitionType.LIST);
+        Mockito.when(mtmv.getPartitionInfo()).thenReturn(mvPartitions);
+        AsyncMaterializationContext materialization = Mockito.mock(AsyncMaterializationContext.class);
+        Mockito.when(materialization.getMtmv()).thenReturn(mtmv);
+        statement.getTableUsedPartitionNameMap().put(qualifiers, PartitionCompensator.ALL_PARTITIONS);
+        statement.getTableUsedPartitionNameMap().put(qualifiers, Pair.of(new RelationId(2), null));
+
+        BitSet relationIds = new BitSet();
+        relationIds.set(1);
+        Assertions.assertFalse(
+                PartitionCompensator.hasUnknownPartitionCoverage(materialization, statement, relationIds));
+        Assertions.assertFalse(PartitionCompensator.needUnionRewrite(materialization, statement));
+        relationIds.set(2);
+        Assertions.assertTrue(
+                PartitionCompensator.hasUnknownPartitionCoverage(materialization, statement, relationIds));
+        statement.close();
+    }
+
+    private static class UnknownPartitionTestRule extends AbstractMaterializedViewRule {
+        @Override
+        public List<Rule> buildRules() {
+            return List.of();
+        }
+
+        private List<Plan> rewriteCandidate(StructInfo query, CascadesContext cascades,
+                MaterializationContext materialization) throws AnalysisException {
+            return doRewrite(query, cascades, materialization);
+        }
     }
 
     @SuppressWarnings("unchecked")

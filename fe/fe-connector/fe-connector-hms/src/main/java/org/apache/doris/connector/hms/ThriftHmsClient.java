@@ -18,6 +18,7 @@
 package org.apache.doris.connector.hms;
 
 import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorTableNotFoundException;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.scan.ConnectorScanContext;
 
@@ -55,6 +56,7 @@ import org.apache.hadoop.hive.metastore.api.SQLDefaultConstraint;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.StringColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.Table;
+import org.apache.hadoop.hive.metastore.api.UnknownTableException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import shade.doris.hive.org.apache.thrift.TApplicationException;
@@ -66,9 +68,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -102,6 +106,7 @@ public class ThriftHmsClient implements HmsClient {
     private final MetaStoreClientProvider clientProvider;
     private final HmsTypeMapping.Options typeMappingOptions;
     private final int partitionBatchSize;
+    private final AtomicBoolean rawPartitionFilterUnavailableLogged = new AtomicBoolean();
     private volatile boolean closed;
 
     /**
@@ -180,8 +185,12 @@ public class ThriftHmsClient implements HmsClient {
     @Override
     public HmsTableInfo getTable(String dbName, String tableName) {
         return execute(client -> {
-            Table table = client.getTable(dbName, tableName);
-            return convertTable(table);
+            try {
+                return convertTable(client.getTable(dbName, tableName));
+            } catch (NoSuchObjectException | UnknownTableException failure) {
+                // execute preserves the HmsClientException boundary while retaining this typed cause.
+                throw new ConnectorTableNotFoundException(dbName, tableName, failure);
+            }
         });
     }
 
@@ -211,16 +220,23 @@ public class ThriftHmsClient implements HmsClient {
     @Override
     public List<String> listPartitionNames(String dbName, String tableName,
             int maxParts) {
-        return execute(
-                client -> client.listPartitionNames(dbName, tableName,
-                        toThriftMaxParts(maxParts)));
+        return execute(client -> listPartitionNames(client, dbName, tableName, maxParts));
     }
 
     @Override
     public List<String> listPartitionNames(String dbName, String tableName, int maxParts,
             ConnectorScanContext scanContext) {
-        return executeScanCall(scanContext, client -> client.listPartitionNames(
-                dbName, tableName, toThriftMaxParts(maxParts)));
+        return executeScanCall(scanContext, client -> listPartitionNames(client, dbName, tableName, maxParts));
+    }
+
+    private static List<String> listPartitionNames(IMetaStoreClient client, String dbName, String tableName,
+            int maxParts) throws Exception {
+        try {
+            return client.listPartitionNames(dbName, tableName, toThriftMaxParts(maxParts));
+        } catch (NoSuchObjectException | UnknownTableException failure) {
+            // This table-scoped listing RPC has no individual partition argument; absence identifies the table.
+            throw new ConnectorTableNotFoundException(dbName, tableName, failure);
+        }
     }
 
     /**
@@ -240,6 +256,67 @@ public class ThriftHmsClient implements HmsClient {
      */
     static short toThriftMaxParts(int maxParts) {
         return maxParts <= 0 ? (short) -1 : (short) maxParts;
+    }
+
+    @Override
+    public List<HmsPartitionInfo> listPartitionsByFilter(String dbName, String tableName, String filter) {
+        int threshold = filteredPartitionThreshold(partitionBatchSize);
+        FilteredPartitionPage page = execute(client ->
+                fetchFilteredPartitionPage(client, dbName, tableName, filter, threshold))
+                .orElseThrow(() -> new HmsPartitionFilterSaturatedException(threshold));
+        // The saturation decision MUST use the RAW metastore page size, not the hook-filtered list: the
+        // metastore filter hook runs after the raw cap, so a hidden entry in a truncated first page would
+        // otherwise make the response look complete and silently drop matching partitions.
+        if (isFilteredPartitionResponseSaturated(page.rawCount, threshold)) {
+            throw new HmsPartitionFilterSaturatedException(threshold);
+        }
+        return page.partitions.stream().map(ThriftHmsClient::convertPartition).collect(Collectors.toList());
+    }
+
+    private Optional<FilteredPartitionPage> fetchFilteredPartitionPage(IMetaStoreClient client, String dbName,
+            String tableName, String filter, int threshold) throws Exception {
+        int pageLimit = threshold + 1;
+        if (client instanceof HmsRawPartitionFilterPageSource) {
+            HmsRawPartitionFilterPage page = ((HmsRawPartitionFilterPageSource) client)
+                    .listPartitionsByFilterRawPage(dbName, tableName, filter, pageLimit);
+            return Optional.of(new FilteredPartitionPage(page.getPartitions(), page.getRawCount()));
+        }
+        if (rawPartitionFilterUnavailableLogged.compareAndSet(false, true)) {
+            LOG.warn("HMS client {} does not expose raw partition filter page sizes; "
+                            + "falling back to partition names for {}.{}",
+                    client.getClass().getName(), dbName, tableName);
+        }
+        return Optional.empty();
+    }
+
+    /** One raw partition-filter page: the hook-filtered partitions plus the raw (pre-hook) page size. */
+    private static final class FilteredPartitionPage {
+        private final List<Partition> partitions;
+        private final int rawCount;
+
+        private FilteredPartitionPage(List<Partition> partitions, int rawCount) {
+            this.partitions = partitions;
+            this.rawCount = rawCount;
+        }
+    }
+
+    /**
+     * The saturation threshold of one filtered request: the connector's configured partition batch size
+     * ({@code hive.hms_partitions_batch_size_per_rpc}), so an operator can bring the probe below a metastore
+     * hardened with a smaller {@code metastore.limit.partition.request} - the metastore validates the REQUESTED
+     * {@code max_parts}, so probing above its limit fails every filter call instead of returning a page.
+     *
+     * <p>Capped at {@code Short.MAX_VALUE - 1}: the probe is {@code threshold + 1} and the Thrift field is a
+     * short, so a threshold at the cap would be narrowed on the wire and a saturated page would look complete.
+     * The configuration layer rejects a non-positive batch size, so no lower bound is needed here.</p>
+     */
+    static int filteredPartitionThreshold(int partitionBatchSize) {
+        return Math.min(partitionBatchSize, Short.MAX_VALUE - 1);
+    }
+
+    /** Whether a raw (pre-hook) page of {@code partitionCount} entries means the request was capped. */
+    static boolean isFilteredPartitionResponseSaturated(int partitionCount, int threshold) {
+        return partitionCount > threshold;
     }
 
     @Override
@@ -781,8 +858,11 @@ public class ThriftHmsClient implements HmsClient {
         StorageDescriptor sd = table.getSd();
         List<ConnectorColumn> columns = convertFieldSchemas(
                 sd != null ? sd.getCols() : Collections.emptyList());
-        List<ConnectorColumn> partKeys = convertFieldSchemas(
-                table.getPartitionKeys(), true);
+        List<FieldSchema> rawPartKeys = table.getPartitionKeys();
+        List<ConnectorColumn> partKeys = convertFieldSchemas(rawPartKeys, true);
+        Map<String, String> partitionKeyHiveTypes = rawPartKeys == null
+                ? Collections.emptyMap()
+                : rawPartKeys.stream().collect(Collectors.toMap(FieldSchema::getName, FieldSchema::getType));
 
         HmsTableInfo.Builder builder = HmsTableInfo.builder()
                 .dbName(table.getDbName())
@@ -795,7 +875,8 @@ public class ThriftHmsClient implements HmsClient {
                 .viewOriginalText(table.getViewOriginalText())
                 .viewExpandedText(table.getViewExpandedText())
                 .columns(columns)
-                .partitionKeys(partKeys);
+                .partitionKeys(partKeys)
+                .partitionKeyHiveTypes(partitionKeyHiveTypes);
 
         if (sd != null) {
             builder.location(sd.getLocation())

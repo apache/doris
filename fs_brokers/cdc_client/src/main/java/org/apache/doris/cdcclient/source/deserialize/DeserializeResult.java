@@ -87,7 +87,10 @@ public class DeserializeResult {
     public static DeserializeResult unsupportedSchemaChange(
             String reason,
             Map<TableId, TableChanges.TableChange> previousSchemas,
-            Map<TableId, TableChanges.TableChange> updatedSchemas) {
+            Map<TableId, TableChanges.TableChange> updatedSchemas,
+            String targetDb,
+            Map<String, String> targetTableMappings,
+            String sourceDdl) {
         StringBuilder message = new StringBuilder(reason);
         for (Map.Entry<TableId, TableChanges.TableChange> entry : updatedSchemas.entrySet()) {
             Table before = previousSchemas.get(entry.getKey()).getTable();
@@ -108,13 +111,23 @@ public class DeserializeResult {
                             .map(Column::name)
                             .filter(name -> after.columnWithName(name) == null)
                             .collect(Collectors.toList());
-            message.append(". Table: ").append(entry.getKey().identifier());
+            String sourceTable = entry.getKey().table();
+            String targetTable = targetTableMappings.getOrDefault(sourceTable, sourceTable);
+            message.append(". Table: ")
+                    .append(entry.getKey().identifier())
+                    .append(" -> ")
+                    .append(targetDb)
+                    .append(".")
+                    .append(targetTable);
             if (!added.isEmpty()) {
                 message.append("; columns added=").append(added);
             }
             if (!removed.isEmpty()) {
                 message.append("; removed=").append(removed);
             }
+        }
+        if (sourceDdl != null) {
+            message.append(". Source DDL: [").append(sourceDdl).append("]");
         }
         return new DeserializeResult(
                 Type.SCHEMA_CHANGE,

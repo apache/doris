@@ -74,7 +74,6 @@ public class LocalExchangePlannerTest extends TestWithFeService implements PlanS
         SessionVariable sv = connectContext.getSessionVariable();
         sv.setEnableLocalShufflePlanner(true);
         sv.setEnableLocalShuffle(true);
-        sv.setEnableNereidsDistributePlanner(true);
         sv.setEnableSqlCache(false);
         sv.setIgnoreStorageDataDistribution(true);
         sv.setPipelineTaskNum("4");

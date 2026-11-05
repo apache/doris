@@ -211,6 +211,44 @@ TEST_F(VIcebergMergeSinkTest, TestUpdateProducesDeleteAndInsert) {
     ASSERT_TRUE(sink->close(Status::OK()).ok());
 }
 
+TEST_F(VIcebergMergeSinkTest, TestInnerSinksWriteAndCommitUnderBothFormsOfTheDataLocation) {
+    ObjectPool pool;
+    IcebergWriteMockRuntimeState state;
+
+    DataTypes types {std::make_shared<DataTypeInt8>(),
+                     std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
+                                                                 std::make_shared<DataTypeInt64>()},
+                                                      Strings {"file_path", "row_position"}),
+                     std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>()};
+    MockRowDescriptor row_desc(types, &pool);
+    auto output_exprs = build_output_exprs(&pool, &state, row_desc);
+    // UPDATE / MERGE write data files and delete files through one normalized location, and both
+    // kinds must be committed under the table's own form of it.
+    TDataSink t_sink = build_sink();
+    t_sink.iceberg_merge_sink.__set_output_path("s3://b/db/t/data");
+    t_sink.iceberg_merge_sink.__set_original_output_path("oss://b/db/t/data");
+    t_sink.iceberg_merge_sink.__set_table_location("oss://b/db/t/data");
+
+    auto sink = std::make_shared<VIcebergMergeSink>(t_sink, output_exprs, nullptr, nullptr);
+    sink->set_skip_io(true);
+    ASSERT_TRUE(sink->init_properties(&pool, row_desc).ok());
+    RuntimeProfile profile("iceberg_merge_sink_locations");
+    ASSERT_TRUE(sink->open(&state, &profile).ok());
+
+    ASSERT_TRUE(sink->_table_writer->_output_location.has_value());
+    EXPECT_EQ("s3://b/db/t/data/f.parquet",
+              sink->_table_writer->_output_location->write_path("f.parquet"));
+    EXPECT_EQ("oss://b/db/t/data/f.parquet",
+              sink->_table_writer->_output_location->commit_path("f.parquet"));
+    ASSERT_TRUE(sink->_delete_writer->_output_location.has_value());
+    EXPECT_EQ("s3://b/db/t/data/f.parquet",
+              sink->_delete_writer->_output_location->write_path("f.parquet"));
+    EXPECT_EQ("oss://b/db/t/data/f.parquet",
+              sink->_delete_writer->_output_location->commit_path("f.parquet"));
+
+    ASSERT_TRUE(sink->close(Status::OK()).ok());
+}
+
 TEST_F(VIcebergMergeSinkTest, TestDeleteOnlySkipsVariantDataWriter) {
     ObjectPool pool;
     // Opening the retained delete writer still requires the coordinator ownership handshake.

@@ -36,6 +36,9 @@ public:
 
     std::string get_name() const override { return "Nullable(" + nested_serde->get_name() + ")"; }
 
+    Status from_string_as_nested(StringRef& str, IColumn& column, const FormatOptions& options,
+                                 bool is_strict_mode) const override;
+
     Status from_string(StringRef& str, IColumn& column,
                        const FormatOptions& options) const override;
     Status from_zonemap_string(const std::string& str, Field& field) const override;

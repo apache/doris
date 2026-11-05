@@ -17,7 +17,10 @@
 
 #include "exec/sink/viceberg_delete_sink.h"
 
+#include <arrow/api.h>
+#include <arrow/io/api.h>
 #include <gtest/gtest.h>
+#include <parquet/arrow/reader.h>
 #include <rapidjson/document.h>
 
 #include <filesystem>
@@ -36,7 +39,9 @@
 #include "format/table/deletion_vector.h"
 #include "gen_cpp/DataSinks_types.h"
 #include "gen_cpp/Types_types.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "util/defer_op.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -471,26 +476,57 @@ TEST_F(VIcebergDeleteSinkTest, TestBuildPositionDeleteBlock) {
     ASSERT_EQ(40, pos_column->get_element(3));
 }
 
-TEST_F(VIcebergDeleteSinkTest, TestGenerateDeleteFilePath) {
+TEST_F(VIcebergDeleteSinkTest, TestDeleteFileNames) {
     VExprContextSPtrs output_exprs;
     auto sink = std::make_shared<VIcebergDeleteSink>(_t_data_sink, output_exprs, nullptr, nullptr);
     ObjectPool pool;
-    Status status = sink->init_properties(&pool);
-    ASSERT_TRUE(status.ok());
+    ASSERT_TRUE(sink->init_properties(&pool).ok());
 
-    std::string data_file_path = "data/file1.parquet";
-    std::string delete_file_path = sink->_generate_delete_file_path(data_file_path);
+    // Names are relative to the data location; the location supplies both forms of the directory.
+    std::string delete_file_name = sink->_delete_file_name("data/file1.parquet");
+    EXPECT_TRUE(delete_file_name.starts_with("delete_pos_")) << delete_file_name;
+    EXPECT_TRUE(delete_file_name.ends_with(".snappy.parquet")) << delete_file_name;
+    EXPECT_EQ(std::string::npos, delete_file_name.find('/'));
+    EXPECT_NE(delete_file_name, sink->_delete_file_name("data/file1.parquet"));
 
-    // Verify the path format
-    ASSERT_FALSE(delete_file_path.empty());
-    const auto& delete_sink = _t_data_sink.iceberg_delete_sink;
-    std::string expected_base =
-            delete_sink.__isset.output_path ? delete_sink.output_path : delete_sink.table_location;
-    if (!expected_base.empty() && expected_base.back() != '/') {
-        expected_base += '/';
-    }
-    ASSERT_TRUE(delete_file_path.rfind(expected_base, 0) == 0);
-    ASSERT_NE(std::string::npos, delete_file_path.find("delete_pos_"));
+    std::string puffin_file_name = sink->_puffin_file_name();
+    EXPECT_TRUE(puffin_file_name.starts_with("delete_dv_")) << puffin_file_name;
+    EXPECT_TRUE(puffin_file_name.ends_with(".puffin")) << puffin_file_name;
+    EXPECT_EQ(std::string::npos, puffin_file_name.find('/'));
+}
+
+TEST_F(VIcebergDeleteSinkTest, TestInitPropertiesTakesBothFormsOfTheDataLocation) {
+    // FE writes through the normalized output_path but the table records its own location.
+    TDataSink t_data_sink = _t_data_sink;
+    t_data_sink.iceberg_delete_sink.__set_output_path("s3://b/db/t/data");
+    t_data_sink.iceberg_delete_sink.__set_table_location("oss://b/db/t/data/");
+    VExprContextSPtrs output_exprs;
+    auto sink = std::make_shared<VIcebergDeleteSink>(t_data_sink, output_exprs, nullptr, nullptr);
+    ObjectPool pool;
+    ASSERT_TRUE(sink->init_properties(&pool).ok());
+    ASSERT_TRUE(sink->_output_location.has_value());
+    EXPECT_EQ("s3://b/db/t/data/delete_dv_1.puffin",
+              sink->_output_location->write_path("delete_dv_1.puffin"));
+    EXPECT_EQ("oss://b/db/t/data/delete_dv_1.puffin",
+              sink->_output_location->commit_path("delete_dv_1.puffin"));
+
+    // Without the table's own form the commit could only record the s3:// address BE wrote.
+    t_data_sink.iceberg_delete_sink.__isset.table_location = false;
+    t_data_sink.iceberg_delete_sink.table_location.clear();
+    auto no_table_location =
+            std::make_shared<VIcebergDeleteSink>(t_data_sink, output_exprs, nullptr, nullptr);
+    Status status = no_table_location->init_properties(&pool);
+    EXPECT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>()) << status;
+    EXPECT_NE(std::string::npos, status.to_string().find("table_location"));
+
+    t_data_sink.iceberg_delete_sink.__set_table_location("oss://b/db/t/data/");
+    t_data_sink.iceberg_delete_sink.__isset.output_path = false;
+    t_data_sink.iceberg_delete_sink.output_path.clear();
+    auto no_output_path =
+            std::make_shared<VIcebergDeleteSink>(t_data_sink, output_exprs, nullptr, nullptr);
+    status = no_output_path->init_properties(&pool);
+    EXPECT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>()) << status;
+    EXPECT_NE(std::string::npos, status.to_string().find("output_path"));
 }
 
 TEST_F(VIcebergDeleteSinkTest, TestUnsupportedDeleteType) {
@@ -533,12 +569,88 @@ TEST_F(VIcebergDeleteSinkTest, TestValidateDeletionVectorContentSize) {
     ASSERT_TRUE(unsupported_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << unsupported_status;
 }
 
+TEST_F(VIcebergDeleteSinkTest, TestWritePositionDeletesCommitsTableLocation) {
+    // The Parquet writer's dictionary encoder allocates from ExecEnv's Arrow pool, which this
+    // fixture does not otherwise initialize.
+    auto* env = ExecEnv::GetInstance();
+    auto* previous_pool = env->_arrow_memory_pool;
+    env->_arrow_memory_pool = arrow::default_memory_pool();
+    Defer restore_pool([&] { env->_arrow_memory_pool = previous_pool; });
+
+    std::filesystem::path temp_dir = std::filesystem::temp_directory_path() /
+                                     ("iceberg_delete_sink_test_" + generate_uuid_string());
+    ASSERT_TRUE(std::filesystem::create_directories(temp_dir));
+
+    // Write locally, but record the table's original URI in the commit metadata.
+    const std::string table_location = "oss://bucket/warehouse/table/data/";
+    const std::string data_file_path = table_location + "file1.parquet";
+    TDataSink t_data_sink = build_local_delete_sink(temp_dir.string(), 2);
+    t_data_sink.iceberg_delete_sink.__set_table_location(table_location);
+    RuntimeState state;
+    VExprContextSPtrs output_exprs;
+    auto sink = std::make_shared<VIcebergDeleteSink>(t_data_sink, output_exprs, nullptr, nullptr);
+    ObjectPool pool;
+    ASSERT_TRUE(sink->init_properties(&pool).ok());
+    sink->_state = &state;
+
+    std::map<std::string, IcebergFileDeletion> file_deletions;
+    auto [it, inserted] =
+            file_deletions.emplace(data_file_path, IcebergFileDeletion(1, "[\"p=1\"]"));
+    ASSERT_TRUE(inserted);
+    it->second.rows_to_delete.add(uint32_t {10});
+    it->second.rows_to_delete.add(uint32_t {20});
+
+    const auto status = sink->_write_position_delete_files(file_deletions);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(1, sink->_commit_data_list.size());
+    ASSERT_EQ(1, sink->_created_files.size());
+    ASSERT_EQ(1, sink->_delete_file_count);
+
+    const std::filesystem::path write_path = sink->_created_files[0].second;
+    ASSERT_EQ(temp_dir, write_path.parent_path());
+    ASSERT_TRUE(std::filesystem::exists(write_path));
+    const auto& commit_data = sink->_commit_data_list[0];
+    EXPECT_EQ(table_location + write_path.filename().string(), commit_data.file_path);
+    EXPECT_EQ(data_file_path, commit_data.referenced_data_file_path);
+    EXPECT_EQ(TFileContent::POSITION_DELETES, commit_data.file_content);
+    EXPECT_EQ(2, commit_data.row_count);
+    EXPECT_EQ(2, commit_data.affected_rows);
+    EXPECT_EQ(1, commit_data.partition_spec_id);
+    EXPECT_EQ("[\"p=1\"]", commit_data.partition_data_json);
+    EXPECT_EQ(std::filesystem::file_size(write_path), commit_data.file_size);
+
+    // The referenced data-file URI inside the position-delete file must stay unchanged too.
+    auto input = arrow::io::ReadableFile::Open(write_path.string());
+    ASSERT_TRUE(input.ok()) << input.status();
+    auto reader = ::parquet::arrow::OpenFile(*input, arrow::default_memory_pool());
+    ASSERT_TRUE(reader.ok()) << reader.status();
+    auto table = (*reader)->ReadTable();
+    ASSERT_TRUE(table.ok()) << table.status();
+    ASSERT_EQ(2, (*table)->num_rows());
+    ASSERT_EQ(2, (*table)->num_columns());
+    for (int64_t row = 0; row < 2; ++row) {
+        auto file_path = (*table)->column(0)->GetScalar(row);
+        ASSERT_TRUE(file_path.ok()) << file_path.status();
+        EXPECT_EQ(data_file_path, (*file_path)->ToString());
+        auto position = (*table)->column(1)->GetScalar(row);
+        ASSERT_TRUE(position.ok()) << position.status();
+        EXPECT_EQ(std::to_string((row + 1) * 10), (*position)->ToString());
+    }
+
+    std::filesystem::remove_all(temp_dir);
+}
+
 TEST_F(VIcebergDeleteSinkTest, TestWriteDeletionVectorsToSingleSharedPuffin) {
     std::filesystem::path temp_dir = std::filesystem::temp_directory_path() /
                                      ("iceberg_delete_sink_test_" + generate_uuid_string());
     ASSERT_TRUE(std::filesystem::create_directories(temp_dir));
 
-    TDataSink t_data_sink = build_local_delete_sink(temp_dir.string(), 3);
+    const std::string table_location =
+            "abfss://container@account.dfs.core.windows.net/warehouse/table/data";
+    const std::string first_data_file = table_location + "/file1.parquet";
+    const std::string second_data_file = table_location + "/file2.parquet";
+    TDataSink t_data_sink = build_local_delete_sink(temp_dir.string() + "/", 3);
+    t_data_sink.iceberg_delete_sink.__set_table_location(table_location);
     VExprContextSPtrs output_exprs;
     auto sink = std::make_shared<VIcebergDeleteSink>(t_data_sink, output_exprs, nullptr, nullptr);
     ObjectPool pool;
@@ -546,23 +658,38 @@ TEST_F(VIcebergDeleteSinkTest, TestWriteDeletionVectorsToSingleSharedPuffin) {
 
     std::map<std::string, IcebergFileDeletion> file_deletions;
     auto [file1_it, file1_inserted] =
-            file_deletions.emplace("file1.parquet", IcebergFileDeletion(1, "[\"p=1\"]"));
+            file_deletions.emplace(first_data_file, IcebergFileDeletion(1, "[\"p=1\"]"));
     ASSERT_TRUE(file1_inserted);
     file1_it->second.rows_to_delete.add((uint32_t)10);
     file1_it->second.rows_to_delete.add((uint32_t)20);
 
     auto [file2_it, file2_inserted] =
-            file_deletions.emplace("file2.parquet", IcebergFileDeletion(2, "[\"p=2\"]"));
+            file_deletions.emplace(second_data_file, IcebergFileDeletion(2, "[\"p=2\"]"));
     ASSERT_TRUE(file2_inserted);
     file2_it->second.rows_to_delete.add((uint32_t)30);
 
-    ASSERT_TRUE(sink->_write_deletion_vector_files(file_deletions).ok());
+    const auto status = sink->_write_deletion_vector_files(file_deletions);
+    ASSERT_TRUE(status.ok()) << status;
     ASSERT_EQ(2, sink->_commit_data_list.size());
     ASSERT_EQ(2, sink->_delete_file_count);
+    ASSERT_EQ(1, sink->_created_files.size());
+
+    const std::filesystem::path write_path = sink->_created_files[0].second;
+    ASSERT_EQ(temp_dir, write_path.parent_path());
+    ASSERT_TRUE(std::filesystem::exists(write_path));
 
     const auto& first_commit = sink->_commit_data_list[0];
     const auto& second_commit = sink->_commit_data_list[1];
+    EXPECT_EQ(table_location + "/" + write_path.filename().string(), first_commit.file_path);
     ASSERT_EQ(first_commit.file_path, second_commit.file_path);
+    EXPECT_EQ(first_data_file, first_commit.referenced_data_file_path);
+    EXPECT_EQ(second_data_file, second_commit.referenced_data_file_path);
+    EXPECT_EQ(TFileContent::DELETION_VECTOR, first_commit.file_content);
+    EXPECT_EQ(TFileContent::DELETION_VECTOR, second_commit.file_content);
+    EXPECT_EQ(1, first_commit.partition_spec_id);
+    EXPECT_EQ(2, second_commit.partition_spec_id);
+    EXPECT_EQ("[\"p=1\"]", first_commit.partition_data_json);
+    EXPECT_EQ("[\"p=2\"]", second_commit.partition_data_json);
     ASSERT_EQ(first_commit.file_size, second_commit.file_size);
     ASSERT_LT(first_commit.content_offset, second_commit.content_offset);
 
@@ -574,7 +701,7 @@ TEST_F(VIcebergDeleteSinkTest, TestWriteDeletionVectorsToSingleSharedPuffin) {
     }
     ASSERT_EQ(1, puffin_file_count);
 
-    std::ifstream input(first_commit.file_path, std::ios::binary);
+    std::ifstream input(write_path, std::ios::binary);
     ASSERT_TRUE(input.good());
     std::string file_bytes((std::istreambuf_iterator<char>(input)),
                            std::istreambuf_iterator<char>());

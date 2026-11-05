@@ -22,6 +22,7 @@
 #include <gtest/gtest.h>
 #include <parquet/api/reader.h>
 #include <parquet/arrow/reader.h>
+#include <parquet/page_index.h>
 #include <parquet/schema.h>
 
 #include <algorithm>
@@ -178,10 +179,233 @@ protected:
         EXPECT_EQ(offsets, repeated);
     }
 
+    Block page_index_block() {
+        auto type = std::make_shared<DataTypeInt32>();
+        auto nullable = make_nullable(type);
+        auto ids = type->create_column();
+        auto values = nullable->create_column();
+        auto nulls = nullable->create_column();
+        for (int32_t row = 0; row < 12000; ++row) {
+            ids->insert(Field::create_field<TYPE_INT>(row));
+            if (row % 7 == 0) {
+                values->insert_default();
+            } else {
+                values->insert(Field::create_field<TYPE_INT>(row % 64));
+            }
+            nulls->insert_default();
+        }
+        return Block({{std::move(ids), type, "id"},
+                      {std::move(values), nullable, "value"},
+                      {std::move(nulls), nullable, "all_null"}});
+    }
+
+    void check_page_indexes(bool enabled) {
+        auto reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
+        ASSERT_EQ(reader->metadata()->num_row_groups(), 1);
+        auto group = reader->metadata()->RowGroup(0);
+        ASSERT_EQ(group->num_rows(), 12000);
+        for (int column = 0; column < group->num_columns(); ++column) {
+            auto chunk = group->ColumnChunk(column);
+            EXPECT_EQ(chunk->GetColumnIndexLocation().has_value(), enabled);
+            EXPECT_EQ(chunk->GetOffsetIndexLocation().has_value(), enabled);
+            if (!enabled) {
+                continue;
+            }
+            auto index_reader = reader->GetPageIndexReader();
+            ASSERT_NE(index_reader, nullptr);
+            auto indexes = index_reader->RowGroup(0);
+            ASSERT_NE(indexes, nullptr);
+            auto column_index = indexes->GetColumnIndex(column);
+            auto offset_index = indexes->GetOffsetIndex(column);
+            ASSERT_NE(column_index, nullptr);
+            ASSERT_NE(offset_index, nullptr);
+            const auto& pages = offset_index->page_locations();
+            ASSERT_FALSE(pages.empty());
+            EXPECT_EQ(pages.size(), column_index->null_pages().size());
+            EXPECT_EQ(pages.front().offset, chunk->data_page_offset());
+            EXPECT_EQ(pages.front().first_row_index, 0);
+            const auto start = chunk->has_dictionary_page() ? chunk->dictionary_page_offset()
+                                                            : chunk->data_page_offset();
+            int64_t previous_row = -1;
+            int64_t previous_end = start;
+            for (const auto& page : pages) {
+                EXPECT_GT(page.first_row_index, previous_row);
+                EXPECT_LT(page.first_row_index, group->num_rows());
+                EXPECT_GE(page.offset, previous_end);
+                EXPECT_GT(page.compressed_page_size, 0);
+                EXPECT_LE(page.offset + page.compressed_page_size,
+                          start + chunk->total_compressed_size());
+                previous_row = page.first_row_index;
+                previous_end = page.offset + page.compressed_page_size;
+            }
+            if (column == 0) {
+                EXPECT_GT(pages.size(), 1);
+            } else if (column == 2) {
+                EXPECT_TRUE(std::all_of(column_index->null_pages().begin(),
+                                        column_index->null_pages().end(),
+                                        [](bool value) { return value; }));
+            }
+        }
+        auto input = arrow::io::ReadableFile::Open(_file_path);
+        ASSERT_TRUE(input.ok()) << input.status();
+        auto arrow_reader = ::parquet::arrow::OpenFile(*input, arrow::default_memory_pool());
+        ASSERT_TRUE(arrow_reader.ok()) << arrow_reader.status();
+        auto table = (*arrow_reader)->ReadTable();
+        ASSERT_TRUE(table.ok()) << table.status();
+        EXPECT_EQ((*table)->num_rows(), 12000);
+        EXPECT_EQ((*table)->column(1)->null_count(), (12000 + 6) / 7);
+        EXPECT_EQ((*table)->column(2)->null_count(), 12000);
+        const auto& ids = assert_cast<const arrow::Int32Array&>(*(*table)->column(0)->chunk(0));
+        EXPECT_EQ(ids.Value(0), 0);
+        EXPECT_EQ(ids.Value(11999), 11999);
+    }
+
     arrow::MemoryPool* _previous_pool = nullptr;
     std::string _file_path;
     std::shared_ptr<io::FileSystem> _fs;
 };
+
+TEST_F(VParquetWriterTest, ParquetPageIndexToggle) {
+    for (const bool enabled : {false, true}) {
+        for (const bool dictionary : {false, true}) {
+            for (const auto version :
+                 {TParquetVersion::PARQUET_1_0, TParquetVersion::PARQUET_2_LATEST}) {
+                TQueryOptions query_options;
+                query_options.__set_enable_parquet_write_page_index(enabled);
+                query_options.__set_parquet_write_data_page_size(1024);
+                RuntimeState state(query_options, TQueryGlobals());
+                state.set_timezone("UTC");
+                auto block = page_index_block();
+                auto exprs = MockSlotRef::create_mock_contexts(block.get_data_types());
+                io::FileWriterPtr file;
+                ASSERT_TRUE(_fs->create_file(_file_path, &file).ok());
+                ParquetFileOptions options {.compression_type = TParquetCompressionType::SNAPPY,
+                                            .parquet_version = version,
+                                            .parquet_disable_dictionary = !dictionary};
+                VParquetWriter writer(&state, file.get(), exprs,
+                                      std::vector<std::string> {"id", "value", "all_null"}, false,
+                                      options);
+                ASSERT_TRUE(writer.open().ok());
+                ASSERT_TRUE(writer.write(block).ok());
+                ASSERT_TRUE(writer.close().ok());
+                check_page_indexes(enabled);
+            }
+        }
+    }
+}
+
+TEST_F(VParquetWriterTest, ParquetPageIndexDataPageVersions) {
+    for (const auto page_version :
+         {::parquet::ParquetDataPageVersion::V1, ::parquet::ParquetDataPageVersion::V2}) {
+        TQueryOptions query_options;
+        query_options.__set_enable_parquet_write_page_index(true);
+        query_options.__set_parquet_write_data_page_size(1024);
+        RuntimeState state(query_options, TQueryGlobals());
+        auto block = page_index_block();
+        auto exprs = MockSlotRef::create_mock_contexts(block.get_data_types());
+        io::FileWriterPtr file;
+        ASSERT_TRUE(_fs->create_file(_file_path, &file).ok());
+        const std::vector<std::string> names {"id", "value", "all_null"};
+        ParquetFileOptions options {.compression_type = TParquetCompressionType::SNAPPY,
+                                    .parquet_version = TParquetVersion::PARQUET_2_LATEST};
+        VParquetWriter writer(&state, file.get(), exprs, names, false, options);
+        ASSERT_TRUE(writer._parse_properties().ok());
+        // Exercise both page layouts with the production writer properties; this does not add
+        // a SQL option for changing the existing data-page version.
+        auto properties = ::parquet::WriterProperties::Builder(*writer._parquet_writer_properties)
+                                  .data_page_version(page_version)
+                                  ->build();
+        auto converter = writer._create_arrow_block_convertor(block.get_data_types(), names, "UTC",
+                                                              cctz::utc_time_zone(), false);
+        ASSERT_TRUE(converter->init().ok());
+        std::shared_ptr<arrow::RecordBatch> batch;
+        ASSERT_TRUE(converter->convert_to_arrow(block, arrow::default_memory_pool(), &batch).ok());
+        auto result = ::parquet::arrow::FileWriter::Open(
+                *batch->schema(), arrow::default_memory_pool(), writer._outstream, properties,
+                writer._arrow_properties);
+        ASSERT_TRUE(result.ok()) << result.status();
+        auto arrow_writer = std::move(result).ValueOrDie();
+        ASSERT_TRUE(arrow_writer->WriteRecordBatch(*batch).ok());
+        ASSERT_TRUE(arrow_writer->Close().ok());
+        ASSERT_TRUE(writer._outstream->Close().ok());
+        check_page_indexes(true);
+    }
+}
+
+TEST_F(VParquetWriterTest, ParquetPageSizePreservesHadoopLz4Limit) {
+    for (const auto codec : {TParquetCompressionType::LZ4_HADOOP, TParquetCompressionType::LZ4}) {
+        for (const int32_t requested_size : {65536, 262144}) {
+            TQueryOptions query_options;
+            query_options.__set_parquet_write_data_page_size(requested_size);
+            RuntimeState state(query_options, TQueryGlobals());
+            state.set_timezone("UTC");
+            auto block = page_index_block();
+            auto exprs = MockSlotRef::create_mock_contexts(block.get_data_types());
+            io::FileWriterPtr file;
+            ASSERT_TRUE(_fs->create_file(_file_path, &file).ok());
+            ParquetFileOptions options {.compression_type = codec,
+                                        .parquet_version = TParquetVersion::PARQUET_1_0};
+            VParquetWriter writer(&state, file.get(), exprs,
+                                  std::vector<std::string> {"id", "value", "all_null"}, false,
+                                  options);
+            ASSERT_TRUE(writer.open().ok());
+            EXPECT_TRUE(writer._parquet_writer_properties->page_index_enabled());
+            EXPECT_EQ(writer._parquet_writer_properties->data_pagesize(),
+                      codec == TParquetCompressionType::LZ4_HADOOP
+                              ? std::min(requested_size, 131072)
+                              : requested_size);
+            ASSERT_TRUE(writer.close().ok());
+        }
+    }
+}
+
+TEST_F(VParquetWriterTest, HiveAndIcebergParquetPageIndexOptions) {
+    const std::string json =
+            R"({"type":"struct","fields":[{"id":1,"name":"id","required":true,"type":"int"},{"id":2,"name":"value","required":false,"type":"int"},{"id":3,"name":"all_null","required":false,"type":"int"}]})";
+    auto schema = iceberg::SchemaParser::from_json(json);
+    const std::map<std::string, std::string> hadoop_conf;
+    for (const bool iceberg_writer : {false, true}) {
+        for (const bool enabled : {false, true}) {
+            TQueryOptions query_options;
+            query_options.__set_enable_parquet_write_page_index(enabled);
+            query_options.__set_parquet_write_data_page_size(1024);
+            RuntimeState state(query_options, TQueryGlobals());
+            state.set_timezone("UTC");
+            auto block = page_index_block();
+            auto exprs = MockSlotRef::create_mock_contexts(block.get_data_types());
+            const auto name = "page_index_" + UniqueId::gen_uid().to_string();
+            _file_path = "./" + name + "-0.parquet";
+            TDataSink sink;
+            if (iceberg_writer) {
+                VIcebergPartitionWriter writer(sink, {}, exprs, *schema, &json,
+                                               {"id", "value", "all_null"},
+                                               {.location = IcebergOutputLocation(".", "."),
+                                                .file_type = TFileType::FILE_LOCAL,
+                                                .broker_addresses = {}},
+                                               name, 0, TFileFormatType::FORMAT_PARQUET,
+                                               TFileCompressType::PLAIN, hadoop_conf);
+                ASSERT_TRUE(writer.open(&state, nullptr, nullptr).ok());
+                ASSERT_TRUE(writer.write(block).ok());
+                ASSERT_TRUE(writer.close(Status::OK()).ok());
+            } else {
+                VHivePartitionWriter writer(sink, "", TUpdateMode::APPEND, exprs,
+                                            {"id", "value", "all_null"},
+                                            {.write_path = ".",
+                                             .original_write_path = ".",
+                                             .target_path = ".",
+                                             .file_type = TFileType::FILE_LOCAL,
+                                             .broker_addresses = {}},
+                                            name, 0, TFileFormatType::FORMAT_PARQUET,
+                                            TFileCompressType::PLAIN, nullptr, hadoop_conf);
+                ASSERT_TRUE(writer.open(&state, nullptr).ok());
+                ASSERT_TRUE(writer.write(block).ok());
+                ASSERT_TRUE(writer.close(Status::OK()).ok());
+            }
+            check_page_indexes(enabled);
+            ASSERT_TRUE(_fs->delete_file(_file_path).ok());
+        }
+    }
+}
 
 TEST_F(VParquetWriterTest, IcebergSplitOffsetsIncludeDictionaryPages) {
     check_split_offsets(3, true);
@@ -594,9 +818,7 @@ TEST_F(VParquetWriterTest, IcebergNanosecondsRoundTripWithoutCoercion) {
     const auto name = "iceberg_ns_" + UniqueId::gen_uid().to_string();
     _file_path = "./" + name + "-0.parquet";
     VIcebergPartitionWriter writer(sink, {}, exprs, *schema, &json, {"ts"},
-                                   {.write_path = ".",
-                                    .original_write_path = ".",
-                                    .target_path = ".",
+                                   {.location = IcebergOutputLocation(".", "."),
                                     .file_type = TFileType::FILE_LOCAL,
                                     .broker_addresses = {}},
                                    name, 0, TFileFormatType::FORMAT_PARQUET,

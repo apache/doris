@@ -165,8 +165,6 @@ public class OlapGroupCommitInsertExecutor extends OlapInsertExecutor {
             LOG.info(msg);
             throw new AnalysisException(msg);
         }
-        // this is used for old coordinator
-        this.coordinator.setGroupCommitBe(groupCommitBackend);
     }
 
     @Override
