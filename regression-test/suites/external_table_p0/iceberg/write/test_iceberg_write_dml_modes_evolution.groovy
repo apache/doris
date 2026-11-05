@@ -121,7 +121,9 @@ suite("test_iceberg_write_dml_modes_evolution",
     sql """alter table mor_evolution create tag mor_before_dml as of version ${morBeforeDmlSnapshot}"""
 
     // W03-S03: DELETE spans old/new specs and removes NULL partition rows.
-    sql """delete from mor_evolution where region is null"""
+    // Keep this row-level DML matrix on the fallback path: SQL negation is deliberately not
+    // lowered by whole-file metadata DELETE. All fixture scores are positive.
+    sql """delete from mor_evolution where region is null and score <> -1"""
 
     // W03-S04: UPDATE changes partition source values in files from both specs.
     sql """
