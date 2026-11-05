@@ -450,6 +450,10 @@ private:
                                    size_t* bytes_read, const IOContext* io_ctx,
                                    ReadStatistics& stats, SourceReadBreakdown& sources);
 
+    // Time and sample each actual storage read, independently of cache writes or other GETs.
+    Status _read_remote_at(size_t offset, Slice result, size_t* bytes_read, const IOContext* io_ctx,
+                           ReadStatistics& stats);
+
     bool _io_adaptor_eligible(size_t bytes, const IOContext* io_ctx) const;
     Status _try_read_with_io_adaptor(size_t offset, Slice result, size_t bytes_req,
                                      CacheWriteMode cache_write_mode, size_t* bytes_read,

@@ -84,6 +84,7 @@ private:
 class AsyncCacheWriteManager;
 class FSFileCacheStorage;
 class InflightWriteBufferIndex;
+class FileCacheIOAdaptor;
 
 struct FileBlocksProbeResult {
     explicit FileBlocksProbeResult(std::vector<FileBlockSPtr> file_blocks_)
@@ -265,6 +266,8 @@ public:
     Status get_downloaded_blocks_if_fully_covered(const UInt128Wrapper& hash, size_t offset,
                                                   size_t size, const CacheContext& context,
                                                   FileBlocks* blocks, bool* fully_covered);
+
+    FileCacheIOAdaptor& io_adaptor() { return *_io_adaptor; }
 
     /// Account a completed query disk hit that bypassed get_or_set, using complete block sizes.
     void record_query_cache_hit(const FileBlocks& blocks);
@@ -568,6 +571,8 @@ private:
     size_t recycle_deleting_blocks(size_t batch_limit);
 
     // info
+    // A congested cache path must not alter routing on other cache disks.
+    std::unique_ptr<FileCacheIOAdaptor> _io_adaptor;
     std::string _cache_base_path;
     size_t _capacity = 0;
     size_t _max_file_block_size = 0;

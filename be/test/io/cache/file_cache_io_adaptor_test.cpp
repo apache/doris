@@ -19,6 +19,8 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <limits>
 #include <thread>
 #include <vector>
 
@@ -26,10 +28,12 @@ namespace doris::io {
 
 class FileCacheIOAdaptorTest : public testing::Test {
 protected:
-    void seed(size_t count, int64_t local_us = 20000, int64_t remote_us = 1000) {
+    static constexpr size_t READ_SIZE = 4096;
+    void seed(size_t count, int64_t local_us = 20000, int64_t remote_us = 1000,
+              size_t bytes = READ_SIZE) {
         for (size_t i = 0; i < count; ++i) {
-            adaptor.record_local(local_us);
-            adaptor.record_remote(remote_us);
+            adaptor.record_local(bytes, local_us);
+            adaptor.record_remote(bytes, remote_us);
         }
     }
     FileCacheIOAdaptor adaptor;
@@ -37,177 +41,185 @@ protected:
 
 TEST_F(FileCacheIOAdaptorTest, RequiresFiftyRealSamplesOnBothPaths) {
     seed(49);
-    EXPECT_FALSE(adaptor.select().read_remote());
-    adaptor.record_local(20000);
-    EXPECT_FALSE(adaptor.select().read_remote());
-    adaptor.record_remote(1000);
-    EXPECT_TRUE(adaptor.select().read_remote());
+    EXPECT_FALSE(adaptor._select(READ_SIZE, 1.0, 0).read_remote());
+    adaptor.record_local(READ_SIZE, 20000);
+    EXPECT_FALSE(adaptor._select(READ_SIZE, 1.0, 0).read_remote());
+    adaptor.record_remote(READ_SIZE, 1000);
+    EXPECT_TRUE(adaptor._select(READ_SIZE, 1.0, 0).read_remote());
 }
 
-TEST_F(FileCacheIOAdaptorTest, MissingRemoteHistoryDoesNotGenerateProbes) {
-    for (int i = 0; i < 100; ++i) {
-        adaptor.record_local(20000);
-        const auto decision = adaptor.select();
-        EXPECT_FALSE(decision.read_remote());
-        EXPECT_FALSE(decision.local_feedback);
-        EXPECT_FALSE(decision.remote_feedback);
+TEST_F(FileCacheIOAdaptorTest, SmallReadsKeepTheirActualLatency) {
+    seed(50, 100, 1000);
+    const auto decision = adaptor.select(READ_SIZE);
+    EXPECT_EQ(decision.local_latency_us, 100);
+    EXPECT_FALSE(decision.read_remote());
+}
+
+TEST_F(FileCacheIOAdaptorTest, MixedSizesDoNotShareHistory) {
+    seed(50, 100, 1000);
+    seed(50, 20000, 1000, 1 << 20);
+    EXPECT_FALSE(adaptor.select(4096).read_remote());
+    EXPECT_TRUE(adaptor.select(1 << 20).read_remote());
+    // Large remote misses cannot bootstrap the unrelated small-read remote window.
+    FileCacheIOAdaptor other;
+    for (int i = 0; i < 50; ++i) {
+        other.record_local(4096, 20000);
+        other.record_remote(1 << 20, 1000);
     }
+    EXPECT_EQ(other.select(4096).remote_latency_us, 0);
+    EXPECT_FALSE(other.select(4096).read_remote());
+}
+
+TEST_F(FileCacheIOAdaptorTest, SizeBucketBoundaries) {
+    for (size_t i = 0; i < FileCacheIOAdaptor::SIZE_LIMITS.size(); ++i) {
+        const auto limit = FileCacheIOAdaptor::SIZE_LIMITS[i];
+        EXPECT_EQ(FileCacheIOAdaptor::bucket_index(limit), i);
+        EXPECT_EQ(FileCacheIOAdaptor::bucket_index(limit + 1), i + 1);
+    }
+    EXPECT_EQ(FileCacheIOAdaptor::bucket_index(std::numeric_limits<size_t>::max()),
+              FileCacheIOAdaptor::BUCKET_COUNT - 1);
 }
 
 TEST_F(FileCacheIOAdaptorTest, FiveMillisecondFloorAndExactBoundary) {
     seed(50, 4999);
-    EXPECT_FALSE(adaptor.select().read_remote());
+    EXPECT_FALSE(adaptor.select(READ_SIZE).read_remote());
     seed(50, 5000);
-    EXPECT_TRUE(adaptor.select().read_remote());
+    EXPECT_TRUE(adaptor.select(READ_SIZE).read_remote());
 }
 
 TEST_F(FileCacheIOAdaptorTest, EqualityPrefersLocalAndFractionalFactorIsPreserved) {
     seed(50, 8000, 8000);
-    EXPECT_FALSE(adaptor.select().read_remote());
+    EXPECT_FALSE(adaptor.select(READ_SIZE).read_remote());
     seed(50, 8000, 10000);
-    EXPECT_FALSE(adaptor.select().read_remote());
-    EXPECT_TRUE(adaptor.select(1.5).read_remote());
-    EXPECT_FALSE(adaptor.select(0.5).read_remote());
+    EXPECT_FALSE(adaptor.select(READ_SIZE).read_remote());
+    EXPECT_TRUE(adaptor.select(READ_SIZE, 1.5).read_remote());
+    EXPECT_FALSE(adaptor.select(READ_SIZE, 0.5).read_remote());
 }
 
 TEST_F(FileCacheIOAdaptorTest, SlidingWindowReplacesOldSamples) {
     seed(50);
-    EXPECT_TRUE(adaptor.select().read_remote());
+    EXPECT_TRUE(adaptor.select(READ_SIZE).read_remote());
     seed(50, 100, 1000);
-    EXPECT_FALSE(adaptor.select().read_remote());
-    EXPECT_EQ(adaptor.select().local_latency_us, 100);
+    EXPECT_FALSE(adaptor.select(READ_SIZE).read_remote());
+    EXPECT_EQ(adaptor.select(READ_SIZE).local_latency_us, 100);
 }
 
-TEST_F(FileCacheIOAdaptorTest, RememberedLocalMinimumEventuallyReconsidersLocal) {
-    adaptor.record_local(100);
-    seed(50, 20000, 1000);
-    EXPECT_TRUE(adaptor.select().local_feedback);
-    for (int i = 0; i < 49; ++i) {
-        adaptor.select();
+TEST_F(FileCacheIOAdaptorTest, RevisitLocalWithoutPreviouslyObservedFastSamples) {
+    seed(50);
+    size_t local_probes = 0;
+    for (int64_t i = 0; i < 4096; ++i) {
+        const auto decision = adaptor._select(READ_SIZE, 1.0, i * 2'000'000);
+        local_probes += decision.local_probe;
+        if (decision.read_remote()) {
+            adaptor.record_remote(READ_SIZE, 1000);
+        } else {
+            adaptor.record_local(READ_SIZE, 100);
+        }
+        if (decision.is_probe()) {
+            adaptor.finish_probe();
+        }
     }
-    const auto decision = adaptor.select();
-    EXPECT_LT(decision.local_latency_us, 5000);
-    EXPECT_FALSE(decision.read_remote());
+    EXPECT_GT(local_probes, 0);
+    EXPECT_EQ(adaptor._buckets[0].local.average(), 100);
+    EXPECT_FALSE(adaptor._select(READ_SIZE, 1.0, 0).read_remote());
 }
 
-TEST_F(FileCacheIOAdaptorTest, MinimumFeedbackDoesNotInventUnobservedFastLocalSamples) {
-    seed(50, 20000, 1000);
-    const auto minimum_life = adaptor._local.minimum_life;
-    for (int i = 0; i < 1000; ++i) {
-        const auto decision = adaptor.select();
-        EXPECT_TRUE(decision.read_remote());
-        EXPECT_TRUE(decision.local_feedback);
-        EXPECT_EQ(decision.local_latency_us, 20000);
-        adaptor.record_remote(1000);
+TEST_F(FileCacheIOAdaptorTest, MissingRemoteHistoryIsPopulatedByLimitedRealProbes) {
+    for (int i = 0; i < 50; ++i) {
+        adaptor.record_local(READ_SIZE, 20000);
     }
-    EXPECT_EQ(adaptor._local.minimum, 20000);
-    EXPECT_EQ(adaptor._local.minimum_life, minimum_life);
-    EXPECT_EQ(adaptor._local.count, 50);
-}
-
-TEST_F(FileCacheIOAdaptorTest, RememberedRemoteMinimumReconsidersRemote) {
-    adaptor.record_remote(1000);
-    seed(50, 8000, 20000);
-    EXPECT_TRUE(adaptor.select().remote_feedback);
-    for (int i = 0; i < 49; ++i) {
-        adaptor.select();
+    size_t remote_probes = 0;
+    for (int64_t i = 0; i < 50 * 64; ++i) {
+        const auto decision = adaptor._select(READ_SIZE, 1.0, i * 2'000'000);
+        if (decision.remote_probe) {
+            ++remote_probes;
+            adaptor.record_remote(READ_SIZE, 1000);
+            adaptor.finish_probe();
+        }
     }
-    EXPECT_TRUE(adaptor.select().read_remote());
+    EXPECT_EQ(remote_probes, 50);
+    EXPECT_TRUE(adaptor._select(READ_SIZE, 1.0, 0).read_remote());
 }
 
-TEST_F(FileCacheIOAdaptorTest, FeedbackDoesNotAgeOrReplaceObservedMinimum) {
-    FileCacheIOAdaptor::Window window;
-    window.record(100);
-    window.record(200);
-    const auto age = window.minimum_life;
-    for (int i = 0; i < 100; ++i) {
-        EXPECT_TRUE(window.feedback());
+TEST_F(FileCacheIOAdaptorTest, SelectionNeverCreatesSyntheticSamples) {
+    seed(50);
+    for (int64_t i = 0; i < 1000; ++i) {
+        const auto decision = adaptor._select(READ_SIZE, 1.0, i * 2'000'000);
+        if (decision.is_probe()) {
+            adaptor.finish_probe();
+        }
     }
-    EXPECT_EQ(window.minimum, 100);
-    EXPECT_EQ(window.minimum_life, age);
-    EXPECT_EQ(window.average(), 100);
+    EXPECT_EQ(adaptor._buckets[0].local.average(), 20000);
+    EXPECT_EQ(adaptor._buckets[0].remote.average(), 1000);
+    EXPECT_EQ(adaptor._buckets[0].local.next, 0);
+    EXPECT_EQ(adaptor._buckets[0].remote.next, 0);
 }
 
-TEST_F(FileCacheIOAdaptorTest, RealSamplesExpireRememberedMinimumAfterLifeLimit) {
-    FileCacheIOAdaptor::Window window;
-    window.record(100);
-    for (uint64_t i = 0; i <= FileCacheIOAdaptor::MINIMUM_LIFE_LIMIT; ++i) {
-        window.record(200);
+TEST_F(FileCacheIOAdaptorTest, ProbeLimitsSpanAllSizeBuckets) {
+    seed(50);
+    seed(50, 20000, 1000, 1 << 20);
+    for (int i = 0; i < 63; ++i) {
+        EXPECT_FALSE(adaptor._select(READ_SIZE, 1.0, 0).is_probe());
     }
-    EXPECT_EQ(window.minimum, 100);
-    window.record(300);
-    EXPECT_EQ(window.minimum, 300);
-    EXPECT_EQ(window.minimum_life, 0);
-}
-
-TEST_F(FileCacheIOAdaptorTest, FeedbackRejectsUninitializedOrExcessiveMinimum) {
-    FileCacheIOAdaptor::Window window;
-    EXPECT_FALSE(window.feedback());
-    window.record(100000001);
-    EXPECT_FALSE(window.feedback());
-    window.record(100000000);
-    EXPECT_TRUE(window.feedback());
+    EXPECT_TRUE(adaptor._select(READ_SIZE, 1.0, 0).local_probe);
+    for (int i = 0; i < 128; ++i) {
+        EXPECT_FALSE(adaptor._select(1 << 20, 1.0, 2'000'000).is_probe());
+    }
+    adaptor.finish_probe();
+    EXPECT_FALSE(adaptor._select(1 << 20, 1.0, 999999).is_probe());
+    EXPECT_TRUE(adaptor._select(1 << 20, 1.0, 1'000'000).local_probe);
+    adaptor.finish_probe();
+    for (int i = 0; i < 63; ++i) {
+        EXPECT_FALSE(adaptor._select(READ_SIZE, 1.0, 2'000'000).is_probe());
+    }
+    EXPECT_TRUE(adaptor._select(READ_SIZE, 1.0, 2'000'000).local_probe);
+    adaptor.finish_probe();
 }
 
 TEST_F(FileCacheIOAdaptorTest, NegativeObservationsAreIgnoredAndZeroIsValid) {
-    adaptor.record_local(-1);
-    adaptor.record_remote(-1);
-    EXPECT_EQ(adaptor._local.count, 0);
-    EXPECT_EQ(adaptor._remote.count, 0);
+    adaptor.record_local(READ_SIZE, -1);
+    adaptor.record_remote(READ_SIZE, -1);
+    EXPECT_EQ(adaptor._buckets[0].local.count, 0);
+    EXPECT_EQ(adaptor._buckets[0].remote.count, 0);
     seed(50, 0, 0);
-    EXPECT_EQ(adaptor._local.count, 50);
-    EXPECT_EQ(adaptor._local.minimum, 0);
-    EXPECT_FALSE(adaptor.select().read_remote());
+    EXPECT_EQ(adaptor._buckets[0].local.count, 50);
+    EXPECT_EQ(adaptor._buckets[0].local.average(), 0);
+    EXPECT_FALSE(adaptor.select(READ_SIZE).read_remote());
 }
 
 TEST_F(FileCacheIOAdaptorTest, VeryLargeLatenciesDoNotOverflowWindow) {
     const auto maximum = std::numeric_limits<int64_t>::max();
     seed(100, maximum, maximum);
-    const auto decision = adaptor.select();
-    EXPECT_EQ(decision.local_latency_us, maximum);
-    EXPECT_EQ(decision.remote_latency_us, maximum);
-    EXPECT_FALSE(decision.read_remote());
+    EXPECT_EQ(adaptor.select(READ_SIZE).local_latency_us, maximum);
+    EXPECT_EQ(adaptor.select(READ_SIZE).remote_latency_us, maximum);
+    EXPECT_FALSE(adaptor.select(READ_SIZE).read_remote());
 }
 
-TEST_F(FileCacheIOAdaptorTest, NormalizationUsesNativeBlockAndEmpiricalRatio) {
-    constexpr size_t block = 1 << 20;
-    EXPECT_EQ(FileCacheIOAdaptor::latency_per_block_us(block, 8000000, block), 8000);
-    EXPECT_EQ(FileCacheIOAdaptor::latency_per_block_us(block * 2, 8000000, block), 8000);
-    EXPECT_EQ(FileCacheIOAdaptor::latency_per_block_us(block * 4, 8000000, block), 4000);
-    EXPECT_EQ(FileCacheIOAdaptor::latency_per_block_us(block / 2, 8000000, block), 8000);
-    EXPECT_EQ(FileCacheIOAdaptor::latency_per_block_us(block / 4, 8000000, block), 16000);
-    // Integer division precedes multiplication, so rounding must retain the expected estimate.
-    EXPECT_EQ(FileCacheIOAdaptor::latency_per_block_us(block * 3, 1000000, block), 666);
-}
-
-TEST_F(FileCacheIOAdaptorTest, NormalizationHandlesInvalidInputsAndSaturates) {
-    EXPECT_EQ(FileCacheIOAdaptor::latency_per_block_us(0, 1000, 1), -1);
-    EXPECT_EQ(FileCacheIOAdaptor::latency_per_block_us(1, 1000, 0), -1);
-    EXPECT_EQ(FileCacheIOAdaptor::latency_per_block_us(1, -1, 1), -1);
-    EXPECT_EQ(FileCacheIOAdaptor::latency_per_block_us(1, 999, 1), 0);
-    EXPECT_EQ(FileCacheIOAdaptor::latency_per_block_us(1, std::numeric_limits<int64_t>::max(),
-                                                       std::numeric_limits<size_t>::max()),
-              std::numeric_limits<int64_t>::max());
-}
-
-TEST_F(FileCacheIOAdaptorTest, ConcurrentQueriesShareBoundedHistory) {
+TEST_F(FileCacheIOAdaptorTest, ConcurrentQueriesShareBoundedHistoryAndOneProbe) {
+    seed(50);
+    std::atomic<int> inflight = 0;
     std::vector<std::thread> threads;
-    for (int thread = 0; thread < 8; ++thread) {
+    for (int i = 0; i < 8; ++i) {
         threads.emplace_back([&] {
-            for (int i = 0; i < 10000; ++i) {
-                adaptor.record_local(20000);
-                adaptor.record_remote(1000);
-                adaptor.select();
+            for (int sample = 0; sample < 10000; ++sample) {
+                const auto decision = adaptor.select(READ_SIZE);
+                if (decision.is_probe()) {
+                    EXPECT_EQ(inflight.fetch_add(1), 0);
+                    inflight.fetch_sub(1);
+                    adaptor.finish_probe();
+                }
+                adaptor.record_local(READ_SIZE, 20000);
+                adaptor.record_remote(READ_SIZE, 1000);
             }
         });
     }
     for (auto& thread : threads) {
         thread.join();
     }
-    EXPECT_EQ(adaptor._local.count, 50);
-    EXPECT_EQ(adaptor._remote.count, 50);
-    EXPECT_EQ(adaptor.select().local_latency_us, 20000);
-    EXPECT_TRUE(adaptor.select().read_remote());
+    EXPECT_FALSE(adaptor._probe_inflight);
+    EXPECT_EQ(adaptor._buckets[0].local.count, 50);
+    EXPECT_EQ(adaptor._buckets[0].remote.count, 50);
+    EXPECT_EQ(adaptor._buckets[0].local.average(), 20000);
 }
 
 } // namespace doris::io

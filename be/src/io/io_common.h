@@ -95,8 +95,8 @@ struct FileCacheStatistics {
     int64_t io_adaptor_bypass_bytes = 0;
     int64_t io_adaptor_remote_bytes = 0;
     int64_t io_adaptor_remote_time_ns = 0;
-    int64_t io_adaptor_local_feedbacks = 0;
-    int64_t io_adaptor_remote_feedbacks = 0;
+    int64_t io_adaptor_local_probes = 0;
+    int64_t io_adaptor_remote_probes = 0;
     int64_t io_adaptor_remote_failures = 0;
     int64_t io_adaptor_fallback_local = 0;
     int64_t async_cache_write_submitted = 0;
@@ -184,8 +184,8 @@ struct FileCacheStatistics {
         io_adaptor_bypass_bytes += other.io_adaptor_bypass_bytes;
         io_adaptor_remote_bytes += other.io_adaptor_remote_bytes;
         io_adaptor_remote_time_ns += other.io_adaptor_remote_time_ns;
-        io_adaptor_local_feedbacks += other.io_adaptor_local_feedbacks;
-        io_adaptor_remote_feedbacks += other.io_adaptor_remote_feedbacks;
+        io_adaptor_local_probes += other.io_adaptor_local_probes;
+        io_adaptor_remote_probes += other.io_adaptor_remote_probes;
         io_adaptor_remote_failures += other.io_adaptor_remote_failures;
         io_adaptor_fallback_local += other.io_adaptor_fallback_local;
         async_cache_write_submitted += other.async_cache_write_submitted;

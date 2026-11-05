@@ -51,6 +51,7 @@
 #include "io/cache/block_file_cache_ttl_mgr.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
+#include "io/cache/file_cache_io_adaptor.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/cache/inflight_write_buffer_index.h"
 #include "io/cache/mem_file_cache_storage.h"
@@ -191,7 +192,8 @@ int64_t steady_clock_seconds() {
 
 BlockFileCache::BlockFileCache(const std::string& cache_base_path,
                                const FileCacheSettings& cache_settings)
-        : _cache_base_path(cache_base_path),
+        : _io_adaptor(std::make_unique<FileCacheIOAdaptor>()),
+          _cache_base_path(cache_base_path),
           _capacity(cache_settings.capacity),
           _max_file_block_size(cache_settings.max_file_block_size) {
     _cur_cache_size_metrics = std::make_shared<bvar::Status<size_t>>(_cache_base_path.c_str(),

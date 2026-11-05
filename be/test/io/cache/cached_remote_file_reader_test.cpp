@@ -112,7 +112,7 @@ private:
     std::vector<std::pair<size_t, size_t>> _read_ranges;
 };
 
-// Provides one isolated cache disk with phase-one async-read settings for concise end-to-end
+// Provides isolated cache paths with phase-one async-read settings for concise end-to-end
 // reader tests. Every test gets a fresh FileCacheFactory entry and restores global knobs afterward.
 class AsyncCachedRemoteFileReaderTest : public BlockFileCacheTest {
 protected:
@@ -138,9 +138,10 @@ protected:
 
     void TearDown() override {
         reset_async_reader_cache_factory();
-        if (!_cache_path.empty()) {
+        // Stop every cache's background workers before removing any path used by this test.
+        for (const auto& path : _cache_paths) {
             std::error_code error;
-            fs::remove_all(_cache_path, error);
+            fs::remove_all(path, error);
         }
         config::enable_async_file_cache_write = _old_enable_async;
         config::enable_async_file_cache_write_inflight_write_buffer_index = _old_enable_inflight;
@@ -150,10 +151,11 @@ protected:
         config::block_cache_wait_timeout_ms = _old_wait_timeout_ms;
     }
 
-    // Create and initialize the single cache disk used by the current test.
+    // Create, initialize and select a cache path used by the current test.
     void create_cache(std::string_view name,
                       const FileCacheSettings& settings = async_reader_cache_settings()) {
         _cache_path = caches_dir / name;
+        _cache_paths.push_back(_cache_path);
         std::error_code error;
         fs::remove_all(_cache_path, error);
         fs::create_directories(_cache_path);
@@ -200,6 +202,7 @@ protected:
 
 private:
     fs::path _cache_path;
+    std::vector<fs::path> _cache_paths;
     BlockFileCache* _cache = nullptr;
     bool _old_enable_async = false;
     bool _old_enable_inflight = false;
@@ -2192,26 +2195,62 @@ TEST_F(BlockFileCacheTest, cache_write_mode_is_resolved_for_each_read_context) {
 // original downloader/inflight/writeback semantics rather than pretending a cache hit is EMPTY.
 class AdaptiveCachedRemoteFileReaderTest : public AsyncCachedRemoteFileReaderTest {
 protected:
-    void SetUp() override {
-        AsyncCachedRemoteFileReaderTest::SetUp();
-        reset_adaptor();
-    }
     void reset_adaptor() {
-        auto& adaptor = FileCacheIOAdaptor::instance();
+        auto& adaptor = cache()->io_adaptor();
         std::lock_guard lock(adaptor._mutex);
-        adaptor._local = {};
-        adaptor._remote = {};
+        adaptor._buckets = {};
+        adaptor._requests_since_probe = 0;
+        adaptor._next_probe_us = 0;
+        adaptor._probe_inflight = false;
     }
     std::shared_ptr<CachedRemoteFileReader> external_reader(FileReaderSPtr remote) {
         FileReaderOptions options;
         options.cache_type = FileCachePolicy::FILE_BLOCK_CACHE;
+        options.cache_base_path = cache()->get_base_path();
         return std::make_shared<CachedRemoteFileReader>(std::move(remote), options);
     }
     void seed_slow_disk() {
-        auto& adaptor = FileCacheIOAdaptor::instance();
+        auto& adaptor = cache()->io_adaptor();
+        for (size_t bucket = 0; bucket < FileCacheIOAdaptor::BUCKET_COUNT; ++bucket) {
+            const size_t bytes = size_t(4096) << (bucket * 2);
+            for (int i = 0; i < 50; ++i) {
+                adaptor.record_local(bytes, 20000);
+                adaptor.record_remote(bytes, 1000);
+            }
+        }
+    }
+    void verify_remote_probe_cleanup(int failure) {
+        create_cache("adaptive_probe_cleanup");
+        auto seed = external_reader(open_remote_file());
+        std::string expected(4096, '\0');
+        size_t count = 0;
+        IOContext context;
+        context.cache_write_mode_override = CacheWriteMode::SYNC_WRITE;
+        ASSERT_TRUE(seed->read_at(0, Slice(expected), &count, &context).ok());
+        context.enable_file_cache_io_adaptor = true;
+        reset_adaptor();
+        auto& adaptor = cache()->io_adaptor();
         for (int i = 0; i < 50; ++i) {
-            adaptor.record_local(20000);
-            adaptor.record_remote(1000);
+            adaptor.record_local(expected.size(), 100);
+            adaptor.record_remote(expected.size(), 1000);
+        }
+        adaptor._requests_since_probe = 63;
+        auto remote = std::make_shared<CountingFileReader>(open_remote_file());
+        remote->fail_reads = failure == 0;
+        remote->short_read_size = failure == 1 ? 17 : 0;
+        remote->cancel_reads = failure == 2;
+        auto reader = external_reader(remote);
+        std::string actual(expected.size(), '\xff');
+        const auto status = reader->read_at(0, Slice(actual), &count, &context);
+        EXPECT_EQ(remote->read_count(), 1);
+        EXPECT_FALSE(adaptor._probe_inflight);
+        EXPECT_EQ(reader->_io_adaptor_remote_failed.load(), failure != 2);
+        if (failure == 2) {
+            EXPECT_TRUE(status.is<ErrorCode::CANCELLED>());
+        } else {
+            ASSERT_TRUE(status.ok());
+            EXPECT_EQ(actual, expected);
+            EXPECT_EQ(count, expected.size());
         }
     }
     void warm_adaptor_with_real_reads(const std::shared_ptr<CachedRemoteFileReader>& reader,
@@ -2229,8 +2268,7 @@ protected:
             const auto start = MonotonicNanos();
             ASSERT_TRUE(remote->read_at(0, Slice(buffer), &count, &context).ok());
             ASSERT_EQ(count, bytes);
-            FileCacheIOAdaptor::instance().record_remote(FileCacheIOAdaptor::latency_per_block_us(
-                    bytes, MonotonicNanos() - start, config::file_cache_each_block_size));
+            cache()->io_adaptor().record_remote(bytes, (MonotonicNanos() - start) / 1000);
         }
         for (int sample = 0; sample < 50; ++sample) {
             ASSERT_TRUE(reader->read_at(0, Slice(buffer), &count, &context).ok());
@@ -2238,6 +2276,90 @@ protected:
         }
     }
 };
+
+TEST_F(AdaptiveCachedRemoteFileReaderTest, remote_calls_are_sampled_individually_at_actual_sizes) {
+    create_cache("adaptive_remote_call_samples");
+    auto remote = std::make_shared<CountingFileReader>(open_remote_file());
+    auto reader = external_reader(remote);
+    IOContext context;
+    context.enable_file_cache_io_adaptor = true;
+    ReadStatistics stats;
+    std::string small(4096, '\0');
+    std::string large(1_mb, '\0');
+    size_t count = 0;
+    ASSERT_TRUE(reader->_read_remote_at(0, Slice(small), &count, &context, stats).ok());
+    ASSERT_TRUE(reader->_read_remote_at(1_mb, Slice(large), &count, &context, stats).ok());
+    ASSERT_TRUE(reader->_read_remote_at(2_mb, Slice(small), &count, &context, stats).ok());
+    auto& adaptor = cache()->io_adaptor();
+    EXPECT_EQ(adaptor._buckets[FileCacheIOAdaptor::bucket_index(small.size())].remote.count, 2);
+    EXPECT_EQ(adaptor._buckets[FileCacheIOAdaptor::bucket_index(large.size())].remote.count, 1);
+    EXPECT_EQ(remote->read_count(), 3);
+    EXPECT_EQ(stats.remote_physical_read_bytes, large.size() + 2 * small.size());
+    EXPECT_EQ(stats.local_write_timer, 0);
+    EXPECT_EQ(stats.bytes_write_into_file_cache, 0);
+}
+
+TEST_F(AdaptiveCachedRemoteFileReaderTest, failed_remote_probe_releases_permit) {
+    verify_remote_probe_cleanup(0);
+}
+
+TEST_F(AdaptiveCachedRemoteFileReaderTest, short_remote_probe_releases_permit) {
+    verify_remote_probe_cleanup(1);
+}
+
+TEST_F(AdaptiveCachedRemoteFileReaderTest, cancelled_remote_probe_releases_permit) {
+    verify_remote_probe_cleanup(2);
+}
+
+TEST_F(AdaptiveCachedRemoteFileReaderTest, congested_path_does_not_bypass_healthy_path) {
+    create_cache("adaptive_healthy_path");
+    auto remote = std::make_shared<CountingFileReader>(open_remote_file());
+    auto healthy = external_reader(remote);
+    std::string buffer(4096, '\0');
+    size_t count = 0;
+    IOContext context;
+    context.cache_write_mode_override = CacheWriteMode::SYNC_WRITE;
+    ASSERT_TRUE(healthy->read_at(0, Slice(buffer), &count, &context).ok());
+    create_cache("adaptive_congested_path");
+    seed_slow_disk();
+    context.enable_file_cache_io_adaptor = true;
+    const auto previous_reads = remote->read_count();
+    ASSERT_TRUE(healthy->read_at(0, Slice(buffer), &count, &context).ok());
+    EXPECT_EQ(remote->read_count(), previous_reads);
+}
+
+TEST_F(AdaptiveCachedRemoteFileReaderTest, recovery_without_fast_history_uses_real_local_reads) {
+    create_cache("adaptive_recovery_probe");
+    auto remote = std::make_shared<CountingFileReader>(open_remote_file());
+    auto reader = external_reader(remote);
+    std::string expected(4096, '\0');
+    size_t count = 0;
+    IOContext context;
+    context.cache_write_mode_override = CacheWriteMode::SYNC_WRITE;
+    ASSERT_TRUE(reader->read_at(0, Slice(expected), &count, &context).ok());
+    seed_slow_disk();
+    int64_t now_us = 0;
+    auto* sync = SyncPoint::get_instance();
+    sync->set_call_back("FileCacheIOAdaptor::select:now_us", [&](auto&& values) {
+        now_us += 2'000'000;
+        *try_any_cast<int64_t*>(values.back()) = now_us;
+    });
+    sync->enable_processing();
+    Defer cleanup {[&] {
+        sync->disable_processing();
+        sync->clear_all_call_backs();
+    }};
+    FileCacheStatistics stats;
+    context.file_cache_stats = &stats;
+    context.enable_file_cache_io_adaptor = true;
+    std::string actual(expected.size(), '\0');
+    for (int i = 0; i < 4096; ++i) {
+        ASSERT_TRUE(reader->read_at(0, Slice(actual), &count, &context).ok());
+        ASSERT_EQ(actual, expected);
+    }
+    EXPECT_GT(stats.io_adaptor_bypass_count, 0);
+    EXPECT_GT(stats.io_adaptor_local_reads, 50);
+}
 
 TEST_F(AdaptiveCachedRemoteFileReaderTest, hdfs_full_hits_never_attempt_optional_remote_reads) {
     create_cache("adaptive_hdfs");
@@ -2455,9 +2577,9 @@ TEST_F(AdaptiveCachedRemoteFileReaderTest, real_remote_misses_train_only_enabled
     size_t count = 0;
     IOContext context;
     context.cache_write_mode_override = CacheWriteMode::SYNC_WRITE;
-    auto& adaptor = FileCacheIOAdaptor::instance();
+    auto& adaptor = cache()->io_adaptor();
     ASSERT_TRUE(reader->read_at(0, Slice(buffer), &count, &context).ok());
-    EXPECT_EQ(adaptor._remote.count, 0);
+    EXPECT_EQ(adaptor._buckets[FileCacheIOAdaptor::bucket_index(1_mb)].remote.count, 0);
     context.enable_file_cache_io_adaptor = true;
     size_t offset = 0;
     for (auto mode : {CacheWriteMode::SYNC_WRITE, CacheWriteMode::ASYNC_WRITE}) {
@@ -2465,14 +2587,14 @@ TEST_F(AdaptiveCachedRemoteFileReaderTest, real_remote_misses_train_only_enabled
         reset_adaptor();
         context.cache_write_mode_override = mode;
         ASSERT_TRUE(reader->read_at(offset, Slice(buffer), &count, &context).ok());
-        EXPECT_EQ(adaptor._remote.count, 1);
-        EXPECT_EQ(adaptor._local.count, 0);
+        EXPECT_EQ(adaptor._buckets[FileCacheIOAdaptor::bucket_index(1_mb)].remote.count, 1);
+        EXPECT_EQ(adaptor._buckets[FileCacheIOAdaptor::bucket_index(buffer.size())].local.count, 0);
         wait_for_async_writes();
         const auto reads = remote->read_count();
         ASSERT_TRUE(reader->read_at(offset, Slice(buffer), &count, &context).ok());
         EXPECT_EQ(remote->read_count(), reads);
-        EXPECT_EQ(adaptor._remote.count, 1);
-        EXPECT_EQ(adaptor._local.count, 1);
+        EXPECT_EQ(adaptor._buckets[FileCacheIOAdaptor::bucket_index(1_mb)].remote.count, 1);
+        EXPECT_EQ(adaptor._buckets[FileCacheIOAdaptor::bucket_index(buffer.size())].local.count, 1);
     }
 }
 
@@ -2748,11 +2870,10 @@ TEST_F(AdaptiveCachedRemoteFileReaderTest, DISABLED_latency_controlled_benchmark
                       << " local_service_us=8000 remote_service_us=1000 wall_ns=" << elapsed
                       << " bypass_count=" << stats.io_adaptor_bypass_count
                       << " bypass_bytes=" << stats.io_adaptor_bypass_bytes
-                      << " local_feedback_count=" << stats.io_adaptor_local_feedbacks << std::endl;
+                      << " local_probe_count=" << stats.io_adaptor_local_probes << std::endl;
             EXPECT_EQ(stats.bytes_write_into_cache, 0);
             if (enabled) {
                 EXPECT_GT(stats.io_adaptor_bypass_count, 180);
-                EXPECT_GT(stats.io_adaptor_local_feedbacks, 0);
             } else {
                 EXPECT_EQ(stats.io_adaptor_bypass_count, 0);
             }
