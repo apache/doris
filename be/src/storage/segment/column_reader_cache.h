@@ -66,11 +66,6 @@ public:
     Status get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>* column_reader,
                              OlapReaderStatistics* stats, const io::IOContext* io_ctx = nullptr);
 
-    // Reuse an existing root reader without loading column metadata on a cache miss.
-    std::shared_ptr<ColumnReader> get_cached_column_reader(int32_t col_uid) {
-        return _lookup({col_uid, {}});
-    }
-
     // Get column reader by column unique id and path(leaf node of variant's subcolumn)
     virtual Status get_path_column_reader(int32_t col_uid, PathInData relative_path,
                                           std::shared_ptr<ColumnReader>* column_reader,

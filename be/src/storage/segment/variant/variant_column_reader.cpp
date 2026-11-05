@@ -1136,6 +1136,18 @@ Status VariantColumnReader::_maybe_wrap_root_merge_iterator(ColumnIteratorUPtr* 
     return Status::OK();
 }
 
+Status VariantColumnReader::check_path_encoding(const TabletColumn& read_column) const {
+    // An FE using escaped paths can read a legacy rowset during a rolling upgrade (and vice
+    // versa after rollback). Decoding a.b as a%2Eb would silently return NULL or prune real rows.
+    if (_path_encoding != (read_column.variant_escape_dots_in_keys() ? 1U : 0U)) {
+        return Status::NotSupported(
+                "Variant path encoding {} does not match variant_escape_dots_in_keys={} for column "
+                "{}",
+                _path_encoding, read_column.variant_escape_dots_in_keys(), _root_unique_id);
+    }
+    return Status::OK();
+}
+
 Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
                                          const TabletColumn* target_col,
                                          const StorageReadOptions* opt) {
@@ -1203,14 +1215,9 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
                                   column_uid);
     }
     const auto& parent = opts.tablet_schema->column_by_uid(column_uid);
-    if (_path_encoding != (parent.variant_escape_dots_in_keys() ? 1U : 0U)) {
-        return Status::NotSupported(
-                "Variant path encoding {} does not match variant_escape_dots_in_keys={} for column "
-                "{}",
-                _path_encoding, parent.variant_escape_dots_in_keys(), column_uid);
-    }
-    _data_type = DataTypeFactory::instance().create_data_type(self_column_pb);
     _root_unique_id = self_column_pb.unique_id();
+    RETURN_IF_ERROR(check_path_encoding(parent));
+    _data_type = DataTypeFactory::instance().create_data_type(self_column_pb);
     const bool should_record_path_stats = variant_util::should_record_variant_path_stats(
             opts.tablet_schema->column_by_uid(self_column_pb.unique_id()));
     const auto& parent_index = opts.tablet_schema->inverted_indexs(self_column_pb.unique_id());

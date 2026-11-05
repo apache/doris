@@ -441,28 +441,11 @@ Status Segment::check_variant_path_encoding(const TabletColumn& read_column,
     if (!_column_meta_accessor->has_column_uid(uid)) {
         return Status::OK();
     }
-    uint32_t path_encoding;
-    if (auto reader = _column_reader_cache->get_cached_column_reader(uid)) {
-        // Repeated iterator/rowid reads already decoded this marker. In V3 another
-        // metadata lookup would read the external root ColumnMetaPB from disk again.
-        path_encoding = assert_cast<VariantColumnReader*>(reader.get())->path_encoding();
-    } else {
-        std::shared_ptr<SegmentFooterPB> footer;
-        RETURN_IF_ERROR(_get_segment_footer(footer, stats, io_ctx));
-        ColumnMetaPB meta;
-        RETURN_IF_ERROR(
-                _column_meta_accessor->get_column_meta_by_uid(*footer, uid, &meta, stats, io_ctx));
-        path_encoding = meta.variant_path_encoding();
-    }
-    // During rolling upgrades the rowset schema may still be legacy although the FE requests
-    // escaped paths (or conversely). Interpreting a.b as a%2Eb would silently return NULL.
-    if (path_encoding != (read_column.variant_escape_dots_in_keys() ? 1U : 0U)) {
-        return Status::NotSupported(
-                "Variant path encoding {} does not match variant_escape_dots_in_keys={} for column "
-                "{}",
-                path_encoding, read_column.variant_escape_dots_in_keys(), uid);
-    }
-    return Status::OK();
+    // Reader initialization owns metadata access: its cache serializes footer loads, and a
+    // cached reader already holds the immutable encoding marker. Do not reload the footer here.
+    std::shared_ptr<ColumnReader> reader;
+    RETURN_IF_ERROR(_column_reader_cache->get_column_reader(uid, &reader, stats, io_ctx));
+    return assert_cast<VariantColumnReader*>(reader.get())->check_path_encoding(read_column);
 }
 
 Status Segment::new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& read_options,
