@@ -82,6 +82,7 @@ suite("test_ai_resource_privilege", "p0,auth") {
                 "SELECT AI_GENERATE('${resourceName}', NULL)",
                 "SELECT AI_GENERATE(NULL)",
                 "SELECT AI_GENERATE(CONCAT('${resourceName}', ''), NULL)",
+                "SELECT IF(TRUE, 'ok', AI_GENERATE('${resourceName}', NULL))",
                 "SELECT EMBED('${resourceName}', CAST(NULL AS STRING))",
                 "SELECT EMBED(CAST(NULL AS STRING))",
                 "SELECT EMBED('${resourceName}', CAST(NULL AS JSON))",

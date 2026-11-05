@@ -75,6 +75,11 @@ public class AIAgg extends NullableAggregateFunction
     }
 
     @Override
+    public boolean isDeterministic() {
+        return false;
+    }
+
+    @Override
     public void checkLegalityAfterRewrite() {
         // The rewrite has folded a constant task and resource name, unless constant folding is skipped
         // (debug_skip_fold_constant). The value FE can evaluate is validated like the literal, and BE reads the

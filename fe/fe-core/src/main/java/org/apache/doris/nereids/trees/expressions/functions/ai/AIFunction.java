@@ -51,6 +51,11 @@ public abstract class AIFunction extends ScalarFunction
     public abstract int getMaxArgsNum();
 
     @Override
+    public boolean isDeterministic() {
+        return false;
+    }
+
+    @Override
     public void checkLegalityAfterRewrite() {
         // The rewrite has folded a constant resource name, unless constant folding is skipped
         // (debug_skip_fold_constant). The name FE can evaluate is resolved like the literal, and BE reads the name

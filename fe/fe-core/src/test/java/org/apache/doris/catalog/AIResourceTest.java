@@ -490,6 +490,7 @@ public class AIResourceTest {
             Assertions.assertTrue(auth.doesUserExist(user));
             resourceMgr.replayCreateResource(resource);
             BoundFunction function = aiFunctionForPrivilegeCheck(kind, resourceName);
+            Assertions.assertFalse(function.isDeterministic());
             assertResourceAccessDenied(function, resourceName);
 
             auth.replayGrant(usagePrivilege(user, "another_ai_resource"));
@@ -509,7 +510,9 @@ public class AIResourceTest {
                 LogicalEmptyRelation plan = new LogicalEmptyRelation(new RelationId(0), ImmutableList.of());
                 CascadesContext cascadesContext = CascadesContext.initContext(statementContext,
                         plan, PhysicalProperties.ANY);
-                ExpressionAnalyzer.analyzeFunction(plan, cascadesContext, expression);
+                Expression analyzed = ExpressionAnalyzer.analyzeFunction(plan, cascadesContext, expression);
+                Assertions.assertTrue(analyzed.containsNondeterministic());
+                Assertions.assertTrue(statementContext.hasNondeterministic());
                 Assertions.assertFalse(sqlCacheContext.supportSqlCache());
             }
 
