@@ -121,6 +121,22 @@ void ParquetProfile::init(RuntimeProfile* profile) {
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "LevelOnlySkipTime", parquet_profile, 1);
     materialization_time =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "MaterializationTime", parquet_profile, 1);
+    decoded_cache_requests = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "DecodedColumnCacheRequests",
+                                                          TUnit::UNIT, parquet_profile, 1);
+    decoded_cache_hits = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "DecodedColumnCacheHits",
+                                                      TUnit::UNIT, parquet_profile, 1);
+    decoded_cache_misses = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "DecodedColumnCacheMisses",
+                                                        TUnit::UNIT, parquet_profile, 1);
+    decoded_cache_writes = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "DecodedColumnCacheWrites",
+                                                        TUnit::UNIT, parquet_profile, 1);
+    decoded_cache_read_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "DecodedColumnCacheReadBytes",
+                                                            TUnit::BYTES, parquet_profile, 1);
+    decoded_cache_bypasses = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "DecodedColumnCacheBypasses",
+                                                          TUnit::UNIT, parquet_profile, 1);
+    decoded_cache_read_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(profile, "DecodedColumnCacheReadTime", parquet_profile, 1);
+    decoded_cache_fill_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(profile, "DecodedColumnCacheFillTime", parquet_profile, 1);
     auto variant = std::make_shared<ParquetVariantProfile>();
     variant->variant_reconstruction_time = add_persistent_counter(
             profile, "VariantReconstructionTime", TUnit::TIME_NS, parquet_profile);
@@ -379,6 +395,15 @@ ParquetColumnReaderProfile ParquetProfile::column_reader_profile() const {
             .level_only_read_time = level_only_read_time,
             .level_only_skip_time = level_only_skip_time,
             .materialization_time = materialization_time,
+            .decoded_cache_requests = decoded_cache_requests,
+            .decoded_cache_hits = decoded_cache_hits,
+            .decoded_cache_misses = decoded_cache_misses,
+            .decoded_cache_writes = decoded_cache_writes,
+            .decoded_cache_read_bytes = decoded_cache_read_bytes,
+            .decoded_cache_read_time = decoded_cache_read_time,
+            .decoded_cache_fill_time = decoded_cache_fill_time,
+            .decoded_cache_bypasses = decoded_cache_bypasses,
+
             .variant_counters = variant_counters,
             .hybrid_selection_batches = hybrid_selection_batches,
             .hybrid_selection_ranges = hybrid_selection_ranges,

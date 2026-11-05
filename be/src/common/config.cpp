@@ -443,6 +443,9 @@ DEFINE_mBool(disable_storage_row_cache, "true");
 // If uncompressed_size / compressed_size <= threshold, cache decompressed;
 // otherwise cache compressed if enable_parquet_cache_compressed_pages = true
 DEFINE_Double(parquet_page_cache_decompress_threshold, "1.5");
+DEFINE_Int64(parquet_decoded_column_cache_capacity_bytes, "0");
+DEFINE_Int64(parquet_decoded_column_cache_max_entry_bytes, "8388608");
+DEFINE_Int64(parquet_decoded_column_cache_max_file_admission_bytes, "67108864");
 // Parquet page cache: whether to enable caching compressed pages (when ratio exceeds threshold)
 DEFINE_Bool(enable_parquet_cache_compressed_pages, "false");
 // whether to disable pk page cache feature in storage

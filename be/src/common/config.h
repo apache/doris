@@ -541,6 +541,11 @@ DECLARE_mBool(disable_storage_row_cache);
 DECLARE_Double(parquet_page_cache_decompress_threshold);
 // Parquet page cache: whether to enable caching compressed pages (when ratio exceeds threshold)
 DECLARE_Bool(enable_parquet_cache_compressed_pages);
+// Optional decoded row-group columns. Zero capacity disables the cache. These startup-only byte
+// limits bound all live entries (including fills and pins), each entry, and admission per file.
+DECLARE_Int64(parquet_decoded_column_cache_capacity_bytes);
+DECLARE_Int64(parquet_decoded_column_cache_max_entry_bytes);
+DECLARE_Int64(parquet_decoded_column_cache_max_file_admission_bytes);
 // whether to disable pk page cache feature in storage
 DECLARE_Bool(disable_pk_storage_page_cache);
 

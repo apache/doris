@@ -58,6 +58,7 @@
 #include "exprs/function/dictionary_factory.h"
 #include "format/orc/orc_memory_pool.h"
 #include "format/parquet/arrow_memory_pool.h"
+#include "format_v2/parquet/reader/decoded_column_cache.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/fs_file_cache_storage.h"
@@ -754,6 +755,8 @@ Status ExecEnv::init_mem_env() {
               << PrettyPrinter::print(condition_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::condition_cache_limit;
 
+    RETURN_IF_ERROR(format::parquet::DecodedColumnCache::create_global_cache());
+
     // Initialize encoding info resolver
     _encoding_info_resolver = new segment_v2::EncodingInfoResolver();
 
@@ -965,6 +968,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_inverted_index_query_cache);
     SAFE_DELETE(_inverted_index_searcher_cache);
     SAFE_DELETE(_condition_cache);
+    format::parquet::DecodedColumnCache::destroy_global_cache();
     SAFE_DELETE(_encoding_info_resolver);
     SAFE_DELETE(_lookup_connection_cache);
     SAFE_DELETE(_segment_loader);

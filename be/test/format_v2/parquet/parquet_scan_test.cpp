@@ -76,6 +76,7 @@
 #include "format_v2/file_reader.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_reader.h"
+#include "format_v2/parquet/reader/decoded_column_cache.h"
 #include "format_v2/parquet/reader/native/block_split_bloom_filter.h"
 #include "format_v2/parquet/reader/native_column_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
@@ -1990,11 +1991,12 @@ protected:
             int64_t range_start_offset = 0, int64_t range_size = -1,
             RuntimeProfile* profile = nullptr,
             std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
-            std::shared_ptr<io::IOContext> io_ctx = nullptr) const {
+            std::shared_ptr<io::IOContext> io_ctx = nullptr, bool immutable = false) const {
         auto system_properties = std::make_shared<io::FileSystemProperties>();
         system_properties->system_type = TFileType::FILE_LOCAL;
         auto file_description = std::make_unique<io::FileDescription>();
         file_description->path = _file_path;
+        file_description->is_immutable = immutable;
         file_description->file_size = static_cast<int64_t>(std::filesystem::file_size(_file_path));
         file_description->range_start_offset = range_start_offset;
         file_description->range_size = range_size;
@@ -2060,6 +2062,93 @@ protected:
     std::filesystem::path _test_dir;
     std::string _file_path;
 };
+
+TEST_F(ParquetScanTest, DecodedColumnCacheReusesCompleteRowGroupsAndKeepsFilters) {
+    using format::parquet::DecodedColumnCache;
+    DecodedColumnCache cache(1 << 20, 1 << 16, 1 << 18);
+    auto* previous = DecodedColumnCache::_instance;
+    DecodedColumnCache::_instance = &cache;
+    Defer restore([&] { DecodedColumnCache::_instance = previous; });
+    write_int_pair_parquet_file(_file_path, 2);
+
+    auto scan = [&](bool filtered, bool immutable, RuntimeProfile* profile,
+                    std::vector<int32_t>* scores) {
+        auto reader = create_reader(0, -1, profile, std::nullopt, nullptr, immutable);
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        ASSERT_TRUE(reader->init(&state).ok());
+        std::vector<format::ColumnDefinition> schema;
+        ASSERT_TRUE(reader->get_schema(&schema).ok());
+        auto request = std::make_shared<format::FileScanRequest>();
+        format::FileScanRequestBuilder builder(request.get());
+        if (filtered) {
+            ASSERT_TRUE(builder.add_predicate_column(format::LocalColumnId(0)).ok());
+            request->conjuncts.push_back(
+                    create_int32_zonemap_conjunct(0, Int32ZoneMapExpr::Op::GT, 2));
+        } else {
+            ASSERT_TRUE(builder.add_non_predicate_column(format::LocalColumnId(0)).ok());
+        }
+        ASSERT_TRUE(builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+        ASSERT_TRUE(reader->open(request).ok());
+        bool eof = false;
+        while (!eof) {
+            Block block = build_file_block(schema);
+            size_t rows = 0;
+            ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+            const auto& column = int32_data_column(*block.get_by_position(1).column).get_data();
+            scores->insert(scores->end(), column.begin(), column.end());
+        }
+    };
+
+    RuntimeProfile partial("partial");
+    std::vector<int32_t> selected;
+    scan(true, true, &partial, &selected);
+    EXPECT_EQ(selected, (std::vector<int32_t> {30, 40, 50, 60}));
+    EXPECT_EQ(counter_value(partial, "DecodedColumnCacheWrites"), 0);
+    EXPECT_EQ(cache.live_bytes(), 0);
+
+    RuntimeProfile cold("cold");
+    std::vector<int32_t> cold_scores;
+    scan(false, true, &cold, &cold_scores);
+    EXPECT_EQ(cold_scores, (std::vector<int32_t> {10, 20, 30, 40, 50, 60}));
+    EXPECT_EQ(counter_value(cold, "DecodedColumnCacheWrites"), 6);
+    EXPECT_GT(counter_value(cold, "NativeReadCalls"), 0);
+
+    RuntimeProfile warm("warm");
+    std::vector<int32_t> warm_scores;
+    scan(false, true, &warm, &warm_scores);
+    EXPECT_EQ(warm_scores, cold_scores);
+    EXPECT_EQ(counter_value(warm, "DecodedColumnCacheHits"), 6);
+    EXPECT_EQ(counter_value(warm, "NativeReadCalls"), 0);
+    EXPECT_EQ(counter_value(warm, "DecodedColumnCacheReadBytes"), 48);
+
+    RuntimeProfile filtered("filtered");
+    std::vector<int32_t> filtered_scores;
+    scan(true, true, &filtered, &filtered_scores);
+    EXPECT_EQ(filtered_scores, selected);
+    EXPECT_EQ(counter_value(filtered, "DecodedColumnCacheHits"), 2);
+    EXPECT_EQ(counter_value(filtered, "DecodedColumnCacheWrites"), 0);
+
+    RuntimeProfile mutable_file("mutable");
+    std::vector<int32_t> uncached_scores;
+    scan(false, false, &mutable_file, &uncached_scores);
+    EXPECT_EQ(uncached_scores, cold_scores);
+    EXPECT_EQ(counter_value(mutable_file, "DecodedColumnCacheHits"), 0);
+    EXPECT_GT(counter_value(mutable_file, "NativeReadCalls"), 0);
+
+    const auto original_size = std::filesystem::file_size(_file_path);
+    auto replacement =
+            arrow::Table::Make(arrow::schema({arrow::field("id", arrow::int32(), false),
+                                              arrow::field("score", arrow::int32(), false)}),
+                               {build_int32_array({7, 8, 9, 10, 11, 12}),
+                                build_int32_array({70, 80, 90, 100, 110, 120})});
+    write_table(_file_path, replacement, 2, false, false, true);
+    ASSERT_EQ(std::filesystem::file_size(_file_path), original_size);
+    RuntimeProfile overwritten("overwritten");
+    std::vector<int32_t> replaced_scores;
+    scan(false, false, &overwritten, &replaced_scores);
+    EXPECT_EQ(replaced_scores, (std::vector<int32_t> {70, 80, 90, 100, 110, 120}));
+    EXPECT_EQ(counter_value(overwritten, "DecodedColumnCacheHits"), 0);
+}
 
 TEST_F(ParquetScanTest, ZeroNanCountRestoresFloatingFooterPruning) {
     std::vector<float> floats(64, 1.0F);
