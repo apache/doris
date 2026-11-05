@@ -30,6 +30,7 @@
 #include "core/data_type/data_type_string.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "io/file_factory.h"
+#include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/thread_context.h"
 
 namespace doris::format::parquet {
@@ -91,7 +92,7 @@ protected:
         schema.leaf_column_id = 0;
         schema.parquet_field_id = 1;
         schema.name = "value";
-        schema.type = std::make_shared<DataTypeInt32>();
+        schema.type = make_nullable(std::make_shared<DataTypeInt32>());
     }
 
     MutableColumnPtr values(size_t rows = 10) {
@@ -106,16 +107,17 @@ protected:
                                                 ColumnPtr data, bool fill = true, bool fail = false,
                                                 bool* hit_out = nullptr) {
         std::unique_ptr<ParquetColumnReader> result;
-        bool hit = false;
+        auto plan = cache.prepare_reader(key, schema, {});
+        const bool hit = static_cast<bool>(plan.hit);
         EXPECT_TRUE(cache.create_reader(
-                                 key, schema, data->size(), fill, {}, &admission,
+                                 std::move(plan), schema, data->size(), fill, {}, &admission,
                                  [&](auto* native) {
                                      ++factory_calls;
                                      *native = std::make_unique<DenseTestColumnReader>(schema, data,
                                                                                        fail);
                                      return Status::OK();
                                  },
-                                 &result, &hit)
+                                 &result)
                             .ok());
         if (hit_out != nullptr) {
             *hit_out = hit;
@@ -270,6 +272,7 @@ TEST_F(ParquetDecodedColumnCacheTest, FileIdentityRejectsMutableFilesAndSeparate
 }
 
 TEST_F(ParquetDecodedColumnCacheTest, ColumnKeySeparatesProjectionTypeAndDecodeOptions) {
+    schema.type = std::make_shared<DataTypeInt32>();
     const auto original = DecodedColumnCache::column_key("file", schema, 0, false);
     EXPECT_NE(original, DecodedColumnCache::column_key("file", schema, 1, false));
     EXPECT_NE(original, DecodedColumnCache::column_key("file", schema, 0, true));
@@ -350,6 +353,57 @@ TEST_F(ParquetDecodedColumnCacheTest, LowQueryMemoryDeclinesOptionalFill) {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(tracker);
     EXPECT_FALSE(cache.start_fill("limited", schema.type, 100, &admission));
     EXPECT_EQ(cache.live_bytes(), 0);
+}
+
+TEST_F(ParquetDecodedColumnCacheTest, PreparedHitRetainsTheResolvedValueAcrossReplacement) {
+    DecodedColumnCache cache(1 << 20, 1 << 16, 1 << 18);
+    auto source = values();
+    auto first = cache.start_fill("same", schema.type, source->size(), &admission);
+    ASSERT_NE(first, nullptr);
+    first->append_from(*source, 0, source->size());
+    cache.publish("same", std::move(first));
+    auto plan = cache.prepare_reader("same", schema, {});
+    ASSERT_TRUE(plan.hit);
+
+    auto replacement = schema.type->create_column();
+    replacement->insert_many_defaults(source->size());
+    auto second = cache.start_fill("same", schema.type, source->size(), &admission);
+    ASSERT_NE(second, nullptr);
+    second->append_from(*replacement, 0, replacement->size());
+    cache.publish("same", std::move(second));
+
+    std::unique_ptr<ParquetColumnReader> cached_reader;
+    ASSERT_TRUE(cache.create_reader(
+                             std::move(plan), schema, source->size(), false, {}, &admission,
+                             [&](auto*) {
+                                 ++factory_calls;
+                                 return Status::InternalError("unexpected native reader");
+                             },
+                             &cached_reader)
+                        .ok());
+    EXPECT_EQ(factory_calls, 0);
+    auto output = schema.type->create_column();
+    int64_t read = 0;
+    ASSERT_TRUE(cached_reader->read(source->size(), output, &read).ok());
+    expect_equal(*output, *source);
+}
+
+TEST_F(ParquetDecodedColumnCacheTest, CacheAllocationPreservesTheQueryReservation) {
+    DecodedColumnCache cache(1 << 20, 1 << 16, 1 << 18);
+    auto query = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY, "query", 1 << 20);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query);
+    auto* tracker = thread_context()->thread_mem_tracker_mgr.get();
+    ASSERT_TRUE(tracker->try_reserve(4096).ok());
+    DEFER_RELEASE_RESERVED();
+    const auto query_reserved = tracker->reserved_mem();
+    const auto process_reserved = GlobalMemoryArbitrator::process_reserved_memory();
+    auto entry = cache.start_fill("reserved", schema.type, 100, &admission);
+    ASSERT_NE(entry, nullptr);
+    EXPECT_EQ(tracker->limiter_mem_tracker(), query.get());
+    EXPECT_EQ(tracker->reserved_mem(), query_reserved);
+    EXPECT_EQ(GlobalMemoryArbitrator::process_reserved_memory(), process_reserved);
+    EXPECT_GT(cache.mem_tracker()->consumption(), 0);
+    EXPECT_EQ(cache.mem_tracker()->reserved_consumption(), 0);
 }
 
 TEST_F(ParquetDecodedColumnCacheTest, ConcurrentFillsAndEvictionsRemainBounded) {

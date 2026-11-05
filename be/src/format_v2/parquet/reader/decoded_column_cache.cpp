@@ -68,11 +68,11 @@ void add_counter(RuntimeProfile::Counter* counter, int64_t value = 1) {
 class DecodedCacheColumnReader final : public ParquetColumnReader {
 public:
     DecodedCacheColumnReader(DecodedColumnCache* cache, std::string key,
-                             const ParquetColumnSchema& schema, ParquetColumnReaderProfile profile,
-                             DecodedColumnCache::Handle hit,
+                             const ParquetColumnSchema& schema, DataTypePtr output_type,
+                             ParquetColumnReaderProfile profile, DecodedColumnCache::Handle hit,
                              std::unique_ptr<DecodedColumnCache::Entry> fill,
                              std::unique_ptr<ParquetColumnReader> native)
-            : ParquetColumnReader(schema, schema.type, std::move(profile)),
+            : ParquetColumnReader(schema, std::move(output_type), std::move(profile)),
               _cache(cache),
               _key(std::move(key)),
               _hit(std::move(hit)),
@@ -235,6 +235,9 @@ std::string DecodedColumnCache::column_key(std::string_view file_key,
     append_key_part(&key, std::to_string(schema.leaf_column_id));
     append_key_part(&key, std::to_string(schema.parquet_field_id));
     append_key_part(&key, schema.type->get_name());
+    // ParquetReader::_fill_column_definition exposes every file field as Nullable, including
+    // physical REQUIRED fields. The cached representation must include that actual null map.
+    append_key_part(&key, make_nullable(schema.type)->get_name());
     key.push_back(strict_mode);
     return key;
 }
@@ -337,8 +340,15 @@ std::unique_ptr<DecodedColumnCache::Entry> DecodedColumnCache::start_fill(
         charge > _max_file_admission_bytes - *file_admission_bytes) {
         return {};
     }
-    // Cache admission must not make an otherwise runnable query exceed its memory limit.
+    // Check query headroom without taking ownership of its existing reservation. Cache bytes
+    // are reserved and allocated under the same limiter; switching after reserve would hide that
+    // reservation from DataPage and count a large payload twice against the process limit.
     auto* tracker = thread_context()->thread_mem_tracker_mgr.get();
+    tracker->flush_untracked_mem();
+    if (!tracker->limiter_mem_tracker()->check_limit(charge).ok()) {
+        return {};
+    }
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker());
     if (!tracker->try_reserve(charge).ok()) {
         return {};
     }
@@ -363,35 +373,42 @@ void DecodedColumnCache::publish(const std::string& key, std::unique_ptr<Entry> 
     release(handle);
 }
 
-Status DecodedColumnCache::create_reader(const std::string& key, const ParquetColumnSchema& schema,
-                                         size_t rows, bool allow_fill,
-                                         ParquetColumnReaderProfile profile,
-                                         size_t* file_admission_bytes, const ReaderFactory& factory,
-                                         std::unique_ptr<ParquetColumnReader>* reader,
-                                         bool* cache_hit) {
-    *cache_hit = false;
+DecodedColumnCache::ReadPlan DecodedColumnCache::prepare_reader(
+        std::string key, const ParquetColumnSchema& schema, ParquetColumnReaderProfile profile) {
     if (key.empty()) {
         add_counter(profile.decoded_cache_bypasses);
-        return factory(reader);
+        return {};
     }
     add_counter(profile.decoded_cache_requests);
     auto hit = lookup_column(key);
-    if (hit) {
-        add_counter(profile.decoded_cache_hits);
-        *cache_hit = true;
-        *reader = std::make_unique<DecodedCacheColumnReader>(this, key, schema, profile,
-                                                             std::move(hit), nullptr, nullptr);
+    add_counter(hit ? profile.decoded_cache_hits : profile.decoded_cache_misses);
+    return {std::move(key), std::move(hit), make_nullable(schema.type)};
+}
+
+Status DecodedColumnCache::create_reader(ReadPlan plan, const ParquetColumnSchema& schema,
+                                         size_t rows, bool allow_fill,
+                                         ParquetColumnReaderProfile profile,
+                                         size_t* file_admission_bytes, const ReaderFactory& factory,
+                                         std::unique_ptr<ParquetColumnReader>* reader) {
+    if (plan.key.empty()) {
+        return factory(reader);
+    }
+    if (plan.hit) {
+        *reader = std::make_unique<DecodedCacheColumnReader>(this, std::move(plan.key), schema,
+                                                             std::move(plan.output_type), profile,
+                                                             std::move(plan.hit), nullptr, nullptr);
         return Status::OK();
     }
-    add_counter(profile.decoded_cache_misses);
     RETURN_IF_ERROR(factory(reader));
-    auto fill = allow_fill ? start_fill(key, schema.type, rows, file_admission_bytes) : nullptr;
+    auto fill = allow_fill ? start_fill(plan.key, plan.output_type, rows, file_admission_bytes)
+                           : nullptr;
     if (!fill) {
         add_counter(profile.decoded_cache_bypasses);
         return Status::OK();
     }
-    *reader = std::make_unique<DecodedCacheColumnReader>(this, key, schema, profile, nullptr,
-                                                         std::move(fill), std::move(*reader));
+    *reader = std::make_unique<DecodedCacheColumnReader>(
+            this, std::move(plan.key), schema, std::move(plan.output_type), profile, nullptr,
+            std::move(fill), std::move(*reader));
     return Status::OK();
 }
 

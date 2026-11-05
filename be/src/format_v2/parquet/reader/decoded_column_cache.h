@@ -64,6 +64,11 @@ public:
 
     using Handle = std::shared_ptr<const Entry>;
     using ReaderFactory = std::function<Status(std::unique_ptr<ParquetColumnReader>*)>;
+    struct ReadPlan {
+        std::string key;
+        Handle hit;
+        DataTypePtr output_type;
+    };
 
     DecodedColumnCache(size_t capacity, size_t max_entry_bytes, size_t max_file_admission_bytes);
     ~DecodedColumnCache() override = default;
@@ -85,12 +90,17 @@ public:
     void publish(const std::string& key, std::unique_ptr<Entry> entry);
     size_t live_bytes() const { return _budget->bytes.load(std::memory_order_relaxed); }
 
+    // Resolve and pin each output before planning I/O. Reusing the saved handle is essential:
+    // a concurrent replacement may remove its key while the pinned value remains valid.
+    ReadPlan prepare_reader(std::string key, const ParquetColumnSchema& schema,
+                            ParquetColumnReaderProfile profile);
+
     // Hits do not construct a native reader. Misses fill only through dense read(); skip/select
     // abandon the fill rather than decoding extra rows merely to populate the cache.
-    Status create_reader(const std::string& key, const ParquetColumnSchema& schema, size_t rows,
+    Status create_reader(ReadPlan plan, const ParquetColumnSchema& schema, size_t rows,
                          bool allow_fill, ParquetColumnReaderProfile profile,
                          size_t* file_admission_bytes, const ReaderFactory& factory,
-                         std::unique_ptr<ParquetColumnReader>* reader, bool* cache_hit);
+                         std::unique_ptr<ParquetColumnReader>* reader);
 
 private:
     bool reserve(size_t charge);

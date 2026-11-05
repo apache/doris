@@ -22,6 +22,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -347,7 +348,7 @@ private:
     std::optional<const cctz::time_zone*> _int96_timezone;
     bool _enable_strict_mode = false;
     size_t _decoded_cache_file_admission_bytes = 0;
-    std::unordered_set<LocalColumnId> _current_decoded_cache_hits;
+    std::set<LocalColumnId> _current_decoded_cache_hits;
     bool _enable_bloom_filter = false;
     RuntimeState* _runtime_state = nullptr;
     int64_t _batch_size = DEFAULT_READ_BATCH_SIZE;
