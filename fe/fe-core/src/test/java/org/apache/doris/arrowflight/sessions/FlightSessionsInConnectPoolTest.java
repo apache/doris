@@ -80,7 +80,8 @@ public class FlightSessionsInConnectPoolTest {
             Assertions.assertThrows(IllegalStateException.class, () -> FlightSessionsManager.buildConnectContext(
                     "initializing-token", ALICE, "127.0.0.1", new ConnectScheduler(10)));
         }
-        Assertions.assertEquals(ConnectContext.LifecycleState.CLOSED, ctx.getLifecycleState());
+        Assertions.assertFalse(ctx.beginInitialization());
+        Assertions.assertFalse(ctx.tryBeginCommand());
         Assertions.assertEquals(0, ctx.getFlightSqlChannel().getAllocatedMemory());
     }
 

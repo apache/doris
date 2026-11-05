@@ -80,13 +80,12 @@ import java.util.concurrent.locks.ReentrantLock;
  * that runs no command of the session (the timeout checker, a CloseSession). It is finalized
  * exactly once, by whoever takes it out of the list under the list's lock -- the next request
  * ({@link #beginRequest}), the timeout checker ({@link #takeExpiredDeferredExecutors}, each
- * executor by its own deadline) or teardown ({@link #tearDown}) -- deciding and taking in one
- * critical section, finalizing outside it. Teardown does not wait for a running command, so a
- * query may be deferred after teardown took everything the list held; it is then finalized on the
- * spot by the command that deferred it ({@link #addDeferredExecutor}), since nothing would take it
- * later. The frontend has no signal for the moment a query is done on the backends; the next
- * request stands in for it, as it has since #62259, and the deadline bounds the wait when no
- * request comes.
+ * executor by its own deadline) or session release ({@link #releaseSession}) -- deciding and taking
+ * in one critical section, finalizing outside it. ConnectContext releases the session only after
+ * admitted commands exit, so a command can still defer its executor after a close request and
+ * final cleanup will take it. The frontend has no signal for the moment a query is done on the
+ * backends; the next request stands in for it, as it has since #62259, and the deadline bounds
+ * the wait when no request comes.
  */
 public class FlightProtocolAdapter implements ProtocolAdapter {
     private static final Logger LOG = LogManager.getLogger(FlightProtocolAdapter.class);
@@ -118,10 +117,6 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     // the commands of the session add and take under the command lock, the timeout checker and
     // teardown take without it.
     private final List<StmtExecutor> deferredExecutors = new ArrayList<>();
-    // Guarded by deferredExecutors: publication must atomically see the list or its tombstone.
-    // This is not command admission (owned by ConnectContext). AFTER_RESPONSE leaves this handoff
-    // open while the admitted operation finishes, even though the context is already CLOSING.
-    private boolean deferredExecutorsSealed;
     // Serializes the commands of this session, see runCommand.
     private final ReentrantLock commandLock = new ReentrantLock();
 
@@ -285,7 +280,7 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
             LOG.warn("failed to close Flight SQL channel while closing connection {}, peer identity {}",
                     ctx.getConnectionId(), TokenMasker.tokenId(peerIdentity), t);
         }
-        tearDown();
+        closeDeferredExecutors();
     }
 
     /**
@@ -362,9 +357,7 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     @Override
     public void closeConnection(ConnectContext ctx) {
         // There is no session-owned gRPC connection to close: independent RPCs may share one.
-        // Seal the deferred-result handoff. The channel allocator is released by releaseSession
-        // only after ConnectContext has drained the running command.
-        tearDown();
+        // releaseSession releases all protocol resources after admitted commands exit.
     }
 
     public String getPeerIdentity() {
@@ -419,20 +412,14 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     }
 
     /**
-     * Keeps a deferred executor for the session to finalize later -- unless the session has been
-     * torn down meanwhile ({@link #tearDown}). Teardown does not wait for a running command, so
-     * its query may be deferred after teardown took everything the list held, and nothing would
-     * take it then: the session runs no next request, and the timeout checker no longer sees it.
-     * Such an executor is finalized here and now, by the command that deferred it.
+     * Called by an admitted command to retain its executor beyond that command's response.
+     * A close request may already have revoked admission, but final session release waits for
+     * this command to exit and will take any executor it publishes here.
      */
     public void addDeferredExecutor(StmtExecutor executor) {
         synchronized (deferredExecutors) {
-            if (!deferredExecutorsSealed) {
-                deferredExecutors.add(executor);
-                return;
-            }
+            deferredExecutors.add(executor);
         }
-        finalizeDeferredExecutors(Collections.singletonList(executor));
     }
 
     /**
@@ -472,24 +459,6 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
             deferredExecutors.clear();
             return taken;
         }
-    }
-
-    /**
-     * Tears the session down: takes every deferred executor out of the list and finalizes it, and
-     * closes the list for good. Teardown -- CloseSession, KILL, the timeout checker -- does not
-     * wait for the command that may be running, so that command may still defer its query
-     * afterwards, which is then finalized on the spot ({@link #addDeferredExecutor}); and a command
-     * that was waiting for the session does not run on it ({@link #callCommand}). Reached through
-     * ConnectContext.cleanup via closeConnection.
-     */
-    public void tearDown() {
-        List<StmtExecutor> taken;
-        synchronized (deferredExecutors) {
-            deferredExecutorsSealed = true;
-            taken = new ArrayList<>(deferredExecutors);
-            deferredExecutors.clear();
-        }
-        finalizeDeferredExecutors(taken);
     }
 
     /**
@@ -620,8 +589,8 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
      * fails with {@code UNAVAILABLE} instead of running concurrently on the same context.
      *
      * <p>Session teardown (CloseSession, KILL, the timeout checker) does not go through here and
-     * does not wait for the running command ({@link #tearDown}); a command that gets its turn
-     * after teardown fails with {@code UNAUTHENTICATED}, as any later call of the session would.
+     * does not wait for the running command to exit; ConnectContext delays resource release until
+     * it exits. A command that gets its turn after closure fails with {@code UNAUTHENTICATED}.
      */
     public <E extends Exception> void runCommand(ConnectContext ctx, SessionAction<E> action) throws E {
         this.<Void, E>callCommand(ctx, () -> {

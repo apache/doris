@@ -61,6 +61,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -171,10 +172,13 @@ public class FlightProtocolAdapterTest {
     // The release hook closes the channel-cached results and deferred executors even if the
     // session was never registered. ConnectContext invokes it after draining the running command.
     @Test
-    public void testReleaseSessionClosesTheChannelAndTearsTheSessionDown() {
+    public void testReleaseSessionContinuesAfterADeferredExecutorFails() {
         ConnectContext ctx = flightSession();
         FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
         StmtExecutor deferred = Mockito.mock(StmtExecutor.class);
+        StmtExecutor failing = Mockito.mock(StmtExecutor.class);
+        Mockito.doThrow(new IllegalStateException("finalization failed")).when(failing).finalizeArrowFlightQuery();
+        ctx.addFlightSqlDeferredExecutor(failing);
         ctx.addFlightSqlDeferredExecutor(deferred);
         // A result the client never pulled: off-heap Arrow buffers the channel holds.
         adapter.getChannel().addOKResult("query-1", "SELECT 1");
@@ -189,6 +193,7 @@ public class FlightProtocolAdapterTest {
         Assertions.assertTrue(ctx.getFlightSqlDeferredExecutors().isEmpty());
         // Idempotent: the second release finds nothing to do, throws nothing, and finalizes nothing twice.
         Assertions.assertDoesNotThrow(ctx::releaseProtocolSession);
+        Mockito.verify(failing, Mockito.times(1)).finalizeArrowFlightQuery();
         Mockito.verify(deferred, Mockito.times(1)).finalizeArrowFlightQuery();
     }
 
@@ -497,34 +502,29 @@ public class FlightProtocolAdapterTest {
         ConnectContext ctx = flightSession();
         FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
         StmtExecutor deferred = Mockito.mock(StmtExecutor.class);
-        StmtExecutor late = Mockito.mock(StmtExecutor.class);
         try {
             adapter.runCommand(ctx, () -> {
                 ctx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
-                Assertions.assertEquals(ConnectContext.LifecycleState.CLOSING, ctx.getLifecycleState());
-                // CLOSING rejects new commands but must not seal the admitted command's handoff.
+                Assertions.assertFalse(ctx.tryBeginCommand());
+                // Revoking admission does not prevent the admitted command from publishing its result.
                 adapter.addDeferredExecutor(deferred);
                 Assertions.assertEquals(Collections.singletonList(deferred), adapter.getDeferredExecutors());
                 Mockito.verifyNoInteractions(deferred);
                 adapter.getChannel().addOKResult("response", "KILL CONNECTION");
                 Assertions.assertTrue(adapter.getChannel().getAllocatedMemory() > 0);
             });
-            Assertions.assertEquals(ConnectContext.LifecycleState.CLOSED, ctx.getLifecycleState());
             Assertions.assertEquals(0, adapter.getChannel().getAllocatedMemory());
             Mockito.verify(deferred).finalizeArrowFlightQuery();
-            adapter.addDeferredExecutor(late);
-            Mockito.verify(late).finalizeArrowFlightQuery();
             Assertions.assertTrue(adapter.getDeferredExecutors().isEmpty());
         } finally {
             ctx.cleanup();
         }
     }
 
-    // Immediate teardown does not wait for the running command. An executor published after the
-    // handoff was sealed must be finalized on the spot, since no later request or timeout scan
-    // will own it. Admission and deferred-result publication have different closing boundaries.
+    // Immediate closure revokes admission and cancels execution, but deferred executors are
+    // released with the other session resources after the admitted command has finished.
     @Test
-    public void testATornDownSessionFinalizesWhatIsDeferredToItOnTheSpot() throws Exception {
+    public void testImmediateCloseDrainsDeferredExecutorsAfterTheCommandExits() throws Exception {
         ConnectScheduler scheduler = new ConnectScheduler(10, 10);
         ConnectContext ctx = initializingFlightSession();
         ctx.setConnectScheduler(scheduler);
@@ -534,44 +534,53 @@ public class FlightProtocolAdapterTest {
         StmtExecutor before = Mockito.mock(StmtExecutor.class);
         StmtExecutor late = Mockito.mock(StmtExecutor.class);
         CountDownLatch commandStarted = new CountDownLatch(1);
-        CountDownLatch tornDown = new CountDownLatch(1);
+        CountDownLatch closeRequested = new CountDownLatch(1);
+        CountDownLatch published = new CountDownLatch(1);
+        CountDownLatch releaseCommand = new CountDownLatch(1);
         ctx.addFlightSqlDeferredExecutor(before);
 
         adapter.getChannel().addOKResult("cached", "SELECT 1");
         Assertions.assertTrue(adapter.getChannel().getAllocatedMemory() > 0);
 
-        // A command of the session is running, and defers its query once the session is gone.
-        Thread command = new Thread(() -> holdSession(adapter, ctx, () -> {
-            commandStarted.countDown();
-            tornDown.await();
-            ctx.addFlightSqlDeferredExecutor(late);
-        }));
-        command.start();
-        Assertions.assertTrue(commandStarted.await(10, TimeUnit.SECONDS));
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> command = worker.submit(() -> {
+                adapter.runCommand(ctx, () -> {
+                    commandStarted.countDown();
+                    Assertions.assertTrue(closeRequested.await(10, TimeUnit.SECONDS));
+                    ctx.addFlightSqlDeferredExecutor(late);
+                    published.countDown();
+                    Assertions.assertTrue(releaseCommand.await(10, TimeUnit.SECONDS));
+                });
+                return null;
+            });
+            Assertions.assertTrue(commandStarted.await(10, TimeUnit.SECONDS));
 
-        // Teardown (here KILL, the same cleanup as CloseSession and idle expiry) goes
-        // through without waiting for the command ...
-        ctx.kill(true);
-        Assertions.assertNull(scheduler.getContext(ctx.getConnectionId()));
-        Mockito.verify(before).finalizeArrowFlightQuery();
-        Mockito.verify(late, Mockito.never()).finalizeArrowFlightQuery();
-        Assertions.assertTrue(ctx.getFlightSqlDeferredExecutors().isEmpty());
+            ctx.kill(true);
+            Assertions.assertNull(scheduler.getContext(ctx.getConnectionId()));
+            Assertions.assertFalse(ctx.tryBeginCommand());
+            Mockito.verifyNoInteractions(before, late);
+            Assertions.assertTrue(adapter.getChannel().getAllocatedMemory() > 0);
 
-        Assertions.assertEquals(ConnectContext.LifecycleState.CLOSING, ctx.getLifecycleState());
-        Assertions.assertFalse(ctx.getCleanupCompletion().toCompletableFuture().isDone());
-        Assertions.assertTrue(adapter.getChannel().getAllocatedMemory() > 0);
+            closeRequested.countDown();
+            Assertions.assertTrue(published.await(10, TimeUnit.SECONDS));
+            Assertions.assertEquals(Arrays.asList(before, late), adapter.getDeferredExecutors());
+            Mockito.verifyNoInteractions(before, late);
 
-        // ... and what the command defers afterwards is finalized by the command itself, once.
-        tornDown.countDown();
-        command.join(10_000);
-        Assertions.assertFalse(command.isAlive());
-        Mockito.verify(late).finalizeArrowFlightQuery();
-        Assertions.assertTrue(ctx.getFlightSqlDeferredExecutors().isEmpty());
-        ctx.closeFlightSqlDeferredExecutors();
-        Mockito.verify(late, Mockito.times(1)).finalizeArrowFlightQuery();
-
-        Assertions.assertEquals(ConnectContext.LifecycleState.CLOSED, ctx.getLifecycleState());
-        Assertions.assertEquals(0, adapter.getChannel().getAllocatedMemory());
+            releaseCommand.countDown();
+            command.get(10, TimeUnit.SECONDS);
+            ctx.cleanup();
+            Mockito.verify(before, Mockito.times(1)).finalizeArrowFlightQuery();
+            Mockito.verify(late, Mockito.times(1)).finalizeArrowFlightQuery();
+            Assertions.assertTrue(ctx.getFlightSqlDeferredExecutors().isEmpty());
+            Assertions.assertEquals(0, adapter.getChannel().getAllocatedMemory());
+        } finally {
+            closeRequested.countDown();
+            releaseCommand.countDown();
+            worker.shutdownNow();
+            Assertions.assertTrue(worker.awaitTermination(10, TimeUnit.SECONDS));
+            ctx.cleanup();
+        }
 
         // A command that gets its turn after teardown does not run on the session, and leaves the
         // thread as it found it.
@@ -580,6 +589,30 @@ public class FlightProtocolAdapterTest {
                 () -> adapter.runCommand(ctx, () -> Assertions.fail("must not run on a torn-down session")));
         Assertions.assertEquals(FlightStatusCode.UNAUTHENTICATED, e.status().code());
         Assertions.assertTrue(e.status().description().contains("closed"), e.status().description());
+        Assertions.assertNull(ConnectContext.get());
+    }
+
+    @Test
+    public void testFailedCommandStillReleasesExecutorsPublishedAfterClose() {
+        ConnectContext ctx = flightSession();
+        FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
+        StmtExecutor deferred = Mockito.mock(StmtExecutor.class);
+        IllegalStateException failure = new IllegalStateException("command failed");
+
+        Assertions.assertSame(failure, Assertions.assertThrows(IllegalStateException.class,
+                () -> adapter.runCommand(ctx, () -> {
+                    ctx.cleanup();
+                    adapter.addDeferredExecutor(deferred);
+                    adapter.getChannel().addOKResult("response", "SELECT 1");
+                    Mockito.verifyNoInteractions(deferred);
+                    throw failure;
+                })));
+
+        ctx.cleanup();
+        Mockito.verify(deferred, Mockito.times(1)).finalizeArrowFlightQuery();
+        Assertions.assertTrue(adapter.getDeferredExecutors().isEmpty());
+        Assertions.assertEquals(0, adapter.getChannel().getAllocatedMemory());
+        Assertions.assertFalse(ctx.tryBeginCommand());
         Assertions.assertNull(ConnectContext.get());
     }
 

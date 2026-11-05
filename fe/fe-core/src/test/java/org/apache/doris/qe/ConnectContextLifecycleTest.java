@@ -23,7 +23,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Status;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.qe.ConnectContext.CloseMode;
-import org.apache.doris.qe.ConnectContext.LifecycleState;
 import org.apache.doris.qe.protocol.ProtocolAdapter;
 import org.apache.doris.thrift.TStatusCode;
 
@@ -36,14 +35,13 @@ import org.junit.jupiter.api.Timeout;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 @Timeout(30)
@@ -76,9 +74,9 @@ public class ConnectContextLifecycleTest {
 
     @Test
     public void testActivationAndReentrantCloseRunCleanupOnce() {
-        Assertions.assertEquals(LifecycleState.INITIALIZING, ctx.getLifecycleState());
+        Assertions.assertFalse(ctx.tryBeginCommand());
         Assertions.assertEquals(-1, ctx.activateClientSession(pool));
-        Assertions.assertEquals(LifecycleState.ACTIVE, ctx.getLifecycleState());
+        Assertions.assertFalse(ctx.isClosingOrClosed());
         Assertions.assertThrows(IllegalStateException.class, () -> ctx.activateClientSession(pool));
         Mockito.doAnswer(call -> {
             ctx.cleanup(); // MySQL's synchronous channel-close callback.
@@ -89,8 +87,7 @@ public class ConnectContextLifecycleTest {
         ctx.kill(true);
         ctx.cleanup();
 
-        Assertions.assertEquals(LifecycleState.CLOSED, ctx.getLifecycleState());
-        ctx.getCleanupCompletion().toCompletableFuture().join();
+        Assertions.assertTrue(ctx.isClosingOrClosed());
         Assertions.assertEquals(0, pool.getConnectionNum());
         Assertions.assertEquals(0, pool.getUserConnectionMap().get(UserIdentity.ROOT.getQualifiedUser()).get());
         Mockito.verify(adapter).closeConnection(ctx);
@@ -109,11 +106,11 @@ public class ConnectContextLifecycleTest {
         // Both have the default id 0. The unregistered context owns no pool entry to revoke.
         Assertions.assertTrue(ctx.beginInitialization());
         ctx.cleanup();
-        Assertions.assertEquals(LifecycleState.CLOSING, ctx.getLifecycleState());
-        Assertions.assertFalse(ctx.getCleanupCompletion().toCompletableFuture().isDone());
+        Assertions.assertTrue(ctx.isClosingOrClosed());
+        Mockito.verify(ctx, Mockito.never()).closeTxn();
         Assertions.assertThrows(IllegalStateException.class, () -> ctx.activateClientSession(pool));
         ctx.endOperation();
-        Assertions.assertEquals(LifecycleState.CLOSED, ctx.getLifecycleState());
+        Assertions.assertTrue(ctx.isClosingOrClosed());
         Assertions.assertSame(registered, pool.getContext(0));
         Assertions.assertEquals(1, pool.getConnectionNum());
         Mockito.verify(adapter).releaseSession(ctx);
@@ -124,9 +121,9 @@ public class ConnectContextLifecycleTest {
     public void testQuotaRefusalCanUseTheSameCleanupPath() {
         pool = new ConnectPoolMgr(0);
         Assertions.assertEquals(0, ctx.activateClientSession(pool));
-        Assertions.assertEquals(LifecycleState.INITIALIZING, ctx.getLifecycleState());
+        Assertions.assertFalse(ctx.tryBeginCommand());
         ctx.cleanup();
-        Assertions.assertEquals(LifecycleState.CLOSED, ctx.getLifecycleState());
+        Assertions.assertTrue(ctx.isClosingOrClosed());
         Assertions.assertEquals(0, pool.getConnectionNum());
         Mockito.verify(adapter).releaseSession(ctx);
         Mockito.verify(ctx).closeTxn();
@@ -142,7 +139,7 @@ public class ConnectContextLifecycleTest {
         ctx.cleanup();
         Assertions.assertSame(ctx, ConnectContext.get(), "the running command still owns its binding");
 
-        Assertions.assertEquals(LifecycleState.CLOSING, ctx.getLifecycleState());
+        Assertions.assertTrue(ctx.isClosingOrClosed());
         Assertions.assertNull(pool.getContext(ctx.getConnectionId()));
         Assertions.assertFalse(ctx.tryBeginCommand());
         Mockito.verify(running).cancel(Mockito.any(Status.class), Mockito.eq(false));
@@ -154,7 +151,7 @@ public class ConnectContextLifecycleTest {
         ctx.setExecutor(late);
         Mockito.verify(late).cancel(Mockito.any(Status.class), Mockito.eq(false));
         ctx.endOperation();
-        Assertions.assertEquals(LifecycleState.CLOSED, ctx.getLifecycleState());
+        Assertions.assertTrue(ctx.isClosingOrClosed());
         Mockito.verify(adapter).releaseSession(ctx);
         Mockito.verify(ctx).closeTxn();
         Assertions.assertNull(ctx.getExecutor());
@@ -170,12 +167,12 @@ public class ConnectContextLifecycleTest {
         ctx.requestClose(CloseMode.AFTER_RESPONSE);
         ctx.requestClose(CloseMode.AFTER_RESPONSE);
 
-        Assertions.assertEquals(LifecycleState.CLOSING, ctx.getLifecycleState());
+        Assertions.assertTrue(ctx.isClosingOrClosed());
         Assertions.assertSame(ctx, ConnectContext.get());
         Assertions.assertEquals(0, pool.getConnectionNum());
         Assertions.assertFalse(ctx.tryBeginCommand());
         Assertions.assertTrue(ctx.isClosingAfterResponse());
-        Assertions.assertFalse(ctx.getCleanupCompletion().toCompletableFuture().isDone());
+        Mockito.verify(ctx, Mockito.never()).closeTxn();
         Mockito.verifyNoInteractions(running);
         Mockito.verify(adapter, Mockito.never()).closeConnection(ctx);
         Mockito.verify(adapter, Mockito.never()).releaseSession(ctx);
@@ -185,11 +182,10 @@ public class ConnectContextLifecycleTest {
         Mockito.verifyNoInteractions(late);
 
         ctx.endOperation();
-        Assertions.assertEquals(LifecycleState.CLOSED, ctx.getLifecycleState());
+        Assertions.assertTrue(ctx.isClosingOrClosed());
         Mockito.verify(adapter).closeConnection(ctx);
         Mockito.verify(adapter).releaseSession(ctx);
         Mockito.verifyNoInteractions(running, late);
-        ctx.getCleanupCompletion().toCompletableFuture().join();
         Assertions.assertNull(ConnectContext.get());
     }
 
@@ -200,10 +196,10 @@ public class ConnectContextLifecycleTest {
         Assertions.assertTrue(ctx.tryBeginCommand());
         ctx.requestClose(CloseMode.AFTER_RESPONSE);
         ctx.endOperation();
-        Assertions.assertEquals(LifecycleState.CLOSING, ctx.getLifecycleState());
+        Assertions.assertTrue(ctx.isClosingOrClosed());
         Mockito.verify(adapter, Mockito.never()).closeConnection(ctx);
         ctx.endOperation();
-        Assertions.assertEquals(LifecycleState.CLOSED, ctx.getLifecycleState());
+        Assertions.assertTrue(ctx.isClosingOrClosed());
         Mockito.verify(adapter).closeConnection(ctx);
         Mockito.verify(adapter).releaseSession(ctx);
     }
@@ -222,9 +218,9 @@ public class ConnectContextLifecycleTest {
         Mockito.verify(running).cancel(Mockito.any(Status.class), Mockito.eq(false));
         Mockito.verify(adapter).closeConnection(ctx);
         Mockito.verify(adapter, Mockito.never()).releaseSession(ctx);
-        Assertions.assertEquals(LifecycleState.CLOSING, ctx.getLifecycleState());
+        Assertions.assertTrue(ctx.isClosingOrClosed());
         ctx.endOperation();
-        Assertions.assertEquals(LifecycleState.CLOSED, ctx.getLifecycleState());
+        Assertions.assertTrue(ctx.isClosingOrClosed());
         Mockito.verify(adapter).closeConnection(ctx);
         Mockito.verify(adapter).releaseSession(ctx);
     }
@@ -233,7 +229,7 @@ public class ConnectContextLifecycleTest {
     public void testDeferredCloseWithNoResponseClosesImmediately() {
         Assertions.assertEquals(-1, ctx.activateClientSession(pool));
         ctx.requestClose(CloseMode.AFTER_RESPONSE);
-        Assertions.assertEquals(LifecycleState.CLOSED, ctx.getLifecycleState());
+        Assertions.assertTrue(ctx.isClosingOrClosed());
         Assertions.assertEquals(0, pool.getConnectionNum());
         Mockito.verify(adapter).closeConnection(ctx);
         Mockito.verify(adapter).releaseSession(ctx);
@@ -246,9 +242,10 @@ public class ConnectContextLifecycleTest {
         Assertions.assertTrue(ctx.tryBeginCommand());
         CountDownLatch unregistering = new CountDownLatch(1);
         CountDownLatch allowUnregister = new CountDownLatch(1);
+        AtomicBoolean unregisterUnblocked = new AtomicBoolean();
         Mockito.doAnswer(call -> {
             unregistering.countDown();
-            Assertions.assertTrue(allowUnregister.await(10, TimeUnit.SECONDS));
+            unregisterUnblocked.set(allowUnregister.await(10, TimeUnit.SECONDS));
             return call.callRealMethod();
         }).when(pool).unregisterConnection(ctx);
         ExecutorService workers = Executors.newFixedThreadPool(2);
@@ -266,10 +263,11 @@ public class ConnectContextLifecycleTest {
             allowUnregister.countDown();
             deferredClose.get(10, TimeUnit.SECONDS);
             immediateClose.get(10, TimeUnit.SECONDS);
-            Assertions.assertEquals(LifecycleState.CLOSING, ctx.getLifecycleState());
+            Assertions.assertTrue(unregisterUnblocked.get());
+            Assertions.assertTrue(ctx.isClosingOrClosed());
             Mockito.verify(adapter, Mockito.never()).releaseSession(ctx);
             ctx.endOperation();
-            Assertions.assertEquals(LifecycleState.CLOSED, ctx.getLifecycleState());
+            Assertions.assertTrue(ctx.isClosingOrClosed());
             Assertions.assertEquals(0, pool.getConnectionNum());
             Mockito.verify(pool).unregisterConnection(ctx);
             Mockito.verify(adapter).closeConnection(ctx);
@@ -288,9 +286,10 @@ public class ConnectContextLifecycleTest {
         ctx.requestClose(CloseMode.AFTER_RESPONSE);
         CountDownLatch closingTransport = new CountDownLatch(1);
         CountDownLatch allowClose = new CountDownLatch(1);
+        AtomicBoolean closeUnblocked = new AtomicBoolean();
         Mockito.doAnswer(call -> {
             closingTransport.countDown();
-            Assertions.assertTrue(allowClose.await(10, TimeUnit.SECONDS));
+            closeUnblocked.set(allowClose.await(10, TimeUnit.SECONDS));
             return null;
         }).when(adapter).closeConnection(ctx);
         ExecutorService worker = Executors.newSingleThreadExecutor();
@@ -298,11 +297,12 @@ public class ConnectContextLifecycleTest {
             Future<?> response = worker.submit(ctx::endOperation);
             Assertions.assertTrue(closingTransport.await(10, TimeUnit.SECONDS));
             ctx.cleanup();
-            Assertions.assertEquals(LifecycleState.CLOSING, ctx.getLifecycleState());
+            Assertions.assertTrue(ctx.isClosingOrClosed());
             Mockito.verify(adapter, Mockito.never()).releaseSession(ctx);
             allowClose.countDown();
             response.get(10, TimeUnit.SECONDS);
-            Assertions.assertEquals(LifecycleState.CLOSED, ctx.getLifecycleState());
+            Assertions.assertTrue(closeUnblocked.get());
+            Assertions.assertTrue(ctx.isClosingOrClosed());
             Mockito.verify(adapter).closeConnection(ctx);
             Mockito.verify(adapter).releaseSession(ctx);
         } finally {
@@ -317,11 +317,12 @@ public class ConnectContextLifecycleTest {
         Assertions.assertEquals(-1, ctx.activateClientSession(pool));
         CountDownLatch releasing = new CountDownLatch(1);
         CountDownLatch allowRelease = new CountDownLatch(1);
+        AtomicBoolean releaseUnblocked = new AtomicBoolean();
         IllegalStateException failure = new IllegalStateException("protocol release failed");
         Mockito.doAnswer(call -> {
             ctx.cleanup(); // A resource callback can also re-enter the coordinator.
             releasing.countDown();
-            Assertions.assertTrue(allowRelease.await(10, TimeUnit.SECONDS));
+            releaseUnblocked.set(allowRelease.await(10, TimeUnit.SECONDS));
             throw failure;
         }).when(adapter).releaseSession(ctx);
         ExecutorService worker = Executors.newSingleThreadExecutor();
@@ -331,13 +332,11 @@ public class ConnectContextLifecycleTest {
             ctx.cleanup();
             ctx.requestClose(CloseMode.AFTER_RESPONSE);
             Assertions.assertFalse(ctx.tryBeginCommand());
-            Assertions.assertFalse(ctx.getCleanupCompletion().toCompletableFuture().isDone());
             Mockito.verify(ctx, Mockito.never()).closeTxn();
             allowRelease.countDown();
             close.get(10, TimeUnit.SECONDS);
-            Assertions.assertEquals(LifecycleState.CLOSING, ctx.getLifecycleState());
-            Assertions.assertSame(failure, Assertions.assertThrows(CompletionException.class,
-                    () -> ctx.getCleanupCompletion().toCompletableFuture().join()).getCause());
+            Assertions.assertTrue(releaseUnblocked.get());
+            Assertions.assertTrue(ctx.isClosingOrClosed());
             ctx.cleanup(); // Failure is terminal for teardown; do not retry released resources.
             Mockito.verify(adapter).closeConnection(ctx);
             Mockito.verify(adapter).releaseSession(ctx);
@@ -358,11 +357,12 @@ public class ConnectContextLifecycleTest {
         ctx.setExecutor(running);
         CountDownLatch cancelling = new CountDownLatch(1);
         CountDownLatch allowCancel = new CountDownLatch(1);
+        AtomicBoolean cancelUnblocked = new AtomicBoolean();
         AtomicReference<Thread> closer = new AtomicReference<>();
         AtomicReference<Thread> releaser = new AtomicReference<>();
         Mockito.doAnswer(call -> {
             cancelling.countDown();
-            Assertions.assertTrue(allowCancel.await(10, TimeUnit.SECONDS));
+            cancelUnblocked.set(allowCancel.await(10, TimeUnit.SECONDS));
             return null;
         }).when(running).cancel(Mockito.any(Status.class), Mockito.eq(false));
         Mockito.doAnswer(call -> {
@@ -378,13 +378,14 @@ public class ConnectContextLifecycleTest {
             Assertions.assertTrue(cancelling.await(10, TimeUnit.SECONDS));
             ctx.endOperation();
             ctx.cleanup(); // Neither this request nor the last command can steal the closer's reference.
-            Assertions.assertFalse(ctx.getCleanupCompletion().toCompletableFuture().isDone());
+            Mockito.verify(ctx, Mockito.never()).closeTxn();
             Mockito.verify(adapter, Mockito.never()).closeConnection(ctx);
             Mockito.verify(adapter, Mockito.never()).releaseSession(ctx);
             allowCancel.countDown();
             close.get(10, TimeUnit.SECONDS);
+            Assertions.assertTrue(cancelUnblocked.get());
             Assertions.assertSame(closer.get(), releaser.get());
-            Assertions.assertEquals(LifecycleState.CLOSED, ctx.getLifecycleState());
+            Assertions.assertTrue(ctx.isClosingOrClosed());
             Mockito.verify(adapter).closeConnection(ctx);
             Mockito.verify(adapter).releaseSession(ctx);
         } finally {
@@ -408,10 +409,10 @@ public class ConnectContextLifecycleTest {
             worker.submit(ctx::cleanup).get(10, TimeUnit.SECONDS);
             Mockito.verify(adapter).closeConnection(ctx);
             Mockito.verify(adapter, Mockito.never()).releaseSession(ctx);
-            Assertions.assertFalse(ctx.getCleanupCompletion().toCompletableFuture().isDone());
+            Mockito.verify(ctx, Mockito.never()).closeTxn();
             ctx.endOperation();
             Assertions.assertSame(Thread.currentThread(), releaser.get());
-            Assertions.assertEquals(LifecycleState.CLOSED, ctx.getLifecycleState());
+            Assertions.assertTrue(ctx.isClosingOrClosed());
             Mockito.verify(adapter).releaseSession(ctx);
         } finally {
             worker.shutdownNow();
@@ -440,8 +441,7 @@ public class ConnectContextLifecycleTest {
             start.await(10, TimeUnit.SECONDS);
             close.get(10, TimeUnit.SECONDS);
             exit.get(10, TimeUnit.SECONDS);
-            ctx.getCleanupCompletion().toCompletableFuture().join();
-            Assertions.assertEquals(LifecycleState.CLOSED, ctx.getLifecycleState());
+            Assertions.assertTrue(ctx.isClosingOrClosed());
             Mockito.verify(pool).unregisterConnection(ctx);
             Mockito.verify(adapter).closeConnection(ctx);
             Mockito.verify(adapter).releaseSession(ctx);
@@ -452,7 +452,7 @@ public class ConnectContextLifecycleTest {
     }
 
     @Test
-    public void testFailuresReturnTheCloserReferenceAndPreserveEveryCleanupFailure() {
+    public void testFailuresReturnTheSessionReferenceAndStillReleaseEveryResource() {
         pool = Mockito.spy(pool);
         Assertions.assertEquals(-1, ctx.activateClientSession(pool));
         Assertions.assertTrue(ctx.tryBeginCommand());
@@ -471,13 +471,10 @@ public class ConnectContextLifecycleTest {
         Mockito.doThrow(release).when(adapter).releaseSession(ctx);
         ctx.cleanup();
         Assertions.assertEquals(0, pool.getConnectionNum());
-        Assertions.assertFalse(ctx.getCleanupCompletion().toCompletableFuture().isDone());
+        Mockito.verify(ctx, Mockito.never()).closeTxn();
         Mockito.verify(adapter, Mockito.never()).releaseSession(ctx);
         ctx.endOperation();
-        Assertions.assertSame(unregister, Assertions.assertThrows(CompletionException.class,
-                () -> ctx.getCleanupCompletion().toCompletableFuture().join()).getCause());
-        Assertions.assertArrayEquals(new Throwable[] {cancel, transport, release}, unregister.getSuppressed());
-        Assertions.assertEquals(LifecycleState.CLOSING, ctx.getLifecycleState());
+        Assertions.assertTrue(ctx.isClosingOrClosed());
         Assertions.assertThrows(IllegalStateException.class, () -> ctx.setExecutor(running));
         ctx.cleanup();
         Mockito.verify(pool).unregisterConnection(ctx);
@@ -500,12 +497,10 @@ public class ConnectContextLifecycleTest {
         }).when(pool).unregisterConnection(ctx);
         ctx.requestClose(CloseMode.AFTER_RESPONSE);
         Assertions.assertTrue(ctx.isClosingAfterResponse());
-        Assertions.assertFalse(ctx.getCleanupCompletion().toCompletableFuture().isDone());
+        Mockito.verify(ctx, Mockito.never()).closeTxn();
         Mockito.verify(adapter, Mockito.never()).closeConnection(ctx);
         ctx.endOperation();
         Assertions.assertFalse(ctx.isClosingAfterResponse());
-        Assertions.assertSame(failure, Assertions.assertThrows(CompletionException.class,
-                () -> ctx.getCleanupCompletion().toCompletableFuture().join()).getCause());
         Mockito.verify(pool).unregisterConnection(ctx);
         Mockito.verify(adapter).closeConnection(ctx);
         Mockito.verify(adapter).releaseSession(ctx);
@@ -513,17 +508,26 @@ public class ConnectContextLifecycleTest {
     }
 
     @Test
-    public void testCompletionCallbackDetachesTheFinishedContextAndCanReenter() {
+    public void testFinalCleanupDetachesTheFinishedContext() {
         ctx.setThreadLocalInfo();
-        CompletableFuture<Void> callback = ctx.getCleanupCompletion().thenRun(() -> {
-            Assertions.assertNull(ConnectContext.get());
-            Assertions.assertEquals(LifecycleState.CLOSED, ctx.getLifecycleState());
-            ctx.cleanup();
-        }).toCompletableFuture();
         ctx.cleanup();
-        callback.join();
+        Assertions.assertNull(ConnectContext.get());
+        ctx.cleanup();
         Mockito.verify(adapter).closeConnection(ctx);
         Mockito.verify(adapter).releaseSession(ctx);
+    }
+
+    @Test
+    public void testUnmatchedOperationExitCannotReleaseTheSessionReference() {
+        Assertions.assertThrows(IllegalStateException.class, ctx::endOperation);
+        ctx.activate();
+        Assertions.assertThrows(IllegalStateException.class, ctx::endOperation);
+        Assertions.assertTrue(ctx.tryBeginCommand());
+        ctx.endOperation();
+        Mockito.verify(adapter, Mockito.never()).releaseSession(ctx);
+        ctx.cleanup();
+        Mockito.verify(adapter).releaseSession(ctx);
+        Assertions.assertThrows(IllegalStateException.class, ctx::endOperation);
     }
 
     @Test
@@ -533,7 +537,7 @@ public class ConnectContextLifecycleTest {
         ctx.setExecutor(running);
         ctx.kill(false);
         Mockito.verify(running).cancel(Mockito.any(Status.class));
-        Assertions.assertEquals(LifecycleState.ACTIVE, ctx.getLifecycleState());
+        Assertions.assertFalse(ctx.isClosingOrClosed());
         Assertions.assertSame(ctx, pool.getContext(ctx.getConnectionId()));
         Mockito.verify(adapter, Mockito.never()).closeConnection(ctx);
     }
@@ -542,23 +546,20 @@ public class ConnectContextLifecycleTest {
     public void testCleanupPreservesTheCallersThreadLocalContext() {
         ConnectContext caller = new ConnectContext();
         caller.setThreadLocalInfo();
+        AtomicReference<ConnectContext> rollbackContext = new AtomicReference<>();
         Mockito.doAnswer(call -> {
-            Assertions.assertSame(ctx, ConnectContext.get(), "rollback must use the closing session");
+            rollbackContext.set(ConnectContext.get());
             return null;
         }).when(ctx).closeTxn();
-        CompletableFuture<Void> callback = ctx.getCleanupCompletion().thenRun(() -> {
-            Assertions.assertSame(caller, ConnectContext.get(), "completion must restore the caller before callbacks");
-            ctx.cleanup();
-        }).toCompletableFuture();
         ctx.cleanup();
-        callback.join();
+        Assertions.assertSame(ctx, rollbackContext.get(), "rollback must use the closing session");
         Assertions.assertSame(caller, ConnectContext.get());
         caller.cleanup();
         Assertions.assertNull(ConnectContext.get());
     }
 
     @Test
-    public void testCleanupFailureDoesNotSkipOtherResourcesOrReportClosed() {
+    public void testCleanupFailureDoesNotSkipOtherResourcesOrRetry() {
         IllegalStateException failure = new IllegalStateException("transport close failed");
         Mockito.doThrow(failure).when(adapter).closeConnection(ctx);
         Assertions.assertEquals(-1, ctx.activateClientSession(pool));
@@ -567,8 +568,10 @@ public class ConnectContextLifecycleTest {
         Mockito.verify(adapter).releaseSession(ctx);
         Mockito.verify(ctx).closeTxn();
         Mockito.verify(ctx).deleteTempTable();
-        Assertions.assertEquals(LifecycleState.CLOSING, ctx.getLifecycleState());
-        Assertions.assertTrue(ctx.getCleanupCompletion().toCompletableFuture().isCompletedExceptionally());
+        Assertions.assertTrue(ctx.isClosingOrClosed());
+        ctx.cleanup();
+        Mockito.verify(adapter).closeConnection(ctx);
+        Mockito.verify(adapter).releaseSession(ctx);
     }
 
     @Test
@@ -593,7 +596,7 @@ public class ConnectContextLifecycleTest {
             allowRegistration.countDown();
             Assertions.assertEquals(-1, registration.get(10, TimeUnit.SECONDS));
             close.get(10, TimeUnit.SECONDS);
-            Assertions.assertEquals(LifecycleState.CLOSED, ctx.getLifecycleState());
+            Assertions.assertTrue(ctx.isClosingOrClosed());
             Assertions.assertEquals(0, pool.getConnectionNum());
             Assertions.assertNull(pool.getContext(ctx.getConnectionId()));
             Mockito.verify(adapter).releaseSession(ctx);
@@ -609,9 +612,10 @@ public class ConnectContextLifecycleTest {
         Assertions.assertEquals(-1, ctx.activateClientSession(pool));
         CountDownLatch transportClosing = new CountDownLatch(1);
         CountDownLatch allowClose = new CountDownLatch(1);
+        AtomicBoolean closeUnblocked = new AtomicBoolean();
         Mockito.doAnswer(call -> {
             transportClosing.countDown();
-            Assertions.assertTrue(allowClose.await(10, TimeUnit.SECONDS));
+            closeUnblocked.set(allowClose.await(10, TimeUnit.SECONDS));
             return null;
         }).when(adapter).closeConnection(ctx);
         ExecutorService worker = Executors.newSingleThreadExecutor();
@@ -620,12 +624,13 @@ public class ConnectContextLifecycleTest {
             Assertions.assertTrue(transportClosing.await(10, TimeUnit.SECONDS));
             ctx.cleanup();
             Assertions.assertEquals(0, pool.getConnectionNum());
-            Assertions.assertEquals(LifecycleState.CLOSING, ctx.getLifecycleState());
+            Assertions.assertTrue(ctx.isClosingOrClosed());
             allowClose.countDown();
             first.get(10, TimeUnit.SECONDS);
+            Assertions.assertTrue(closeUnblocked.get());
             Mockito.verify(adapter).closeConnection(ctx);
             Mockito.verify(adapter).releaseSession(ctx);
-            Assertions.assertEquals(LifecycleState.CLOSED, ctx.getLifecycleState());
+            Assertions.assertTrue(ctx.isClosingOrClosed());
         } finally {
             allowClose.countDown();
             worker.shutdownNow();
@@ -636,16 +641,17 @@ public class ConnectContextLifecycleTest {
     @Test
     public void testCommandAdmissionAndIdleTimeoutUseTheSameLifecycle() {
         ctx.cleanup();
-        ctx = ConnectPoolTestSupport.flightSession(env, UserIdentity.ROOT, "metadata-token");
+        ctx = Mockito.spy(ConnectPoolTestSupport.flightSession(env, UserIdentity.ROOT, "metadata-token"));
         Assertions.assertEquals(-1, ctx.activateClientSession(pool));
         ctx.getSessionVariable().waitTimeoutS = 1;
         Assertions.assertTrue(ctx.tryBeginCommand());
         long overdue = ctx.getStartTime() + 1001;
         ctx.checkTimeout(overdue); // Flight metadata can run while command is COM_SLEEP.
-        Assertions.assertEquals(LifecycleState.ACTIVE, ctx.getLifecycleState());
+        Assertions.assertFalse(ctx.isClosingOrClosed());
         ctx.endOperation();
         ctx.checkTimeout(overdue);
-        Assertions.assertEquals(LifecycleState.CLOSED, ctx.getLifecycleState());
+        Mockito.verify(ctx).releaseProtocolSession();
+        Assertions.assertTrue(ctx.isClosingOrClosed());
         Assertions.assertFalse(ctx.tryBeginCommand());
         Assertions.assertEquals(0, pool.getConnectionNum());
     }
@@ -656,12 +662,13 @@ public class ConnectContextLifecycleTest {
         ctx.getSessionVariable().waitTimeoutS = 1;
         Assertions.assertTrue(ctx.tryBeginCommand());
         ctx.checkTimeout(ctx.getStartTime() + 1001);
-        Assertions.assertEquals(LifecycleState.CLOSING, ctx.getLifecycleState());
+        Assertions.assertTrue(ctx.isClosingOrClosed());
         Assertions.assertEquals(0, pool.getConnectionNum());
         Mockito.verify(adapter).closeConnection(ctx);
         Mockito.verify(adapter, Mockito.never()).releaseSession(ctx);
         ctx.endOperation();
-        Assertions.assertEquals(LifecycleState.CLOSED, ctx.getLifecycleState());
+        Assertions.assertTrue(ctx.isClosingOrClosed());
+        Mockito.verify(adapter).releaseSession(ctx);
     }
 
     @Test
@@ -674,7 +681,7 @@ public class ConnectContextLifecycleTest {
         ArgumentCaptor<Status> reason = ArgumentCaptor.forClass(Status.class);
         Mockito.verify(running).cancel(reason.capture(), Mockito.eq(false));
         Assertions.assertEquals(TStatusCode.TIMEOUT, reason.getValue().getErrorCode());
-        Assertions.assertEquals(LifecycleState.ACTIVE, ctx.getLifecycleState());
+        Assertions.assertFalse(ctx.isClosingOrClosed());
         Assertions.assertSame(ctx, pool.getContext(ctx.getConnectionId()));
     }
 }
