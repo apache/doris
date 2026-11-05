@@ -32,15 +32,19 @@ import org.apache.doris.nereids.trees.expressions.functions.ImplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.NullOrIdenticalSignature;
 import org.apache.doris.nereids.trees.expressions.functions.SearchSignature;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
@@ -51,6 +55,7 @@ import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.qe.SessionVariable;
 
@@ -95,6 +100,64 @@ class TemporalConversionTest {
         Assertions.assertTrue(((Cast) TypeCoercionUtils.castForCommonTypeWithExactTarget(slot, target)).isStrict());
         Assertions.assertSame(slot, TypeCoercionUtils.castForCommonType(slot, source));
         Assertions.assertFalse(TemporalConversionProperties.narrowsCalendarRangeToTimeStampNs(target, source));
+    }
+
+    @Test
+    void commonTypeCastsPreserveMatchingAndLiteralPromotion() {
+        Expression text = new SlotReference("text", VarcharType.createVarcharType(10));
+        DataType widerText = VarcharType.createVarcharType(20);
+        Assertions.assertSame(text, TypeCoercionUtils.castForCommonType(text, widerText));
+        Expression exact = TypeCoercionUtils.castForCommonTypeWithExactTarget(text, widerText);
+        Assertions.assertInstanceOf(Cast.class, exact);
+        Assertions.assertEquals(widerText, exact.getDataType());
+        Assertions.assertSame(text, exact.child(0));
+        Assertions.assertFalse(((Cast) exact).isStrict());
+        Assertions.assertSame(text, TypeCoercionUtils.implicitCastInputTypes(
+                new Nullable(text), List.of(widerText)).child(0));
+
+        Expression datetime = new SlotReference("datetime", DateTimeV2Type.of(3));
+        Assertions.assertSame(datetime, TypeCoercionUtils.implicitCastInputTypes(
+                new Nullable(datetime), List.of(DateTimeV2Type.WILDCARD)).child(0));
+        Assertions.assertEquals(new BigIntLiteral(7),
+                TypeCoercionUtils.castForCommonType(new IntegerLiteral(7), BigIntType.INSTANCE));
+    }
+
+    @Test
+    void calendarRangeCheckPreservesTypedAndUntypedNullCasts() {
+        Expression typedNull = new NullLiteral(DateV2Type.INSTANCE);
+        Expression narrowed = TypeCoercionUtils.castForCommonType(typedNull, TimeStampNsType.INSTANCE);
+        Assertions.assertInstanceOf(Cast.class, narrowed);
+        Assertions.assertTrue(((Cast) narrowed).isStrict());
+        Assertions.assertSame(typedNull, narrowed.child(0));
+        Assertions.assertEquals(new NullLiteral(TimeStampNsType.INSTANCE),
+                FoldConstantRuleOnFE.evaluateWithoutContext(narrowed));
+        Assertions.assertEquals(new NullLiteral(TimeStampNsType.INSTANCE),
+                TypeCoercionUtils.castForCommonTypeWithExactTarget(NullLiteral.INSTANCE, TimeStampNsType.INSTANCE));
+    }
+
+    @Test
+    void argumentRangeChecksAreForcedOnlyForMixedTemporalInputs() {
+        Expression date = new SlotReference("date", DateV2Type.INSTANCE);
+        Expression ns = new SlotReference("ns", TimeStampNsType.INSTANCE);
+        Expression text = new SlotReference("text", StringType.INSTANCE);
+        try (MockedStatic<SessionVariable> session = Mockito.mockStatic(SessionVariable.class)) {
+            session.when(SessionVariable::enableStrictCast).thenReturn(false);
+            Expression single = TypeCoercionUtils.implicitCastInputTypes(
+                    new Nullable(date), List.of(TimeStampNsType.INSTANCE)).child(0);
+            Assertions.assertInstanceOf(Cast.class, single);
+            Assertions.assertSame(date, single.child(0));
+            Assertions.assertFalse(((Cast) single).isStrict());
+
+            Expression mixed = TypeCoercionUtils.implicitCastInputTypes(new CreateStruct(date, ns, text),
+                    List.of(TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE));
+            Assertions.assertInstanceOf(Cast.class, mixed.child(0));
+            Assertions.assertTrue(((Cast) mixed.child(0)).isStrict());
+            Assertions.assertSame(date, mixed.child(0).child(0));
+            Assertions.assertSame(ns, mixed.child(1));
+            Assertions.assertInstanceOf(Cast.class, mixed.child(2));
+            Assertions.assertFalse(((Cast) mixed.child(2)).isStrict());
+            Assertions.assertSame(text, mixed.child(2).child(0));
+        }
     }
 
     @Test

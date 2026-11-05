@@ -139,6 +139,7 @@ import java.util.ListIterator;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -570,19 +571,27 @@ public class TypeCoercionUtils {
      * into comparisons or value-producing expressions; character lengths retain normal matching.
      */
     public static Expression castForCommonType(Expression input, DataType targetType) {
-        if (TemporalConversionProperties.narrowsCalendarRangeToTimeStampNs(input.getDataType(), targetType)) {
-            return strictCastIfNotSameType(input, targetType);
-        }
-        return castIfNotSameType(input, targetType);
+        return castWithCalendarRangeCheck(input, targetType, TypeCoercionUtils::castIfNotSameType);
     }
 
     /** Materialize a common type with exact target matching, including character lengths. */
     public static Expression castForCommonTypeWithExactTarget(
             Expression input, DataType targetType) {
+        return castWithCalendarRangeCheck(input, targetType, TypeCoercionUtils::castIfNotSameTypeStrict);
+    }
+
+    /**
+     * Add the range-preservation requirement without changing the caller's normal type matching.
+     * Check narrowing before normal conversion, which may replace literals or annotate subqueries
+     * instead of creating the CAST needed to enforce the range check.
+     */
+    private static Expression castWithCalendarRangeCheck(Expression input, DataType targetType,
+            BiFunction<Expression, DataType, Expression> regularCast) {
         if (TemporalConversionProperties.narrowsCalendarRangeToTimeStampNs(input.getDataType(), targetType)) {
-            return strictCastIfNotSameType(input, targetType);
+            checkCanCastTo(input.getDataType(), targetType);
+            return new Cast(input, targetType, false, true);
         }
-        return castIfNotSameTypeStrict(input, targetType);
+        return regularCast.apply(input, targetType);
     }
 
     public static boolean canCastTo(DataType input, DataType target) {
@@ -825,11 +834,9 @@ public class TypeCoercionUtils {
             if (castType.isPresent() && !castType.get().equals(argType)) {
                 // Only mixed temporal arguments force strict range checks here. The range property
                 // alone does not change the cast mode of explicit CAST or single-family arguments.
-                if (strictTimeStampNsCoercion
-                        && TemporalConversionProperties.narrowsCalendarRangeToTimeStampNs(argType, castType.get())) {
-                    return strictCastIfNotSameType(child, castType.get());
-                }
-                return TypeCoercionUtils.castIfNotMatchType(child, castType.get());
+                return strictTimeStampNsCoercion
+                        ? castWithCalendarRangeCheck(child, castType.get(), TypeCoercionUtils::castIfNotMatchType)
+                        : castIfNotMatchType(child, castType.get());
             } else {
                 return child;
             }
@@ -1795,14 +1802,6 @@ public class TypeCoercionUtils {
         return comparison
                 ? findWiderCommonTypeForComparison(dataTypes, true)
                 : findWiderCommonTypeForCaseWhen(dataTypes);
-    }
-
-    private static Expression strictCastIfNotSameType(Expression expression, DataType targetType) {
-        if (expression.getDataType().equals(targetType)) {
-            return expression;
-        }
-        checkCanCastTo(expression.getDataType(), targetType);
-        return new Cast(expression, targetType, false, true);
     }
 
     @Deprecated
