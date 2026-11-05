@@ -129,6 +129,10 @@ and reports observed partition, file, split, and unfinished-producer counts.
 producer count. A positive value caps producers per scan; a whole-scan streaming
 source uses one producer.
 
+**Paimon writes.** [Snapshot publication protection](docs/paimon-write-safety.md)
+describes default write admission and the explicit opt-in for existing
+externally serialized deployments.
+
 **Iceberg encryption.** The [encrypted-read admission contract](docs/iceberg-encryption-read.md)
 defines the default-off configuration, initial scope and backend negotiation
 requirements. Encrypted scan execution remains unavailable at this stage.
