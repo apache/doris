@@ -154,12 +154,10 @@ suite("test_deltalake_hms_registration", "p0,external") {
                 "order_qt_${label}_plain"("select * from ${catalog}.delta_hms_reg.reg_plain")
             }
 
-            // Delta is read-only in Doris. These must not fall through to the Hive write path on the gateway, which
-            // would rewrite or unregister a table it does not own. INSERT is refused either at sink creation or when
-            // the write plan is resolved, with different texts that share only this phrase.
+            // The gateway must reject writes before Hive can change the Delta table's data or HMS registration.
             test {
                 sql "insert into ${catalog}.delta_hms_reg.reg_external values (3, 'rejected')"
-                exception "does not"
+                exception "Connector does not provide a write plan for target reg_external"
             }
             test {
                 sql "truncate table ${catalog}.delta_hms_reg.reg_external"
