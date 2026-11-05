@@ -32,6 +32,18 @@
 #endif
 
 namespace doris::format::parquet {
+
+#if __has_include(<parquet/encryption/encryption_internal.h>)
+namespace crypto_detail {
+// The externally linked Impl types share this key. An anonymous-namespace key makes GCC
+// reject their members with -Wsubobject-linkage when this file is included in a unity build.
+struct FileKey {
+    ::arrow::util::SecureString key;
+    std::string file_aad;
+};
+} // namespace crypto_detail
+#endif
+
 namespace {
 
 using apache::thrift::protocol::TCompactProtocol;
@@ -103,14 +115,9 @@ Status deserialize_bounded(std::span<const uint8_t> bytes, uint32_t* consumed, T
 }
 
 #if __has_include(<parquet/encryption/encryption_internal.h>)
-struct FileKey {
-    ::arrow::util::SecureString key;
-    std::string file_aad;
-};
-
-Status decrypt_module(::parquet::encryption::AesDecryptor* decryptor, const FileKey& key,
-                      const std::string& aad, std::span<const uint8_t> bytes,
-                      DorisVector<uint8_t>* plaintext) {
+Status decrypt_module(::parquet::encryption::AesDecryptor* decryptor,
+                      const crypto_detail::FileKey& key, const std::string& aad,
+                      std::span<const uint8_t> bytes, DorisVector<uint8_t>* plaintext) {
     if (bytes.size() < 4 || bytes.size() > MAX_ENCRYPTED_PARQUET_MODULE_BYTES ||
         decode_fixed32_le(bytes.data()) != bytes.size() - 4) {
         return Status::Corruption("File encryption [INVALID_MODULE_SIZE]");
@@ -162,12 +169,12 @@ Status deserialize_crypto_metadata(std::span<const uint8_t> bytes, uint32_t* con
 
 struct ParquetFileCrypto::Impl {
 #if __has_include(<parquet/encryption/encryption_internal.h>)
-    std::shared_ptr<const FileKey> key;
+    std::shared_ptr<const crypto_detail::FileKey> key;
 #endif
 };
 struct ParquetColumnCrypto::Impl {
 #if __has_include(<parquet/encryption/encryption_internal.h>)
-    std::shared_ptr<const FileKey> key;
+    std::shared_ptr<const crypto_detail::FileKey> key;
     std::unique_ptr<::parquet::encryption::AesDecryptor> header;
     std::unique_ptr<::parquet::encryption::AesDecryptor> data;
     int16_t row_group;
@@ -205,7 +212,7 @@ Status ParquetFileCrypto::create(const TFileEncryptionInfo& info,
     }
 #if __has_include(<parquet/encryption/encryption_internal.h>)
     auto impl = std::make_unique<Impl>();
-    auto key = std::make_shared<FileKey>();
+    auto key = std::make_shared<crypto_detail::FileKey>();
     key->key = ::arrow::util::SecureString(std::string(info.key));
     key->file_aad = info.aad_prefix + aes.aad_file_unique;
     impl->key = std::move(key);

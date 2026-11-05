@@ -471,6 +471,137 @@ TEST(ParquetEncryptionTest, OversizedFooterLengthIsRejectedBeforeAnAdditionalRea
 }
 
 #if __has_include(<parquet/encryption/encryption_internal.h>)
+std::vector<uint8_t> encrypted_scratch_file(::parquet::ParquetDataPageVersion version,
+                                            ::parquet::Compression::type compression,
+                                            const std::string& large, int small_rows) {
+    auto sink = ::arrow::io::BufferOutputStream::Create().ValueOrDie();
+    auto schema = ::parquet::schema::GroupNode::Make(
+            "schema", ::parquet::Repetition::REQUIRED,
+            {::parquet::schema::PrimitiveNode::Make("value", ::parquet::Repetition::OPTIONAL,
+                                                    ::parquet::Type::BYTE_ARRAY)});
+    ::parquet::FileEncryptionProperties::Builder encryption {
+            ::arrow::util::SecureString(std::string(KEY))};
+    encryption.aad_prefix(AAD)->disable_aad_prefix_storage();
+    ::parquet::WriterProperties::Builder properties;
+    properties.encryption(encryption.build())
+            ->compression(compression)
+            ->data_page_version(version)
+            ->disable_dictionary()
+            ->data_pagesize(4096)
+            ->write_batch_size(2);
+    auto writer = ::parquet::ParquetFileWriter::Open(
+            sink, std::static_pointer_cast<::parquet::schema::GroupNode>(schema),
+            properties.build());
+    auto* group = writer->AppendRowGroup();
+    auto* column = static_cast<::parquet::ByteArrayWriter*>(group->NextColumn());
+    const std::string first_small(256, 'a');
+    const ::parquet::ByteArray first_values[] = {
+            {static_cast<uint32_t>(large.size()), reinterpret_cast<const uint8_t*>(large.data())},
+            {static_cast<uint32_t>(first_small.size()),
+             reinterpret_cast<const uint8_t*>(first_small.data())}};
+    const int16_t first_levels[] = {1, 1};
+    column->WriteBatch(2, first_levels, nullptr, first_values);
+    for (int row = 1; row < small_rows; ++row) {
+        const std::string small(256, static_cast<char>('a' + row % 26));
+        const ::parquet::ByteArray value(small.size(),
+                                         reinterpret_cast<const uint8_t*>(small.data()));
+        const int16_t defined = row % 5 == 4 ? 0 : 1;
+        column->WriteBatch(1, &defined, nullptr, &value);
+    }
+    group->Close();
+    writer->Close();
+    auto bytes = sink->Finish().ValueOrDie();
+    return {bytes->data(), bytes->data() + bytes->size()};
+}
+
+// Assertion macros expand the page-lifetime checks into many branches.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+void verify_decrypted_page_scratch(::parquet::ParquetDataPageVersion version,
+                                   ::parquet::Compression::type compression,
+                                   const std::string& large) {
+    const size_t large_bytes = large.size();
+    constexpr size_t retained_limit = 4UL << 20;
+    constexpr int small_rows = 64;
+    auto file = std::make_shared<EncryptionMemoryReader>(
+            encrypted_scratch_file(version, compression, large, small_rows));
+    ParquetFileContext context;
+    io::FileDescription description;
+    const auto info = parameters();
+    ASSERT_TRUE(context.open(file, nullptr, false, description, false, false, false, &info).ok());
+    auto field = *context.native_metadata->schema().get_column(0);
+    const auto& chunk = context.native_metadata->to_thrift().row_groups[0].columns[0];
+    std::shared_ptr<ParquetColumnCrypto> crypto;
+    ASSERT_TRUE(context.native_metadata->encryption()->column_crypto(chunk, 0, 0, &crypto).ok());
+    const auto ranges = segment_v2::RowRanges::create_single(0, small_rows + 1);
+    native::ScalarColumnReader<false, false> reader(ranges, small_rows + 1, chunk, nullptr, nullptr,
+                                                    nullptr);
+    ASSERT_TRUE(reader.init(file, &field, {}, std::move(crypto)).ok());
+    const auto& page_reader = *reader._chunk_reader->_page_reader;
+    native::FilterMap filter;
+    ASSERT_TRUE(filter.init(nullptr, 1, false).ok());
+    for (int row = -1; row < small_rows; ++row) {
+        ColumnPtr output = field.data_type->create_column();
+        size_t read = 0;
+        bool eof = false;
+        auto status = reader.read_column_data(output, field.data_type, nullptr, filter, 1, &read,
+                                              &eof, false);
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_EQ(read, 1);
+        ASSERT_EQ(output->size(), 1);
+        if (row == -1) {
+            EXPECT_EQ((*output)[0].get<TYPE_STRING>(), large);
+            EXPECT_EQ(page_reader.active_scratch_bytes(), page_reader._decrypted_page.size());
+            // The next value still uses the large page; active bytes must prevent idle probes
+            // from scheduling a release that would defeat steady-state page reuse.
+            for (int probe = 0; probe < 3; ++probe) {
+                reader.release_batch_scratch(retained_limit);
+            }
+            EXPECT_GE(reader.retained_batch_scratch_bytes_for_test(), large_bytes);
+        } else if (row % 5 == 4) {
+            EXPECT_TRUE((*output)[0].is_null());
+        } else {
+            EXPECT_EQ((*output)[0].get<TYPE_STRING>(),
+                      std::string(256, static_cast<char>('a' + row % 26)));
+        }
+        if (row == 0) {
+            // Retiring a page must not force value-initialization of its reusable bytes next time.
+            EXPECT_GE(page_reader._decrypted_page.size(), large_bytes);
+            EXPECT_EQ(page_reader.active_scratch_bytes(), 0);
+        }
+        if (row >= 0 && row <= 2) {
+            reader.release_batch_scratch(retained_limit);
+            // V2 levels and uncompressed values still borrow this small page after the third
+            // idle probe; the old large capacity can be freed only when this page is exhausted.
+            EXPECT_GE(reader.retained_batch_scratch_bytes_for_test(), large_bytes);
+        }
+    }
+    EXPECT_LE(reader.retained_batch_scratch_bytes_for_test(), retained_limit);
+    if (compression == ::parquet::Compression::SNAPPY) {
+        EXPECT_GT(reader.column_statistics().decompress_cnt, 0);
+    }
+    ASSERT_TRUE(context.close().ok());
+}
+
+TEST(ParquetEncryptionTest, DecryptedPageScratchFollowsScalarReclamation) {
+    std::string large(32UL << 20, '\0');
+    uint32_t state = 0x12345678;
+    for (char& value : large) {
+        state ^= state << 13;
+        state ^= state >> 17;
+        state ^= state << 5;
+        value = static_cast<char>(state);
+    }
+    // Keep the compressed body large as well, so both codecs exercise decrypted capacity.
+    for (auto version :
+         {::parquet::ParquetDataPageVersion::V1, ::parquet::ParquetDataPageVersion::V2}) {
+        for (auto compression :
+             {::parquet::Compression::UNCOMPRESSED, ::parquet::Compression::SNAPPY}) {
+            SCOPED_TRACE(testing::Message() << static_cast<int>(version) << "/" << compression);
+            verify_decrypted_page_scratch(version, compression, large);
+        }
+    }
+}
+
 Status native_rows(const std::vector<uint8_t>& bytes, const TFileEncryptionInfo& info,
                    std::vector<std::vector<Field>>* rows) {
     auto file = std::make_shared<EncryptionMemoryReader>(bytes);

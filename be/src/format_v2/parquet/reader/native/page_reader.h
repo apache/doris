@@ -152,7 +152,7 @@ public:
                 int64_t next_page_offset = _offset_index->page_locations[_page_index].offset;
                 _offset = next_page_offset;
                 _next_header_offset = next_page_offset;
-                _state = INITIALIZED;
+                _reset_page();
                 return Status::OK();
             }
         }
@@ -166,7 +166,7 @@ public:
             _start_row += _cur_page_header.data_page_header.num_values;
         }
         _offset = _next_header_offset;
-        _state = INITIALIZED;
+        _reset_page();
 
         return Status::OK();
     }
@@ -176,7 +176,7 @@ public:
             // OffsetIndex enumerates data pages only, so an auxiliary physical page must not
             // consume a logical page-location entry while advancing to its payload end.
             skip_page_data();
-            _state = INITIALIZED;
+            _reset_page();
             return Status::OK();
         } else {
             return next_page();
@@ -185,7 +185,7 @@ public:
 
     Status dict_next_page() {
         if constexpr (OFFSET_INDEX) {
-            _state = INITIALIZED;
+            _reset_page();
             return Status::OK();
         } else {
             return next_page();
@@ -201,6 +201,24 @@ public:
     }
 
     Status get_page_data(Slice& slice);
+
+    void release_scratch(size_t max_retained_bytes) {
+        if (_decrypted_page.capacity() <= max_retained_bytes) {
+            return;
+        }
+        if (_decrypted_page_active) {
+            // Values and V2 levels can borrow the decrypted body across batches, even after
+            // value decompression. Keep a release request until all page views expire.
+            _decrypted_release_pending = true;
+        } else {
+            DorisVector<uint8_t>().swap(_decrypted_page);
+        }
+    }
+
+    size_t retained_scratch_bytes() const { return _decrypted_page.capacity(); }
+    size_t active_scratch_bytes() const {
+        return _decrypted_page_active ? _decrypted_page.size() : 0;
+    }
 
     // Skip page data and update offset (used when data is loaded from cache)
     void skip_page_data() {
@@ -254,6 +272,17 @@ public:
     }
 
 private:
+    void _reset_page() {
+        // Page advancement ends payload/level borrows; dictionary data has already been copied.
+        _state = INITIALIZED;
+        // Keep initialized bytes for reuse: clearing size would make the next resize zero them.
+        _decrypted_page_active = false;
+        if (_decrypted_release_pending) {
+            DorisVector<uint8_t>().swap(_decrypted_page);
+            _decrypted_release_pending = false;
+        }
+    }
+
     Status _try_cached_header(bool* loaded);
     Status _parse_encrypted_header(uint32_t* header_size);
     Status _parse_plaintext_header(const uint8_t** bytes, uint32_t* real_size);
@@ -290,6 +319,8 @@ private:
     // existing decoder validates header.compressed_page_size=4 against the uncompressed size.
     int32_t _serialized_page_size = 0;
     DorisVector<uint8_t> _decrypted_page;
+    bool _decrypted_page_active = false;
+    bool _decrypted_release_pending = false;
 
     // for page index
     size_t _page_index = 0;

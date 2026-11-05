@@ -396,6 +396,7 @@ Status PageReader<IN_COLLECTION, OFFSET_INDEX>::get_page_data(Slice& slice) {
                 std::span(reinterpret_cast<const uint8_t*>(slice.data), slice.size),
                 _crypto_dictionary, _crypto_page, &_decrypted_page));
         slice = Slice(_decrypted_page.data(), _decrypted_page.size());
+        _decrypted_page_active = true;
     }
     _state = DATA_LOADED;
     return Status::OK();
