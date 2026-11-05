@@ -619,6 +619,12 @@ static bool insert_contiguous_binary(ColumnType& column, const arrow::BinaryArra
             return true;
         }
         const int32_t* offsets = array.raw_value_offsets();
+        // Python UDF Arrow buffers can start at an unaligned byte (for example, base + 1).
+        // Both the checks below and the bulk column insertion dereference typed offsets;
+        // keep such input on the fallback path, which reads offsets with unaligned_load.
+        if (reinterpret_cast<uintptr_t>(offsets) % alignof(int32_t) != 0) {
+            return false;
+        }
         if (offsets[start] < 0 || std::cmp_greater(offsets[end], data_size)) {
             return false;
         }

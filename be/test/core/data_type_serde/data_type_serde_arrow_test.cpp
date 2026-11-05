@@ -22,6 +22,7 @@
 #include <arrow/array/builder_decimal.h>
 #include <arrow/array/builder_nested.h>
 #include <arrow/array/builder_primitive.h>
+#include <arrow/array/util.h>
 #include <arrow/extension/parquet_variant.h>
 #include <arrow/extension_type.h>
 #include <arrow/io/memory.h>
@@ -1656,6 +1657,39 @@ TEST(DataTypeSerDeArrowTest, StringArrowImportKeepsRowsOnEveryPath) {
                           .get_nested_column()
                           .get_data_at(1)
                           .to_string());
+}
+
+TEST(DataTypeSerDeArrowTest, StringArrowImportAcceptsUnalignedOffsets) {
+    const auto type = make_nullable(std::make_shared<DataTypeString>());
+    const auto serde = type->get_serde();
+    const std::array<int32_t, 5> offsets {0, 2, 2, 2, 5};
+    alignas(int32_t) std::array<uint8_t, sizeof(offsets) + 1> storage {};
+    // Python UDF Arrow buffers can start between aligned addresses, even without an array slice.
+    auto* unaligned = storage.data() + 1;
+    ASSERT_NE(0, reinterpret_cast<uintptr_t>(unaligned) % alignof(int32_t));
+    memcpy(unaligned, offsets.data(), sizeof(offsets));
+    const auto offset_buffer = arrow::Buffer::Wrap(unaligned, sizeof(offsets));
+    const auto data = arrow::Buffer::FromString("abcde");
+    const auto validity = arrow::Buffer::FromString(std::string(1, '\x0b'));
+    for (const auto& arrow_type : {arrow::utf8(), arrow::binary()}) {
+        const auto array = arrow::MakeArray(
+                arrow::ArrayData::Make(arrow_type, 4, {validity, offset_buffer, data}, 1));
+        auto column = type->create_column();
+        for (const auto start : {0, 1}) {
+            ASSERT_TRUE(serde->read_column_from_arrow(*column, array.get(), start, 4,
+                                                      cctz::utc_time_zone())
+                                .ok());
+        }
+        const auto& nullable = assert_cast<const ColumnNullable&>(*column);
+        const auto& strings = nullable.get_nested_column();
+        ASSERT_EQ(7, nullable.size());
+        const std::vector<std::optional<std::string>> expected {
+                "ab", "", std::nullopt, "cde", "", std::nullopt, "cde"};
+        for (size_t i = 0; i < expected.size(); ++i) {
+            EXPECT_EQ(!expected[i].has_value(), nullable.is_null_at(i));
+            EXPECT_EQ(expected[i].value_or(""), strings.get_data_at(i).to_string());
+        }
+    }
 }
 
 // A naive Arrow timestamp is decoded in UTC by calendar arithmetic; the result must equal what the time
