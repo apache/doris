@@ -88,6 +88,14 @@ Result<std::shared_ptr<lucene::search::IndexSearcher>> open_optional_clucene_sta
         }
         return ResultError(status);
     }
+    // Only text indexes have a segments file. A MATCH can reach a BKD index: CAST(n AS STRING)
+    // MATCH '1' on an INT column, or on a VARIANT path v.n, which is typed per segment and indexed
+    // as BKD where it holds numbers. Such an index has no terms and adds no statistics, as a
+    // segment without the path does; its rows match without the index and score nothing.
+    if (compound.value()->fileExists(
+                InvertedIndexDescriptor::get_temporary_bkd_index_data_file_name())) {
+        return std::shared_ptr<lucene::search::IndexSearcher> {};
+    }
     lucene::index::IndexReader* reader = nullptr;
     try {
         reader = lucene::index::IndexReader::open(compound.value().get());
@@ -650,8 +658,13 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset, int3
         }
 
         auto searcher_variant = inverted_index_cache_handle.get_index_searcher();
-        auto index_searcher_ptr = std::get<FulltextIndexSearcherPtr>(searcher_variant);
-        index_searcher = index_searcher_ptr.get();
+        // CAST(v['n'] AS BIGINT) = 1 caches the BKD searcher of v.n under this key, so a BKD index
+        // can also arrive from the cache: no terms, as in open_optional_clucene_stats_searcher.
+        const auto* fulltext_searcher = std::get_if<FulltextIndexSearcherPtr>(&searcher_variant);
+        if (fulltext_searcher == nullptr) {
+            continue;
+        }
+        index_searcher = fulltext_searcher->get();
         index_reader = index_searcher->getReader();
 #endif
         // BM25 on an analyzed index needs the record length of every row, and CLucene keeps

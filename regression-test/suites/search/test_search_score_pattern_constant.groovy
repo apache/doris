@@ -62,6 +62,7 @@ suite("test_search_score_pattern_constant", "p0") {
                 ["search_prefix", "SEARCH('content:te*')"],
                 ["search_keyword_regexp", "SEARCH('tag:/text.*/')"],
                 ["match_regexp", "content MATCH_REGEXP 'ext'"],
+                ["match_regexp_keyword", "tag MATCH_REGEXP 'text'"],
                 // A pattern next to a scored clause adds exactly 1, as an Elasticsearch bool must
                 // with a regexp clause does.
                 ["match_and_match_regexp", "content MATCH 'search' AND content MATCH_REGEXP 'ext'"],
