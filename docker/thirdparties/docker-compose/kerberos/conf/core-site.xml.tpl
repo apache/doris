@@ -51,4 +51,24 @@ under the License.
         <name>hadoop.security.token.service.use_ip</name>
         <value>false</value>
     </property>
+    <property>
+        <name>fs.oss.impl</name>
+        <value>com.aliyun.jindodata.oss.JindoOssFileSystem</value>
+    </property>
+    <property>
+        <name>fs.AbstractFileSystem.oss.impl</name>
+        <value>com.aliyun.jindodata.oss.JindoOSS</value>
+    </property>
+    <property>
+        <name>fs.oss.accessKeyId</name>
+        <value>${OSSAk}</value>
+    </property>
+    <property>
+        <name>fs.oss.accessKeySecret</name>
+        <value>${OSSSk}</value>
+    </property>
+    <property>
+        <name>fs.oss.endpoint</name>
+        <value>${OSSEndpoint}</value>
+    </property>
 </configuration>
