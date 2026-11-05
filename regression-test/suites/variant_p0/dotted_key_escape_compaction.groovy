@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("dotted_key_escape_compaction", "p0") {
+suite("dotted_key_escape_compaction", "p0,nonConcurrent") {
 
     // Compaction preserves the visible version; cached query results would hide output corruption.
     sql "set enable_sql_cache=false"
