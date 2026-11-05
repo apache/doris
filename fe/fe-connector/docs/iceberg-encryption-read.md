@@ -27,7 +27,7 @@ The initial target matrix is:
 | Table format | Iceberg v3 | Other versions are rejected for encrypted reads |
 | Data and delete files | Native Parquet modular encryption, `AES_GCM_V1` | No encrypted ranges are emitted yet |
 | Manifest/list files | SDK-managed encryption | No plaintext fallback is allowed |
-| Backend | Explicit encrypted-read protocol and reader capability on every eligible BE | Capability is currently unverified, so admission fails |
+| Backend | Native encrypted reader and protected FE/BE key transport | Both remain unavailable, so admission fails |
 | Writes | Outside this read contract | The read switch grants no write capability |
 
 Table encryption is recognized from `encryption.key-id`, retained v3
@@ -63,25 +63,20 @@ A rejected read must
 not fall back to plaintext, metadata counts, a JNI reader or another catalog.
 Plaintext reads in those catalogs continue to work.
 
-## Backend negotiation required before enabling execution
+## Requirements before enabling execution
 
-The protocol change must introduce an explicit, versioned encrypted-Iceberg-read
-capability, advertised by each BE. An absent field, an older BE, an unknown
-capability or a build without PME support means **unsupported**. A generic
-execution version, the FE's Iceberg version and the FE configuration switch are
-not substitutes for this advertisement.
+The scan protocol carries each data/delete file's binary key and AAD independently.
+FE and BE are deployed together for this feature; no heartbeat capability
+negotiation is required. FE must reject encrypted dispatch and lazy split
+responses until the native reader and protected internal key transport are ready.
+BE must also reject encrypted data and deletes before reader, cache or COUNT
+paths. Repeated split fetches must preserve an existing rejection.
 
-The scheduler must restrict placement to compatible BEs and fail if it cannot
-establish that all selected execution targets support the complete encrypted-read
-contract. Reassignment and retries must repeat that validation. The native reader
-must also reject an encrypted range it cannot handle, so a stale heartbeat cannot
-silently downgrade a read. FE-to-BE key transport must have explicit ownership,
-bounded lifetime and redaction rules; keys must not enter explain output, profiles
-or persistent scan caches.
-
-Until those protocol and reader changes land together, the connector deliberately
-reports `BACKEND_CAPABILITY_UNAVAILABLE` rather than manufacturing a successful
-capability result. No SPI or wire-format capability is added by this first stage.
+The connector currently reports `BACKEND_CAPABILITY_UNAVAILABLE` before file
+descriptors are created. The [scan wire contract](iceberg-encryption-wire.md)
+defines per-file payloads, diagnostic redaction and the later dispatch guard.
+File keys remain query-scoped, with bounded lifetimes; they must not enter EXPLAIN
+output, profiles or persistent scan caches.
 
 See the upstream [Iceberg encryption documentation](https://iceberg.apache.org/docs/nightly/encryption/)
 and [table specification](https://iceberg.apache.org/spec/#encryption-keys) for

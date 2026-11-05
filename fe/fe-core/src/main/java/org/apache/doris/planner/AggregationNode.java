@@ -24,6 +24,7 @@ import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
@@ -315,7 +316,10 @@ public class AggregationNode extends PlanNode {
             if (children.get(0) instanceof HashJoinNode
                     && sessionVariable.enableStreamingAggHashJoinForcePassthrough) {
                 requireChild = LocalExchangeTypeRequire.requirePassthrough();
-            } else if (!needsFinalize && !enableLeBeforeAgg) {
+            } else if (!sessionVariable.enableLocalExchangeBeforeStreamingAgg
+                    && !childBreaksLocalKeyDistribution(connectContext)) {
+                // PR #66222: keep the inherited distribution by default, but still reshuffle
+                // after a child that breaks the grouping-key distribution.
                 requireChild = baseClassRequire(connectContext);
             } else if (!hasKeys) {
                 requireChild = needsFinalize
@@ -383,6 +387,37 @@ public class AggregationNode extends PlanNode {
         return children.get(0).isSerialOperatorOnBe(connectContext)
                 ? LocalExchangeTypeRequire.requirePassthrough()
                 : LocalExchangeTypeRequire.noRequire();
+    }
+
+    /**
+     * Mirrors BE OperatorBase::child_breaks_local_key_distribution(): rows reach this node
+     * without any key distribution when the child is serial on BE, or when the child's own
+     * BE required_data_distribution() is a non-hash local exchange.
+     */
+    private boolean childBreaksLocalKeyDistribution(ConnectContext connectContext) {
+        PlanNode child = children.get(0);
+        if (child.isSerialOperatorOnBe(connectContext)) {
+            return true;
+        }
+        if (child instanceof NestedLoopJoinNode) {
+            // NestedLoopJoinProbeOperatorX: ADAPTIVE_PASSTHROUGH, except null-aware left anti
+            // join and the right outer / semi / anti and full outer joins (the serial ones).
+            return ((NestedLoopJoinNode) child).getJoinOp() != JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN
+                    && !child.isSerialNode();
+        }
+        if (child instanceof HashJoinNode) {
+            // HashJoinProbeOperatorX: PASSTHROUGH for a broadcast join when it is forced or the
+            // probe child is serial.
+            HashJoinNode join = (HashJoinNode) child;
+            return join.getJoinOp() != JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN
+                    && join.getDistributionMode() == DistributionMode.BROADCAST
+                    && (connectContext.getSessionVariable().enableBroadcastJoinForcePassthrough
+                            || join.getChild(0).isSerialOperatorOnBe(connectContext));
+        }
+        // TableFunctionOperatorX and AssertNumRowsOperatorX always require PASSTHROUGH. The base
+        // class asks for PASSTHROUGH over a serial child, but SelectNode and RepeatNode take
+        // their child's serial flag, so the serial check above already covers them.
+        return child instanceof TableFunctionNode || child instanceof AssertNumRowsNode;
     }
 
     /**

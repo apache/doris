@@ -26,6 +26,8 @@ import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.pushdown.ConnectorFunctionCall;
 import org.apache.doris.connector.spi.pushdown.ConnectorIn;
+import org.apache.doris.connector.spi.pushdown.ConnectorIsNull;
+import org.apache.doris.connector.spi.pushdown.ConnectorLike;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.spi.pushdown.ConnectorNot;
 import org.apache.doris.connector.spi.pushdown.ConnectorOr;
@@ -47,6 +49,7 @@ class JdbcQueryBuilderTest {
 
     private static final ConnectorType INT_TYPE = ConnectorType.of("INT");
     private static final ConnectorType STRING_TYPE = ConnectorType.of("VARCHAR");
+    private static final ConnectorType BOOLEAN_TYPE = ConnectorType.of("BOOLEAN");
 
     private static final String DB = "testdb";
     private static final String TABLE = "testtbl";
@@ -86,6 +89,285 @@ class JdbcQueryBuilderTest {
                         INT_TYPE,
                         Collections.singletonList(new ConnectorColumnRef(col, INT_TYPE))),
                 ConnectorLiteral.ofInt(0));
+    }
+
+    private void assertMysqlPredicate(ConnectorExpression filter, String expected) {
+        Assertions.assertEquals("SELECT * FROM `testdb`.`testtbl` WHERE (" + expected + ")",
+                mysqlBuilder().buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(filter), -1));
+    }
+
+    @Test
+    void testComparisonGroupsCompoundOperands() {
+        ConnectorColumnRef a = new ConnectorColumnRef("a", BOOLEAN_TYPE);
+        ConnectorColumnRef b = new ConnectorColumnRef("b", BOOLEAN_TYPE);
+        ConnectorColumnRef c = new ConnectorColumnRef("c", BOOLEAN_TYPE);
+        ConnectorExpression and = new ConnectorAnd(Arrays.asList(a, b));
+        ConnectorExpression or = new ConnectorOr(Arrays.asList(a, b));
+        for (ConnectorComparison.Operator op : ConnectorComparison.Operator.values()) {
+            // For a=false, b=true, c=false, (a AND b)=c must not become a AND (b=c).
+            assertMysqlPredicate(new ConnectorComparison(op, and, c),
+                    "((`a`) AND (`b`)) " + op.getSymbol() + " `c`");
+            assertMysqlPredicate(new ConnectorComparison(op, c, or),
+                    "`c` " + op.getSymbol() + " ((`a`) OR (`b`))");
+        }
+        JdbcQueryBuilder postgres = new JdbcQueryBuilder(JdbcDbType.POSTGRESQL);
+        Assertions.assertEquals("SELECT * FROM \"testdb\".\"testtbl\""
+                        + " WHERE (((\"a\") AND (\"b\")) = \"c\")",
+                postgres.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(
+                        new ConnectorComparison(ConnectorComparison.Operator.EQ, and, c)), -1));
+    }
+
+    @Test
+    void testComparisonGroupsNotAndNestedComparison() {
+        ConnectorColumnRef a = new ConnectorColumnRef("a", BOOLEAN_TYPE);
+        ConnectorColumnRef b = new ConnectorColumnRef("b", BOOLEAN_TYPE);
+        ConnectorExpression equal = new ConnectorComparison(ConnectorComparison.Operator.EQ, a, b);
+        assertMysqlPredicate(new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                        new ConnectorNot(a), equal),
+                "(NOT (`a`)) = (`a` = `b`)");
+        assertMysqlPredicate(new ConnectorNot(new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                        new ConnectorOr(Arrays.asList(a, b)), ConnectorLiteral.ofBoolean(false))),
+                "NOT (((`a`) OR (`b`)) = FALSE)");
+    }
+
+    @Test
+    void testInGroupsValueAndListExpressions() {
+        ConnectorColumnRef a = new ConnectorColumnRef("a", BOOLEAN_TYPE);
+        ConnectorColumnRef b = new ConnectorColumnRef("b", BOOLEAN_TYPE);
+        ConnectorExpression or = new ConnectorOr(Arrays.asList(a, b));
+        for (boolean negated : Arrays.asList(false, true)) {
+            assertMysqlPredicate(new ConnectorIn(or, Arrays.asList(new ConnectorNot(a),
+                            ConnectorLiteral.ofNull(BOOLEAN_TYPE)), negated),
+                    "((`a`) OR (`b`))" + (negated ? " NOT IN " : " IN ") + "((NOT (`a`)), NULL)");
+        }
+    }
+
+    @Test
+    void testIsNullGroupsNullableCompoundOperand() {
+        ConnectorExpression and = new ConnectorAnd(Arrays.asList(
+                new ConnectorColumnRef("a", BOOLEAN_TYPE), new ConnectorColumnRef("b", BOOLEAN_TYPE)));
+        // With a=NULL and b=NULL, the whole AND is NULL and must satisfy IS NULL.
+        assertMysqlPredicate(new ConnectorIsNull(and, false), "((`a`) AND (`b`)) IS NULL");
+        assertMysqlPredicate(new ConnectorIsNull(and, true), "((`a`) AND (`b`)) IS NOT NULL");
+    }
+
+    @Test
+    void testBetweenGroupsAllOperands() {
+        ConnectorColumnRef a = new ConnectorColumnRef("a", BOOLEAN_TYPE);
+        ConnectorColumnRef b = new ConnectorColumnRef("b", BOOLEAN_TYPE);
+        ConnectorExpression between = new ConnectorBetween(new ConnectorOr(Arrays.asList(a, b)),
+                new ConnectorAnd(Arrays.asList(a, b)), new ConnectorNot(a));
+        assertMysqlPredicate(between, "((`a`) OR (`b`)) BETWEEN ((`a`) AND (`b`)) AND (NOT (`a`))");
+    }
+
+    @Test
+    void testLikeGroupsBothOperands() {
+        ConnectorColumnRef a = new ConnectorColumnRef("a", BOOLEAN_TYPE);
+        ConnectorColumnRef b = new ConnectorColumnRef("b", BOOLEAN_TYPE);
+        for (ConnectorLike.Operator op : ConnectorLike.Operator.values()) {
+            assertMysqlPredicate(new ConnectorLike(op, new ConnectorOr(Arrays.asList(a, b)), new ConnectorNot(a)),
+                    "((`a`) OR (`b`)) " + op.name() + " (NOT (`a`))");
+        }
+    }
+
+    @Test
+    void testArithmeticGroupsPredicateOperands() {
+        ConnectorColumnRef a = new ConnectorColumnRef("a", BOOLEAN_TYPE);
+        ConnectorColumnRef b = new ConnectorColumnRef("b", BOOLEAN_TYPE);
+        JdbcFunctionPushdownConfig config = JdbcFunctionPushdownConfig.create(JdbcDbType.MYSQL, null, true);
+        JdbcQueryBuilder builder = new JdbcQueryBuilder(JdbcDbType.MYSQL, config, Collections.emptyMap());
+        ConnectorExpression sum = new ConnectorFunctionCall("+", INT_TYPE,
+                Arrays.asList(new ConnectorAnd(Arrays.asList(a, b)), new ConnectorNot(a)));
+        Assertions.assertEquals("SELECT * FROM `testdb`.`testtbl`"
+                        + " WHERE (((((`a`) AND (`b`)) + (NOT (`a`)))) = 1)",
+                builder.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(
+                        new ConnectorComparison(ConnectorComparison.Operator.EQ, sum, ConnectorLiteral.ofInt(1))), -1));
+        ConnectorExpression bitNot = new ConnectorFunctionCall("~", INT_TYPE,
+                Collections.singletonList(new ConnectorAnd(Arrays.asList(a, b))));
+        Assertions.assertEquals("SELECT * FROM `testdb`.`testtbl` WHERE (((~((`a`) AND (`b`)))) = 1)",
+                builder.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(
+                        new ConnectorComparison(ConnectorComparison.Operator.EQ, bitNot, ConnectorLiteral.ofInt(1))), -1));
+    }
+
+    @Test
+    void testPreRenderedOperandIsGrouped() {
+        JdbcFunctionPushdownConfig config = JdbcFunctionPushdownConfig.create(JdbcDbType.MYSQL, null, true);
+        JdbcQueryBuilder builder = new JdbcQueryBuilder(JdbcDbType.MYSQL, config, Collections.emptyMap());
+        ConnectorExpression fragment = new ConnectorFunctionCall("`a` OR `b`", BOOLEAN_TYPE, Collections.emptyList());
+        Assertions.assertEquals("SELECT * FROM `testdb`.`testtbl` WHERE ((`a` OR `b`) = FALSE)",
+                builder.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(new ConnectorComparison(
+                        ConnectorComparison.Operator.EQ, fragment, ConnectorLiteral.ofBoolean(false))), -1));
+    }
+
+    @Test
+    void testEmptyInRemainsLocalWithoutLimit() {
+        ConnectorColumnRef column = new ConnectorColumnRef("id", INT_TYPE);
+        for (boolean negated : Arrays.asList(false, true)) {
+            ConnectorExpression emptyIn = new ConnectorIn(column, Collections.emptyList(), negated);
+            for (ConnectorExpression filter : Arrays.asList(emptyIn, new ConnectorNot(emptyIn),
+                    new ConnectorOr(Arrays.asList(emptyIn, simpleComparison("id", 1))))) {
+                Assertions.assertEquals("SELECT * FROM `testdb`.`testtbl`",
+                        mysqlBuilder().buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(filter), 1));
+            }
+            Assertions.assertEquals("SELECT * FROM `testdb`.`testtbl` WHERE (`id` = 1)",
+                    mysqlBuilder().buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(
+                            new ConnectorAnd(Arrays.asList(emptyIn, simpleComparison("id", 1)))), 1));
+        }
+    }
+
+    @Test
+    void testFloatingPointLiteralsPreserveValue() {
+        double[] values = {1e20, -1e20, 0x1.0p63, -0x1.0p63,
+                Double.MAX_VALUE, -Double.MAX_VALUE, Double.MIN_VALUE, -0.0, 0.0, 1.5};
+        String[] expected = {"1.0E20", "-1.0E20", "9.223372036854776E18", "-9.223372036854776E18",
+                "1.7976931348623157E308", "-1.7976931348623157E308", "4.9E-324", "-0.0", "0.0", "1.5"};
+        ConnectorColumnRef column = new ConnectorColumnRef("d", ConnectorType.of("DOUBLE"));
+        for (int i = 0; i < values.length; i++) {
+            for (ConnectorComparison.Operator op : Arrays.asList(ConnectorComparison.Operator.EQ,
+                    ConnectorComparison.Operator.LT, ConnectorComparison.Operator.GT)) {
+                assertMysqlPredicate(new ConnectorComparison(op, column, ConnectorLiteral.ofDouble(values[i])),
+                        "`d` " + op.getSymbol() + " " + expected[i]);
+                assertMysqlPredicate(new ConnectorComparison(op, ConnectorLiteral.ofDouble(values[i]), column),
+                        expected[i] + " " + op.getSymbol() + " `d`");
+            }
+            assertMysqlPredicate(new ConnectorIn(column,
+                    Collections.singletonList(ConnectorLiteral.ofDouble(values[i])), false),
+                    "`d` IN (" + expected[i] + ")");
+        }
+        assertMysqlPredicate(new ConnectorBetween(column, ConnectorLiteral.ofDouble(-1e20),
+                ConnectorLiteral.ofDouble(1e20)), "`d` BETWEEN -1.0E20 AND 1.0E20");
+        assertMysqlPredicate(new ConnectorComparison(ConnectorComparison.Operator.EQ, column,
+                new ConnectorLiteral(ConnectorType.of("FLOAT"), 1e20)), "`d` = 1.0E20");
+    }
+
+    @Test
+    void testFloatingPointNeighborsOfLongBoundsRoundTrip() {
+        ConnectorColumnRef column = new ConnectorColumnRef("d", ConnectorType.of("DOUBLE"));
+        for (double value : new double[] {Math.nextDown(0x1.0p63), Math.nextUp(0x1.0p63),
+                Math.nextDown(-0x1.0p63), Math.nextUp(-0x1.0p63)}) {
+            String sql = mysqlBuilder().buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(
+                    new ConnectorComparison(ConnectorComparison.Operator.EQ, column,
+                            ConnectorLiteral.ofDouble(value))), -1);
+            String literal = sql.substring(sql.indexOf("`d` = ") + "`d` = ".length(), sql.length() - 1);
+            Assertions.assertEquals(Double.doubleToRawLongBits(value),
+                    Double.doubleToRawLongBits(Double.parseDouble(literal)), sql);
+        }
+    }
+
+    @Test
+    void testPostgresqlBigintComparisonUsesFloatingPointSemantics() {
+        JdbcQueryBuilder builder = new JdbcQueryBuilder(JdbcDbType.POSTGRESQL);
+        ConnectorColumnRef id = new ConnectorColumnRef("id", ConnectorType.of("BIGINT"));
+        // A stripped CAST(id AS DOUBLE) must not turn this into a BIGINT/NUMERIC comparison.
+        // The exponent text as NUMERIC is 9223372036854774800, not the original 9223372036854774784.
+        ConnectorLiteral literal = ConnectorLiteral.ofDouble(0x1.fffffffffffffp62);
+        String typed = "CAST('9.2233720368547748E18' AS DOUBLE PRECISION)";
+        for (ConnectorComparison.Operator op : Arrays.asList(ConnectorComparison.Operator.EQ,
+                ConnectorComparison.Operator.LT, ConnectorComparison.Operator.GT)) {
+            Assertions.assertEquals("SELECT * FROM \"testdb\".\"testtbl\" WHERE (\"id\" "
+                            + op.getSymbol() + " " + typed + ")",
+                    builder.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(
+                            new ConnectorComparison(op, id, literal)), -1));
+            Assertions.assertEquals("SELECT * FROM \"testdb\".\"testtbl\" WHERE (" + typed
+                            + " " + op.getSymbol() + " \"id\")",
+                    builder.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(
+                            new ConnectorComparison(op, literal, id)), -1));
+        }
+        for (boolean negated : Arrays.asList(false, true)) {
+            Assertions.assertEquals("SELECT * FROM \"testdb\".\"testtbl\" WHERE (\"id\""
+                            + (negated ? " NOT IN (" : " IN (") + typed + "))",
+                    builder.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(
+                            new ConnectorIn(id, Collections.singletonList(literal), negated)), -1));
+        }
+        Assertions.assertEquals("SELECT * FROM \"testdb\".\"testtbl\" WHERE (\"id\" BETWEEN "
+                        + typed + " AND " + typed + ")",
+                builder.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(
+                        new ConnectorBetween(id, literal, literal)), -1));
+    }
+
+    @Test
+    void testPostgresqlFloatingPointRangeAndSignedZero() {
+        JdbcQueryBuilder builder = new JdbcQueryBuilder(JdbcDbType.POSTGRESQL);
+        ConnectorColumnRef column = new ConnectorColumnRef("d", ConnectorType.of("DOUBLE"));
+        double[] values = {1e20, -1e20, 0x1.0p63, -0x1.0p63, Double.MAX_VALUE,
+                -Double.MAX_VALUE, Double.MIN_VALUE, -0.0, 0.0, 1.5};
+        String[] expected = {"1.0E20", "-1.0E20", "9.223372036854776E18", "-9.223372036854776E18",
+                "1.7976931348623157E308", "-1.7976931348623157E308", "4.9E-324", "-0.0", "0.0", "1.5"};
+        for (int i = 0; i < values.length; i++) {
+            Assertions.assertEquals("SELECT * FROM \"testdb\".\"testtbl\" WHERE (\"d\" = CAST('"
+                            + expected[i] + "' AS DOUBLE PRECISION))",
+                    builder.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(new ConnectorComparison(
+                            ConnectorComparison.Operator.EQ, column, ConnectorLiteral.ofDouble(values[i]))), -1));
+        }
+    }
+
+    @Test
+    void testOracleFloatingPointRangeUsesBinaryDoubleLiterals() {
+        double[] values = {1e200, -1e200, Double.MAX_VALUE, -Double.MAX_VALUE, Double.MIN_VALUE, -0.0, 0.0, 1.5};
+        String[] expected = {"1.0E200D", "-1.0E200D", "1.7976931348623157E308D",
+                "-1.7976931348623157E308D", "4.9E-324D", "-0.0D", "0.0D", "1.5D"};
+        ConnectorColumnRef column = new ConnectorColumnRef("d", ConnectorType.of("DOUBLE"));
+        for (JdbcDbType db : Arrays.asList(JdbcDbType.ORACLE, JdbcDbType.OCEANBASE_ORACLE)) {
+            JdbcQueryBuilder builder = new JdbcQueryBuilder(db);
+            for (int i = 0; i < values.length; i++) {
+                ConnectorLiteral literal = ConnectorLiteral.ofDouble(values[i]);
+                for (ConnectorComparison.Operator op : Arrays.asList(ConnectorComparison.Operator.EQ,
+                        ConnectorComparison.Operator.LT, ConnectorComparison.Operator.GT)) {
+                    Assertions.assertEquals("SELECT * FROM \"testdb\".\"testtbl\" WHERE (\"d\" "
+                                    + op.getSymbol() + " " + expected[i] + ")",
+                            builder.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(
+                                    new ConnectorComparison(op, column, literal)), -1));
+                }
+                Assertions.assertEquals("SELECT * FROM \"testdb\".\"testtbl\" WHERE (\"d\" IN ("
+                                + expected[i] + "))",
+                        builder.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(
+                                new ConnectorIn(column, Collections.singletonList(literal), false)), -1));
+            }
+            Assertions.assertEquals("SELECT * FROM \"testdb\".\"testtbl\""
+                            + " WHERE (\"d\" BETWEEN -1.0E200D AND 1.0E200D)",
+                    builder.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(new ConnectorBetween(
+                            column, ConnectorLiteral.ofDouble(-1e200), ConnectorLiteral.ofDouble(1e200))), -1));
+        }
+    }
+
+    @Test
+    void testOracleNvlUsesTypedFloatingPointArgument() {
+        JdbcFunctionPushdownConfig config = JdbcFunctionPushdownConfig.create(JdbcDbType.ORACLE, null, true);
+        JdbcQueryBuilder builder = new JdbcQueryBuilder(JdbcDbType.ORACLE, config, Collections.emptyMap());
+        ConnectorColumnRef score = new ConnectorColumnRef("SCORE", ConnectorType.of("DOUBLE"));
+        ConnectorExpression nvl = new ConnectorFunctionCall("ifnull", score.getType(),
+                Arrays.asList(score, ConnectorLiteral.ofDouble(0.0)));
+        Assertions.assertEquals("SELECT * FROM \"testdb\".\"testtbl\" WHERE ((nvl(\"SCORE\", 0.0D)) < \"SCORE\")",
+                builder.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(
+                        new ConnectorComparison(ConnectorComparison.Operator.LT, nvl, score)), -1));
+    }
+
+    @Test
+    void testNonFiniteLiteralsRemainLocalWithoutLimit() {
+        ConnectorColumnRef column = new ConnectorColumnRef("d", ConnectorType.of("DOUBLE"));
+        for (JdbcDbType db : Arrays.asList(JdbcDbType.MYSQL, JdbcDbType.POSTGRESQL,
+                JdbcDbType.ORACLE, JdbcDbType.OCEANBASE_ORACLE, JdbcDbType.SQLSERVER)) {
+            JdbcQueryBuilder builder = new JdbcQueryBuilder(db);
+            for (double value : new double[] {Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY}) {
+                ConnectorLiteral literal = ConnectorLiteral.ofDouble(value);
+                ConnectorExpression comparison = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                        column, literal);
+                ConnectorExpression in = new ConnectorIn(column, Collections.singletonList(literal), false);
+                ConnectorExpression between = new ConnectorBetween(column, literal, ConnectorLiteral.ofDouble(1.0));
+                for (ConnectorExpression filter : Arrays.asList(comparison, in, between,
+                        new ConnectorNot(comparison), new ConnectorOr(Arrays.asList(comparison,
+                                simpleComparison("id", 1))))) {
+                    String sql = builder.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(filter), 1);
+                    Assertions.assertFalse(sql.contains(" WHERE "), sql);
+                    Assertions.assertFalse(sql.contains("LIMIT") || sql.contains("TOP") || sql.contains("ROWNUM"), sql);
+                }
+                String sql = builder.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(
+                        new ConnectorAnd(Arrays.asList(comparison, simpleComparison("id", 1)))), 1);
+                Assertions.assertTrue(sql.contains(" WHERE "), sql);
+                Assertions.assertFalse(sql.contains("NaN") || sql.contains("Infinity"), sql);
+                Assertions.assertFalse(sql.contains("LIMIT") || sql.contains("TOP") || sql.contains("ROWNUM"), sql);
+            }
+        }
     }
 
     // --- LIMIT pushdown tests ---
