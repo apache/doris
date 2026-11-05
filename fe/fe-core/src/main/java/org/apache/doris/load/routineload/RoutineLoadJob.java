@@ -58,6 +58,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.load.CreateRoutineLoadCommand;
+import org.apache.doris.nereids.util.SqlLiteralUtils;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -1824,7 +1825,8 @@ public abstract class RoutineLoadJob
         }
         // 4.4.partitions
         if (partitionNamesInfo != null) {
-            sb.append("PARTITION(").append(Joiner.on(",").join(partitionNamesInfo.getPartitionNames())).append("),\n");
+            sb.append(partitionNamesInfo.isTemp() ? "TEMPORARY PARTITION(" : "PARTITION(")
+                    .append(Joiner.on(",").join(partitionNamesInfo.getPartitionNames())).append("),\n");
         }
         // 4.5.delete_on_predicates
         if (deleteCondition != null) {
@@ -1844,7 +1846,7 @@ public abstract class RoutineLoadJob
         if (sb.charAt(sb.length() - 2) == ',') {
             sb.replace(sb.length() - 2, sb.length() - 1, "");
         }
-        // 5.job_properties. See PROPERTIES_SET of CreateRoutineLoadStmt
+        // 5.job_properties. See PROPERTIES_SET of CreateRoutineLoadInfo
         sb.append("PROPERTIES\n(\n");
         appendProperties(sb, CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY, desireTaskConcurrentNum, false);
         appendProperties(sb, CreateRoutineLoadInfo.MAX_ERROR_NUMBER_PROPERTY, maxErrorNum, false);
@@ -1856,13 +1858,37 @@ public abstract class RoutineLoadJob
         if (isPartialUpdate) {
             appendProperties(sb, CreateRoutineLoadInfo.PARTIAL_COLUMNS, isPartialUpdate, false);
         }
+        // UPDATE_FLEXIBLE_COLUMNS leaves isPartialUpdate false, so without the mode the job would be recreated
+        // as an UPSERT one. CREATE only accepts the new key policy together with a partial update mode.
+        if (uniqueKeyUpdateMode != TUniqueKeyUpdateMode.UPSERT) {
+            appendProperties(sb, CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, uniqueKeyUpdateMode.name(), false);
+            if (partialUpdateNewKeyPolicy == TPartialUpdateNewRowPolicy.ERROR) {
+                appendProperties(sb, CreateRoutineLoadInfo.PARTIAL_UPDATE_NEW_KEY_POLICY, "ERROR", false);
+            }
+        }
         appendProperties(sb, JsonFileFormatProperties.PROP_JSON_PATHS, getJsonPaths(), false);
         appendProperties(sb, JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY, isStripOuterArray(), false);
         appendProperties(sb, JsonFileFormatProperties.PROP_NUM_AS_STRING, isNumAsString(), false);
         appendProperties(sb, JsonFileFormatProperties.PROP_FUZZY_PARSE, isFuzzyParse(), false);
         appendProperties(sb, JsonFileFormatProperties.PROP_JSON_ROOT, getJsonRoot(), false);
+        if (getEnclose() != 0) {
+            appendProperties(sb, CsvFileFormatProperties.PROP_ENCLOSE, new String(new byte[]{getEnclose()}), false);
+        }
+        if (getEscape() != 0) {
+            appendProperties(sb, CsvFileFormatProperties.PROP_ESCAPE, new String(new byte[]{getEscape()}), false);
+        }
+        if (getEmptyFieldAsNull()) {
+            appendProperties(sb, CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL, true, false);
+        }
         appendProperties(sb, LoadCommand.STRICT_MODE, isStrictMode(), false);
         appendProperties(sb, LoadCommand.TIMEZONE, getTimezone(), false);
+        // Always written, as the timezone is: left out, CREATE takes it from the session variable of whoever
+        // recreates the job.
+        appendProperties(sb, CreateRoutineLoadInfo.SEND_BATCH_PARALLELISM, getSendBatchParallelism(), false);
+        if (isLoadToSingleTablet()) {
+            appendProperties(sb, CreateRoutineLoadInfo.LOAD_TO_SINGLE_TABLET, true, false);
+        }
+        appendProperties(sb, CreateRoutineLoadInfo.WORKLOAD_GROUP, getWorkloadGroup(), false);
         // Only a declared group, which follows ALTER. Writing the effective group instead would turn
         // a group inherited from the creating session into a pinned one when the statement is replayed.
         appendProperties(sb, CreateRoutineLoadInfo.COMPUTE_GROUP, getDeclaredComputeGroup(), false);
@@ -1885,7 +1911,12 @@ public abstract class RoutineLoadJob
         }
         // remove the last ","
         sb.replace(sb.length() - 2, sb.length() - 1, "");
-        sb.append(");");
+        sb.append(")");
+        // 8. comment
+        if (!Strings.isNullOrEmpty(comment)) {
+            sb.append("\nCOMMENT ").append(SqlLiteralUtils.quoteStringLiteral(comment));
+        }
+        sb.append(";");
         return sb.toString();
     }
 
@@ -1893,7 +1924,10 @@ public abstract class RoutineLoadJob
         if (value == null || Strings.isNullOrEmpty(value.toString())) {
             return;
         }
-        sb.append("\"").append(key).append("\"").append(" = ").append("\"").append(value).append("\"");
+        // Quoted the way the parser reads string literals back: a jsonpaths value such as ["$.k1"] or an
+        // enclose of " would otherwise end the literal early, and an escape of \ would escape the closing quote.
+        sb.append(SqlLiteralUtils.quoteStringLiteral(key)).append(" = ")
+                .append(SqlLiteralUtils.quoteStringLiteral(value.toString()));
         if (!end) {
             sb.append(",\n");
         } else {
