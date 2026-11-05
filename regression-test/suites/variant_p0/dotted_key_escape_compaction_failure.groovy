@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.awaitility.Awaitility
+import java.util.concurrent.TimeUnit
+
 suite("dotted_key_escape_compaction_failure", "p0,nonConcurrent") {
     sql "set group_commit='off_mode'"
     sql "set enable_sql_cache=false"
@@ -36,32 +39,56 @@ suite("dotted_key_escape_compaction_failure", "p0,nonConcurrent") {
     def tablet = sql_return_maparray("SHOW TABLETS FROM dotted_key_escape_compaction_failure")[0]
     def status = {
         def (code, out, err) = be_show_tablet_status(hosts["${tablet.BackendId}"],
-                ports["${tablet.BackendId}"], tablet.TabletId)
+                ports["${tablet.BackendId}"], tablet.TabletId, 5, 1)
         assertEquals(0, code, err)
         return parseJson(out)
     }
-    def rowsetIds = { value -> value.rowsets.collect { it.split(/\s+/)[4] }.toSet() }
+    // Cloud retains the empty initial [0-1] rowset outside full compaction.
+    def rowsetIds = { value ->
+        value.rowsets.collect { it.split(/\s+/) }
+                .findAll { !(it[0] == "[0-1]" && it[1] == "0") }
+                .collect { it[4] }.toSet()
+    }
+    // Keep strict completion checks local: the shared helper can finish on a failed
+    // task, or before an asynchronous time-series compaction starts in Cloud.
+    def compact = {
+        def before = status()
+        trigger_and_wait_compaction("dotted_key_escape_compaction_failure", "full", 30)
+        def completed
+        Awaitility.await().dontCatchUncaughtExceptions().atMost(30, TimeUnit.SECONDS)
+                .pollInterval(1, TimeUnit.SECONDS).until(() -> {
+                    completed = status()
+                    def (code, out, err) = be_get_compaction_status(hosts["${tablet.BackendId}"],
+                            ports["${tablet.BackendId}"], tablet.TabletId, 5, 1)
+                    assertEquals(0, code, err)
+                    def task = parseJson(out)
+                    assertEquals("success", task.status.toLowerCase())
+                    return !task.run_status && (
+                            before['last full success time'] != completed['last full success time'] ||
+                            before['last full failure time'] != completed['last full failure time'])
+                })
+        assertEquals("[OK]", completed['last full status'], "Full compaction failed: ${completed}")
+        return completed
+    }
     def inputs = rowsetIds(status())
     setBeConfigTemporary([enable_ordered_data_compaction: false]) {
         String point = "BetaRowsetWriter._check_segment_number_limit_too_many_segments"
         GetDebugPoint().enableDebugPointForAllBEs(point, [segnum: 1000000])
         Throwable failure = null
         try {
-            trigger_and_wait_compaction("dotted_key_escape_compaction_failure", "full", 30)
+            compact()
         } catch (AssertionError error) {
             failure = error
         } finally {
             GetDebugPoint().disableDebugPointForAllBEs(point)
         }
-        assertNotNull(failure, "The compaction helper accepted a failed task")
+        assertNotNull(failure, "The suite accepted a failed compaction")
         assertTrue(failure.message.contains("too many segments"), failure.message)
         logger.info("Expected compaction failure: ${failure.message}")
         assertEquals(inputs, rowsetIds(status()), "Failed compaction replaced its inputs")
         qt_after_failure """SELECT id,v,v['a.b'],v['a']['b']
             FROM dotted_key_escape_compaction_failure ORDER BY id"""
-        trigger_and_wait_compaction("dotted_key_escape_compaction_failure", "full")
-        def output = status()
-        assertEquals("[OK]", output['last full status'])
+        def output = compact()
         assertTrue(inputs.intersect(rowsetIds(output)).isEmpty(), "Successful compaction kept its inputs")
         assertEquals(1, rowsetIds(output).size())
         qt_after_success """SELECT id,v,v['a.b'],v['a']['b']
