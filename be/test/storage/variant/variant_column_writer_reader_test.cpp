@@ -61,6 +61,7 @@
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
+#include "runtime/thread_context.h"
 #include "storage/compaction/full_compaction.h"
 #include "storage/delete/delete_handler.h"
 #include "storage/id_manager.h"
@@ -9966,6 +9967,48 @@ TEST_F(VariantColumnWriterReaderTest, RollingUpgradeCachedEncodingNeedsNoFooterI
     incompatible.set_variant_escape_dots_in_keys(false);
     status = segments[0]->check_variant_path_encoding(incompatible, &stats);
     EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+}
+
+TEST_F(VariantColumnWriterReaderTest, RollingUpgradeConcurrentColdEncodingChecks) {
+    for (bool external : {false, true}) {
+        init_variant_tablet(12630 + external, 1);
+        _tablet_schema->mutable_column_by_uid(1).set_variant_escape_dots_in_keys(true);
+        init_tablet_from_current_schema(12630 + external,
+                                        external ? TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3
+                                                 : TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
+        auto rowset = create_variant_rowset({{R"({"a.b":101,"a":{"b":102}})"}}, 1);
+        std::vector<segment_v2::SegmentSharedPtr> segments;
+        ASSERT_TRUE(std::static_pointer_cast<BetaRowset>(rowset)->load_segments(&segments).ok());
+        auto compatible = _tablet_schema->column(0);
+        auto incompatible = compatible;
+        incompatible.set_variant_escape_dots_in_keys(false);
+        constexpr size_t kThreads = 8;
+        std::atomic<bool> start = false;
+        std::vector<Status> results(kThreads);
+        std::vector<std::thread> workers;
+        for (size_t i = 0; i < kThreads; ++i) {
+            workers.emplace_back([&, i] {
+                SCOPED_INIT_THREAD_CONTEXT();
+                while (!start.load(std::memory_order_acquire)) {
+                    std::this_thread::yield();
+                }
+                OlapReaderStatistics stats;
+                results[i] = segments[0]->check_variant_path_encoding(
+                        i % 2 == 0 ? compatible : incompatible, &stats);
+            });
+        }
+        start.store(true, std::memory_order_release);
+        for (auto& worker : workers) {
+            worker.join();
+        }
+        for (size_t i = 0; i < kThreads; ++i) {
+            if (i % 2 == 0) {
+                EXPECT_TRUE(results[i].ok()) << results[i];
+            } else {
+                EXPECT_TRUE(results[i].is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << results[i];
+            }
+        }
+    }
 }
 
 TEST_F(VariantColumnWriterReaderTest, RollingUpgradeReadRejectsEncodingMismatch) {

@@ -98,6 +98,29 @@ public class SessionVariablesTest extends TestWithFeService {
     }
 
     @Test
+    public void testDerivedVariantEncodingIsForwardedAndPersisted() throws Exception {
+        String variable = SessionVariable.ENABLE_VARIANT_ESCAPE_DOTS_IN_KEYS_FOR_DERIVED_COLUMNS;
+        VarAttrDef.VarAttr attribute = SessionVariable.class
+                .getDeclaredField("enableVariantEscapeDotsInKeysForDerivedColumns")
+                .getAnnotation(VarAttrDef.VarAttr.class);
+        Assertions.assertEquals(variable, attribute.name());
+        Assertions.assertTrue(attribute.needForward());
+        Assertions.assertFalse(attribute.fuzzy());
+        Assertions.assertEquals(0, attribute.flag());
+
+        SessionVariable session = new SessionVariable();
+        Assertions.assertFalse(session.isEnableVariantEscapeDotsInKeysForDerivedColumns());
+        VariableMgr.setVar(session, new SetVar(SetType.SESSION, variable, new StringLiteral("true")));
+        Assertions.assertEquals("true", session.getForwardVariables().get(variable));
+        SessionVariable forwarded = new SessionVariable();
+        forwarded.setForwardedSessionVariables(session.getForwardVariables());
+        Assertions.assertTrue(forwarded.isEnableVariantEscapeDotsInKeysForDerivedColumns());
+        SessionVariable restored = new SessionVariable();
+        restored.readFromJson(session.toJson().toString());
+        Assertions.assertTrue(restored.isEnableVariantEscapeDotsInKeysForDerivedColumns());
+    }
+
+    @Test
     public void testForwardQueryCacheVariables() {
         // A forwarded statement is planned by the master in a fresh
         // ConnectContext that only sees what getForwardVariables() sends, so
