@@ -119,9 +119,14 @@ Status PackedFileSystem::open_file_impl(const Path& file, FileReaderSPtr* reader
     const PackedSliceLocation* packed_location = nullptr;
     if (it != _index_map.end()) {
         packed_location = &it->second;
-    } else if (PackedFileManager::instance()
+    } else if (!_index_map_initialized &&
+               PackedFileManager::instance()
                        ->get_packed_slice_location(file_path, &manager_location)
                        .ok()) {
+        // Write path: the rowset meta is not built yet, so a file of the rowset being written
+        // (e.g. a segment read back for file cache preload) can only be found in the manager.
+        // A rowset opened from its meta has every packed slice in the index map, so a miss
+        // there means a regular file and the manager is not consulted.
         packed_location = &manager_location;
     }
 
