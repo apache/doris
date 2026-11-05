@@ -3177,6 +3177,25 @@ public class Config extends ConfigBase {
             varType = VariableAnnotation.EXPERIMENTAL)
     public static int table_stream_partition_offset_cleanup_interval_second = 3600;
 
+    @ConfField(mutable = true, masterOnly = true, description = "Whether FE keeps the offsets of idle partitions of "
+            + "IVM streams from expiring with changelog.ttl_seconds, by recording that such a partition has no change "
+            + "after its offset. When disabled, no new keep-alive TSO is recorded, and the recorded ones still count.",
+            varType = VariableAnnotation.EXPERIMENTAL)
+    public static boolean enable_ivm_stream_keepalive = true;
+
+    @ConfField(mutable = true, masterOnly = true, description = "The interval at which FE checks the idle partitions "
+            + "of IVM streams for a keep-alive TSO, in seconds. A partition is renewed at the first check after less "
+            + "than half of its base table's changelog.ttl_seconds is left, and not any more once it is written. So "
+            + "the refresh that reads a write to a partition that had been idle is incremental if it starts within "
+            + "half the TTL minus this interval after the write (11 hours 50 minutes with the defaults), a time that "
+            + "shrinks by one interval for each check that could not renew the partition, for example because "
+            + "MetaService was unavailable; a later refresh can fall back to COMPLETE, as it does without the "
+            + "keep-alive. Keep this well under half the shortest changelog.ttl_seconds of the IVM base tables: at "
+            + "half, no time is left. A shorter interval costs more checks, not more edit logs. A change applies "
+            + "within a second.",
+            varType = VariableAnnotation.EXPERIMENTAL)
+    public static int ivm_stream_keepalive_interval_second = 600;
+
     @ConfField(mutable = true, masterOnly = true,
             description = "Maximum number of Cloud Table Stream partitions consumed by one INSERT statement.",
             varType = VariableAnnotation.EXPERIMENTAL)

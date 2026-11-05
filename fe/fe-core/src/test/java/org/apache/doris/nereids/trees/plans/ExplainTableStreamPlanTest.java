@@ -68,6 +68,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.persist.TableStreamCleanupInfo;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
@@ -85,6 +86,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -97,6 +99,8 @@ import java.util.Set;
 public class ExplainTableStreamPlanTest extends TestWithFeService {
 
     private final NereidsParser parser = new NereidsParser();
+    // When the keep-alive fixture recorded its keep-alive TSO, five seconds after it.
+    private long keepAliveFixtureMs;
 
     @Override
     public void runBeforeAll() throws Exception {
@@ -195,6 +199,37 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         createTable("create stream if not exists test_stream.s_dup_ttl"
                 + " on table test_stream.tbl_dup_stream_ttl_offset properties('show_initial_rows' = 'false')");
         bumpPartitionsAndReplicas(duplicateTtlTable, 2002L);
+
+        // The same, with a keep-alive TSO for its partition: idle from the offset, a minute old, up to the
+        // keep-alive TSO, five seconds old, and written two seconds ago.
+        keepAliveFixtureMs = System.currentTimeMillis();
+        long keepAliveOffset = TSOTimestamp.composePhysicalTimestamp(keepAliveFixtureMs - 60_000);
+        createKeepAliveFixture(db, "keepalive", keepAliveOffset, keepAliveOffset);
+        // The same, with the keep-alive TSO taken against an older offset than the one the stream reads from.
+        createKeepAliveFixture(db, "keepalive_other_offset", keepAliveOffset, keepAliveOffset - 1);
+    }
+
+    private void createKeepAliveFixture(Database db, String suffix, long offset, long keepAliveOffset)
+            throws Exception {
+        createTable("create table test_stream.tbl_dup_stream_" + suffix + " (k1 int, k2 int) "
+                + "duplicate key(k1) distributed by hash(k1) buckets 1 properties("
+                + "\"replication_num\"=\"1\",\"changelog.enable\"=\"true\","
+                + "\"changelog.ttl_seconds\"=\"10\")");
+        OlapTable table = (OlapTable) db.getTableOrMetaException("tbl_dup_stream_" + suffix);
+        bumpPartitionsAndReplicas(table, 1001L, offset);
+        createTable("create stream if not exists test_stream.s_dup_" + suffix
+                + " on table test_stream.tbl_dup_stream_" + suffix + " properties('show_initial_rows' = 'false')");
+        OlapTableStream stream = (OlapTableStream) db.getTableOrMetaException("s_dup_" + suffix);
+        Map<Long, Long> keepAliveOffsets = new HashMap<>();
+        table.getPartitionIds().forEach(partitionId -> keepAliveOffsets.put(partitionId, keepAliveOffset));
+        Env.getCurrentEnv().getTableStreamManager().replayTableStreamCleanup(TableStreamCleanupInfo.ofKeepAlive(
+                new TableStreamCleanupInfo.PartitionKeepAliveEntry(db.getId(), stream.getId(), keepAliveOffsets,
+                        keepAliveTso())));
+        bumpPartitionsAndReplicas(table, 2002L, TSOTimestamp.composePhysicalTimestamp(keepAliveFixtureMs - 2_000));
+    }
+
+    private long keepAliveTso() {
+        return TSOTimestamp.composePhysicalTimestamp(keepAliveFixtureMs - 5_000);
     }
 
     private static void bumpPartitionsAndReplicas(OlapTable table, long newVersion) {
@@ -203,13 +238,22 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         }
     }
 
+    private static void bumpPartitionsAndReplicas(OlapTable table, long newVersion, long tso) {
+        for (Partition partition : table.getPartitions()) {
+            bumpPartitionAndReplicas(partition, newVersion, tso);
+        }
+    }
+
     private static void bumpPartitionAndReplicas(Partition partition, long newVersion) {
-        // Use the same timestamp value as both visibleVersionTime and tso to simulate a
-        // transactional commit advancing partition.tso (the dedicated commit-tso field).
+        // Use the current timestamp as tso to simulate a transactional commit advancing
+        // partition.tso (the dedicated commit-tso field).
         // Without populating tso explicitly, non-transactional setters leave it as -1
         // which would make the stream consider the partition fully consumed.
-        long ts = System.currentTimeMillis();
-        partition.setVisibleVersionAndTime(newVersion, ts, ts);
+        bumpPartitionAndReplicas(partition, newVersion, System.currentTimeMillis());
+    }
+
+    private static void bumpPartitionAndReplicas(Partition partition, long newVersion, long tso) {
+        partition.setVisibleVersionAndTime(newVersion, System.currentTimeMillis(), tso);
         partition.setNextVersion(newVersion + 1);
         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
             for (Tablet tablet : index.getTablets()) {
@@ -835,6 +879,47 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         long referenceTso = TSOTimestamp.composePhysicalTimestamp(System.currentTimeMillis());
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 () -> normalizeStreamRead("select * from test_stream.s_dup_ttl", referenceTso,
+                        Optional.of(IvmRewriteContext.incremental(Mockito.mock(MTMV.class)))));
+        Assertions.assertTrue(exception.getMessage().contains(ChangelogUtils.CHANGELOG_OFFSET_EXPIRED),
+                exception.getMessage());
+    }
+
+    @Test
+    public void testKeepAliveTsoAdmitsExpiredOffsetForIvm() {
+        // The offset is past the TTL and the keep-alive TSO is not: the partition holds no change in between, so
+        // the IVM read is not refused, and it reads the changelog after the keep-alive TSO.
+        long referenceTso = TSOTimestamp.composePhysicalTimestamp(keepAliveFixtureMs);
+        Plan plan = normalizeStreamRead("select * from test_stream.s_dup_keepalive", referenceTso,
+                Optional.of(IvmRewriteContext.incremental(Mockito.mock(MTMV.class))));
+
+        Set<LogicalOlapScan> changelogScans = plan.collect(node -> node instanceof LogicalOlapScan
+                && ((LogicalOlapScan) node).getTable() instanceof OlapChangelogTableWrapper);
+        Assertions.assertEquals(1, changelogScans.size());
+        OlapChangelogTableWrapper wrapper = (OlapChangelogTableWrapper) changelogScans.iterator().next().getTable();
+        Assertions.assertFalse(wrapper.getPartitionIds().isEmpty());
+        for (Long partitionId : wrapper.getPartitionIds()) {
+            Assertions.assertEquals(TSOTimestamp.nextTso(keepAliveTso()),
+                    wrapper.getPartitionOffset(partitionId).first);
+        }
+    }
+
+    @Test
+    public void testKeepAliveTsoTakenAgainstAnotherOffsetDoesNotAdmitForIvm() {
+        // A keep-alive TSO taken against another offset says nothing of the changes after this one.
+        long referenceTso = TSOTimestamp.composePhysicalTimestamp(keepAliveFixtureMs);
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> normalizeStreamRead("select * from test_stream.s_dup_keepalive_other_offset", referenceTso,
+                        Optional.of(IvmRewriteContext.incremental(Mockito.mock(MTMV.class)))));
+        Assertions.assertTrue(exception.getMessage().contains(ChangelogUtils.CHANGELOG_OFFSET_EXPIRED),
+                exception.getMessage());
+    }
+
+    @Test
+    public void testExpiredKeepAliveTsoStillRejectsForIvm() {
+        // Once the keep-alive TSO is past the TTL as well, the read is refused as it is without one.
+        long referenceTso = TSOTimestamp.composePhysicalTimestamp(keepAliveFixtureMs + 20_000);
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> normalizeStreamRead("select * from test_stream.s_dup_keepalive", referenceTso,
                         Optional.of(IvmRewriteContext.incremental(Mockito.mock(MTMV.class)))));
         Assertions.assertTrue(exception.getMessage().contains(ChangelogUtils.CHANGELOG_OFFSET_EXPIRED),
                 exception.getMessage());

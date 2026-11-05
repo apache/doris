@@ -19,6 +19,7 @@ package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
@@ -28,7 +29,9 @@ import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.info.TableNameInfoUtils;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
+import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
@@ -56,6 +59,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -305,6 +309,38 @@ public class IvmUtil {
         String base36Hash = new BigInteger(1, qualifiedTableDigest).toString(36);
         return IVM_STREAM_PREFIX + mvId + "_"
                 + Strings.padStart(base36Hash, IVM_STREAM_HASH_BASE36_LENGTH, '0');
+    }
+
+    /**
+     * The IVM streams backing this MV, by the base table each one reads, in the order of the MV's base tables:
+     * one for each base table that is not an excluded trigger table, where the stream exists and belongs to that
+     * table. Empty for a materialized view that is not IVM.
+     */
+    public static Map<BaseTableInfo, BaseTableStream> getIvmStreams(DatabaseIf db, MTMV mv) {
+        Map<BaseTableInfo, BaseTableStream> streams = new LinkedHashMap<>();
+        if (!mv.isIvm()) {
+            return streams;
+        }
+        MTMVRelation relation = mv.getRelation();
+        Set<BaseTableInfo> baseTables = relation == null ? null : relation.getBaseTables();
+        if (baseTables == null || baseTables.isEmpty()) {
+            return streams;
+        }
+        Set<TableNameInfo> excluded = mv.getExcludedTriggerTables();
+        for (BaseTableInfo baseTableInfo : baseTables) {
+            if (excluded != null && MTMVPartitionUtil.isTableExcluded(excluded,
+                    new TableNameInfo(baseTableInfo.getCtlName(),
+                            baseTableInfo.getDbName(), baseTableInfo.getTableName()))) {
+                continue;
+            }
+            List<String> qualifiers = baseTableInfo.toList();
+            TableIf streamTable = db.getTableNullable(streamName(mv.getId(), qualifiers));
+            if (streamTable instanceof BaseTableStream
+                    && isStreamOwnedBy((BaseTableStream) streamTable, qualifiers)) {
+                streams.put(baseTableInfo, (BaseTableStream) streamTable);
+            }
+        }
+        return streams;
     }
 
     public static boolean isStreamOwnedBy(BaseTableStream stream, List<String> expectedBaseTableFullQualifiers) {

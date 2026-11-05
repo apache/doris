@@ -38,6 +38,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class TableStreamOffsetTransactionTest extends TestWithFeService {
 
@@ -92,8 +93,10 @@ public class TableStreamOffsetTransactionTest extends TestWithFeService {
         }
         // committed offset must be advanced to the historical TSO snapshot captured at creation
         Map<Long, Long> expectedPartitionOffset = new HashMap<>(historicalPartitionTSO);
-        Deencapsulation.setField(stream, "historicalPartitionTSO", historicalPartitionTSO);
-        Deencapsulation.setField(stream, "partitionOffset", new HashMap<Long, Long>());
+        Map<Long, OlapTableStream.PartitionStreamState> partitionStates = new ConcurrentHashMap<>();
+        historicalPartitionTSO.forEach((partitionId, tso) ->
+                partitionStates.put(partitionId, new OlapTableStream.PartitionStreamState(null, -1L, tso, null)));
+        Deencapsulation.setField(stream, "partitionStates", partitionStates);
 
         // historical consume: prev is the historical TSO snapshot encoded as negative
         // (see StreamConsumptionInfoExtractor), next points to the historical TSO snapshot
@@ -120,14 +123,14 @@ public class TableStreamOffsetTransactionTest extends TestWithFeService {
         long commitTime = System.currentTimeMillis();
         Deencapsulation.invoke(dbTxnMgr, "updateStreamOffset", transactionState, commitTime);
 
-        Map<Long, Long> updatedHistoricalPartitionTSO = Deencapsulation.getField(stream, "historicalPartitionTSO");
-        Map<Long, Long> updatedPartitionOffset = Deencapsulation.getField(stream, "partitionOffset");
-        Map<Long, Long> partitionConsumptionTime = Deencapsulation.getField(stream, "partitionConsumptionTime");
+        Map<Long, OlapTableStream.PartitionStreamState> updatedPartitionStates =
+                Deencapsulation.getField(stream, "partitionStates");
 
         for (Long pid : partitionIds) {
-            Assertions.assertFalse(updatedHistoricalPartitionTSO.containsKey(pid));
-            Assertions.assertEquals(expectedPartitionOffset.get(pid), updatedPartitionOffset.get(pid));
-            Assertions.assertEquals(commitTime, partitionConsumptionTime.get(pid));
+            OlapTableStream.PartitionStreamState state = updatedPartitionStates.get(pid);
+            Assertions.assertNull(state.getHistoricalTso());
+            Assertions.assertEquals(expectedPartitionOffset.get(pid), state.getOffset());
+            Assertions.assertEquals(commitTime, state.getConsumptionTime());
         }
     }
 

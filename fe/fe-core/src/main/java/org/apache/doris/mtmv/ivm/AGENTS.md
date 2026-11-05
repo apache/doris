@@ -103,7 +103,8 @@ Stream-based changelog capture is implemented for IVM incremental refresh:
 
 - Delta scans use `LogicalOlapTableStreamScan` with `isIncrementalScan=true`.
 - `IvmDeltaRewriteHelper.isIncrementalDeltaScan()` identifies delta scans.
-- Consumption positions are managed by `OlapTableStream` per-partition offsets (`partitionOffset`).
+- Consumption positions are managed by `OlapTableStream` per-partition offsets (the `offset` of each
+  `PartitionStreamState` in `partitionStates`).
 - On `CREATE MTMV ... REFRESH INCREMENTAL`, an internal stream
   `__doris_ivm_{mvId}_{baseTableName}` is auto-created for each base table.
 - `IvmDeltaRewriter` recursively builds one merged delta relation. `IvmDeltaRewriteState`
