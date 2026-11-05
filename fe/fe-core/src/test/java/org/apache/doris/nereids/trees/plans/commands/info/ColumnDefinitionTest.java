@@ -107,9 +107,10 @@ public class ColumnDefinitionTest {
 
     @Test
     public void testZonedExternalDefaultsRetainCivilPrecisionUntilZoneBinding() {
-        String[] values = {"20240102030405", "2024-01-02 03:04:05.123999",
+        String[] values = {"20240102030405", "20240102030405.123456", "2024-01-02 03:04:05.123999",
                 "2024-01-02 03:04:05.123999+08:00"};
-        String[] expected = {"2024-01-02 03:04:05", "2024-01-02 03:04:05.123999",
+        String[] expected = {"2024-01-02 03:04:05.000000", "2024-01-02 03:04:05.123456",
+                "2024-01-02 03:04:05.123999",
                 "2024-01-01 19:04:05.124+00:00"};
         for (int i = 0; i < values.length; i++) {
             ColumnDefinition column = new ColumnDefinition("ts", TimeStampTzType.of(3),

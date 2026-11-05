@@ -29,8 +29,10 @@ session's time zone, and the persisted default retains that instant when
 read or written in another time zone.
 Zoned defaults are rounded to the requested precision after resolving the
 instant, so explicit and implicit forms of the same time zone agree at DST
-boundaries. Resolved UTC values outside years 0000 through 9999 are rejected
-before the schema update is staged.
+boundaries. DATETIME defaults and resolved UTC TIMESTAMPTZ defaults must fit
+years 0001 through 9999 so both historical defaults and newly written physical
+timestamps can be read. Out-of-range final values are rejected before the
+schema update is staged.
 Decimal defaults are exactly rescaled to the declared scale. SQL string escapes
 follow the DDL session's SQL mode, and compact UUID constants are canonicalized.
 Non-finite FLOAT and DOUBLE defaults are rejected before metadata publication

@@ -177,16 +177,18 @@ public class IcebergAddColumnDefaultsPersistenceTest {
     public void zonedDefaultsCheckFinalUtcBoundsBeforeEveryAddPath() {
         ConnectorType type = ConnectorType.of("TIMESTAMPTZ", 6, 0);
         metadata.addColumns(session("UTC"), HANDLE, Arrays.asList(
-                column("minimum", type, "0000-01-01 00:00:00"),
+                column("minimum", type, "0001-01-01 00:00:00"),
                 column("maximum", type, "9999-12-31 23:59:59.999999")));
-        assertDefaults("minimum", -62167219200000000L);
+        assertDefaults("minimum", -62135596800000000L);
         assertDefaults("maximum", 253402300799999999L);
         String before = SchemaParser.toJson(reload());
-        String[] zones = {"-08:00", "+08:00", "UTC"};
-        String[] values = {"9999-12-31 23:59:59", "0000-01-01 00:00:00", "9999-12-31 23:59:59.6"};
+        String[] zones = {"-08:00", "+08:00", "UTC", "+08:00", "UTC", "UTC"};
+        String[] values = {"9999-12-31 23:59:59", "0000-01-01 00:00:00", "9999-12-31 23:59:59.6",
+                "0000-03-01 00:00:00", "0000-02-28 23:59:59.6", "0000-12-31 23:59:59.999999"};
+        int[] precisions = {6, 6, 0, 6, 0, 6};
         for (int i = 0; i < values.length; i++) {
             ConnectorSession session = session(zones[i]);
-            ConnectorColumn invalid = column("invalid", ConnectorType.of("TIMESTAMPTZ", i == 2 ? 0 : 6, 0),
+            ConnectorColumn invalid = column("invalid", ConnectorType.of("TIMESTAMPTZ", precisions[i], 0),
                     values[i]);
             IllegalArgumentException error = Assertions.assertThrows(IllegalArgumentException.class,
                     () -> metadata.addColumn(session, HANDLE, invalid, null));
@@ -194,6 +196,28 @@ public class IcebergAddColumnDefaultsPersistenceTest {
             Assertions.assertThrows(IllegalArgumentException.class,
                     () -> metadata.addNestedColumn(session, HANDLE, nested("invalid"), invalid, null));
             Assertions.assertThrows(IllegalArgumentException.class, () -> metadata.addColumns(session, HANDLE,
+                    Arrays.asList(column("valid", ConnectorType.of("INT"), "1"), invalid)));
+            Assertions.assertEquals(before, SchemaParser.toJson(reload()));
+        }
+    }
+
+    @Test
+    public void civilTimestampDefaultsCheckPhysicalReadBoundsBeforeEveryAddPath() {
+        ConnectorType type = ConnectorType.of("DATETIMEV2", 6, 0);
+        metadata.addColumns(session("UTC"), HANDLE, Arrays.asList(
+                column("minimum", type, "0001-01-01 00:00:00"),
+                column("maximum", type, "9999-12-31 23:59:59.999999")));
+        assertDefaults("minimum", -62135596800000000L);
+        assertDefaults("maximum", 253402300799999999L);
+        String before = SchemaParser.toJson(reload());
+        for (String value : Arrays.asList("0000-03-01 00:00:00", "0000-12-31 23:59:59.999999")) {
+            ConnectorColumn invalid = column("invalid", type, value);
+            IllegalArgumentException error = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> metadata.addColumn(null, HANDLE, invalid, null));
+            Assertions.assertTrue(error.getMessage().contains("supported range 0001-9999"), error.getMessage());
+            Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> metadata.addNestedColumn(null, HANDLE, nested("invalid"), invalid, null));
+            Assertions.assertThrows(IllegalArgumentException.class, () -> metadata.addColumns(null, HANDLE,
                     Arrays.asList(column("valid", ConnectorType.of("INT"), "1"), invalid)));
             Assertions.assertEquals(before, SchemaParser.toJson(reload()));
         }
