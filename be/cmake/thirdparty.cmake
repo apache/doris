@@ -189,10 +189,8 @@ if (OS_MACOSX)
     add_thirdparty(intl)
 endif()
 
-# Only used on x86 or x86_64
-if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")
-    add_thirdparty(deflate)
-endif()
+# The pinned ORC decoder uses libdeflate on ARM too; omitting it leaves unresolved decoder symbols.
+add_thirdparty(deflate)
 
 add_thirdparty(icuuc LIB64)
 add_thirdparty(icui18n LIB64)

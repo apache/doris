@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.es.EsFieldContext;
 import org.apache.doris.datasource.es.EsMetaStateTracker;
 import org.apache.doris.datasource.es.EsRestClient;
 import org.apache.doris.datasource.es.EsTablePartitions;
@@ -162,6 +163,11 @@ public class EsTable extends Table implements GsonPostProcessable {
     public List<String> needCompatDateFields() throws UserException {
         initEsMetaStateTracker();
         return esMetaStateTracker.searchContext().needCompatDateFields();
+    }
+
+    public EsFieldContext fieldContext() throws UserException {
+        initEsMetaStateTracker();
+        return esMetaStateTracker.searchContext().fieldContext();
     }
 
     private void initEsMetaStateTracker() {

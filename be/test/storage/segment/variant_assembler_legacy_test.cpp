@@ -160,6 +160,19 @@ std::unique_ptr<VariantAssembler> create_assembler(VariantAssemblerOptions optio
     return std::move(result).value();
 }
 
+void expect_assembled_rows(VariantAssembler& assembler, const VariantAssemblerBatchView& batch,
+                           const std::vector<std::string_view>& expected,
+                           const std::vector<uint8_t>& outer_nulls = {}) {
+    ColumnNullable::MutablePtr output;
+    const Status status = assembler.assemble(batch, &output);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(output->size(), expected.size());
+    for (size_t row = 0; row < expected.size(); ++row) {
+        EXPECT_EQ(json_at(assembled_values(output), row), expected[row]) << "row=" << row;
+        EXPECT_EQ(output->get_null_map_data()[row], outer_nulls.empty() ? 0 : outer_nulls[row]);
+    }
+}
+
 Status assemble_binary_cells(std::span<const StringRef> cells, ColumnNullable::MutablePtr* output,
                              std::span<const uint8_t> outer_nulls = {},
                              std::span<const uint8_t> missing = {}) {
@@ -817,6 +830,251 @@ TEST(VariantAssemblerLegacyTest, MaterializedArraysPreserveExplicitValues) {
                 << "row=" << row;
     }
     EXPECT_EQ(subtree_output->get_null_map_data(), (PaddedPODArray<uint8_t> {1, 0, 0, 0, 0, 0, 1}));
+}
+
+TEST(VariantAssemblerLegacyTest, MaterializedVisibilityMatrix) {
+    auto check = [](const DataTypePtr& type, const IColumn* column, const PathInData& path,
+                    const PathInData& requested, const std::vector<std::string_view>& expected,
+                    const std::vector<uint8_t>& outer_nulls = {}) {
+        auto absent_type = make_nullable(std::make_shared<DataTypeInt32>());
+        auto absent = ColumnNullable::create(ColumnInt32::create(column->size(), 0),
+                                             ColumnUInt8::create(column->size(), 255));
+        for (size_t padding : {0, 8}) {
+            VariantAssemblerOptions options;
+            options.requested_path = requested;
+            options.materialized_paths = {{.path = path, .type = type}};
+            DorisVector<const IColumn*> materialized {column};
+            for (size_t index = 0; index < padding; ++index) {
+                const std::string prefix = requested.empty() ? "" : requested.get_path() + ".";
+                options.materialized_paths.push_back(
+                        {.path = PathInData(prefix + "absent" + std::to_string(index)),
+                         .type = absent_type});
+                materialized.push_back(absent.get());
+            }
+            auto assembler = create_assembler(std::move(options));
+            VariantAssemblerBatchView batch;
+            batch.num_rows = column->size();
+            batch.materialized_columns = materialized;
+            expect_assembled_rows(*assembler, batch, expected, outer_nulls);
+        }
+    };
+
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto defaults = ColumnInt32::create(3, 0);
+    check(int_type, defaults.get(), PathInData("a"), {},
+          {R"({"a":0})", R"({"a":0})", R"({"a":0})"});
+    auto nulls = ColumnUInt8::create();
+    for (uint8_t value : {0, 1, 255}) {
+        nulls->insert_value(value);
+    }
+    auto nullable = ColumnNullable::create(std::move(defaults), std::move(nulls));
+    for (bool typed : {false, true}) {
+        check(make_nullable(int_type), nullable.get(), PathInData("a", typed), {},
+              {R"({"a":0})", "{}", "{}"});
+    }
+
+    auto jsonb = ColumnString::create();
+    for (std::string_view text : {"null", "{}", "[]"}) {
+        auto value = jsonb_column(text);
+        jsonb->insert_range_from(*value, 0, 1);
+    }
+    check(std::make_shared<DataTypeJsonb>(), jsonb.get(), PathInData("a"), {},
+          {R"({"a":null})", R"({"a":{}})", R"({"a":[]})"});
+
+    auto elements = ColumnString::create();
+    elements->insert_default();
+    auto empty_array = jsonb_column("[]");
+    elements->insert_range_from(*empty_array, 0, 1);
+    auto element_nulls = ColumnUInt8::create();
+    element_nulls->insert_value(1);
+    element_nulls->insert_value(0);
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    auto array_nulls = ColumnUInt8::create();
+    for (uint8_t value : {1, 0, 0, 0, 255}) {
+        array_nulls->insert_value(value);
+    }
+    for (size_t offset : {0, 0, 1, 2, 2}) {
+        offsets->insert_value(offset);
+    }
+    auto arrays = ColumnNullable::create(
+            ColumnArray::create(
+                    ColumnNullable::create(std::move(elements), std::move(element_nulls)),
+                    std::move(offsets)),
+            std::move(array_nulls));
+    auto array_type = make_nullable(
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeJsonb>())));
+    check(array_type, arrays.get(), PathInData("a"), {},
+          {"{}", "{}", R"({"a":[null]})", R"({"a":[[]]})", "{}"});
+    check(array_type, arrays.get(), {}, {}, {"{}", "[]", "[null]", "[[]]", "{}"});
+    check(array_type, arrays.get(), PathInData("a"), PathInData("a"),
+          {"null", "null", "[null]", "[[]]", "null"}, {1, 1, 0, 0, 1});
+}
+
+TEST(VariantAssemblerLegacyTest, MaterializedSparseMergeKeepsTiesAndPrefixOrdering) {
+    struct Case {
+        std::string_view path;
+        std::vector<std::pair<std::string, int32_t>> sparse;
+        std::string_view expected;
+    };
+    const std::vector<Case> cases {
+            {.path = "a", .sparse = {{"a", 20}}, .expected = ""},
+            {.path = "a",
+             .sparse = {{"a-", 20}, {"a.b", 30}},
+             .expected = R"({"a":{"b":30},"a-":20})"},
+            {.path = "a.b",
+             .sparse = {{"a", 20}, {"a-", 30}},
+             .expected = R"({"a":{"b":10},"a-":30})"},
+            {.path = "a-",
+             .sparse = {{"a", 20}, {"a.b", 30}},
+             .expected = R"({"a":{"b":30},"a-":10})"},
+            {.path = "a",
+             .sparse = {{"a", 20}, {"a-", 30}, {"a.b", 40}},
+             .expected = R"({"a":{"b":40},"a-":30})"},
+    };
+    auto check = [](const Status& status, const ColumnNullable::MutablePtr& output,
+                    std::string_view expected) {
+        if (expected.empty()) {
+            EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
+            EXPECT_NE(status.to_string().find("Variant object value must be preceded by add_key"),
+                      std::string::npos);
+            EXPECT_EQ(output.get(), nullptr);
+            return;
+        }
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_EQ(json_at(assembled_values(output), 0), expected);
+    };
+    for (const auto& test : cases) {
+        SCOPED_TRACE(test.path);
+        MapEntries entries;
+        for (const auto& [path, value] : test.sparse) {
+            entries.emplace_back(
+                    path, fixed_storage_cell<int32_t>(FieldType::OLAP_FIELD_TYPE_INT, value));
+        }
+        auto sparse = map_column(entries);
+        for (size_t padding : {0, 8}) {
+            VariantAssemblerOptions options;
+            options.materialized_paths = {
+                    {.path = PathInData(test.path), .type = std::make_shared<DataTypeInt32>()}};
+            options.storage_map_kind = StorageMapKind::SPARSE;
+            auto values = ColumnInt32::create(1, 10);
+            auto absent =
+                    ColumnNullable::create(ColumnInt32::create(1, 0), ColumnUInt8::create(1, 255));
+            DorisVector<const IColumn*> materialized {values.get()};
+            for (size_t index = 0; index < padding; ++index) {
+                options.materialized_paths.push_back(
+                        {.path = PathInData("absent" + std::to_string(index)),
+                         .type = make_nullable(std::make_shared<DataTypeInt32>())});
+                materialized.push_back(absent.get());
+            }
+            auto assembler = create_assembler(std::move(options));
+            VariantAssemblerBatchView batch;
+            batch.num_rows = 1;
+            batch.materialized_columns = materialized;
+            batch.storage_map = sparse.get();
+            ColumnNullable::MutablePtr output;
+            const Status status = assembler->assemble(batch, &output);
+            check(status, output, test.expected);
+        }
+    }
+}
+
+TEST(VariantAssemblerLegacyTest, MixedDocRowsPreserveMaterializedAndRootPrecedence) {
+    auto root_value = jsonb_column(R"({"root":1})");
+    auto roots = ColumnString::create();
+    for (size_t row = 0; row < 4; ++row) {
+        roots->insert_range_from(*root_value, 0, 1);
+    }
+    auto root_nulls = ColumnUInt8::create(4, 0);
+    root_nulls->get_data()[3] = 1;
+    auto root = ColumnNullable::create(std::move(roots), std::move(root_nulls));
+    auto nulls = ColumnUInt8::create(4, 0);
+    nulls->get_data()[2] = 255;
+    auto values = ColumnNullable::create(ColumnInt32::create(4, 10), std::move(nulls));
+    auto array_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>());
+    auto empty_arrays = array_type->create_column();
+    empty_arrays->insert_many_defaults(4);
+    auto absent = ColumnNullable::create(ColumnInt32::create(4, 0), ColumnUInt8::create(4, 255));
+    const auto cell = fixed_storage_cell<int32_t>(FieldType::OLAP_FIELD_TYPE_INT, 20);
+    auto doc = map_column_rows({{{"d", cell}}, {}, {}, {{"d", cell}}});
+    for (size_t padding : {0, 8}) {
+        for (bool subtree : {false, true}) {
+            VariantAssemblerOptions options;
+            options.storage_map_kind = StorageMapKind::DOC;
+            options.has_root = !subtree;
+            options.requested_path = subtree ? PathInData("a") : PathInData();
+            options.materialized_paths = {
+                    {.path = PathInData("a"),
+                     .type = make_nullable(std::make_shared<DataTypeInt32>())},
+                    {.path = PathInData("a.empty"), .type = array_type}};
+            DorisVector<const IColumn*> materialized {values.get(), empty_arrays.get()};
+            for (size_t index = 0; index < padding; ++index) {
+                options.materialized_paths.push_back(
+                        {.path = PathInData("a.absent" + std::to_string(index)),
+                         .type = make_nullable(std::make_shared<DataTypeInt32>())});
+                materialized.push_back(absent.get());
+            }
+            auto assembler = create_assembler(std::move(options));
+            VariantAssemblerBatchView batch;
+            batch.num_rows = 4;
+            batch.root_jsonb = subtree ? nullptr : root.get();
+            batch.materialized_columns = materialized;
+            batch.storage_map = doc.get();
+            if (subtree) {
+                expect_assembled_rows(*assembler, batch, {"null", "10", "null", "null"},
+                                      {1, 0, 1, 1});
+            } else {
+                expect_assembled_rows(*assembler, batch,
+                                      {R"({"d":20})", R"({"a":10})", R"({"root":1})", "null"},
+                                      {0, 0, 0, 1});
+            }
+        }
+    }
+}
+
+TEST(VariantAssemblerLegacyTest, VisibleSlotsResetAcrossBatchBoundaries) {
+    auto type = make_nullable(std::make_shared<DataTypeInt32>());
+    VariantAssemblerOptions options;
+    options.materialized_paths = {{.path = PathInData("z"), .type = type},
+                                  {.path = PathInData("a"), .type = type}};
+    auto assembler = create_assembler(std::move(options));
+    VariantAssemblerOptions empty_options;
+    empty_options.storage_map_kind = StorageMapKind::SPARSE;
+    auto empty_assembler = create_assembler(std::move(empty_options));
+    for (size_t rows : {15, 16, 17, 33, 0}) {
+        for (size_t pattern = 0; pattern < 3; ++pattern) {
+            std::array<ColumnNullable::MutablePtr, 2> columns;
+            std::array<const IColumn*, 2> materialized;
+            for (size_t slot = 0; slot < columns.size(); ++slot) {
+                auto nulls = ColumnUInt8::create();
+                for (size_t row = 0; row < rows; ++row) {
+                    constexpr std::array<uint8_t, 8> NULL_BYTES {0, 1, 255, 1, 255, 1, 255, 1};
+                    nulls->insert_value(
+                            NULL_BYTES[pattern == 1 ? (row + slot) % NULL_BYTES.size() : pattern]);
+                }
+                columns[slot] =
+                        ColumnNullable::create(ColumnInt32::create(rows, 0), std::move(nulls));
+                materialized[slot] = columns[slot].get();
+            }
+            VariantAssemblerBatchView batch;
+            batch.num_rows = rows;
+            batch.materialized_columns = materialized;
+            constexpr std::array<std::string_view, 4> EXPECTED_JSON {
+                    "{}", R"({"a":0})", R"({"z":0})", R"({"a":0,"z":0})"};
+            std::vector<std::string_view> expected;
+            for (size_t row = 0; row < rows; ++row) {
+                const bool a = columns[1]->get_null_map_data()[row] == 0;
+                const bool z = columns[0]->get_null_map_data()[row] == 0;
+                expected.push_back(EXPECTED_JSON[a + 2 * z]);
+            }
+            expect_assembled_rows(*assembler, batch, expected);
+        }
+        auto empty_map = map_column_rows(std::vector<MapEntries>(rows));
+        VariantAssemblerBatchView empty_batch;
+        empty_batch.num_rows = rows;
+        empty_batch.storage_map = empty_map.get();
+        expect_assembled_rows(*empty_assembler, empty_batch,
+                              std::vector<std::string_view>(rows, "{}"));
+    }
 }
 
 TEST(VariantAssemblerLegacyTest, HierarchicalMaterializedLegacyDateTimeAndDecimalV2) {

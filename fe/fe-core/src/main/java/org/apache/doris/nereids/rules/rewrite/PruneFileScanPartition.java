@@ -125,9 +125,10 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
         for (String name : prunedPartitions) {
             selectedPartitionItems.put(name, partitionItems.get(name));
         }
-        return new SelectedPartitions(
-                connectorFilteredPartitions ? SelectedPartitions.UNKNOWN_TOTAL_PARTITION_NUM : partitionItems.size(),
-                selectedPartitionItems, true, connectorFilteredPartitions || result.hasPartitionPredicate);
+        boolean hasPartitionPredicate = connectorFilteredPartitions || result.hasPartitionPredicate
+                || scan.getSelectedPartitions().hasPartitionPredicate;
+        return new SelectedPartitions(partitionView.totalPartitionNum, selectedPartitionItems, true,
+                hasPartitionPredicate);
     }
 
     static List<Column> getPartitionColumnsForScan(ExternalTable externalTable, LogicalFileScan scan) {

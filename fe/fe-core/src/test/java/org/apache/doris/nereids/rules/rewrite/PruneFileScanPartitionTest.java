@@ -58,6 +58,41 @@ import java.util.Optional;
 
 public class PruneFileScanPartitionTest {
     @Test
+    public void testRepruningPreservesPartitionPredicateAndOriginalTotal() throws Exception {
+        for (long totalPartitionNum : Arrays.asList(5L, SelectedPartitions.UNKNOWN_TOTAL_PARTITION_NUM)) {
+            SelectedPartitions view = new SelectedPartitions(totalPartitionNum, ImmutableMap.of(
+                    "p=1", integerPartition("1"), "p=2", integerPartition("2")), true, true);
+            HMSExternalTable table = partitionedHiveTable(view);
+            StatementContext statement = statementContext();
+            try (MockedStatic<ConnectContext> current = Mockito.mockStatic(ConnectContext.class);
+                    MockedStatic<SortedPartitionRanges> ranges =
+                            Mockito.mockStatic(SortedPartitionRanges.class, Mockito.CALLS_REAL_METHODS)) {
+                current.when(ConnectContext::get).thenReturn(statement.getConnectContext());
+                LogicalFileScan scan = hiveScan(table, 1).withPartitionPruned(false);
+                SelectedPartitions dataOnlyResult = pruneFilter(new LogicalFilter<>(Collections.singleton(
+                        new GreaterThan(scan.getOutput().get(1), new IntegerLiteral(0))), scan), statement);
+
+                Assertions.assertEquals(view.selectedPartitions, dataOnlyResult.selectedPartitions);
+                Assertions.assertEquals(totalPartitionNum, dataOnlyResult.totalPartitionNum);
+                Assertions.assertTrue(dataOnlyResult.hasPartitionPredicate);
+                ranges.verifyNoInteractions();
+
+                LogicalFileScan reprunedScan = scan.withSelectedPartitions(dataOnlyResult).withPartitionPruned(false);
+                SelectedPartitions partitionResult = pruneFilter(new LogicalFilter<>(Collections.singleton(
+                        new EqualTo(reprunedScan.getOutput().get(0), new IntegerLiteral(1))), reprunedScan), statement);
+
+                Assertions.assertEquals(Collections.singleton("p=1"), partitionResult.selectedPartitions.keySet());
+                Assertions.assertEquals(totalPartitionNum, partitionResult.totalPartitionNum);
+                Assertions.assertTrue(partitionResult.hasPartitionPredicate);
+                ranges.verify(() -> SortedPartitionRanges.build(Mockito.anyMap()), Mockito.times(1));
+                Mockito.verify(table, Mockito.never()).getNameToPartitionItemsByFilter(Mockito.any(), Mockito.any());
+                Mockito.verify(table, Mockito.never()).preloadPartitionView(Mockito.any());
+                Mockito.verify(table, Mockito.never()).getSortedPartitionRanges(Mockito.any());
+            }
+        }
+    }
+
+    @Test
     public void testDataOnlyPredicateDoesNotBuildSortedRanges() throws Exception {
         SelectedPartitions view = new SelectedPartitions(2, ImmutableMap.of(
                 "p=1", integerPartition("1"), "p=2", integerPartition("2")), false);

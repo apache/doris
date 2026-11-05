@@ -274,6 +274,8 @@ DEFINE_mInt32(report_task_interval_seconds, "10");
 DEFINE_mInt32(report_disk_state_interval_seconds, "30");
 // the interval time(seconds) for agent report olap table to FE
 DEFINE_mInt32(report_tablet_interval_seconds, "60");
+DEFINE_mInt32(report_active_tablet_max_num, "5000");
+DEFINE_mInt32(report_active_tablet_window_second, "3600");
 // the max download speed(KB/s)
 DEFINE_mInt32(max_download_speed_kbps, "50000");
 // download low speed limit(KB/s)
@@ -630,6 +632,14 @@ DEFINE_String(ssl_private_key_path, "");
 DEFINE_Bool(enable_all_http_auth, "false");
 // Number of webserver workers
 DEFINE_Int32(webserver_num_workers, "128");
+
+// Async replies: stream load only now
+// reply wait timeout only happens if:
+// 1. Stream load fragment execution times out
+//    HTTP request freed → stream load canceled
+// 2. Client disconnects
+DEFINE_mInt32(async_reply_timeout_s, "60");
+DEFINE_Validator(async_reply_timeout_s, [](const int config) -> bool { return config >= 3; });
 
 DEFINE_Bool(enable_single_replica_load, "true");
 // Number of download workers for single replica load

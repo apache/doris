@@ -17,6 +17,8 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.Queriable;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -25,12 +27,27 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.SinglePartitionInfo;
+import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.planner.Planner;
+import org.apache.doris.thrift.TAccessPathType;
+import org.apache.doris.thrift.TColumnAccessPath;
+import org.apache.doris.thrift.TDataAccessPath;
+import org.apache.doris.thrift.TDescriptorTable;
+import org.apache.doris.thrift.TPrimitiveType;
+import org.apache.doris.thrift.TQueryOptions;
+import org.apache.doris.thrift.TScalarType;
+import org.apache.doris.thrift.TSlotDescriptor;
 import org.apache.doris.thrift.TStorageType;
+import org.apache.doris.thrift.TTypeDesc;
+import org.apache.doris.thrift.TTypeNode;
+import org.apache.doris.thrift.TTypeNodeType;
 
+import org.apache.thrift.TException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
@@ -105,4 +122,70 @@ public class ShortCircuitQueryContextTest {
         Assertions.assertFalse(context.isReusable(connectContext(-1)));
     }
 
+    @Test
+    public void testEffectiveRoutingOptionsAreCapturedBeforePublication() throws Exception {
+        // Planner query options may have been created before preprocessing applied SET_VAR.
+        TQueryOptions options = new TQueryOptions().setEnablePruneNestedColumn(false);
+        SessionVariable effective = new SessionVariable();
+        effective.enablePruneNestedColumns = true;
+        ShortCircuitQueryContext context = plannedContext(options, effective);
+        ConnectContext connection = connectContext(-1);
+        Assertions.assertTrue(context.isReusable(connection));
+        // Simulate SET_VAR rollback before ExecuteCommand publishes this already-built context.
+        connection.getSessionVariable().enablePruneNestedColumns = false;
+        effective.enablePruneNestedColumns = false;
+        Assertions.assertFalse(context.isReusable(connection));
+        connection.getSessionVariable().enablePruneNestedColumns = true;
+        Assertions.assertTrue(context.isReusable(connection));
+        Assertions.assertTrue(connection.getSessionVariable().setVarOnce(
+                SessionVariable.ENABLE_SHORT_CIRCUIT_QUERY, "false"));
+        Assertions.assertFalse(context.isReusable(connection));
+    }
+
+    @Test
+    public void testValidateActualSerializedDescriptor() throws Exception {
+        TTypeNode type = new TTypeNode().setType(TTypeNodeType.SCALAR)
+                .setScalarType(new TScalarType().setType(TPrimitiveType.INT));
+        TSlotDescriptor slot = new TSlotDescriptor().setSlotType(
+                new TTypeDesc().setTypes(Collections.singletonList(type)));
+        TDescriptorTable descriptors = new TDescriptorTable()
+                .setSlotDescriptors(Collections.singletonList(slot));
+        ShortCircuitQueryContext.validateDescriptors(descriptors);
+        TColumnAccessPath path = new TColumnAccessPath(TAccessPathType.DATA)
+                .setDataAccessPath(new TDataAccessPath(Collections.singletonList("k")));
+        slot.setAllAccessPaths(Collections.singletonList(path));
+        Assertions.assertThrows(TException.class, () -> ShortCircuitQueryContext.validateDescriptors(descriptors));
+        slot.setAllAccessPaths(Collections.emptyList());
+        slot.setPredicateAccessPaths(Collections.singletonList(path));
+        Assertions.assertThrows(TException.class, () -> ShortCircuitQueryContext.validateDescriptors(descriptors));
+        slot.setPredicateAccessPaths(Collections.emptyList());
+        slot.setColumnPaths(Collections.singletonList("leaf"));
+        Assertions.assertThrows(TException.class, () -> ShortCircuitQueryContext.validateDescriptors(descriptors));
+        slot.setColumnPaths(Collections.emptyList());
+        type.setType(TTypeNodeType.STRUCT);
+        Assertions.assertThrows(TException.class, () -> ShortCircuitQueryContext.validateDescriptors(descriptors));
+        type.setType(TTypeNodeType.SCALAR).getScalarType().setType(TPrimitiveType.VARIANT);
+        Assertions.assertThrows(TException.class, () -> ShortCircuitQueryContext.validateDescriptors(descriptors));
+        type.getScalarType().setType(TPrimitiveType.INT);
+        TSlotDescriptor auxiliary = slot.deepCopy().setId(1).setParent(1);
+        auxiliary.getSlotType().getTypes().get(0).setType(TTypeNodeType.STRUCT);
+        descriptors.setSlotDescriptors(Arrays.asList(slot, auxiliary));
+        ShortCircuitQueryContext.validateDescriptors(descriptors);
+        auxiliary.setParent(0);
+        Assertions.assertThrows(TException.class, () -> ShortCircuitQueryContext.validateDescriptors(descriptors));
+    }
+
+    private ShortCircuitQueryContext plannedContext(TQueryOptions options, SessionVariable effective) throws Exception {
+        Planner planner = Mockito.mock(Planner.class);
+        Mockito.when(planner.getQueryOptions()).thenReturn(options);
+        DescriptorTable descriptors = new DescriptorTable();
+        descriptors.createTupleDescriptor();
+        Mockito.when(planner.getDescTable()).thenReturn(descriptors);
+        OlapScanNode scan = Mockito.mock(OlapScanNode.class);
+        OlapTable olapTable = table("tbl", 10);
+        Mockito.when(scan.getOlapTable()).thenReturn(olapTable);
+        Mockito.when(scan.getTableNameInPlan()).thenReturn("tbl");
+        Mockito.when(planner.getScanNodes()).thenReturn(Collections.singletonList(scan));
+        return new ShortCircuitQueryContext(planner, Mockito.mock(Queriable.class), effective);
+    }
 }

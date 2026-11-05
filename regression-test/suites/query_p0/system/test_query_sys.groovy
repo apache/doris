@@ -57,6 +57,27 @@ suite("test_query_sys", "query,p0") {
         exception "No Alive backends"
     }
 
+    test {
+        sql "select random(random());"
+        exception "The param of rand function must be constant"
+    }
+
+    sql "DROP TABLE IF EXISTS test_random"
+    sql """
+        CREATE TABLE `test_random` (
+        fcst_emp varchar(128) NOT NULL
+        ) ENGINE=OLAP
+        DISTRIBUTED BY HASH(`fcst_emp`)
+        PROPERTIES(
+        "replication_num" = "1",
+        "compression" = "LZ4" );
+    """
+    sql """ insert into test_random values('123,1233,4123,3131'); """
+    test {
+        sql "select random(1,array_size(split_by_string(fcst_emp,','))) from test_random;"
+        exception "The param of rand function must be constant"
+    }
+
     // `workload_group_resource_usage` will be refresh 30s after BE startup so sleep 30s to get a stable result
     sleep(30000)
     sql """set parallel_pipeline_task_num=8"""

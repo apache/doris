@@ -18,6 +18,7 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <string>
 
 #include "common/metrics/metrics.h"
@@ -46,7 +47,7 @@ public:
 
 private:
     Status _on_header(HttpRequest* http_req, std::shared_ptr<StreamLoadContext> ctx);
-    Status _handle(std::shared_ptr<StreamLoadContext> ctx);
+    Status _handle(std::shared_ptr<StreamLoadContext> ctx, HttpRequest* req);
     Status _data_saved_path(HttpRequest* req, std::string* file_path, int64_t file_bytes);
     Status _process_put(HttpRequest* http_req, std::shared_ptr<StreamLoadContext> ctx);
     Status _can_group_commit(HttpRequest* http_req, std::shared_ptr<StreamLoadContext> ctx,
@@ -54,6 +55,8 @@ private:
     void _save_stream_load_record(std::shared_ptr<StreamLoadContext> ctx, const std::string& str);
     Status _check_wal_space(const std::string& group_commit_mode, int64_t content_length);
     Status _handle_group_commit(HttpRequest* http_req, std::shared_ptr<StreamLoadContext> ctx);
+    void _on_finish(std::shared_ptr<StreamLoadContext> ctx, HttpRequest* req);
+    void _send_reply(std::shared_ptr<StreamLoadContext> ctx, HttpRequest* req);
 
 private:
     ExecEnv* _exec_env;
