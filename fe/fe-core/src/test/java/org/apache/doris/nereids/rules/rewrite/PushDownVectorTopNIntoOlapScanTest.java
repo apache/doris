@@ -71,6 +71,25 @@ class PushDownVectorTopNIntoOlapScanTest extends TestWithFeService {
 
     @ParameterizedTest
     @ValueSource(strings = {"l2_distance", "inner_product"})
+    void testCastsRetainScalarEvaluation(String metric) {
+        String cast = "CAST(CAST(vec AS ARRAY<DOUBLE>) AS ARRAY<FLOAT>)";
+        for (String vector : new String[] {"nullable(" + cast + ")", cast}) {
+            for (String filter : new String[] {"", " WHERE id > 0"}) {
+                String query = "SELECT id, " + metric + "_approximate(" + vector + ", [1.0, 2.0]) AS distance"
+                        + " FROM vector_" + metric + filter + " ORDER BY distance "
+                        + (metric.equals("inner_product") ? "DESC" : "ASC") + " LIMIT 3";
+                Plan plan = PlanChecker.from(connectContext).analyze(query).rewrite()
+                        .getCascadesContext().getRewritePlan();
+                LogicalOlapScan scan = (LogicalOlapScan) plan.collectFirst(LogicalOlapScan.class::isInstance).get();
+                // ANN evaluates indexed slots, so a surviving cast must stay in the scalar expression.
+                Assertions.assertTrue(scan.getAnnLimit().isEmpty(), plan.treeString());
+                Assertions.assertTrue(scan.getVirtualColumns().isEmpty(), plan.treeString());
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"l2_distance", "inner_product"})
     void testVectorTopNRequestsEarlyMvRewrite(String metric) {
         String previous = connectContext.getSessionVariable().getPreMaterializedViewRewriteStrategy();
         try {

@@ -96,6 +96,21 @@ suite("non_nullable_mv_rewrite") {
     assertTrue(searchedIndex, "The rewritten query must execute an ANN index search")
     sql "SET enable_profile = false"
 
+    // A surviving cast must use scalar evaluation even when its underlying column has an ANN index.
+    ["", "WHERE id > 0"].eachWithIndex { String filter, int i ->
+        String castDistance = """SELECT id, l2_distance_approximate(
+            nullable(CAST(CAST(vec AS ARRAY<DOUBLE>) AS ARRAY<FLOAT>)), [0.0, 0.0, 0.0]) AS distance
+            FROM non_nullable_mv ${filter} ORDER BY distance LIMIT 3"""
+        explain {
+            sql castDistance
+            notContains "ANN SORT INFO"
+        }
+        quickTest("ann_cast_${i}", castDistance,
+            """SELECT /*+ SET_VAR(enable_materialized_view_rewrite=false) */ id,
+                l2_distance_approximate(vec, [0.0, 0.0, 0.0]) AS distance
+                FROM non_nullable_base ${filter} ORDER BY distance LIMIT 3""")
+    }
+
     sql """CREATE TABLE non_nullable_keys (id INT)
         DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ("replication_num" = "1")"""
     sql "INSERT INTO non_nullable_keys VALUES (0), (4)"

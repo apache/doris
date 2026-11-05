@@ -24,7 +24,6 @@ import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -127,10 +126,7 @@ public class PushDownVectorTopNIntoOlapScan implements RewriteRuleFactory {
             annOrderKeyExpr = orderKeyExpr.withChildren(left, orderKeyExpr.child(1));
         }
 
-        while (left instanceof Cast) {
-            left = ((Cast) left).child();
-        }
-
+        // ANN evaluates the indexed slot directly; surviving casts must stay on the scalar path.
         if (l2Dist) {
             if (!(left instanceof SlotReference && ((L2DistanceApproximate) orderKeyExpr).right().isConstant())) {
                 return null;
