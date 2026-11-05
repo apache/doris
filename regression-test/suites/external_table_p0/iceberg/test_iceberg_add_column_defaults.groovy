@@ -156,6 +156,10 @@ suite("test_iceberg_add_column_defaults", "p0,external") {
             zoned_ts TIMESTAMPTZ(6) NOT NULL DEFAULT '2024-01-02 03:04:05.123456',
             compact_zoned_ts TIMESTAMPTZ(6) NOT NULL DEFAULT '20240102030405',
             compact_fraction_zoned_ts TIMESTAMPTZ(6) NOT NULL DEFAULT '20240102030405.123456',
+            undotted_ts DATETIME(6) NOT NULL DEFAULT '20240102030405123456',
+            undotted_zoned_ts TIMESTAMPTZ(6) NOT NULL DEFAULT '20240102T030405123456',
+            undotted_offset_ts TIMESTAMPTZ(3) NOT NULL DEFAULT '20240102T030405123999+08:00',
+            undotted_named_ts TIMESTAMPTZ(3) NOT NULL DEFAULT '20240102T030405123999CET',
             rounded_zoned_ts TIMESTAMPTZ(3) NOT NULL DEFAULT '2024-01-02 03:04:05.123999',
             rounded_ts DATETIME(3) NOT NULL DEFAULT '2024-01-02 03:04:05.123999',
             amount DECIMAL(10,2) NOT NULL DEFAULT '1.5', label STRING NOT NULL DEFAULT 'owner''s')"""
@@ -170,6 +174,14 @@ suite("test_iceberg_add_column_defaults", "p0,external") {
             ADD COLUMN s.zoned_ts TIMESTAMPTZ(6) NOT NULL DEFAULT '2024-01-02 03:04:05.123456'"""
         sql """ALTER TABLE typed_defaults_${format}
             ADD COLUMN s.compact_fraction_zoned_ts TIMESTAMPTZ(6) NOT NULL DEFAULT '20240102030405.123456'"""
+        sql """ALTER TABLE typed_defaults_${format}
+            ADD COLUMN single_undotted_ts TIMESTAMPTZ(6) NOT NULL DEFAULT '20240102030405123456'"""
+        sql """ALTER TABLE typed_defaults_${format}
+            ADD COLUMN s.undotted_ts DATETIME(6) NOT NULL DEFAULT '20240102T030405123456'"""
+        sql """ALTER TABLE typed_defaults_${format}
+            ADD COLUMN s.undotted_zoned_ts TIMESTAMPTZ(6) NOT NULL DEFAULT '20240102030405123456'"""
+        sql """ALTER TABLE typed_defaults_${format}
+            ADD COLUMN s.undotted_named_ts TIMESTAMPTZ(3) NOT NULL DEFAULT '20240102T030405123999CET'"""
         sql "ALTER TABLE typed_defaults_${format} ADD COLUMN s.amount DECIMAL(10,2) NOT NULL DEFAULT '1'"
         sql """ALTER TABLE typed_defaults_${format}
             ADD COLUMN uuid_value UUID NOT NULL DEFAULT '00112233445566778899aabbccddeeff'"""
@@ -178,6 +190,8 @@ suite("test_iceberg_add_column_defaults", "p0,external") {
         sql "SET time_zone = 'UTC'"
         "order_qt_${format}_typed_old_files" "SELECT * FROM typed_defaults_${format} ORDER BY id"
         sql "INSERT INTO typed_defaults_${format} (id) VALUES (3)"
+        sql """INSERT INTO typed_defaults_${format} (id, s)
+            SELECT 4, s FROM typed_defaults_${format} WHERE id = 1"""
         "order_qt_${format}_typed_write_defaults" "SELECT * FROM typed_defaults_${format} ORDER BY id"
     }
 
@@ -236,6 +250,8 @@ suite("test_iceberg_add_column_defaults", "p0,external") {
     } finally {
         sql "SET sql_mode = '${previousSqlMode}'"
     }
+    sql """INSERT INTO conversion_defaults (id, s)
+        SELECT 5, s FROM conversion_defaults WHERE id = 1"""
     "order_qt_conversion_write_defaults" "SELECT * FROM conversion_defaults ORDER BY id"
     order_qt_conversion_string_bytes """SELECT id, HEX(label), HEX(s.label)
         FROM conversion_defaults ORDER BY id"""

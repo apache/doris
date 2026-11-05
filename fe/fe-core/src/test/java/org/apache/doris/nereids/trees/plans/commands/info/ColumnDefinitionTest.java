@@ -121,6 +121,47 @@ public class ColumnDefinitionTest {
     }
 
     @Test
+    public void testUndottedCompactDefaultsMatchDottedPrecisionAndZones() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("UTC");
+            DataType[] types = {DateTimeV2Type.of(6), DateTimeV2Type.of(3),
+                    TimeStampTzType.of(6), TimeStampTzType.of(3)};
+            String[][] spellings = {
+                    {"20240102T0304051", "20240102T030405.1"},
+                    {"20240102030405123", "20240102030405.123"},
+                    {"20240102T030405123999", "20240102T030405.123999"},
+                    {"20240102030405123999", "20240102030405.123999"},
+                    {"20240102T030405123999+08:00", "20240102T030405.123999+08:00"},
+                    {"20240102030405123999+08:00", "20240102030405.123999+08:00"},
+                    {"20240102T030405123999CET", "20240102T030405.123999CET"},
+                    {"20240102030405123999CET", "20240102030405.123999CET"}
+            };
+            for (DataType type : types) {
+                for (String[] spelling : spellings) {
+                    ColumnDefinition compact = new ColumnDefinition("ts", type,
+                            false, null, false, Optional.of(new DefaultValue(spelling[0])), "");
+                    ColumnDefinition dotted = new ColumnDefinition("ts", type,
+                            false, null, false, Optional.of(new DefaultValue(spelling[1])), "");
+                    compact.validate(false, ImmutableSet.of(), ImmutableSet.of(), false, KeysType.DUP_KEYS);
+                    dotted.validate(false, ImmutableSet.of(), ImmutableSet.of(), false, KeysType.DUP_KEYS);
+                    Column actual = compact.translateToCatalogStyleForSchemaChange();
+                    Assertions.assertEquals(dotted.translateToCatalogStyleForSchemaChange().getDefaultValue(),
+                            actual.getDefaultValue(), type + ": " + spelling[0]);
+                    Assertions.assertEquals(type.toCatalogDataType(), actual.getType());
+                }
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
     public void testTimestampNsDefaultsAreNormalizedForExternalDdl() {
         String[][] values = {
                 {"20240102", "2024-01-02 00:00:00.000000000"},
