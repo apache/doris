@@ -41,211 +41,171 @@ github:
     squash:  true
     merge:   false
     rebase:  false
-  rulesets:
-    - name: "Branch Protection: master"
-      type: branch
-      branches:
-        includes:
-          - master
-      restrict_deletion: true
-      restrict_force_push: true
-      required_status_checks_strict: false
+  protected_branches:
+    master:
       required_status_checks:
-        - License Check
-        - Check for secrets
-        - Clang Formatter
-        - CheckStyle
-        - P0 Regression (Doris Regression)
-        - NonConcurrent Regression (nonConcurrent)
-        - External Regression (Doris External Regression)
-        - cloud_p0 (Doris Cloud Regression)
-        - vault_p0 (Doris Cloud Regression)
-        - FE UT (Doris FE UT)
-        - BE UT (Doris BE UT)
-        - Build Third Party Libraries (Linux)
-        - Build Third Party Libraries (macOS)
-        - Build Third Party Libraries (macOS-arm64)
-        - COMPILE (DORIS_COMPILE)
-        - code-review
-        - Cloud UT (Doris Cloud UT)
-        - performance (Doris Performance)
+        strict: false
+        contexts:
+          - License Check
+          - Check for secrets
+          - Clang Formatter
+          - CheckStyle
+          - P0 Regression (Doris Regression)
+          - NonConcurrent Regression (nonConcurrent)
+          - External Regression (Doris External Regression)
+          - cloud_p0 (Doris Cloud Regression)
+          - vault_p0 (Doris Cloud Regression)
+          - FE UT (Doris FE UT)
+          - BE UT (Doris BE UT)
+          - Build Third Party Libraries (Linux)
+          - Build Third Party Libraries (macOS)
+          - Build Third Party Libraries (macOS-arm64)
+          - COMPILE (DORIS_COMPILE)
+          - code-review
+          - Cloud UT (Doris Cloud UT)
+          - performance (Doris Performance)
       required_pull_request_reviews:
         dismiss_stale_reviews: true
         require_code_owner_reviews: true
         required_approving_review_count: 1
-    - name: "Branch Protection: branch-4.2"
-      type: branch
-      branches:
-        includes:
-          - branch-4.2
-      restrict_deletion: true
-      restrict_force_push: true
-      required_status_checks_strict: false
+    branch-4.2:
       required_status_checks:
-        - License Check
-        - Clang Formatter
-        - CheckStyle
-        - Build Broker
-        - FE UT (Doris FE UT)
-        - BE UT (Doris BE UT)
-        - Cloud UT (Doris Cloud UT)
-        - COMPILE (DORIS_COMPILE)
-        - P0 Regression (Doris Regression)
-        - NonConcurrent Regression (nonConcurrent)
-        - External Regression (Doris External Regression)
-        - cloud_p0 (Doris Cloud Regression)
-        - vault_p0 (Doris Cloud Regression)
+        strict: false
+        contexts:
+          - License Check
+          - Clang Formatter
+          - CheckStyle
+          - Build Broker
+          - FE UT (Doris FE UT)
+          - BE UT (Doris BE UT)
+          - Cloud UT (Doris Cloud UT)
+          - COMPILE (DORIS_COMPILE)
+          - P0 Regression (Doris Regression)
+          - NonConcurrent Regression (nonConcurrent)
+          - External Regression (Doris External Regression)
+          - cloud_p0 (Doris Cloud Regression)
+          - vault_p0 (Doris Cloud Regression)
       required_pull_request_reviews:
         require_code_owner_reviews: true
         required_approving_review_count: 1
         dismiss_stale_reviews: true
-    - name: "Branch Protection: branch-4.1"
-      type: branch
-      branches:
-        includes:
-          - branch-4.1
-      restrict_deletion: true
-      restrict_force_push: true
-      required_status_checks_strict: false
+    branch-4.1:
       required_status_checks:
-        - License Check
-        - Clang Formatter
-        - CheckStyle
-        - Build Broker
-        - FE UT (Doris FE UT)
-        - BE UT (Doris BE UT)
-        - Cloud UT (Doris Cloud UT)
-        - COMPILE (DORIS_COMPILE)
-        - P0 Regression (Doris Regression)
-        - NonConcurrent Regression (nonConcurrent)
-        - External Regression (Doris External Regression)
-        - cloud_p0 (Doris Cloud Regression)
-        - vault_p0 (Doris Cloud Regression)
+        strict: false
+        contexts:
+          - License Check
+          - Clang Formatter
+          - CheckStyle
+          - Build Broker
+          - FE UT (Doris FE UT)
+          - BE UT (Doris BE UT)
+          - Cloud UT (Doris Cloud UT)
+          - COMPILE (DORIS_COMPILE)
+          - P0 Regression (Doris Regression)
+          - NonConcurrent Regression (nonConcurrent)
+          - External Regression (Doris External Regression) 
+          - cloud_p0 (Doris Cloud Regression)
+          - vault_p0 (Doris Cloud Regression)
       required_pull_request_reviews:
         require_code_owner_reviews: true
         required_approving_review_count: 1
         dismiss_stale_reviews: true
-    - name: "Branch Protection: branch-4.0"
-      type: branch
-      branches:
-        includes:
-          - branch-4.0
-      restrict_deletion: true
-      restrict_force_push: true
-      required_status_checks_strict: false
+    branch-4.0:
       required_status_checks:
-        - License Check
-        - Clang Formatter
-        - CheckStyle
-        - Build Broker
-        - FE UT (Doris FE UT)
-        - BE UT (Doris BE UT)
-        - Cloud UT (Doris Cloud UT)
-        - COMPILE (DORIS_COMPILE)
-        - P0 Regression (Doris Regression)
-        - NonConcurrent Regression (nonConcurrent)
-        - External Regression (Doris External Regression)
-        - cloud_p0 (Doris Cloud Regression)
-        - vault_p0 (Doris Cloud Regression)
+        strict: false
+        contexts:
+          - License Check
+          - Clang Formatter
+          - CheckStyle
+          - Build Broker
+          - FE UT (Doris FE UT)
+          - BE UT (Doris BE UT)
+          - Cloud UT (Doris Cloud UT)
+          - COMPILE (DORIS_COMPILE)
+          - P0 Regression (Doris Regression)
+          - NonConcurrent Regression (nonConcurrent)
+          - External Regression (Doris External Regression) 
+          - cloud_p0 (Doris Cloud Regression)
+          - vault_p0 (Doris Cloud Regression)
       required_pull_request_reviews:
         require_code_owner_reviews: true
         required_approving_review_count: 1
         dismiss_stale_reviews: true
-    - name: "Branch Protection: branch-3.1"
-      type: branch
-      branches:
-        includes:
-          - branch-3.1
-      restrict_deletion: true
-      restrict_force_push: true
-      required_status_checks_strict: false
+    branch-3.1:
       required_status_checks:
-        - License Check
-        - Clang Formatter
-        - CheckStyle
-        - Build Broker
-        - Build Third Party Libraries (Linux)
-        - FE UT (Doris FE UT)
-        - BE UT (Doris BE UT)
-        - Cloud UT (Doris Cloud UT)
-        - COMPILE (DORIS_COMPILE)
-        - P0 Regression (Doris Regression)
-        - NonConcurrent Regression (nonConcurrent)
-        - External Regression (Doris External Regression)
-        - cloud_p0 (Doris Cloud Regression)
-        - vault_p0 (Doris Cloud Regression)
+        strict: false
+        contexts:
+          - License Check
+          - Clang Formatter
+          - CheckStyle
+          - Build Broker
+          - Build Third Party Libraries (Linux)
+          - FE UT (Doris FE UT)
+          - BE UT (Doris BE UT)
+          - Cloud UT (Doris Cloud UT)
+          - COMPILE (DORIS_COMPILE)
+          - P0 Regression (Doris Regression)
+          - NonConcurrent Regression (nonConcurrent)
+          - External Regression (Doris External Regression) 
+          - cloud_p0 (Doris Cloud Regression)
+          - vault_p0 (Doris Cloud Regression)
       required_pull_request_reviews:
         require_code_owner_reviews: true
         required_approving_review_count: 1
         dismiss_stale_reviews: true
-    - name: "Branch Protection: branch-3.0"
-      type: branch
-      branches:
-        includes:
-          - branch-3.0
-      restrict_deletion: true
-      restrict_force_push: true
-      required_status_checks_strict: false
+    branch-3.0:
       required_status_checks:
-        - License Check
-        - Clang Formatter
-        - CheckStyle
-        - Build Broker
-        - Build Third Party Libraries (Linux)
-        - FE UT (Doris FE UT)
-        - BE UT (Doris BE UT)
-        - Cloud UT (Doris Cloud UT)
-        - COMPILE (DORIS_COMPILE)
-        - P0 Regression (Doris Regression)
-        - NonConcurrent Regression (nonConcurrent)
-        - External Regression (Doris External Regression)
-        - cloud_p0 (Doris Cloud Regression)
-        - vault_p0 (Doris Cloud Regression)
+        strict: false
+        contexts:
+          - License Check
+          - Clang Formatter
+          - CheckStyle
+          - Build Broker
+          - Build Third Party Libraries (Linux)
+          - FE UT (Doris FE UT)
+          - BE UT (Doris BE UT)
+          - Cloud UT (Doris Cloud UT)
+          - COMPILE (DORIS_COMPILE)
+          - P0 Regression (Doris Regression)
+          - NonConcurrent Regression (nonConcurrent)
+          - External Regression (Doris External Regression)
+          - cloud_p0 (Doris Cloud Regression)
+          - vault_p0 (Doris Cloud Regression)
       required_pull_request_reviews:
         require_code_owner_reviews: true
         required_approving_review_count: 1
         dismiss_stale_reviews: true
-    - name: "Branch Protection: branch-2.1"
-      type: branch
-      branches:
-        includes:
-          - branch-2.1
-      restrict_deletion: true
-      restrict_force_push: true
-      required_status_checks_strict: false
+    branch-2.1:
       required_status_checks:
-        - License Check
-        - CheckStyle
-        - Build Broker
-        - Build Third Party Libraries (Linux)
-        - COMPILE (DORIS_COMPILE)
-        - External Regression (Doris External Regression)
-        - FE UT (Doris FE UT)
-        - BE UT (Doris BE UT)
-        - P0 Regression (Doris Regression)
+        strict: false
+        contexts:
+          - License Check
+          - CheckStyle
+          - Build Broker
+          - Build Third Party Libraries (Linux)
+          - COMPILE (DORIS_COMPILE)
+          - External Regression (Doris External Regression)
+          - FE UT (Doris FE UT)
+          - BE UT (Doris BE UT)
+          - P0 Regression (Doris Regression)
       required_pull_request_reviews:
         require_code_owner_reviews: true
         required_approving_review_count: 1
         dismiss_stale_reviews: true
-    - name: "Branch Protection: branch-2.0"
-      type: branch
-      branches:
-        includes:
-          - branch-2.0
-      restrict_deletion: true
-      restrict_force_push: true
-      required_status_checks_strict: false
+    branch-2.0:
       required_status_checks:
-        - License Check
-        - CheckStyle
-        - P0 Regression (Doris Regression)
-        - External Regression (Doris External Regression)
-        - FE UT (Doris FE UT)
-        - BE UT (Doris BE UT)
-        - Build Broker
-        - Build Third Party Libraries (Linux)
-        - Build Third Party Libraries (macOS)
-        - COMPILE (DORIS_COMPILE)
+        strict: false
+        contexts:
+          - License Check
+          - CheckStyle
+          - P0 Regression (Doris Regression)
+          - External Regression (Doris External Regression)
+          - FE UT (Doris FE UT)
+          - BE UT (Doris BE UT)
+          - Build Broker
+          - Build Third Party Libraries (Linux)
+          - Build Third Party Libraries (macOS)
+          - COMPILE (DORIS_COMPILE)
       required_pull_request_reviews:
         dismiss_stale_reviews: true
         required_approving_review_count: 1
