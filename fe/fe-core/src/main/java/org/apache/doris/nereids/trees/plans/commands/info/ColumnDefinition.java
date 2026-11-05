@@ -582,7 +582,7 @@ public class ColumnDefinition {
                         // Retain civil precision until the connector binds the session zone.
                         normalized = DateTimeChecker.hasTimeZone(value)
                                 ? new TimestampTzLiteral(zonedType, value)
-                                : new DateTimeV2Literal(value);
+                                : new DateTimeV2Literal(DateTimeV2Type.MAX, value);
                     } else if (type.isTimeStampNsType()) {
                         normalized = new TimeStampNsLiteral(value);
                     } else if (type.isDateTimeV2Type()) {

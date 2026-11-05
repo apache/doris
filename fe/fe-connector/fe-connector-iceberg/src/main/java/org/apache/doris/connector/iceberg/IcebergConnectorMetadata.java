@@ -1894,11 +1894,12 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             throw new DorisConnectorException("can't add a non-nullable column to an Iceberg table: "
                     + column.getName() + " without a non-null default");
         }
-        if (defaultValue != null && Types.TimestampType.withZone().equals(icebergType)) {
+        if (defaultValue != null && icebergType.typeId() == Type.TypeID.TIMESTAMP) {
             long micros = (Long) defaultValue.value();
+            boolean zoned = ((Types.TimestampType) icebergType).shouldAdjustToUTC();
             int precision = column.getType().getPrecision();
             // Round the resolved instant, so equivalent explicit/session zones retain the same value.
-            if (precision >= 0 && precision < 6) {
+            if (zoned && precision >= 0 && precision < 6) {
                 long unit = (long) Math.pow(10, 6 - precision);
                 long remainder = Math.floorMod(micros, unit);
                 micros -= remainder;
@@ -1906,12 +1907,13 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                     micros += unit;
                 }
             }
-            int utcYear = LocalDateTime.ofEpochSecond(Math.floorDiv(micros, 1_000_000L),
+            int year = LocalDateTime.ofEpochSecond(Math.floorDiv(micros, 1_000_000L),
                     (int) (Math.floorMod(micros, 1_000_000L) * 1000), ZoneOffset.UTC).getYear();
-            // Doris readers accept UTC years 0000 through 9999.
-            if (utcYear < 0 || utcYear > 9999) {
-                throw new IllegalArgumentException("Iceberg TIMESTAMPTZ default for column " + column.getName()
-                        + " is outside the supported UTC range: " + column.getDefaultValue());
+            // Physical Parquet timestamp reads require years 0001 through 9999, including new writes.
+            if (year < 1 || year > 9999) {
+                throw new IllegalArgumentException("Iceberg timestamp default for column " + column.getName()
+                        + " is outside the supported " + (zoned ? "UTC " : "")
+                        + "range 0001-9999: " + column.getDefaultValue());
             }
             defaultValue = Literal.of(micros);
         }

@@ -155,6 +155,7 @@ suite("test_iceberg_add_column_defaults", "p0,external") {
             compact_ts DATETIME(6) NOT NULL DEFAULT '20240102030405',
             zoned_ts TIMESTAMPTZ(6) NOT NULL DEFAULT '2024-01-02 03:04:05.123456',
             compact_zoned_ts TIMESTAMPTZ(6) NOT NULL DEFAULT '20240102030405',
+            compact_fraction_zoned_ts TIMESTAMPTZ(6) NOT NULL DEFAULT '20240102030405.123456',
             rounded_zoned_ts TIMESTAMPTZ(3) NOT NULL DEFAULT '2024-01-02 03:04:05.123999',
             rounded_ts DATETIME(3) NOT NULL DEFAULT '2024-01-02 03:04:05.123999',
             amount DECIMAL(10,2) NOT NULL DEFAULT '1.5', label STRING NOT NULL DEFAULT 'owner''s')"""
@@ -167,6 +168,8 @@ suite("test_iceberg_add_column_defaults", "p0,external") {
             ADD COLUMN s.compact_ts DATETIME(6) NOT NULL DEFAULT '20240102030405'"""
         sql """ALTER TABLE typed_defaults_${format}
             ADD COLUMN s.zoned_ts TIMESTAMPTZ(6) NOT NULL DEFAULT '2024-01-02 03:04:05.123456'"""
+        sql """ALTER TABLE typed_defaults_${format}
+            ADD COLUMN s.compact_fraction_zoned_ts TIMESTAMPTZ(6) NOT NULL DEFAULT '20240102030405.123456'"""
         sql "ALTER TABLE typed_defaults_${format} ADD COLUMN s.amount DECIMAL(10,2) NOT NULL DEFAULT '1'"
         sql """ALTER TABLE typed_defaults_${format}
             ADD COLUMN uuid_value UUID NOT NULL DEFAULT '00112233445566778899aabbccddeeff'"""
@@ -199,6 +202,19 @@ suite("test_iceberg_add_column_defaults", "p0,external") {
     sql """ALTER TABLE conversion_defaults ADD COLUMN s.overlap_explicit TIMESTAMPTZ(0) NOT NULL
         DEFAULT '2021-10-31 02:59:59.6CET'"""
     sql "SET time_zone = 'UTC'"
+    sql """ALTER TABLE conversion_defaults ADD COLUMN (
+        min_utc TIMESTAMPTZ(6) NOT NULL DEFAULT '0001-01-01 00:00:00',
+        max_utc TIMESTAMPTZ(6) NOT NULL DEFAULT '9999-12-31 23:59:59.999999',
+        min_civil DATETIME(6) NOT NULL DEFAULT '0001-01-01 00:00:00',
+        max_civil DATETIME(6) NOT NULL DEFAULT '9999-12-31 23:59:59.999999')"""
+    sql """ALTER TABLE conversion_defaults ADD COLUMN s.min_utc TIMESTAMPTZ(6) NOT NULL
+        DEFAULT '0001-01-01 00:00:00'"""
+    sql """ALTER TABLE conversion_defaults ADD COLUMN s.max_utc TIMESTAMPTZ(6) NOT NULL
+        DEFAULT '9999-12-31 23:59:59.999999'"""
+    sql """ALTER TABLE conversion_defaults ADD COLUMN s.min_civil DATETIME(6) NOT NULL
+        DEFAULT '0001-01-01 00:00:00'"""
+    sql """ALTER TABLE conversion_defaults ADD COLUMN s.max_civil DATETIME(6) NOT NULL
+        DEFAULT '9999-12-31 23:59:59.999999'"""
     String previousSqlMode = sql("SELECT @@sql_mode")[0][0].toString()
     try {
         sql "SET sql_mode = ''"
@@ -247,25 +263,42 @@ suite("test_iceberg_add_column_defaults", "p0,external") {
             }
         }
     }
-    for (def boundary : [["-08:00", "9999-12-31 23:59:59"], ["+08:00", "0000-01-01 00:00:00"]]) {
+    for (def boundary : [["-08:00", "9999-12-31 23:59:59", 6], ["+08:00", "0000-01-01 00:00:00", 6],
+            ["+08:00", "0000-03-01 00:00:00", 6], ["UTC", "0000-02-28 23:59:59.6", 0],
+            ["UTC", "0000-12-31 23:59:59.999999", 6]]) {
         sql "SET time_zone = '${boundary[0]}'"
         test {
-            sql """ALTER TABLE conversion_defaults ADD COLUMN bad_range TIMESTAMPTZ(6) NOT NULL
+            sql """ALTER TABLE conversion_defaults ADD COLUMN bad_range TIMESTAMPTZ(${boundary[2]}) NOT NULL
                 DEFAULT '${boundary[1]}'"""
             exception "supported UTC range"
         }
         test {
-            sql """ALTER TABLE conversion_defaults ADD COLUMN s.bad_range TIMESTAMPTZ(6) NOT NULL
+            sql """ALTER TABLE conversion_defaults ADD COLUMN s.bad_range TIMESTAMPTZ(${boundary[2]}) NOT NULL
                 DEFAULT '${boundary[1]}'"""
             exception "supported UTC range"
         }
         test {
             sql """ALTER TABLE conversion_defaults ADD COLUMN
-                (not_committed_range INT, bad_range TIMESTAMPTZ(6) NOT NULL DEFAULT '${boundary[1]}')"""
+                (not_committed_range INT, bad_range TIMESTAMPTZ(${boundary[2]}) NOT NULL DEFAULT '${boundary[1]}')"""
             exception "supported UTC range"
         }
     }
     sql "SET time_zone = 'UTC'"
+    for (String value : ["0000-03-01 00:00:00", "0000-12-31 23:59:59.999999"]) {
+        test {
+            sql "ALTER TABLE conversion_defaults ADD COLUMN bad_range DATETIME(6) NOT NULL DEFAULT '${value}'"
+            exception "supported range 0001-9999"
+        }
+        test {
+            sql "ALTER TABLE conversion_defaults ADD COLUMN s.bad_range DATETIME(6) NOT NULL DEFAULT '${value}'"
+            exception "supported range 0001-9999"
+        }
+        test {
+            sql """ALTER TABLE conversion_defaults ADD COLUMN
+                (not_committed_range INT, bad_range DATETIME(6) NOT NULL DEFAULT '${value}')"""
+            exception "supported range 0001-9999"
+        }
+    }
     "order_qt_conversion_after_failed_add" "SELECT * FROM conversion_defaults ORDER BY id"
     qt_conversion_failed_add_leaves_schema """SELECT COUNT(*)
         FROM iceberg_add_column_defaults.information_schema.columns
