@@ -38,6 +38,25 @@ TEST(TimeStampTzValueTest, make_time) {
     EXPECT_EQ(tz.to_date_int_val(), MIN_DATETIME_V2);
 }
 
+TEST(TimeStampTzValueTest, RoundingPrecedesDstResolution) {
+    cctz::time_zone new_york;
+    ASSERT_TRUE(cctz::load_time_zone("America/New_York", &new_york));
+    const auto utc = cctz::utc_time_zone();
+    TimestampTzValue rounded;
+    ASSERT_TRUE(
+            rounded.from_datetime(make_datetime(2024, 11, 3, 1, 59, 59, 999500), new_york, 6, 3));
+    EXPECT_EQ(rounded.to_string(utc, 3), "2024-11-03 07:00:00.000+00:00");
+    ASSERT_TRUE(
+            rounded.from_datetime(make_datetime(2024, 11, 3, 1, 59, 59, 999999), new_york, 6, 3));
+    EXPECT_EQ(rounded.to_string(utc, 3), "2024-11-03 07:00:00.000+00:00");
+    ASSERT_TRUE(
+            rounded.from_datetime(make_datetime(2024, 11, 3, 1, 59, 59, 999499), new_york, 6, 3));
+    EXPECT_EQ(rounded.to_string(utc, 3), "2024-11-03 05:59:59.999+00:00");
+    ASSERT_TRUE(
+            rounded.from_datetime(make_datetime(2024, 3, 10, 1, 59, 59, 999500), new_york, 6, 3));
+    EXPECT_EQ(rounded.to_string(utc, 3), "2024-03-10 07:00:00.000+00:00");
+}
+
 TEST(TimeStampTzValueTest, ToStringPreservesHistoricalOffsetSeconds) {
     TimezoneUtils::load_offsets_to_cache();
     const auto utc = cctz::utc_time_zone();
