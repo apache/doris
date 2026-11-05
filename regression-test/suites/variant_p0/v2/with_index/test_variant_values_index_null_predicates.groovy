@@ -28,8 +28,10 @@ suite("test_variant_values_index_null_predicates", "p0,nonConcurrent") {
         PROPERTIES("replication_num"="1","inverted_index_storage_format"="SNII")"""
     sql """INSERT INTO vvi_null_predicates VALUES
         (1,parse_to_variant('{"s":"hello"}')),(2,parse_to_variant('{"s":"other"}')),
-        (3,NULL),(4,parse_to_variant('{}'))"""
+        (3,NULL),(4,parse_to_variant('{}')),
+        (5,parse_to_variant('[]')),(6,parse_to_variant('null')),(7,parse_to_variant('{"s":"the"}'))"""
     sql "SYNC"
+    qt_null_projection "SELECT id,v,v IS NULL,v MATCH_ANY 'hello',NOT(v MATCH_ANY 'hello') FROM vvi_null_predicates ORDER BY id"
     // Unicode removes the English stopword; TOKENIZE makes the empty-token premise visible.
     qt_stopword_tokens """SELECT TOKENIZE('the', '\"parser\"=\"unicode\"')"""
     // SQL NULL can be rescued by OR TRUE and by NOT(UNKNOWN AND FALSE).
@@ -40,11 +42,14 @@ suite("test_variant_values_index_null_predicates", "p0,nonConcurrent") {
         "(v MATCH_ANY 'hello') OR NOT(v MATCH_ANY 'hello')"
     ]
     for (String op : ["MATCH_ANY", "MATCH_ALL"]) {
-        for (String text : ["", "!!!", "the"]) {
+        for (String text : ["", "   ", "!!!", "the"]) {
             predicates.addAll([
                 "v ${op} '${text}'",
                 "NOT(v ${op} '${text}')",
-                "(v ${op} '${text}') OR id=3"
+                "(v ${op} '${text}') OR id=3",
+                "(v ${op} '${text}') AND id=3",
+                "NOT((v ${op} '${text}') AND id=1)",
+                "(v ${op} '${text}') OR NOT(v ${op} '${text}')"
             ])
         }
     }
