@@ -111,6 +111,8 @@ public class TypeVariantTemplateParseTest extends TestWithFeService {
             Assertions.assertFalse(calls.isEmpty(), sql);
             for (ParseToVariant call : calls) {
                 Assertions.assertEquals(template, call.getReturnType(), sql);
+                // the translator sends the signature's type, not the field
+                Assertions.assertEquals(template, call.getDataType(), sql);
                 // the typed call is told apart from the plain one in a printed plan
                 Assertions.assertTrue(call.toString().contains("template<'money.amount':"), call.toString());
                 Assertions.assertTrue(call.shapeInfo().contains("template<'money.amount':"), call.shapeInfo());
