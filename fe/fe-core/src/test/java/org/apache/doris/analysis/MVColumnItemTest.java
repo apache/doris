@@ -79,8 +79,9 @@ class MVColumnItemTest {
         SlotDescriptor descriptor = new SlotDescriptor(new SlotId(1), new TupleId(1));
         descriptor.setColumn(root);
         descriptor.setType(expressionType);
-        descriptor.setSubColLables(List.of("obj"));
         SlotRef expression = new SlotRef(descriptor);
+        // PlanTranslatorContext creates the SlotRef before filling the descriptor's extracted path.
+        descriptor.setSubColLables(List.of("obj"));
         MVColumnItem item = new MVColumnItem("v", expression);
 
         assertSameStorageType(new VariantType(0, true), item.toMVColumn(Map.of(), true).getType());
