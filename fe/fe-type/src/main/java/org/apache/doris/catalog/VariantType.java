@@ -102,6 +102,12 @@ public class VariantType extends ScalarType {
         this.escapeDotsInKeys = false;
     }
 
+    /** Creates a default storage layout for a newly materialized Variant column. */
+    public VariantType(int maxSubcolumnsCount, boolean escapeDotsInKeys) {
+        this(Lists.newArrayList(), maxSubcolumnsCount, false, 10000, 0,
+                false, 0L, 64, false, escapeDotsInKeys);
+    }
+
     public VariantType(Map<String, String> properties) {
         super(PrimitiveType.VARIANT);
         this.predefinedFields = Lists.newArrayList();

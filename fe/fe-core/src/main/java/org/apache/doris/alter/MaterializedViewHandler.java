@@ -564,6 +564,14 @@ public class MaterializedViewHandler extends AlterHandler {
         // update mv columns
         List<MVColumnItem> mvColumnItemList = createMvCommand.getMVColumnItemList();
         List<Column> newMVColumns = Lists.newArrayList();
+        // The table write lock covers this schema read. Existing escaped inputs keep derived
+        // values lossless even when the creation default is disabled later.
+        boolean escapeDerived = mvColumnItemList.stream()
+                .anyMatch(item -> item.getType() instanceof org.apache.doris.catalog.VariantType)
+                && (olapTable.getIndexIdToSchema(false).values().stream().flatMap(List::stream)
+                .anyMatch(Column::getVariantEscapeDotsInKeys)
+                || (ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().isEnableVariantEscapeDotsInKeysForDerivedColumns()));
 
         if (olapTable.getKeysType().isAggregationFamily()) {
             if (olapTable.getKeysType() == KeysType.AGG_KEYS && createMvCommand.getMVKeysType() != KeysType.AGG_KEYS) {
@@ -615,7 +623,7 @@ public class MaterializedViewHandler extends AlterHandler {
                                 "The mvItem[" + mvColumnItem.getName() + "] require slot because it is value column");
                     }
                 }
-                newMVColumns.add(mvColumnItem.toMVColumn(sessionVariables));
+                newMVColumns.add(mvColumnItem.toMVColumn(sessionVariables, escapeDerived));
             }
         } else {
             for (MVColumnItem mvColumnItem : mvColumnItemList) {
@@ -624,7 +632,7 @@ public class MaterializedViewHandler extends AlterHandler {
                     throw new DdlException("Base columns is null");
                 }
 
-                newMVColumns.add(mvColumnItem.toMVColumn(sessionVariables));
+                newMVColumns.add(mvColumnItem.toMVColumn(sessionVariables, escapeDerived));
             }
         }
 

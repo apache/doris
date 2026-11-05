@@ -68,6 +68,11 @@ public class VariantType extends PrimitiveType {
      * @param variantMaxSubcolumnsCount max number of subcolumns allowed (0 means unlimited)
      */
     public VariantType(int variantMaxSubcolumnsCount) {
+        this(variantMaxSubcolumnsCount, false);
+    }
+
+    /** Creates a default storage layout for a newly materialized Variant column. */
+    public VariantType(int variantMaxSubcolumnsCount, boolean escapeDotsInKeys) {
         this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
         this.predefinedFields = Lists.newArrayList();
         this.enableTypedPathsToSparse = false;
@@ -77,7 +82,7 @@ public class VariantType extends PrimitiveType {
         this.variantDocMaterializationMinRows = 0L;
         this.variantDocShardCount = 64;
         this.enableNestedGroup = false;
-        this.escapeDotsInKeys = false;
+        this.escapeDotsInKeys = escapeDotsInKeys;
     }
 
     /**

@@ -172,11 +172,8 @@ public class ElementAt extends ScalarFunction
         DataType expressionType = arguments.get(0).getDataType();
         DataType sigType = signature.argumentsTypes.get(0);
         if (expressionType instanceof VariantType && sigType instanceof VariantType) {
-            // Subpaths have relative field names, so omit the root's storage templates.
-            // Keep the key interpretation when this result becomes another Variant column or input.
-            VariantType input = (VariantType) expressionType;
-            VariantType variantType = new VariantType(ImmutableList.of(), input.getVariantMaxSubcolumnsCount(),
-                    false, 10000, 0, false, 0L, 64, false, input.getEscapeDotsInKeys());
+            // A sub-object is an execution value, not a storage column with the root's properties.
+            VariantType variantType = new VariantType(((VariantType) expressionType).getVariantMaxSubcolumnsCount());
             signature = signature.withArgumentType(0, variantType);
             signature = signature.withReturnType(variantType);
         }

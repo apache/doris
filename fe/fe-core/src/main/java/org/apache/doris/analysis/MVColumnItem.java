@@ -21,8 +21,11 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.VariantType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+
+import org.apache.commons.collections4.CollectionUtils;
 
 import java.util.HashSet;
 import java.util.Map;
@@ -109,11 +112,24 @@ public class MVColumnItem {
     }
 
     public Column toMVColumn(Map<String, String> sessionVars) throws DdlException {
+        return toMVColumn(sessionVars, false);
+    }
+
+    public Column toMVColumn(Map<String, String> sessionVars, boolean escapeDerived) throws DdlException {
         Column result;
         if (type == null) {
             throw new DdlException("MVColumnItem type is null");
         }
-        result = new Column(name, type, isKey, aggregationType, null, "");
+        Type storageType = type;
+        if (type instanceof VariantType) {
+            if (defineExpr instanceof SlotRef && ((SlotRef) defineExpr).getColumn() != null
+                    && CollectionUtils.isEmpty(((SlotRef) defineExpr).getSubColPath())) {
+                storageType = ((SlotRef) defineExpr).getColumn().getType();
+            } else if (escapeDerived) {
+                storageType = new VariantType(((VariantType) type).getVariantMaxSubcolumnsCount(), true);
+            }
+        }
+        result = new Column(name, storageType, isKey, aggregationType, null, "");
         result.setIsAllowNull(defineExpr.isNullable());
         result.setName(name);
         result.setAggregationType(aggregationType, isAggregationTypeImplicit);
