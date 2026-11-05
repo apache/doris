@@ -61,6 +61,27 @@ public class QueryBuildersTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
+    public void retainedNegationsPreserveMissingAndArraySemantics() throws Exception {
+        Expr equality = new BinaryPredicate(Operator.EQ, new SlotRef(null, "a"), new IntLiteral(2));
+        Expr notEqual = new CompoundPredicate(CompoundPredicate.Operator.NOT, equality, null);
+        Assertions.assertTrue(mapper.readTree(QueryBuilders.toEsDsl(notEqual, Collections.emptyMap()).toJson())
+                .path("bool").has("must"));
+        Expr doubleNot = new CompoundPredicate(CompoundPredicate.Operator.NOT, notEqual, null);
+        Assertions.assertEquals(QueryBuilders.toEsDsl(equality, Collections.emptyMap()).toJson(),
+                QueryBuilders.toEsDsl(doubleNot, Collections.emptyMap()).toJson());
+        Expr range = new BinaryPredicate(Operator.LT, new SlotRef(null, "a"), new IntLiteral(2));
+        Expr notRange = new CompoundPredicate(CompoundPredicate.Operator.NOT, range, null);
+        com.fasterxml.jackson.databind.JsonNode dsl = mapper.readTree(
+                QueryBuilders.toEsDsl(notRange, Collections.emptyMap()).toJson()).path("bool");
+        Assertions.assertEquals(2, dsl.path("must_not").path("range").path("a").path("lt").asInt());
+        Assertions.assertEquals("a", dsl.path("must").path("exists").path("field").asText());
+        Expr nullSafe = new BinaryPredicate(Operator.EQ_FOR_NULL, new SlotRef(null, "a"), new IntLiteral(2));
+        Assertions.assertFalse(mapper.readTree(QueryBuilders.toEsDsl(new CompoundPredicate(
+                CompoundPredicate.Operator.NOT, nullSafe, null), Collections.emptyMap()).toJson())
+                .path("bool").has("must"));
+    }
+
+    @Test
     public void nestedResidualOrAndNotRemainLocal() {
         Expr supported = new BinaryPredicate(Operator.EQ, new SlotRef(null, "name"), new StringLiteral("one"));
         Expr local = new FunctionCallExpr("unsupported_predicate", Lists.newArrayList(new SlotRef(null, "name")));
@@ -89,7 +110,7 @@ public class QueryBuildersTest {
         Expr efnExpr = new BinaryPredicate(Operator.EQ_FOR_NULL, new SlotRef(null, "k1"), new IntLiteral(3));
         Map<String, String> column2typeMap = new HashMap<>();
         Assertions.assertEquals("{\"term\":{\"k1\":3}}", QueryBuilders.toEsDsl(eqExpr, column2typeMap).toJson());
-        Assertions.assertEquals("{\"bool\":{\"must_not\":{\"term\":{\"k1\":3}}}}",
+        Assertions.assertEquals("{\"bool\":{\"must\":{\"exists\":{\"field\":\"k1\"}},\"must_not\":{\"term\":{\"k1\":3}}}}",
                 QueryBuilders.toEsDsl(neExpr, column2typeMap).toJson());
         Assertions.assertEquals("{\"range\":{\"k1\":{\"lte\":3}}}", QueryBuilders.toEsDsl(leExpr, column2typeMap).toJson());
         Assertions.assertEquals("{\"range\":{\"k1\":{\"gte\":3}}}", QueryBuilders.toEsDsl(geExpr, column2typeMap).toJson());
@@ -111,7 +132,7 @@ public class QueryBuildersTest {
                 QueryBuilders.toEsDsl(stringNeExpr, column2typeMap).toJson());
         stringLiteral = new StringLiteral("message");
         stringNeExpr = new BinaryPredicate(Operator.NE, k3, stringLiteral);
-        Assertions.assertEquals("{\"bool\":{\"must_not\":{\"term\":{\"k3\":\"message\"}}}}",
+        Assertions.assertEquals("{\"bool\":{\"must\":{\"exists\":{\"field\":\"k3\"}},\"must_not\":{\"term\":{\"k3\":\"message\"}}}}",
                 QueryBuilders.toEsDsl(stringNeExpr, column2typeMap).toJson());
     }
 
@@ -133,7 +154,7 @@ public class QueryBuildersTest {
                 QueryBuilders.toEsDsl(andPredicate, column2typeMap).toJson());
         Assertions.assertEquals("{\"bool\":{\"should\":[{\"term\":{\"k1\":3}},{\"range\":{\"k2\":{\"gt\":5}}}]}}",
                 QueryBuilders.toEsDsl(orPredicate, column2typeMap).toJson());
-        Assertions.assertEquals("{\"bool\":{\"must_not\":{\"term\":{\"k1\":3}}}}",
+        Assertions.assertEquals("{\"bool\":{\"must\":{\"exists\":{\"field\":\"k1\"}},\"must_not\":{\"term\":{\"k1\":3}}}}",
                 QueryBuilders.toEsDsl(notPredicate, column2typeMap).toJson());
     }
 

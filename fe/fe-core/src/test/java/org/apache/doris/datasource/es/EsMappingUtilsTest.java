@@ -1,0 +1,259 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.datasource.es;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+public class EsMappingUtilsTest {
+
+    // ES 6.x style mapping with explicit mapping type "doc"
+    private static final String MAPPING_ES6 = "{"
+            + "\"test\": {"
+            + "  \"mappings\": {"
+            + "    \"doc\": {"
+            + "      \"properties\": {"
+            + "        \"k1\": { \"type\": \"long\" },"
+            + "        \"k2\": { \"type\": \"keyword\" },"
+            + "        \"k3\": { \"type\": \"text\", \"fields\": {"
+            + "            \"keyword\": { \"type\": \"keyword\" }"
+            + "        }},"
+            + "        \"k4\": { \"properties\": {"
+            + "            \"child1\": { \"type\": \"text\" },"
+            + "            \"child2\": { \"type\": \"long\" }"
+            + "        }},"
+            + "        \"k5\": { \"type\": \"date\" },"
+            + "        \"k6\": { \"type\": \"nested\", \"properties\": {"
+            + "            \"child3\": { \"type\": \"keyword\" }"
+            + "        }}"
+            + "      }"
+            + "    }"
+            + "  }"
+            + "}"
+            + "}";
+
+    // ES 7+/8+ style mapping without explicit mapping type
+    private static final String MAPPING_ES7 = "{"
+            + "\"test\": {"
+            + "  \"mappings\": {"
+            + "    \"properties\": {"
+            + "      \"name\": { \"type\": \"keyword\" },"
+            + "      \"age\": { \"type\": \"integer\" },"
+            + "      \"bio\": { \"type\": \"text\", \"fields\": {"
+            + "          \"raw\": { \"type\": \"keyword\" }"
+            + "      }},"
+            + "      \"created\": { \"type\": \"date\" },"
+            + "      \"addr\": { \"properties\": {"
+            + "          \"city\": { \"type\": \"keyword\" }"
+            + "      }}"
+            + "    }"
+            + "  }"
+            + "}"
+            + "}";
+
+    @Test
+    public void testColumn2typeMapWithSpecificColumns() {
+        List<String> columns = Arrays.asList("k1", "k2", "k3", "k5");
+        EsFieldContext ctx = EsMappingUtils.resolveFieldContext(columns, "test", MAPPING_ES6, "doc");
+
+        Map<String, String> typeMap = ctx.getColumn2typeMap();
+        Assertions.assertEquals(4, typeMap.size());
+        Assertions.assertEquals("long", typeMap.get("k1"));
+        Assertions.assertEquals("keyword", typeMap.get("k2"));
+        Assertions.assertEquals("text", typeMap.get("k3"));
+        Assertions.assertEquals("date", typeMap.get("k5"));
+    }
+
+    @Test
+    public void testColumn2typeMapObjectFieldsWithoutType() {
+        List<String> columns = Arrays.asList("k4");
+        EsFieldContext ctx = EsMappingUtils.resolveFieldContext(columns, "test", MAPPING_ES6, "doc");
+
+        Map<String, String> typeMap = ctx.getColumn2typeMap();
+        Assertions.assertEquals(1, typeMap.size());
+        Assertions.assertEquals("object", typeMap.get("k4"));
+    }
+
+    @Test
+    public void testColumn2typeMapPopulatedWhenColumnNamesEmpty() {
+        // When columnNames is empty, all mapping properties should be resolved
+        EsFieldContext ctx = EsMappingUtils.resolveFieldContext(
+                Collections.emptyList(), "test", MAPPING_ES6, "doc");
+
+        Map<String, String> typeMap = ctx.getColumn2typeMap();
+        Assertions.assertEquals(6, typeMap.size());
+        Assertions.assertEquals("long", typeMap.get("k1"));
+        Assertions.assertEquals("keyword", typeMap.get("k2"));
+        Assertions.assertEquals("text", typeMap.get("k3"));
+        Assertions.assertEquals("object", typeMap.get("k4"));
+        Assertions.assertEquals("date", typeMap.get("k5"));
+        Assertions.assertEquals("nested", typeMap.get("k6"));
+    }
+
+    @Test
+    public void testColumn2typeMapPopulatedWhenColumnNamesNull() {
+        EsFieldContext ctx = EsMappingUtils.resolveFieldContext(
+                null, "test", MAPPING_ES6, "doc");
+
+        Map<String, String> typeMap = ctx.getColumn2typeMap();
+        Assertions.assertFalse(typeMap.isEmpty());
+        Assertions.assertEquals("long", typeMap.get("k1"));
+    }
+
+    @Test
+    public void testFieldContextKeywordSniffWhenColumnsEmpty() {
+        // k3 is "text" with a "keyword" sub-field — should be detected
+        EsFieldContext ctx = EsMappingUtils.resolveFieldContext(
+                Collections.emptyList(), "test", MAPPING_ES6, "doc");
+
+        Map<String, String> fetchFields = ctx.getFetchFieldsContext();
+        Assertions.assertTrue(fetchFields.containsKey("k3"));
+        Assertions.assertEquals("k3.keyword", fetchFields.get("k3"));
+    }
+
+    @Test
+    public void testFieldContextDateCompatWhenColumnsEmpty() {
+        // k5 is "date" with no format → needs compat
+        EsFieldContext ctx = EsMappingUtils.resolveFieldContext(
+                Collections.emptyList(), "test", MAPPING_ES6, "doc");
+
+        List<String> dateFields = ctx.getNeedCompatDateFields();
+        Assertions.assertTrue(dateFields.contains("k5"));
+    }
+
+    @Test
+    public void testColumn2typeMapEs7Mapping() {
+        EsFieldContext ctx = EsMappingUtils.resolveFieldContext(
+                Collections.emptyList(), "test", MAPPING_ES7, null);
+
+        Map<String, String> typeMap = ctx.getColumn2typeMap();
+        Assertions.assertEquals(5, typeMap.size());
+        Assertions.assertEquals("keyword", typeMap.get("name"));
+        Assertions.assertEquals("integer", typeMap.get("age"));
+        Assertions.assertEquals("text", typeMap.get("bio"));
+        Assertions.assertEquals("date", typeMap.get("created"));
+        Assertions.assertEquals("object", typeMap.get("addr"));
+    }
+
+    @Test
+    public void testEs7KeywordSniffAndDateCompat() {
+        List<String> columns = Arrays.asList("bio", "created");
+        EsFieldContext ctx = EsMappingUtils.resolveFieldContext(
+                columns, "test", MAPPING_ES7, null);
+
+        // bio is text with keyword sub-field "raw"
+        Assertions.assertEquals("bio.raw", ctx.getFetchFieldsContext().get("bio"));
+        // created is date with no format
+        Assertions.assertTrue(ctx.getNeedCompatDateFields().contains("created"));
+    }
+
+    @Test
+    public void testIdColumnSkipped() {
+        List<String> columns = Arrays.asList("_id", "k1");
+        EsFieldContext ctx = EsMappingUtils.resolveFieldContext(
+                columns, "test", MAPPING_ES6, "doc");
+
+        Map<String, String> typeMap = ctx.getColumn2typeMap();
+        Assertions.assertEquals(1, typeMap.size());
+        Assertions.assertFalse(typeMap.containsKey("_id"));
+        Assertions.assertEquals("long", typeMap.get("k1"));
+    }
+
+    @Test
+    public void legacyTypeNamesCanResembleRootParameters() {
+        for (String type : Arrays.asList("doc", "_doc", "enabled", "date_detection", "numeric_detection",
+                "dynamic_date_formats", "runtime", "custom_properties")) {
+            String mapping = "{\"test\":{\"mappings\":{\"" + type
+                    + "\":{\"properties\":{\"a\":{\"type\":\"long\"}}}}}}";
+            Assertions.assertEquals(org.apache.doris.catalog.Type.BIGINT, EsUtil.genColumnsFromEs(
+                    "test", null, EsMappingUtils.getRootSchema(EsMappingUtils.getMapping(mapping), null,
+                            new ArrayList<>()), false, new ArrayList<>(), new HashMap<>()).get(0).getType(), type);
+            Assertions.assertEquals("long", EsMappingUtils.resolveFieldContext(
+                    Collections.singletonList("a"), "test", mapping, type).getColumn2typeMap().get("a"), type);
+        }
+    }
+
+    @Test
+    void aliasBackingSelectionHonorsTheRequestedLegacyType() {
+        String mapping = "{\"a\":{\"mappings\":{\"empty\":{},\"wanted\":{\"properties\":"
+                + "{\"x\":{\"type\":\"long\"}}}}},\"b\":{\"mappings\":{\"other\":{\"properties\":"
+                + "{\"y\":{\"type\":\"long\"}}}}}}";
+        Assertions.assertEquals("long", EsMappingUtils.getMappingProps("alias", mapping, "wanted")
+                .path("x").path("type").asText());
+        Assertions.assertEquals("long", EsMappingUtils.resolveFieldContext(
+                Collections.singletonList("x"), "alias", mapping, "wanted").getColumn2typeMap().get("x"));
+    }
+
+    @Test
+    void sourceNumericPredicatesStayLocalWithoutDisablingDocvalues() {
+        for (String type : Arrays.asList("byte", "short", "integer", "long", "unsigned_long", "float", "double")) {
+            String mapping = "{\"test\":{\"mappings\":{\"properties\":{\"n\":{\"type\":\"" + type + "\"}}}}}";
+            EsFieldContext fields = EsMappingUtils.resolveFieldContext(
+                    Collections.singletonList("n"), "test", mapping, null);
+            Assertions.assertTrue(fields.getSourceModeUnsafeFields().contains("n"), type);
+            Assertions.assertEquals("n", fields.getDocValueFieldsContext().get("n"), type);
+        }
+    }
+
+    @Test
+    void runtimeFieldNamedPropertiesIsNotALegacyType() throws Exception {
+        ObjectNode mapping = (ObjectNode) new ObjectMapper().readTree(
+                "{\"runtime\":{\"properties\":{\"type\":\"long\"}}}");
+        ObjectNode root = EsMappingUtils.getRootSchema(mapping, null, new ArrayList<>());
+        Assertions.assertTrue(root.has("runtime"));
+        Assertions.assertEquals("long", root.path("runtime").path("properties").path("type").asText());
+    }
+
+    @Test
+    void indexMalformedDefaultsRespectFieldOverridesAndFieldTypes() {
+        String mapping = "{\"test\":{\"settings\":{\"index\":{\"mapping\":"
+                + "{\"ignore_malformed\":\"true\",\"coerce\":\"false\"}}},\"mappings\":{\"properties\":{"
+                + "\"inherited\":{\"type\":\"long\"},"
+                + "\"overridden\":{\"type\":\"long\",\"ignore_malformed\":false},"
+                + "\"keyword\":{\"type\":\"keyword\"}}}}}";
+        EsFieldContext context = EsMappingUtils.resolveFieldContext(Collections.emptyList(), "test", mapping, null);
+        Assertions.assertTrue(context.getSourceValueUnsafeFields().contains("inherited"));
+        Assertions.assertFalse(context.getDocValueFieldsContext().containsKey("inherited"));
+        Assertions.assertFalse(context.getSourceValueUnsafeFields().contains("overridden"));
+        Assertions.assertTrue(context.getDocValueFieldsContext().containsKey("overridden"));
+        Assertions.assertFalse(context.getSourceValueUnsafeFields().contains("keyword"));
+        Assertions.assertTrue(context.getDocValueFieldsContext().containsKey("keyword"));
+    }
+
+    @Test
+    void explicitDateFormatsRequireSourcePredicateEvaluation() {
+        for (String format : Arrays.asList("yyyy-MM-dd||epoch_millis",
+                "yyyy-MM-dd HH:mm:ss||epoch_millis")) {
+            String mapping = "{\"test\":{\"mappings\":{\"properties\":{"
+                    + "\"d\":{\"type\":\"date\",\"format\":\"" + format + "\"}}}}}";
+            EsFieldContext context = EsMappingUtils.resolveFieldContext(
+                    Collections.singletonList("d"), "test", mapping, null);
+            Assertions.assertTrue(context.getSourceModeUnsafeFields().contains("d"), format);
+            Assertions.assertTrue(context.getDocValueFieldsContext().containsKey("d"), format);
+        }
+    }
+}
