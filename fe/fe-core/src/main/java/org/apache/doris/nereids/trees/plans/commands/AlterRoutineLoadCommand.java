@@ -312,14 +312,19 @@ public class AlterRoutineLoadCommand extends AlterCommand {
             }
         }
 
+        // Checked as CREATE checks them, since the job takes its byte from the value the same way
         if (jobProperties.containsKey(CsvFileFormatProperties.PROP_ENCLOSE)) {
-            analyzedJobProperties.put(CsvFileFormatProperties.PROP_ENCLOSE,
-                    jobProperties.get(CsvFileFormatProperties.PROP_ENCLOSE));
+            String enclose = jobProperties.get(CsvFileFormatProperties.PROP_ENCLOSE);
+            CreateRoutineLoadInfo.checkCsvControlValue(CsvFileFormatProperties.PROP_ENCLOSE, enclose);
+            CsvFileFormatProperties.parseEnclose(enclose);
+            analyzedJobProperties.put(CsvFileFormatProperties.PROP_ENCLOSE, enclose);
         }
 
         if (jobProperties.containsKey(CsvFileFormatProperties.PROP_ESCAPE)) {
-            analyzedJobProperties.put(CsvFileFormatProperties.PROP_ESCAPE,
-                    jobProperties.get(CsvFileFormatProperties.PROP_ESCAPE));
+            String escape = jobProperties.get(CsvFileFormatProperties.PROP_ESCAPE);
+            CreateRoutineLoadInfo.checkCsvControlValue(CsvFileFormatProperties.PROP_ESCAPE, escape);
+            CsvFileFormatProperties.parseEscape(escape);
+            analyzedJobProperties.put(CsvFileFormatProperties.PROP_ESCAPE, escape);
         }
 
         if (jobProperties.containsKey(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL)) {
