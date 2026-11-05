@@ -47,7 +47,7 @@ suite("test_mc_write_insert", "p2,external,maxcompute,external_remote,external_r
 
     sql """drop database if exists ${db}"""
     sql """create database ${db}"""
-    sql """use ${db}"""
+    retry(10, 1000) { sql """use ${db}""" }
 
     try {
         // Test 1: Basic INSERT INTO with VALUES
