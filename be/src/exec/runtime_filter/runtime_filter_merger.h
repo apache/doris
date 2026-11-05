@@ -115,6 +115,16 @@ public:
 
     bool ready() const { return _rf_state == State::READY; }
 
+    // Returns true when the merged wrapper is still UNINITED, i.e. the merger has
+    // collected all products by count but there is no really produced filter content
+    // (nor a real DISABLED). In this case we must NOT publish it as a disabled filter;
+    // instead skip publishing so that consumers fall back to waiting until timeout,
+    // which aligns with the legacy (branch-3.1) runtime filter semantics.
+    bool is_wrapper_uninited() {
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
+        return _wrapper->get_state() == RuntimeFilterWrapper::State::UNINITED;
+    }
+
     void set_wrapper_state_and_ready_to_apply(RuntimeFilterWrapper::State state,
                                               std::string reason = "") {
         std::unique_lock<std::recursive_mutex> l(_rmtx);

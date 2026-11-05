@@ -631,6 +631,17 @@ Status RuntimeFilterMergeControllerEntity::_send_rf_to_target(
         return Status::InternalError("Runtime filter has been sent",
                                      cnt_val.merger->debug_string());
     }
+
+    // Align with the legacy (branch-3.1) semantics: if all products have arrived (by count)
+    // but the merged filter content is still not ready (UNINITED, not a real DISABLED),
+    // do NOT broadcast it. Publishing here would serialize it as `disabled` and every
+    // consumer would permanently give up the filter ("get disabled from remote"), causing
+    // e.g. a large probe-side table to degrade into a full table scan. Skip publishing and
+    // let consumers wait until their runtime_filter_wait_time_ms timeout instead.
+    if (cnt_val.merger->is_wrapper_uninited()) {
+        cnt_val.done = true;
+        return Status::OK();
+    }
     cnt_val.done = true;
 
     butil::IOBuf request_attachment;
