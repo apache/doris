@@ -393,6 +393,8 @@ TEST_F(ParquetDecodedColumnCacheTest, CacheAllocationPreservesTheQueryReservatio
     auto query = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY, "query", 1 << 20);
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query);
     auto* tracker = thread_context()->thread_mem_tracker_mgr.get();
+    // Grow the attach-snapshot storage before measuring reservation ownership.
+    { SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(cache.mem_tracker()); }
     ASSERT_TRUE(tracker->try_reserve(4096).ok());
     DEFER_RELEASE_RESERVED();
     const auto query_reserved = tracker->reserved_mem();

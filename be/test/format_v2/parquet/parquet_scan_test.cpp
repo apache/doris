@@ -3191,6 +3191,7 @@ TEST_F(ParquetScanTest, DecodedColumnCacheExcludesHitsFromMergedPhysicalReads) {
     description.is_immutable = true;
     io::FileSystemProperties source;
     source.system_type = TFileType::FILE_LOCAL;
+    RuntimeProfile profile("mixed");
     ParquetFileContext context;
     ASSERT_TRUE(context.open(remote, &io_ctx, false, description).ok());
     context.decoded_column_cache_file_key =
@@ -3218,7 +3219,6 @@ TEST_F(ParquetScanTest, DecodedColumnCacheExcludesHitsFromMergedPhysicalReads) {
         scheduler.set_scan_request(request);
         scheduler.set_runtime_state(&state);
         scheduler.set_timezone(&state.timezone_obj());
-        RuntimeProfile profile("mixed");
         scheduler.set_merge_read_options(&profile, 8 << 20);
         bool eof = false;
         size_t offset = 0;

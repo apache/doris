@@ -382,7 +382,9 @@ DecodedColumnCache::ReadPlan DecodedColumnCache::prepare_reader(
     add_counter(profile.decoded_cache_requests);
     auto hit = lookup_column(key);
     add_counter(hit ? profile.decoded_cache_hits : profile.decoded_cache_misses);
-    return {std::move(key), std::move(hit), make_nullable(schema.type)};
+    return {.key = std::move(key),
+            .hit = std::move(hit),
+            .output_type = make_nullable(schema.type)};
 }
 
 Status DecodedColumnCache::create_reader(ReadPlan plan, const ParquetColumnSchema& schema,
