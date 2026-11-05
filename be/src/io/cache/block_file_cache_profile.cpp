@@ -108,8 +108,8 @@ FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& curren
     SUBTRACT_FIELD(io_adaptor_bypass_bytes);
     SUBTRACT_FIELD(io_adaptor_remote_bytes);
     SUBTRACT_FIELD(io_adaptor_remote_time_ns);
-    SUBTRACT_FIELD(io_adaptor_local_feedbacks);
-    SUBTRACT_FIELD(io_adaptor_remote_feedbacks);
+    SUBTRACT_FIELD(io_adaptor_local_probes);
+    SUBTRACT_FIELD(io_adaptor_remote_probes);
     SUBTRACT_FIELD(io_adaptor_remote_failures);
     SUBTRACT_FIELD(io_adaptor_fallback_local);
     SUBTRACT_FIELD(async_cache_write_submitted);
@@ -221,10 +221,10 @@ FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile,
                                                            TUnit::BYTES, cache_profile, 1);
     io_adaptor_remote_time_ns = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "IOAdaptorRemoteReadTime",
                                                              TUnit::TIME_NS, cache_profile, 1);
-    io_adaptor_local_feedbacks = ADD_CHILD_COUNTER_WITH_LEVEL(
-            profile, "IOAdaptorLocalFeedbackCount", TUnit::UNIT, cache_profile, 1);
-    io_adaptor_remote_feedbacks = ADD_CHILD_COUNTER_WITH_LEVEL(
-            profile, "IOAdaptorRemoteFeedbackCount", TUnit::UNIT, cache_profile, 1);
+    io_adaptor_local_probes = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "IOAdaptorLocalProbeCount",
+                                                           TUnit::UNIT, cache_profile, 1);
+    io_adaptor_remote_probes = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "IOAdaptorRemoteProbeCount",
+                                                            TUnit::UNIT, cache_profile, 1);
     io_adaptor_remote_failures = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "IOAdaptorRemoteFailureCount", TUnit::UNIT, cache_profile, 1);
     io_adaptor_fallback_local = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "IOAdaptorFallbackLocalCount",
@@ -369,8 +369,8 @@ void FileCacheProfileReporter::update(const FileCacheStatistics* statistics) con
     COUNTER_UPDATE(io_adaptor_bypass_bytes, statistics->io_adaptor_bypass_bytes);
     COUNTER_UPDATE(io_adaptor_remote_bytes, statistics->io_adaptor_remote_bytes);
     COUNTER_UPDATE(io_adaptor_remote_time_ns, statistics->io_adaptor_remote_time_ns);
-    COUNTER_UPDATE(io_adaptor_local_feedbacks, statistics->io_adaptor_local_feedbacks);
-    COUNTER_UPDATE(io_adaptor_remote_feedbacks, statistics->io_adaptor_remote_feedbacks);
+    COUNTER_UPDATE(io_adaptor_local_probes, statistics->io_adaptor_local_probes);
+    COUNTER_UPDATE(io_adaptor_remote_probes, statistics->io_adaptor_remote_probes);
     COUNTER_UPDATE(io_adaptor_remote_failures, statistics->io_adaptor_remote_failures);
     COUNTER_UPDATE(io_adaptor_fallback_local, statistics->io_adaptor_fallback_local);
     COUNTER_UPDATE(async_cache_write_submitted, statistics->async_cache_write_submitted);
