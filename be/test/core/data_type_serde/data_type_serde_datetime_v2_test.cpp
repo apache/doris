@@ -23,6 +23,7 @@
 #include <streamvbyte.h>
 
 #include <cstddef>
+#include <functional>
 #include <iostream>
 #include <limits>
 #include <string>
@@ -32,10 +33,19 @@
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
+#include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_struct.h"
 #include "core/data_type/common_data_type_serder_test.h"
 #include "core/data_type/common_data_type_test.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type_serde/data_type_array_serde.h"
 #include "core/data_type_serde/data_type_datetimev2_serde.h"
 #include "core/data_type_serde/data_type_datev2_serde.h"
@@ -722,6 +732,136 @@ TEST_F(DataTypeDateTimeV2SerDeTest, RejectsNestedArrowTimestampOutsideDateTimeV2
     EXPECT_FALSE(status.ok());
     EXPECT_NE(std::string::npos, status.to_string().find("is outside the DATETIMEV2 range"))
             << status.to_string();
+}
+
+// Three rows of LIST (container 0), FIXED_SIZE_LIST (1), MAP<INT, element> (2) or STRUCT (3) over
+// `values`, one child slot per row, with row 1 NULL when `null_row` is set.
+static std::shared_ptr<arrow::Array> one_slot_parent(int container,
+                                                     const std::shared_ptr<arrow::Array>& values,
+                                                     bool null_row) {
+    const std::shared_ptr<arrow::Buffer> validity =
+            null_row ? arrow::Buffer::FromVector(std::vector<uint8_t> {0x05}) : nullptr;
+    const int64_t null_count = null_row ? 1 : 0;
+    const auto offsets = arrow::Buffer::FromVector(std::vector<int32_t> {0, 1, 2, 3});
+    if (container == 0) {
+        return arrow::MakeArray(arrow::ArrayData::Make(
+                arrow::list(values->type()), 3, {validity, offsets}, {values->data()}, null_count));
+    }
+    if (container == 1) {
+        return arrow::MakeArray(arrow::ArrayData::Make(arrow::fixed_size_list(values->type(), 1), 3,
+                                                       {validity}, {values->data()}, null_count));
+    }
+    if (container == 2) {
+        arrow::Int32Builder keys;
+        EXPECT_TRUE(keys.AppendValues({1, 2, 3}).ok());
+        std::shared_ptr<arrow::Array> key_values;
+        EXPECT_TRUE(keys.Finish(&key_values).ok());
+        auto entries = arrow::StructArray::Make({key_values, values},
+                                                {arrow::field("key", arrow::int32(), false),
+                                                 arrow::field("value", values->type())});
+        EXPECT_TRUE(entries.ok()) << entries.status().ToString();
+        return arrow::MakeArray(arrow::ArrayData::Make(arrow::map(arrow::int32(), values->type()),
+                                                       3, {validity, offsets},
+                                                       {entries.ValueOrDie()->data()}, null_count));
+    }
+    return arrow::MakeArray(
+            arrow::ArrayData::Make(arrow::struct_({arrow::field("ts", values->type())}), 3,
+                                   {validity}, {values->data()}, null_count));
+}
+
+// The nullable Doris type that reads one_slot_parent(container, ...) with elements `element`.
+static DataTypePtr one_slot_parent_type(int container, const DataTypePtr& element) {
+    if (container == 2) {
+        return make_nullable(std::make_shared<DataTypeMap>(
+                make_nullable(std::make_shared<DataTypeInt32>()), element));
+    }
+    if (container == 3) {
+        return make_nullable(std::make_shared<DataTypeStruct>(DataTypes {element}, Strings {"ts"}));
+    }
+    return make_nullable(std::make_shared<DataTypeArray>(element));
+}
+
+// The elements of a column read by one_slot_parent_type(container, ...): row i owns element i.
+static const ColumnNullable& one_slot_elements(int container, const IColumn& rows) {
+    const auto& nested = assert_cast<const ColumnNullable&>(rows).get_nested_column();
+    if (container == 2) {
+        return assert_cast<const ColumnNullable&>(
+                assert_cast<const ColumnMap&>(nested).get_values());
+    }
+    if (container == 3) {
+        return assert_cast<const ColumnNullable&>(
+                assert_cast<const ColumnStruct&>(nested).get_column(0));
+    }
+    return assert_cast<const ColumnNullable&>(assert_cast<const ColumnArray&>(nested).get_data());
+}
+
+// A NULL LIST, FIXED_SIZE_LIST, MAP or STRUCT row may hide any child value, as Arrow leaves the
+// payload under a NULL parent unspecified, a timestamp outside the DATETIMEV2 or TIMESTAMPTZ range
+// included. The nested SerDes mask such slots before the range checks: the hidden 65537-01-01
+// reads as a NULL element of a NULL row, while the same value in a visible row still fails the
+// read. Without the masks every container fails with the range error.
+TEST_F(DataTypeDateTimeV2SerDeTest, IgnoresArrowTimestampsHiddenByNullParents) {
+    struct TimestampCase {
+        std::shared_ptr<arrow::DataType> wire;
+        DataTypePtr element;
+        // Element `row` of the nested column of `element`, as text.
+        std::function<std::string(const IColumn&, size_t)> value_at;
+        std::string epoch;
+        std::string one_second;
+        std::string range_error;
+    };
+    const std::vector<TimestampCase> cases {
+            {arrow::timestamp(arrow::TimeUnit::MICRO),
+             make_nullable(std::make_shared<DataTypeDateTimeV2>(6)),
+             [](const IColumn& values, size_t row) {
+                 return assert_cast<const ColumnDateTimeV2&>(values).get_data()[row].to_string(6);
+             },
+             "1970-01-01 00:00:00.000000", "1970-01-01 00:00:01.000000",
+             "is outside the DATETIMEV2 range"},
+            {arrow::timestamp(arrow::TimeUnit::MICRO, "UTC"),
+             make_nullable(std::make_shared<DataTypeTimeStampTz>(6)),
+             [](const IColumn& values, size_t row) {
+                 return assert_cast<const ColumnTimeStampTz&>(values).get_data()[row].to_string(
+                         cctz::utc_time_zone(), 6);
+             },
+             "1970-01-01 00:00:00.000000+00:00", "1970-01-01 00:00:01.000000+00:00",
+             "outside the Doris 0000-9999 range"},
+    };
+    for (const auto& timestamp_case : cases) {
+        SCOPED_TRACE(timestamp_case.element->get_name());
+        arrow::TimestampBuilder builder(timestamp_case.wire, arrow::default_memory_pool());
+        // 1970-01-01 00:00:00, 65537-01-01 and 1970-01-01 00:00:01.
+        for (const int64_t value :
+             {int64_t {0}, int64_t {2005980768000000000}, int64_t {1000000}}) {
+            ASSERT_TRUE(builder.Append(value).ok());
+        }
+        std::shared_ptr<arrow::Array> timestamps;
+        ASSERT_TRUE(builder.Finish(&timestamps).ok());
+        for (int container = 0; container < 4; ++container) {
+            SCOPED_TRACE(container);
+            const auto type = one_slot_parent_type(container, timestamp_case.element);
+            auto hidden = type->create_column();
+            auto status = type->get_serde()->read_column_from_arrow(
+                    *hidden, one_slot_parent(container, timestamps, true).get(), 0, 3,
+                    cctz::utc_time_zone());
+            ASSERT_TRUE(status.ok()) << status.to_string();
+            EXPECT_TRUE(hidden->is_null_at(1));
+            const auto& elements = one_slot_elements(container, *hidden);
+            EXPECT_TRUE(elements.is_null_at(1));
+            EXPECT_EQ(timestamp_case.epoch,
+                      timestamp_case.value_at(elements.get_nested_column(), 0));
+            EXPECT_EQ(timestamp_case.one_second,
+                      timestamp_case.value_at(elements.get_nested_column(), 2));
+
+            auto visible = type->create_column();
+            status = type->get_serde()->read_column_from_arrow(
+                    *visible, one_slot_parent(container, timestamps, false).get(), 0, 3,
+                    cctz::utc_time_zone());
+            EXPECT_FALSE(status.ok());
+            EXPECT_NE(std::string::npos, status.to_string().find(timestamp_case.range_error))
+                    << status.to_string();
+        }
+    }
 }
 
 } // namespace doris

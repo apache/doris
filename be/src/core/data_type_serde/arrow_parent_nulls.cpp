@@ -65,6 +65,21 @@ Status allocate_null_bitmap(int64_t bit_length, arrow::MemoryPool* pool,
     return Status::OK();
 }
 
+// Whether any of the slots [begin, end) of `data` is non-NULL; without a validity buffer every
+// slot is. Only such a slot needs hiding, so a NULL row that owns no slots, or only NULL ones,
+// costs no bitmap. The slots count from the array offset, the validity bits from the start of
+// the buffer.
+bool has_valid_slot(const arrow::ArrayData& data, int64_t begin, int64_t end) {
+    if (begin == end) {
+        return false;
+    }
+    if (data.buffers[0] == nullptr) {
+        return true;
+    }
+    return arrow::internal::CountSetBits(data.buffers[0]->data(), data.offset + begin,
+                                         end - begin) != 0;
+}
+
 // Copies the validity of the slots [begin, end) of `data` to the same bits of `bitmap`. Validity
 // bits are addressed from the start of the buffer, before the array offset.
 void copy_validity(const arrow::ArrayData& data, int64_t begin, int64_t end, uint8_t* bitmap) {
@@ -110,16 +125,6 @@ Status mask_unreferenced_slots(const arrow::Array& parent, const SlotBegin& slot
     }
     // Only a non-NULL slot needs hiding. A child that an earlier pass masked already, like the
     // narrowed Decimal256 leaf that a compaction validates again, therefore costs no bitmap.
-    const auto has_valid_slot = [&target](int64_t begin, int64_t end) {
-        if (begin == end) {
-            return false;
-        }
-        if (target->buffers[0] == nullptr) {
-            return true;
-        }
-        return arrow::internal::CountSetBits(target->buffers[0]->data(), target->offset + begin,
-                                             end - begin) != 0;
-    };
     std::shared_ptr<arrow::Buffer> validity;
     const auto keep_referenced_slots = [&]() -> Status {
         RETURN_IF_ERROR(allocate_null_bitmap(target->offset + target->length, pool, &validity));
@@ -127,7 +132,7 @@ Status mask_unreferenced_slots(const arrow::Array& parent, const SlotBegin& slot
         return Status::OK();
     };
     // A sliced parent leaves the slots of the rows outside the slice unreferenced.
-    if (has_valid_slot(0, first) || has_valid_slot(last, target->length)) {
+    if (has_valid_slot(*target, 0, first) || has_valid_slot(*target, last, target->length)) {
         RETURN_IF_ERROR(keep_referenced_slots());
     }
     for (int64_t row = 0; row < parent.length(); ++row) {
@@ -143,7 +148,7 @@ Status mask_unreferenced_slots(const arrow::Array& parent, const SlotBegin& slot
         }
         // A NULL list or map row may own no slots, and the slots of a NULL row may be NULL
         // already. It hides nothing new then, so such NULL rows allocate nothing.
-        if (!has_valid_slot(begin, end)) {
+        if (!has_valid_slot(*target, begin, end)) {
             continue;
         }
         if (validity == nullptr) {
@@ -178,13 +183,20 @@ Status mask_arrow_children_hidden_by_null_parents(
         if (!parent.IsNull(row)) {
             continue;
         }
+        const auto [begin, slot_end] = child_slots(row);
+        DCHECK(begin >= 0 && begin <= slot_end && slot_end <= data.length);
+        // A NULL row hides nothing when it owns no slots, as Arrow's list and map builders
+        // write it, or only NULL ones, as after mask_arrow_descendants_not_visible(). Such a row
+        // must not allocate: the bitmap covers the whole child, so a caller that reads one large
+        // batch a few rows at a time would copy the child's validity for every range.
+        if (!has_valid_slot(data, begin, slot_end)) {
+            continue;
+        }
         if (validity == nullptr) {
             RETURN_IF_ERROR(allocate_null_bitmap(data.offset + data.length,
                                                  doris_arrow_memory_pool(), &validity));
             copy_validity(data, 0, data.length, validity->mutable_data());
         }
-        const auto [begin, slot_end] = child_slots(row);
-        DCHECK(begin >= 0 && begin <= slot_end && slot_end <= data.length);
         arrow::bit_util::SetBitsTo(validity->mutable_data(), data.offset + begin, slot_end - begin,
                                    false);
     }

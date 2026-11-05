@@ -180,6 +180,96 @@ TEST(ArrowParentNullsTest, AllocatesTheMaskFromTheDorisArrowPool) {
     EXPECT_EQ(allocations, pool.num_allocations());
 }
 
+// A NULL row hides nothing when it owns no child slots, as Arrow's list and map builders write a
+// NULL row, or only NULL ones, as after mask_arrow_descendants_not_visible(). Such rows return
+// the child itself and allocate nothing, also when a caller reads a large batch a few rows at a
+// time, like the alternating [1] and NULL lists below read two rows per call. A NULL row that
+// hides a valid value is still masked, with one bitmap. Allocating at the first NULL row of each
+// call, as before, allocates once per call, and once for each map child.
+TEST(ArrowParentNullsTest, AllocatesNothingForNullRowsThatHideNothing) {
+    arrow::ProxyMemoryPool pool(arrow::default_memory_pool());
+    auto* env = ExecEnv::GetInstance();
+    auto* previous_pool = env->_arrow_memory_pool;
+    env->_arrow_memory_pool = &pool;
+    Defer restore_pool {[&] { env->_arrow_memory_pool = previous_pool; }};
+    const auto slots_of = [](const std::vector<int32_t>& offsets) {
+        return [offsets](int64_t row) {
+            return std::pair<int64_t, int64_t>(offsets[row], offsets[row + 1]);
+        };
+    };
+    std::shared_ptr<arrow::Array> masked;
+
+    // LIST rows [1], NULL, [1], NULL, ..., whose NULL rows own no slots.
+    constexpr int64_t rows = 16;
+    std::vector<int32_t> offsets {0};
+    for (int64_t row = 0; row < rows; ++row) {
+        offsets.push_back(offsets.back() + (row % 2 == 0 ? 1 : 0));
+    }
+    const auto ones =
+            int32_array(std::vector<std::optional<int32_t>>(static_cast<size_t>(rows / 2), 1));
+    const auto alternating = arrow::MakeArray(
+            arrow::ArrayData::Make(arrow::list(arrow::int32()), rows,
+                                   {arrow::Buffer::FromVector(std::vector<uint8_t> {0x55, 0x55}),
+                                    arrow::Buffer::FromVector(offsets)},
+                                   {ones->data()}, rows / 2));
+    for (int64_t start = 0; start < rows; start += 2) {
+        SCOPED_TRACE(start);
+        ASSERT_TRUE(mask_arrow_children_hidden_by_null_parents(*alternating, start, start + 2, ones,
+                                                               slots_of(offsets), &masked)
+                            .ok());
+        EXPECT_EQ(ones.get(), masked.get());
+    }
+
+    // MAP rows {a: 1}, NULL without entries, {b: 2, c: 3}: neither the keys nor the items.
+    const std::vector<int32_t> map_offsets {0, 1, 1, 3};
+    const auto map = arrow::MakeArray(
+            arrow::ArrayData::Make(arrow::map(arrow::utf8(), arrow::int32()), 3,
+                                   {bitmap_of(0x05), arrow::Buffer::FromVector(map_offsets)},
+                                   {map_entries(int32_array({1, 2, 3}))->data()}, 1));
+    const auto& map_array = static_cast<const arrow::MapArray&>(*map);
+    for (const auto& child : {map_array.keys(), map_array.items()}) {
+        ASSERT_TRUE(mask_arrow_children_hidden_by_null_parents(*map, 0, 3, child,
+                                                               slots_of(map_offsets), &masked)
+                            .ok());
+        EXPECT_EQ(child.get(), masked.get());
+    }
+
+    // LIST rows [1], NULL over {NULL, NULL}, [4] and FIXED_SIZE_LIST<INT32, 2> rows [1, 2], NULL
+    // over {NULL, NULL}, [5, 6]: the slots of the NULL rows are NULL already.
+    const auto list_values = int32_array({1, std::nullopt, std::nullopt, 4});
+    const std::vector<int32_t> list_offsets {0, 1, 3, 4};
+    const auto list = arrow::MakeArray(arrow::ArrayData::Make(
+            arrow::list(arrow::int32()), 3,
+            {bitmap_of(0x05), arrow::Buffer::FromVector(list_offsets)}, {list_values->data()}, 1));
+    ASSERT_TRUE(mask_arrow_children_hidden_by_null_parents(*list, 0, 3, list_values,
+                                                           slots_of(list_offsets), &masked)
+                        .ok());
+    EXPECT_EQ(list_values.get(), masked.get());
+    const auto pair_values = int32_array({1, 2, std::nullopt, std::nullopt, 5, 6});
+    const auto pairs =
+            arrow::MakeArray(arrow::ArrayData::Make(arrow::fixed_size_list(arrow::int32(), 2), 3,
+                                                    {bitmap_of(0x05)}, {pair_values->data()}, 1));
+    ASSERT_TRUE(mask_arrow_children_hidden_by_null_parents(*pairs, 0, 3, pair_values, pairs_of_two,
+                                                           &masked)
+                        .ok());
+    EXPECT_EQ(pair_values.get(), masked.get());
+    EXPECT_EQ(0, pool.num_allocations());
+
+    // FIXED_SIZE_LIST<INT32, 2> rows NULL over {NULL, NULL}, NULL over {3, 4} and [5, 6]: only the
+    // second row hides a valid value.
+    const auto hidden_values = int32_array({std::nullopt, std::nullopt, 3, 4, 5, 6});
+    const auto hidden =
+            arrow::MakeArray(arrow::ArrayData::Make(arrow::fixed_size_list(arrow::int32(), 2), 3,
+                                                    {bitmap_of(0x04)}, {hidden_values->data()}, 2));
+    ASSERT_TRUE(mask_arrow_children_hidden_by_null_parents(*hidden, 0, 3, hidden_values,
+                                                           pairs_of_two, &masked)
+                        .ok());
+    ASSERT_NE(hidden_values.get(), masked.get());
+    EXPECT_EQ((std::vector<bool> {true, true, true, true, false, false}), nulls_of(*masked));
+    EXPECT_EQ(5, static_cast<const arrow::Int32Array&>(*masked).Value(4));
+    EXPECT_EQ(1, pool.num_allocations());
+}
+
 // A pool that refuses the bitmap fails either mask with a Status. If a helper allocated from
 // another pool than the one it is meant to use, its call here would succeed.
 TEST(ArrowParentNullsTest, ReportsMaskAllocationFailure) {

@@ -37,9 +37,13 @@ namespace doris {
 // unspecified, but element SerDes validate every non-NULL value they decode. For example, a
 // FIXED_SIZE_LIST<DATE32, 1> with validity [1, 0, 1] may hold the days [0, 2932897, 1]: its rows
 // are [1970-01-01], NULL, [1970-01-02], yet 2932897 (10000-01-01) is outside the Doris DATE range
-// and would fail the whole batch. `child` itself is returned when no parent row in the range is
-// NULL, so batches without NULL parents allocate nothing. The new validity bitmap comes from
-// ExecEnv's Arrow memory pool, so it is charged to the query like the column it is read into.
+// and would fail the whole batch. `child` itself is returned, and nothing is allocated, when no
+// NULL row in the range owns a non-NULL child slot: when the range has no NULL row, or when its
+// NULL rows own no slots, as Arrow's list and map builders write them, or only NULL ones, as after
+// mask_arrow_descendants_not_visible(). Otherwise the new validity bitmap covers the whole child
+// and comes from ExecEnv's Arrow memory pool, so it is charged to the query like the column it is
+// read into. A caller that reads one retained batch in many row ranges should therefore mask the
+// batch once with mask_arrow_descendants_not_visible() first.
 Status mask_arrow_children_hidden_by_null_parents(
         const arrow::Array& parent, int64_t start, int64_t end,
         const std::shared_ptr<arrow::Array>& child,
