@@ -48,6 +48,7 @@
 #include "parquet/benchmark_parquet_kernels.hpp"
 #include "parquet/benchmark_parquet_reader.hpp"
 #include "parquet/benchmark_parquet_selection.hpp"
+#include "variant/benchmark_variant_arrow_input.hpp"
 #include "variant/benchmark_variant_segment.hpp"
 #endif
 
