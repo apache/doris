@@ -1080,8 +1080,8 @@ public class IcebergConnector implements Connector {
                 break;
             default:
                 // rest / hadoop / glue: FileIO needs the bound storage configuration, including
-                // native GCS credentials when ResolvingFileIO falls back to HadoopFileIO, plus raw
-                // fs./dfs./hadoop. passthrough.
+                // native GCS credentials for the gs:// paths NativeGcsResolvingFileIO keeps on
+                // HadoopFileIO, plus raw fs./dfs./hadoop. passthrough.
                 conf = IcebergCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig);
                 break;
         }

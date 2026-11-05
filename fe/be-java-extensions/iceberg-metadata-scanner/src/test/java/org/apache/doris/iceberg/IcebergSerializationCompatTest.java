@@ -17,11 +17,13 @@
 
 package org.apache.doris.iceberg;
 
+import com.google.cloud.storage.Storage;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.gcp.gcs.GCSFileIO;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -35,6 +37,8 @@ import java.io.Serializable;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.HashMap;
+import java.util.Map;
 
 public class IcebergSerializationCompatTest {
     // BaseFile's serialVersionUID in Iceberg 1.11.0; 1.12.0 changed it (and added a field).
@@ -105,6 +109,29 @@ public class IcebergSerializationCompatTest {
         IllegalStateException e = Assertions.assertThrows(IllegalStateException.class,
                 () -> IcebergSerializationCompat.deserializeFromBase64(Base64.getEncoder().encodeToString(bytes)));
         Assertions.assertInstanceOf(ClassNotFoundException.class, e.getCause());
+    }
+
+    @Test
+    public void deserializesTheGcsFileIoATaskCarries() throws Exception {
+        // WHY: a REST catalog configured with io-impl=org.apache.iceberg.gcp.gcs.GCSFileIO serializes that FileIO
+        // into every $files/$manifests task (BaseFilesTable.ManifestReadTask keeps table.io()), so the BE plugin
+        // has to carry iceberg-gcp plus the google-cloud-storage client GCSFileIO builds from the task's
+        // properties. MUTATION: dropping either dependency from the plugin pom -> ClassNotFoundException (mapped
+        // to the "different Iceberg version" message) or NoClassDefFoundError on client() -> red.
+        Map<String, String> properties = new HashMap<>();
+        properties.put("gcs.project-id", "gcs-fileio-test");
+        // NoCredentials: the client is built here only to prove the Google SDK closure links, so the build must not
+        // depend on whatever Application Default Credentials the machine running this test happens to have.
+        properties.put("gcs.no-auth", "true");
+        GCSFileIO fileIo = new GCSFileIO();
+        fileIo.initialize(properties);
+
+        GCSFileIO deserialized = IcebergSerializationCompat.deserializeFromBase64(serializeToBase64(fileIo));
+
+        Assertions.assertEquals("gcs-fileio-test", deserialized.properties().get("gcs.project-id"));
+        try (Storage client = deserialized.client()) {
+            Assertions.assertNotNull(client);
+        }
     }
 
     private static final class Probe implements Serializable {

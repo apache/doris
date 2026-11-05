@@ -34,8 +34,10 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.aws.s3.S3FileIO;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
+import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.hadoop.HadoopTables;
 import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.io.NativeGcsResolvingFileIO;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.SerializationUtil;
 import org.junit.jupiter.api.Assertions;
@@ -109,6 +111,28 @@ public class IcebergPluginTest {
                 Assertions.assertNotNull(restored.client());
                 Assertions.assertEquals("s3://bucket/manifest.avro",
                         restored.newInputFile("s3://bucket/manifest.avro").location());
+            }
+        }
+    }
+
+    /**
+     * WHY: this plugin bundles iceberg-gcp, so an upstream ResolvingFileIO deserialized here would route gs:// to
+     * GCSFileIO and ignore the fs.gs.* native credentials the FE bound into the task's Hadoop configuration.
+     * MUTATION: making the FE default io-impl plain ResolvingFileIO, or dropping the implFromLocation override
+     * -> GCSFileIO -> red.
+     */
+    @Test
+    public void keepsGcsOnHadoopFileIoAfterSerialization() throws Exception {
+        Configuration conf = new Configuration();
+        conf.set("fs.gs.auth.type", "COMPUTE_ENGINE");
+        try (NativeGcsResolvingFileIO original = new NativeGcsResolvingFileIO()) {
+            original.setConf(conf);
+            original.initialize(new HashMap<>());
+            String wire = SerializationUtil.serializeToBase64(original);
+            try (NativeGcsResolvingFileIO restored = IcebergSerializationCompat.deserializeFromBase64(wire)) {
+                Assertions.assertEquals(HadoopFileIO.class, restored.ioClass("gs://bucket/manifest.avro"));
+                Assertions.assertEquals(S3FileIO.class, restored.ioClass("s3://bucket/manifest.avro"));
+                Assertions.assertEquals("COMPUTE_ENGINE", restored.getConf().get("fs.gs.auth.type"));
             }
         }
     }
@@ -219,18 +243,33 @@ public class IcebergPluginTest {
      */
     @Test
     public void scansAMetadataTableFromASerializedTask(@TempDir Path warehouse) throws IOException {
-        String serializedTask = planOneSnapshotsTask(warehouse);
+        assertScansOneTask(warehouse, MetadataTableType.SNAPSHOTS, "snapshot_id");
+    }
 
+    /**
+     * The {@code $files} family is the shape that carries a FileIO across: BaseFilesTable.ManifestReadTask
+     * keeps {@code table.io()} and reads the manifest through it on this side, so unlike a StaticDataTask it
+     * resolves the FileIO class the catalog was configured with. A GCS-backed REST catalog configures
+     * {@code GCSFileIO}, whose closure is asserted by IcebergSerializationCompatTest; the FileIO here is
+     * hadoop's, because a real GCS table needs credentials no unit test has.
+     */
+    @Test
+    public void scansAFilesMetadataTableFromASerializedTask(@TempDir Path warehouse) throws IOException {
+        assertScansOneTask(warehouse, MetadataTableType.FILES, "record_count");
+    }
+
+    private static void assertScansOneTask(Path warehouse, MetadataTableType type, String projectedColumn)
+            throws IOException {
         Map<String, String> params = new HashMap<>();
-        params.put("serialized_split", serializedTask);
-        params.put("required_fields", "snapshot_id");
+        params.put("serialized_split", planOneMetadataTask(warehouse, type, projectedColumn));
+        params.put("required_fields", projectedColumn);
         params.put("required_types", "bigint");
         params.put("time_zone", "UTC");
 
         JniScanner scanner = loadPlugin().getScannerFactories().iterator().next().create(16, params);
         scanner.open();
         try {
-            Assertions.assertNotEquals(0, scanner.getNextBatchMeta(), "the one snapshot row");
+            Assertions.assertNotEquals(0, scanner.getNextBatchMeta(), "the one " + type + " row");
             Assertions.assertEquals(1, scanner.getTable().getNumRows());
             scanner.releaseTable();
             Assertions.assertEquals(0, scanner.getNextBatchMeta(), "0 means end of stream");
@@ -240,11 +279,12 @@ public class IcebergPluginTest {
     }
 
     /**
-     * Builds a table with one snapshot and plans its {@code $snapshots} metadata table the way
+     * Builds a table with one append and plans one row of its {@code type} metadata table the way
      * IcebergScanPlanProvider.doPlanSystemTableScan does, down to projecting the scan to exactly the
      * requested column - the projection the scanner's positional row reads depend on.
      */
-    private static String planOneSnapshotsTask(Path warehouse) throws IOException {
+    private static String planOneMetadataTask(Path warehouse, MetadataTableType type, String projectedColumn)
+            throws IOException {
         Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
         Table table = new HadoopTables(new Configuration())
                 .create(schema, PartitionSpec.unpartitioned(), warehouse.resolve("t").toString());
@@ -256,13 +296,13 @@ public class IcebergPluginTest {
                         .build())
                 .commit();
 
-        Table snapshots = MetadataTableUtils.createMetadataTableInstance(table, MetadataTableType.SNAPSHOTS);
-        TableScan scan = snapshots.newScan()
-                .project(new Schema(snapshots.schema().findField("snapshot_id")));
+        Table metadata = MetadataTableUtils.createMetadataTableInstance(table, type);
+        TableScan scan = metadata.newScan()
+                .project(new Schema(metadata.schema().findField(projectedColumn)));
         try (CloseableIterable<FileScanTask> tasks = scan.planFiles()) {
             List<FileScanTask> planned = new ArrayList<>();
             tasks.forEach(planned::add);
-            Assertions.assertEquals(1, planned.size(), "one snapshot, one task");
+            Assertions.assertEquals(1, planned.size(), "one " + type + " row, one task");
             return SerializationUtil.serializeToBase64(planned.get(0));
         }
     }
