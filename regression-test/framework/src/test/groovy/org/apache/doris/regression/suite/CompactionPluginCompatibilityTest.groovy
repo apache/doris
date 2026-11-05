@@ -124,7 +124,9 @@ class CompactionPluginCompatibilityTest {
             ports["1"] = "8040"
         }
         Suite.metaClass.sql_return_maparray = { String ignored -> [[BackendId: "1", TabletId: "42"]] }
-        Suite.metaClass.sql = { String ignored -> [[null, '"disable_auto_compaction" = "true"']] }
+        boolean timeSeries = false
+        Suite.metaClass.sql = { String ignored -> [[null, '"disable_auto_compaction" = "true"'
+                + (timeSeries ? ', "compaction_policy" = "time_series"' : '')]] }
         Suite.metaClass.curl = { String method, String url, String body, Integer timeoutSec,
                                  String user, String password, Integer maxRetries ->
             throw new IllegalStateException("tablet probe reached")
@@ -136,12 +138,22 @@ class CompactionPluginCompatibilityTest {
 
         Suite.metaClass.parseJson = { String value -> new JsonSlurper().parseText(value) }
         int showCount = 0
+        boolean failCompaction = false
+        boolean skipSuccessTimestamp = false
+        int publicationAfter = 2
+        def inputRowsets = ["[0-1] 0 DATA NONOVERLAPPING input1 0 B level=0",
+                           "[2-3] 1 DATA NONOVERLAPPING input2 1 KB level=0"]
+        def outputRowsets = ["[0-3] 1 DATA NONOVERLAPPING output 1 KB level=1"]
         Suite.metaClass.curl = { String method, String url, String body = null, Integer timeoutSec = 10,
                                  String user = "", String password = "", Integer maxRetries = 10 ->
             if (url.contains("/api/compaction/show?")) {
                 showCount++
-                return [0, '{"last full success time":"' + (showCount == 1 ? "old" : "new")
-                        + '","last full failure time":"old"}', ""]
+                return [0, groovy.json.JsonOutput.toJson([
+                        'last full success time': !failCompaction && !skipSuccessTimestamp && showCount >= publicationAfter ? "new" : "old",
+                        'last full failure time': failCompaction && showCount > 1 ? "new" : "old",
+                        'last full status': failCompaction && showCount > 1 ? "[E-1] injected failure" : "[OK]",
+                        'rowsets': !failCompaction && showCount >= publicationAfter ? outputRowsets : inputRowsets
+                ]), ""]
             }
             if (url.contains("/api/compaction/run_status?")) {
                 return [0, '{"status":"success","run_status":false}', ""]
@@ -150,5 +162,50 @@ class CompactionPluginCompatibilityTest {
         }
         suite.trigger_and_wait_compaction("t", "full")
         assertTrue(showCount >= 2)
+
+        // A completed HTTP request and readable old rowsets do not prove a successful compaction.
+        showCount = 0
+        failCompaction = true
+        AssertionError failure = assertThrows(AssertionError) {
+            suite.trigger_and_wait_compaction("t", "full", 5)
+        }
+        assertTrue(failure.message.contains("injected failure"), failure.message)
+
+        timeSeries = true
+        showCount = 0
+        failure = assertThrows(AssertionError) {
+            suite.trigger_and_wait_compaction("t", "full", 5)
+        }
+        assertTrue(failure.message.contains("injected failure"), failure.message)
+        failCompaction = false
+        skipSuccessTimestamp = true
+        publicationAfter = 3
+        showCount = 0
+        suite.trigger_and_wait_compaction("t", "full", 5)
+        assertEquals(3, showCount)
+        timeSeries = false
+
+        // E-2010 hands a delete version to base compaction; an idle first poll is not success.
+        showCount = 0
+        Suite.metaClass.curl = { String method, String url, String body = null, Integer timeoutSec = 10,
+                                 String user = "", String password = "", Integer maxRetries = 10 ->
+            if (url.contains("/api/compaction/show?")) {
+                showCount++
+                return [0, groovy.json.JsonOutput.toJson([
+                        'cumulative point': showCount == 1 ? 2 : 5,
+                        'last cumulative success time': "old",
+                        'last cumulative failure time': showCount == 1 ? "old" : "new",
+                        'last cumulative status': showCount == 1 ? "[OK]" : "[E-2010] delete version",
+                        'last base success time': showCount < 3 ? "old" : "new",
+                        'last base status': "[OK]"
+                ]), ""]
+            }
+            if (url.contains("/api/compaction/run_status?")) {
+                return [0, '{"status":"success","run_status":false}', ""]
+            }
+            return [0, '{"status":"success"}', ""]
+        }
+        suite.trigger_and_wait_compaction("t", "cumulative", 5)
+        assertEquals(3, showCount)
     }
 }

@@ -17,6 +17,9 @@
 
 suite("dotted_key_escape_compaction", "p0") {
 
+    // Compaction preserves the visible version; cached query results would hide output corruption.
+    sql "set enable_sql_cache=false"
+    sql "set enable_query_cache=false"
     sql "set sql_mode=''"
     sql "set group_commit='off_mode'"
     sql "set enable_nereids_planner=true"
@@ -71,7 +74,7 @@ suite("dotted_key_escape_compaction", "p0") {
                 }
             }
             int nextId = 1
-            ["full", "cumulative", "full", "cumulative"].eachWithIndex { kind, round ->
+            ["full", "full", "cumulative", "full"].eachWithIndex { kind, round ->
                 ["a", "b", "c"].eachWithIndex { hot, batch ->
                     def first = ['a.b': 701 + round * 10 + batch, 'a': ['b': 2 + batch],
                                  'a%2Eb': 3 + batch, '50%': 4 + batch]
@@ -85,16 +88,41 @@ suite("dotted_key_escape_compaction", "p0") {
                     }
                 }
                 checkRows()
+                def tablets = sql_return_maparray("SHOW TABLETS FROM ${name}")
+                def readStatus = { tablet ->
+                    def (code, out, err) = be_show_tablet_status(
+                            backendIPs["${tablet.BackendId}"], backendHttpPorts["${tablet.BackendId}"], tablet.TabletId)
+                    assertEquals(0, code, err)
+                    return parseJson(out)
+                }
+                def rowsetIds = { status -> status.rowsets.collect { it.split(/\s+/)[4] }.toSet() }
+                def inputs = tablets.collectEntries { tablet -> [(tablet.TabletId): rowsetIds(readStatus(tablet))] }
+                // Six rows with five-row batches leave a one-row final batch in round 0.
+                // Its hot_c value is dense in the input but loses promotion to the dotted paths.
+                // Round 1 reads the multi-segment round-0 output together with new rowsets.
                 // The two vertical rounds use group widths 1 and 2 respectively.
                 setBeConfigTemporary([enable_vertical_compaction: round % 2 == 0,
                                       enable_vertical_compact_variant_subcolumns: true,
+                                      enable_ordered_data_compaction: false,
+                                      compaction_batch_size: 5,
+                                      vertical_compaction_max_segment_size: 4096,
                                       vertical_compaction_num_columns_per_group: round.intdiv(2) + 1]) {
                     trigger_and_wait_compaction(name, kind)
-                    for (def tablet : sql_return_maparray("SHOW TABLETS FROM ${name}")) {
-                        def (code, out, err) = be_show_tablet_status(
-                                backendIPs["${tablet.BackendId}"], backendHttpPorts["${tablet.BackendId}"], tablet.TabletId)
-                        assertEquals(0, code, err)
-                        assertEquals("[OK]", parseJson(out)["last ${kind} status"].toString())
+                    for (def tablet : tablets) {
+                        def status = readStatus(tablet)
+                        assertEquals("[OK]", status["last ${kind} status"].toString())
+                        def before = inputs[tablet.TabletId]
+                        def after = rowsetIds(status)
+                        assertTrue((before - after).size() >= 2, "No input replacement: ${before} -> ${after}")
+                        assertEquals(1, (after - before).size(), "Missing new output: ${before} -> ${after}")
+                        logger.info("${name} round ${round} ${kind}: replaced ${before - after} with ${after - before}")
+                        if (kind == "full") {
+                            assertTrue(before.intersect(after).isEmpty(), "Full compaction retained inputs: ${status}")
+                        }
+                        if (round == 0) {
+                            assertTrue(status.rowsets.sum { it.split(/\s+/)[1].toInteger() } > 1,
+                                    "Expected a multi-segment output: ${status}")
+                        }
                     }
                 }
                 checkRows()

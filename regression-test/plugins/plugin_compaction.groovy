@@ -187,51 +187,56 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
             // running is true means compaction is still running
             running = compactionStatus.run_status
 
-            if (!is_time_series_compaction) {
-                (exit_code, stdout, stderr) = delegate.be_show_tablet_status(be_host, be_port, tablet.TabletId, 5, 1)
-                if (exit_code != 0) {
-                    logger.warn("get tablet status failed, will retry, be host: ${be_host}, tablet id: ${tablet.TabletId}, exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}")
-                    return false
-                }
-                def tabletStatus = parseJson(stdout.trim())
-                def oldStatus = be_tablet_compaction_status.get("${be_host}-${tablet.TabletId}")
-                // The HTTP trigger is asynchronous in cloud mode. run_status may already be
-                // false at the first poll, so also require a completion marker for this run.
-                def handedOffToBaseCompactionAfterDeleteVersion = false
-                def completedByBaseCompactionAfterDeleteVersion = false
-                if (compaction_type == "cumulative") {
-                    def oldCumulativePoint = toLongOrNull(oldStatus["cumulative point"])
-                    def newCumulativePoint = toLongOrNull(tabletStatus["cumulative point"])
-                    def lastCumulativeStatus = "${tabletStatus["last cumulative status"]}".toLowerCase()
-                    def baseSuccessTimeChanged = oldStatus["last base success time"] != tabletStatus["last base success time"]
-                    def cumulativeSuccessTimeChanged =
-                            oldStatus["last cumulative success time"] != tabletStatus["last cumulative success time"]
-                    handedOffToBaseCompactionAfterDeleteVersion = lastCumulativeStatus.contains("e-2010") &&
-                            oldCumulativePoint != null && newCumulativePoint != null &&
-                            newCumulativePoint > oldCumulativePoint
-                    completedByBaseCompactionAfterDeleteVersion =
-                            handedOffToBaseCompactionAfterDeleteVersion &&
-                            (baseSuccessTimeChanged || cumulativeSuccessTimeChanged)
-                }
-                def successTimeUnchanged = oldStatus["last ${compaction_type} success time"] ==
-                        tabletStatus["last ${compaction_type} success time"]
-                def failureTimeUnchanged = oldStatus["last ${compaction_type} failure time"] ==
-                        tabletStatus["last ${compaction_type} failure time"]
-                def completionTimestampChanged = !successTimeUnchanged || !failureTimeUnchanged
-                def compactionFinished = completedByBaseCompactionAfterDeleteVersion ||
-                        (!handedOffToBaseCompactionAfterDeleteVersion && completionTimestampChanged)
-                running = running || !compactionFinished
-                if (running) {
-                    logger.info("compaction is still running, be host: ${be_host}, tablet id: ${tablet.TabletId}, run status: ${compactionStatus.run_status}, old status: ${oldStatus}, new status: ${tabletStatus}")
-                    return false
-                }
-            } else {
-                // Time series compaction sometimes doesn't update compaction success time,
-                // so solely check run_status for it.
-                if (running) {
-                    logger.info("compaction is still running, be host: ${be_host}, tablet id: ${tablet.TabletId}")
-                    return false
-                }
+            (exit_code, stdout, stderr) = delegate.be_show_tablet_status(be_host, be_port, tablet.TabletId, 5, 1)
+            if (exit_code != 0) {
+                logger.warn("get tablet status failed, will retry, be host: ${be_host}, tablet id: ${tablet.TabletId}, exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}")
+                return false
+            }
+            def tabletStatus = parseJson(stdout.trim())
+            def oldStatus = be_tablet_compaction_status.get("${be_host}-${tablet.TabletId}")
+            // The HTTP trigger is asynchronous in cloud mode. run_status may already be
+            // false at the first poll, so also require a completion marker for this run.
+            def handedOffToBaseCompactionAfterDeleteVersion = false
+            def completedByBaseCompactionAfterDeleteVersion = false
+            if (compaction_type == "cumulative") {
+                def oldCumulativePoint = toLongOrNull(oldStatus["cumulative point"])
+                def newCumulativePoint = toLongOrNull(tabletStatus["cumulative point"])
+                def lastCumulativeStatus = "${tabletStatus["last cumulative status"]}".toLowerCase()
+                def baseSuccessTimeChanged = oldStatus["last base success time"] != tabletStatus["last base success time"]
+                handedOffToBaseCompactionAfterDeleteVersion = lastCumulativeStatus.contains("e-2010") &&
+                        oldCumulativePoint != null && newCumulativePoint != null &&
+                        newCumulativePoint > oldCumulativePoint
+                completedByBaseCompactionAfterDeleteVersion =
+                        handedOffToBaseCompactionAfterDeleteVersion &&
+                        baseSuccessTimeChanged
+            }
+            def successTimeUnchanged = oldStatus["last ${compaction_type} success time"] ==
+                    tabletStatus["last ${compaction_type} success time"]
+            def failureTimeUnchanged = oldStatus["last ${compaction_type} failure time"] ==
+                    tabletStatus["last ${compaction_type} failure time"]
+            // A failed asynchronous task also advances a timestamp, but leaves the input
+            // rowsets readable. It must fail the caller instead of satisfying this wait.
+            if (!running && !failureTimeUnchanged && !handedOffToBaseCompactionAfterDeleteVersion) {
+                assert tabletStatus["last ${compaction_type} status"] == "[OK]":
+                        "compaction failed, be host: ${be_host}, tablet id: ${tablet.TabletId}, status: ${tabletStatus["last ${compaction_type} status"]}"
+            }
+            // Empty time-series outputs do not advance the success timestamp. Their new
+            // rowset identity still proves publication; an idle asynchronous first poll does not.
+            def timeSeriesOutputChanged = is_time_series_compaction &&
+                    oldStatus.rowsets.collect { it.split(/\s+/)[4] }.toSet() !=
+                            tabletStatus.rowsets.collect { it.split(/\s+/)[4] }.toSet()
+            def compactionFinished = completedByBaseCompactionAfterDeleteVersion ||
+                    (!handedOffToBaseCompactionAfterDeleteVersion &&
+                            (!successTimeUnchanged || timeSeriesOutputChanged))
+            if (!running && compactionFinished) {
+                def successType = completedByBaseCompactionAfterDeleteVersion ? "base" : compaction_type
+                assert tabletStatus["last ${successType} status"] == "[OK]":
+                        "compaction failed, be host: ${be_host}, tablet id: ${tablet.TabletId}, status: ${tabletStatus["last ${successType} status"]}"
+            }
+            running = running || !compactionFinished
+            if (running) {
+                logger.info("compaction is still running, be host: ${be_host}, tablet id: ${tablet.TabletId}, run status: ${compactionStatus.run_status}, old status: ${oldStatus}, new status: ${tabletStatus}")
+                return false
             }
         }
         return true
