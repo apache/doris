@@ -38,6 +38,9 @@ public:
     FileCacheBlockDownloaderTest() : _engine(CloudStorageEngine(EngineOptions {})) {}
 
     void SetUp() override {
+        _old_enable_file_cache = config::enable_file_cache;
+        _old_thread_num_min = config::file_cache_downloader_thread_num_min;
+        _old_thread_num_max = config::file_cache_downloader_thread_num_max;
         // Enable file cache for testing
         config::enable_file_cache = true;
         // Set reasonable thread pool size for testing
@@ -45,7 +48,11 @@ public:
         config::file_cache_downloader_thread_num_max = 4;
     }
 
-    void TearDown() override { config::enable_file_cache = false; }
+    void TearDown() override {
+        config::enable_file_cache = _old_enable_file_cache;
+        config::file_cache_downloader_thread_num_min = _old_thread_num_min;
+        config::file_cache_downloader_thread_num_max = _old_thread_num_max;
+    }
 
     // Helper to wait for inflight tasks to complete with timeout
     bool wait_for_task_done(FileCacheBlockDownloader& downloader, int64_t tablet_id,
@@ -104,6 +111,11 @@ public:
 
 protected:
     CloudStorageEngine _engine;
+
+private:
+    bool _old_enable_file_cache = false;
+    int32_t _old_thread_num_min = 0;
+    int32_t _old_thread_num_max = 0;
 };
 
 // Test that inflight count is correctly decremented when tablet is not found

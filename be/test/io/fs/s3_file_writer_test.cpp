@@ -62,6 +62,7 @@
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h"
 #include "testutil/mock/obj_storage_client_test_stub.h"
+#include "testutil/scoped_file_cache.h"
 #include "util/slice.h"
 #include "util/threadpool.h"
 #include "util/uuid_generator.h"
@@ -279,9 +280,17 @@ static auto test_mock_callbacks = std::array {
 class S3FileWriterTest : public testing::Test {
 public:
     static void SetUpTestSuite() {
+        auto* env = ExecEnv::GetInstance();
+        _previous_upload_pool = std::move(env->_s3_file_upload_thread_pool);
+        _previous_disk_resource_limit_percent =
+                config::file_cache_enter_disk_resource_limit_mode_percent;
+        config::file_cache_enter_disk_resource_limit_mode_percent = 99;
+        _file_cache = std::make_unique<test::ScopedFileCache>();
+        auto st = _file_cache->init();
+        ASSERT_TRUE(st.ok()) << st;
+
         auto sp = SyncPoint::get_instance();
         sp->enable_processing();
-        config::file_cache_enter_disk_resource_limit_mode_percent = 99;
         std::for_each(test_mock_callbacks.begin(), test_mock_callbacks.end(),
                       [sp](const MockCallback& mockcallback) {
                           sp->set_call_back(mockcallback.point_name, mockcallback.callback);
@@ -300,22 +309,41 @@ public:
         s3_fs = res.value();
 
         std::unique_ptr<ThreadPool> _pool;
-        std::ignore = ThreadPoolBuilder("s3_upload_file_thread_pool")
-                              .set_min_threads(5)
-                              .set_max_threads(10)
-                              .build(&_pool);
-        ExecEnv::GetInstance()->_s3_file_upload_thread_pool = std::move(_pool);
+        st = ThreadPoolBuilder("s3_upload_file_thread_pool")
+                     .set_min_threads(5)
+                     .set_max_threads(10)
+                     .build(&_pool);
+        ASSERT_TRUE(st.ok()) << st;
+        env->_s3_file_upload_thread_pool = std::move(_pool);
     }
 
     static void TearDownTestSuite() {
+        auto* env = ExecEnv::GetInstance();
+        // Setup can fail before creating the pool. Otherwise finish queued uploads before
+        // removing their callbacks or releasing the cache they use.
+        if (auto* pool = env->s3_file_upload_thread_pool()) {
+            pool->wait();
+        }
+        env->_s3_file_upload_thread_pool.reset();
         auto sp = SyncPoint::get_instance();
         std::for_each(test_mock_callbacks.begin(), test_mock_callbacks.end(),
                       [sp](const MockCallback& mockcallback) {
                           sp->clear_call_back(mockcallback.point_name);
                       });
         sp->disable_processing();
-        ExecEnv::GetInstance()->_s3_file_upload_thread_pool.reset();
+        // Release the fixture's clients before Aws::ShutdownAPI at process exit.
+        s3_fs.reset();
+        mock_client.reset();
+        _file_cache.reset();
+        config::file_cache_enter_disk_resource_limit_mode_percent =
+                _previous_disk_resource_limit_percent;
+        env->_s3_file_upload_thread_pool = std::move(_previous_upload_pool);
     }
+
+private:
+    inline static std::unique_ptr<test::ScopedFileCache> _file_cache;
+    inline static std::unique_ptr<ThreadPool> _previous_upload_pool;
+    inline static int32_t _previous_disk_resource_limit_percent = 0;
 };
 
 TEST_F(S3FileWriterTest, DisableFileCacheWriteFromS3FileWriter) {
@@ -1417,14 +1445,13 @@ std::string get_s3_path(std::string_view path) {
 // put object
 // create_multi_parts_upload + upload_part + complete_parts
 TEST_F(S3FileWriterTest, write_buffer_boundary) {
-    // diable file cache to avoid write to cache
     bool enable_file_cache = config::enable_file_cache;
+    int64_t write_buffer_size = config::s3_write_buffer_size;
+    Defer restore_config {[&]() {
+        config::enable_file_cache = enable_file_cache;
+        config::s3_write_buffer_size = write_buffer_size;
+    }};
     config::enable_file_cache = false;
-    Defer defer {[&]() { config::enable_file_cache = enable_file_cache; }};
-
-    auto sp = SyncPoint::get_instance();
-    sp->enable_processing();
-    sp->clear_all_call_backs();
 
     // s3_file_writer is the interface to write to s3
     // mock_client is a SimpleMockObjStorageClient for testing, it holds the data in memory
