@@ -25,6 +25,7 @@ import org.apache.doris.authorization.AuthorizedSubject;
 import org.apache.doris.authorization.spi.AuthorizationContext;
 
 import org.apache.ranger.authorization.hadoop.config.RangerPluginConfig;
+import org.apache.ranger.authorization.utils.JsonUtils;
 import org.apache.ranger.plugin.model.RangerPolicy;
 import org.apache.ranger.plugin.model.RangerPolicy.RangerPolicyItem;
 import org.apache.ranger.plugin.model.RangerPolicy.RangerPolicyItemAccess;
@@ -41,6 +42,7 @@ import org.apache.ranger.plugin.policyengine.RangerAccessResult;
 import org.apache.ranger.plugin.policyengine.RangerAccessResultProcessor;
 import org.apache.ranger.plugin.policyengine.RangerPolicyEngine;
 import org.apache.ranger.plugin.resourcematcher.RangerDefaultResourceMatcher;
+import org.apache.ranger.plugin.service.RangerBasePlugin;
 import org.apache.ranger.plugin.util.ServicePolicies;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -78,7 +80,11 @@ class RangerReadScopeSummaryTest {
         private final AtomicInteger requests = new AtomicInteger();
 
         private CountingPlugin() {
-            super(config());
+            this(config());
+        }
+
+        private CountingPlugin(RangerPluginConfig configuration) {
+            super(configuration);
         }
 
         private RangerPolicyEngine engine() {
@@ -89,6 +95,16 @@ class RangerReadScopeSummaryTest {
         public RangerAccessResult isAccessAllowed(RangerAccessRequest request) {
             requests.incrementAndGet();
             return super.isAccessAllowed(request);
+        }
+    }
+
+    private static final class StockPlugin extends RangerBasePlugin {
+        private StockPlugin(RangerPluginConfig configuration) {
+            super(configuration);
+        }
+
+        private RangerPolicyEngine engine() {
+            return getPolicyEngine();
         }
     }
 
@@ -273,6 +289,83 @@ class RangerReadScopeSummaryTest {
             Assertions.assertFalse(plugin.mayGrantReadPrivilege("alice", scoped(DorisObjectType.TABLE)));
         } finally {
             plugin.cleanup();
+        }
+    }
+
+    @Test
+    void inPlaceDeltasFallBackWhenNativeServiceVersionDoesNotAdvance() throws Exception {
+        RangerPluginConfig configuration = config();
+        RangerPluginConfig nativeConfiguration = config();
+        for (RangerPluginConfig configured : Arrays.asList(configuration, nativeConfiguration)) {
+            configured.set("ranger.plugin.doris.supports.policy.deltas", "true");
+            configured.set("ranger.plugin.doris.supports.in.place.policy.updates", "true");
+        }
+        CountingPlugin plugin = new CountingPlugin(configuration);
+        StockPlugin stock = new StockPlugin(nativeConfiguration);
+        Field summary = RangerDorisPlugin.class.getDeclaredField("readScopes");
+        summary.setAccessible(true);
+        try {
+            ServicePolicies initial = snapshot(1, policy(1, "alice", "SELECT", resource("db", "t", "c1")));
+            stock.setPolicies(JsonUtils.jsonToObject(JsonUtils.objectToJson(initial), ServicePolicies.class));
+            plugin.setPolicies(initial);
+            RangerPolicyEngine engine = plugin.engine();
+            RangerPolicyEngine nativeEngine = stock.engine();
+            RangerDorisResource table = scoped(DorisObjectType.TABLE);
+            RangerDorisResource column = new RangerDorisResource(DorisObjectType.COLUMN, "internal", "db", "t", "c1");
+            Assertions.assertNotNull(engine);
+            Assertions.assertNotNull(nativeEngine);
+            Assertions.assertEquals(1, plugin.getPoliciesVersion());
+            Assertions.assertEquals(1, stock.getPoliciesVersion());
+            Assertions.assertNotNull(summary.get(plugin));
+            Assertions.assertFalse(plugin.mayGrantReadPrivilege("alice", table));
+            Assertions.assertFalse(plugin.isAccessAllowed(request("alice", "SELECT", table)).getIsAllowed());
+            Assertions.assertFalse(stock.isAccessAllowed(request("alice", "SELECT", table)).getIsAllowed());
+            Assertions.assertTrue(plugin.isAccessAllowed(request("alice", "SELECT", column)).getIsAllowed());
+            Assertions.assertTrue(stock.isAccessAllowed(request("alice", "SELECT", column)).getIsAllowed());
+
+            ServicePolicies added = snapshot(2);
+            added.setPolicies(null);
+            RangerPolicy parent = policy(2, "alice", "SELECT", resource("db", "t", "*"));
+            parent.setVersion(2L);
+            added.setPolicyDeltas(List.of(delta(RangerPolicyDelta.CHANGE_TYPE_POLICY_CREATE,
+                    parent)));
+            stock.setPolicies(JsonUtils.jsonToObject(JsonUtils.objectToJson(added), ServicePolicies.class));
+            plugin.setPolicies(added);
+            Assertions.assertSame(engine, plugin.engine(), "both flags enable native in-place policy updates");
+            Assertions.assertSame(nativeEngine, stock.engine());
+            // Ranger 2.9 reinitializes its repository in place without advancing the service version.
+            Assertions.assertEquals(1, plugin.getPoliciesVersion());
+            Assertions.assertEquals(1, stock.getPoliciesVersion());
+            Assertions.assertNull(summary.get(plugin), "an unverified service version must disable pruning");
+            Assertions.assertTrue(plugin.mayGrantReadPrivilege("alice", table));
+            RangerAccessResult granted = plugin.isAccessAllowed(request("alice", "SELECT", table));
+            RangerAccessResult nativeGrant = stock.isAccessAllowed(request("alice", "SELECT", table));
+            Assertions.assertTrue(granted.getIsAllowed());
+            Assertions.assertTrue(nativeGrant.getIsAllowed());
+            Assertions.assertEquals(Long.valueOf(2), granted.getPolicyVersion());
+            Assertions.assertEquals(nativeGrant.getPolicyVersion(), granted.getPolicyVersion());
+            Assertions.assertTrue(plugin.isAccessAllowed(request("alice", "SELECT", column)).getIsAllowed());
+            Assertions.assertTrue(stock.isAccessAllowed(request("alice", "SELECT", column)).getIsAllowed());
+
+            ServicePolicies removed = snapshot(3);
+            removed.setPolicies(null);
+            removed.setPolicyDeltas(List.of(delta(RangerPolicyDelta.CHANGE_TYPE_POLICY_DELETE,
+                    parent)));
+            stock.setPolicies(JsonUtils.jsonToObject(JsonUtils.objectToJson(removed), ServicePolicies.class));
+            plugin.setPolicies(removed);
+            Assertions.assertSame(engine, plugin.engine());
+            Assertions.assertSame(nativeEngine, stock.engine());
+            Assertions.assertEquals(1, plugin.getPoliciesVersion());
+            Assertions.assertEquals(1, stock.getPoliciesVersion());
+            Assertions.assertNull(summary.get(plugin));
+            Assertions.assertTrue(plugin.mayGrantReadPrivilege("alice", table), "fallback delegates the refusal");
+            Assertions.assertFalse(plugin.isAccessAllowed(request("alice", "SELECT", table)).getIsAllowed());
+            Assertions.assertFalse(stock.isAccessAllowed(request("alice", "SELECT", table)).getIsAllowed());
+            Assertions.assertTrue(plugin.isAccessAllowed(request("alice", "SELECT", column)).getIsAllowed());
+            Assertions.assertTrue(stock.isAccessAllowed(request("alice", "SELECT", column)).getIsAllowed());
+        } finally {
+            plugin.cleanup();
+            stock.cleanup();
         }
     }
 
