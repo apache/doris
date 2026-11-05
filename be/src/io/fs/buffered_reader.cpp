@@ -894,18 +894,18 @@ Result<io::FileReaderSPtr> DelegateReader::create_file_reader(
                                            profile)
             .transform([&](auto&& reader) -> io::FileReaderSPtr {
                 if (reader->size() < config::in_memory_file_size &&
-                    typeid_cast<io::S3FileReader*>(reader.get())) {
+                    typeid_cast<io::ObjStorageFileReader*>(reader.get())) {
                     return std::make_shared<InMemoryFileReader>(std::move(reader));
                 }
 
                 if (access_mode == AccessMode::SEQUENTIAL) {
                     bool is_thread_safe = false;
-                    if (typeid_cast<io::S3FileReader*>(reader.get())) {
+                    if (typeid_cast<io::ObjStorageFileReader*>(reader.get())) {
                         is_thread_safe = true;
                     } else if (auto* cached_reader =
                                        typeid_cast<io::CachedRemoteFileReader*>(reader.get());
-                               cached_reader &&
-                               typeid_cast<io::S3FileReader*>(cached_reader->get_remote_reader())) {
+                               cached_reader && typeid_cast<io::ObjStorageFileReader*>(
+                                                        cached_reader->get_remote_reader())) {
                         is_thread_safe = true;
                     }
                     if (is_thread_safe) {

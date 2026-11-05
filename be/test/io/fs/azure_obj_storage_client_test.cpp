@@ -18,7 +18,7 @@
 #ifdef USE_AZURE
 #include "cpp/obj-client/azure_obj_storage_client.h"
 
-#include "cpp/obj-client/auth/azure_auth_factory.h"
+#include "cpp/obj-client/auth/azure/azure_auth_factory.h"
 #endif
 
 #include <gtest/gtest.h>
@@ -28,7 +28,9 @@
 #include <memory>
 
 #include "cpp/obj-client/obj_storage_client.h"
+#include "cpp/obj-client/rate_limited_obj_storage_client.h"
 #include "io/fs/file_system.h"
+#include "io/obj_storage/obj_client_factory.h"
 #include "util/s3_util.h"
 
 #ifdef USE_AZURE
@@ -82,10 +84,55 @@ TEST(AzureObjStorageClientMultipartHelperTest, create_upload_is_provider_free) {
 using namespace Azure::Storage::Blobs;
 
 TEST(AzureAuthFactoryTest, AllowsEmptySharedKeyCredentials) {
-    auto result = AzureAuthFactory::create("https://account.blob.core.windows.net/container",
-                                           {.account_name = "", .account_key = ""}, {});
+    auto result = AzureAuthFactory::create("https://account.blob.core.windows.net/container", "",
+                                           AzureSharedKeyConfig {.account_key = ""}, {});
 
     EXPECT_TRUE(result);
+}
+
+// These run without Azure: nothing is sent, and a swapped argument would otherwise only show up
+// as an authentication failure on a real account.
+TEST(AzureAuthFactoryTest, SharedKeyCredentialTakesTheAccountAndTheKey) {
+    const std::string shared_key = "factory-shared-key";
+    auto result = AzureAuthFactory::create("https://factory-account.blob.core.windows.net/c1",
+                                           "factory-account",
+                                           AzureSharedKeyConfig {.account_key = shared_key}, {});
+
+    ASSERT_TRUE(result);
+    ASSERT_NE(result.shared_key_credential, nullptr);
+    EXPECT_EQ(result.shared_key_credential->AccountName, "factory-account");
+    EXPECT_EQ(result.shared_key_credential->GetAccountKey(), shared_key);
+    EXPECT_EQ(result.container_client->GetUrl(),
+              "https://factory-account.blob.core.windows.net/c1");
+}
+
+TEST(AzureClientProviderTest, BuildsTheClientForTheAccountAndTheContainer) {
+    const std::string shared_key = "provider-shared-key";
+    auto result = io::ObjClientFactory::instance().get_or_create(io::ObjClientConfig {
+            .connection = {},
+            .usage = io::ClientUsage::EXTERNAL_ACCESS,
+            .backend =
+                    io::AzureClientConfig {
+                            .endpoint = "https://provider-account.blob.core.windows.net",
+                            .account = "provider-account",
+                            .container = "provider-container",
+                            .auth = AzureSharedKeyConfig {.account_key = shared_key},
+                    },
+    });
+    ASSERT_TRUE(result.has_value()) << result.error();
+
+    // The rate limit policy wraps the client outside cloud mode.
+    std::shared_ptr<ObjStorageClient> client = result.value();
+    if (auto limited = std::dynamic_pointer_cast<RateLimitedObjStorageClient>(client)) {
+        client = limited->inner_;
+    }
+    auto azure = std::dynamic_pointer_cast<AzureObjStorageClient>(client);
+    ASSERT_NE(azure, nullptr);
+    ASSERT_NE(azure->_credential, nullptr);
+    EXPECT_EQ(azure->_credential->AccountName, "provider-account");
+    EXPECT_EQ(azure->_credential->GetAccountKey(), shared_key);
+    EXPECT_EQ(azure->_client->GetUrl(),
+              "https://provider-account.blob.core.windows.net/provider-container");
 }
 
 TEST(AzureObjStorageClientTlsHelperTest, detects_tls_ca_error) {
@@ -131,18 +178,20 @@ protected:
         std::string containerName = std::getenv("AZURE_CONTAINER_NAME");
 
         // Initialize Azure SDK
-        [[maybe_unused]] auto& s3ClientFactory = S3ClientFactory::instance();
+        [[maybe_unused]] auto& s3ClientFactory = AwsSdkManager::instance();
 
-        auto client_result = S3ClientFactory::instance().create(
-                {.endpoint = fmt::format("https://{}.blob.core.windows.net", accountName),
-                 .region = "dummy-region",
-                 .ak = accountName,
-                 .sk = accountKey,
-                 .token = "",
-                 .bucket = containerName,
-                 .provider = ObjStorageProvider::AZURE,
-                 .role_arn = "",
-                 .external_id = ""});
+        auto client_result = io::ObjClientFactory::instance().get_or_create(io::ObjClientConfig {
+                .connection = {},
+                .usage = io::ClientUsage::EXTERNAL_ACCESS,
+                .backend =
+                        io::AzureClientConfig {
+                                .endpoint = fmt::format("https://{}.blob.core.windows.net",
+                                                        accountName),
+                                .account = accountName,
+                                .container = containerName,
+                                .auth = AzureSharedKeyConfig {.account_key = accountKey},
+                        },
+        });
         ASSERT_TRUE(client_result.has_value()) << client_result.error();
         AzureObjStorageClientTest::obj_storage_client = std::move(client_result).value();
     }

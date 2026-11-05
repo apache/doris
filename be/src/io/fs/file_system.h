@@ -48,15 +48,17 @@ namespace doris::io {
     } while (0);
 #endif
 
-enum class FileSystemType : uint8_t { LOCAL, S3, HDFS, BROKER, HTTP };
+// OBJECT_STORAGE (S3, S3-compatible stores and Azure Blob) keeps the value 1 the former S3
+// member had.
+enum class FileSystemType : uint8_t { LOCAL, OBJECT_STORAGE, HDFS, BROKER, HTTP };
 
 inline std::ostream& operator<<(std::ostream& ostr, FileSystemType type) {
     switch (type) {
     case FileSystemType::LOCAL:
         ostr << "LOCAL";
         return ostr;
-    case FileSystemType::S3:
-        ostr << "S3";
+    case FileSystemType::OBJECT_STORAGE:
+        ostr << "OBJECT_STORAGE";
         return ostr;
     case FileSystemType::HDFS:
         ostr << "HDFS";

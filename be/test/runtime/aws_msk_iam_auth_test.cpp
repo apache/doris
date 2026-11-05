@@ -43,7 +43,7 @@ protected:
     // the cheapest in-tree way to get InitAPI called, exactly once per process, and it is the same
     // trick the S3 client factory tests use. Only the tests that drive a real fetch need it, so it
     // stays out of SetUp() where it would change what the older tests in this file do.
-    static void ensure_aws_sdk_initialized() { (void)S3ClientFactory::instance(); }
+    static void ensure_aws_sdk_initialized() { (void)AwsSdkManager::instance(); }
 
     AwsMskIamAuth::Config config;
 };

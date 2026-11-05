@@ -217,6 +217,20 @@ public final class StorageUriUtils {
      * unified {@code s3://container/path} style.
      */
     public static String validateAndNormalizeAzureUri(String path) {
+        validateAzureUri(path);
+        if (isOneLakeLocation(path)) {
+            return path;
+        }
+        return convertAzureToS3Style(path);
+    }
+
+    /**
+     * Accepts the same Azure Blob URI schemes as {@link #validateAndNormalizeAzureUri} but returns
+     * the location unchanged, for requests that carry typed Azure access: BE parses the native
+     * forms itself, so the account in {@code abfss://c@acct.dfs.core.windows.net/k} is kept
+     * instead of being dropped by the s3-style rewrite.
+     */
+    public static String validateAzureUri(String path) {
         if (StringUtils.isBlank(path)) {
             throw new StoragePropertiesException("Path cannot be null or empty");
         }
@@ -227,10 +241,7 @@ public final class StorageUriUtils {
                 || path.startsWith("s3://"))) {
             throw new StoragePropertiesException("Unsupported Azure URI scheme: " + path);
         }
-        if (isOneLakeLocation(path)) {
-            return path;
-        }
-        return convertAzureToS3Style(path);
+        return path;
     }
 
     /**

@@ -44,7 +44,7 @@
 #include "common/util.h"
 #include "cpp/obj-client/auth/aws_credential_factory.h"
 #ifdef USE_AZURE
-#include "cpp/obj-client/auth/azure_auth_factory.h"
+#include "cpp/obj-client/auth/azure/azure_auth_factory.h"
 #include "cpp/obj-client/azure_obj_storage_client.h"
 #endif
 #include "cpp/aws_logger.h"
@@ -396,13 +396,11 @@ int S3Accessor::init() {
         // All policies in the PerRetryPolicies are downstream of the RetryPolicy.
         // Therefore, the policy can record retries after the RetryPolicy has handled the response.
         options.PerRetryPolicies.emplace_back(std::make_unique<AzureRetryRecordPolicy>());
-        auto built = AzureAuthFactory::create(uri_,
-                                              {
-                                                      .type = AzureCredentialType::SHARED_KEY,
-                                                      .account_name = conf_.ak,
-                                                      .account_key = conf_.sk,
-                                              },
-                                              std::move(options));
+        // Storage metadata carries the SharedKey pair as ak/sk, and S3Conf::from_obj_store_info
+        // loads the pair complete or not at all, so there is no half pair to check here. The SDK
+        // credential comes from the authentication shared with BE.
+        const AzureAuthConfig auth = AzureSharedKeyConfig {.account_key = conf_.sk};
+        auto built = AzureAuthFactory::create(uri_, conf_.ak, auth, std::move(options));
         if (!built) {
             LOG_WARNING("failed to create Azure client").tag("error", built.error);
             return -1;
@@ -414,7 +412,7 @@ int S3Accessor::init() {
                                                         ObjStorageEndpointInfo {
                                                                 .endpoint = conf_.endpoint,
                                                                 .ak = conf_.ak,
-                                                                .sk = conf_.sk,
+                                                                .sk = azure_auth_account_key(auth),
                                                         },
                                                         std::move(built.shared_key_credential));
         obj_client_ = std::make_shared<RateLimitedObjStorageClient>(

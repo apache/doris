@@ -59,7 +59,7 @@ private:
 };
 
 class S3ObjStorageClientMockTest : public testing::Test {
-    static void SetUpTestSuite() { S3ClientFactory::instance(); };
+    static void SetUpTestSuite() { AwsSdkManager::instance(); };
     static void TearDownTestSuite() {};
 
 private:
