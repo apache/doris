@@ -913,6 +913,18 @@ Status DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column,
     } else if constexpr (T == TYPE_FLOAT || T == TYPE_DOUBLE) {
         auto str = CastToString::from_number(data);
         bw.write(str.data(), str.size());
+    } else if constexpr (T == TYPE_BOOLEAN) {
+        // Default (is_bool_value_num=true) keeps the historical 0/1 rendering used by plain
+        // BOOLEAN output, collections, MySQL/CSV/text protocols, etc. VARIANT JSON
+        // reconstruction sets is_bool_value_num=false to get real JSON boolean literals, so
+        // true/false round-trips instead of being reinterpreted as the numbers 0/1.
+        if (options.is_bool_value_num) {
+            bw.write_number(data);
+        } else if (data != 0) {
+            bw.write("true", 4);
+        } else {
+            bw.write("false", 5);
+        }
     } else if constexpr (is_int_or_bool(T) ||
                          std::numeric_limits<typename PrimitiveTypeTraits<T>::CppType>::is_iec559) {
         bw.write_number(data);
