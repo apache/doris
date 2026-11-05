@@ -547,6 +547,14 @@ public class PipelineCoordinator {
 
             // 2. poll record
             while (!shouldStop) {
+                if (!Env.getCurrentEnv()
+                        .isOwner(writeRecordRequest.getJobId(), writeRecordRequest.getTaskId())) {
+                    LOG.info(
+                            "Skip polling for job {} task {}: reader released or taken over",
+                            writeRecordRequest.getJobId(),
+                            writeRecordRequest.getTaskId());
+                    return;
+                }
                 // Active poll keeps the reader alive so the reaper won't reclaim it mid-task.
                 Env.getCurrentEnv().keepAlive(writeRecordRequest.getJobId());
                 Iterator<SourceRecord> recordIterator = sourceReader.pollRecords();
