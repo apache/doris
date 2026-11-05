@@ -23,16 +23,22 @@ import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
 import org.apache.doris.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.arrowflight.sessions.FlightSessionsInConnectPool;
 import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.IncrWindowNotReadyException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.trees.plans.commands.utils.KillUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectPoolTestSupport;
 import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -47,6 +53,7 @@ import org.apache.arrow.flight.FlightConstants;
 import org.apache.arrow.flight.FlightDescriptor;
 import org.apache.arrow.flight.FlightInfo;
 import org.apache.arrow.flight.FlightProducer.CallContext;
+import org.apache.arrow.flight.FlightProducer.ServerStreamListener;
 import org.apache.arrow.flight.FlightProducer.StreamListener;
 import org.apache.arrow.flight.FlightRuntimeException;
 import org.apache.arrow.flight.FlightStatusCode;
@@ -61,7 +68,11 @@ import org.apache.arrow.flight.SetSessionOptionsResult.ErrorValue;
 import org.apache.arrow.flight.sql.FlightSqlUtils;
 import org.apache.arrow.flight.sql.impl.FlightSql.ActionCreatePreparedStatementRequest;
 import org.apache.arrow.flight.sql.impl.FlightSql.ActionCreatePreparedStatementResult;
+import org.apache.arrow.flight.sql.impl.FlightSql.CommandGetCatalogs;
+import org.apache.arrow.flight.sql.impl.FlightSql.CommandGetSqlInfo;
 import org.apache.arrow.flight.sql.impl.FlightSql.CommandStatementQuery;
+import org.apache.arrow.flight.sql.impl.FlightSql.TicketStatementQuery;
+import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ReadChannel;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
 import org.apache.arrow.vector.types.pojo.ArrowType;
@@ -85,6 +96,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 public class DorisFlightSqlProducerTest {
@@ -285,7 +297,7 @@ public class DorisFlightSqlProducerTest {
     }
 
     @Test
-    public void testSelfKillConnectionReturnsNoUnusableDoGetTicket() throws Exception {
+    public void testSelfKillConnectionKeepsItsNormalResultTicketUntilDoGet() throws Exception {
         verifySelfKillResponse(true);
     }
 
@@ -308,14 +320,8 @@ public class DorisFlightSqlProducerTest {
                 FlightSqlConnectProcessor.class, (mock, construction) -> {
                     Mockito.doAnswer(call -> {
                         ctx.setExecutor(running);
-                        if (killConnection) {
-                            ctx.getFlightSqlChannel().addOKResult("command-state", "KILL CONNECTION");
-                        }
                         KillUtils.killByConnectionId(ctx, killConnection, ctx.getConnectionId());
                         Assertions.assertEquals(killConnection, ctx.isClosingOrClosed());
-                        if (killConnection) {
-                            Assertions.assertTrue(ctx.getFlightSqlChannel().getAllocatedMemory() > 0);
-                        }
                         return null;
                     }).when(mock).handleQuery(Mockito.anyString());
                 })) {
@@ -325,26 +331,27 @@ public class DorisFlightSqlProducerTest {
                     FlightDescriptor.command(new byte[0]));
             Assertions.assertEquals(new Schema(Collections.singletonList(
                     Field.nullable("StatusResult", new ArrowType.Utf8()))), info.getSchema());
+            Assertions.assertEquals(1, info.getEndpoints().size());
+            Assertions.assertEquals(-1, info.getRecords());
+            Assertions.assertEquals(-1, info.getBytes());
+            Assertions.assertSame(ctx, scheduler.getContextWithPeerIdentity("self-kill-token"));
+            Assertions.assertTrue(ctx.getFlightSqlChannel().getAllocatedMemory() > 0);
             if (killConnection) {
-                Assertions.assertTrue(info.getEndpoints().isEmpty());
-                Assertions.assertEquals(0, info.getRecords());
-                Assertions.assertTrue(ctx.isClosingOrClosed());
-                Assertions.assertNull(scheduler.getContextWithPeerIdentity("self-kill-token"));
-                Assertions.assertEquals(0, ctx.getFlightSqlChannel().getAllocatedMemory());
-                // FlightService serializes the returned value after callCommand has released
-                // session resources. Exercise that same ordering using Arrow's wire encoding.
+                Assertions.assertTrue(ctx.isClosingAfterResponse());
                 FlightInfo decoded = FlightInfo.deserialize(info.serialize());
-                Assertions.assertEquals(info.getDescriptor(), decoded.getDescriptor());
                 Assertions.assertEquals(info.getSchema(), decoded.getSchema());
-                Assertions.assertTrue(decoded.getEndpoints().isEmpty());
-                Assertions.assertEquals(0, decoded.getRecords());
-                Mockito.verifyNoInteractions(running);
+                Assertions.assertEquals(1, decoded.getEndpoints().size());
+                Mockito.verify(running, Mockito.never()).cancel(Mockito.any(org.apache.doris.common.Status.class));
                 FlightRuntimeException error = Assertions.assertThrows(FlightRuntimeException.class,
                         () -> producer.getFlightInfoStatement(request, callOf("self-kill-token"),
                                 FlightDescriptor.command(new byte[0])));
                 Assertions.assertEquals(FlightStatusCode.UNAUTHENTICATED, error.status().code());
+            }
+            Assertions.assertEquals(Collections.singletonList("0"), consume(producer, info));
+            Assertions.assertEquals(0, ctx.getFlightSqlChannel().getAllocatedMemory());
+            if (killConnection) {
+                Assertions.assertNull(scheduler.getContextWithPeerIdentity("self-kill-token"));
             } else {
-                Assertions.assertEquals(1, info.getEndpoints().size());
                 Assertions.assertEquals("next command", FlightProtocolAdapter.of(ctx)
                         .callCommand(ctx, () -> "next command"));
                 Assertions.assertSame(ctx, scheduler.getContextWithPeerIdentity("self-kill-token"));
@@ -354,6 +361,166 @@ public class DorisFlightSqlProducerTest {
             ctx.cleanup();
             producer.close();
         }
+    }
+
+    private static List<String> consume(DorisFlightSqlProducer producer, FlightInfo info) throws Exception {
+        TicketStatementQuery ticket = Any.parseFrom(info.getEndpoints().get(0).getTicket().getBytes())
+                .unpack(TicketStatementQuery.class);
+        List<String> rows = new ArrayList<>();
+        AtomicReference<VectorSchemaRoot> root = new AtomicReference<>();
+        ServerStreamListener listener = Mockito.mock(ServerStreamListener.class);
+        Mockito.doAnswer(invocation -> {
+            root.set(invocation.getArgument(0));
+            return null;
+        }).when(listener).start(Mockito.any(VectorSchemaRoot.class));
+        Mockito.doAnswer(invocation -> {
+            for (int i = 0; i < root.get().getRowCount(); i++) {
+                rows.add(root.get().getVector(0).getObject(i).toString());
+            }
+            return null;
+        }).when(listener).putNext();
+        producer.getStreamStatement(ticket, callOf("reader"), listener);
+        Mockito.verify(listener).completed();
+        Mockito.verify(listener, Mockito.never()).error(Mockito.any(Throwable.class));
+        return rows;
+    }
+
+    @Test
+    public void testAfterResponsePreservesActualSchemaAndRowsUntilDoGet() throws Exception {
+        ConnectContext ctx = ConnectPoolTestSupport.flightSession(ConnectPoolTestSupport.envAllowing(100),
+                UserIdentity.ROOT, "rows-token");
+        ConnectScheduler scheduler = new ConnectScheduler(10, 10);
+        ctx.setConnectScheduler(scheduler);
+        scheduler.submit(ctx);
+        Assertions.assertEquals(-1, ctx.registerClientSession(scheduler.getConnectPoolMgr()));
+        ShowResultSet rows = new ShowResultSet(ShowResultSetMetaData.builder()
+                .addColumn(new Column("payload", ScalarType.createVarchar(20))).build(),
+                Collections.singletonList(Collections.singletonList("kept value")));
+        try (DorisFlightSqlProducer producer = new DorisFlightSqlProducer(
+                Location.forGrpcInsecure("127.0.0.1", 9090), new FlightSessionsInConnectPool(scheduler));
+                MockedConstruction<FlightSqlConnectProcessor> ignored = Mockito.mockConstruction(
+                        FlightSqlConnectProcessor.class, (processor, construction) -> {
+                            Mockito.doAnswer(invocation -> {
+                                ctx.setQueryId(new TUniqueId(5, 7));
+                                ctx.getFlightSqlChannel().addResult(DebugUtil.printId(ctx.queryId()), "SHOW", rows);
+                                ctx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+                                return null;
+                            }).when(processor).handleQuery(Mockito.anyString());
+                        })) {
+            FlightInfo info = producer.getFlightInfoStatement(CommandStatementQuery.newBuilder()
+                    .setQuery("SHOW").build(), callOf("rows-token"), FlightDescriptor.command(new byte[0]));
+            Assertions.assertEquals(new Schema(Collections.singletonList(
+                    Field.nullable("payload", new ArrowType.Utf8()))), info.getSchema());
+            Assertions.assertEquals(1, info.getEndpoints().size());
+            Assertions.assertEquals(-1, info.getRecords());
+            Assertions.assertEquals(-1, info.getBytes());
+            Assertions.assertSame(ctx, scheduler.getContextWithPeerIdentity("rows-token"));
+            Assertions.assertTrue(ctx.getFlightSqlChannel().getAllocatedMemory() > 0);
+            Assertions.assertEquals(Collections.singletonList("kept value"), consume(producer, info));
+            Assertions.assertEquals(0, ctx.getFlightSqlChannel().getAllocatedMemory());
+            Assertions.assertNull(scheduler.getContextWithPeerIdentity("rows-token"));
+        } finally {
+            ctx.cleanup();
+        }
+    }
+
+    @Test
+    public void testInvalidAndRepeatedTicketsDoNotConsumeAnotherResult() throws Exception {
+        ConnectContext ctx = ConnectContext.forFlight("result-token");
+        FlightSqlChannel channel = ctx.getFlightSqlChannel();
+        channel.addOKResult("first", "SELECT 1");
+        channel.addOKResult("second", "SELECT 2");
+        ctx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+        try (DorisFlightSqlProducer producer = new DorisFlightSqlProducer(
+                Location.forGrpcInsecure("127.0.0.1", 9090), sessionsOf(ctx))) {
+            ServerStreamListener listener = Mockito.mock(ServerStreamListener.class);
+            FlightRuntimeException absent = Assertions.assertThrows(FlightRuntimeException.class,
+                    () -> producer.getStreamStatement(ticket("result-token", "missing"), callOf("reader"), listener));
+            Assertions.assertEquals(FlightStatusCode.NOT_FOUND, absent.status().code());
+            Assertions.assertEquals(2, channel.resultNum());
+            Mockito.verifyNoInteractions(listener);
+
+            producer.getStreamStatement(ticket("result-token", "first"), callOf("reader"), listener);
+            Assertions.assertEquals(1, channel.resultNum());
+            FlightRuntimeException duplicate = Assertions.assertThrows(FlightRuntimeException.class,
+                    () -> producer.getStreamStatement(ticket("result-token", "first"), callOf("reader"), listener));
+            Assertions.assertEquals(FlightStatusCode.NOT_FOUND, duplicate.status().code());
+            Assertions.assertNotNull(channel.getResult("second"));
+            Assertions.assertTrue(channel.getAllocatedMemory() > 0);
+            producer.getStreamStatement(ticket("result-token", "second"), callOf("reader"), listener);
+            Assertions.assertEquals(0, channel.getAllocatedMemory());
+        } finally {
+            ctx.cleanup();
+        }
+    }
+
+    @Test
+    public void testDoGetDiscardsItsResultEvenWhenListenerCallbacksThrow() throws Exception {
+        for (String failingCallback : new String[] {"start", "putNext", "error", "completed"}) {
+            ConnectContext ctx = ConnectContext.forFlight("result-token");
+            FlightSqlChannel channel = ctx.getFlightSqlChannel();
+            channel.addOKResult("first", "SELECT 1");
+            channel.addOKResult("second", "SELECT 2");
+            ctx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+            try (DorisFlightSqlProducer producer = new DorisFlightSqlProducer(
+                    Location.forGrpcInsecure("127.0.0.1", 9090), sessionsOf(ctx))) {
+                ServerStreamListener listener = Mockito.mock(ServerStreamListener.class);
+                IllegalStateException failure = new IllegalStateException("listener " + failingCallback);
+                switch (failingCallback) {
+                    case "start":
+                        Mockito.doThrow(failure).when(listener).start(Mockito.any(VectorSchemaRoot.class));
+                        break;
+                    case "putNext":
+                        Mockito.doThrow(failure).when(listener).putNext();
+                        break;
+                    case "error":
+                        Mockito.doThrow(failure).when(listener).putNext();
+                        Mockito.doThrow(failure).when(listener).error(Mockito.any(Throwable.class));
+                        break;
+                    case "completed":
+                        Mockito.doThrow(failure).when(listener).completed();
+                        break;
+                    default:
+                        throw new AssertionError(failingCallback);
+                }
+                Assertions.assertThrows(RuntimeException.class, () -> producer.getStreamStatement(
+                        ticket("result-token", "first"), callOf("reader"), listener));
+                Assertions.assertNull(channel.getResult("first"), failingCallback);
+                Assertions.assertNotNull(channel.getResult("second"), failingCallback);
+                Assertions.assertEquals(1, channel.resultNum(), failingCallback);
+                FlightProtocolAdapter.of(ctx).runResult(ctx, () -> channel.invalidate("second"));
+                Assertions.assertEquals(0, channel.getAllocatedMemory(), failingCallback);
+            } finally {
+                ctx.cleanup();
+            }
+        }
+    }
+
+    @Test
+    public void testDrainingSessionRejectsNewMetadataTickets() throws Exception {
+        ConnectContext ctx = ConnectContext.forFlight("metadata-token");
+        ctx.getFlightSqlChannel().addOKResult("pending", "SELECT 1");
+        ctx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+        try (DorisFlightSqlProducer producer = new DorisFlightSqlProducer(
+                Location.forGrpcInsecure("127.0.0.1", 9090), sessionsOf(ctx))) {
+            FlightDescriptor descriptor = FlightDescriptor.command(new byte[0]);
+            FlightRuntimeException catalogs = Assertions.assertThrows(FlightRuntimeException.class,
+                    () -> producer.getFlightInfoCatalogs(CommandGetCatalogs.getDefaultInstance(),
+                            callOf("metadata-token"), descriptor));
+            FlightRuntimeException sqlInfo = Assertions.assertThrows(FlightRuntimeException.class,
+                    () -> producer.getFlightInfoSqlInfo(CommandGetSqlInfo.getDefaultInstance(),
+                            callOf("metadata-token"), descriptor));
+            Assertions.assertEquals(FlightStatusCode.UNAUTHENTICATED, catalogs.status().code());
+            Assertions.assertEquals(FlightStatusCode.UNAUTHENTICATED, sqlInfo.status().code());
+            Assertions.assertEquals(1, ctx.getFlightSqlChannel().resultNum());
+        } finally {
+            ctx.cleanup();
+        }
+    }
+
+    private static TicketStatementQuery ticket(String token, String queryId) {
+        return TicketStatementQuery.newBuilder().setStatementHandle(ByteString.copyFromUtf8(token + ":" + queryId))
+                .build();
     }
 
     // Arrow Flight SQL keeps a query's coordinator alive across GetFlightInfo -> DoGet (see #62259):
@@ -385,6 +552,8 @@ public class DorisFlightSqlProducerTest {
                     Mockito.doAnswer(invocation -> {
                         FlightProtocolAdapter.of(ctx).beforeQuery(ctx);
                         ctx.addFlightSqlDeferredExecutor(deferred);
+                        ctx.getFlightSqlChannel().addOKResult("failed-result", "SELECT 1");
+                        ctx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
                         return null;
                     }).when(mock).handleQuery(Mockito.anyString());
                     // The Arrow schema fetch fails after the coordinator was already deferred.
@@ -394,13 +563,10 @@ public class DorisFlightSqlProducerTest {
             CommandStatementQuery request = CommandStatementQuery.newBuilder().setQuery("select 1").build();
             FlightDescriptor descriptor = FlightDescriptor.command(new byte[0]);
 
-            try {
-                producer.getFlightInfoStatement(request, callContext, descriptor);
-                Assertions.fail("expected the schema fetch failure to propagate as a CallStatus");
-            } catch (Throwable expected) {
-                // GetFlightInfo is expected to fail; the point of the test is what happens to the
-                // deferred coordinator, not the thrown status itself.
-            }
+            Assertions.assertThrows(FlightRuntimeException.class,
+                    () -> producer.getFlightInfoStatement(request, callContext, descriptor));
+            Assertions.assertEquals(0, ctx.getFlightSqlChannel().getAllocatedMemory());
+            Assertions.assertFalse(FlightProtocolAdapter.of(ctx).hasPendingResponse());
 
             // The deferred coordinator of the failed query is finalized on the error path instead of
             // leaking until the next query / connection teardown.

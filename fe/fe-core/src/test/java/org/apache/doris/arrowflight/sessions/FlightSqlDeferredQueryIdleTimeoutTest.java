@@ -199,11 +199,9 @@ public class FlightSqlDeferredQueryIdleTimeoutTest {
         Assertions.assertFalse(ctx.isClosingOrClosed());
     }
 
-    // The timeout checker does not run as a command of the session: it may interleave with the
-    // session's next request, which takes the deferred executors of the previous one
-    // (beginRequest) and defers its own. Deciding and taking are one step, so an executor is
-    // finalized exactly once, by whichever of the two took it, and one deferred after the checker
-    // decided is not one it decided about.
+    // Timeout maintenance and requests now share execution ownership. The underlying take operation
+    // must still detach exactly the queries it selected: later additions cannot enter that batch,
+    // and beginRequest cannot finalize the same detached query again.
     @Test
     public void testTheCheckerAndTheNextRequestFinalizeAnExecutorExactlyOnce() {
         Config.arrow_flight_deferred_query_idle_timeout_second = 7;
@@ -211,8 +209,8 @@ public class FlightSqlDeferredQueryIdleTimeoutTest {
         FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
         long now = ctx.getStartTime();
 
-        // The checker takes the overdue executor; the next request begins and defers a query of its
-        // own before the checker gets to finalize what it took.
+        // Exercise the detached batch directly, adding another query before finalizing the batch.
+        // Production additionally serializes these maintenance/request steps under execution ownership.
         StmtExecutor overdue = deferredExecutor(now - 100_000L, 5);
         ctx.addFlightSqlDeferredExecutor(overdue);
         List<StmtExecutor> taken = adapter.takeExpiredDeferredExecutors(now);

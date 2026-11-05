@@ -130,12 +130,15 @@ import javax.annotation.Nullable;
  * Its idle action only rearms nonblocking reads, after the response, business finally blocks and
  * thread-local restoration. Flight's runCommand/callCommand entry uses
  * {@link #executeCommand(long, ContextCommand)} to wait a bounded time for the same execution slot.
- * Business code inside these entries needs no lifecycle calls. Helpers borrow the current context;
- * they must not recursively enter a top-level command. An unregistered internal context can be used
- * privately and closed by its creating scope without activation or per-statement bookkeeping.
+ * Flight DoGet uses {@link #executeResult(long, ContextCommand)} to continue an existing response;
+ * it validates and consumes its ticket under that ownership. Business code needs no lifecycle calls.
+ * Helpers borrow the current context; they must not recursively enter a top-level command. An
+ * unregistered internal context can be used privately and closed by its creating scope without
+ * activation or per-statement bookkeeping.
  *
- * <p>Only one initialization, request or finalizer owns execution at a time. Queued requests acquire
- * ownership when they actually start, not when submitted. A stale pool lookup grants no admission.
+ * <p>Only one initialization, request, expiry maintenance or finalizer owns execution at a time.
+ * Queued requests acquire ownership when they actually start, not when submitted. A stale pool
+ * lookup grants no admission.
  * Rejected or discarded initialization/request tasks remain their submitter's responsibility.
  * Asynchronous work must finish borrowing session resources before the request exits, or take
  * ownership of independent query resources. Thread-local binding alone does not grant ownership.
@@ -148,15 +151,24 @@ import javax.annotation.Nullable;
  * AFTER_RESPONSE -- finalizer takes turn -&gt; STOPPING
  * </pre>
  * STOPPING is terminal; it does not promise that resource release has completed. There is no
- * separate CLOSED state, cleanup phase or completion-wait API. Pool registration is revoked on the
- * first close request, before final resource release, and cannot be acquired again.
+ * separate CLOSED state, cleanup phase or completion-wait API. Both close modes immediately reject
+ * new commands. IMMEDIATE revokes pool registration immediately; AFTER_RESPONSE keeps it until
+ * finalization so Flight can still authenticate the token, resolve tickets and run timeout checks.
+ * A draining session continues to occupy its pool quota and cannot be registered again.
  *
- * <p>{@link #requestClose(CloseMode)} with AFTER_RESPONSE preserves the current response and places
- * a finalizer behind its owner. MySQL finishes flushing its response before yielding. Flight finishes
- * consuming streaming buffers, or returns a value independent of session resources; gRPC may serialize
- * that value later. Neither boundary promises client receipt. A closing Flight response must not
- * require a later DoGet with the revoked token. The finalizer claims STOPPING before closing transport
- * and releasing resources. An immediate upgrade invalidates a pending deferred finalizer.
+ * <p>{@link #requestClose(CloseMode)} with AFTER_RESPONSE preserves the accepted response. MySQL
+ * finishes flushing it before yielding. Flight returns its normal FlightInfo and retains local results
+ * for a later DoGet; GetFlightInfo returning is not result delivery. Only result continuations may
+ * enter a draining session. Their success or failure consumes the ticket, and requests that fail before
+ * returning FlightInfo discard their results. Flight's backend DoGet has no completion callback to the
+ * frontend: deferred query resources remain bounded by their existing query/session expiry, rather
+ * than being treated as delivered when FlightInfo returns. None of these boundaries promises receipt.
+ *
+ * <p>Before yielding, the owner checks whether the protocol still holds response resources. With no
+ * such resources and AFTER_RESPONSE still in force, it publishes a ready finalizer. An idle close
+ * borrows execution to make the same decision. No thread retains execution between RPCs, and no
+ * finalizer waits or requeues itself for a client. The finalizer claims STOPPING and unregisters before
+ * closing transport and releasing resources. An immediate upgrade invalidates graceful finalization.
  *
  * <p>{@link #cleanup()} requests IMMEDIATE closure. Its unique winner closes transport and cancels
  * execution outside the handoff lock. MySQL socket closure unblocks incomplete packet reads. Flight
@@ -182,9 +194,11 @@ import javax.annotation.Nullable;
  *
  * <p>The pool timeout checker requests closure on session idle expiry. Flight metadata may report
  * COM_SLEEP while owning execution and is not idle. A MySQL incomplete-packet reader still needs
- * wait_timeout to interrupt the socket. Deferred Flight query expiry transfers each query out of its
- * collection once and releases it independently. KILL QUERY and query timeout retain the session:
- * their query-owned cancellation handles must keep a stable target and support concurrent termination,
+ * wait_timeout to interrupt the socket. A draining Flight session also obeys wait_timeout while DoGet
+ * owns execution; result continuations never renew that bound. The checker nonblockingly borrows
+ * execution to expire local results and deferred queries, then its yield can finalize a drained session.
+ * Expiry cannot close Arrow buffers concurrently with DoGet. KILL QUERY and query timeout retain
+ * the session: their query-owned cancellation handles must keep a stable target and support concurrent termination,
  * rather than rereading the session's current query identity. Safe final release requires the request
  * and the close interruption to return; GC and forced release cannot replace either responsibility.
  */
@@ -1221,7 +1235,7 @@ public class ConnectContext {
     /** The idle action may only schedule MySQL reads; it must not block or execute request code. */
     public <E extends Exception> boolean runCommand(ContextAction<E> action, Runnable onIdle) throws E {
         try {
-            acquireExecution(0);
+            acquireExecution(0, false);
         } catch (SessionClosedException closed) {
             return false;
         }
@@ -1234,16 +1248,30 @@ public class ConnectContext {
 
     /** Runs a protocol request with bounded admission waiting, preserving the body's own exceptions. */
     public <T, E extends Exception> T executeCommand(long waitMillis, ContextCommand<T, E> command) throws E {
-        acquireExecution(waitMillis);
+        acquireExecution(waitMillis, false);
         return executeOwned(command, null);
     }
 
-    private void acquireExecution(long waitMillis) {
+    /**
+     * Continues delivery of an existing result, including after AFTER_RESPONSE. The protocol must
+     * validate the ticket under this ownership before consuming it. Ordinary commands use executeCommand.
+     */
+    public <T, E extends Exception> T executeResult(long waitMillis, ContextCommand<T, E> command) throws E {
+        acquireExecution(waitMillis, true);
+        return executeOwned(command, null);
+    }
+
+    private boolean acceptsExecution(boolean resultContinuation) {
+        return closeIntent == CloseIntent.OPEN
+                || (resultContinuation && closeIntent == CloseIntent.AFTER_RESPONSE);
+    }
+
+    private void acquireExecution(long waitMillis, boolean resultContinuation) {
         synchronized (lifecycleLock) {
             Preconditions.checkState(owner != Thread.currentThread(), "Nested session command");
             long remaining = TimeUnit.MILLISECONDS.toNanos(waitMillis);
             long started = System.nanoTime();
-            while (closeIntent == CloseIntent.OPEN && owner != null) {
+            while (acceptsExecution(resultContinuation) && owner != null) {
                 if (remaining <= 0) {
                     throw new SessionBusyException();
                 }
@@ -1255,11 +1283,14 @@ public class ConnectContext {
                 }
                 remaining = TimeUnit.MILLISECONDS.toNanos(waitMillis) - (System.nanoTime() - started);
             }
-            if (closeIntent != CloseIntent.OPEN) {
+            if (!acceptsExecution(resultContinuation)) {
                 throw new SessionClosedException();
             }
             owner = Thread.currentThread();
-            refreshStartTime();
+            // Draining tickets cannot extend the session's existing expiry bound.
+            if (closeIntent == CloseIntent.OPEN) {
+                refreshStartTime();
+            }
         }
     }
 
@@ -1291,8 +1322,13 @@ public class ConnectContext {
         Runnable finalizer;
         Throwable rearmFailure = null;
         StmtExecutor toCancel = null;
+        // Still holding execution: no request or expiry maintenance can change the response here.
+        boolean hasPendingResponse = protocolAdapter.hasPendingResponse();
         synchronized (lifecycleLock) {
             Preconditions.checkState(owner == Thread.currentThread(), "Execution belongs to another thread");
+            if (closeIntent == CloseIntent.AFTER_RESPONSE && !hasPendingResponse) {
+                pendingFinalizer = this::finishAfterResponse;
+            }
             owner = null;
             finalizer = claimFinalizerLocked();
             if (finalizer == null && closeIntent == CloseIntent.OPEN && onIdle != null) {
@@ -1314,6 +1350,21 @@ public class ConnectContext {
             throw (RuntimeException) rearmFailure;
         }
         runFinalizer(finalizer);
+    }
+
+    // Expiry and an idle graceful close borrow the same owner without renewing the session. They
+    // never wait for or recurse into a request; its exit will reconsider graceful finalization.
+    private void runIdleMaintenance(Runnable action) {
+        synchronized (lifecycleLock) {
+            if (owner != null || closeIntent == CloseIntent.STOPPING) {
+                return;
+            }
+            owner = Thread.currentThread();
+        }
+        executeOwned(() -> {
+            action.run();
+            return null;
+        }, null);
     }
 
     // All callers hold lifecycleLock. Pending work is consumed once, together with execution.
@@ -1344,7 +1395,7 @@ public class ConnectContext {
                 ? ((FlightProtocolAdapter) protocolAdapter).getDeferredExecutors() : Collections.emptyList();
     }
 
-    // Called by the timeout checker for a sleeping connection that is not past wait_timeout yet:
+    // Called under execution ownership by timeout maintenance, before session expiry:
     // finalizes each deferred query whose own bound has passed since it started (see
     // FlightProtocolAdapter.takeExpiredDeferredExecutors), not the ones whose bound has not, and
     // not the connection. The bound counts from the query's start, not from startTime: the
@@ -1385,7 +1436,7 @@ public class ConnectContext {
         requestClose(CloseMode.IMMEDIATE);
     }
 
-    /** Revokes admission now; only IMMEDIATE interrupts the current response. */
+    /** Rejects new commands now; AFTER_RESPONSE still admits continuations of existing results. */
     public void requestClose(CloseMode mode) {
         Preconditions.checkNotNull(mode, "close mode");
         boolean interrupt;
@@ -1400,11 +1451,14 @@ public class ConnectContext {
             interruptAndPublishFinalizer(toCancel);
         } else {
             runFinalizer(finalizer);
+            // With no command to yield execution, make the same response-readiness decision now.
+            runIdleMaintenance(() -> { });
         }
     }
 
-    // The return value identifies the unique immediate interruption owner. Deferred tasks are
-    // ready now; immediate cleanup becomes ready only after all synchronous interruption returns.
+    // The return value identifies the unique immediate interruption owner. Graceful cleanup becomes
+    // ready when the execution owner has no response resources left; immediate cleanup becomes ready
+    // only after all synchronous interruption returns.
     private boolean requestCloseLocked(CloseMode mode) {
         if (closeIntent == CloseIntent.STOPPING
                 || (closeIntent == CloseIntent.AFTER_RESPONSE && mode == CloseMode.AFTER_RESPONSE)) {
@@ -1412,14 +1466,20 @@ public class ConnectContext {
         }
         boolean interrupt = mode == CloseMode.IMMEDIATE;
         closeIntent = interrupt ? CloseIntent.STOPPING : CloseIntent.AFTER_RESPONSE;
-        pendingFinalizer = interrupt ? null : this::finishAfterResponse;
+        if (interrupt) {
+            pendingFinalizer = null;
+            unregisterClientSessionLocked();
+        }
+        lifecycleLock.notifyAll();
+        return interrupt;
+    }
+
+    private void unregisterClientSessionLocked() {
         ConnectPoolMgr pool = registeredPool;
         registeredPool = null;
         if (pool != null) {
             cleanupStep("unregister connection", () -> pool.unregisterConnection(this));
         }
-        lifecycleLock.notifyAll();
-        return interrupt;
     }
 
     private void finishAfterResponse() {
@@ -1431,6 +1491,8 @@ public class ConnectContext {
             }
             Preconditions.checkState(closeIntent == CloseIntent.AFTER_RESPONSE);
             closeIntent = CloseIntent.STOPPING;
+            unregisterClientSessionLocked();
+            lifecycleLock.notifyAll();
         }
         cleanupStep("close transport", this::closeChannel);
         finishCleanup();
@@ -1695,7 +1757,7 @@ public class ConnectContext {
         boolean idleClose = false;
         StmtExecutor timedOut = null;
         synchronized (lifecycleLock) {
-            if (closeIntent != CloseIntent.OPEN || startTime <= 0) {
+            if (closeIntent == CloseIntent.STOPPING || startTime <= 0) {
                 return;
             }
             long delta = now - startTime;
@@ -1703,7 +1765,10 @@ public class ConnectContext {
                 // Flight metadata/option commands can show COM_SLEEP while using session resources.
                 // MySQL, however, can block reading an incomplete packet before dispatch sets its
                 // command. Keep wait_timeout able to close that transport and unblock the reader.
-                boolean idle = owner == null || getConnectType() == ConnectType.MYSQL;
+                // A draining Flight session has a fixed bound even while DoGet is streaming.
+                // Interruption may start now, but resource release still waits for that owner.
+                boolean idle = owner == null || getConnectType() == ConnectType.MYSQL
+                        || closeIntent == CloseIntent.AFTER_RESPONSE;
                 if (idle && delta > sessionVariable.getWaitTimeoutS() * 1000L) {
                     idleClose = requestCloseLocked(CloseMode.IMMEDIATE);
                     timedOut = executor;
@@ -1720,8 +1785,11 @@ public class ConnectContext {
         } else if (timedOut != null) {
             LOG.warn("cancel timeout query for connection {}, connection type: {}", connectionId, getConnectType());
             timedOut.cancel(new Status(TStatusCode.TIMEOUT, "query is timeout, killed by timeout checker"), false);
-        } else if (command == MysqlCommand.COM_SLEEP) {
-            reapIdleFlightSqlDeferredExecutors(now);
+        } else if (protocolAdapter instanceof FlightProtocolAdapter) {
+            runIdleMaintenance(() -> {
+                ((FlightProtocolAdapter) protocolAdapter).expirePendingResults();
+                reapIdleFlightSqlDeferredExecutors(now);
+            });
         }
     }
 

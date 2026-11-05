@@ -87,8 +87,8 @@ public class FlightSqlTableTypesTest {
                     }
                     Assertions.assertEquals(Arrays.asList("BASE TABLE", "SYSTEM VIEW", "VIEW"), types);
                 }
-                // GetFlightInfo answers from the static schema; only each DoGet resolves the session.
-                Mockito.verify(sessions, Mockito.times(3)).getConnectContext(Mockito.anyString());
+                // Both RPCs check session admission, even though GetFlightInfo uses a static schema.
+                Mockito.verify(sessions, Mockito.times(6)).getConnectContext(Mockito.anyString());
             }
         } finally {
             ctx.getFlightSqlChannel().close();

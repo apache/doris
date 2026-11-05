@@ -392,6 +392,10 @@ public class FlightProtocolAdapterTest {
             Assertions.assertTrue(adapter.getChannel().getAllocatedMemory() > 0);
             release.countDown();
             command.get(10, TimeUnit.SECONDS);
+            if (mode == ConnectContext.CloseMode.AFTER_RESPONSE) {
+                Assertions.assertTrue(adapter.getChannel().getAllocatedMemory() > 0);
+                adapter.runResult(ctx, () -> adapter.getChannel().invalidate("cached"));
+            }
             Assertions.assertEquals(0, adapter.getChannel().getAllocatedMemory());
         } finally {
             release.countDown();
@@ -648,7 +652,7 @@ public class FlightProtocolAdapterTest {
     }
 
     @Test
-    public void testDeferredCloseKeepsTheHandoffOpenUntilOperationExit() throws Exception {
+    public void testDeferredCloseRetainsPendingResponsesAfterCommandExit() throws Exception {
         ConnectContext ctx = flightSession();
         FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
         StmtExecutor deferred = Mockito.mock(StmtExecutor.class);
@@ -663,9 +667,17 @@ public class FlightProtocolAdapterTest {
                 adapter.getChannel().addOKResult("response", "KILL CONNECTION");
                 Assertions.assertTrue(adapter.getChannel().getAllocatedMemory() > 0);
             });
-            Assertions.assertEquals(0, adapter.getChannel().getAllocatedMemory());
+            Assertions.assertTrue(adapter.getChannel().getAllocatedMemory() > 0);
+            Assertions.assertTrue(adapter.hasPendingResponse());
+            Mockito.verifyNoInteractions(deferred);
+            // FE-side consumption does not imply that a separate BE stream has completed.
+            adapter.runResult(ctx, () -> adapter.getChannel().invalidate("response"));
+            Assertions.assertTrue(adapter.hasPendingResponse());
+            Mockito.verifyNoInteractions(deferred);
+            ctx.cleanup();
             Mockito.verify(deferred).finalizeArrowFlightQuery();
             Assertions.assertTrue(adapter.getDeferredExecutors().isEmpty());
+            Assertions.assertFalse(adapter.hasPendingResponse());
         } finally {
             ctx.cleanup();
         }

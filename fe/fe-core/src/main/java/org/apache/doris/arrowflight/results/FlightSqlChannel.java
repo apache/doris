@@ -22,6 +22,8 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.ResultSetMetaData;
 
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Ticker;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.RemovalListener;
@@ -46,9 +48,14 @@ public class FlightSqlChannel {
     private final BufferAllocator allocator;
 
     public FlightSqlChannel() {
+        this(Ticker.systemTicker());
+    }
+
+    @VisibleForTesting
+    public FlightSqlChannel(Ticker ticker) {
         // The Stmt result is not picked up by the Client within 10 minutes and will be deleted.
         resultCache = CacheBuilder.newBuilder().maximumSize(100).expireAfterWrite(10, TimeUnit.MINUTES)
-                .removalListener(new ResultRemovalListener()).build();
+                .ticker(ticker).removalListener(new ResultRemovalListener()).build();
         allocator = new RootAllocator(Long.MAX_VALUE);
     }
 
@@ -116,6 +123,11 @@ public class FlightSqlChannel {
 
     public long resultNum() {
         return resultCache.size();
+    }
+
+    /** Runs expiry maintenance while the session owns execution; reads never extend the write deadline. */
+    public void expireResults() {
+        resultCache.cleanUp();
     }
 
     // Returns the off-heap memory (bytes) currently held by this channel's Arrow allocator.

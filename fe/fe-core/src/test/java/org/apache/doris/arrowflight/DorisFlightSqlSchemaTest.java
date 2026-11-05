@@ -57,6 +57,7 @@ import com.google.protobuf.ByteString;
 import org.apache.arrow.flight.FlightDescriptor;
 import org.apache.arrow.flight.FlightInfo;
 import org.apache.arrow.flight.FlightProducer.CallContext;
+import org.apache.arrow.flight.FlightProducer.ServerStreamListener;
 import org.apache.arrow.flight.FlightProducer.StreamListener;
 import org.apache.arrow.flight.FlightRuntimeException;
 import org.apache.arrow.flight.FlightStatusCode;
@@ -67,6 +68,8 @@ import org.apache.arrow.flight.sql.impl.FlightSql.ActionCreatePreparedStatementR
 import org.apache.arrow.flight.sql.impl.FlightSql.ActionCreatePreparedStatementResult;
 import org.apache.arrow.flight.sql.impl.FlightSql.CommandPreparedStatementQuery;
 import org.apache.arrow.flight.sql.impl.FlightSql.CommandStatementQuery;
+import org.apache.arrow.flight.sql.impl.FlightSql.TicketStatementQuery;
+import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ReadChannel;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
 import org.apache.arrow.vector.types.TimeUnit;
@@ -95,6 +98,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 public class DorisFlightSqlSchemaTest extends TestWithFeService {
@@ -181,13 +185,62 @@ public class DorisFlightSqlSchemaTest extends TestWithFeService {
     }
 
     @Test
-    void preparedSelfKillConnectionReturnsItsAdvertisedSchemaWithoutATicket() throws Exception {
+    void preparedSelfKillConnectionPreservesItsAdvertisedSchemaAndResultTicket() throws Exception {
         verifyPreparedSelfKill(true);
     }
 
     @Test
     void preparedSelfKillQueryPreservesItsHandleAndSession() throws Exception {
         verifyPreparedSelfKill(false);
+    }
+
+    @Test
+    void selfKillFollowedByShowPreservesTheRealStatementResult() throws Exception {
+        String token = "self-kill-show-peer";
+        ConnectContext session = ConnectContext.forFlight(token);
+        session.setCurrentUserIdentity(connectContext.getCurrentUserIdentity());
+        session.setRemoteIP(connectContext.getRemoteIP());
+        session.setEnv(Env.getCurrentEnv());
+        session.setSessionVariable(VariableMgr.cloneSessionVariable(connectContext.getSessionVariable()));
+        session.setDatabase("schema_test");
+        ConnectScheduler scheduler = new ConnectScheduler(10, 10);
+        session.setConnectScheduler(scheduler);
+        scheduler.submit(session);
+        Assertions.assertEquals(-1, session.registerClientSession(scheduler.getConnectPoolMgr()));
+        CallContext call = Mockito.mock(CallContext.class);
+        Mockito.when(call.peerIdentity()).thenReturn(token);
+        try (DorisFlightSqlProducer localProducer = new DorisFlightSqlProducer(
+                Location.forGrpcInsecure("127.0.0.1", 0), new FlightSessionsInConnectPool(scheduler))) {
+            String sql = "KILL CONNECTION " + session.getConnectionId() + "; SHOW DATABASES";
+            FlightInfo info = localProducer.getFlightInfoStatement(CommandStatementQuery.newBuilder()
+                    .setQuery(sql).build(), call, FlightDescriptor.command(new byte[0]));
+            Assertions.assertEquals("Database", info.getSchema().getFields().get(0).getName());
+            Assertions.assertEquals(1, info.getEndpoints().size());
+            Assertions.assertEquals(-1, info.getRecords());
+            Assertions.assertEquals(-1, info.getBytes());
+            Assertions.assertTrue(session.isClosingAfterResponse());
+            Assertions.assertSame(session, scheduler.getContextWithPeerIdentity(token));
+            Assertions.assertTrue(session.getFlightSqlChannel().getAllocatedMemory() > 0);
+            TicketStatementQuery ticket = Any.parseFrom(info.getEndpoints().get(0).getTicket().getBytes())
+                    .unpack(TicketStatementQuery.class);
+            List<String> databases = new ArrayList<>();
+            ServerStreamListener stream = Mockito.mock(ServerStreamListener.class);
+            Mockito.doAnswer(invocation -> {
+                VectorSchemaRoot root = invocation.getArgument(0);
+                for (int i = 0; i < root.getRowCount(); i++) {
+                    databases.add(root.getVector(0).getObject(i).toString());
+                }
+                return null;
+            }).when(stream).start(Mockito.any(VectorSchemaRoot.class));
+            localProducer.getStreamStatement(ticket, call, stream);
+            Mockito.verify(stream).putNext();
+            Mockito.verify(stream).completed();
+            Assertions.assertTrue(databases.contains("schema_test"), databases.toString());
+            Assertions.assertNull(scheduler.getContextWithPeerIdentity(token));
+            Assertions.assertEquals(0, session.getFlightSqlChannel().getAllocatedMemory());
+        } finally {
+            session.cleanup();
+        }
     }
 
     private void verifyPreparedSelfKill(boolean killConnection) throws Exception {
@@ -224,16 +277,31 @@ public class DorisFlightSqlSchemaTest extends TestWithFeService {
                 FlightInfo info = localProducer.getFlightInfoPreparedStatement(command(prepared), call, descriptor);
                 Assertions.assertEquals(expected, info.getSchema());
                 if (killConnection) {
-                    Assertions.assertTrue(info.getEndpoints().isEmpty());
-                    Assertions.assertEquals(0, info.getRecords());
-                    Assertions.assertNull(scheduler.getContextWithPeerIdentity(token));
-                    Assertions.assertTrue(session.isClosingOrClosed());
-                    Assertions.assertEquals(0, session.getFlightSqlChannel().getAllocatedMemory());
+                    Assertions.assertEquals(1, info.getEndpoints().size());
+                    Assertions.assertEquals(-1, info.getRecords());
+                    Assertions.assertSame(session, scheduler.getContextWithPeerIdentity(token));
+                    Assertions.assertTrue(session.isClosingAfterResponse());
+                    Assertions.assertTrue(session.getFlightSqlChannel().getAllocatedMemory() > 0);
                     Assertions.assertEquals(expected, FlightInfo.deserialize(info.serialize()).getSchema());
-                    Mockito.verifyNoInteractions(running);
+                    Mockito.verify(running, Mockito.never()).cancel(Mockito.any(Status.class));
                     FlightRuntimeException closed = Assertions.assertThrows(FlightRuntimeException.class,
                             () -> localProducer.getFlightInfoPreparedStatement(command(prepared), call, descriptor));
                     Assertions.assertEquals(FlightStatusCode.UNAUTHENTICATED, closed.status().code());
+                    TicketStatementQuery ticket = Any.parseFrom(info.getEndpoints().get(0).getTicket().getBytes())
+                            .unpack(TicketStatementQuery.class);
+                    AtomicReference<String> row = new AtomicReference<>();
+                    ServerStreamListener stream = Mockito.mock(ServerStreamListener.class);
+                    Mockito.doAnswer(invocation -> {
+                        VectorSchemaRoot root = invocation.getArgument(0);
+                        row.set(root.getVector(0).getObject(0).toString());
+                        return null;
+                    }).when(stream).start(Mockito.any(VectorSchemaRoot.class));
+                    localProducer.getStreamStatement(ticket, call, stream);
+                    Mockito.verify(stream).putNext();
+                    Mockito.verify(stream).completed();
+                    Assertions.assertEquals("0", row.get());
+                    Assertions.assertNull(scheduler.getContextWithPeerIdentity(token));
+                    Assertions.assertEquals(0, session.getFlightSqlChannel().getAllocatedMemory());
                 } else {
                     Assertions.assertEquals(1, info.getEndpoints().size());
                     Assertions.assertSame(session, scheduler.getContextWithPeerIdentity(token));

@@ -38,9 +38,11 @@ import java.security.SecureRandom;
  * identity a session is registered in the pool under, nothing else: issuing a token is opening a
  * session, validating a token is looking its session up, and a session that has left the pool -
  * by whichever teardown path ({@link ConnectContext#cleanup}) - has taken its token
- * with it. So the pool's quotas are the only admission control (a session that does not fit is
+ * with it. AFTER_RESPONSE retains that registration while an existing result is delivered or expires;
+ * the context rejects new commands but admits result continuations. IMMEDIATE revokes it at once.
+ * So the pool's quotas are the only admission control (a session that does not fit is
  * refused, never one that does evicted), and the pool's timeout checker (wait_timeout) the only
- * expiry.
+ * session expiry. Result and deferred-query expiry are checked under the same context's execution owner.
  */
 public class FlightSessionsInConnectPool implements FlightSessionsManager {
     private static final Logger LOG = LogManager.getLogger(FlightSessionsInConnectPool.class);

@@ -187,7 +187,7 @@ public class ConnectContextLifecycleTest {
             ctx.requestClose(CloseMode.AFTER_RESPONSE);
             ctx.requestClose(CloseMode.AFTER_RESPONSE);
             Assertions.assertTrue(ctx.isClosingAfterResponse());
-            Assertions.assertEquals(0, pool.getConnectionNum());
+            Assertions.assertEquals(1, pool.getConnectionNum());
             Mockito.verify(adapter, Mockito.never()).closeConnection(ctx);
             Mockito.verify(adapter, Mockito.never()).releaseSession(ctx);
             StmtExecutor late = Mockito.mock(StmtExecutor.class);
