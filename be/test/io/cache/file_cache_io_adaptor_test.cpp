@@ -176,6 +176,78 @@ TEST_F(FileCacheIOAdaptorTest, ProbeLimitsSpanAllSizeBuckets) {
     adaptor.finish_probe();
 }
 
+TEST_F(FileCacheIOAdaptorTest, MixedSizeRecoveryCannotStarveAtProbeBoundary) {
+    seed(50);
+    seed(50, 20000, 1000, 1 << 20);
+    std::array<size_t, 2> probes {};
+    size_t requests_since_probe = 0;
+    int64_t last_probe_us = -2'000'000;
+    // The large request always lands on the global quota boundary. Both sizes must still
+    // discover a recovered disk, rather than letting that request consume every probe.
+    for (int64_t request = 0; request < 192 * 64; ++request) {
+        const bool large = request % 64 == 63;
+        const size_t bytes = large ? 1 << 20 : READ_SIZE;
+        const auto now_us = (request / 64) * 2'000'000;
+        const auto decision = adaptor._select(bytes, 1.0, now_us);
+        ++requests_since_probe;
+        if (decision.read_remote()) {
+            adaptor.record_remote(bytes, 1000);
+        } else {
+            adaptor.record_local(bytes, 100);
+        }
+        if (decision.is_probe()) {
+            EXPECT_GE(requests_since_probe, 64);
+            EXPECT_GE(now_us - last_probe_us, 1'000'000);
+            ++probes[large];
+            requests_since_probe = 0;
+            last_probe_us = now_us;
+            adaptor.finish_probe();
+        }
+    }
+    EXPECT_GE(probes[0], 50);
+    EXPECT_GE(probes[1], 50);
+    EXPECT_EQ(adaptor._buckets[FileCacheIOAdaptor::bucket_index(READ_SIZE)].local.average(), 100);
+    EXPECT_EQ(adaptor._buckets[FileCacheIOAdaptor::bucket_index(1 << 20)].local.average(), 100);
+    const auto decision = adaptor._select(READ_SIZE, 1.0, 384'000'000);
+    EXPECT_EQ(decision.read_remote(), decision.remote_probe);
+    if (decision.is_probe()) {
+        adaptor.finish_probe();
+    }
+}
+
+TEST_F(FileCacheIOAdaptorTest, AllActiveBucketsShareProbeSlots) {
+    std::array<size_t, FileCacheIOAdaptor::BUCKET_COUNT> probes {};
+    for (size_t bucket = 0; bucket < probes.size(); ++bucket) {
+        seed(50, 20000, 1000, READ_SIZE << (bucket * 2));
+    }
+    for (size_t request = 0; request < probes.size() * 64 * 3; ++request) {
+        const size_t bucket = request % probes.size();
+        const auto decision = adaptor._select(READ_SIZE << (bucket * 2), 1.0, request * 2'000'000);
+        if (decision.is_probe()) {
+            ++probes[bucket];
+            adaptor.finish_probe();
+        }
+    }
+    for (const auto count : probes) {
+        EXPECT_GT(count, 0);
+    }
+}
+
+TEST_F(FileCacheIOAdaptorTest, InactiveBucketDoesNotBlockRemainingTraffic) {
+    seed(50);
+    seed(50, 20000, 1000, 1 << 20);
+    static_cast<void>(adaptor._select(1 << 20, 1.0, 0));
+    size_t probes = 0;
+    for (int64_t request = 1; request <= 512; ++request) {
+        const auto decision = adaptor._select(READ_SIZE, 1.0, request * 2'000'000);
+        if (decision.is_probe()) {
+            ++probes;
+            adaptor.finish_probe();
+        }
+    }
+    EXPECT_GE(probes, 6);
+}
+
 TEST_F(FileCacheIOAdaptorTest, NegativeObservationsAreIgnoredAndZeroIsValid) {
     adaptor.record_local(READ_SIZE, -1);
     adaptor.record_remote(READ_SIZE, -1);

@@ -56,7 +56,12 @@ FileCacheIOAdaptor::Decision FileCacheIOAdaptor::select(size_t bytes, double ski
 FileCacheIOAdaptor::Decision FileCacheIOAdaptor::_select(size_t bytes, double skip_read_factor,
                                                          int64_t now_us) {
     std::lock_guard lock(_mutex);
-    const auto& bucket = _buckets[bucket_index(bytes)];
+    const auto index = bucket_index(bytes);
+    for (auto& candidate : _buckets) {
+        candidate.idle_requests = std::min(candidate.idle_requests + 1, PROBE_REQUEST_INTERVAL);
+    }
+    auto& bucket = _buckets[index];
+    bucket.idle_requests = 0;
     Decision decision;
     decision.local_latency_us = bucket.local.average();
     decision.remote_latency_us = bucket.remote.average();
@@ -73,12 +78,28 @@ FileCacheIOAdaptor::Decision FileCacheIOAdaptor::_select(size_t bytes, double sk
     // Keep one probe in flight across the entire cache path, including slow local disk reads.
     if (bucket.local.count == WINDOW_SIZE && !_probe_inflight && now_us >= _next_probe_us &&
         _requests_since_probe == PROBE_REQUEST_INTERVAL) {
-        decision.local_probe = decision.bypass;
-        decision.remote_probe = !decision.bypass;
-        decision.bypass = !decision.bypass;
-        _probe_inflight = true;
-        _requests_since_probe = 0;
-        _next_probe_us = now_us + PROBE_INTERVAL_US;
+        // With 63 small hits followed by one large hit, granting every 64th request would
+        // probe only the large bucket forever. Rotate among buckets seen in the last 64 hits,
+        // retaining the available quota until the selected bucket's next request. Expire
+        // inactive buckets so a size that stops appearing cannot stall the remaining traffic.
+        auto probe_bucket = _next_probe_bucket;
+        for (size_t visited = 0; visited < BUCKET_COUNT; ++visited) {
+            const auto& candidate = _buckets[probe_bucket];
+            if (candidate.local.count == WINDOW_SIZE &&
+                candidate.idle_requests < PROBE_REQUEST_INTERVAL) {
+                break;
+            }
+            probe_bucket = (probe_bucket + 1) % BUCKET_COUNT;
+        }
+        if (probe_bucket == index) {
+            decision.local_probe = decision.bypass;
+            decision.remote_probe = !decision.bypass;
+            decision.bypass = !decision.bypass;
+            _probe_inflight = true;
+            _requests_since_probe = 0;
+            _next_probe_us = now_us + PROBE_INTERVAL_US;
+            _next_probe_bucket = (index + 1) % BUCKET_COUNT;
+        }
     }
     return decision;
 }

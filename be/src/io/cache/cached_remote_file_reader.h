@@ -336,8 +336,13 @@ private:
                                      SourceReadBreakdown& source_read_breakdown,
                                      const IOContext* io_ctx);
 
-    /// Read local cache only when downloaded blocks fully cover the request; otherwise read remote
-    /// data directly without writing file cache.
+    // Accepted async buffers outlive a write-policy change. Read-only queries can use them
+    // without taking the disk-cache mutex, but a partial memory hit must not modify result.
+    bool _try_read_from_inflight_buffers(size_t offset, Slice result, size_t bytes_req,
+                                         bool is_dryrun, ReadStatistics& stats);
+
+    /// Read in-flight buffers or downloaded blocks only when one source fully covers the request;
+    /// otherwise read remote data directly without writing file cache.
     /// @param[in] offset Original request offset.
     /// @param[out] result Destination buffer for the original request.
     /// @param[in] bytes_req Original request size.
