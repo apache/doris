@@ -561,17 +561,14 @@ ICU_SOURCE=icu-release-69-1
 ICU_MD5SUM="135125f633864285d637db5c01e0388b"
 
 # jindofs
-JINDOFS_DOWNLOAD="https://github.com/apache/doris-thirdparty/releases/download/alibabacloud-jindodata-releases/jindofs-6.10.4-libs-0.1.tar.gz"
-JINDOFS_NAME=jindofs-6.10.4-libs-0.1.tar.gz
-JINDOFS_SOURCE=jindofs-6.10.4-libs-0.1
-JINDOFS_MD5SUM="bd30b4c5fe97c4367eeb3bb228b317d9"
+. "${BASH_SOURCE[0]%/*}/jindofs_version.sh"
 
 # juicefs
-JUICEFS_DOWNLOAD="${DORIS_THIRDPARTY_REPOSITORY_URL%/}/juicefs-hadoop-1.3.1.jar"
-JUICEFS_FALLBACK_DOWNLOAD="https://repo1.maven.org/maven2/io/juicefs/juicefs-hadoop/1.3.1/juicefs-hadoop-1.3.1.jar"
-JUICEFS_NAME=juicefs-hadoop-1.3.1.jar
+JUICEFS_DOWNLOAD="https://repo.maven.apache.org/maven2/io/juicefs/juicefs-hadoop/1.4.2/juicefs-hadoop-1.4.2.jar"
+JUICEFS_FALLBACK_DOWNLOAD="https://github.com/juicedata/juicefs/releases/download/v1.4.2/juicefs-hadoop-1.4.2.jar"
+JUICEFS_NAME=juicefs-hadoop-1.4.2.jar
 JUICEFS_SOURCE=
-JUICEFS_MD5SUM="f374dfbfbdc4b83417cfea78a6728c54"
+JUICEFS_MD5SUM="29aae14520e7d30459c049b7c1c5506d"
 
 # pugixml
 PUGIXML_DOWNLOAD="https://github.com/zeux/pugixml/releases/download/v1.15/pugixml-1.15.tar.gz"
@@ -676,6 +673,9 @@ export TP_ARCHIVES=(
     'DRAGONBOX'
     'ICU'
     'JINDOFS'
+    'JINDOFS_SDK'
+    'JINDOFS_UBUNTU22'
+    'JINDOFS_AARCH64'
     'JUICEFS'
     'PUGIXML'
     'LANCE_C'

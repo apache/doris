@@ -18,12 +18,14 @@
 
 # Shared JindoFS helper functions used by build packaging.
 
+. "${BASH_SOURCE[0]%/*}/../../thirdparty/jindofs_version.sh"
+
 JINDOFS_PLATFORM_JAR_PATTERNS_X86_64=(
-    'jindo-core-linux-ubuntu22-x86_64-*.jar'
+    "${JINDOFS_UBUNTU22_NAME}"
 )
 
 JINDOFS_PLATFORM_JAR_PATTERNS_AARCH64=(
-    'jindo-core-linux-el7-aarch64-*.jar'
+    "${JINDOFS_AARCH64_NAME}"
 )
 
 jindofs_all_platform_jar_patterns() {
@@ -67,11 +69,50 @@ jindofs_is_platform_jar() {
 jindofs_find_common_jars() {
     local jindofs_dir="$1"
     local jar=""
-    while IFS= read -r jar; do
-        if ! jindofs_is_platform_jar "$(basename "${jar}")"; then
-            echo "${jar}"
+    for jar in "${jindofs_dir}/${JINDOFS_NAME}" "${jindofs_dir}/${JINDOFS_SDK_NAME}"; do
+        [[ -f "${jar}" ]] && echo "${jar}"
+    done
+}
+
+jindofs_prepare_jars() {
+    local cache_dir="$1"
+    local target_system="$2"
+    local target_arch="$3"
+    [[ "${target_system}" == Linux ]] || return 0
+    local -a artifacts=(JINDOFS JINDOFS_SDK)
+    if [[ "${target_arch}" == x86_64 ]]; then
+        artifacts+=(JINDOFS_UBUNTU22)
+    elif [[ "${target_arch}" == aarch64 ]]; then
+        artifacts+=(JINDOFS_AARCH64)
+    else
+        return 0
+    fi
+
+    mkdir -p "${cache_dir}"
+    local artifact name_var url_var md5_var target_jar actual_md5
+    for artifact in "${artifacts[@]}"; do
+        name_var="${artifact}_NAME"
+        url_var="${artifact}_DOWNLOAD"
+        md5_var="${artifact}_MD5SUM"
+        target_jar="${cache_dir}/${!name_var}"
+        if [[ -s "${target_jar}" ]]; then
+            actual_md5=$(md5sum "${target_jar}")
+            actual_md5=${actual_md5%% *}
+            [[ "${actual_md5}" == "${!md5_var}" ]] && continue
         fi
-    done < <(compgen -G "${jindofs_dir}/*.jar" | sort)
+        if ! curl -fL --retry 3 --connect-timeout 10 -o "${target_jar}.tmp" "${!url_var}"; then
+            rm -f "${target_jar}.tmp"
+            return 1
+        fi
+        actual_md5=$(md5sum "${target_jar}.tmp")
+        actual_md5=${actual_md5%% *}
+        if [[ "${actual_md5}" != "${!md5_var}" ]]; then
+            echo "ERROR: JindoFS checksum mismatch for ${!name_var}" >&2
+            rm -f "${target_jar}.tmp"
+            return 1
+        fi
+        mv -f "${target_jar}.tmp" "${target_jar}"
+    done
 }
 
 jindofs_log_source_jars() {
@@ -106,17 +147,30 @@ jindofs_copy_jars() {
         return 0
     fi
 
+    jindofs_prepare_jars "${jindofs_dir}" "${target_system}" "${target_arch}" || return 1
+
     jindofs_log_source_jars "${jindofs_dir}" "${target_dir}"
 
     while IFS= read -r jar; do
-        cp -r -p "${jar}" "${target_dir}/"
+        cp -p "${jar}" "${target_dir}/$(basename "${jar}").tmp"
+        mv -f "${target_dir}/$(basename "${jar}").tmp" "${target_dir}/$(basename "${jar}")"
         echo "Copy JindoFS jar to ${target_dir}: $(basename "${jar}")"
     done < <(jindofs_find_common_jars "${jindofs_dir}")
 
     while IFS= read -r platform_jar_pattern; do
         while IFS= read -r jar; do
-            cp -r -p "${jar}" "${target_dir}/"
+            cp -p "${jar}" "${target_dir}/$(basename "${jar}").tmp"
+            mv -f "${target_dir}/$(basename "${jar}").tmp" "${target_dir}/$(basename "${jar}")"
             echo "Copy JindoFS jar to ${target_dir}: $(basename "${jar}")"
         done < <(compgen -G "${jindofs_dir}/${platform_jar_pattern}" | sort)
     done < <(jindofs_platform_jar_patterns "${target_system}" "${target_arch}" || true)
+
+    local selected_platform_jar
+    selected_platform_jar=$(jindofs_platform_jar_patterns "${target_system}" "${target_arch}")
+    for jar in "${target_dir}"/jindo-*.jar; do
+        [[ "${jar}" == "${target_dir}/${JINDOFS_NAME}" ]] && continue
+        [[ "${jar}" == "${target_dir}/${JINDOFS_SDK_NAME}" ]] && continue
+        [[ "${jar}" == "${target_dir}/${selected_platform_jar}" ]] && continue
+        rm -f -- "${jar}"
+    done
 }

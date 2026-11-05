@@ -18,7 +18,15 @@
 
 # Shared JuiceFS helper functions used by build and docker scripts.
 
-JUICEFS_DEFAULT_VERSION="${JUICEFS_DEFAULT_VERSION:-1.3.1}"
+# Keep standalone packaging and third-party builds on the same release and checksum.
+JUICEFS_VARS_FILE="${BASH_SOURCE[0]%/*}/../../thirdparty/vars.sh"
+JUICEFS_PINNED_VERSION=$(sed -n 's/^JUICEFS_NAME=juicefs-hadoop-\(.*\)\.jar$/\1/p' "${JUICEFS_VARS_FILE}")
+JUICEFS_PINNED_MD5=$(sed -n 's/^JUICEFS_MD5SUM="\([0-9a-f]*\)"$/\1/p' "${JUICEFS_VARS_FILE}")
+if [[ -z "${JUICEFS_PINNED_VERSION}" || ${#JUICEFS_PINNED_MD5} -ne 32 ]]; then
+    echo "ERROR: cannot read the pinned JuiceFS release from ${JUICEFS_VARS_FILE}" >&2
+    return 1
+fi
+JUICEFS_DEFAULT_VERSION="${JUICEFS_DEFAULT_VERSION:-${JUICEFS_PINNED_VERSION}}"
 MAVEN_REPOSITORY_URL="${MAVEN_REPOSITORY_URL:-https://repo1.maven.org/maven2}"
 JUICEFS_THIRDPARTY_REPOSITORY_URL="${JUICEFS_THIRDPARTY_REPOSITORY_URL:-}"
 JUICEFS_DEFAULT_THIRDPARTY_REPOSITORY_URL="${JUICEFS_DEFAULT_THIRDPARTY_REPOSITORY_URL:-}"
@@ -148,16 +156,40 @@ juicefs_download_hadoop_jar_to_cache() {
     local -a download_urls=()
 
     mkdir -p "${cache_dir}"
-    if [[ -s "${target_jar}" ]]; then
+    if [[ -s "${target_jar}" ]] && juicefs_validate_hadoop_jar "${target_jar}" "${juicefs_version}"; then
         echo "${target_jar}"
         return 0
     fi
 
     mapfile -t download_urls < <(juicefs_hadoop_jar_download_urls "${juicefs_version}")
-    if juicefs_download_file "${target_jar}" "JuiceFS Hadoop jar ${juicefs_version}" "${download_urls[@]}"; then
-        echo "${target_jar}"
-        return 0
+    if ! juicefs_download_file "${target_jar}.tmp" "JuiceFS Hadoop jar ${juicefs_version}" "${download_urls[@]}"; then
+        return 1
     fi
+    if ! juicefs_validate_hadoop_jar "${target_jar}.tmp" "${juicefs_version}"; then
+        rm -f "${target_jar}.tmp"
+        return 1
+    fi
+    mv -f "${target_jar}.tmp" "${target_jar}"
+    echo "${target_jar}"
+}
 
+juicefs_validate_hadoop_jar() {
+    local source_jar="$1"
+    local juicefs_version="${2:-${JUICEFS_DEFAULT_VERSION}}"
+    # Explicit version overrides have no repository-pinned checksum.
+    [[ "${juicefs_version}" == "${JUICEFS_PINNED_VERSION}" ]] || return 0
+
+    local actual_md5
+    if command -v md5sum >/dev/null 2>&1; then
+        actual_md5=$(md5sum "${source_jar}")
+        actual_md5=${actual_md5%% *}
+    elif command -v md5 >/dev/null 2>&1; then
+        actual_md5=$(md5 -q "${source_jar}")
+    else
+        echo "ERROR: md5sum or md5 is required to validate JuiceFS" >&2
+        return 1
+    fi
+    [[ "${actual_md5}" == "${JUICEFS_PINNED_MD5}" ]] && return 0
+    echo "ERROR: JuiceFS checksum mismatch for ${source_jar}" >&2
     return 1
 }
