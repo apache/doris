@@ -89,6 +89,25 @@ suite("test_variant_values_index_ddl", "p0") {
              "VARIANT values index does not support declared Decimal256 paths")
     rejected("VARIANT", english, "SNII", "UNIQUE", ',"enable_unique_key_merge_on_write"="false"',
              "INVERTED index with parser can NOT be used in value columns of UNIQUE_KEYS table with merge_on_write disable")
+    rejected("VARIANT", ',"analyzer"="english"', "SNII", "UNIQUE", ',"enable_unique_key_merge_on_write"="false"',
+             "INVERTED index with parser can NOT be used in value columns of UNIQUE_KEYS table with merge_on_write disable")
+    sql "DROP TABLE IF EXISTS vvi_ddl_mor_add"
+    sql """CREATE TABLE vvi_ddl_mor_add (id INT, v VARIANT)
+        UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES("replication_num"="1","inverted_index_storage_format"="SNII",
+                   "enable_unique_key_merge_on_write"="false")"""
+    for (String selector : ["parser", "analyzer", "built_in_analyzer"]) {
+        test {
+            sql """ALTER TABLE vvi_ddl_mor_add ADD INDEX values_idx(v) USING INVERTED
+                PROPERTIES("variant_index_scope"="values","${selector}"="english")"""
+            exception "UNIQUE_KEYS table with merge_on_write disable"
+        }
+        test {
+            sql """CREATE INDEX values_idx ON vvi_ddl_mor_add(v) USING INVERTED
+                PROPERTIES("variant_index_scope"="values","${selector}"="english")"""
+            exception "UNIQUE_KEYS table with merge_on_write disable"
+        }
+    }
     rejected("VARIANT REPLACE", english, "SNII", "AGGREGATE", "",
              "index should only be used in columns of DUP_KEYS/UNIQUE_KEYS table or key columns of AGG_KEYS table")
     for (String key : ["variant_index_mode", "variant_root_format_version"]) {
