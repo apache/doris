@@ -322,6 +322,19 @@ struct TFileAttributes {
     1001: optional bool ignore_csv_redundant_col;
 }
 
+// Per-file decryption payload for FE-to-BE reader setup. Execution remains blocked until
+// native decryption and protected transport are available.
+// redact_file_encryption.py runs after code generation to hide these fields in diagnostics.
+// Only binary/compact RPC preserves this payload; diagnostic JSON is deliberately lossy.
+struct TFileEncryptionInfo {
+    // Version 1: Parquet AES_GCM_V1, with an unwrapped file key and the exact SDK AAD prefix.
+    1: optional i32 version;
+    // Unwrapped file data-encryption key for the BE reader; never a KMS master key.
+    2: optional binary key;
+    // Presence is required by version 1, including when the prefix is empty.
+    3: optional binary aad_prefix;
+}
+
 struct TIcebergDeleteFileDesc {
     1: optional string path;
     2: optional i64 position_lower_bound;
@@ -339,6 +352,8 @@ struct TIcebergDeleteFileDesc {
     // Referenced data file path. Required to materialize rows from deletion vectors.
     10: optional string referenced_data_file_path;
     11: optional i64 file_size;
+    // Independent of the data file key. Absence retains plaintext semantics.
+    12: optional TFileEncryptionInfo encryption_info;
 }
 
 struct TIcebergFileDesc {
@@ -365,6 +380,8 @@ struct TIcebergFileDesc {
     // Reserved for branch-4.1 / branch-4.2 field `13: optional ExternalTableSchema.TSchema
     // equality_delete_schema` (the split-local schema of dropped equality-delete keys). Master
     // carries those schemas in TFileScanRangeParams.history_schema_info. Do not reuse this id.
+    // Absence retains plaintext semantics; an empty or unsupported payload must never do so.
+    14: optional TFileEncryptionInfo encryption_info;
 }
 
 struct TPaimonDeletionFileDesc {
