@@ -24,6 +24,7 @@ import org.apache.arrow.adbc.core.AdbcDatabase;
 import org.apache.arrow.adbc.core.AdbcDriver;
 import org.apache.arrow.adbc.core.AdbcException;
 import org.apache.arrow.adbc.core.AdbcInfoCode;
+import org.apache.arrow.adbc.core.AdbcStatusCode;
 import org.apache.arrow.adbc.driver.jni.JniDriver;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
@@ -134,14 +135,9 @@ public class AdbcClient implements Closeable {
         if (known != null) {
             return known;
         }
-        Optional<String> probed;
-        try {
-            probed = withConnection(AdbcClient::readVendorName);
-        } catch (Exception e) {
-            // getInfo is optional; an unavailable identity must not select source-specific SQL.
-            LOG.info("ADBC driver did not report its vendor: {}", e.toString());
-            probed = Optional.empty();
-        }
+        // A failed connection or probe must stay unresolved: caching it as unknown would make a
+        // recovered Doris source keep using generic metadata and permanently select ANSI for scans.
+        Optional<String> probed = withConnection(AdbcClient::readVendorName);
         // Remote calls run outside the lifecycle monitor; racing probes publish one immutable answer.
         vendorName.compareAndSet(null, probed);
         return vendorName.get();
@@ -180,6 +176,13 @@ public class AdbcClient implements Closeable {
                     }
                 }
             }
+        } catch (AdbcException e) {
+            // Only an explicit unsupported getInfo is a stable capability result. IO, authentication
+            // and other failures must propagate so a later healthy operation can retry the probe.
+            if (e.getStatus() != AdbcStatusCode.NOT_IMPLEMENTED) {
+                throw e;
+            }
+            LOG.info("ADBC driver does not implement vendor information: {}", e.toString());
         }
         return Optional.empty();
     }

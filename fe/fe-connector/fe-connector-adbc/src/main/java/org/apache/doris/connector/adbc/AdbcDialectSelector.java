@@ -31,11 +31,9 @@ import java.util.function.Supplier;
  * comes first because it is the user's escape hatch for a source whose vendor string is unhelpful or shared,
  * and a probe that could override it would make the property advisory.
  *
- * <p><b>The probe runs at most once per catalog.</b> It is a remote call on a query's planning path, and the
- * answer is a property of the driver rather than of the query. It also has to be allowed to fail: the
- * metadata phase measured drivers implementing these context calls one at a time -- the SQLite driver
- * answers {@code getCurrentCatalog} but rejects {@code getCurrentDbSchema} -- so a failed probe means
- * "unknown vendor", never a failed query.
+ * <p>The catalog's client shares completed vendor lookups with metadata discovery. A driver that does
+ * not implement {@code getInfo} supplies an unknown vendor and uses ANSI. A temporary connection or probe
+ * failure leaves the dialect unresolved, so a later operation can retry after the source recovers.
  */
 public final class AdbcDialectSelector {
 
@@ -74,6 +72,8 @@ public final class AdbcDialectSelector {
         if (known != null) {
             return known;
         }
+        // Cache only a completed lookup. Treating a transient failure as unknown would permanently
+        // lock a Doris source onto ANSI even after its connection recovers.
         AdbcDialect selected = resolve(connectionSource);
         // A racing probe would have reached the same answer, so whichever lands first wins.
         resolved.compareAndSet(null, selected);
@@ -84,7 +84,7 @@ public final class AdbcDialectSelector {
         if (configuredName != null) {
             return AdbcDialectRegistry.require(configuredName);
         }
-        Optional<String> vendor = probeVendorName(connectionSource);
+        Optional<String> vendor = connectionSource.get().vendorName();
         if (vendor.isPresent()) {
             Optional<AdbcDialect> byVendor = AdbcDialectRegistry.forVendor(vendor.get());
             if (byVendor.isPresent()) {
@@ -98,15 +98,4 @@ public final class AdbcDialectSelector {
         return AdbcDialectRegistry.defaultDialect();
     }
 
-    private Optional<String> probeVendorName(Supplier<AdbcClient> connectionSource) {
-        try {
-            return connectionSource.get().vendorName();
-        } catch (Exception e) {
-            // Includes the driver refusing getInfo outright. Not knowing the vendor is the normal case for
-            // an arbitrary ADBC source, and ANSI is exactly the answer for it.
-            LOG.info("ADBC driver did not report its vendor, so the default SQL dialect is used: {}",
-                    e.toString());
-            return Optional.empty();
-        }
-    }
 }
