@@ -17,18 +17,38 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.ColumnRenameClause;
+import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchemaInitializer;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.StatementContext.TableFrom;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecutor;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultFileSink;
@@ -53,14 +73,269 @@ import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 public class StmtExecutorTest extends TestWithFeService {
     private static final String AI_RESOURCE_LOG_SECRET = "sk-test-secret";
     private static final String MASKED_STMT_FALLBACK = "/* masked statement unavailable */";
+
+    @Test
+    public void testInsertSourceCollectionDoesNotHoldTargetLock() throws Exception {
+        assertInsertSourceCollectionFence(false);
+    }
+
+    @Test
+    public void testInsertReplansWhenNormalizationSchemaChanges() throws Exception {
+        assertInsertSourceCollectionFence(true);
+    }
+
+    @Test
+    public void testInsertDefaultAfterRealColumnRenameFastPath() throws Exception {
+        assertInsertDefaultAfterRealColumnRename(true, true);
+    }
+
+    @Test
+    public void testInsertDefaultAfterRealColumnRenameOrdinaryPath() throws Exception {
+        assertInsertDefaultAfterRealColumnRename(false, true);
+    }
+
+    @Test
+    public void testInsertReplansAfterColumnRenameRestoresSchemaNames() throws Exception {
+        assertInsertDefaultAfterRealColumnRename(true, false);
+        assertEmptyStatementSucceedsAfterCleanup();
+        assertInsertDefaultAfterRealColumnRename(false, false);
+        assertEmptyStatementSucceedsAfterCleanup();
+    }
+
+    private void assertInsertDefaultAfterRealColumnRename(boolean fastPath, boolean reuseName) throws Exception {
+        boolean originalFastPath = connectContext.getSessionVariable().isEnableFastAnalyzeInsertIntoValues();
+        connectContext.getSessionVariable().setEnableFastAnalyzeInsertIntoValues(fastPath);
+        try {
+            for (boolean beginTransaction : Arrays.asList(false, true)) {
+                String targetName = "hms_backport_rename_" + (fastPath ? "fast" : "ordinary")
+                        + (reuseName ? "_reuse" : "_restore") + (beginTransaction ? "_exec" : "_plan");
+                createTable("create table if not exists testDb." + targetName
+                        + " (a int not null default '1', b int not null default '2', c int not null default '9') "
+                        + "duplicate key(a) distributed by hash(a) buckets 1 "
+                        + "properties('replication_num'='1', 'light_schema_change'='true')");
+                Database database = Env.getCurrentInternalCatalog().getDbOrMetaException("testDb");
+                OlapTable target = (OlapTable) database.getTableOrMetaException(targetName);
+                List<Column> originalSchema = target.getFullSchema();
+                int originalVersion = target.getIndexMetaByIndexId(target.getBaseIndexId()).getSchemaVersion();
+                String sql = "insert into testDb." + targetName + "(b) values(default)";
+                connectContext.setQueryId(new TUniqueId(68363L, target.getId()));
+                AtomicBoolean renamed = new AtomicBoolean();
+                AtomicInteger retries = new AtomicInteger();
+                StatementContext statement = new StatementContext(connectContext, new OriginStatement(sql, 0)) {
+                    @Override
+                    public TableIf getAndCacheTable(List<String> tableQualifier, TableFrom tableFrom,
+                            Optional<UnboundRelation> unboundRelation) {
+                        TableIf table = super.getAndCacheTable(tableQualifier, tableFrom, unboundRelation);
+                        if (tableFrom == TableFrom.INSERT_TARGET && renamed.compareAndSet(false, true)) {
+                            Assertions.assertSame(target, table);
+                            Assertions.assertTrue(target.tryWriteLock(1, TimeUnit.SECONDS));
+                            target.writeUnlock();
+                            try {
+                                Env.getCurrentEnv().renameColumn(database, target,
+                                        new ColumnRenameClause("b", "old_b"));
+                                Env.getCurrentEnv().renameColumn(database, target,
+                                        new ColumnRenameClause(reuseName ? "c" : "old_b", "b"));
+                            } catch (Exception exception) {
+                                throw new IllegalStateException(exception);
+                            }
+                            Assertions.assertEquals(originalSchema, target.getFullSchema());
+                            Assertions.assertEquals(originalVersion + 2,
+                                    target.getIndexMetaByIndexId(target.getBaseIndexId()).getSchemaVersion());
+                            Assertions.assertSame(originalSchema.get(reuseName ? 2 : 1), target.getColumn("b"));
+                        }
+                        return table;
+                    }
+
+                    @Override
+                    public void resetMvccSnapshotsForRetry() {
+                        retries.incrementAndGet();
+                        super.resetMvccSnapshotsForRetry();
+                    }
+                };
+                StmtExecutor executor = new StmtExecutor(connectContext, sql);
+                executor.setStatementContext(statement);
+                AbstractInsertExecutor insert = null;
+                try {
+                    InsertIntoTableCommand command = (InsertIntoTableCommand) new NereidsParser().parseSingle(sql);
+                    insert = command.initPlan(connectContext, executor, beginTransaction);
+                    Assertions.assertSame(target, insert.getTable());
+                    Assertions.assertTrue(renamed.get());
+                    Assertions.assertEquals(1, retries.get());
+                    NereidsPlanner planner = (NereidsPlanner) executor.planner();
+                    boolean plannedFastPath = Deencapsulation.getField(planner, "fastInsertIntoValues");
+                    Assertions.assertEquals(fastPath, plannedFastPath);
+                    PhysicalOlapTableSink<?> sink = planner.getPhysicalPlan()
+                            .<PhysicalOlapTableSink<?>>collect(PhysicalOlapTableSink.class::isInstance)
+                            .iterator().next();
+                    Assertions.assertEquals(Collections.singletonList("b"),
+                            sink.getCols().stream().map(Column::getName).collect(Collectors.toList()));
+                    Assertions.assertSame(target.getColumn("b"), sink.getCols().get(0));
+                    List<Slot> targetSlots = sink.getTargetTableSlots();
+                    Assertions.assertEquals(Arrays.asList("a", reuseName ? "old_b" : "b", reuseName ? "b" : "c"),
+                            targetSlots.stream().map(Slot::getName).collect(Collectors.toList()));
+                    Assertions.assertEquals(targetSlots.size(), sink.getOutput().size());
+                    List<String> boundValues = new ArrayList<>();
+                    for (int columnIndex = 0; columnIndex < targetSlots.size(); columnIndex++) {
+                        Expression value = ExpressionUtils.shuttleExpressionWithLineage(
+                                sink.getOutput().get(columnIndex), sink.child());
+                        value = FoldConstantRuleOnFE.evaluate(value,
+                                new ExpressionRewriteContext(planner.getCascadesContext()));
+                        Assertions.assertInstanceOf(Literal.class, value);
+                        boundValues.add(((Literal) value).getStringValue());
+                    }
+                    Assertions.assertEquals(Arrays.asList("1", "2", "9"), boundValues);
+                } finally {
+                    if (insert != null && insert.getTxnId() != -1) {
+                        try {
+                            Deencapsulation.invoke(insert, "onFail", new RuntimeException("test cleanup"));
+                        } finally {
+                            connectContext.getState().reset();
+                        }
+                    }
+                    statement.close();
+                }
+            }
+        } finally {
+            connectContext.getSessionVariable().setEnableFastAnalyzeInsertIntoValues(originalFastPath);
+        }
+    }
+
+    private void assertInsertSourceCollectionFence(boolean changeSchema) throws Exception {
+        String targetName = changeSchema ? "hms_backport_schema_target" : "hms_backport_lock_target";
+        createTable("create table if not exists testDb.hms_backport_source (a int not null) "
+                + "duplicate key(a) distributed by hash(a) buckets 1 properties('replication_num'='1')");
+        createTable("create table if not exists testDb." + targetName + " (a int not null, "
+                + "b int not null default '2') duplicate key(a) distributed by hash(a) buckets 1 "
+                + "properties('replication_num'='1')");
+        Database database = Env.getCurrentInternalCatalog().getDbOrMetaException("testDb");
+        OlapTable target = (OlapTable) database.getTableOrMetaException(targetName);
+        TableIf source = database.getTableOrMetaException("hms_backport_source");
+        List<Column> originalSchema = target.getFullSchema();
+        String sql = "insert into testDb." + targetName + "(a) select a from testDb.hms_backport_source";
+        connectContext.setQueryId(new TUniqueId(68363L, changeSchema ? 2L : 1L));
+        AtomicInteger attempts = new AtomicInteger();
+        StatementContext statement = new StatementContext(connectContext, new OriginStatement(sql, 0)) {
+            @Override
+            public void registerExternalTableForPreload(TableIf table, Optional<TableSnapshot> snapshot,
+                    Optional<TableScanParams> scanParams) {
+                super.registerExternalTableForPreload(table, snapshot, scanParams);
+                if (table == source && attempts.incrementAndGet() == 1) {
+                    Assertions.assertTrue(target.tryWriteLock(1, TimeUnit.SECONDS),
+                            "INSERT must release its target lock before source metadata collection");
+                    try {
+                        if (changeSchema) {
+                            List<Column> changed = originalSchema.stream()
+                                    .map(Column::new).collect(Collectors.toList());
+                            changed.get(1).setDefaultValueInfo(new Column("b",
+                                    originalSchema.get(1).getType(), false, null, "9", ""));
+                            target.setNewFullSchema(changed);
+                        }
+                    } finally {
+                        target.writeUnlock();
+                    }
+                }
+            }
+        };
+        StmtExecutor executor = new StmtExecutor(connectContext, sql);
+        executor.setStatementContext(statement);
+        try {
+            InsertIntoTableCommand command = (InsertIntoTableCommand) new NereidsParser().parseSingle(sql);
+            Assertions.assertNotNull(command.initPlan(connectContext, executor, false));
+            Assertions.assertEquals(changeSchema ? 2 : 1, attempts.get());
+            Assertions.assertEquals(target.getFullSchema(), statement.getInsertTargetSchema());
+        } finally {
+            target.writeLock();
+            try {
+                target.setNewFullSchema(originalSchema);
+            } finally {
+                target.writeUnlock();
+            }
+            statement.close();
+        }
+    }
+
+    @Test
+    public void testInsertReplansAfterRealTargetReplacementBeforeBinding() throws Exception {
+        createTable("create table if not exists testDb.hms_backport_replace_source (a int not null) "
+                + "duplicate key(a) distributed by hash(a) buckets 1 properties('replication_num'='1')");
+        for (boolean beginTransaction : Arrays.asList(false, true)) {
+            String suffix = beginTransaction ? "exec" : "plan";
+            String targetName = "hms_backport_replace_target_" + suffix;
+            String replacementName = "hms_backport_replacement_" + suffix;
+            createTable("create table if not exists testDb." + targetName + " (a int not null) "
+                    + "duplicate key(a) distributed by hash(a) buckets 1 properties('replication_num'='1')");
+            createTable("create table if not exists testDb." + replacementName
+                    + " (a int not null, b int not null default '7') duplicate key(a) "
+                    + "distributed by hash(a) buckets 1 properties('replication_num'='1')");
+            Database database = Env.getCurrentInternalCatalog().getDbOrMetaException("testDb");
+            OlapTable target = (OlapTable) database.getTableOrMetaException(targetName);
+            OlapTable replacement = (OlapTable) database.getTableOrMetaException(replacementName);
+            TableIf source = database.getTableOrMetaException("hms_backport_replace_source");
+            String sql = "insert into testDb." + targetName
+                    + "(a) select a from testDb.hms_backport_replace_source";
+            connectContext.setQueryId(new TUniqueId(68363L, beginTransaction ? 4L : 3L));
+            AtomicInteger attempts = new AtomicInteger();
+            StatementContext statement = new StatementContext(connectContext, new OriginStatement(sql, 0)) {
+                @Override
+                public void registerExternalTableForPreload(TableIf table, Optional<TableSnapshot> snapshot,
+                        Optional<TableScanParams> scanParams) {
+                    super.registerExternalTableForPreload(table, snapshot, scanParams);
+                    if (table == source && attempts.incrementAndGet() == 1) {
+                        try {
+                            Assertions.assertTrue(target.tryWriteLock(1, TimeUnit.SECONDS));
+                            target.writeUnlock();
+                            Env.getCurrentEnv().getAlterInstance().processReplaceTable(
+                                    database, target, replacementName, true, false);
+                        } catch (Exception exception) {
+                            throw new IllegalStateException(exception);
+                        }
+                    }
+                }
+            };
+            StmtExecutor executor = new StmtExecutor(connectContext, sql);
+            executor.setStatementContext(statement);
+            AbstractInsertExecutor insert = null;
+            try {
+                InsertIntoTableCommand command = (InsertIntoTableCommand) new NereidsParser().parseSingle(sql);
+                insert = command.initPlan(connectContext, executor, beginTransaction);
+                Assertions.assertSame(replacement, insert.getTable());
+                Assertions.assertEquals(2, attempts.get());
+                Assertions.assertEquals(replacement.getFullSchema(), statement.getInsertTargetSchema());
+            } finally {
+                if (insert != null && insert.getTxnId() != -1) {
+                    try {
+                        Deencapsulation.invoke(insert, "onFail", new RuntimeException("test cleanup"));
+                    } finally {
+                        connectContext.getState().reset();
+                    }
+                }
+                if (database.getTableOrMetaException(targetName) == replacement) {
+                    Env.getCurrentEnv().getAlterInstance().processReplaceTable(
+                            database, replacement, replacementName, true, false);
+                }
+                statement.close();
+            }
+        }
+        assertEmptyStatementSucceedsAfterCleanup();
+    }
+
+    private void assertEmptyStatementSucceedsAfterCleanup() throws Exception {
+        new StmtExecutor(connectContext, "").execute();
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+    }
 
     @Override
     protected void runBeforeAll() throws Exception {

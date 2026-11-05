@@ -238,8 +238,13 @@ public class CollectRelation implements AnalysisRuleFactory {
             if (!cascadesContext.getStatementContext().getInsertTargetSchema().isEmpty()) {
                 LOG.warn("collect insert target table '{}' more than once.", tableQualifier);
             }
-            cascadesContext.getStatementContext().getInsertTargetSchema().clear();
-            cascadesContext.getStatementContext().getInsertTargetSchema().addAll(table.getFullSchema());
+            table.readLock();
+            try {
+                cascadesContext.getStatementContext().getInsertTargetSchema().clear();
+                cascadesContext.getStatementContext().getInsertTargetSchema().addAll(table.getFullSchema());
+            } finally {
+                table.readUnlock();
+            }
         }
         if (table instanceof View) {
             parseAndCollectFromView(tableQualifier, (View) table, cascadesContext);

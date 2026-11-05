@@ -24,6 +24,7 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.datasource.FileQueryScanNode;
+import org.apache.doris.datasource.FileScanNode;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.hive.HMSCachedClient;
@@ -38,6 +39,7 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
@@ -540,6 +542,16 @@ public class HiveScanNodeTest {
         HiveScanNode node = createHiveScanNode();
         node.setSelectedPartitions(new SelectedPartitions(3, ImmutableMap.of(), true, false));
         Assert.assertFalse(node.hasPartitionPredicate());
+    }
+
+    @Test
+    public void testUnknownPartitionTotalUsesExplainMarker() throws Exception {
+        HiveScanNode node = createHiveScanNode();
+        Field totalPartitionNum = FileScanNode.class.getDeclaredField("totalPartitionNum");
+        totalPartitionNum.setAccessible(true);
+        totalPartitionNum.setLong(node, SelectedPartitions.UNKNOWN_TOTAL_PARTITION_NUM);
+
+        Assert.assertTrue(node.getNodeExplainString("", TExplainLevel.NORMAL).contains("partition=0/?"));
     }
 
     @Test
