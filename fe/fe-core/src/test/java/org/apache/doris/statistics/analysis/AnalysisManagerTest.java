@@ -22,12 +22,21 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.LocalTablet;
+import org.apache.doris.catalog.LocalTabletInvertedIndex;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.RecyclePartitionParam;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableProperty;
+import org.apache.doris.catalog.TabletInvertedIndex;
+import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -52,6 +61,7 @@ import org.apache.doris.statistics.analysis.AnalysisInfo.ScheduleType;
 import org.apache.doris.statistics.util.DBObjects;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TQueryColumn;
+import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -723,6 +733,113 @@ public class AnalysisManagerTest {
         Mockito.when(table.getTableProperty()).thenReturn(tableProperty);
         db.registerTable(table);
         return table;
+    }
+
+    @Test
+    public void testChangelogRowCountUpdatedByLoadsAndPartitionLifecycle() throws Exception {
+        AnalysisManager manager = new AnalysisManager();
+        InternalCatalog catalog = new InternalCatalog();
+        Database db = new Database(20001L, "test_changelog_tablet_rows");
+        catalog.unprotectCreateDb(db);
+        PartitionInfo partitionInfo = Mockito.mock(PartitionInfo.class);
+        OlapTable table = Mockito.spy(new OlapTable(30001L, "t_changelog", ImmutableList.of(),
+                KeysType.DUP_KEYS, partitionInfo, null));
+        table.setBaseIndexId(10001L);
+        Mockito.doReturn(db).when(table).getDatabase();
+        TableProperty tableProperty = Mockito.mock(TableProperty.class);
+        Mockito.doReturn(tableProperty).when(table).getTableProperty();
+        Mockito.when(tableProperty.getReplicaAllocation()).thenReturn(new ReplicaAllocation((short) 3));
+        db.registerTable(table);
+        long changelogIndexId = 10002L;
+        MaterializedIndexMeta changelogMeta = Mockito.mock(MaterializedIndexMeta.class);
+        Mockito.when(changelogMeta.getIndexId()).thenReturn(changelogIndexId);
+        Mockito.doReturn(true).when(table).hasChangelog();
+        Mockito.doReturn(changelogMeta).when(table).getChangelogIndexMeta();
+        Mockito.when(partitionInfo.getReplicaAllocation(10L)).thenReturn(new ReplicaAllocation((short) 1));
+        Mockito.when(partitionInfo.getReplicaAllocation(20L)).thenReturn(new ReplicaAllocation((short) 3));
+        MaterializedIndex baseOne = Mockito.spy(new MaterializedIndex(
+                table.getBaseIndexId(), MaterializedIndex.IndexState.NORMAL));
+        MaterializedIndex baseThree = Mockito.spy(new MaterializedIndex(
+                table.getBaseIndexId(), MaterializedIndex.IndexState.NORMAL));
+        baseThree.appendTablets(ImmutableList.of(new LocalTablet(1L)));
+        Partition partitionOne = new Partition(10L, "p_one", baseOne, null);
+        Partition partitionThree = new Partition(20L, "p_three", baseThree, null);
+        partitionOne.updateVisibleVersionAndTime(2L, 100L);
+        partitionThree.updateVisibleVersionAndTime(2L, 200L);
+        MaterializedIndex indexOne = new MaterializedIndex(changelogIndexId, MaterializedIndex.IndexState.NORMAL);
+        MaterializedIndex indexThree = new MaterializedIndex(changelogIndexId, MaterializedIndex.IndexState.NORMAL);
+        indexOne.setIsChangelog(true);
+        indexThree.setIsChangelog(true);
+        indexThree.setRowCount(100);
+        partitionOne.createRollupIndex(indexOne);
+        partitionThree.createRollupIndex(indexThree);
+        table.addPartition(partitionOne);
+        table.addPartition(partitionThree);
+
+        TabletInvertedIndex invertedIndex = new LocalTabletInvertedIndex();
+        invertedIndex.addTablet(1L, new TabletMeta(db.getId(), table.getId(), 20L,
+                table.getBaseIndexId(), 0, TStorageMedium.HDD, false));
+        invertedIndex.addTablet(2L, new TabletMeta(db.getId(), table.getId(), 10L,
+                changelogIndexId, 0, TStorageMedium.HDD, true));
+        invertedIndex.addTablet(3L, new TabletMeta(db.getId(), table.getId(), 20L,
+                changelogIndexId, 0, TStorageMedium.HDD, true));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getTabletInvertedIndex()).thenReturn(invertedIndex);
+        Map<Long, Map<Long, Long>> tabletRecords = ImmutableMap.of(table.getId(),
+                ImmutableMap.of(1L, 12L, 2L, 9L, 3L, 18L));
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            envMockedStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+            try (MockedStatic<StatisticsUtil> suStatic = Mockito.mockStatic(StatisticsUtil.class)) {
+                suStatic.when(StatisticsUtil::enablePartitionAnalyze).thenReturn(true);
+                manager.replayUpdateRowsRecord(new UpdateRowsEvent(tabletRecords, db.getId()));
+            }
+            TableStatsMeta record = manager.findTableStatsStatus(table.getId());
+            Assertions.assertEquals(4, record.updatedRows.get());
+            Assertions.assertEquals(ImmutableMap.of(20L, 4L), record.partitionUpdateRows);
+            // The loaded base tablet is in the newest partition. Once it is matched, changelog
+            // IDs must not keep the pending map nonempty and probe the older partition.
+            Mockito.verify(baseThree).getTablet(1L);
+            Mockito.verify(baseOne, Mockito.never()).getTablet(Mockito.anyLong());
+            Assertions.assertEquals(ImmutableMap.of(1L, 12L, 2L, 9L, 3L, 18L), tabletRecords.get(table.getId()));
+            Assertions.assertEquals(9, indexOne.getRowCount());
+            Assertions.assertEquals(106, indexThree.getRowCount());
+            Assertions.assertEquals(9, table.getRowCountForPartitionIndex(10L, changelogIndexId, false));
+            Assertions.assertEquals(106, table.getRowCountForPartitionIndex(20L, changelogIndexId, false));
+            Assertions.assertEquals(115, table.getRowCountForIndex(changelogIndexId, false));
+
+            // A late transaction report can still contain a force-dropped changelog tablet.
+            invertedIndex.deleteTablet(2L);
+            manager.replayUpdateRowsRecord(new UpdateRowsEvent(tabletRecords, db.getId()));
+            Assertions.assertEquals(8, record.updatedRows.get());
+            Assertions.assertEquals(9, indexOne.getRowCount());
+            Assertions.assertEquals(112, indexThree.getRowCount());
+
+            // DROP STATS/recreation does not erase the changelog row-count baseline.
+            manager.removeTableStats(table.getId());
+            manager.replayUpdateTableStatsStatus(new TableStatsMeta(table));
+            record = manager.findTableStatsStatus(table.getId());
+            Assertions.assertEquals(121, table.getRowCountForIndex(changelogIndexId, false));
+
+            // Periodic tablet statistics replace the estimate after TTL removes rowsets.
+            indexThree.setRowCount(5);
+            Assertions.assertEquals(5, table.getRowCountForPartitionIndex(20L, changelogIndexId, false));
+            manager.replayUpdateRowsRecord(new UpdateRowsEvent(tabletRecords, db.getId()));
+            Assertions.assertEquals(4, record.updatedRows.get());
+            Assertions.assertEquals(11, table.getRowCountForPartitionIndex(20L, changelogIndexId, false));
+
+            // A partial TRUNCATE replaces just this partition and its changelog index. Old
+            // reports must not repopulate it, even while the old tablet metadata still exists.
+            Partition replacement = new Partition(30L, "p_three", new MaterializedIndex(
+                    table.getBaseIndexId(), MaterializedIndex.IndexState.NORMAL), null);
+            replacement.createRollupIndex(new MaterializedIndex(changelogIndexId, MaterializedIndex.IndexState.NORMAL));
+            table.replacePartition(replacement, new RecyclePartitionParam());
+            manager.replayUpdateRowsRecord(new UpdateRowsEvent(tabletRecords, db.getId()));
+            Assertions.assertEquals(4, record.updatedRows.get());
+            Assertions.assertEquals(0, table.getRowCountForPartitionIndex(30L, changelogIndexId, false));
+            Assertions.assertEquals(9, table.getRowCountForIndex(changelogIndexId, false));
+            Assertions.assertEquals(9, indexOne.getRowCount());
+        }
     }
 
     /**
