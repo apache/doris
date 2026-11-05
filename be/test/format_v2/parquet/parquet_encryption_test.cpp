@@ -48,6 +48,7 @@
 #include "io/fs/file_meta_cache.h"
 #include "io/io_common.h"
 #include "runtime/exec_env.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "testutil/scoped_temp_dir.h"
 #include "util/coding.h"
@@ -153,6 +154,73 @@ TFileEncryptionInfo parameters(const std::string& key = KEY, const std::string& 
     info.__set_key(key);
     info.__set_aad_prefix(aad);
     return info;
+}
+
+void expect_cache_counters(const ParquetColumnReaderProfile& counters, bool enabled, int repeat) {
+    if (!enabled) {
+        EXPECT_EQ(counters.page_cache_write_count->value(), 0);
+        EXPECT_EQ(counters.page_cache_hit_count->value(), 0);
+    } else if (repeat == 0) {
+        EXPECT_GT(counters.page_cache_write_count->value(), 0);
+    } else {
+        EXPECT_GT(counters.page_cache_hit_count->value(), 0);
+    }
+}
+
+void verify_explicit_cache_policy(const io::FileReaderSPtr& file,
+                                  const NativeParquetMetadata* metadata,
+                                  const ParquetColumnSchema& schema, RuntimeState* state,
+                                  bool enabled, const std::string& cache_key) {
+    const std::unordered_map<int, tparquet::OffsetIndex> indexes;
+    const auto rows = metadata->to_thrift().row_groups[0].num_rows;
+    for (int repeat : {0, 1}) {
+        RuntimeProfile profile("native_cache_policy");
+        ParquetColumnReaderProfile counters;
+        counters.page_cache_write_count = profile.add_counter("Writes", TUnit::UNIT);
+        counters.page_cache_hit_count = profile.add_counter("Hits", TUnit::UNIT);
+        std::unique_ptr<ParquetColumnReader> reader;
+        ASSERT_TRUE(NativeColumnReader::create(schema, nullptr, file, metadata, 0, {{0, rows}},
+                                               indexes, nullptr, std::nullopt, nullptr, state,
+                                               enabled, cache_key, false, counters, &reader)
+                            .ok());
+        auto output = reader->type()->create_column();
+        int64_t read = 0;
+        ASSERT_TRUE(reader->read(rows, output, &read).ok());
+        ASSERT_EQ(read, rows);
+        for (int64_t row = 0; row < rows; ++row) {
+            EXPECT_EQ((*output)[row].get<TYPE_INT>(), row + 1);
+        }
+        reader->flush_profile();
+        expect_cache_counters(counters, enabled, repeat);
+    }
+}
+
+TEST(ParquetColumnReaderContextTest, ExplicitCachePolicyOverridesRuntimeOptions) {
+    test::ScopedTempDirectory cache_identity("native-context-cache");
+    auto file =
+            std::make_shared<EncryptionMemoryReader>(java_fixture("iceberg_java_plain.parquet"));
+    ParquetFileContext context;
+    io::FileDescription description;
+    ASSERT_TRUE(context.open(file, nullptr, false, description).ok());
+    std::vector<std::unique_ptr<ParquetColumnSchema>> schema;
+    ASSERT_TRUE(build_parquet_column_schema(context.native_metadata->schema(), &schema).ok());
+    TQueryOptions disabled_options;
+    disabled_options.__set_enable_parquet_file_page_cache(false);
+    RuntimeState disabled_state {disabled_options, TQueryGlobals()};
+    TQueryOptions enabled_options;
+    enabled_options.__set_enable_parquet_file_page_cache(true);
+    RuntimeState enabled_state {enabled_options, TQueryGlobals()};
+    for (bool enabled : {false, true}) {
+        SCOPED_TRACE(enabled);
+        const auto key = (cache_identity.path() / std::to_string(enabled)).string();
+        verify_explicit_cache_policy(file, context.native_metadata, *schema[0], nullptr, enabled,
+                                     key + "-no-state");
+        verify_explicit_cache_policy(file, context.native_metadata, *schema[0], &disabled_state,
+                                     enabled, key + "-session-off");
+        verify_explicit_cache_policy(file, context.native_metadata, *schema[0], &enabled_state,
+                                     enabled, key + "-session-on");
+    }
+    ASSERT_TRUE(context.close().ok());
 }
 
 TEST(ParquetEncryptionTest, EncryptedFooterWithoutKeyHasExplicitFailure) {
