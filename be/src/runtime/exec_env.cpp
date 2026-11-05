@@ -218,8 +218,7 @@ void ExecEnv::wait_for_all_tasks_done() {
 }
 
 bool ExecEnv::check_auth_token(const std::string& auth_token) {
-    return _cluster_info->curr_auth_token == auth_token ||
-           _cluster_info->last_auth_token == auth_token;
+    return _cluster_info->check_auth_token(auth_token);
 }
 
 } // namespace doris

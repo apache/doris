@@ -3593,16 +3593,23 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
         try {
-            String token = Env.getCurrentEnv().getTokenManager().acquireToken();
-            result.setToken(token);
+            Env env = Env.getCurrentEnv();
+            if (!env.isMaster()) {
+                status.setStatusCode(TStatusCode.NOT_MASTER);
+                status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+                return result;
+            }
+            List<String> tokens = env.getTokenManager().getAuthTokens();
+            result.setAuthTokens(tokens);
+            // Populate the legacy single-token field from the same queue generation.
+            result.setToken(tokens.get(tokens.size() - 1));
+            return result;
         } catch (Throwable e) {
             LOG.warn("catch unknown result.", e);
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
             status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
             return result;
         }
-
-        return result;
     }
 
     @Override

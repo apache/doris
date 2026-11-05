@@ -120,6 +120,10 @@ DECLARE_Int32(brpc_port);
 // Default -1, do not start arrow flight sql server.
 DECLARE_Int32(arrow_flight_sql_port);
 
+// Require signed Flight result tickets. Disabled by default for 4.2 rolling upgrades;
+// change the default to true in 5.0. Enable after all FEs issue signed tickets.
+DECLARE_Bool(enable_arrow_flight_ticket_signature_check);
+
 // Validate Arrow input buffers in opted-in Arrow readers before converting them to Doris columns.
 DECLARE_Bool(enable_arrow_input_validation);
 
