@@ -577,6 +577,7 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena& arena) const override {
+        check_nullable_arguments(columns, this->nested_place(place));
         /// This container stores the columns we really pass to the nested function.
         std::vector<const IColumn*> nested_columns(number_of_arguments);
 
@@ -624,6 +625,7 @@ public:
 
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
                                            size_t num_rows, Arena& arena) const override {
+        check_nullable_arguments(columns);
         if constexpr (!requires(const NestFuction& function) {
                           function.requires_batch_add_for_streaming();
                       }) {
@@ -684,9 +686,29 @@ public:
     }
 
 private:
+    void check_nullable_arguments(const IColumn** columns, AggregateDataPtr nested_place) const {
+        if constexpr (requires(NestFuction& function, const IColumn** input_columns,
+                               AggregateDataPtr input_place) {
+                          function.check_nullable_input_columns(input_columns, input_place);
+                      }) {
+            this->nested_function->check_nullable_input_columns(columns, nested_place);
+        } else {
+            check_nullable_arguments(columns);
+        }
+    }
+
+    void check_nullable_arguments(const IColumn** columns) const {
+        if constexpr (requires(NestFuction& function, const IColumn** input_columns) {
+                          function.check_nullable_input_columns(input_columns);
+                      }) {
+            this->nested_function->check_nullable_input_columns(columns);
+        }
+    }
+
     template <typename GetPlace>
     void add_batch_selected_impl(size_t batch_size, const IColumn** columns, Arena& arena,
                                  GetPlace&& get_place) const {
+        check_nullable_arguments(columns);
         std::vector<const IColumn*> nested_columns(number_of_arguments);
         std::array<const ColumnNullable*, MAX_ARGS> nullable_columns {};
         for (size_t i = 0; i < number_of_arguments; ++i) {

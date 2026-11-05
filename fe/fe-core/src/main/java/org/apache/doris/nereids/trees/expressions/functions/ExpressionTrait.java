@@ -39,6 +39,18 @@ public interface ExpressionTrait extends TreeNode<Expression> {
         return !nullable();
     }
 
+    /**
+     * Prepare the expression before type coercion: called once its children are bound, before
+     * checkLegalityBeforeTypeCoercion and before the signature is computed. Unlike the checkLegality methods,
+     * it may replace children and return a rebuilt expression. Override it only when the signature depends on
+     * the value of an argument, e.g. the precision of now(1 + 2), and fold that argument with
+     * {@link org.apache.doris.nereids.util.ExpressionUtils#foldConstantArgument}.
+     */
+    @Developing
+    default Expression prepareBeforeTypeCoercion() {
+        return (Expression) this;
+    }
+
     // check legality before do type coercion.
     // maybe we should merge checkInputDataTypes and checkLegality later.
     @Developing
