@@ -150,7 +150,8 @@ public final class LegacyS3Uri {
         String query = matcher.group(7);
         String fragment = matcher.group(9);
         try {
-            uri = new URI(scheme, authority, path, query, fragment).normalize();
+            // Object keys are literal names; normalizing would change slashes and dot segments.
+            uri = new URI(scheme, authority, path, query, fragment);
         } catch (URISyntaxException e) {
             throw new IllegalArgumentException(e);
         }
