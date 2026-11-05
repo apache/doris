@@ -41,7 +41,7 @@ public:
     using key_type = Key;
     using mapped_type = void*;
     using value_type = void*;
-    uint32_t hash(const Key& x) const { return Hash()(x); }
+    uint32_t hash(const Key& x) const { return static_cast<uint32_t>(Hash()(x)); }
 
     size_t get_byte_size() const {
         auto cal_vector_mem = [](const auto& vec) { return vec.capacity() * sizeof(vec[0]); };
@@ -464,6 +464,8 @@ private:
             if (!build_idx) {
                 probe_idxs[matched_cnt] = probe_idx;
                 build_idxs[matched_cnt] = 0;
+                // A previous NULL-key probe may leave 1 here; the no-match sentinel is not NULL.
+                null_flags[matched_cnt] = 0;
                 picking_null_keys = false;
                 matched_cnt++;
             }
@@ -481,7 +483,8 @@ private:
             /// If the probe key is null
             if constexpr (has_null_map) {
                 if (null_map[probe_idx]) {
-                    probe_idx++;
+                    build_idx = 0;
+                    picking_null_keys = false;
                     break;
                 }
             }
