@@ -123,7 +123,7 @@ public class MVColumnItem {
         Type storageType = type;
         if (type instanceof VariantType) {
             if (defineExpr instanceof SlotRef && ((SlotRef) defineExpr).getColumn() != null
-                    && CollectionUtils.isEmpty(((SlotRef) defineExpr).getSubColPath())) {
+                    && CollectionUtils.isEmpty(((SlotRef) defineExpr).getDesc().getSubColLables())) {
                 storageType = ((SlotRef) defineExpr).getColumn().getType();
             } else if (escapeDerived) {
                 storageType = new VariantType(((VariantType) type).getVariantMaxSubcolumnsCount(), true);
