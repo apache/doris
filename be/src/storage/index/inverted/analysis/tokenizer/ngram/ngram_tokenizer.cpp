@@ -17,7 +17,14 @@
 
 #include "storage/index/inverted/analysis/tokenizer/ngram/ngram_tokenizer.h"
 
+#include <unicode/uchar.h>
+#include <unicode/unistr.h>
+#include <unicode/utf8.h>
+
+#include <algorithm>
+
 #include "common/exception.h"
+#include "common/logging.h"
 #include "util/utf8_check.h"
 
 namespace doris::segment_v2::inverted_index {
@@ -31,33 +38,33 @@ NGramTokenizer::NGramTokenizer(int32_t min_gram, int32_t max_gram)
 
 NGramTokenizer::NGramTokenizer() : NGramTokenizer(DEFAULT_MIN_NGRAM_SIZE, DEFAULT_MAX_NGRAM_SIZE) {}
 
-Token* NGramTokenizer::next(Token* token) {
+bool NGramTokenizer::next_token(TokenRef& token) {
     while (true) {
-        if (_buffer_start >= _buffer_end - _max_gram - 1 && !_exhausted) {
+        if (_buffer_start >= _buffer_end - _max_gram - 1 && !_input_exhausted) {
             std::copy(_buffer.data() + _buffer_start, _buffer.data() + _buffer_end, _buffer.data());
             _buffer_end -= _buffer_start;
             _last_checked_char -= _buffer_start;
             _last_non_token_char -= _buffer_start;
             _buffer_start = 0;
 
-            if (_char_buffer != nullptr && _char_offset < _char_length) {
+            if (_char_offset < _char_length) {
                 auto [char_buffer_add, buffer_add] = to_code_points(
                         _char_buffer, _char_offset, _char_length, _buffer, _buffer_end);
                 _char_offset += char_buffer_add;
                 _buffer_end += buffer_add;
             }
 
-            if (_char_buffer == nullptr || _char_offset >= _char_length) {
-                _exhausted = true;
+            if (_char_offset >= _char_length) {
+                _input_exhausted = true;
             }
         }
 
         if (_gram_size > _max_gram || (_buffer_start + _gram_size) > _buffer_end) {
             if (_buffer_start + 1 + _min_gram > _buffer_end) {
-                assert(_exhausted);
-                return nullptr;
+                DCHECK(_input_exhausted);
+                return false;
             }
-            consume();
+            ++_buffer_start;
             _gram_size = _min_gram;
         }
 
@@ -68,38 +75,32 @@ Token* NGramTokenizer::next(Token* token) {
         bool is_edge_and_previous_char_is_token_char =
                 _edges_only && _last_non_token_char != _buffer_start - 1;
         if (term_contains_non_token_char || is_edge_and_previous_char_is_token_char) {
-            consume();
+            ++_buffer_start;
             _gram_size = _min_gram;
             continue;
         }
 
         to_chars(_buffer, _buffer_start, _gram_size);
-        set(token, _utf8_buffer);
-        set_source_byte_offsets(_utf8_buffer, _offset);
-        token->setStartOffset(correct_source_start_offset(_offset));
-        token->setEndOffset(
-                correct_source_offset(_offset + static_cast<int32_t>(_utf8_buffer.size())));
+        token = {.data = _utf8_buffer.data(),
+                 .size = static_cast<uint32_t>(_utf8_buffer.size()),
+                 .position_increment = 1};
         ++_gram_size;
-
-        return token;
+        return true;
     }
 }
 
-void NGramTokenizer::reset() {
-    DorisTokenizer::reset();
+void NGramTokenizer::on_reset(std::string_view text) {
     _buffer_start = _buffer_end = static_cast<int32_t>(_buffer.size());
     _last_non_token_char = _last_checked_char = _buffer_start - 1;
-    _offset = 0;
     _gram_size = _min_gram;
-    _exhausted = false;
+    _input_exhausted = false;
 
-    _char_buffer = nullptr;
+    _char_buffer = text.data();
     _char_offset = 0;
-    _char_length = _in->read((const void**)&_char_buffer, 0, static_cast<int32_t>(_in->size()));
-    // Malformed bytes are skipped while the valid neighbours are still indexed. Only the
-    // offset-aware path rejects them, because a source byte span cannot be mapped through them.
-    if (_source_byte_offsets_enabled && _char_length > 0 &&
-        !validate_utf8(_char_buffer, _char_length)) {
+    _char_length = static_cast<int32_t>(text.size());
+    // Malformed bytes are skipped while the valid neighbours are still indexed; strict mode
+    // rejects them.
+    if (_strict_utf8 && _char_length > 0 && !validate_utf8(_char_buffer, _char_length)) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "NGram tokenizer input is not valid UTF-8");
     }
 }

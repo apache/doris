@@ -20,8 +20,6 @@
 #include <memory>
 #include <optional>
 
-#include "CLucene/_ApiHeader.h"
-#include "CLucene/util/Misc.h"
 #include "core/arena.h"
 #include "storage/index/inverted/analysis/analyzer/ik/core/Lexeme.h"
 namespace doris::segment_v2 {
@@ -29,7 +27,7 @@ namespace doris::segment_v2 {
 class Cell {
 public:
     Cell() = default;
-    explicit Cell(Lexeme&& lexeme) : lexeme_(std::move(lexeme)) {}
+    explicit Cell(const Lexeme& lexeme) : lexeme_(lexeme) {}
     ~Cell() = default;
 
     bool operator<(const Cell& other) const { return lexeme_ < other.lexeme_; };
@@ -82,7 +80,7 @@ public:
     const Cell* getHead() const { return head_; }
 
 private:
-    Cell* allocateCell(Lexeme&& lexeme);
+    Cell* allocateCell(const Lexeme& lexeme);
     void deallocateCell(Cell* cell);
 };
 

@@ -26,14 +26,13 @@
 #include <string_view>
 #include <vector>
 
-#include "CLucene/store/Directory.h"
-#include "CLucene/store/FSDirectory.h"
-#include "roaring/roaring.hh"
 #include "runtime/exec_env.h"
 #include "storage/index/inverted/analysis/analysis_factory_mgr.h"
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "storage/index/inverted/analysis/setting.h"
+#include "storage/index/inverted/analysis/text_stream_contract.h"
 #include "storage/index/inverted/analysis/tokenizer/ngram/gram_tokenizer.h"
+#include "storage/index/inverted/clucene/lucene_analyzer_bridge.h"
 
 CL_NS_USE(util)
 CL_NS_USE(store)
@@ -97,19 +96,14 @@ protected:
     Settings _word_delimiter_params2;
 };
 
-int32_t tokenize(const CustomAnalyzerPtr& custom_analyzer, const std::vector<std::string>& lines) {
-    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+// The tokens of all `lines`, read with one stream, as a writer reads its rows.
+int32_t tokenize(const TextAnalyzerPtr& custom_analyzer, const std::vector<std::string>& lines) {
+    const std::unique_ptr<TextTokenStream> stream = custom_analyzer->create_stream();
     size_t total_count = 0;
-    Token t;
-    for (size_t i = 0; i < lines.size(); ++i) {
-        reader->init(lines[i].data(), lines[i].size(), false);
-        auto* token_stream = custom_analyzer->reusableTokenStream(L"", reader);
-        token_stream->reset();
-        while (token_stream->next(&t)) {
-            total_count++;
-        }
+    for (const std::string& line : lines) {
+        total_count += collect_checked(*stream, line).size();
     }
-    return total_count;
+    return static_cast<int32_t>(total_count);
 }
 
 struct ExpectedToken {
@@ -121,17 +115,11 @@ struct ExpectedToken {
     }
 };
 
-std::vector<ExpectedToken> tokenize1(const CustomAnalyzerPtr& custom_analyzer,
+std::vector<ExpectedToken> tokenize1(const TextAnalyzerPtr& custom_analyzer,
                                      const std::string line) {
     std::vector<ExpectedToken> results;
-    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
-    reader->init(line.data(), line.size(), false);
-    auto* token_stream = custom_analyzer->reusableTokenStream(L"", reader);
-    token_stream->reset();
-    Token t;
-    while (token_stream->next(&t)) {
-        results.emplace_back(std::string(t.termBuffer<char>(), t.termLength<char>()),
-                             t.getPositionIncrement());
+    for (const CollectedToken& token : collect_checked(*custom_analyzer, line)) {
+        results.push_back({.term = token.term, .pos = token.position_increment});
     }
     return results;
 }
@@ -199,14 +187,12 @@ TEST_F(CustomAnalyzerTest, CustomNgramAnalyzer) {
     }
 }
 
-// The SNII writer's gram lane rests on two structural facts about this analyzer that no compiler
-// checks. R22 keeps char filters and token filters out of the gram family, so the components'
-// sink IS the tokenizer and the writer's dynamic_cast to GramTokenizer must succeed (it is a
-// DORIS_CHECK in production, i.e. an abort). And reusableTokenStream must keep handing back the
-// one cached stream, so the writer may cache that pointer for the whole segment. The third
-// property below is the behavioural half: reusableTokenStream does not reset, so with the
-// caller's explicit reset every row must come out exactly as a fresh owning stream would produce
-// it, whatever the previous row was.
+// The SNII writer rests on two facts about a gram-family analyzer that no compiler checks. The FE
+// keeps char filters and token filters out of the gram family, so the provider's analyzer is a
+// GramTextAnalyzer whose stream IS the GramTokenizer, and the writer's dynamic_cast to it must
+// succeed (a DORIS_CHECK in production, i.e. an abort). And the writer keeps that one stream for
+// every row, so each row through it must come out exactly as a new stream would produce it,
+// whatever the previous row was.
 TEST_F(CustomAnalyzerTest, GramAnalyzerReusesOneTokenizerAcrossRows) {
     Settings gram_params;
     gram_params.set("mode", "sparse");
@@ -216,52 +202,43 @@ TEST_F(CustomAnalyzerTest, GramAnalyzerReusesOneTokenizerAcrossRows) {
 
     CustomAnalyzerConfig::Builder builder;
     builder.with_tokenizer_config("ngram", gram_params);
-    auto analyzer = CustomAnalyzer::build_custom_analyzer(builder.build());
+    const CustomAnalyzerProvider provider(builder.build());
+    ASSERT_TRUE(provider.gram_scheme().has_value());
+    const TextAnalyzerPtr analyzer = provider.get_analyzer();
 
     const std::vector<std::string> rows {"rpc error: code = Unavailable desc = transport closing",
                                          "手机微博", "SELECT COUNT(*) FROM tbl WHERE k = 42"};
-    const auto drain = [](lucene::analysis::TokenStream* stream) {
+    const auto drain = [](TextTokenStream& stream, std::string_view row) {
         std::vector<std::string> tokens;
-        Token token;
-        while (stream->next(&token)) {
-            tokens.emplace_back(token.termBuffer<char>(), token.termLength<char>());
+        TokenBatch batch;
+        stream.reset(row);
+        while (stream.next_batch(batch)) {
+            for (const TokenRef& token : batch.tokens()) {
+                tokens.emplace_back(token.term());
+            }
         }
         return tokens;
     };
 
-    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
-    lucene::analysis::TokenStream* cached = nullptr;
-    std::vector<std::vector<std::string>> reused;
-    for (const auto& row : rows) {
-        reader->init(row.data(), static_cast<int32_t>(row.size()), false);
-        auto* stream = analyzer->reusableTokenStream(L"", reader);
-        if (cached == nullptr) {
-            cached = stream;
-            EXPECT_NE(dynamic_cast<GramTokenizer*>(stream), nullptr)
-                    << "a gram analyzer must expose its tokenizer directly, with no filter on top";
-        } else {
-            EXPECT_EQ(stream, cached) << "reusableTokenStream must reuse one cached stream";
-        }
-        stream->reset(); // reusableTokenStream does not do this; the caller must
-        reused.push_back(drain(stream));
-    }
-
+    const std::unique_ptr<TextTokenStream> reused = analyzer->create_stream();
+    EXPECT_NE(dynamic_cast<GramTokenizer*>(reused.get()), nullptr)
+            << "a gram analyzer must expose its tokenizer directly, with no filter on top";
     for (size_t i = 0; i < rows.size(); i++) {
-        reader->init(rows[i].data(), static_cast<int32_t>(rows[i].size()), false);
-        std::unique_ptr<lucene::analysis::TokenStream> fresh(analyzer->tokenStream(L"", reader));
-        const std::vector<std::string> tokens = drain(fresh.get());
-        fresh->close();
-        // Row 1 is non-ASCII and yields nothing now that the index declines that text;
-        // reuse still has to agree with a fresh stream on it, which is the point here.
-        EXPECT_EQ(reused[i], tokens) << "row " << i;
+        const std::vector<std::string> through_reused = drain(*reused, rows[i]);
+        // Row 1 is non-ASCII and yields nothing now that the index declines that text; reuse
+        // still has to agree with a new stream on it, which is the point here.
+        EXPECT_EQ(through_reused, drain(*analyzer->create_stream(), rows[i])) << "row " << i;
     }
 }
 
+// The V1/V2 writer reaches a custom analyzer through the bridge, which takes the value as a
+// shared reader only.
 TEST_F(CustomAnalyzerTest, TokenStreamNotSupported) {
     CustomAnalyzerConfig::Builder builder;
     builder.with_tokenizer_config("standard", {});
     auto custom_analyzer_config = builder.build();
-    auto custom_analyzer = CustomAnalyzer::build_custom_analyzer(custom_analyzer_config);
+    auto custom_analyzer = std::make_shared<LuceneAnalyzerBridge>(
+            CustomAnalyzer::build_custom_analyzer(custom_analyzer_config));
 
     auto reader = std::make_shared<lucene::util::SStringReader<char>>();
     reader->init("test content", 12, false);
@@ -275,7 +252,8 @@ TEST_F(CustomAnalyzerTest, ReusableTokenStreamNotSupported) {
     CustomAnalyzerConfig::Builder builder;
     builder.with_tokenizer_config("standard", {});
     auto custom_analyzer_config = builder.build();
-    auto custom_analyzer = CustomAnalyzer::build_custom_analyzer(custom_analyzer_config);
+    auto custom_analyzer = std::make_shared<LuceneAnalyzerBridge>(
+            CustomAnalyzer::build_custom_analyzer(custom_analyzer_config));
 
     auto reader = std::make_shared<lucene::util::SStringReader<char>>();
     reader->init("test content", 12, false);
@@ -287,16 +265,19 @@ TEST_F(CustomAnalyzerTest, ReusableTokenStreamNotSupported) {
         FAIL() << "Expected Exception to be thrown";
     } catch (const Exception& e) {
         EXPECT_EQ(e.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
-        EXPECT_STREQ(e.what(), "[E-6001] CustomAnalyzer::reusableTokenStream not supported");
+        EXPECT_STREQ(e.what(),
+                     "[E-6001] LuceneAnalyzerBridge::reusableTokenStream needs a ReaderPtr");
     }
 }
 
+// As the V1/V2 writer reads an array element: a new CLucene stream on a shared reader.
 TEST_F(CustomAnalyzerTest, TokenStreamWithReaderPtr) {
     CustomAnalyzerConfig::Builder builder;
     builder.with_tokenizer_config("standard", {});
     builder.add_token_filter_config("lowercase", {});
     auto custom_analyzer_config = builder.build();
-    auto custom_analyzer = CustomAnalyzer::build_custom_analyzer(custom_analyzer_config);
+    auto custom_analyzer = std::make_shared<LuceneAnalyzerBridge>(
+            CustomAnalyzer::build_custom_analyzer(custom_analyzer_config));
 
     auto reader = std::make_shared<lucene::util::SStringReader<char>>();
     reader->init("Hello World Test", 16, false);
@@ -304,7 +285,7 @@ TEST_F(CustomAnalyzerTest, TokenStreamWithReaderPtr) {
     auto* token_stream = custom_analyzer->tokenStream(L"field", reader);
     EXPECT_NE(token_stream, nullptr);
 
-    Token t;
+    lucene::analysis::Token t;
     std::vector<std::string> tokens;
     token_stream->reset();
     while (token_stream->next(&t)) {

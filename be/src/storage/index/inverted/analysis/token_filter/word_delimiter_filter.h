@@ -17,10 +17,14 @@
 
 #pragma once
 
-#include <utility>
+#include <memory>
+#include <string>
+#include <string_view>
+#include <unordered_set>
 #include <vector>
 
-#include "storage/index/inverted/analysis/token_filter/token_filter.h"
+#include "storage/index/inverted/analysis/per_token_stream.h"
+#include "storage/index/inverted/analysis/scratch.h"
 #include "storage/index/inverted/analysis/token_filter/word_delimiter_iterator.h"
 
 namespace doris::segment_v2::inverted_index {
@@ -28,23 +32,16 @@ namespace doris::segment_v2::inverted_index {
 class WordDelimiterConcatenation;
 using WordDelimiterConcatenationPtr = std::unique_ptr<WordDelimiterConcatenation>;
 
-class WordDelimiterFilter : public DorisTokenFilter {
+// Splits tokens into subwords at delimiters, case changes and letter-digit changes, and may join
+// the subwords back, as Lucene's WordDelimiterFilter does.
+class WordDelimiterFilter final : public PerTokenFilter {
 public:
-    WordDelimiterFilter(const TokenStreamPtr& in, std::vector<char> char_type_table,
+    WordDelimiterFilter(std::unique_ptr<TextTokenStream> in, std::vector<char> char_type_table,
                         int32_t configuration_flags, std::unordered_set<std::string> prot_words);
     ~WordDelimiterFilter() override = default;
 
-    Token* next(Token* t) override;
-    void reset() override;
-    std::span<const int32_t> get_source_byte_offsets() const override {
-        return _current_source_byte_offsets;
-    }
-    std::span<const int32_t> get_source_byte_end_offsets() const override {
-        return _current_source_byte_end_offsets;
-    }
-    bool get_conservative_source_byte_span(int32_t& start, int32_t& end) const override;
-
-    size_t scratch_capacity_bytes_for_test() const;
+    // The subwords and joins of the current token, and the input.
+    size_t reserved_bytes() const override;
 
     static bool is_alpha(int32_t type) { return (type & ALPHA) != 0; }
     static bool is_digit(int32_t type) { return (type & DIGIT) != 0; }
@@ -53,7 +50,6 @@ public:
     static constexpr int32_t UPPER = 0x02;
     static constexpr int32_t DIGIT = 0x04;
     static constexpr int32_t SUBWORD_DELIM = 0x08;
-
     static constexpr int32_t ALPHA = 0x03;
     static constexpr int32_t ALPHANUM = 0x07;
 
@@ -68,8 +64,13 @@ public:
     static constexpr int32_t STEM_ENGLISH_POSSESSIVE = 256;
     static constexpr int32_t IGNORE_KEYWORDS = 512;
 
+protected:
+    void on_reset() override;
+    bool next_token(TokenRef& token) override;
+
 private:
     bool has(int32_t flag) const { return (_flags & flag) != 0; }
+
     void save_state(const std::string_view& term);
     bool flush_concatenation(const WordDelimiterConcatenationPtr& concatenation);
     void buffer();
@@ -78,44 +79,29 @@ private:
     bool should_generate_parts(int32_t word_type);
     int32_t position(bool inject);
     void concatenate(const WordDelimiterConcatenationPtr& concatenation);
-    void save_source_state(std::string_view term);
-    std::pair<std::vector<int32_t>, std::vector<int32_t>> slice_source_byte_offsets(
-            int32_t start, int32_t end) const;
-    void set_attribute_source_byte_offsets(std::vector<int32_t> source_byte_offsets,
-                                           std::vector<int32_t> source_byte_end_offsets);
 
     struct Attribute {
         std::string buffered;
         int32_t start_off = 0;
         int32_t pos_inc = 0;
-        std::vector<int32_t> source_byte_offsets;
-        std::vector<int32_t> source_byte_end_offsets;
-        int32_t token_start_offset = 0;
-        int32_t token_end_offset = 0;
     };
     Attribute _attribute;
 
     int32_t _flags = 0;
     std::unordered_set<std::string> _prot_words;
+
     WordDelimiterIteratorPtr _iterator;
 
     WordDelimiterConcatenationPtr _concat;
     WordDelimiterConcatenationPtr _concat_all;
-
     int32_t _last_concat_count = 0;
+
     int32_t _accum_pos_inc = 0;
 
+    // The input token being split; it stays in the input batch until the next input_token().
     std::string_view _saved_buffer;
-    std::vector<int32_t> _saved_source_byte_offsets;
-    std::vector<int32_t> _saved_source_byte_end_offsets;
-    std::vector<int32_t> _saved_token_byte_offsets;
-    std::vector<int32_t> _current_source_byte_offsets;
-    std::vector<int32_t> _current_source_byte_end_offsets;
-    int32_t _saved_start_offset = 0;
-    int32_t _saved_end_offset = 0;
     bool _has_saved_state = false;
-    // Whether the current token is a generated part rather than the upstream token itself.
-    bool _current_generated = false;
+
     bool _has_output_token = false;
     bool _has_output_following_original = false;
 
@@ -123,6 +109,7 @@ private:
     std::vector<Attribute> _states;
     int32_t _buffered_len = 0;
     int32_t _buffered_pos = 0;
+
     bool _first = false;
 
     friend class WordDelimiterConcatenation;
@@ -134,19 +121,7 @@ public:
     ~WordDelimiterConcatenation() = default;
 
     void append(const char* text, int32_t offset, int32_t length) {
-        _buffer.append(text, offset, length);
-        auto [source_byte_offsets, source_byte_end_offsets] =
-                _filter.slice_source_byte_offsets(offset, offset + length);
-        if (!_source_byte_offsets.empty() && !source_byte_offsets.empty()) {
-            _source_byte_offsets.pop_back();
-            _source_byte_offsets.insert(_source_byte_offsets.end(), source_byte_offsets.begin(),
-                                        source_byte_offsets.end());
-        } else if (!source_byte_offsets.empty()) {
-            _source_byte_offsets = std::move(source_byte_offsets);
-        }
-        _source_byte_end_offsets.insert(_source_byte_end_offsets.end(),
-                                        source_byte_end_offsets.begin(),
-                                        source_byte_end_offsets.end());
+        _buffer.append(text + offset, length);
         _subword_count++;
     }
 
@@ -154,7 +129,6 @@ public:
         _filter._attribute.buffered = _buffer;
         _filter._attribute.start_off = _start_offset;
         _filter._attribute.pos_inc = _filter.position(true);
-        _filter.set_attribute_source_byte_offsets(_source_byte_offsets, _source_byte_end_offsets);
         _filter._accum_pos_inc = 0;
     }
 
@@ -162,8 +136,6 @@ public:
 
     void clear() {
         _buffer.clear();
-        _source_byte_offsets.clear();
-        _source_byte_end_offsets.clear();
         _start_offset = 0;
         _type = 0;
         _subword_count = 0;
@@ -174,17 +146,9 @@ public:
         clear();
     }
 
-    void release_oversized_buffers() {
-        inverted_index::release_oversized_scratch(_buffer);
-        inverted_index::release_oversized_scratch(_source_byte_offsets);
-        inverted_index::release_oversized_scratch(_source_byte_end_offsets);
-    }
+    void release_oversized_buffers() { inverted_index::release_oversized_scratch(_buffer); }
 
-    size_t scratch_capacity_bytes() const {
-        return _buffer.capacity() +
-               (_source_byte_offsets.capacity() + _source_byte_end_offsets.capacity()) *
-                       sizeof(int32_t);
-    }
+    size_t scratch_capacity_bytes() const { return _buffer.capacity(); }
 
     int32_t _subword_count = 0;
     int32_t _start_offset = 0;
@@ -192,10 +156,7 @@ public:
 
 private:
     WordDelimiterFilter& _filter;
-
     std::string _buffer;
-    std::vector<int32_t> _source_byte_offsets;
-    std::vector<int32_t> _source_byte_end_offsets;
 };
 
 } // namespace doris::segment_v2::inverted_index

@@ -23,7 +23,8 @@
 namespace doris::segment_v2::inverted_index {
 class BasicTokenizerFactory : public TokenizerFactory {
 public:
-    BasicTokenizerFactory() = default;
+    // A custom basic tokenizer does not lowercase; the builtin basic parser follows lower_case.
+    explicit BasicTokenizerFactory(bool lowercase = false) : _lowercase(lowercase) {}
     ~BasicTokenizerFactory() override = default;
 
     void initialize(const Settings& settings) override {
@@ -37,13 +38,14 @@ public:
         }
     }
 
-    TokenizerPtr create() override {
-        auto tokenzier = std::make_shared<BasicTokenizer>();
-        tokenzier->initialize(_extra_chars);
-        return tokenzier;
+    std::unique_ptr<TextTokenizer> create() const override {
+        auto tokenizer = std::make_unique<BasicTokenizer>(_lowercase);
+        tokenizer->initialize(_extra_chars);
+        return tokenizer;
     }
 
 private:
+    const bool _lowercase;
     std::string _extra_chars;
 };
 

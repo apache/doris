@@ -16,7 +16,6 @@
 // under the License.
 
 #pragma once
-#include <CLucene.h>
 
 #include <string>
 #include <vector>

@@ -17,13 +17,12 @@
 
 #pragma once
 
-#include <CLucene.h>
-
-#include <memory>
+#include <cstddef>
+#include <cstdint>
 
 namespace doris::segment_v2 {
 
-class DictSegment;
+class FlatDict;
 
 class Hit {
 private:
@@ -32,7 +31,10 @@ private:
     static const int PREFIX = 0x00000010;
 
     int hitState_ {UNMATCH};
-    DictSegment* matchedDictSegment_;
+    // The dictionary node the characters matched so far lead to, which the next character
+    // continues from; set while the hit is a prefix.
+    const FlatDict* matchedDict_ {nullptr};
+    uint32_t matchedNode_ {0};
     size_t byteBegin_ {0};
     size_t byteEnd_ {0};
     size_t charBegin_ {0};
@@ -50,8 +52,12 @@ public:
     bool isUnmatch() const { return hitState_ == UNMATCH; }
     void setUnmatch() { hitState_ = UNMATCH; }
 
-    DictSegment* getMatchedDictSegment() const { return matchedDictSegment_; }
-    void setMatchedDictSegment(DictSegment* segment) { matchedDictSegment_ = segment; }
+    const FlatDict* getMatchedDict() const { return matchedDict_; }
+    uint32_t getMatchedNode() const { return matchedNode_; }
+    void setMatchedNode(const FlatDict* dict, uint32_t node) {
+        matchedDict_ = dict;
+        matchedNode_ = node;
+    }
 
     size_t getByteBegin() const { return byteBegin_; }
     void setByteBegin(size_t pos) { byteBegin_ = pos; }

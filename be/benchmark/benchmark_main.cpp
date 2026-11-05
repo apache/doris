@@ -25,6 +25,7 @@
 #ifdef DORIS_BENCHMARK_HEADER
 #include DORIS_BENCHMARK_HEADER
 #else
+#include "benchmark_analyzer.hpp"
 #include "benchmark_array_range.hpp"
 #include "benchmark_arrow_validation.hpp"
 #include "benchmark_binary_arithmetic.hpp"
