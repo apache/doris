@@ -71,6 +71,7 @@ Status PythonFunctionCall::open(FunctionContext* context,
     func_meta.input_types = _argument_types;
     func_meta.return_type = _return_type;
     func_meta.client_type = PythonClientType::UDF;
+    func_meta.datetime_naive = PythonUDFMeta::uses_naive_datetime(_fn);
 
     if (_fn.__isset.runtime_version && !_fn.runtime_version.empty()) {
         RETURN_IF_ERROR(
@@ -139,13 +140,12 @@ Status PythonFunctionCall::execute_impl(FunctionContext* context, Block& block,
     std::shared_ptr<arrow::RecordBatch> input_batch;
     std::shared_ptr<arrow::RecordBatch> output_batch;
     cctz::time_zone timezone_obj;
-    // Python schemas use the Doris default zone, so the writer must use the same zone; otherwise
-    // DATETIMEV2 metadata and encoded values describe different instants.
+    // Resolve the protocol timezone for zoned values.
     if (!TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, timezone_obj)) {
         return Status::InternalError("Failed to resolve the default Python UDF timezone");
     }
-    PythonArrowBlockConvertor converter(input_block, TimezoneUtils::default_time_zone,
-                                        timezone_obj);
+    PythonArrowBlockConvertor converter(input_block, TimezoneUtils::default_time_zone, timezone_obj,
+                                        PythonUDFMeta::uses_naive_datetime(_fn));
     RETURN_IF_ERROR(converter.init());
     if (arguments.empty()) {
         RETURN_IF_ERROR(

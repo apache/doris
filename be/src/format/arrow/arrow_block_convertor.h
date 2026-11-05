@@ -127,7 +127,17 @@ protected:
 
 class PythonArrowBlockConvertor final : public DorisArrowBlockConvertor {
 public:
-    using DorisArrowBlockConvertor::DorisArrowBlockConvertor;
+    PythonArrowBlockConvertor(std::shared_ptr<arrow::Schema> schema,
+                              const cctz::time_zone& timezone)
+            : DorisArrowBlockConvertor(std::move(schema), timezone) {}
+    PythonArrowBlockConvertor(const Block& header, std::string timezone_name,
+                              const cctz::time_zone& timezone, bool datetime_naive)
+            : DorisArrowBlockConvertor(header, std::move(timezone_name), timezone),
+              _datetime_naive(datetime_naive) {}
+    Status init() override;
+
+private:
+    const bool _datetime_naive = false;
 };
 
 Status make_zero_column_arrow_batch(const std::shared_ptr<arrow::Schema>& schema, int64_t rows,

@@ -80,6 +80,7 @@ Status PythonUDTFFunction::open() {
     }
 
     python_udf_meta.client_type = PythonClientType::UDTF;
+    python_udf_meta.datetime_naive = PythonUDFMeta::uses_naive_datetime(_t_fn);
 
     if (python_udf_meta.type == PythonUDFLoadType::MODULE) {
         RETURN_IF_ERROR(UserFunctionCache::instance()->get_pypath(
@@ -138,7 +139,7 @@ Status PythonUDTFFunction::process_init(Block* block, RuntimeState* state) {
     int64_t input_rows = block->rows();
     std::shared_ptr<arrow::RecordBatch> input_batch;
     PythonArrowBlockConvertor converter(input_block, TimezoneUtils::default_time_zone,
-                                        _timezone_obj);
+                                        _timezone_obj, PythonUDFMeta::uses_naive_datetime(_t_fn));
     RETURN_IF_ERROR(converter.init());
     if (child_column_idxs.empty()) {
         RETURN_IF_ERROR(

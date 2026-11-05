@@ -158,6 +158,9 @@ public class FunctionToThriftConverter {
         tName.setFunctionName(fn.getFunctionName().getFunction());
         tfn.setName(tName);
         tfn.setBinaryType(toThriftBinaryType(fn.getBinaryType()));
+        if (fn.getBinaryType() == Function.BinaryType.PYTHON_UDF) {
+            tfn.setEnablePythonUdfDatetimeWithoutTimezone(true);
+        }
         if (fn.getLocation() != null) {
             tfn.setHdfsLocation(fn.getLocation().getLocation());
         }

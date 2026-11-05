@@ -49,7 +49,7 @@ Status AggregatePythonUDAFData::create(int64_t place) {
 
 Status AggregatePythonUDAFData::add(int64_t place_id, const IColumn** columns,
                                     int64_t row_num_start, int64_t row_num_end,
-                                    const DataTypes& argument_types) {
+                                    const DataTypes& argument_types, bool datetime_naive) {
     DCHECK(client) << "Client must be set before calling add";
 
     // Zero-copy: Use full columns with range specification
@@ -62,8 +62,8 @@ Status AggregatePythonUDAFData::add(int64_t place_id, const IColumn** columns,
     cctz::time_zone timezone_obj;
     DORIS_CHECK(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, timezone_obj));
 
-    PythonArrowBlockConvertor converter(input_block, TimezoneUtils::default_time_zone,
-                                        timezone_obj);
+    PythonArrowBlockConvertor converter(input_block, TimezoneUtils::default_time_zone, timezone_obj,
+                                        datetime_naive);
     RETURN_IF_ERROR(converter.init());
     std::shared_ptr<arrow::RecordBatch> batch;
     // Zero-copy: convert only the specified range
@@ -78,8 +78,8 @@ Status AggregatePythonUDAFData::add(int64_t place_id, const IColumn** columns,
 
 Status AggregatePythonUDAFData::add_batch(AggregateDataPtr* places, size_t place_offset,
                                           size_t num_rows, const IColumn** columns,
-                                          const DataTypes& argument_types, size_t start,
-                                          size_t end) {
+                                          const DataTypes& argument_types, size_t start, size_t end,
+                                          bool datetime_naive) {
     DCHECK(client) << "Client must be set before calling add_batch";
     DCHECK(end > start) << "end must be greater than start";
     DCHECK(end <= num_rows) << "end must not exceed num_rows";
@@ -107,8 +107,8 @@ Status AggregatePythonUDAFData::add_batch(AggregateDataPtr* places, size_t place
     cctz::time_zone timezone_obj;
     DORIS_CHECK(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, timezone_obj));
 
-    PythonArrowBlockConvertor converter(input_block, TimezoneUtils::default_time_zone,
-                                        timezone_obj);
+    PythonArrowBlockConvertor converter(input_block, TimezoneUtils::default_time_zone, timezone_obj,
+                                        datetime_naive);
     RETURN_IF_ERROR(converter.init());
     std::shared_ptr<arrow::RecordBatch> batch;
     // Zero-copy: convert only the [start, end) range
@@ -217,6 +217,7 @@ Status AggregatePythonUDAF::open() {
     _func_meta.input_types = argument_types;
     _func_meta.return_type = _return_type;
     _func_meta.client_type = PythonClientType::UDAF;
+    _func_meta.datetime_naive = PythonUDFMeta::uses_naive_datetime(_fn);
 
     // Get Python version
     if (_fn.__isset.runtime_version && !_fn.runtime_version.empty()) {
@@ -246,7 +247,9 @@ void AggregatePythonUDAF::create(AggregateDataPtr __restrict place) const {
     std::call_once(_schema_init_flag, [this]() {
         std::vector<std::shared_ptr<arrow::Field>> fields;
 
-        const DorisArrowSchemaConvertor schema_convertor(TimezoneUtils::default_time_zone);
+        // Flight fixes the stream schema once; it must match the accumulated Python batches.
+        const PythonArrowSchemaConvertor schema_convertor(TimezoneUtils::default_time_zone,
+                                                          _func_meta.datetime_naive);
         for (size_t i = 0; i < argument_types.size(); ++i) {
             std::shared_ptr<arrow::DataType> arrow_type;
             Status st = schema_convertor.convert_to_arrow_type(argument_types[i], &arrow_type);
@@ -313,7 +316,8 @@ void AggregatePythonUDAF::destroy(AggregateDataPtr __restrict place) const noexc
 void AggregatePythonUDAF::add(AggregateDataPtr __restrict place, const IColumn** columns,
                               ssize_t row_num, Arena&) const {
     int64_t place_id = reinterpret_cast<int64_t>(place);
-    Status st = this->data(place).add(place_id, columns, row_num, row_num + 1, argument_types);
+    Status st = this->data(place).add(place_id, columns, row_num, row_num + 1, argument_types,
+                                      _func_meta.datetime_naive);
     if (UNLIKELY(!st.ok())) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());
     }
@@ -345,8 +349,9 @@ void AggregatePythonUDAF::add_batch(size_t batch_size, AggregateDataPtr* places,
 
         // Send this segment to Python with zero-copy
         // Pass places array and let add_batch construct place_ids on-demand
-        Status st = start_place_data.add_batch(places, place_offset, batch_size, columns,
-                                               argument_types, start, end);
+        Status st =
+                start_place_data.add_batch(places, place_offset, batch_size, columns,
+                                           argument_types, start, end, _func_meta.datetime_naive);
 
         if (UNLIKELY(!st.ok())) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
@@ -360,7 +365,8 @@ void AggregatePythonUDAF::add_batch(size_t batch_size, AggregateDataPtr* places,
 void AggregatePythonUDAF::add_batch_single_place(size_t batch_size, AggregateDataPtr place,
                                                  const IColumn** columns, Arena&) const {
     int64_t place_id = reinterpret_cast<int64_t>(place);
-    Status st = this->data(place).add(place_id, columns, 0, batch_size, argument_types);
+    Status st = this->data(place).add(place_id, columns, 0, batch_size, argument_types,
+                                      _func_meta.datetime_naive);
     if (UNLIKELY(!st.ok())) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());
     }
@@ -383,7 +389,8 @@ void AggregatePythonUDAF::add_range_single_place(int64_t partition_start, int64_
     }
 
     int64_t place_id = reinterpret_cast<int64_t>(place);
-    Status st = this->data(place).add(place_id, columns, frame_start, frame_end, argument_types);
+    Status st = this->data(place).add(place_id, columns, frame_start, frame_end, argument_types,
+                                      _func_meta.datetime_naive);
     if (UNLIKELY(!st.ok())) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());
     }

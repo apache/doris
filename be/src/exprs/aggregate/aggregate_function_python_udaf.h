@@ -48,11 +48,11 @@ struct AggregatePythonUDAFData {
     Status create(int64_t place);
 
     Status add(int64_t place_id, const IColumn** columns, int64_t row_num_start,
-               int64_t row_num_end, const DataTypes& argument_types);
+               int64_t row_num_end, const DataTypes& argument_types, bool datetime_naive);
 
     Status add_batch(AggregateDataPtr* places, size_t place_offset, size_t num_rows,
                      const IColumn** columns, const DataTypes& argument_types, size_t start,
-                     size_t end);
+                     size_t end, bool datetime_naive);
 
     Status merge(const AggregatePythonUDAFData& rhs, int64_t place);
 

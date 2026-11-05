@@ -259,6 +259,13 @@ std::string DorisArrowSchemaConvertor::timestamp_timezone(PrimitiveType) const {
     return _timezone == "Z" ? "UTC" : _timezone;
 }
 
+std::string PythonArrowSchemaConvertor::timestamp_timezone(PrimitiveType type) const {
+    // A zone on DATETIME would shift naive Python return values, e.g. 10:00 becomes 18:00.
+    return type == TYPE_DATETIMEV2 && _datetime_naive
+                   ? ""
+                   : DorisArrowSchemaConvertor::timestamp_timezone(type);
+}
+
 Status ArrowFlightSchemaConvertor::convert_to_arrow_type(
         const DataTypePtr& type, std::shared_ptr<arrow::DataType>* result) const {
     // Flight always uses native Variant, including recursively converted children.

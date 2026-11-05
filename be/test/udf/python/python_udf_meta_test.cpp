@@ -21,6 +21,7 @@
 #include <arrow/io/memory.h>
 #include <arrow/ipc/reader.h>
 #include <arrow/util/base64.h>
+#include <gen_cpp/Types_types.h>
 #include <gtest/gtest.h>
 #include <rapidjson/document.h>
 
@@ -439,7 +440,7 @@ TEST_F(PythonUDFMetaTest, ConvertTypesToSchemaBasic) {
     std::shared_ptr<arrow::Schema> schema;
 
     Status status = PythonUDFMeta::convert_types_to_schema(types, TimezoneUtils::default_time_zone,
-                                                           &schema);
+                                                           &schema, false);
     EXPECT_TRUE(status.ok()) << status.to_string();
     EXPECT_NE(schema, nullptr);
     EXPECT_EQ(schema->num_fields(), 2);
@@ -456,7 +457,7 @@ TEST_F(PythonUDFMetaTest, ConvertTypesToSchemaSingleType) {
     std::shared_ptr<arrow::Schema> schema;
 
     Status status = PythonUDFMeta::convert_types_to_schema(types, TimezoneUtils::default_time_zone,
-                                                           &schema);
+                                                           &schema, false);
     EXPECT_TRUE(status.ok()) << status.to_string();
     EXPECT_NE(schema, nullptr);
     EXPECT_EQ(schema->num_fields(), 1);
@@ -470,10 +471,72 @@ TEST_F(PythonUDFMetaTest, ConvertTypesToSchemaEmpty) {
     std::shared_ptr<arrow::Schema> schema;
 
     Status status = PythonUDFMeta::convert_types_to_schema(types, TimezoneUtils::default_time_zone,
-                                                           &schema);
+                                                           &schema, false);
     EXPECT_TRUE(status.ok()) << status.to_string();
     EXPECT_NE(schema, nullptr);
     EXPECT_EQ(schema->num_fields(), 0);
+}
+
+TEST_F(PythonUDFMetaTest, DatetimeSchemasPreserveWallClockSemantics) {
+    TFunction fn;
+    EXPECT_FALSE(PythonUDFMeta::uses_naive_datetime(fn));
+    fn.__set_enable_python_udf_datetime_without_timezone(true);
+    EXPECT_TRUE(PythonUDFMeta::uses_naive_datetime(fn));
+    fn.__set_enable_python_udf_datetime_without_timezone(false);
+    EXPECT_FALSE(PythonUDFMeta::uses_naive_datetime(fn));
+    fn.enable_python_udf_datetime_without_timezone = true;
+    fn.__isset.enable_python_udf_datetime_without_timezone = false;
+    EXPECT_FALSE(PythonUDFMeta::uses_naive_datetime(fn));
+    DataTypes types;
+    for (int scale : {0, 3, 6}) {
+        types.push_back(
+                DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, true, 0, scale));
+    }
+    types.push_back(std::make_shared<DataTypeArray>(types.back()));
+    types.push_back(DataTypeFactory::instance().create_data_type(TYPE_TIMESTAMPTZ, true, 0, 6));
+    types.push_back(DataTypeFactory::instance().create_data_type(TYPE_TIMESTAMP_NS, true));
+
+    for (auto client_type :
+         {PythonClientType::UDF, PythonClientType::UDAF, PythonClientType::UDTF}) {
+        for (bool datetime_naive : {false, true}) {
+            PythonUDFMeta meta;
+            meta.datetime_naive = datetime_naive;
+            meta.name = "datetime_schema";
+            meta.symbol = "evaluate";
+            meta.runtime_version = "3.12.11";
+            meta.type = PythonUDFLoadType::INLINE;
+            meta.client_type = client_type;
+            meta.input_types = types;
+            meta.return_type = types[3];
+
+            std::string json;
+            ASSERT_TRUE(meta.serialize_to_json(&json).ok());
+            rapidjson::Document doc;
+            doc.Parse(json.c_str());
+            ASSERT_FALSE(doc.HasParseError());
+            auto input = decode_arrow_schema(doc["input_types"].GetString());
+            ASSERT_TRUE(input.ok()) << input.status().ToString();
+            const std::string zone = datetime_naive ? "" : TimezoneUtils::default_time_zone;
+            EXPECT_TRUE((*input)->field(0)->type()->Equals(
+                    arrow::timestamp(arrow::TimeUnit::SECOND, zone)));
+            EXPECT_TRUE((*input)->field(1)->type()->Equals(
+                    arrow::timestamp(arrow::TimeUnit::MILLI, zone)));
+            EXPECT_TRUE((*input)->field(2)->type()->Equals(
+                    arrow::timestamp(arrow::TimeUnit::MICRO, zone)));
+            const auto& array_type =
+                    static_cast<const arrow::ListType&>(*(*input)->field(3)->type());
+            EXPECT_TRUE(array_type.value_type()->Equals(
+                    arrow::timestamp(arrow::TimeUnit::MICRO, zone)));
+            EXPECT_TRUE((*input)->field(4)->type()->Equals(
+                    arrow::timestamp(arrow::TimeUnit::MICRO, TimezoneUtils::default_time_zone)));
+            EXPECT_TRUE(
+                    (*input)->field(5)->type()->Equals(arrow::timestamp(arrow::TimeUnit::NANO)));
+
+            auto output = decode_arrow_schema(doc["return_type"].GetString());
+            ASSERT_TRUE(output.ok()) << output.status().ToString();
+            EXPECT_TRUE((*output)->field(0)->type()->Equals((*input)->field(3)->type()));
+        }
+    }
 }
 
 // ============================================================================

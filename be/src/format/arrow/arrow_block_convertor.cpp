@@ -512,6 +512,14 @@ Status DorisArrowBlockConvertor::init() {
     return ArrowBlockConvertor::init();
 }
 
+Status PythonArrowBlockConvertor::init() {
+    if (_arrow_schema == nullptr) {
+        RETURN_IF_ERROR(PythonArrowSchemaConvertor(_header, _timezone_name, _datetime_naive)
+                                .get_arrow_schema(&_arrow_schema));
+    }
+    return ArrowBlockConvertor::init();
+}
+
 Status ArrowFlightArrowBlockConvertor::init() {
     if (_arrow_schema == nullptr) {
         RETURN_IF_ERROR(ArrowFlightSchemaConvertor(_header, _timezone_name)
