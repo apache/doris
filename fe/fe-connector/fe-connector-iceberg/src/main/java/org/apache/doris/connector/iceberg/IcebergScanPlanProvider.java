@@ -1830,6 +1830,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // gate (see IcebergScanRange#getScannedPartitionKey) costs one table.spec() per file, not per slice.
         private boolean countsAsScannedPartition;
         private List<IcebergScanRange.DeleteFile> deleteCarriers = Collections.emptyList();
+        private IcebergFileEncryption encryption;
         private String fileFormat;
         private Long firstRowId;
         private Long lastUpdatedSequenceNumber;
@@ -1878,6 +1879,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 .length(task.length())
                 .fileSize(dataFile.fileSizeInBytes())
                 .fileFormat(file.fileFormat)
+                .encryption(file.encryption)
                 .formatVersion(formatVersion)
                 .partitionSpecId(file.partitionSpecId)
                 .partitionDataJson(file.partitionDataJson)
@@ -1959,6 +1961,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // 2-arg LocationPath.of(path, storagePropertiesMap)); original_file_path stays raw so BE can match
         // position-delete entries against the raw iceberg path (legacy setOriginalFilePath:304).
         String rawDataPath = dataFile.path().toString();
+        IcebergFileEncryption encryption = IcebergFileEncryption.fromMetadata(dataFile.keyMetadata());
+        // A PME file descriptor cannot be interpreted by the native ORC reader.
+        if (encryption != null && !"parquet".equals(fileFormat)) {
+            throw new IllegalArgumentException("Iceberg encryption [UNSUPPORTED_FILE_FORMAT]");
+        }
         PerFileScratch file = scratch != null ? scratch : new PerFileScratch();
         file.file = dataFile;
         file.partitionSpecId = partitionSpecId;
@@ -1975,6 +1982,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         file.rawDataPath = rawDataPath;
         file.normalizedPath = uriNormalizer.apply(rawDataPath);
         file.deleteCarriers = buildDeleteFiles(task, uriNormalizer);
+        file.encryption = encryption;
         return file;
     }
 

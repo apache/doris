@@ -164,6 +164,51 @@ public class IcebergScanPlanProviderTest {
             Types.NestedField.required(1, "id", Types.IntegerType.get()),
             Types.NestedField.required(2, "p", Types.IntegerType.get()));
 
+    @Test
+    public void encryptedFileMetadataReachesEverySplitWithoutAffectingPlainFiles() {
+        Table table = createTable("file_keys", SCHEMA, PartitionSpec.unpartitioned());
+        // StandardKeyMetadata v1: a 16-byte key, a one-byte AAD, and no file length.
+        byte[] metadata = new byte[22];
+        metadata[0] = 1;
+        metadata[1] = 32;
+        Arrays.fill(metadata, 2, 18, (byte) 7);
+        metadata[18] = 2;
+        metadata[19] = 2;
+        metadata[20] = 9;
+        DataFile encrypted = DataFiles.builder(table.spec()).withPath("s3://bucket/encrypted.parquet")
+                .withFileSizeInBytes(96L << 20).withRecordCount(4).withFormat("parquet")
+                .withEncryptionKeyMetadata(ByteBuffer.wrap(metadata)).build();
+        byte[] otherMetadata = metadata.clone();
+        Arrays.fill(otherMetadata, 2, 18, (byte) 13);
+        DataFile other = DataFiles.builder(table.spec()).withPath("s3://bucket/other.parquet")
+                .withFileSizeInBytes(96L << 20).withRecordCount(4).withFormat("parquet")
+                .withEncryptionKeyMetadata(ByteBuffer.wrap(otherMetadata)).build();
+        table.newAppend().appendFile(encrypted)
+                .appendFile(dataFile(table.spec(), "s3://bucket/plain.parquet", 512, null, null))
+                .appendFile(other).commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+        List<ConnectorScanRange> ranges = provider.planScan(null,
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "file_keys"), List.of()).build());
+        int encryptedSplits = 0;
+        for (ConnectorScanRange range : ranges) {
+            TTableFormatFileDesc desc = new TTableFormatFileDesc();
+            range.populateRangeParams(desc, new TFileRangeDesc());
+            String path = range.getPath().orElseThrow();
+            if (!path.endsWith("plain.parquet")) {
+                Assertions.assertTrue(desc.getIcebergParams().isSetEncryptionInfo());
+                Assertions.assertArrayEquals(new byte[] {9}, desc.getIcebergParams().getEncryptionInfo().getAadPrefix());
+                byte[] key = new byte[16];
+                Arrays.fill(key, path.endsWith("other.parquet") ? (byte) 13 : (byte) 7);
+                Assertions.assertArrayEquals(key, desc.getIcebergParams().getEncryptionInfo().getKey());
+                encryptedSplits++;
+            } else {
+                Assertions.assertFalse(desc.getIcebergParams().isSetEncryptionInfo());
+            }
+        }
+        Assertions.assertTrue(encryptedSplits > 2);
+    }
+
     // --- in-memory iceberg table helpers (offline; DataFile metadata only, no real data files) ---
 
     private static Table createTable(String name, Schema schema, PartitionSpec spec) {
