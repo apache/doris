@@ -159,3 +159,27 @@ with table caching on/off and repeated reads. No additional test-mode setting is
 needed. The fixture fails rather than skipping when a required service or check
 is unavailable. It prepares input for the subsequent file-key and native-reader
 work; it does not admit encrypted SQL execution.
+
+## Per-file key descriptors
+
+Native data-file scan ranges carry the file data key and AAD from the SDK's
+`StandardKeyMetadata`. Manifest decryption has already exposed this metadata;
+extracting it does not make an additional KMS request for every split. A bounded
+adapter validates encoded lengths before invoking the SDK codec, and rejects
+unknown versions, corrupt metadata, invalid AES key lengths and absent AAD
+without including binary payloads in errors.
+
+The immutable file carrier is reused only across that file's byte-slices; every
+Thrift descriptor receives independent mutable buffers. A null per-file metadata
+field remains plaintext, including in a mixed snapshot. This is key transport
+only: the deployment admission and backend dispatch guards remain closed until
+native decryption, encrypted deletes and pruning are integrated.
+
+Both metadata COUNT algorithms validate live file metadata while retaining only
+one representative task. A per-file encryption marker causes an immediate
+`Iceberg encryption [COUNT_READ_UNAVAILABLE]` rejection, including in a table
+without a table-level encryption declaration. COUNT scheduling has already
+disabled streaming; normal-scan fallback would retain all file tasks and ranges
+before the dispatch guard rejects them. This deterministic rejection must not
+trigger the manifest cache's SDK retry. Plaintext COUNT retains its existing
+collapse and cache-failure fallback behavior.
