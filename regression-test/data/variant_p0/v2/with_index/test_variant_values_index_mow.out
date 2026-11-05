@@ -41,14 +41,47 @@
 4	\N	four
 
 -- !before_compaction_1 --
-0
 
 -- !before_compaction_2 --
-1
 
 -- !before_compaction_3 --
-3
 
 -- !before_compaction_4 --
+1	{"s":"replacement"}	upsert
+3	{"s":"retained hello world"}	note changed
+4	\N	four
+
+-- !before_compaction_5 --
+1
+
+-- !before_compaction_6 --
+3
+
+-- !before_compaction_7 --
+3
+
+-- !after_compaction_0 --
+1	true	upsert
+3	true	note changed
+4	\N	four
+
+-- !after_compaction_1 --
+
+-- !after_compaction_2 --
+
+-- !after_compaction_3 --
+
+-- !after_compaction_4 --
+1	{"s":"replacement"}	upsert
+3	{"s":"retained hello world"}	note changed
+4	\N	four
+
+-- !after_compaction_5 --
+1
+
+-- !after_compaction_6 --
+3
+
+-- !after_compaction_7 --
 3
 
