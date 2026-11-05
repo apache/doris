@@ -492,8 +492,8 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
         // name makes every partition of this table unreadable, whether it has any yet or not.
         rejectUnreadablePartitionColumns(flussHandle, partitionKeys);
 
-        // From a short-lived cache: the engine lists on every statement, point lookups included, and
-        // FlussPartitionListCache says why that is worth avoiding and what it costs.
+        // Only reuse within this metadata scope; an earlier statement's list could omit a new partition
+        // and make pruning return no rows before the scan planner gets a chance to list live metadata.
         List<PartitionInfo> flussPartitions = adminOps.listPartitionInfosForPruning(flussHandle.toTablePath());
         List<ConnectorPartitionInfo> result = new ArrayList<>(flussPartitions.size());
         for (PartitionInfo partition : flussPartitions) {
