@@ -31,6 +31,10 @@ import org.apache.doris.qe.ConnectPoolTestSupport;
 import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.rpc.BackendServiceProxy;
+import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -67,6 +71,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedConstruction;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.io.ByteArrayInputStream;
@@ -330,6 +335,72 @@ public class DorisFlightSqlProducerTest {
             // again (no double-close, no retained reference).
             ctx.closeFlightSqlDeferredExecutors();
             Mockito.verify(deferred, Mockito.times(1)).finalizeArrowFlightQuery();
+        } finally {
+            producer.close();
+        }
+    }
+
+    // A GetFlightInfo whose query ran on the BEs registered the query's cancellation route before the schema
+    // fetch. When the request then fails, no ticket names the query's results, so no BE can report an early
+    // close of them: the route must go now instead of staying until the query's timeout.
+    @Test
+    public void testGetFlightInfoDropsRouteWhenSchemaFetchFails() throws Exception {
+        TUniqueId queryId = new TUniqueId(70L, 1L);
+        TUniqueId resultId = new TUniqueId(70L, 2L);
+        ConnectContext ctx = ConnectContext.forFlight("token");
+        DorisFlightSqlProducer producer = new DorisFlightSqlProducer(
+                Location.forGrpcInsecure("127.0.0.1", 9090), sessionsOf(ctx));
+        try (MockedStatic<BackendServiceProxy> proxy = Mockito.mockStatic(BackendServiceProxy.class);
+                MockedConstruction<FlightSqlConnectProcessor> mocked = Mockito.mockConstruction(
+                        FlightSqlConnectProcessor.class, (mock, context) -> {
+                            // handleQuery runs the query, whose result stays on the BEs, and registers its
+                            // route, as StmtExecutor does before it closes the query's coordinator.
+                            Mockito.doAnswer(invocation -> {
+                                FlightProtocolAdapter.of(ctx).beforeQuery(ctx);
+                                ctx.addFlightSqlEndpointsLocation(FlightSqlQueryCancellationTest.endpoint(resultId));
+                                FlightSqlQueryCancellation.INSTANCE.register(queryId, ImmutableList.of(resultId),
+                                        ImmutableList.of(new TNetworkAddress("127.0.0.1", 8001)), 120);
+                                return null;
+                            }).when(mock).handleQuery(Mockito.anyString());
+                            Mockito.doThrow(new RuntimeException("fetch arrow flight schema timeout"))
+                                    .when(mock).fetchArrowFlightSchema(Mockito.anyInt());
+                        })) {
+            BackendServiceProxy cancelling = FlightSqlQueryCancellationTest.cancellingProxy(queryId);
+            proxy.when(BackendServiceProxy::getInstance).thenReturn(cancelling);
+            CommandStatementQuery request = CommandStatementQuery.newBuilder().setQuery("select 1").build();
+            Assertions.assertThrows(FlightRuntimeException.class,
+                    () -> producer.getFlightInfoStatement(request, callOf("token"),
+                            FlightDescriptor.command(new byte[0])));
+            Assertions.assertEquals(TStatusCode.NOT_FOUND,
+                    FlightSqlQueryCancellation.INSTANCE.cancel(resultId).getStatusCode());
+        } finally {
+            producer.close();
+        }
+    }
+
+    // A request that fails before it begins, as an empty query does, finds the previous request's endpoints on
+    // the session. A client may still be pulling those results, so their route stays for an early close.
+    @Test
+    public void testFailedRequestKeepsPreviousRequestRoute() throws Exception {
+        TUniqueId queryId = new TUniqueId(71L, 1L);
+        TUniqueId resultId = new TUniqueId(71L, 2L);
+        ConnectContext ctx = ConnectContext.forFlight("token");
+        ctx.addFlightSqlEndpointsLocation(FlightSqlQueryCancellationTest.endpoint(resultId));
+        FlightSqlQueryCancellation.INSTANCE.register(queryId, ImmutableList.of(resultId),
+                ImmutableList.of(new TNetworkAddress("127.0.0.1", 8001)), 120);
+        DorisFlightSqlProducer producer = new DorisFlightSqlProducer(
+                Location.forGrpcInsecure("127.0.0.1", 9090), sessionsOf(ctx));
+        try (MockedStatic<BackendServiceProxy> proxy = Mockito.mockStatic(BackendServiceProxy.class)) {
+            BackendServiceProxy cancelling = FlightSqlQueryCancellationTest.cancellingProxy(queryId);
+            proxy.when(BackendServiceProxy::getInstance).thenReturn(cancelling);
+            CommandStatementQuery request = CommandStatementQuery.newBuilder().setQuery("").build();
+            Assertions.assertThrows(FlightRuntimeException.class,
+                    () -> producer.getFlightInfoStatement(request, callOf("token"),
+                            FlightDescriptor.command(new byte[0])));
+            Mockito.verify(cancelling, Mockito.never())
+                    .cancelPipelineXPlanFragmentAsync(Mockito.any(), Mockito.any(), Mockito.any());
+            Assertions.assertEquals(TStatusCode.OK,
+                    FlightSqlQueryCancellation.INSTANCE.cancel(resultId).getStatusCode());
         } finally {
             producer.close();
         }
