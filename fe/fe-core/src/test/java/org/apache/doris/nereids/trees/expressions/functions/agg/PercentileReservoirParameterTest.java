@@ -325,7 +325,7 @@ public class PercentileReservoirParameterTest {
 
     private AggStateType aggStateType(DataType levelType, boolean levelNullable) {
         return new AggStateType("percentile_reservoir", ImmutableList.of(DoubleType.INSTANCE, levelType),
-                ImmutableList.of(false, levelNullable), true);
+                ImmutableList.of(false, levelNullable), true, true, DoubleType.INSTANCE);
     }
 
     private Expression convertAggStateCast(Expression state, AggStateType target) {
