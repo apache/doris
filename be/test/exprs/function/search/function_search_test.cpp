@@ -66,12 +66,14 @@
 #include "runtime/exec_env.h"
 #include "runtime/index_policy/index_policy_mgr.h"
 #include "runtime/runtime_state.h"
+#include "storage/index/index_compound_reader.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_iterator.h"
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "storage/index/inverted/analysis/analyzer/custom_analyzer.h"
 #include "storage/index/inverted/analysis/inverted_index_parser.h"
 #include "storage/index/inverted/clucene/clucene_index_reader.h"
+#include "storage/index/inverted/clucene/lucene_analyzer_bridge.h"
 #include "storage/index/inverted/clucene/spi/clucene_index_source.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/inverted/query/engine/bit_set_query/bit_set_query.h"
@@ -4320,7 +4322,8 @@ TEST_F(FunctionSearchTest, SearchExistsUsesLocalDocIdsForEachCluceneSubReader) {
     DEFER(EXPECT_TRUE(io::global_local_filesystem()->delete_directory(path).ok()));
     inverted_index::CustomAnalyzerConfig::Builder analyzer_builder;
     analyzer_builder.with_tokenizer_config("standard", {});
-    auto analyzer = inverted_index::CustomAnalyzer::build_custom_analyzer(analyzer_builder.build());
+    auto analyzer = std::make_shared<inverted_index::LuceneAnalyzerBridge>(
+            inverted_index::CustomAnalyzer::build_custom_analyzer(analyzer_builder.build()));
     auto* writer = _CLNEW lucene::index::IndexWriter(path.c_str(), analyzer.get(), true);
     writer->setMaxBufferedDocs(2);
     writer->setRAMBufferSizeMB(-1);

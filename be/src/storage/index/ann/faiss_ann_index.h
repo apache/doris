@@ -17,9 +17,6 @@
 
 #pragma once
 
-#include <CLucene.h>
-#include <CLucene/store/IndexInput.h>
-#include <CLucene/store/IndexOutput.h>
 // clang-format off
 #include "common/compile_check_avoid_begin.h"
 #include <faiss/Index.h>
@@ -144,7 +141,7 @@ struct FaissBuildParameter {
  * - High-performance approximate nearest neighbor search
  * - Support for both exact and range search queries
  * - Integration with Doris storage and query execution
- * - Persistence to/from Lucene directory storage
+ * - Persistence to/from ANN index storage (ann_index_storage.h)
  * - Bitmap-based result filtering
  *
  * Thread safety: This class is NOT thread-safe. Concurrent access should be
@@ -267,24 +264,28 @@ public:
     /**
      * @brief Saves the index to persistent storage.
      *
-     * Serializes the complete FAISS index to the provided Lucene directory
+     * Serializes the complete FAISS index into the files of the provided sink
      * for later loading. This enables index persistence across restarts.
      *
-     * @param directory Lucene directory for writing index data
+     * @param sink Storage the index files are written to
      * @return Status indicating success or failure
      */
-    doris::Status save(lucene::store::Directory*) override;
+    doris::Status save(AnnIndexSink* sink) override;
 
     /**
      * @brief Loads the index from persistent storage.
      *
-     * Deserializes a previously saved FAISS index from the provided Lucene
-     * directory. The loaded index is ready for search operations.
+     * Deserializes a previously saved FAISS index from the files of the provided
+     * source. The loaded index is ready for search operations.
      *
-     * @param directory Lucene directory containing saved index data
+     * For IVF_ON_DISK the loaded index keeps reading ann.ivfdata from the source
+     * while it searches, so the source must outlive this index.
+     *
+     * @param source Storage holding the saved index files
+     * @param io_ctx IO context the reads of this load are charged to
      * @return Status indicating success or failure
      */
-    doris::Status load(lucene::store::Directory*) override;
+    doris::Status load(AnnIndexSource* source, const io::IOContext* io_ctx) override;
 
     /**
      * @brief Sets a prefix string used as the cache key for ivfdata blocks.

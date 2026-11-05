@@ -17,72 +17,52 @@
 
 #pragma once
 
-#include <utility>
+#include <cstddef>
+#include <cstdint>
+#include <string_view>
 
+#include "storage/index/inverted/analysis/text_token_stream.h"
 #include "storage/index/inverted/analysis/tokenizer/standard/standard_tokenizer_impl.h"
-#include "storage/index/inverted/analysis/tokenizer/tokenizer.h"
 
 namespace doris::segment_v2::inverted_index {
 
-class StandardTokenizer : public DorisTokenizer {
+struct Uax29Table;
+
+// The custom standard tokenizer: the UAX#29 words of the value, each one position after the last.
+// It keeps the rules of StandardTokenizerImpl, the JFlex scanner it was, whose buffer of
+// max_token_length bytes is the window a token is matched in: a character that does not fit ends
+// the token, so a longer word is cut into pieces, and a character that does not fit an empty window
+// ends the value. E.g. with max_token_length=2, "abc" makes "ab" and "c", and "ab中cd" makes "ab"
+// and nothing after it.
+//
+// A value that is valid UTF-8 runs through the DFA of Uax29Table, and its terms are views of the
+// value. Any other value runs through the scanner itself, whose reaction to invalid bytes depends
+// on where its buffer refills; those terms are copied, because a refill moves the buffer.
+class StandardTokenizer final : public TextTokenizer {
 public:
-    StandardTokenizer() { _scanner = std::make_unique<StandardTokenizerImpl>(); }
+    StandardTokenizer();
 
-    Token* next(Token* t) override {
-        _skipped_positions = 0;
-        while (true) {
-            const auto token_type = _scanner->get_next_token();
+    void set_max_token_length(int32_t length);
 
-            if (token_type == StandardTokenizerImpl::TokenType::EOF_TOKEN) {
-                return nullptr;
-            }
-
-            std::string_view term = _scanner->get_text();
-            size_t token_length = _scanner->yylength();
-            if (std::cmp_less_equal(token_length, _max_token_length)) {
-                set(t, term, _skipped_positions + 1);
-                const int32_t token_start = _scanner->get_token_start_offset();
-                const int32_t token_end = _scanner->get_token_end_offset();
-                set_source_byte_offsets(term, token_start);
-                t->setStartOffset(correct_source_start_offset(token_start));
-                t->setEndOffset(correct_source_offset(token_end));
-                return t;
-            } else {
-                _skipped_positions++;
-            }
-        }
-        return nullptr;
-    }
-
-    void reset() override {
-        DorisTokenizer::reset();
-        _scanner->yyreset(_in);
-        _skipped_positions = 0;
-    };
-
-    void set_max_token_length(int32_t length) {
-        if (length < 1) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT,
-                            "max_token_length must be greater than zero");
-        } else if (length > MAX_TOKEN_LENGTH_LIMIT) {
-            throw Exception(
-                    ErrorCode::INVALID_ARGUMENT,
-                    "max_token_length may not exceed " + std::to_string(MAX_TOKEN_LENGTH_LIMIT));
-        }
-        if (length != _max_token_length) {
-            _max_token_length = length;
-            _scanner->set_buffer_size(length);
-        }
-    }
+    void reset(std::string_view text) override;
+    bool next_batch(TokenBatch& batch) override;
+    // The scanner's window, max_token_length bytes.
+    size_t reserved_bytes() const override { return _scanner->buffer_capacity(); }
 
     static constexpr int32_t DEFAULT_MAX_TOKEN_LENGTH = 255;
     static constexpr int32_t MAX_TOKEN_LENGTH_LIMIT = 16383;
 
 private:
-    StandardTokenizerImplPtr _scanner;
+    bool next_valid_batch(TokenBatch& batch);
+    bool next_scanner_batch(TokenBatch& batch);
 
-    int32_t _skipped_positions = 0;
+    const Uax29Table& _table;
+    StandardTokenizerImplPtr _scanner;
     int32_t _max_token_length = DEFAULT_MAX_TOKEN_LENGTH;
+    std::string_view _text;
+    bool _valid = true;      // the value is valid UTF-8
+    size_t _pos = 0;         // where the next token of a valid value starts
+    bool _exhausted = false; // the scanner reached the end of an invalid value
 };
 
 } // namespace doris::segment_v2::inverted_index

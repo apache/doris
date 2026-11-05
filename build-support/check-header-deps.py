@@ -24,7 +24,7 @@ every translation unit, so one stray include can multiply rebuild cost by an ord
 of magnitude and does so silently: the code still compiles, only the build slows
 down. This script turns that into a build error instead.
 
-Four kinds of guard, all on the same text include graph (be/src + be/test, all
+Five kinds of guard, all on the same text include graph (be/src + be/test, all
 ifdef branches -- not comparable to ninja-measured radii, each baseline compares
 only with itself):
 
@@ -41,6 +41,9 @@ only with itself):
   PCH whitelist            pch/pch.h's quoted project includes are pinned
                            exactly; the PCH is the single most leveraged
                            regression surface in the repo.
+  CLucene-free roots       SNII, the analysis layer, the query engine, the
+                           shared inverted index code and ANN must not include
+                           CLucene through any chain, nor name its symbols.
 
 Usage:
     build-support/check-header-deps.py                  # enforce everything
@@ -456,16 +459,6 @@ RULES = [
 # every header under it; a banned spelling ending in "/" bans the whole subtree.
 ANGLE_BANS = [
     (
-        "storage/index/inverted/query/",
-        "CLucene/",
-        "query algorithms use the format SPI and do not include CLucene headers",
-    ),
-    (
-        "storage/index/inverted/query/",
-        "CLucene.h",
-        "query algorithms use the format SPI and do not include CLucene headers",
-    ),
-    (
         "core/uint24.h",
         "fmt/",
         "to_string/to_buffer bodies live in uint24.cpp precisely so the "
@@ -605,6 +598,39 @@ PCH_QUOTED_WHITELIST = {
 # declarations only, so they cost nothing to include.
 FWD_SUFFIX = "_fwd.h"
 
+# CLucene-free roots. The code under these roots does not use CLucene, and the other guards cannot
+# keep it so: ANGLE_BANS reads only a header's own includes, load_includes() keeps no angle
+# includes while most CLucene edges are angle includes, and the PCH hands CLucene to every
+# translation unit without any include at all. So two rules of their own, neither with an
+# exception table:
+#   closure  no file under a root, sources included, and no project header a root reaches
+#            includes a CLucene header;
+#   symbols  the code under a root, with comments, string literals and includes stripped, names
+#            no CLucene symbol.
+CLUCENE_FREE_ROOTS = [
+    "storage/index/inverted/snii/",
+    "storage/index/inverted/analysis/",
+    "storage/index/inverted/query/",
+    "storage/index/inverted/common/",
+    "storage/index/ann/",
+]
+CLUCENE_INCLUDE = re.compile(r'^\s*#\s*include\s+[<"](CLucene(?:\.h|/[^>"]*))[>"]')
+CLUCENE_SYMBOLS = re.compile(
+    r"\b(lucene::|CL_NS\w*|CLuceneError|_CL[A-Z]\w*|CL_ERR_\w+|LUCENE_\w+|TCHAR|StringUtil)"
+)
+# Comments, raw and plain string literals, character literals and include lines, which the symbol
+# rule ignores: a word in a log message or a comment is no dependency.
+CODE_NOISE = re.compile(
+    r'//[^\n]*|/\*.*?\*/|R"([^(\s]*)\(.*?\)\1"|"(?:\\.|[^"\\\n])*"|'
+    r"'(?:\\.|[^'\\\n])*'|^[ \t]*#[ \t]*include[^\n]*",
+    re.S | re.M,
+)
+CLUCENE_WHY = (
+    "SNII, the analysis layer, the query engine, the shared inverted index code and ANN do not "
+    "use CLucene, and an include anywhere in the closure of a root, or a symbol the PCH makes "
+    "visible, ties them back to it"
+)
+
 
 def load_includes():
     """Maps each repo file to the list of project headers it includes."""
@@ -625,6 +651,30 @@ def load_includes():
                         if match
                     ]
     return includes
+
+
+def load_clucene_includes(includes):
+    """Maps each repo file that includes a CLucene header to those include spellings."""
+    clucene = {}
+    for path in includes:
+        with open(path, encoding="utf-8", errors="ignore") as handle:
+            spellings = [m.group(1) for m in map(CLUCENE_INCLUDE.match, handle) if m]
+        if spellings:
+            clucene[path] = spellings
+    return clucene
+
+
+def clucene_free_files(includes):
+    """Every header and source under the CLucene-free roots, spelled from be/src."""
+    return sorted(
+        path[len(INCLUDE_ROOT) + 1 :]
+        for path in includes
+        if path.startswith(INCLUDE_ROOT + "/")
+        and path.endswith((".h", ".hpp", ".cpp", ".cc"))
+        and any(
+            path[len(INCLUDE_ROOT) + 1 :].startswith(root) for root in CLUCENE_FREE_ROOTS
+        )
+    )
 
 
 def hub_headers(hub, includes):
@@ -764,6 +814,54 @@ def enforce_angle_ban(headers, banned, why):
                 "message",
                 file=sys.stderr,
             )
+    return failures
+
+
+def enforce_clucene_closure(includes, clucene):
+    """No file under a root, and no project header it reaches, includes CLucene."""
+    failures = 0
+    offenders = {}
+    for root in clucene_free_files(includes):
+        for header, chain in reachable(root, includes).items():
+            path = resolve(header, includes)
+            if path in clucene and (header not in offenders or len(chain) < len(offenders[header])):
+                offenders[header] = chain
+    for header, chain in sorted(offenders.items()):
+        failures += 1
+        include = clucene[resolve(header, includes)][0]
+        if len(chain) == 1:
+            print(f"error: {header} includes <{include}>", file=sys.stderr)
+        else:
+            print(f"error: {chain[0]} reaches CLucene through {header}", file=sys.stderr)
+        print(f"  reason: {CLUCENE_WHY}", file=sys.stderr)
+        print("  chain:  " + "\n       -> ".join(chain + [f"<{include}>"]), file=sys.stderr)
+        print(
+            "  fix:    keep the CLucene type out of the header (forward-declare it, or put "
+            "the code behind an interface the root does not see)",
+            file=sys.stderr,
+        )
+    return failures
+
+
+def enforce_clucene_symbols(includes):
+    """The code under a root names no CLucene symbol."""
+    failures = 0
+    for name in clucene_free_files(includes):
+        with open(os.path.join(INCLUDE_ROOT, name), encoding="utf-8", errors="ignore") as handle:
+            # Every stripped piece becomes the newlines it held, so line numbers stay right.
+            code = CODE_NOISE.sub(lambda m: "\n" * m.group(0).count("\n"), handle.read())
+        match = CLUCENE_SYMBOLS.search(code)
+        if not match:
+            continue
+        failures += 1
+        line = code.count("\n", 0, match.start()) + 1
+        print(f"error: {name}:{line} names the CLucene symbol {match.group(0)}", file=sys.stderr)
+        print(f"  reason: {CLUCENE_WHY}", file=sys.stderr)
+        print(
+            "  fix:    use the Doris type or error instead; the PCH makes CLucene visible "
+            "without an include, so the compiler does not catch this",
+            file=sys.stderr,
+        )
     return failures
 
 
@@ -986,6 +1084,8 @@ def main():
             + enforce_angle_bans(includes)
             + enforce_budgets(includes)
             + enforce_pch(includes)
+            + enforce_clucene_closure(includes, load_clucene_includes(includes))
+            + enforce_clucene_symbols(includes)
         )
     if failures:
         print(f"\n{failures} header hygiene violation(s)", file=sys.stderr)
@@ -1000,7 +1100,8 @@ def main():
             f"header hygiene: {len(RULES)} layering rule(s), "
             f"{len(ANGLE_BANS)} third-party ban(s), "
             f"{len(FORWARD_CLOSURE_BUDGETS)}+{len(REVERSE_REACH_BASELINES)} "
-            "budget(s), pch whitelist: all satisfied"
+            f"budget(s), pch whitelist, {len(CLUCENE_FREE_ROOTS)} CLucene-free root(s): "
+            "all satisfied"
         )
     return 0
 

@@ -49,6 +49,11 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
+namespace doris::segment_v2::inverted_index {
+class TextTokenStream;
+class TokenBatch;
+} // namespace doris::segment_v2::inverted_index
+
 namespace doris {
 
 const std::string MATCH_ANY_FUNCTION = "match_any";
@@ -85,10 +90,14 @@ public:
             const InvertedIndexAnalyzerCtx* analyzer_ctx, const std::string& match_query_str,
             const std::string& field_name) const;
 
+    // The tokens of one value, or of one array row; `stream` and `batch` tokenize them when the
+    // values are analyzed, and are null otherwise.
     std::vector<segment_v2::TermInfo> analyse_data_token(
             const std::string& column_name, const InvertedIndexAnalyzerCtx* analyzer_ctx,
-            const ColumnString* string_col, size_t current_block_row_idx,
-            const ColumnArray::Offsets64* array_offsets, int32_t& current_src_array_offset,
+            segment_v2::inverted_index::TextTokenStream* stream,
+            segment_v2::inverted_index::TokenBatch* batch, const ColumnString* string_col,
+            size_t current_block_row_idx, const ColumnArray::Offsets64* array_offsets,
+            int32_t& current_src_array_offset,
             const ColumnUInt8::Container* array_element_null_map = nullptr) const;
 
     Status check(FunctionContext* context, const std::string& function_name) const;

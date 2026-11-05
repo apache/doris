@@ -21,13 +21,15 @@
 
 namespace doris::segment_v2::inverted_index {
 
+// The break iterators of the scripts. Han, Hiragana and Katakana arrive as one script, JAPANESE
+// (ICUCharTable::script_of()), which the root locale's dictionary-based word iterator breaks into
+// words.
 class DefaultICUTokenizerConfig : public ICUTokenizerConfig {
 public:
-    DefaultICUTokenizerConfig(bool cjkAsWords, bool myanmarAsWords);
+    explicit DefaultICUTokenizerConfig(bool myanmar_as_words);
     ~DefaultICUTokenizerConfig() override = default;
 
     void initialize(const std::string& dictPath) override;
-    bool combine_cj() override { return cjk_as_words_; }
     icu::BreakIterator* get_break_iterator(int32_t script) override;
 
 private:
@@ -37,7 +39,6 @@ private:
     static BreakIteratorPtr default_break_iterator_;
     static BreakIteratorPtr myanmar_syllable_iterator_;
 
-    bool cjk_as_words_ = false;
     bool myanmar_as_words_ = false;
 };
 

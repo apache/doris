@@ -17,44 +17,25 @@
 
 #pragma once
 
-#include <unicode/edits.h>
 #include <unicode/normalizer2.h>
 
+#include <memory>
 #include <string>
-#include <vector>
+#include <string_view>
 
 #include "storage/index/inverted/analysis/char_filter/char_filter.h"
 
 namespace doris::segment_v2::inverted_index {
 
-class ICUNormalizerCharFilter : public DorisCharFilter {
+// Normalizes the text with an ICU normalizer, NFKC_CF by default.
+class ICUNormalizerCharFilter final : public TextCharFilter {
 public:
-    ICUNormalizerCharFilter(ReaderPtr reader, std::shared_ptr<const icu::Normalizer2> normalizer);
-    ~ICUNormalizerCharFilter() override = default;
+    explicit ICUNormalizerCharFilter(std::shared_ptr<const icu::Normalizer2> normalizer);
 
-    void initialize() override;
-
-    void init(const void* _value, int32_t _length, bool copyData) override;
-    int32_t read(const void** start, int32_t min, int32_t max) override;
-    int32_t readCopy(void* start, int32_t off, int32_t len) override;
-
-    size_t size() override { return _buf.size(); }
-    int32_t correct_offset(int32_t current_offset) const override;
-    int32_t correct_start_offset(int32_t current_offset) const override;
+    std::string_view apply(std::string_view text, std::string& scratch) override;
 
 private:
-    void fill();
-    void normalize_text(const std::string& input, std::string& output);
-
-    std::shared_ptr<const icu::Normalizer2> _normalizer;
-    // ICU's own edit encoding is the only per-change state; the cursor caches the last
-    // search position so mostly increasing offset queries stay cheap.
-    icu::Edits _edits;
-    mutable icu::Edits::Iterator _offset_cursor;
-    int32_t _source_length = 0;
-    std::string _buf;
-    lucene::util::SStringReader<char> _transformed_input;
+    const std::shared_ptr<const icu::Normalizer2> _normalizer;
 };
-using ICUNormalizerCharFilterPtr = std::shared_ptr<ICUNormalizerCharFilter>;
 
 } // namespace doris::segment_v2::inverted_index

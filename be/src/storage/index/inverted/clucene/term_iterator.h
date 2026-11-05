@@ -24,7 +24,7 @@
 
 #include "CLucene/index/Terms.h"
 #include "common/be_mock_util.h"
-#include "storage/index/index_common.h"
+#include "storage/index/index_common_impl.h"
 
 CL_NS_USE(index)
 

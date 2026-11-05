@@ -28,7 +28,6 @@
 
 // CLucene headers
 #include <CLucene.h>
-#include <CLucene/analysis/LanguageBasedAnalyzer.h>
 #include <CLucene/clucene-config.h>
 #include <CLucene/debug/error.h>
 #include <CLucene/debug/mem.h>

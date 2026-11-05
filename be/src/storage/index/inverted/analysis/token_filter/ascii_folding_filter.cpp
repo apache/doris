@@ -17,133 +17,105 @@
 
 #include "storage/index/inverted/analysis/token_filter/ascii_folding_filter.h"
 
+#include <unicode/uchar.h>
+#include <unicode/utf8.h>
+
 #include <optional>
 #include <string_view>
+
+#include "common/compiler_util.h"
+#include "storage/index/inverted/analysis/scratch.h"
 
 namespace doris::segment_v2::inverted_index {
 
 namespace {
 
-int32_t count_utf8_runes(std::string_view text) {
-    const auto length = static_cast<int32_t>(text.size());
-    const char* data = text.data();
-    int32_t offset = 0;
-    int32_t count = 0;
-    while (offset < length) {
-        UChar32 codepoint = U_UNASSIGNED;
-        U8_NEXT(data, offset, length, codepoint);
-        if (codepoint < 0) {
-            return -1;
-        }
-        ++count;
-    }
-    return count;
-}
-
-} // namespace
-
-ASCIIFoldingFilter::ASCIIFoldingFilter(const TokenStreamPtr& in, bool preserve_original)
-        : DorisTokenFilter(in), _preserve_original(preserve_original), _output(512, 0) {}
-
-Token* ASCIIFoldingFilter::next(Token* t) {
-    _rune_count_changed = false;
-    _has_source_span = false;
-    if (_state != std::nullopt) {
-        assert(_preserve_original);
-        set(t, std::string_view(_state->data(), _state->size()), 0);
-        _state = std::nullopt;
-        return t;
-    }
-    if (_in->next(t)) {
-        const char* buffer = t->termBuffer<char>();
-        auto length = static_cast<int32_t>(t->termLength<char>());
-        for (int32_t i = 0; i < length;) {
-            UChar32 c = U_UNASSIGNED;
-            U8_NEXT(buffer, i, length, c);
-            if (c < 0) {
-                continue;
-            }
-            if (c >= 0x0080) {
-                fold_to_ascii(buffer, length);
-                // Rune counts only matter to a downstream provenance consumer. Malformed bytes
-                // are skipped while folding, so the upstream map no longer describes the output.
-                if (_source_byte_offsets_enabled) {
-                    const int32_t input_runes = count_utf8_runes(std::string_view(buffer, length));
-                    _rune_count_changed =
-                            input_runes < 0 || input_runes != count_utf8_runes(std::string_view(
-                                                                      _output.data(), _output_pos));
-                }
-                if (_rune_count_changed) {
-                    _has_source_span =
-                            get_delegated_source_byte_span(*t, _source_start, _source_end);
-                }
-                set_text(t, std::string_view(_output.data(), _output_pos));
-                break;
-            }
-        }
-        return t;
-    }
-    return nullptr;
-}
-
-void ASCIIFoldingFilter::reset() {
-    DorisTokenFilter::reset();
-    _state = std::nullopt;
-    _rune_count_changed = false;
-    _has_source_span = false;
-}
-
-std::span<const int32_t> ASCIIFoldingFilter::get_source_byte_offsets() const {
-    return _rune_count_changed ? std::span<const int32_t> {}
-                               : DorisTokenFilter::get_source_byte_offsets();
-}
-
-std::span<const int32_t> ASCIIFoldingFilter::get_source_byte_end_offsets() const {
-    return _rune_count_changed ? std::span<const int32_t> {}
-                               : DorisTokenFilter::get_source_byte_end_offsets();
-}
-
-bool ASCIIFoldingFilter::get_conservative_source_byte_span(int32_t& start, int32_t& end) const {
-    if (!_rune_count_changed) {
-        return DorisTokenFilter::get_conservative_source_byte_span(start, end);
-    }
-    if (!_has_source_span) {
-        return false;
-    }
-    start = _source_start;
-    end = _source_end;
-    return true;
-}
-
-void ASCIIFoldingFilter::set_source_byte_offsets_enabled(bool enabled) {
-    _source_byte_offsets_enabled = enabled;
-    DorisTokenFilter::set_source_byte_offsets_enabled(enabled);
-}
-
-void ASCIIFoldingFilter::fold_to_ascii(const char* in, int32_t length) {
-    // Worst-case scenario: 3-byte UTF-8 → 4-byte ASCII (expansion ratio ~1.33x)
-    // Conservative estimate: 2x input length is sufficient to cover all cases
-    int32_t max_size_needed = 2 * length;
-    if (_output.size() < max_size_needed) {
-        _output.resize(max_size_needed);
-    }
-
-    _output_pos = fold_to_ascii(in, 0, _output.data(), 0, length);
-    if (_preserve_original && need_to_preserve(in, length)) {
-        _state = std::string_view(in, length);
-    }
-}
-
-bool ASCIIFoldingFilter::need_to_preserve(const char* in, int32_t input_length) {
-    if (input_length != _output_pos) {
-        return true;
-    }
-    for (int32_t i = 0; i < input_length; i++) {
-        if (in[i] != _output[i]) {
+// Whether folding may change `term`: only a valid character at or above U+0080 folds, and the
+// folding loop drops invalid bytes only along with folding such a character. "a\xFF" is left as it
+// is, while "\xFF\xC3\x86" folds to "AE". Inlined: it runs for every token.
+ALWAYS_INLINE inline bool may_fold(std::string_view term) {
+    const char* text = term.data();
+    const auto length = static_cast<int32_t>(term.size());
+    for (int32_t i = 0; i < length;) {
+        UChar32 c = U_UNASSIGNED;
+        U8_NEXT(text, i, length, c);
+        if (c >= 0x0080) {
             return true;
         }
     }
     return false;
+}
+
+// The folded form of `term`, a view of `output`, or nothing when the term folds to itself, as one
+// of characters without an ASCII form does, e.g. "中".
+std::optional<std::string_view> fold(std::string_view term, std::string& output) {
+    // No character folds to more than twice its UTF-8 length, e.g. "⒇" (3 bytes) folds to "(20)".
+    if (output.size() < 2 * term.size()) {
+        output.resize(2 * term.size());
+    }
+    const int32_t folded_size = ASCIIFoldingFilter::fold_to_ascii(
+            term.data(), 0, output.data(), 0, static_cast<int32_t>(term.size()));
+    const std::string_view folded(output.data(), folded_size);
+    if (folded == term) {
+        return std::nullopt;
+    }
+    return folded;
+}
+
+} // namespace
+
+ASCIIFoldingFilter::ASCIIFoldingFilter(std::unique_ptr<TextTokenStream> in)
+        : TextTokenFilter(std::move(in)) {}
+
+void ASCIIFoldingFilter::reset(std::string_view text) {
+    TextTokenFilter::reset(text);
+    release_oversized_scratch(_output);
+}
+
+bool ASCIIFoldingFilter::next_batch(TokenBatch& batch) {
+    if (!_in->next_batch(batch)) {
+        return false;
+    }
+    for (TokenRef& token : batch.tokens()) {
+        if (!may_fold(token.term())) {
+            continue;
+        }
+        if (const auto folded = fold(token.term(), _output)) {
+            char* term = batch.allocate_term(folded->size());
+            folded->copy(term, folded->size());
+            token.data = term;
+            token.size = static_cast<uint32_t>(folded->size());
+        }
+    }
+    return true;
+}
+
+bool ASCIIFoldingPreserveOriginalFilter::next_token(TokenRef& token) {
+    if (_original != std::nullopt) {
+        // The input token it views is still in the input batch: input_token() has not run since.
+        token = {.data = _original->data(),
+                 .size = static_cast<uint32_t>(_original->size()),
+                 .position_increment = 0};
+        _original = std::nullopt;
+        return true;
+    }
+    if (!input_token(token)) {
+        return false;
+    }
+    if (!may_fold(token.term())) {
+        return true;
+    }
+    if (const auto folded = fold(token.term(), _output)) {
+        _original = token.term();
+        token.data = folded->data();
+        token.size = static_cast<uint32_t>(folded->size());
+    }
+    return true;
+}
+
+void ASCIIFoldingPreserveOriginalFilter::on_reset() {
+    _original = std::nullopt;
+    release_oversized_scratch(_output);
 }
 
 int32_t ASCIIFoldingFilter::fold_to_ascii(const char* in, int32_t input_pos, char* out,

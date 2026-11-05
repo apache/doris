@@ -25,6 +25,7 @@
 
 #include "storage/index/inverted/analysis/char_filter/char_filter_factory.h"
 #include "storage/index/inverted/analysis/char_filter/empty_char_filter_factory.h"
+#include "storage/index/inverted/analysis/text_stream_contract.h"
 #include "storage/index/inverted/analysis/token_filter/empty_token_filter_factory.h"
 #include "storage/index/inverted/analysis/token_filter/token_filter_factory.h"
 #include "storage/index/inverted/analysis/tokenizer/empty/empty_tokenizer_factory.h"
@@ -46,7 +47,7 @@ TEST_F(AnalysisFactoryMgrTest, CreateBuiltInFactories) {
             AnalysisFactoryMgr::instance().create<TokenizerFactory>("standard", empty_settings);
     ASSERT_NE(tokenizer_factory, nullptr);
     auto tokenizer = tokenizer_factory->create();
-    ASSERT_NE(tokenizer, nullptr);
+    ASSERT_NE(tokenizer.get(), nullptr);
 
     auto char_filter_factory = AnalysisFactoryMgr::instance().create<CharFilterFactory>(
             "char_replace", empty_settings);
@@ -85,17 +86,15 @@ TEST_F(AnalysisFactoryMgrTest, EmptyCharFilterPassesThrough) {
     ASSERT_NE(factory, nullptr);
 
     std::string test_data = "Hello World!";
-    ReaderPtr reader = std::make_shared<lucene::util::SStringReader<char>>();
-    reader->init(test_data.data(), test_data.size(), false);
+    auto filter = factory->create();
+    ASSERT_NE(filter.get(), nullptr);
 
-    ReaderPtr filtered = factory->create(reader);
-    ASSERT_NE(filtered, nullptr);
-
-    const char* buffer = nullptr;
-    int32_t len = filtered->read((const void**)&buffer, 0, test_data.size());
-    EXPECT_EQ(len, test_data.size());
-    std::string result(buffer, len);
+    std::string scratch;
+    const std::string_view result = filter->apply(test_data, scratch);
+    EXPECT_EQ(result.size(), test_data.size());
     EXPECT_EQ(result, test_data);
+    // Left as it is, the text is not copied.
+    EXPECT_EQ(result.data(), test_data.data());
 }
 
 TEST_F(AnalysisFactoryMgrTest, EmptyTokenizerReturnsWholeInput) {
@@ -105,21 +104,14 @@ TEST_F(AnalysisFactoryMgrTest, EmptyTokenizerReturnsWholeInput) {
     ASSERT_NE(factory, nullptr);
 
     auto tokenizer = factory->create();
-    ASSERT_NE(tokenizer, nullptr);
+    ASSERT_NE(tokenizer.get(), nullptr);
 
     std::string test_data = "Hello World Test";
-    ReaderPtr reader = std::make_shared<lucene::util::SStringReader<char>>();
-    reader->init(test_data.data(), test_data.size(), false);
+    const std::vector<std::string> tokens = collect_terms(*tokenizer, test_data);
+    ASSERT_FALSE(tokens.empty());
+    EXPECT_EQ(tokens[0], test_data);
 
-    tokenizer->set_reader(reader);
-    tokenizer->reset();
-
-    Token token;
-    EXPECT_TRUE(tokenizer->next(&token));
-    std::string result(token.termBuffer<char>(), token.termLength<char>());
-    EXPECT_EQ(result, test_data);
-
-    EXPECT_FALSE(tokenizer->next(&token));
+    EXPECT_EQ(tokens.size(), 1);
 }
 
 TEST_F(AnalysisFactoryMgrTest, EmptyTokenFilterPassesThrough) {
@@ -128,24 +120,22 @@ TEST_F(AnalysisFactoryMgrTest, EmptyTokenFilterPassesThrough) {
     auto tokenizer_factory =
             AnalysisFactoryMgr::instance().create<TokenizerFactory>("keyword", empty_settings);
     auto tokenizer = tokenizer_factory->create();
+    const TextTokenStream* const keyword = tokenizer.get();
 
     std::string test_data = "TestToken";
-    ReaderPtr reader = std::make_shared<lucene::util::SStringReader<char>>();
-    reader->init(test_data.data(), test_data.size(), false);
-    tokenizer->set_reader(reader);
-    tokenizer->reset();
 
     auto filter_factory =
             AnalysisFactoryMgr::instance().create<TokenFilterFactory>("empty", empty_settings);
-    auto filter = filter_factory->create(tokenizer);
-    ASSERT_NE(filter, nullptr);
+    auto filter = filter_factory->create(std::move(tokenizer));
+    ASSERT_NE(filter.get(), nullptr);
+    // A filter that changes nothing is its input itself.
+    EXPECT_EQ(filter.get(), keyword);
 
-    Token token;
-    EXPECT_TRUE(filter->next(&token));
-    std::string result(token.termBuffer<char>(), token.termLength<char>());
-    EXPECT_EQ(result, test_data);
+    const std::vector<std::string> tokens = collect_terms(*filter, test_data);
+    ASSERT_FALSE(tokens.empty());
+    EXPECT_EQ(tokens[0], test_data);
 
-    EXPECT_FALSE(filter->next(&token));
+    EXPECT_EQ(tokens.size(), 1);
 }
 
 TEST_F(AnalysisFactoryMgrTest, UnknownFactoryNameThrowsException) {
@@ -172,7 +162,7 @@ TEST_F(AnalysisFactoryMgrTest, FactoryWithSettings) {
     ASSERT_NE(factory, nullptr);
 
     auto tokenizer = factory->create();
-    ASSERT_NE(tokenizer, nullptr);
+    ASSERT_NE(tokenizer.get(), nullptr);
 }
 
 TEST_F(AnalysisFactoryMgrTest, SingletonBehavior) {

@@ -51,6 +51,9 @@ struct TermDeleter {
 };
 using TermPtr = std::unique_ptr<lucene::index::Term, TermDeleter>;
 
+// The templates of this header are defined in index_common_impl.h, which includes CLucene, and
+// only the V1/V2 code that instantiates them includes it: SNII and ANN reach this header through
+// the shared index file headers and do not use CLucene.
 template <typename... Args>
 TermPtr make_term_ptr(Args&&... args);
 
@@ -122,5 +125,3 @@ void finally_close(PtrType& resource, ErrorContext& error_context);
 #endif
 
 } // namespace doris::segment_v2
-
-#include "storage/index/index_common_impl.h"

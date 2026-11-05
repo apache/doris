@@ -24,8 +24,9 @@
 
 #include "common/cast_set.h"
 #include "common/config.h"
+#include "storage/index/ann/ann_index_storage.h"
 #include "storage/index/ann/faiss_ann_index.h"
-#include "storage/index/index_fs_directory.h"
+#include "storage/index/index_file_writer.h"
 
 namespace doris::segment_v2 {
 static std::string get_or_default(const std::map<std::string, std::string>& properties,
@@ -44,17 +45,16 @@ AnnIndexColumnWriter::AnnIndexColumnWriter(IndexFileWriter* index_file_writer,
 AnnIndexColumnWriter::~AnnIndexColumnWriter() = default;
 
 Status AnnIndexColumnWriter::init() {
-    // The staging directory, not necessarily a filesystem one: under SNII the
-    // faiss output is held in memory until begin_close() seals it into the
-    // container as a blob. Only the write side is used either way.
-    Result<std::shared_ptr<lucene::store::Directory>> compound_dir =
-            _index_file_writer->open_ann_directory(_index_meta);
+    // Where the faiss output is staged, not necessarily a filesystem directory:
+    // under SNII it waits in self-cleaning staging files until begin_close()
+    // seals it into the container as a blob.
+    Result<std::shared_ptr<AnnIndexSink>> sink = _index_file_writer->open_ann_sink(_index_meta);
 
-    if (!compound_dir.has_value()) {
-        return Status::IOError("Failed to open index file: {}", compound_dir.error().to_string());
+    if (!sink.has_value()) {
+        return Status::IOError("Failed to open index file: {}", sink.error().to_string());
     }
 
-    _dir = compound_dir.value();
+    _sink = sink.value();
 
     _vector_index = nullptr;
     const auto& properties = _index_meta->properties();
@@ -171,16 +171,16 @@ Status AnnIndexColumnWriter::_build_and_save(Int64 min_train_rows, Int64 effecti
     // full-segment build buffer is released before saving the index.
     PODArray<float> empty_buffered_vectors;
     _buffered_vectors.swap(empty_buffered_vectors);
-    Status status = _vector_index->save(_dir.get());
+    Status status = _vector_index->save(_sink.get());
     if (!status.ok()) {
         // A failed save keeps whatever it managed to write, and under SNII that is
         // an ANN-sized staging file plus its descriptor. Nothing downstream
         // unwinds it: the segment flush returns before clear() and
         // close_inverted_index(), and ADD INDEX holds every producer until the
         // whole rowset has been closed. Drop BOTH owners of the staging area here
-        // -- the index file writer's, and this writer's own.
-        _index_file_writer->discard_ann_staging_directory(_index_meta);
-        _dir.reset();
+        // -- the index file writer's, and this writer's own sink.
+        _index_file_writer->discard_ann_staging(_index_meta);
+        _sink.reset();
     }
     return status;
 }

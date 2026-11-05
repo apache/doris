@@ -19,22 +19,18 @@
 
 #include <parallel_hashmap/phmap.h>
 
-#include <list>
-#include <map>
 #include <memory>
-#include <optional>
-#include <queue>
-#include <set>
 #include <string>
+#include <string_view>
+#include <vector>
 
-#include "CLucene/_ApiHeader.h"
-#include "CLucene/util/CLStreams.h"
 #include "common/logging.h"
 #include "core/arena.h"
 #include "storage/index/inverted/analysis/analyzer/ik/cfg/Configuration.h"
 #include "storage/index/inverted/analysis/analyzer/ik/core/CharacterUtil.h"
 #include "storage/index/inverted/analysis/analyzer/ik/core/LexemePath.h"
 #include "storage/index/inverted/analysis/analyzer/ik/dic/Dictionary.h"
+#include "storage/index/inverted/analysis/common/text_cursor.h"
 
 namespace doris::segment_v2 {
 
@@ -67,12 +63,17 @@ private:
     QuickSortSet org_lexemes_;
     // LexemePath position index table
     phmap::flat_hash_map<size_t, LexemePath*> path_map_;
-    // Final tokenization result set
-    std::queue<Lexeme> results_;
+    // The final lexemes of the window, which outputToResult() fills and getNextLexeme() reads
+    // from results_head_ on; reused from window to window and value to value.
+    std::vector<Lexeme> results_;
+    size_t results_head_ {0};
     // Tokenizer configuration
     std::shared_ptr<Configuration> config_;
+    // The loaded dictionaries, for the stop words.
+    const Dictionary& dictionary_;
     void outputSingleCJK(size_t index);
     void compound(Lexeme& lexeme);
+    bool hasResult() const { return results_head_ < results_.size(); }
 
 public:
     enum class SegmenterType {
@@ -82,7 +83,8 @@ public:
         SURROGATE_PAIR_SEGMENTER
     };
     const CharacterUtil::TypedRuneArray& getTypedRuneArray() const { return typed_runes_; }
-    explicit AnalyzeContext(Arena& arena, std::shared_ptr<Configuration> config);
+    AnalyzeContext(Arena& arena, std::shared_ptr<Configuration> config,
+                   const Dictionary& dictionary);
     virtual ~AnalyzeContext();
 
     void reset();
@@ -92,20 +94,73 @@ public:
     size_t getBufferOffset() const { return buffer_offset_; }
     size_t getLastUselessCharNum() const { return last_useless_char_num_; }
 
-    size_t fillBuffer(lucene::util::Reader* reader);
-    bool moveCursor();
-    void initCursor();
-    bool isBufferConsumed() const;
-    bool needRefillBuffer() const;
+    size_t fillBuffer(inverted_index::TextCursor& cursor);
+    // The read window, the runes decoded from it and the window's final lexemes, all bounded by
+    // BUFF_SIZE.
+    size_t reserved_bytes() const {
+        return segment_buff_.capacity() +
+               typed_runes_.capacity() * sizeof(CharacterUtil::TypedRune) +
+               results_.capacity() * sizeof(Lexeme);
+    }
+    // The cursor and lock helpers below run several times per character, from every segmenter,
+    // so they are defined here, where the segmenters can inline them.
+    bool moveCursor() {
+        if (cursor_ < typed_runes_.size() - 1) {
+            cursor_++;
+            return true;
+        }
+        return false;
+    }
+    void initCursor() { cursor_ = 0; }
+    bool isBufferConsumed() const { return cursor_ == typed_runes_.size() - 1; }
+    bool needRefillBuffer() const {
+        return available_ == BUFF_SIZE && !isBufferLocked() && cursor_ < typed_runes_.size() - 1 &&
+               cursor_ > typed_runes_.size() - BUFF_EXHAUST_CRITICAL;
+    }
     void markBufferOffset();
 
-    void lockBuffer(SegmenterType type);
-    void unlockBuffer(SegmenterType type);
-    bool isBufferLocked() const;
+    void lockBuffer(SegmenterType type) {
+        switch (type) {
+        case SegmenterType::CJK_SEGMENTER:
+            buffer_locker_ |= CJK_SEGMENTER_FLAG;
+            break;
+        case SegmenterType::CN_QUANTIFIER:
+            buffer_locker_ |= CN_QUANTIFIER_FLAG;
+            break;
+        case SegmenterType::LETTER_SEGMENTER:
+            buffer_locker_ |= LETTER_SEGMENTER_FLAG;
+            break;
+        case SegmenterType::SURROGATE_PAIR_SEGMENTER:
+            buffer_locker_ |= SURROGATE_PAIR_SEGMENTER_FLAG;
+            break;
+        }
+    }
+    void unlockBuffer(SegmenterType type) {
+        switch (type) {
+        case SegmenterType::CJK_SEGMENTER:
+            buffer_locker_ &= ~CJK_SEGMENTER_FLAG;
+            break;
+        case SegmenterType::CN_QUANTIFIER:
+            buffer_locker_ &= ~CN_QUANTIFIER_FLAG;
+            break;
+        case SegmenterType::LETTER_SEGMENTER:
+            buffer_locker_ &= ~LETTER_SEGMENTER_FLAG;
+            break;
+        case SegmenterType::SURROGATE_PAIR_SEGMENTER:
+            buffer_locker_ &= ~SURROGATE_PAIR_SEGMENTER_FLAG;
+            break;
+        }
+    }
+    bool isBufferLocked() const { return buffer_locker_ != 0; }
 
     void addLexeme(Lexeme& lexeme);
     void addLexemePath(LexemePath* path);
+    // The next final lexeme of the window that is no stop word, or false once there is none.
     bool getNextLexeme(Lexeme& lexeme);
+    // The bytes of a lexeme of the current window; valid until the window is refilled.
+    std::string_view getText(const Lexeme& lexeme) const {
+        return {segment_buff_.data() + lexeme.getByteBegin(), lexeme.getByteLength()};
+    }
     QuickSortSet* getOrgLexemes() { return &org_lexemes_; }
     void outputToResult();
 
