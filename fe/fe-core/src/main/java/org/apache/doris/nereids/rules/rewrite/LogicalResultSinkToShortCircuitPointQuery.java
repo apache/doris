@@ -23,6 +23,7 @@ import org.apache.doris.datasource.doris.RemoteOlapTable;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -30,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 
@@ -45,6 +47,34 @@ import java.util.Set;
  * pattern : select xxx from tbl where key = ?
  */
 public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFactory {
+
+    private boolean isSimpleScalarProjection(Expression expression) {
+        if (expression instanceof Alias) {
+            return isSimpleScalarProjection(expression.child(0));
+        }
+        if (!expression.getDataType().isPrimitive() || expression.getDataType().isVariantType()) {
+            return false;
+        }
+        if (expression instanceof SlotReference) {
+            SlotReference slot = (SlotReference) expression;
+            return !slot.hasSubColPath()
+                    && slot.getAllAccessPaths().map(List::isEmpty).orElse(true)
+                    && slot.getPredicateAccessPaths().map(List::isEmpty).orElse(true)
+                    && slot.getOriginalColumn().map(column -> column.getType().isScalarType()
+                            && !column.getType().isVariantType()).orElse(true);
+        }
+        return expression.isLiteral();
+    }
+
+    private boolean projectionMatchShortCircuitCondition(Plan root) {
+        // This decision precedes nested pruning and partition pruning. Restrict the fast path to
+        // scalar slots/literals, which cannot acquire nested or metadata-only access paths later.
+        // In particular, a scalar result such as s.a or length(v) is not a scalar slot projection.
+        // Uncertain expressions take the normal path; do not restart planning after pruning.
+        return root.getExpressions().stream().allMatch(this::isSimpleScalarProjection)
+                && (!(root.child(0) instanceof LogicalProject)
+                    || root.child(0).getExpressions().stream().allMatch(this::isSimpleScalarProjection));
+    }
 
     private Expression removeCast(Expression expression) {
         if (expression instanceof Cast) {
@@ -112,7 +142,8 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
             }
         }
         // set short circuit flag and modify nothing to the plan
-        if (olapTable.getBaseSchemaKeyColumns().size() <= colNames.size()) {
+        if (olapTable.getBaseSchemaKeyColumns().size() <= colNames.size()
+                && projectionMatchShortCircuitCondition(root)) {
             statementContext.setShortCircuitQuery(true);
         }
         return root;

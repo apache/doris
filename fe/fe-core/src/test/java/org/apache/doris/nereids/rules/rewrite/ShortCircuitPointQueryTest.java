@@ -80,6 +80,10 @@ class ShortCircuitPointQueryTest extends TestWithFeService
                 + "  \"light_schema_change\" = \"true\",\n"
                 + "  \"store_row_column\" = \"true\"\n"
                 + ");");
+        createTable("CREATE TABLE tbl_complex_point_query (k INT, v STRING, s STRUCT<a:INT,b:STRING>) "
+                + "UNIQUE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES "
+                + "('replication_num'='1', 'enable_unique_key_merge_on_write'='true', "
+                + "'light_schema_change'='true', 'store_row_column'='true')");
     }
 
     @Test
@@ -141,6 +145,31 @@ class ShortCircuitPointQueryTest extends TestWithFeService
                 + "where order_id = 1 and pay_date = '2026-08-05'");
 
         Assertions.assertFalse(connectContext.getStatementContext().isShortCircuitQuery());
+    }
+
+    @Test
+    void testReferencedComplexAndMetadataExpressionsUseNormalPath() {
+        boolean prune = connectContext.getSessionVariable().enablePruneNestedColumns;
+        try {
+            for (boolean enabled : new boolean[] {false, true}) {
+                connectContext.getSessionVariable().enablePruneNestedColumns = enabled;
+                for (String projection : new String[] {"s", "struct_element(s, 'a')", "length(v)",
+                        "v is null", "length(v) + 1"}) {
+                    rewrite("select " + projection + " from tbl_complex_point_query where k = 1");
+                    Assertions.assertFalse(connectContext.getStatementContext().isShortCircuitQuery(), projection);
+                }
+            }
+        } finally {
+            connectContext.getSessionVariable().enablePruneNestedColumns = prune;
+        }
+    }
+
+    @Test
+    void testUnusedComplexColumnDoesNotDisableScalarPointQuery() {
+        for (String projection : new String[] {"k", "v", "k as key_alias, v as value_alias", "1"}) {
+            rewrite("select " + projection + " from tbl_complex_point_query where k = 1");
+            Assertions.assertTrue(connectContext.getStatementContext().isShortCircuitQuery(), projection);
+        }
     }
 
     @Test
