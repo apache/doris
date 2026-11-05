@@ -118,6 +118,10 @@ struct GlobalMergeContext {
     Status reset(QueryContext* query_ctx);
 };
 
+std::shared_ptr<HandleErrorBrpcCallback<PSyncFilterSizeResponse>> make_merge_size_dispatch_callback(
+        std::weak_ptr<QueryContext> context,
+        std::shared_ptr<GlobalMergeContext::Completion> completion);
+
 // owned by RuntimeState
 // RuntimeFilterMgr will be destroyed when RuntimeState is destroyed
 class RuntimeFilterMgr {
@@ -229,6 +233,7 @@ private:
                            const int producer_size);
 
     Status _send_rf_to_target(GlobalMergeContext& cnt_val, std::weak_ptr<QueryContext> ctx,
+                              std::shared_ptr<GlobalMergeContext::Completion> completion,
                               int64_t merge_time, PUniqueId query_id, int execution_timeout,
                               const TQueryOptions& query_options);
 

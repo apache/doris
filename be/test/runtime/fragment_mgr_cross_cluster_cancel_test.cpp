@@ -49,7 +49,7 @@ public:
     }
 
     void TearDown() override {
-        if (_exec_env._fragment_mgr != nullptr) {
+        if (_exec_env._fragment_mgr != nullptr && !_fragment_mgr_stopped) {
             _exec_env._fragment_mgr->stop();
         }
         delete _exec_env._fragment_mgr;
@@ -60,6 +60,13 @@ public:
     }
 
 protected:
+    void stop_fragment_mgr_background() {
+        // These synthetic ownership tests drive cleanup themselves. Stop the eager
+        // cancel worker before publishing a partially initialized test context.
+        _exec_env.fragment_mgr()->stop();
+        _fragment_mgr_stopped = true;
+    }
+
     static TDescriptorTable _make_min_desc_tbl() {
         TDescriptorTableBuilder dtb;
         TTupleDescriptorBuilder tuple_builder;
@@ -84,6 +91,7 @@ protected:
     }
 
     ExecEnv _exec_env;
+    bool _fragment_mgr_stopped = false;
 };
 
 TEST_F(FragmentMgrCrossClusterCancelTest,
@@ -163,6 +171,7 @@ TEST_F(FragmentMgrCrossClusterCancelTest, CancelWorkerInvalidQueryDetectionSkips
 }
 
 TEST_F(FragmentMgrCrossClusterCancelTest, LocalOnlyRfMergeOwnerReleasedAfterLastFragmentOwner) {
+    stop_fragment_mgr_background();
     auto* fragment_mgr = _exec_env.fragment_mgr();
 
     TUniqueId query_id;
@@ -217,6 +226,7 @@ TEST_F(FragmentMgrCrossClusterCancelTest, LocalOnlyRfMergeOwnerReleasedAfterLast
 }
 
 TEST_F(FragmentMgrCrossClusterCancelTest, MissingSingleUseContractKeepsMergeOwnerForReset) {
+    stop_fragment_mgr_background();
     auto* fragment_mgr = _exec_env.fragment_mgr();
     TUniqueId query_id;
     query_id.__set_hi(709);
@@ -271,6 +281,7 @@ TEST_F(FragmentMgrCrossClusterCancelTest, MissingSingleUseContractKeepsMergeOwne
 }
 
 TEST_F(FragmentMgrCrossClusterCancelTest, RemoteRfRequiresSizeDispatchAndCallbackCompletion) {
+    stop_fragment_mgr_background();
     auto* fragment_mgr = _exec_env.fragment_mgr();
     TUniqueId query_id;
     query_id.__set_hi(711);
@@ -340,6 +351,7 @@ TEST(FragmentMgrDelayDeleteMapTest, ClearShouldNotAbortWhenReleasingLastQueryCon
     auto* exec_env = ExecEnv::GetInstance();
     auto* previous_fragment_mgr = exec_env->_fragment_mgr;
     exec_env->_fragment_mgr = new FragmentMgr(exec_env);
+    exec_env->_fragment_mgr->stop();
 
     TUniqueId query_id;
     query_id.__set_hi(101);
@@ -361,7 +373,6 @@ TEST(FragmentMgrDelayDeleteMapTest, ClearShouldNotAbortWhenReleasingLastQueryCon
     query_ctx.reset();
 
     exec_env->_fragment_mgr->_query_ctx_map_delay_delete.clear();
-    exec_env->_fragment_mgr->stop();
     delete exec_env->_fragment_mgr;
     exec_env->_fragment_mgr = previous_fragment_mgr;
 }
@@ -370,6 +381,7 @@ TEST(FragmentMgrDelayDeleteMapTest, EraseReleasesLastQueryContextRefOutsideLock)
     auto* exec_env = ExecEnv::GetInstance();
     auto* previous_fragment_mgr = exec_env->_fragment_mgr;
     exec_env->_fragment_mgr = new FragmentMgr(exec_env);
+    exec_env->_fragment_mgr->stop();
     TUniqueId query_id;
     query_id.__set_hi(103);
     query_id.__set_lo(204);
@@ -389,7 +401,6 @@ TEST(FragmentMgrDelayDeleteMapTest, EraseReleasesLastQueryContextRefOutsideLock)
 
     EXPECT_TRUE(exec_env->_fragment_mgr->_query_ctx_map_delay_delete.erase(query_id));
     EXPECT_TRUE(weak_query_ctx.expired());
-    exec_env->_fragment_mgr->stop();
     delete exec_env->_fragment_mgr;
     exec_env->_fragment_mgr = previous_fragment_mgr;
 }
