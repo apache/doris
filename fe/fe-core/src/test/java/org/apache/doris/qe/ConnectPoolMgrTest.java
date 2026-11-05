@@ -179,6 +179,55 @@ public class ConnectPoolMgrTest {
                 none.limitReachedMessage(ConnectPoolTestSupport.mysqlConnection(env, ALICE), 0));
     }
 
+    // A connection's identity can change while it lives: SU (and SU ... WITH ROLES) and COM_CHANGE_USER
+    // both swap the context's current user. The per-user counter must be released for the user it was
+    // taken for at registration; decrementing the user the connection is at close time leaked one slot
+    // of the original user per switched connection, until max_user_connections refused every login
+    // with no session of that user left (and the target user's counter went negative).
+    @Test
+    public void testAConnectionThatSwitchedUserReleasesTheCounterItTookAtRegistration() {
+        Env env = ConnectPoolTestSupport.envAllowing(3);
+        ConnectPoolMgr pool = new ConnectPoolMgr(100);
+        for (int round = 0; round < 3; round++) {
+            for (int i = 0; i < 3; i++) {
+                ConnectContext ctx = registered(pool, ConnectPoolTestSupport.mysqlConnection(env, ALICE),
+                        10 * round + i);
+                ctx.setCurrentUserIdentity(BOB);
+                pool.unregisterConnection(ctx);
+            }
+            Assertions.assertEquals(0, pool.getUserConnectionMap().get(ALICE.getQualifiedUser()).get());
+            Assertions.assertNull(pool.getUserConnectionMap().get(BOB.getQualifiedUser()));
+            Assertions.assertEquals(0, pool.getConnectionNum());
+        }
+        // The user can still open as many connections as the limit allows - and one more is refused.
+        for (int i = 0; i < 3; i++) {
+            registered(pool, ConnectPoolTestSupport.mysqlConnection(env, ALICE), 100 + i);
+        }
+        ConnectContext fourth = ConnectPoolTestSupport.mysqlConnection(env, ALICE);
+        fourth.setConnectionId(103);
+        Assertions.assertEquals(3, pool.registerConnection(fourth));
+    }
+
+    // The refusal names the user's own count when it is the user's limit that was reached: the
+    // frontend's total ("Current") alone reads as headroom the user does not have.
+    @Test
+    public void testTheRefusalNamesTheUsersCountWhenTheUsersLimitIsReached() {
+        Env env = ConnectPoolTestSupport.envAllowing(2);
+        ConnectPoolMgr pool = new ConnectPoolMgr(100);
+        registered(pool, ConnectPoolTestSupport.mysqlConnection(env, ALICE), 1);
+        registered(pool, ConnectPoolTestSupport.mysqlConnection(env, ALICE), 2);
+        registered(pool, ConnectPoolTestSupport.mysqlConnection(env, BOB), 3);
+        ConnectContext third = ConnectPoolTestSupport.mysqlConnection(env, ALICE);
+        third.setConnectionId(4);
+        int res = pool.registerConnection(third);
+        Assertions.assertEquals(3, res);
+        Assertions.assertEquals("Reach limit of connections. Total: 100, User: 2, Current: 3, User current: 2",
+                pool.limitReachedMessage(third, res));
+        // A user below the limit is not told a count of its own.
+        Assertions.assertEquals("Reach limit of connections. Total: 100, User: 2, Current: 3",
+                pool.limitReachedMessage(ConnectPoolTestSupport.mysqlConnection(env, CAROL), res));
+    }
+
     // Arrow Flight SQL keeps a query's coordinator alive across GetFlightInfo -> DoGet (see #62259).
     // unregisterConnection() is the catch-all teardown path: the idle timeout (wait_timeout), bearer
     // token expiry or eviction, CloseSession and a KILL CONNECTION from another connection all reach

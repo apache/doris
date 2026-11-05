@@ -60,6 +60,10 @@ public class ConnectPoolMgr {
     private final AtomicInteger numberFlightConnection = new AtomicInteger(0);
     protected final Map<Integer, ConnectContext> connectionMap = Maps.newConcurrentMap();
     protected final Map<String, AtomicInteger> connByUser = Maps.newConcurrentMap();
+    // connection id -> the user whose max_user_connections counter registerConnection incremented.
+    // The connection's identity can change while it lives (SU, COM_CHANGE_USER), so unregister must
+    // release the counter it took, not the one of whoever the connection is at close time.
+    private final Map<Integer, String> countedUser = Maps.newConcurrentMap();
     // Arrow Flight SQL: peer identity (bearer token) -> connection id
     private final Map<String, Integer> peerIdentity2ConnectionId = Maps.newConcurrentMap();
     // Serializes the check-and-reserve of the pool/Flight/user quotas in registerConnection, so a
@@ -139,6 +143,7 @@ public class ConnectPoolMgr {
                 numberFlightConnection.incrementAndGet();
             }
             conns.incrementAndGet();
+            countedUser.put(ctx.getConnectionId(), qualifiedUser);
             connectionMap.put(ctx.getConnectionId(), ctx);
             if (flight) {
                 peerIdentity2ConnectionId.put(ctx.getPeerIdentity(), ctx.getConnectionId());
@@ -153,12 +158,19 @@ public class ConnectPoolMgr {
      * sub-quota and its usage are named whenever Flight sessions hold part of the pool - a MySQL
      * client refused by a pool that Flight sessions filled is told where the connections went -
      * and to a Flight client also when the sub-quota is tighter than the pool's limit, since then
-     * it can be the one that was reached.
+     * it can be the one that was reached. {@code Current} is the frontend's total; when it is the
+     * user's own limit that was reached, the user's count is named as well, since the total alone
+     * reads as headroom that the user does not have.
      */
     public String limitReachedMessage(ConnectContext ctx, int current) {
         long userLimit = ctx.getEnv().getAuth().getMaxConn(ctx.getQualifiedUser());
         String message = String.format("Reach limit of connections. Total: %d, User: %d, Current: %d",
                 maxConnections, userLimit, current);
+        AtomicInteger userConns = connByUser.get(ctx.getQualifiedUser());
+        int userCurrent = userConns == null ? 0 : userConns.get();
+        if (userCurrent >= userLimit) {
+            message += String.format(", User current: %d", userCurrent);
+        }
         int flightCurrent = numberFlightConnection.get();
         if (flightCurrent > 0 || (isFlight(ctx) && flightMaxConnections < maxConnections)) {
             message += String.format(", Arrow Flight SQL: %d (current: %d)", flightMaxConnections, flightCurrent);
@@ -174,7 +186,10 @@ public class ConnectPoolMgr {
         ctx.releaseProtocolSession();
         ctx.closeTxn();
         if (connectionMap.remove(ctx.getConnectionId()) != null) {
-            AtomicInteger conns = connByUser.get(ctx.getQualifiedUser());
+            // The user counted at registration: after SU or COM_CHANGE_USER ctx names another user,
+            // and decrementing that one leaked a slot of the original user per switched connection.
+            String user = countedUser.remove(ctx.getConnectionId());
+            AtomicInteger conns = connByUser.get(user != null ? user : ctx.getQualifiedUser());
             if (conns != null) {
                 conns.decrementAndGet();
             }

@@ -88,10 +88,11 @@ public class ConnectionExceedTest {
             AcceptListener listener = new AcceptListener(scheduler);
             listener.handleConnection(context3, mockConnection);
             String expectedMsg = String.format(
-                    "Reach limit of connections. Total: %d, User: %d, Current: %d",
+                    "Reach limit of connections. Total: %d, User: %d, Current: %d, User current: %d",
                     scheduler.getConnectPoolMgr().getMaxConnections(),
                     2, // Mocked user connection limit
-                    scheduler.getConnectionNum());
+                    scheduler.getConnectionNum(),
+                    2); // the user's own count, which is what refused it
             Assertions.assertEquals(expectedMsg, context3.getState().getErrorMessage());
             Assertions.assertEquals(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS, context3.getState().getErrorCode());
         }
