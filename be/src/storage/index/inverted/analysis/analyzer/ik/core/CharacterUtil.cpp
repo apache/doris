@@ -73,11 +73,11 @@ void CharacterUtil::TypedRune::regularize(bool use_lowercase) {
 }
 
 CharacterUtil::RuneStrLite CharacterUtil::decodeChar(const char* str, size_t length) {
-    return cppjieba::DecodeRuneInString(str, length);
+    return inverted_index::decode_rune(str, length);
 }
 
 bool CharacterUtil::decodeString(const char* str, size_t length, RuneStrArray& runes) {
-    return cppjieba::DecodeRunesInString(str, length, runes);
+    return inverted_index::decode_runes(str, length, runes);
 }
 
 void CharacterUtil::decodeStringToRunes(char* str, size_t length, TypedRuneArray& typed_runes,
