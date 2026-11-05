@@ -45,6 +45,7 @@
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
+#include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
@@ -52,6 +53,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "core/field.h"
 #include "core/types.h"
 #include "core/value/bitmap_value.h"
@@ -312,6 +314,40 @@ struct BitmapFromBase64 {
         return Status::OK();
     }
 };
+struct NameBitmapFromBinary {
+    static constexpr auto name = "bitmap_from_binary";
+};
+struct BitmapFromBinary {
+    using ArgumentType = DataTypeVarbinary;
+
+    static constexpr auto name = "bitmap_from_binary";
+
+    // Deserialize Doris bitmap serialized bytes (see BitmapTypeCode) into a BitmapValue.
+    // The input column is ColumnVarbinary (e.g. a hive BINARY column read through a catalog
+    // with enable.mapping.varbinary=true, or the output of bitmap_to_binary), whose bytes
+    // are user controlled, so the bounded valid_and_deserialize is used and an invalid or
+    // truncated payload yields NULL instead of reading out of bounds.
+    static Status vector(const ColumnVarbinary::Container& data, std::vector<BitmapValue>& res,
+                         NullMap& null_map, size_t input_rows_count) {
+        res.reserve(input_rows_count);
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            const auto& src_value = data[i];
+            if (src_value.size() == 0) {
+                res.emplace_back();
+                null_map[i] = 1;
+                continue;
+            }
+            BitmapValue bitmap_val;
+            if (!bitmap_val.valid_and_deserialize(src_value.data(), src_value.size())) {
+                res.emplace_back();
+                null_map[i] = 1;
+            } else {
+                res.emplace_back(std::move(bitmap_val));
+            }
+        }
+        return Status::OK();
+    }
+};
 struct BitmapFromArray {
     using ArgumentType = DataTypeArray;
     static constexpr auto name = "bitmap_from_array";
@@ -381,6 +417,10 @@ public:
             const ColumnString::Chars& data = str_column.get_chars();
             const ColumnString::Offsets& offsets = str_column.get_offsets();
             RETURN_IF_ERROR(Impl::vector(data, offsets, res, null_map, input_rows_count));
+        } else if constexpr (std::is_same_v<typename Impl::ArgumentType, DataTypeVarbinary>) {
+            const auto& binary_column = static_cast<const ColumnVarbinary&>(*argument_column);
+            RETURN_IF_ERROR(
+                    Impl::vector(binary_column.get_data(), res, null_map, input_rows_count));
         } else if constexpr (std::is_same_v<typename Impl::ArgumentType, DataTypeArray>) {
             auto argument_type = remove_nullable(
                     assert_cast<const DataTypeArray&>(*block.get_by_position(arguments[0]).type)
@@ -979,6 +1019,58 @@ struct BitmapToBase64 {
     }
 };
 
+struct NameBitmapToBinary {
+    static constexpr auto name = "bitmap_to_binary";
+};
+
+class FunctionBitmapToBinary : public IFunction {
+public:
+    static constexpr auto name = NameBitmapToBinary::name;
+
+    static FunctionPtr create() { return std::make_shared<FunctionBitmapToBinary>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeVarbinary>();
+    }
+
+    // Serialize each BitmapValue with BitmapValue::write_to and return the raw bytes as
+    // VARBINARY. This is the byte-level counterpart of bitmap_to_base64, meant for exporting
+    // bitmaps into binary file formats (parquet/orc) or hive BINARY columns. The output is
+    // not nullable: bitmap_to_binary(NULL) is handled by the default NULL propagation
+    // (use_default_implementation_for_nulls), same as bitmap_to_base64.
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto& col_ptr = block.get_by_position(arguments[0]).column;
+        if (const auto* col = check_and_get_column<ColumnBitmap>(col_ptr.get())) {
+            auto col_res = ColumnVarbinary::create();
+            const auto& data = col->get_data();
+            // Serialize into a reusable buffer; each value is bounded by its own getSizeInBytes()
+            // and the destination StringView is filled by insert_data (inline vs arena).
+            std::string ser_buff;
+            size_t last_ser_size = 0;
+            for (size_t i = 0; i < data.size(); ++i) {
+                size_t cur_ser_size = data[i].getSizeInBytes();
+                if (cur_ser_size > last_ser_size) {
+                    ser_buff.resize(cur_ser_size);
+                    last_ser_size = cur_ser_size;
+                }
+                data[i].write_to(ser_buff.data());
+                col_res->insert_data(ser_buff.data(), cur_ser_size);
+            }
+            block.replace_by_position(result, std::move(col_res));
+        } else {
+            return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                        block.get_by_position(arguments[0]).column->get_name(),
+                                        get_name());
+        }
+        return Status::OK();
+    }
+};
+
 struct SubBitmap {
     static constexpr auto name = "sub_bitmap";
     using TData1 = std::vector<BitmapValue>;
@@ -1200,6 +1292,7 @@ using FunctionBitmapMax = FunctionBitmapSingle<FunctionBitmapMaxImpl>;
 using FunctionBitmapToString = FunctionUnaryToType<BitmapToString, NameBitmapToString>;
 using FunctionBitmapToBase64 = FunctionUnaryToType<BitmapToBase64, NameBitmapToBase64>;
 using FunctionBitmapFromBase64 = FunctionBitmapAlwaysNull<BitmapFromBase64>;
+using FunctionBitmapFromBinary = FunctionBitmapAlwaysNull<BitmapFromBinary>;
 using FunctionBitmapNot =
         FunctionBinaryToType<DataTypeBitMap, DataTypeBitMap, BitmapNot, NameBitmapNot>;
 using FunctionBitmapContains =
@@ -1222,6 +1315,8 @@ void register_function_bitmap(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionBitmapFromString>();
     factory.register_function<FunctionBitmapToBase64>();
     factory.register_function<FunctionBitmapFromBase64>();
+    factory.register_function<FunctionBitmapToBinary>();
+    factory.register_function<FunctionBitmapFromBinary>();
     factory.register_function<FunctionBitmapFromArray>();
     factory.register_function<FunctionBitmapHash>();
     factory.register_function<FunctionBitmapHash64>();

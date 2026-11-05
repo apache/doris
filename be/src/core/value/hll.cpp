@@ -216,7 +216,11 @@ bool HyperLogLog::is_valid(const Slice& slice) {
     }
     const auto* ptr = reinterpret_cast<const uint8_t*>(slice.data);
     const auto* end = ptr + slice.size;
-    auto type = (HllDataType)*ptr++;
+    // Keep the type byte as a plain uint8_t until it is known to be one of the HllDataType
+    // values. The payload is user controlled (hll_from_binary / hll_from_base64), so casting
+    // an arbitrary byte to HllDataType first would materialize an out-of-range enum value,
+    // which is undefined behavior (and is reported by -fsanitize=enum).
+    const uint8_t type = *ptr++;
     switch (type) {
     case HLL_DATA_EMPTY:
         break;
@@ -290,8 +294,9 @@ bool HyperLogLog::deserialize(const Slice& slice) {
     }
 
     const uint8_t* ptr = (uint8_t*)slice.data;
-    // first byte : type
-    _type = (HllDataType)*ptr++;
+    // first byte : type. is_valid() above already rejected every byte that is not one of the
+    // HllDataType values, so this conversion can never produce an out-of-range enum value.
+    _type = static_cast<HllDataType>(*ptr++);
     switch (_type) {
     case HLL_DATA_EMPTY:
         break;
