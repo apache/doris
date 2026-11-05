@@ -20,9 +20,12 @@
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <google/protobuf/descriptor.pb.h>
+#include <google/protobuf/dynamic_message.h>
 #include <gtest/gtest.h>
 
 #include <set>
+#include <tuple>
 #include <vector>
 
 #include "agent/be_exec_version_manager.h"
@@ -1180,6 +1183,59 @@ TEST_F(TabletSchemaTest, EscapedVariantPropertyAndIndexSuffixRoundTrip) {
     ASSERT_NE(schema.ann_index(array), nullptr);
     EXPECT_EQ(schema.ann_index(array)->index_id(), 71);
     EXPECT_EQ(schema.ann_index(7, "v.a%2Eb_x"), schema.ann_index(array));
+}
+
+TEST_F(TabletSchemaTest, MasterPersistedEncodingGoldenBytes) {
+    // ColumnPB 36 is a0 02 01; compare the shared identity/property wire
+    // projection after a TabletColumn round trip (master has additional layouts).
+    const auto golden = std::string("\x08\x07\x12\x01v\x1a\x07VARIANT\xa0\x02\x01", 17);
+    ColumnPB pb;
+    ASSERT_TRUE(pb.ParseFromString(golden));
+    TabletColumn column(pb);
+    EXPECT_TRUE(column.variant_escape_dots_in_keys());
+    ColumnPB restored;
+    column.to_schema_pb(&restored);
+    EXPECT_TRUE(TabletColumn(restored).variant_escape_dots_in_keys());
+    auto projection = restored;
+    for (int i = 0; i < projection.GetDescriptor()->field_count(); ++i) {
+        const auto* field = projection.GetDescriptor()->field(i);
+        if (field->number() != 1 && field->number() != 2 && field->number() != 3 &&
+            field->number() != 36) {
+            projection.GetReflection()->ClearField(&projection, field);
+        }
+    }
+    EXPECT_EQ(projection.SerializeAsString(), golden);
+
+    // Simulate an old meta-service descriptor: field 36 is unknown but protobuf
+    // retains it through parse/copy/serialize, so dictionary dedup keys differ.
+    google::protobuf::FileDescriptorProto file;
+    file.set_name("compat_old_column.proto");
+    file.set_syntax("proto2");
+    auto* message = file.add_message_type();
+    message->set_name("OldColumn");
+    for (const auto& [number, name, type] :
+         std::vector<std::tuple<int, const char*, google::protobuf::FieldDescriptorProto::Type>> {
+                 {1, "unique_id", google::protobuf::FieldDescriptorProto::TYPE_INT32},
+                 {2, "name", google::protobuf::FieldDescriptorProto::TYPE_STRING},
+                 {3, "type", google::protobuf::FieldDescriptorProto::TYPE_STRING}}) {
+        auto* field = message->add_field();
+        field->set_number(number);
+        field->set_name(name);
+        field->set_type(type);
+        field->set_label(google::protobuf::FieldDescriptorProto::LABEL_OPTIONAL);
+    }
+    google::protobuf::DescriptorPool pool;
+    auto* descriptor = pool.BuildFile(file);
+    ASSERT_NE(descriptor, nullptr);
+    google::protobuf::DynamicMessageFactory factory;
+    auto old = std::unique_ptr<google::protobuf::Message>(
+            factory.GetPrototype(descriptor->message_type(0))->New());
+    ASSERT_TRUE(old->ParseFromString(golden));
+    auto copied = std::unique_ptr<google::protobuf::Message>(old->New());
+    copied->CopyFrom(*old);
+    EXPECT_EQ(copied->SerializeAsString(), golden);
+    pb.clear_variant_escape_dots_in_keys();
+    EXPECT_NE(copied->SerializeAsString(), pb.SerializeAsString());
 }
 
 } // namespace doris

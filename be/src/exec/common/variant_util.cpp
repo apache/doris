@@ -673,6 +673,7 @@ MutableColumnPtr create_variant_binary_column() {
                              ColumnArray::ColumnOffsets::create());
 }
 
+// Sparse/doc compaction read columns use the same path codec as their owning root.
 TabletColumn create_sparse_column(const TabletColumn& variant) {
     TabletColumn res;
     res.set_name(variant.name_lower_case() + "." + SPARSE_COLUMN_PATH);
@@ -680,6 +681,7 @@ TabletColumn create_sparse_column(const TabletColumn& variant) {
     res.set_aggregation_method(variant.aggregation());
     res.set_path_info(PathInData {variant.name_lower_case() + "." + SPARSE_COLUMN_PATH});
     res.set_parent_unique_id(variant.unique_id());
+    res.set_variant_escape_dots_in_keys(variant.variant_escape_dots_in_keys());
     res.set_default_value("{}");
     TabletColumn child_tcolumn;
     child_tcolumn.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
@@ -696,6 +698,7 @@ TabletColumn create_sparse_shard_column(const TabletColumn& variant, int bucket_
     res.set_type(FieldType::OLAP_FIELD_TYPE_MAP);
     res.set_aggregation_method(variant.aggregation());
     res.set_parent_unique_id(variant.unique_id());
+    res.set_variant_escape_dots_in_keys(variant.variant_escape_dots_in_keys());
     res.set_default_value("{}");
     PathInData path(name);
     res.set_path_info(path);
@@ -714,6 +717,7 @@ TabletColumn create_doc_value_column(const TabletColumn& variant, int bucket_ind
     res.set_type(FieldType::OLAP_FIELD_TYPE_MAP);
     res.set_aggregation_method(variant.aggregation());
     res.set_parent_unique_id(variant.unique_id());
+    res.set_variant_escape_dots_in_keys(variant.variant_escape_dots_in_keys());
     res.set_default_value("{}");
     res.set_path_info(PathInData {name});
 
@@ -732,6 +736,7 @@ TabletColumn create_doc_value_compaction_column(const TabletColumn& variant, int
     res.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
     res.set_aggregation_method(variant.aggregation());
     res.set_parent_unique_id(variant.unique_id());
+    res.set_variant_escape_dots_in_keys(variant.variant_escape_dots_in_keys());
     res.set_path_info(PathInData {name});
     res.set_is_nullable(true);
     res.set_variant_enable_doc_mode(true);
@@ -747,6 +752,27 @@ uint32_t variant_binary_shard_of(const StringRef& path, uint32_t bucket_num) {
     hash.update(path.data, path.size);
     uint64_t h = hash.get64();
     return static_cast<uint32_t>(h % bucket_num);
+}
+
+Status check_variant_schema_compatibility(const TabletSchema& ori_schema,
+                                          const TabletSchema& new_schema) {
+    for (const auto& column : ori_schema.columns()) {
+        if (!column->is_variant_type() || column->is_extracted_column()) {
+            continue;
+        }
+        const auto position = new_schema.field_index(column->unique_id());
+        // Dropping a root and adding another UID does not reinterpret its existing rowsets.
+        if (position < 0) {
+            continue;
+        }
+        const auto& new_column = new_schema.column(position);
+        // An old FE omits the flag; accepting its request would flip an escaped root back to legacy.
+        if (column->variant_escape_dots_in_keys() != new_column.variant_escape_dots_in_keys()) {
+            return Status::NotSupported("Can not change variant_escape_dots_in_keys for column {}",
+                                        column->name());
+        }
+    }
+    return Status::OK();
 }
 
 Status VariantCompactionUtil::check_path_encoding(const std::vector<RowsetSharedPtr>& inputs,

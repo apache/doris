@@ -113,6 +113,11 @@ public:
     int64_t get_metadata_size() const override;
     void update_metadata_size();
 
+    // Validate the requested root encoding against physical metadata, including when a projected
+    // path is the only read column. Legacy requests over legacy schemas do no additional I/O.
+    Status check_variant_path_encoding(const TabletColumn& read_column, OlapReaderStatistics* stats,
+                                       const io::IOContext* io_ctx = nullptr);
+
     Status new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& read_options,
                         std::unique_ptr<RowwiseIterator>* iter);
 

@@ -1000,6 +1000,10 @@ Status RowIdStorageReader::read_doris_format_row(
         io_ctx.reader_type = ReaderType::READER_QUERY;
         io_ctx.file_cache_stats = &stats.file_cache_stats;
         io_ctx.file_cache_miss_policy = file_cache_miss_policy;
+        // Row-store fetch bypasses column iterators; validate the request's column descriptors here.
+        for (const auto& column : fetch_columns) {
+            RETURN_IF_ERROR(segment->check_variant_path_encoding(column, &stats, &io_ctx));
+        }
         for (auto row_id : row_ids) {
             RowLocation loc(rowset_id, segment->id(), cast_set<uint32_t>(row_id));
             row_store_read_struct.row_store_buffer.clear();

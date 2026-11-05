@@ -106,6 +106,10 @@ struct ExtraInfo {
 TabletColumn get_column_by_type(const DataTypePtr& data_type, const std::string& name,
                                 const ExtraInfo& ext_info);
 
+// A retained Variant UID cannot change storage path encoding. New column identities are allowed.
+Status check_variant_schema_compatibility(const TabletSchema& ori_schema,
+                                          const TabletSchema& new_schema);
+
 // check if the tuple_paths has ambiguous paths
 // situation:
 // throw exception if there exists a prefix with matched names, but not matched structure (is Nested, number of dimensions).

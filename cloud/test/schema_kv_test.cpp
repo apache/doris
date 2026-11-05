@@ -1109,4 +1109,52 @@ TEST(AlterSchemaKVTest, BlobRemoveBeforeOverwriteTest) {
     }
 }
 
+// The BE dictionary cache was removed on master. Exercise its actual dictionary
+// writer and expansion path in the meta-service, backed by the fixture's MemTxnKv.
+TEST(DetachSchemaKVTest, EscapePropertyIsPartOfDedupKeyAndSurvivesExpansion) {
+    auto service = get_meta_service();
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ColumnPB legacy;
+    legacy.set_unique_id(-1);
+    legacy.set_name("v.a");
+    legacy.set_type("VARIANT");
+    legacy.set_variant_escape_dots_in_keys(false);
+    auto escaped = legacy;
+    escaped.set_variant_escape_dots_in_keys(true);
+    google::protobuf::RepeatedPtrField<RowsetMetaCloudPB> rowsets;
+    MetaServiceCode code = MetaServiceCode::OK;
+    std::string message;
+    for (const auto& column : {legacy, escaped, legacy, escaped}) {
+        auto* rowset = rowsets.Add();
+        rowset->set_rowset_id(0);
+        rowset->set_index_id(69995);
+        *rowset->mutable_tablet_schema()->add_column() = column;
+        write_schema_dict(code, message, instance_id, txn.get(), rowset);
+        ASSERT_EQ(code, MetaServiceCode::OK) << message;
+        EXPECT_EQ(rowset->tablet_schema().column_size(), 0);
+        ASSERT_EQ(rowset->schema_dict_key_list().column_dict_key_list_size(), 1);
+    }
+    const auto key = [&](int i) {
+        return rowsets.Get(i).schema_dict_key_list().column_dict_key_list(0);
+    };
+    EXPECT_NE(key(0), key(1));
+    EXPECT_EQ(key(0), key(2));
+    EXPECT_EQ(key(1), key(3));
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    SchemaCloudDictionary dictionary;
+    read_schema_dict(code, message, instance_id, 69995, txn.get(), &rowsets, &dictionary,
+                     GetRowsetRequest::RETURN_DICT);
+    ASSERT_EQ(code, MetaServiceCode::OK) << message;
+    ASSERT_EQ(dictionary.column_dict_size(), 2);
+    read_schema_dict(code, message, instance_id, 69995, txn.get(), &rowsets, nullptr);
+    ASSERT_EQ(code, MetaServiceCode::OK) << message;
+    for (int i = 0; i < rowsets.size(); ++i) {
+        ASSERT_EQ(rowsets.Get(i).tablet_schema().column_size(), 1);
+        EXPECT_EQ(rowsets.Get(i).tablet_schema().column(0).SerializeAsString(),
+                  (i % 2 == 0 ? legacy : escaped).SerializeAsString());
+    }
+}
+
 } // namespace doris::cloud
