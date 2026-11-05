@@ -64,7 +64,7 @@ const std::string AAD = "synthetic-file-aad";
 std::vector<uint8_t> encrypted_file(
         bool dictionary = true,
         ::parquet::ParquetDataPageVersion page_version = ::parquet::ParquetDataPageVersion::V1,
-        const std::string& key = KEY) {
+        const std::string& key = KEY, bool plaintext_footer = false) {
     auto sink = ::arrow::io::BufferOutputStream::Create().ValueOrDie();
     auto schema = ::parquet::schema::GroupNode::Make(
             "schema", ::parquet::Repetition::REQUIRED,
@@ -73,6 +73,9 @@ std::vector<uint8_t> encrypted_file(
     ::parquet::FileEncryptionProperties::Builder encryption {
             ::arrow::util::SecureString(std::string(key))};
     encryption.aad_prefix(AAD)->disable_aad_prefix_storage();
+    if (plaintext_footer) {
+        encryption.set_plaintext_footer();
+    }
     ::parquet::WriterProperties::Builder properties;
     properties.encryption(encryption.build())
             ->compression(::parquet::Compression::SNAPPY)
@@ -134,12 +137,11 @@ private:
     size_t _read_count = 0;
 };
 
-std::vector<uint8_t> java_fixture() {
+std::vector<uint8_t> java_fixture(const std::string& name = "iceberg_java.parquet") {
     const char* root = std::getenv("ROOT");
     DORIS_CHECK(root != nullptr);
     std::ifstream input(
-            std::string(root) +
-                    "/be/test/format_v2/parquet/test_data/encryption/iceberg_java.parquet",
+            std::string(root) + "/be/test/format_v2/parquet/test_data/encryption/" + name,
             std::ios::binary);
     DORIS_CHECK(input.good());
     return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
@@ -196,6 +198,141 @@ TEST(ParquetEncryptionTest, RejectsAmplifiedNativeContainersBeforeResize) {
     auto status = deserialize_crypto_metadata(std::span(bytes, size), &consumed, &parsed);
     EXPECT_FALSE(status.ok());
     EXPECT_TRUE(parsed.schema.empty());
+}
+
+tparquet::FileCryptoMetaData crypto_metadata() {
+    tparquet::AesGcmV1 aes;
+    aes.__set_aad_file_unique("12345678");
+    aes.__set_supply_aad_prefix(true);
+    tparquet::EncryptionAlgorithm algorithm;
+    algorithm.__set_AES_GCM_V1(aes);
+    tparquet::FileCryptoMetaData metadata;
+    metadata.__set_encryption_algorithm(algorithm);
+    return metadata;
+}
+
+TEST(ParquetEncryptionTest, DescriptorFieldsAreValidatedBeforeCryptoSetup) {
+    const auto metadata = crypto_metadata();
+    for (int failure = 0; failure < 6; ++failure) {
+        auto info = parameters();
+        switch (failure) {
+        case 0:
+            info.__isset.version = false;
+            break;
+        case 1:
+            info.version = 9;
+            break;
+        case 2:
+            info.__isset.key = false;
+            break;
+        case 3:
+            info.key.resize(33);
+            break;
+        case 4:
+            info.__isset.aad_prefix = false;
+            break;
+        case 5:
+            info.aad_prefix.resize(65537);
+            break;
+        }
+        std::shared_ptr<ParquetFileCrypto> crypto;
+        auto status = ParquetFileCrypto::create(info, metadata, &crypto);
+        EXPECT_NE(status.to_string().find("[INVALID_DESCRIPTOR]"), std::string::npos) << status;
+        EXPECT_EQ(crypto, nullptr);
+    }
+}
+
+TEST(ParquetEncryptionTest, CipherAndFileAadPoliciesRejectUnsupportedMetadata) {
+    for (int failure = 0; failure < 5; ++failure) {
+        auto metadata = crypto_metadata();
+        auto info = parameters();
+        const char* expected = "[INVALID_FILE_AAD]";
+        switch (failure) {
+        case 0:
+            metadata.encryption_algorithm.__isset.AES_GCM_V1 = false;
+            expected = "[UNSUPPORTED_CIPHER]";
+            break;
+        case 1:
+            metadata.encryption_algorithm.__set_AES_GCM_CTR_V1(tparquet::AesGcmCtrV1());
+            expected = "[UNSUPPORTED_CIPHER]";
+            break;
+        case 2:
+            metadata.encryption_algorithm.AES_GCM_V1.__isset.aad_file_unique = false;
+            break;
+        case 3:
+            metadata.encryption_algorithm.AES_GCM_V1.aad_file_unique.resize(7);
+            break;
+        case 4:
+            info.aad_prefix.clear();
+            expected = "[MISSING_AAD]";
+            break;
+        }
+        std::shared_ptr<ParquetFileCrypto> crypto;
+        auto status = ParquetFileCrypto::create(info, metadata, &crypto);
+        EXPECT_NE(status.to_string().find(expected), std::string::npos) << status;
+        EXPECT_EQ(crypto, nullptr);
+    }
+}
+
+TEST(ParquetEncryptionTest, StoredAndExternalAadPrefixesCannotDisagree) {
+    auto metadata = crypto_metadata();
+    metadata.encryption_algorithm.AES_GCM_V1.__set_aad_prefix("different-file-aad");
+    std::shared_ptr<ParquetFileCrypto> crypto;
+    auto status = ParquetFileCrypto::create(parameters(), metadata, &crypto);
+    EXPECT_NE(status.to_string().find("[AAD_MISMATCH]"), std::string::npos) << status;
+    metadata.encryption_algorithm.AES_GCM_V1.__set_aad_prefix("");
+    metadata.encryption_algorithm.AES_GCM_V1.__set_supply_aad_prefix(false);
+    status = ParquetFileCrypto::create(parameters(), metadata, &crypto);
+    EXPECT_NE(status.to_string().find("[AAD_MISMATCH]"), std::string::npos) << status;
+}
+
+TEST(ParquetEncryptionTest, PlaintextFilesRejectEncryptionParameters) {
+    auto bytes = java_fixture("iceberg_java_plain.parquet");
+    auto info = parameters();
+    ParquetFileContext context;
+    io::FileDescription description;
+    auto status = context.open(std::make_shared<EncryptionMemoryReader>(bytes), nullptr, true,
+                               description, false, false, false, &info);
+    EXPECT_NE(status.to_string().find("[ENCRYPTED_FOOTER_REQUIRED]"), std::string::npos) << status;
+    ParquetFileContext plain;
+    ASSERT_TRUE(
+            plain.open(std::make_shared<EncryptionMemoryReader>(bytes), nullptr, true, description)
+                    .ok());
+    EXPECT_EQ(plain.native_metadata->to_thrift().num_rows, 8);
+    EXPECT_EQ(plain.native_metadata->encryption(), nullptr);
+    ASSERT_TRUE(plain.close().ok());
+}
+
+TEST(ParquetEncryptionTest, SeparateColumnKeysAndOrdinalBoundsAreRejected) {
+    tparquet::ColumnChunk column;
+    EXPECT_TRUE(ParquetFileCrypto::validate_column(column, 0, 0).ok());
+    tparquet::ColumnCryptoMetaData crypto;
+    crypto.__set_ENCRYPTION_WITH_FOOTER_KEY(tparquet::EncryptionWithFooterKey());
+    column.__set_crypto_metadata(crypto);
+    EXPECT_TRUE(ParquetFileCrypto::validate_column(column, 32767, 32767).ok());
+    for (auto [row, col] :
+         std::vector<std::pair<int, int>> {{-1, 0}, {0, -1}, {32768, 0}, {0, 32768}}) {
+        auto status = ParquetFileCrypto::validate_column(column, row, col);
+        EXPECT_NE(status.to_string().find("[ORDINAL_OUT_OF_RANGE]"), std::string::npos) << status;
+    }
+    column.crypto_metadata.__set_ENCRYPTION_WITH_COLUMN_KEY(tparquet::EncryptionWithColumnKey());
+    auto status = ParquetFileCrypto::validate_column(column, 0, 0);
+    EXPECT_NE(status.to_string().find("[COLUMN_KEY_UNSUPPORTED]"), std::string::npos) << status;
+    column.__isset.crypto_metadata = false;
+    column.__set_encrypted_column_metadata("opaque-encrypted-column-metadata");
+    status = ParquetFileCrypto::validate_column(column, 0, 0);
+    EXPECT_NE(status.to_string().find("[COLUMN_KEY_UNSUPPORTED]"), std::string::npos) << status;
+}
+
+TEST(ParquetEncryptionTest, OversizedFooterLengthIsRejectedBeforeAnAdditionalRead) {
+    auto bytes = java_fixture();
+    std::fill(bytes.end() - 8, bytes.end() - 4, 0xff);
+    auto file = std::make_shared<EncryptionMemoryReader>(std::move(bytes));
+    auto info = parameters();
+    ParquetFileContext context;
+    io::FileDescription description;
+    EXPECT_FALSE(context.open(file, nullptr, false, description, false, false, false, &info).ok());
+    EXPECT_EQ(file->read_count(), 1);
 }
 
 #if __has_include(<parquet/encryption/encryption_internal.h>)
@@ -553,6 +690,92 @@ TEST(ParquetEncryptionTest, PhysicalReaderAcceptsParametersWithoutOpeningSqlAdmi
     EXPECT_EQ(total, 8);
     ASSERT_TRUE(reader.close().ok());
 }
+TEST(ParquetEncryptionTest, PlaintextFooterEncryptionIsExplicitlyUnsupported) {
+    auto bytes = encrypted_file(true, ::parquet::ParquetDataPageVersion::V1, KEY, true);
+    ParquetFileContext context;
+    io::FileDescription description;
+    auto status = context.open(std::make_shared<EncryptionMemoryReader>(bytes), nullptr, true,
+                               description);
+    EXPECT_NE(status.to_string().find("[PLAINTEXT_FOOTER_UNSUPPORTED]"), std::string::npos)
+            << status;
+}
+
+TEST(ParquetEncryptionTest, WrongNonemptyFileAadFailsAuthentication) {
+    std::vector<std::vector<Field>> rows;
+    auto status = native_rows(encrypted_file(), parameters(KEY, "different-file-aad"), &rows);
+    EXPECT_NE(status.to_string().find("[DECRYPTION_FAILED]"), std::string::npos) << status;
+    EXPECT_EQ(status.to_string().find("different-file-aad"), std::string::npos);
+}
+
+TEST(ParquetEncryptionTest, EncryptedModuleBoundsAreCheckedBeforeAllocation) {
+    auto info = parameters();
+    std::shared_ptr<ParquetFileCrypto> file;
+    ASSERT_TRUE(ParquetFileCrypto::create(info, crypto_metadata(), &file).ok());
+    tparquet::ColumnChunk column;
+    tparquet::ColumnCryptoMetaData metadata;
+    metadata.__set_ENCRYPTION_WITH_FOOTER_KEY(tparquet::EncryptionWithFooterKey());
+    column.__set_crypto_metadata(metadata);
+    std::shared_ptr<ParquetColumnCrypto> crypto;
+    ASSERT_TRUE(file->column_crypto(column, 0, 0, &crypto).ok());
+    for (int32_t length :
+         {-1, 0, 31, static_cast<int32_t>(MAX_ENCRYPTED_PARQUET_MODULE_BYTES) + 1}) {
+        int32_t plaintext = -1;
+        auto status = crypto->plaintext_size(length, &plaintext);
+        EXPECT_NE(status.to_string().find("[INVALID_MODULE_SIZE]"), std::string::npos) << status;
+    }
+    int32_t plaintext = 0;
+    EXPECT_TRUE(crypto->plaintext_size(MAX_ENCRYPTED_PARQUET_MODULE_BYTES, &plaintext).ok());
+    EXPECT_EQ(plaintext, MAX_ENCRYPTED_PARQUET_MODULE_BYTES - 32);
+    DorisVector<uint8_t> output;
+    auto status = crypto->decrypt_header(std::vector<uint8_t> {0xff, 0xff, 0xff, 0xff}, false, 0,
+                                         &output);
+    EXPECT_NE(status.to_string().find("[INVALID_MODULE_SIZE]"), std::string::npos) << status;
+    EXPECT_TRUE(output.empty());
+    for (int32_t page : {-1, 32768}) {
+        status = crypto->decrypt_header({}, false, page, &output);
+        EXPECT_NE(status.to_string().find("[ORDINAL_OUT_OF_RANGE]"), std::string::npos) << status;
+    }
+}
+
+// Assertion macros expand the module/row/column/page authentication checks into many branches.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST(ParquetEncryptionTest, AuthenticationBindsHeadersToModulesAndPhysicalOrdinals) {
+    auto bytes = encrypted_file();
+    auto info = parameters();
+    ParquetFileContext context;
+    io::FileDescription description;
+    ASSERT_TRUE(context.open(std::make_shared<EncryptionMemoryReader>(bytes), nullptr, false,
+                             description, false, false, false, &info)
+                        .ok());
+    const auto& column = context.native_metadata->to_thrift().row_groups[0].columns[0];
+    size_t offset = column.meta_data.data_page_offset;
+    size_t length = decode_fixed32_le(bytes.data() + offset) + 4;
+    const auto header = std::span(bytes).subspan(offset, length);
+    auto file = context.native_metadata->encryption();
+    std::shared_ptr<ParquetColumnCrypto> first;
+    std::shared_ptr<ParquetColumnCrypto> second;
+    ASSERT_TRUE(file->column_crypto(column, 0, 0, &first).ok());
+    ASSERT_TRUE(file->column_crypto(column, 0, 0, &second).ok());
+    EXPECT_NE(first.get(), second.get());
+    DorisVector<uint8_t> expected;
+    ASSERT_TRUE(first->decrypt_header(header, false, 0, &expected).ok());
+    DorisVector<uint8_t> output;
+    EXPECT_FALSE(first->decrypt_header(header, true, 0, &output).ok());
+    EXPECT_FALSE(first->decrypt_header(header, false, 1, &output).ok());
+    EXPECT_FALSE(first->decrypt_page(header, false, 0, &output).ok());
+    for (auto [row, col] : std::vector<std::pair<int, int>> {{1, 0}, {0, 1}}) {
+        std::shared_ptr<ParquetColumnCrypto> other;
+        ASSERT_TRUE(file->column_crypto(column, row, col, &other).ok());
+        EXPECT_FALSE(other->decrypt_header(header, false, 0, &output).ok());
+    }
+    // A failed or interleaved decryptor must not contaminate another reader sharing the file key.
+    ASSERT_TRUE(second->decrypt_header(header, false, 0, &output).ok());
+    EXPECT_EQ(output, expected);
+    ASSERT_TRUE(first->decrypt_header(header, false, 0, &output).ok());
+    EXPECT_EQ(output, expected);
+    ASSERT_TRUE(context.close().ok());
+}
+
 #else
 TEST(ParquetEncryptionTest, DependencyBundleMustBeRebuiltForDecryption) {
     auto file = std::make_shared<EncryptionMemoryReader>(java_fixture());

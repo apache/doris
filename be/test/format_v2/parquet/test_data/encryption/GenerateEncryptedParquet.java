@@ -57,21 +57,32 @@ public final class GenerateEncryptedParquet {
                 (org.apache.iceberg.encryption.EncryptedOutputFile) output).schema(schema)
                 .set(TableProperties.PARQUET_COMPRESSION, "snappy")
                 .createWriterFunc(GenericParquetWriter::create).build()) {
-            for (int id = 1; id <= 8; id++) {
-                GenericRecord row = GenericRecord.create(schema);
-                row.setField("id", id);
-                int shape = (id - 1) % 4;
-                row.setField("label", shape == 1 ? null : "shared");
-                row.setField("items", shape == 0 ? List.of(id, id + 1)
-                        : shape == 1 ? null : shape == 2 ? List.of() : Arrays.asList(null, id));
-                if (shape != 2) {
-                    GenericRecord nested = GenericRecord.create(
-                            schema.findType("record").asStructType());
-                    nested.setField("code", shape == 1 ? null : id);
-                    row.setField("record", nested);
-                }
-                writer.add(row);
+            writeRows(writer, schema);
+        }
+        if (args.length > 1) {
+            try (FileAppender<Record> writer = Parquet.write(Files.localOutput(args[1])).schema(schema)
+                    .set(TableProperties.PARQUET_COMPRESSION, "snappy")
+                    .createWriterFunc(GenericParquetWriter::create).build()) {
+                writeRows(writer, schema);
             }
+        }
+    }
+
+    private static void writeRows(FileAppender<Record> writer, Schema schema) {
+        for (int id = 1; id <= 8; id++) {
+            GenericRecord row = GenericRecord.create(schema);
+            row.setField("id", id);
+            int shape = (id - 1) % 4;
+            row.setField("label", shape == 1 ? null : "shared");
+            row.setField("items", shape == 0 ? List.of(id, id + 1)
+                    : shape == 1 ? null : shape == 2 ? List.of() : Arrays.asList(null, id));
+            if (shape != 2) {
+                GenericRecord nested = GenericRecord.create(
+                        schema.findType("record").asStructType());
+                nested.setField("code", shape == 1 ? null : id);
+                row.setField("record", nested);
+            }
+            writer.add(row);
         }
     }
 
