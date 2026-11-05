@@ -49,16 +49,19 @@ suite("test_es_source_review_cases", "p2,external") {
         }
     }
     request("DELETE", "doris_source_review_cases")
+    // A calendar alternative makes epoch DATEV2 so it reaches date decoding; epoch_millis alone is BIGINT.
     request("PUT", "doris_source_review_cases", [
         settings: [number_of_shards: 1, number_of_replicas: 0,
             analysis: [normalizer: [folded: [type: "custom", filter: ["lowercase"]]]]],
         mappings: [properties: [row_id: [type: "long"], tag: [type: "keyword", normalizer: "folded"],
             n: [type: "integer"], f: [type: "float"], obj: [type: "flattened"],
-            epoch: [type: "date", format: "epoch_millis"], basic: [type: "date", format: "basic_date"]]]])
+            epoch: [type: "date", format: "epoch_millis||yyyy-MM-dd"],
+            epoch_raw: [type: "date", format: "epoch_millis"], basic: [type: "date", format: "basic_date"]]]])
     [[row_id: 1, tag: "UPPER", n: new BigDecimal("0.9999999999999999"),
-        f: new BigDecimal("1.0000000596046448"), obj: [:], epoch: "2024", basic: "20240101"],
-     [row_id: 2, tag: "UPPER", n: null, f: null, obj: null, epoch: 2024, basic: 20240101],
-     [row_id: 3, tag: "UPPER", n: 1, f: 1.0, obj: [key: "value"], epoch: "0", basic: "20240101"]].each { row ->
+        f: new BigDecimal("1.0000000596046448"), obj: [:], epoch: "2024", epoch_raw: "2024", basic: "20240101"],
+     [row_id: 2, tag: "UPPER", n: null, f: null, obj: null, epoch: 2024, epoch_raw: 2024, basic: 20240101],
+     [row_id: 3, tag: "UPPER", n: 1, f: 1.0, obj: [key: "value"],
+        epoch: "0", epoch_raw: "0", basic: "20240101"]].each { row ->
         request("PUT", "doris_source_review_cases/_doc/${row.row_id}", row)
     }
     request("POST", "doris_source_review_cases/_refresh")
@@ -95,10 +98,13 @@ suite("test_es_source_review_cases", "p2,external") {
                 quickTest("${tag}_local_filter_limit",
                     "select row_id,tag from doris_source_review_cases where n = 1 order by row_id limit 1",
                     "select row_id,tag from ${control} where n = 1 order by row_id limit 1")
-                // epoch_millis-only accepts both the string and numeric 2024 as milliseconds, not a year.
+                // Read the DATEV2 column directly: an integer-to-DATE cast cannot test the mapped-date decoder.
                 quickTest("${tag}_epoch_format",
-                    "select row_id,tag,cast(epoch as date) from doris_source_review_cases order by row_id",
+                    "select row_id,tag,epoch from doris_source_review_cases order by row_id",
                     "select row_id,tag,cast('1970-01-01' as date) from ${control} order by row_id")
+                quickTest("${tag}_epoch_raw",
+                    "select row_id,tag,epoch_raw from doris_source_review_cases order by row_id",
+                    "select row_id,tag,cast(if(row_id = 3, 0, 2024) as bigint) from ${control} order by row_id")
             }
         }
     } finally {
