@@ -551,7 +551,7 @@ FORWARD_CLOSURE_BUDGETS = {
     "core/column/column.h": 66,
     "exprs/function/function.h": 106,
     # This dependency hub includes the shared read SPI and SNII gram metadata.
-    "exec/pipeline/dependency.h": 359,
+    "exec/pipeline/dependency.h": 248,
     "pch/pch.h": 8,
 }
 
@@ -567,23 +567,23 @@ REVERSE_REACH_BASELINES = {
     "gen_cpp/Status_types.h": 37,
     # Still carried legitimately by util/uid_util.h (PUniqueId by value) and
     # the profile family; the status.h cut brought these down from 2458/2091.
-    "gen_cpp/types.pb.h": 1791,
+    "gen_cpp/types.pb.h": 1250,
     "gen_cpp/Types_types.h": 1993,
-    "gen_cpp/segment_v2.pb.h": 1234,
-    "gen_cpp/PaloInternalService_types.h": 1133,
-    "util/threadpool.h": 1200,
+    "gen_cpp/segment_v2.pb.h": 1200,
+    "gen_cpp/PaloInternalService_types.h": 1150,
+    "util/threadpool.h": 600,
     # parsed_page.h holds RleDecoder<bool> by value and constructs it in the
     # header, so the whole storage read stack sees the RLE machinery; a live
     # dependency, budgeted as-is (trimming it is a refactor, not a gate).
-    "util/rle_encoding.h": 919,
-    "gen_cpp/internal_service.pb.h": 741,
-    "gen_cpp/FrontendService_types.h": 576,
-    "storage/options.h": 464,
-    "gen_cpp/cloud.pb.h": 342,
-    "gen_cpp/BackendService_types.h": 222,
-    "gen_cpp/data.pb.h": 220,
-    "io/fs/s3_file_system.h": 109,  # the AWS SDK surface
-    "util/brpc_closure.h": 61,
+    "util/rle_encoding.h": 250,
+    "gen_cpp/internal_service.pb.h": 600,
+    "gen_cpp/FrontendService_types.h": 350,
+    "storage/options.h": 350,
+    "gen_cpp/cloud.pb.h": 50,
+    "gen_cpp/BackendService_types.h": 150,
+    "gen_cpp/data.pb.h": 120,
+    "io/fs/s3_file_system.h": 50,  # the AWS SDK surface
+    "util/brpc_closure.h": 50,
     "runtime/workload_group/workload_group.h": 42,  # thrift type universe carrier
 }
 REVERSE_SLACK = 0.10

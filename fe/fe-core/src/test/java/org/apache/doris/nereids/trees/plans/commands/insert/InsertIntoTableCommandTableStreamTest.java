@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -29,6 +30,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.stream.AbstractTableStreamUpdate;
 import org.apache.doris.catalog.stream.CloudOlapTableStreamUpdate;
 import org.apache.doris.catalog.stream.OlapTableStream;
+import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
 import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
@@ -37,17 +39,22 @@ import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.CloudTableStreamReadStateHook;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.distribute.worker.BackendDistributedPlanWorkerManager;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
@@ -59,7 +66,9 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.AdditionalAnswers;
 import org.mockito.ArgumentCaptor;
+import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -70,6 +79,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
@@ -228,6 +241,147 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
         Assertions.assertTrue(insertExecutor.getStreamUpdateInfos().isEmpty());
         Assertions.assertFalse(insertExecutor.requiresTransaction());
         Assertions.assertEquals(AbstractInsertExecutor.INVALID_TXN_ID, insertExecutor.getTxnId());
+    }
+
+    @Test
+    public void testInsertSelectPreloadsWithoutHoldingTargetLock() throws Exception {
+        assertInsertPreloadLockWindow(false);
+    }
+
+    @Test
+    public void testInsertSelectRetriesSchemaChangeDuringPreload() throws Exception {
+        assertInsertPreloadLockWindow(true);
+    }
+
+    @Test
+    public void testInsertRetriesTargetReplacementBeforeBinding() throws Exception {
+        createTable("create table if not exists test_stream.tbl_replace_target "
+                + "(k1 int default '1', k2 int default '9') duplicate key(k1) "
+                + "distributed by hash(k1) buckets 1 properties('replication_num'='1')");
+        createTable("create table if not exists test_stream.tbl_replace_source "
+                + "(k1 int default '2') duplicate key(k1) "
+                + "distributed by hash(k1) buckets 1 properties('replication_num'='1')");
+        Database database = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
+        for (boolean needBeginTransaction : List.of(false, true)) {
+            OlapTable target = (OlapTable) database.getTableOrMetaException("tbl_replace_target");
+            OlapTable replacement = (OlapTable) database.getTableOrMetaException("tbl_replace_source");
+            String sql = "insert into test_stream.tbl_replace_target values ()";
+            InsertIntoTableCommand command = (InsertIntoTableCommand) parser.parseSingle(sql);
+            resetQueryContext();
+            StmtExecutor executor = new StmtExecutor(connectContext, sql);
+            AtomicInteger preloadAttempts = new AtomicInteger();
+            StatementContext statement = new StatementContext(connectContext, new OriginStatement(sql, 0)) {
+                @Override
+                public void preloadDeferredScanPartitionViewsBeforeLock(boolean willFinalizePhysicalPlan) {
+                    if (preloadAttempts.incrementAndGet() == 1) {
+                        try {
+                            Env.getCurrentEnv().getAlterInstance().processReplaceTable(
+                                    database, target, "tbl_replace_source", true, false);
+                        } catch (UserException exception) {
+                            throw new IllegalStateException(exception);
+                        }
+                    } else {
+                        Assertions.assertSame(replacement, getInsertTargetTables()
+                                .get(List.of("internal", "test_stream", "tbl_replace_target")));
+                    }
+                    super.preloadDeferredScanPartitionViewsBeforeLock(willFinalizePhysicalPlan);
+                }
+            };
+            executor.setStatementContext(statement);
+            AbstractInsertExecutor insertExecutor = null;
+            try {
+                insertExecutor = command.initPlan(connectContext, executor, needBeginTransaction);
+                Assertions.assertNotNull(insertExecutor);
+                Assertions.assertEquals(2, preloadAttempts.get());
+                Assertions.assertEquals(replacement.getFullSchema(), statement.getInsertTargetSchema());
+            } finally {
+                if (insertExecutor != null && insertExecutor.getTxnId() != AbstractInsertExecutor.INVALID_TXN_ID) {
+                    insertExecutor.onFail(new RuntimeException("test cleanup"));
+                }
+                if (database.getTableOrMetaException("tbl_replace_target") == replacement) {
+                    Env.getCurrentEnv().getAlterInstance().processReplaceTable(
+                            database, replacement, "tbl_replace_source", true, false);
+                }
+                statement.close();
+                resetQueryContext();
+            }
+        }
+    }
+
+    private void assertInsertPreloadLockWindow(boolean changeSchema) throws Exception {
+        Database database = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
+        OlapTable target = (OlapTable) database.getTableOrMetaException("tbl_target");
+        List<Column> originalSchema = target.getFullSchema();
+        String sql = "insert into test_stream.tbl_target select * from test_stream.tbl_stream_base";
+        InsertIntoTableCommand command = (InsertIntoTableCommand) parser.parseSingle(sql);
+        resetQueryContext();
+        StmtExecutor executor = new StmtExecutor(connectContext, sql);
+        CountDownLatch metastoreEntered = new CountDownLatch(1);
+        CountDownLatch metastoreReleased = new CountDownLatch(1);
+        AtomicInteger preloadAttempts = new AtomicInteger();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        AtomicReference<AbstractInsertExecutor> plannedExecutor = new AtomicReference<>();
+        HmsClient metastore = Mockito.mock(HmsClient.class);
+        Mockito.when(metastore.listPartitionNames("db", "source", -1)).thenAnswer(invocation -> {
+            if (preloadAttempts.incrementAndGet() == 1) {
+                metastoreEntered.countDown();
+                Assertions.assertTrue(metastoreReleased.await(15, TimeUnit.SECONDS));
+            }
+            return List.of("p=1");
+        });
+        StatementContext statement = new StatementContext(connectContext, new OriginStatement(sql, 0)) {
+            @Override
+            public void preloadDeferredScanPartitionViewsBeforeLock(boolean willFinalizePhysicalPlan) {
+                metastore.listPartitionNames("db", "source", -1);
+                super.preloadDeferredScanPartitionViewsBeforeLock(willFinalizePhysicalPlan);
+            }
+        };
+        executor.setStatementContext(statement);
+        Thread plannerThread = new Thread(() -> {
+            connectContext.setThreadLocalInfo();
+            try {
+                plannedExecutor.set(command.initPlan(connectContext, executor, false));
+            } catch (Throwable throwable) {
+                failure.set(throwable);
+            } finally {
+                ConnectContext.remove();
+            }
+        });
+        try {
+            plannerThread.start();
+            Assertions.assertTrue(metastoreEntered.await(15, TimeUnit.SECONDS));
+            Assertions.assertTrue(target.tryWriteLock(5, TimeUnit.SECONDS),
+                    "INSERT target writers must not wait for pre-lock HMS calls");
+            try {
+                if (changeSchema) {
+                    List<Column> changedSchema = originalSchema.stream()
+                            .map(Column::new).collect(Collectors.toList());
+                    changedSchema.get(1).setDefaultValueInfo(new Column("k2", originalSchema.get(1).getType(),
+                            false, null, "9", ""));
+                    target.setNewFullSchema(changedSchema);
+                }
+            } finally {
+                target.writeUnlock();
+            }
+            metastoreReleased.countDown();
+            plannerThread.join(30_000);
+            Assertions.assertFalse(plannerThread.isAlive());
+            Assertions.assertNull(failure.get(), () -> String.valueOf(failure.get()));
+            Assertions.assertNotNull(plannedExecutor.get());
+            Assertions.assertEquals(changeSchema ? 2 : 1, preloadAttempts.get());
+            Assertions.assertEquals(target.getFullSchema(), statement.getInsertTargetSchema());
+        } finally {
+            metastoreReleased.countDown();
+            plannerThread.join(30_000);
+            target.writeLock();
+            try {
+                target.setNewFullSchema(originalSchema);
+            } finally {
+                target.writeUnlock();
+            }
+            statement.close();
+            resetQueryContext();
+        }
     }
 
     @Test
@@ -396,12 +550,9 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
             Assertions.assertFalse(stream.hasHistoricalData(pid),
                     "no historical offset should be present after advance without prior history");
         }
-        // partitionConsumptionTime is private; verify via reflection on the same field name.
-        @SuppressWarnings("unchecked")
-        Map<Long, Long> consumptionTime = (Map<Long, Long>) Deencapsulation.getField(stream,
-                "partitionConsumptionTime");
+        Map<Long, PartitionStreamState> partitionStates = Deencapsulation.getField(stream, "partitionStates");
         for (Long pid : next.keySet()) {
-            Assertions.assertEquals(Long.valueOf(ts), consumptionTime.get(pid),
+            Assertions.assertEquals(Long.valueOf(ts), partitionStates.get(pid).getConsumptionTime(),
                     "partitionConsumptionTime must be recorded with the commit ts");
         }
     }
@@ -418,9 +569,7 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
                 + "properties('show_initial_rows' = 'false')");
         OlapTableStream stream = (OlapTableStream) db.getTableOrMetaException("s_history");
 
-        @SuppressWarnings("unchecked")
-        Map<Long, Long> historicalPartitionTSO = (Map<Long, Long>) Deencapsulation.getField(stream,
-                "historicalPartitionTSO");
+        Map<Long, PartitionStreamState> partitionStates = Deencapsulation.getField(stream, "partitionStates");
 
         Map<Long, Long> prev = new HashMap<>();
         Map<Long, Long> next = new HashMap<>();
@@ -429,7 +578,8 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
             long pid = partition.getId();
             long histTso = 8000L + seed;
             long nextTso = 9999L + seed;
-            historicalPartitionTSO.put(pid, histTso);
+            partitionStates.put(pid, new PartitionStreamState(
+                    partitionStates.get(pid).getOffset(), -1, histTso));
             prev.put(pid, histTso);
             next.put(pid, nextTso);
             seed++;
@@ -444,18 +594,15 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
             baseTable.writeUnlock();
         }
 
-        @SuppressWarnings("unchecked")
-        Map<Long, Long> consumptionTime = (Map<Long, Long>) Deencapsulation.getField(stream,
-                "partitionConsumptionTime");
         for (Map.Entry<Long, Long> entry : next.entrySet()) {
             long pid = entry.getKey();
             Assertions.assertFalse(stream.hasHistoricalData(pid),
                     "historicalPartitionTSO must be cleared after commit");
-            Assertions.assertFalse(historicalPartitionTSO.containsKey(pid),
-                    "historicalPartitionTSO must be cleared after commit");
+            Assertions.assertNull(partitionStates.get(pid).getHistoricalTso(),
+                    "historical TSO must be cleared after commit");
             Assertions.assertEquals(entry.getValue(), stream.getStreamUpdate(pid).first,
                     "partitionOffset must be advanced to update.next after history consumed");
-            Assertions.assertEquals(Long.valueOf(ts), consumptionTime.get(pid),
+            Assertions.assertEquals(Long.valueOf(ts), partitionStates.get(pid).getConsumptionTime(),
                     "partitionConsumptionTime must be recorded with the commit ts");
         }
     }
@@ -472,9 +619,7 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
         // s1 was created with show_initial_rows=true. Seed historicalPartitionTSO for one
         // partition to also cover the history branch.
         OlapTableStream stream = (OlapTableStream) db.getTableOrMetaException("s1");
-        @SuppressWarnings("unchecked")
-        Map<Long, Long> historicalPartitionTSO = (Map<Long, Long>) Deencapsulation.getField(stream,
-                "historicalPartitionTSO");
+        Map<Long, PartitionStreamState> partitionStates = Deencapsulation.getField(stream, "partitionStates");
 
         // Bump partition versions so partition.getTso() differs from any initial seed and
         // is a meaningful upper bound. Pass tso explicitly (third arg) to simulate a
@@ -497,7 +642,7 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
         Partition historyPartition = baseTable.getPartitions().iterator().next();
         long historyPid = historyPartition.getId();
         long historyTso = 6789L;
-        historicalPartitionTSO.put(historyPid, historyTso);
+        partitionStates.put(historyPid, new PartitionStreamState(null, -1, historyTso));
 
         String sql = "insert into test_stream.tbl_target select * from test_stream.s1";
         LogicalPlan logicalPlan = parser.parseSingle(sql);
@@ -560,6 +705,8 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
         for (Backend backend : previousSystemInfo.getAllClusterBackends(false)) {
             cloudSystemInfo.addBackend(backend);
         }
+        BackendDistributedPlanWorkerManager workers =
+                new BackendDistributedPlanWorkerManager(connectContext, false, false);
         MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
         AbstractInsertExecutor p1Executor = null;
         try {
@@ -568,7 +715,11 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
             Config.meta_service_endpoint = "127.0.0.1:20121";
             Deencapsulation.setField(Env.getCurrentEnv(), "systemInfo", cloudSystemInfo);
             try (MockedStatic<MetaServiceProxy> mockedProxy = Mockito.mockStatic(MetaServiceProxy.class);
-                    MockedStatic<MasterTsoProvider> mockedTso = Mockito.mockStatic(MasterTsoProvider.class)) {
+                    MockedStatic<MasterTsoProvider> mockedTso = Mockito.mockStatic(MasterTsoProvider.class);
+                    MockedConstruction<BackendDistributedPlanWorkerManager> mockedWorkers = Mockito.mockConstruction(
+                            BackendDistributedPlanWorkerManager.class,
+                            Mockito.withSettings().defaultAnswer(AdditionalAnswers.delegatesTo(workers)))) {
+                // The fixture mocks cloud metadata while distributing on the local test backends.
                 // The read-state fixture uses offsets 100..130; keep the TTL reference in the same clock.
                 mockedTso.when(() -> MasterTsoProvider.getCurrentTso(connectContext)).thenReturn(130L);
                 mockedProxy.when(MetaServiceProxy::getInstance).thenReturn(proxy);

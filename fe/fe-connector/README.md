@@ -129,6 +129,10 @@ and reports observed partition, file, split, and unfinished-producer counts.
 producer count. A positive value caps producers per scan; a whole-scan streaming
 source uses one producer.
 
+**Iceberg encryption.** The [encrypted-read admission contract](docs/iceberg-encryption-read.md)
+defines the default-off configuration, initial scope and backend negotiation
+requirements. Encrypted scan execution remains unavailable at this stage.
+
 **Classloading.** Plugins load child-first, each carrying its own runtime
 closure. Wherever engine code crosses into a plugin — or a bundled library
 resolves classes by name, or a plugin spawns worker threads — the

@@ -114,6 +114,13 @@ under the License.
             <artifactId>log4j-api</artifactId>
         </dependency>
 
+        <dependency>
+            <groupId>org.antlr</groupId>
+            <artifactId>antlr-runtime</artifactId>
+            <version>3.5.2</version>
+            <scope>test</scope>
+        </dependency>
+
         <!-- Match the parser used by Hive 3.1.3 for reader-compatibility tests only. -->
         <dependency>
             <groupId>net.sf.opencsv</groupId>

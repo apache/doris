@@ -38,6 +38,7 @@
 #include "service/http/http_request.h"
 #include "service/http/http_status.h"
 #include "storage/olap_define.h"
+#include "storage/options.h"
 #include "storage/tablet/tablet_meta.h"
 #include "util/easy_json.h"
 

@@ -32,6 +32,11 @@ import org.apache.doris.datasource.split.SplitSource;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TExternalScanRange;
+import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TFileScanRange;
+import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 
@@ -248,11 +253,20 @@ class PluginDrivenScanNodePartitionBatchTest {
                 return result;
             });
             assignment = new SplitAssignment(policy, Mockito.mock(SplitGenerator.class),
-                    (be, properties, split, keys, admission) -> new TScanRangeLocations().setLocations(
-                            Collections.singletonList(new TScanRangeLocation().setBackendId(split.getStart()))),
+                    (be, properties, split, keys, admission) -> {
+                        // Lazy dispatch validates file envelopes even when tests only observe backend IDs.
+                        TFileScanRange files = new TFileScanRange().setParams(new TFileScanRangeParams())
+                                .setRanges(Collections.singletonList(
+                                        new TFileRangeDesc().setPath("file-" + split.getStart())));
+                        return new TScanRangeLocations().setScanRange(new TScanRange().setExtScanRange(
+                                new TExternalScanRange().setFileScanRange(files)))
+                                .setLocations(Collections.singletonList(
+                                        new TScanRangeLocation().setBackendId(split.getStart())));
+                    },
                     Collections.emptyMap(), Collections.emptyList(), true, batchSize, queueCapacity);
             node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
             Deencapsulation.setField(node, "splitAssignment", assignment);
+            Deencapsulation.setField(node, "metadataRead", java.util.Optional.empty());
             Deencapsulation.setField(node, "sessionVariable", variables);
             provider = Mockito.mock(ConnectorScanPlanProvider.class, Mockito.CALLS_REAL_METHODS);
             Mockito.when(provider.supportsBatchScan(Mockito.any(), Mockito.any())).thenReturn(true);

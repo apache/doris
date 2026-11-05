@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
@@ -52,6 +53,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Handle materialized view partition union compensate handler
@@ -65,6 +67,27 @@ public class PartitionCompensator {
     // It means all partitions are used when query
     public static final Collection<Pair<RelationId, Set<String>>> ALL_PARTITIONS_LIST =
             ImmutableList.of(ALL_PARTITIONS);
+    // Bound the number of partition versions requested by each non-empty check.
+    private static final int NON_EMPTY_PARTITION_BATCH_SIZE = 5000;
+
+    /** Whether an async MV references a query relation with unavailable partition coverage. */
+    public static boolean hasUnknownPartitionCoverage(MaterializationContext materializationContext,
+            StatementContext statementContext, BitSet relationIds) throws AnalysisException {
+        if (!(materializationContext instanceof AsyncMaterializationContext)) {
+            return false;
+        }
+        MTMV mtmv = ((AsyncMaterializationContext) materializationContext).getMtmv();
+        for (MTMVRelatedTableIf table : mtmv.getMvPartitionInfo().getPctTables()) {
+            for (Pair<RelationId, Set<String>> partitions
+                    : statementContext.getTableUsedPartitionNameMap().get(table.getFullQualifiers())) {
+                if (partitions.key() != null && partitions.value() == null
+                        && (relationIds.isEmpty() || relationIds.get(partitions.key().asInt()))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
 
     /**
      * Maybe only some partitions is invalid in materialized view, or base table maybe add, modify, delete partition
@@ -103,6 +126,18 @@ public class PartitionCompensator {
         }
         Map<MTMVRelatedTableIf, Map<String, Set<String>>> mtmvRelatedTableIfMapMap
                 = materializationContext.calculatePartitionMappings(queryUsedBaseTablePartitionMap);
+        Set<String> mappedMvPartitionNames = new HashSet<>();
+        mtmvRelatedTableIfMapMap.values().forEach(mapping -> mappedMvPartitionNames.addAll(mapping.keySet()));
+        List<Long> mvPartitionIdsToCheck = mvValidPartitions.stream()
+                .filter(partition -> mappedMvPartitionNames.contains(partition.getName()))
+                .map(Partition::getId)
+                .distinct()
+                .collect(Collectors.toList());
+        // An MV partition can be mapped to several PCT tables. Check it once and reuse the result.
+        Set<Long> nonEmptyMvPartitionIds = new HashSet<>();
+        for (List<Long> batch : Lists.partition(mvPartitionIdsToCheck, NON_EMPTY_PARTITION_BATCH_SIZE)) {
+            nonEmptyMvPartitionIds.addAll(mtmv.selectNonEmptyPartitionIds(batch, Optional.empty()));
+        }
         boolean allCompensateIsNull = true;
 
         Map<BaseTableInfo, Set<String>> mvPartitionNeedRemoveNameMap = new HashMap<>();
@@ -118,9 +153,10 @@ public class PartitionCompensator {
             Set<String> relatedTableUsedPartitionSet
                     = queryUsedBaseTablePartitionMap.get(relatedTable.getFullQualifiers());
             Pair<Pair<BaseTableInfo, Set<String>>, Pair<BaseColInfo, Set<String>>> needCompensatePartitions
-                    = getNeedCompensatePartitions(mvValidPartitions, relatedTableUsedPartitionSet,
-                    rewrittenPlanUsePartitionNameSet, pctInfoMap.get(new BaseTableInfo(relatedTable)),
-                    partitionMapping.getValue(), materializationContext);
+                    = getNeedCompensatePartitions(mvValidPartitions, nonEmptyMvPartitionIds,
+                            relatedTableUsedPartitionSet, rewrittenPlanUsePartitionNameSet,
+                            pctInfoMap.get(new BaseTableInfo(relatedTable)), partitionMapping.getValue(),
+                            materializationContext);
             allCompensateIsNull &= needCompensatePartitions == null;
             if (needCompensatePartitions == null) {
                 continue;
@@ -159,6 +195,7 @@ public class PartitionCompensator {
 
     private static Pair<Pair<BaseTableInfo, Set<String>>, Pair<BaseColInfo, Set<String>>> getNeedCompensatePartitions(
             Collection<Partition> mvValidPartitions,
+            Set<Long> nonEmptyMvPartitionIds,
             Set<String> queryUsedBaseTablePartitionNameSet,
             Set<String> rewrittenPlanUsePartitionNameSet,
             BaseColInfo relatedPartitionTable,
@@ -177,8 +214,7 @@ public class PartitionCompensator {
             Set<String> relatedBaseTablePartitions = partitionMapping.get(mvValidPartition.getName());
             if (relatedBaseTablePartitions != null) {
                 mvValidBaseTablePartitionNameSet.addAll(relatedBaseTablePartitions);
-                if (!mtmv.selectNonEmptyPartitionIds(ImmutableList.of(mvValidPartition.getId()),
-                        Optional.empty()).isEmpty()) {
+                if (nonEmptyMvPartitionIds.contains(mvValidPartition.getId())) {
                     mvValidHasDataRelatedBaseTableNameSet.addAll(relatedBaseTablePartitions);
                 }
             }
@@ -299,6 +335,10 @@ public class PartitionCompensator {
                 if (!currentUsedRelationIdSet.isEmpty()
                         && !currentUsedRelationIdSet.intersects(usedPartitionRelation)) {
                     continue;
+                }
+                if (tableUsedPartitionPair.value() == null) {
+                    queryUsedRelatedTablePartitionsMap.put(queryUsedTable, null);
+                    continue tableLoop;
                 }
                 usedPartitionSet.addAll(tableUsedPartitionPair.value());
             }

@@ -33,6 +33,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalLong;
 
 /**
@@ -127,6 +128,29 @@ public class HiveConnectorMetadataFreshnessTest {
                 "the freshness must be named by the partition owning the max modify time");
         Assertions.assertEquals(300_000L, freshness.getTimestampMillis(),
                 "the freshness millis must be the max transient_lastDdlTime x 1000");
+    }
+
+    @Test
+    public void testPartitionedFreshnessPreservesLegacyRawPartitionName() {
+        String name = "da%2Fte=a%2Fb%3Dc%25/zone=US%3ACA";
+        FakeHmsClient client = new FakeHmsClient().partition(name, 300L);
+        HiveConnectorMetadata metadata = metadata(client);
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .partitionKeyNames(Arrays.asList("DA/TE", "ZONE"))
+                .build();
+        HiveTableHandle prunedHandle = handle.toBuilder()
+                .prunedPartitions(Collections.singletonList(client.toInfo(name)))
+                .build();
+
+        ConnectorTableFreshness freshness = metadata.getTableFreshness(null, handle).orElseThrow();
+
+        Assertions.assertEquals("DA/TE=a/b=c%/ZONE=US:CA", freshness.getName());
+        Assertions.assertEquals(300_000L, freshness.getTimestampMillis());
+        Assertions.assertEquals(name, metadata.listPartitions(null, handle, Optional.empty())
+                .get(0).getPartitionName());
+        Assertions.assertEquals(name, metadata.listPartitions(null, prunedHandle, Optional.empty())
+                .get(0).getPartitionName());
+        Assertions.assertEquals(300_000L, metadata.getPartitionFreshnessMillis(null, handle, name).orElseThrow());
     }
 
     @Test

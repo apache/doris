@@ -25,6 +25,7 @@ import org.apache.doris.catalog.OlapTableWrapper;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.AccessControllerManager.DataPolicyContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
@@ -150,6 +151,8 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
      * @param cascadesContext include information about user and policy
      */
     public RelatedPolicy findPolicy(LogicalPlan logicalPlan, CascadesContext cascadesContext) {
+        StatementContext statementContext = cascadesContext.getStatementContext();
+        DataPolicyContext validatedPolicy = statementContext.validatePartitionPolicy(logicalPlan);
         if (!(logicalPlan instanceof CatalogRelation || logicalPlan instanceof LogicalView)) {
             return RelatedPolicy.NO_POLICY;
         }
@@ -167,7 +170,7 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
         // filter and no column mask, whichever source governs the table. It predates the plugin contract and
         // is documented as an engine-reserved exemption in fe-authorization/README.md, alongside the two the
         // manager applies; a source is never asked, so it cannot grant these accounts a policy of its own.
-        if (currentUserIdentity.isRootUser() || currentUserIdentity.isAdminUser()) {
+        if (currentUserIdentity.isSystemUser()) {
             return RelatedPolicy.NO_POLICY;
         }
 
@@ -187,7 +190,6 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
         ImmutableList.Builder<NamedExpression> dataMasks
                 = ImmutableList.builderWithExpectedSize(logicalPlan.getOutput().size());
 
-        StatementContext statementContext = cascadesContext.getStatementContext();
         Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
         boolean hasDataMask = false;
         // One question for the whole relation rather than one per column: that is what the contract offers
@@ -196,8 +198,13 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
         for (Slot slot : logicalPlan.getOutput()) {
             outputColumns.add(slot.getName());
         }
-        Map<String, DataMaskSpec> masksByColumn = accessManager.evalDataMaskPolicies(
-                currentUserIdentity, ctlName, dbName, tableName, outputColumns);
+        DataPolicyContext policyContext = validatedPolicy != null ? validatedPolicy
+                : statementContext.hasPartitionPolicyObservation(table)
+                        ? accessManager.captureDataPolicyContext(currentUserIdentity, ctlName, dbName, tableName,
+                                outputColumns, statementContext) : null;
+        Map<String, DataMaskSpec> masksByColumn = policyContext == null
+                ? accessManager.evalDataMaskPolicies(currentUserIdentity, ctlName, dbName, tableName, outputColumns)
+                : accessManager.evalDataMaskPolicies(policyContext, statementContext);
         for (Slot slot : logicalPlan.getOutput()) {
             Optional<DataMaskSpec> dataMaskPolicy = Optional.ofNullable(
                     masksByColumn.get(slot.getName().toLowerCase(Locale.ROOT)));
@@ -220,8 +227,11 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
             }
         }
 
-        List<RowFilterSpec> rowPolicies = accessManager.evalRowFilterPolicies(
-                currentUserIdentity, ctlName, dbName, tableName);
+        List<RowFilterSpec> rowPolicies = policyContext == null
+                ? accessManager.evalRowFilterPolicies(currentUserIdentity, ctlName, dbName, tableName)
+                : accessManager.evalRowFilterPolicies(policyContext);
+        statementContext.recordPartitionRowPolicies(logicalPlan, rowPolicies);
+        statementContext.validatePartitionPolicy(logicalPlan);
         if (sqlCacheContext.isPresent()) {
             sqlCacheContext.get().setRowFilterPolicy(ctlName, dbName, tableName, rowPolicies);
         }

@@ -31,10 +31,12 @@
 
 #include "core/assert_cast.h"
 #include "core/column/column.h"
+#include "core/column/column_array.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/common_data_type_serder_test.h"
 #include "core/data_type/common_data_type_test.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type_serde/data_type_array_serde.h"
 #include "core/data_type_serde/data_type_datetimev2_serde.h"
 #include "core/data_type_serde/data_type_datev2_serde.h"
 #include "core/data_type_serde/data_type_nullable_serde.h"
@@ -587,6 +589,81 @@ TEST_F(DataTypeDateTimeV2SerDeTest, ArrowTimezoneNaiveTimestampIgnoresSessionTim
     EXPECT_EQ("1970-01-01 00:00:00.000000", column->get_data()[0].to_string(6));
     EXPECT_EQ("1970-01-01 12:34:56.123456", column->get_data()[1].to_string(6));
     EXPECT_EQ("1969-12-31 23:59:59.123456", column->get_data()[2].to_string(6));
+}
+
+// The civil year of an Arrow timestamp must be checked before it is narrowed into DATETIMEV2:
+// unchecked, 65537-01-01 read as 0001-01-01 and 10000-01-01 as a date DATETIMEV2 cannot hold. A
+// zoned timestamp is checked in the session time zone, after the shift.
+TEST_F(DataTypeDateTimeV2SerDeTest, RejectsArrowTimestampsOutsideDateTimeV2Range) {
+    const auto read = [](const std::shared_ptr<arrow::DataType>& type, int64_t value,
+                         const cctz::time_zone& timezone, std::string* result) {
+        arrow::TimestampBuilder builder(type, arrow::default_memory_pool());
+        EXPECT_TRUE(builder.Append(value).ok());
+        std::shared_ptr<arrow::Array> array;
+        EXPECT_TRUE(builder.Finish(&array).ok());
+        auto column = ColumnDateTimeV2::create();
+        auto status =
+                serde_datetime_v2_6->read_column_from_arrow(*column, array.get(), 0, 1, timezone);
+        if (status.ok()) {
+            *result = column->get_data()[0].to_string(6);
+        }
+        return status;
+    };
+    const auto naive = arrow::timestamp(arrow::TimeUnit::MICRO);
+    const auto utc = cctz::utc_time_zone();
+    std::string result;
+    ASSERT_TRUE(read(naive, 253402300799999999, utc, &result).ok());
+    EXPECT_EQ("9999-12-31 23:59:59.999999", result);
+    ASSERT_TRUE(read(naive, -62167219200000000, utc, &result).ok());
+    EXPECT_EQ("0000-01-01 00:00:00.000000", result);
+    // 10000-01-01, 65537-01-01 (read as 0001-01-01 before the check) and the last microsecond of
+    // year -1.
+    for (const int64_t value : {int64_t {253402300800000000}, int64_t {2005980768000000000},
+                                int64_t {-62167219200000001}}) {
+        SCOPED_TRACE(value);
+        const auto status = read(naive, value, utc, &result);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(std::string::npos, status.to_string().find("is outside the DATETIMEV2 range"))
+                << status.to_string();
+    }
+    // 0000-02-29 is inside the year range, but year 0 is not a leap year in Doris.
+    const auto leap_day = read(naive, -62162121600000000, utc, &result);
+    EXPECT_FALSE(leap_day.ok());
+    EXPECT_NE(std::string::npos, leap_day.to_string().find("is not a valid DATETIMEV2 value"))
+            << leap_day.to_string();
+
+    // 9999-12-31 15:59:59.999999 UTC is 9999-12-31 23:59:59.999999 at +08:00, and one microsecond
+    // later is 10000-01-01 there.
+    cctz::time_zone plus_eight;
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("+08:00", plus_eight));
+    const auto zoned = arrow::timestamp(arrow::TimeUnit::MICRO, "UTC");
+    ASSERT_TRUE(read(zoned, 253402271999999999, plus_eight, &result).ok());
+    EXPECT_EQ("9999-12-31 23:59:59.999999", result);
+    EXPECT_FALSE(read(zoned, 253402272000000000, plus_eight, &result).ok());
+}
+
+// A timestamp leaf of ARRAY reaches the same check through the element SerDe.
+TEST_F(DataTypeDateTimeV2SerDeTest, RejectsNestedArrowTimestampOutsideDateTimeV2Range) {
+    arrow::TimestampBuilder values_builder(arrow::timestamp(arrow::TimeUnit::MICRO),
+                                           arrow::default_memory_pool());
+    ASSERT_TRUE(values_builder.Append(2005980768000000000).ok());
+    std::shared_ptr<arrow::Array> values;
+    ASSERT_TRUE(values_builder.Finish(&values).ok());
+    arrow::Int32Builder offsets_builder;
+    ASSERT_TRUE(offsets_builder.AppendValues({0, 1}).ok());
+    std::shared_ptr<arrow::Array> offsets;
+    ASSERT_TRUE(offsets_builder.Finish(&offsets).ok());
+    auto list = arrow::ListArray::FromArrays(*offsets, *values);
+    ASSERT_TRUE(list.ok()) << list.status().ToString();
+
+    DataTypeArraySerDe serde(std::make_shared<DataTypeNullableSerDe>(serde_datetime_v2_6));
+    auto column = ColumnArray::create(
+            ColumnNullable::create(ColumnDateTimeV2::create(), ColumnUInt8::create()));
+    const auto status = serde.read_column_from_arrow(*column, list.ValueUnsafe().get(), 0, 1,
+                                                     cctz::utc_time_zone());
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(std::string::npos, status.to_string().find("is outside the DATETIMEV2 range"))
+            << status.to_string();
 }
 
 } // namespace doris

@@ -591,6 +591,15 @@ public final class JdbcQueryBuilder {
         return null;
     }
 
+    private String operandToSql(ConnectorExpression expr, Map<String, String> colMapping) {
+        String sql = expressionToSql(expr, colMapping);
+        if (sql == null || expr instanceof ConnectorColumnRef || expr instanceof ConnectorLiteral) {
+            return sql;
+        }
+        // Preserve the expression tree when a predicate or SQL fragment is used as an operand.
+        return "(" + sql + ")";
+    }
+
     private static boolean isUuidValue(ConnectorExpression expr) {
         if (expr instanceof ConnectorColumnRef) {
             return "UUID".equals(((ConnectorColumnRef) expr).getType().getTypeName());
@@ -617,8 +626,8 @@ public final class JdbcQueryBuilder {
                     break;
             }
         }
-        String left = expressionToSql(comp.getLeft(), colMapping);
-        String right = expressionToSql(comp.getRight(), colMapping);
+        String left = operandToSql(comp.getLeft(), colMapping);
+        String right = operandToSql(comp.getRight(), colMapping);
         if (left == null || right == null) {
             return null;
         }
@@ -668,7 +677,11 @@ public final class JdbcQueryBuilder {
     }
 
     private String inToSql(ConnectorIn in, Map<String, String> colMapping) {
-        String valueSql = expressionToSql(in.getValue(), colMapping);
+        // Empty IN lists are not valid SQL in all dialects; keep their evaluation in Doris.
+        if (in.getInList().isEmpty()) {
+            return null;
+        }
+        String valueSql = operandToSql(in.getValue(), colMapping);
         if (valueSql == null) {
             return null;
         }
@@ -679,7 +692,7 @@ public final class JdbcQueryBuilder {
                 String dateSql = formatDateLiteral((ConnectorLiteral) item);
                 itemSql = dateSql != null ? dateSql : expressionToSql(item, colMapping);
             } else {
-                itemSql = expressionToSql(item, colMapping);
+                itemSql = operandToSql(item, colMapping);
             }
             if (itemSql == null) {
                 return null;
@@ -690,7 +703,7 @@ public final class JdbcQueryBuilder {
     }
 
     private String isNullToSql(ConnectorIsNull isNull, Map<String, String> colMapping) {
-        String operandSql = expressionToSql(isNull.getOperand(), colMapping);
+        String operandSql = operandToSql(isNull.getOperand(), colMapping);
         if (operandSql == null) {
             return null;
         }
@@ -698,8 +711,8 @@ public final class JdbcQueryBuilder {
     }
 
     private String likeToSql(ConnectorLike like, Map<String, String> colMapping) {
-        String valueSql = expressionToSql(like.getValue(), colMapping);
-        String patternSql = expressionToSql(like.getPattern(), colMapping);
+        String valueSql = operandToSql(like.getValue(), colMapping);
+        String patternSql = operandToSql(like.getPattern(), colMapping);
         if (valueSql == null || patternSql == null) {
             return null;
         }
@@ -713,9 +726,9 @@ public final class JdbcQueryBuilder {
                 || isUuidValue(between.getLower()) || isUuidValue(between.getUpper()))) {
             return null;
         }
-        String valueSql = expressionToSql(between.getValue(), colMapping);
-        String lowerSql = expressionToSql(between.getLower(), colMapping);
-        String upperSql = expressionToSql(between.getUpper(), colMapping);
+        String valueSql = operandToSql(between.getValue(), colMapping);
+        String lowerSql = operandToSql(between.getLower(), colMapping);
+        String upperSql = operandToSql(between.getUpper(), colMapping);
         if (valueSql == null || lowerSql == null || upperSql == null) {
             return null;
         }
@@ -755,15 +768,15 @@ public final class JdbcQueryBuilder {
 
         // 0. Handle arithmetic operators rendered as infix: (arg1 + arg2)
         if (ARITHMETIC_OPERATORS.contains(funcName) && func.getArguments().size() == 2) {
-            String left = expressionToSql(func.getArguments().get(0), colMapping);
-            String right = expressionToSql(func.getArguments().get(1), colMapping);
+            String left = operandToSql(func.getArguments().get(0), colMapping);
+            String right = operandToSql(func.getArguments().get(1), colMapping);
             if (left == null || right == null) {
                 return null;
             }
             return "(" + left + " " + funcName + " " + right + ")";
         }
         if (UNARY_OPERATORS.contains(funcName) && func.getArguments().size() == 1) {
-            String operand = expressionToSql(func.getArguments().get(0), colMapping);
+            String operand = operandToSql(func.getArguments().get(0), colMapping);
             if (operand == null) {
                 return null;
             }
@@ -840,10 +853,22 @@ public final class JdbcQueryBuilder {
             return formatBooleanLiteral((Boolean) val);
         } else if (val instanceof Double) {
             double d = (Double) val;
-            if (d == Math.floor(d) && !Double.isInfinite(d)) {
-                return Long.toString((long) d);
+            // Non-finite literals have no portable SQL spelling; evaluate their predicates locally.
+            if (!Double.isFinite(d)) {
+                return null;
             }
-            return val.toString();
+            String value = Double.toString(d);
+            switch (dbType) {
+                case POSTGRESQL:
+                    // Bare exponent literals are NUMERIC, which can compare differently with BIGINT.
+                    return "CAST('" + value + "' AS DOUBLE PRECISION)";
+                case ORACLE:
+                case OCEANBASE_ORACLE:
+                    // Unsuffixed literals are NUMBER and cannot represent the full DOUBLE range.
+                    return value + "D";
+                default:
+                    return value;
+            }
         } else if (val instanceof BigDecimal || val instanceof Integer
                 || val instanceof Long) {
             return val.toString();

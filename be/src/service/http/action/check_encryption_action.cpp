@@ -32,6 +32,7 @@
 #include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
 #include "common/status.h"
+#include "cpp/sync_point.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
@@ -64,7 +65,12 @@ Result<bool> is_tablet_encrypted(const BaseTabletSPtr& tablet) {
     }
     Status st;
     bool is_encrypted = true;
-    tablet->traverse_rowsets([&st, &tablet, &is_encrypted](const RowsetSharedPtr& rs) {
+    // The files are read without holding the tablet's meta lock: `_meta_lock` is writer-preferring,
+    // so taking it again for the schema while a writer is pending would deadlock, and holding it
+    // across remote reads would stall every other user of this tablet.
+    const auto tablet_schema = tablet->tablet_schema();
+    auto check_rowset = [&st, &tablet, &tablet_schema, &is_encrypted](const RowsetSharedPtr& rs) {
+        TEST_SYNC_POINT_CALLBACK("is_tablet_encrypted::check_rowset");
         if (!st) {
             return;
         }
@@ -100,8 +106,8 @@ Result<bool> is_tablet_encrypted(const BaseTabletSPtr& tablet) {
         std::vector<std::string> file_paths;
         const auto& first_seg_path = maybe_seg_path.value();
         file_paths.emplace_back(first_seg_path);
-        if (tablet->tablet_schema()->has_inverted_index() &&
-            tablet->tablet_schema()->get_inverted_index_storage_format() == V2) {
+        if (tablet_schema->has_inverted_index() &&
+            tablet_schema->get_inverted_index_storage_format() == V2) {
             file_paths.emplace_back(InvertedIndexDescriptor::get_index_file_path_v2(
                     InvertedIndexDescriptor::get_index_file_path_prefix(first_seg_path)));
         }
@@ -138,7 +144,10 @@ Result<bool> is_tablet_encrypted(const BaseTabletSPtr& tablet) {
                 LOG(INFO) << "found not encrypted segment, path=" << first_seg_path;
             }
         }
-    });
+    };
+    for (const auto& rs : tablet->get_snapshot_rowset()) {
+        check_rowset(rs);
+    }
 
     if (st) {
         return is_encrypted;
