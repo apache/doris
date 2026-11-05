@@ -25,6 +25,12 @@
 #include <vector>
 
 #include "common/status.h"
+#include "core/assert_cast.h"
+#include "core/block/block.h"
+#include "core/column/column_const.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
@@ -32,6 +38,7 @@
 #include "exprs/function/function_test_util.h"
 #include "exprs/function/geo/geo_common.h"
 #include "exprs/function/geo/geo_types.h"
+#include "exprs/function/simple_function_factory.h"
 #include "gtest/gtest_pred_impl.h"
 #include "testutil/any_type.h"
 
@@ -315,6 +322,104 @@ TEST(VGeoFunctionsTest, function_geo_st_contains) {
                     check_function<DataTypeUInt8, true>(func_name, input_types, const_dataset));
         }
     }
+}
+
+namespace {
+std::string encode_wkt(const std::string& wkt) {
+    GeoParseStatus status;
+    std::unique_ptr<GeoShape> shape(GeoShape::from_wkt(wkt.data(), wkt.size(), status));
+    EXPECT_TRUE(status == GeoParseStatus::GEO_PARSE_OK);
+    std::string buf;
+    shape->encode_to(&buf);
+    return buf;
+}
+
+std::string encode_point(double x, double y) {
+    GeoPoint point;
+    EXPECT_TRUE(point.from_coord(x, y) == GeoParseStatus::GEO_PARSE_OK);
+    std::string buf;
+    point.encode_to(&buf);
+    return buf;
+}
+} // namespace
+
+// A constant polygon is decoded once and then checked against every row of the block.
+TEST(VGeoFunctionsTest, function_geo_st_contains_const_polygon) {
+    std::string polygon = encode_wkt("POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))");
+    DataSet data_set = {{{polygon, encode_point(5, 5)}, (uint8_t)1},
+                        {{polygon, encode_point(50, 50)}, (uint8_t)0},
+                        {{polygon, encode_point(10, 5)}, (uint8_t)0},
+                        {{polygon, encode_point(10 - 5e-7, 5)}, (uint8_t)0},
+                        {{polygon, encode_point(10 - 2e-6, 5)}, (uint8_t)1},
+                        {{polygon, Null()}, Null()},
+                        {{polygon, encode_point(1, 9)}, (uint8_t)1}};
+    InputTypeSet input_types = {Consted {PrimitiveType::TYPE_VARCHAR}, PrimitiveType::TYPE_VARCHAR};
+    static_cast<void>(check_function<DataTypeUInt8, true>("st_contains", input_types, data_set));
+
+    // The polygon is the second argument of st_within.
+    DataSet within_data_set = {{{encode_point(5, 5), polygon}, (uint8_t)1},
+                               {{encode_point(50, 50), polygon}, (uint8_t)0},
+                               {{encode_point(1, 9), polygon}, (uint8_t)1}};
+    InputTypeSet within_input_types = {PrimitiveType::TYPE_VARCHAR,
+                                       Consted {PrimitiveType::TYPE_VARCHAR}};
+    static_cast<void>(
+            check_function<DataTypeUInt8, true>("st_within", within_input_types, within_data_set));
+
+    // An invalid constant makes every row NULL.
+    DataSet invalid_data_set = {{{std::string("invalid"), encode_point(5, 5)}, Null()},
+                                {{std::string("invalid"), encode_point(50, 50)}, Null()}};
+    static_cast<void>(
+            check_function<DataTypeUInt8, true>("st_contains", input_types, invalid_data_set));
+}
+
+// The decoded constant is kept in the thread-local state across blocks. A block whose constant
+// differs from the previous one must not reuse the shape decoded for it.
+TEST(VGeoFunctionsTest, function_geo_st_contains_const_polygon_across_blocks) {
+    std::string small_polygon = encode_wkt("POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))");
+    std::string large_polygon = encode_wkt("POLYGON ((0 0, 30 0, 30 30, 0 30, 0 0))");
+    std::string inside_both = encode_point(5, 5);
+    std::string inside_large = encode_point(20, 20);
+
+    DataTypePtr string_type = std::make_shared<DataTypeString>();
+    DataTypePtr return_type = make_nullable(std::make_shared<DataTypeUInt8>());
+    auto make_block = [&](const std::string& polygon) {
+        auto polygon_column = ColumnString::create();
+        polygon_column->insert_data(polygon.data(), polygon.size());
+        auto point_column = ColumnString::create();
+        point_column->insert_data(inside_both.data(), inside_both.size());
+        point_column->insert_data(inside_large.data(), inside_large.size());
+        Block block;
+        block.insert({ColumnConst::create(std::move(polygon_column), 2), string_type, "polygon"});
+        block.insert({std::move(point_column), string_type, "point"});
+        return block;
+    };
+
+    Block sample_block = make_block(small_polygon);
+    auto func = SimpleFunctionFactory::instance().get_function(
+            "st_contains", sample_block.get_columns_with_type_and_name(), return_type);
+    ASSERT_NE(nullptr, func);
+    FunctionUtils fn_utils(return_type, {string_type, string_type}, false);
+    auto* fn_ctx = fn_utils.get_fn_ctx();
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
+
+    auto contains = [&](const std::string& polygon) {
+        Block block = make_block(polygon);
+        block.insert({nullptr, return_type, "result"});
+        EXPECT_TRUE(func->execute(fn_ctx, block, {0, 1}, 2, 2).ok());
+        const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
+        EXPECT_FALSE(result.is_null_at(0));
+        EXPECT_FALSE(result.is_null_at(1));
+        const auto& data = assert_cast<const ColumnUInt8&>(result.get_nested_column()).get_data();
+        return std::vector<uint8_t> {data[0], data[1]};
+    };
+    EXPECT_EQ((std::vector<uint8_t> {1, 0}), contains(small_polygon));
+    EXPECT_EQ((std::vector<uint8_t> {1, 0}), contains(small_polygon));
+    EXPECT_EQ((std::vector<uint8_t> {1, 1}), contains(large_polygon));
+    EXPECT_EQ((std::vector<uint8_t> {1, 0}), contains(small_polygon));
+
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
 }
 
 TEST(VGeoFunctionsTest, function_geo_st_circle) {
