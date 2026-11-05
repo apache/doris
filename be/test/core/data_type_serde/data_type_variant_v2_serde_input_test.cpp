@@ -348,8 +348,8 @@ TEST(DataTypeVariantV2SerdeInputTest, DecimalTemplatePathsParseNumbersFromText) 
     DataTypeVariantV2SerDe plain;
     EXPECT_EQ(nullptr, plain.decimal_paths());
     auto plain_column = ColumnVariantV2::create();
-    ASSERT_TRUE(deserialize_json(plain, *plain_column, R"({"ratio_a":0.123456789012345678901})")
-                        .ok());
+    ASSERT_TRUE(
+            deserialize_json(plain, *plain_column, R"({"ratio_a":0.123456789012345678901})").ok());
     EXPECT_EQ(std::string::npos, json_at(plain, *plain_column, 0).find("0.123456789012345678901"));
 
     // Off the declared paths a path-bearing serde keeps the parser's verdict: an integer beyond
@@ -420,8 +420,8 @@ TEST(DataTypeVariantV2SerdeInputTest, DecimalTemplatePathsStopAtAnObjectInsideAn
     ASSERT_TRUE(deserialize_json(serde, *column, R"({"prices":[1.50,2.5]})").ok());
     EXPECT_NE(std::string::npos, json_at(serde, *column, 3).find(R"("prices":[1.50,2.5])"));
     // Back out of the array, a sibling path is matched again.
-    ASSERT_TRUE(deserialize_json(serde, *column, R"({"x":[{"a":{"b":1.50}}],"a":{"b":1.50}})")
-                        .ok());
+    ASSERT_TRUE(
+            deserialize_json(serde, *column, R"({"x":[{"a":{"b":1.50}}],"a":{"b":1.50}})").ok());
     const std::string sibling = json_at(serde, *column, 4);
     EXPECT_NE(std::string::npos, sibling.find(R"("x":[{"a":{"b":1.5}}])")) << sibling;
     EXPECT_NE(std::string::npos, sibling.find(R"("a":{"b":1.50})")) << sibling;
@@ -433,8 +433,8 @@ TEST(DataTypeVariantV2SerdeInputTest, DecimalTemplatePathsKeepTheLenientVerdictO
     auto column = ColumnVariantV2::create();
     // The ondemand pass checks depth and keys as it reads, the DOM parser rejects the malformed
     // tail first and the lenient serde keeps the text: both documents must become string rows.
-    const std::string deep_then_malformed = R"({"d":)" + std::string(130, '[') + "0" +
-                                            std::string(130, ']') + R"(,"k":x})";
+    const std::string deep_then_malformed =
+            R"({"d":)" + std::string(130, '[') + "0" + std::string(130, ']') + R"(,"k":x})";
     ASSERT_TRUE(deserialize_json(serde, *column, deep_then_malformed).ok());
     EXPECT_EQ('"', json_at(serde, *column, 0).front());
     ASSERT_TRUE(deserialize_json(serde, *column, R"({"o":{"a":1,"a":2},"k":x})").ok());

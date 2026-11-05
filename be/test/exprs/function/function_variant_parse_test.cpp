@@ -385,8 +385,7 @@ TEST(FunctionVariantParseTest, DecimalTemplatePathsOnTheResultTypeParseNumbersFr
                 execute_parse(name, make_strings({document}), string_type, 1, typed);
         ASSERT_TRUE(result.status.ok()) << name << ": " << result.status.to_string();
         const std::string json = variant_json_at(result.output, 0);
-        EXPECT_NE(std::string::npos, json.find(R"("amount":123456789012.345678)"))
-                << name << json;
+        EXPECT_NE(std::string::npos, json.find(R"("amount":123456789012.345678)")) << name << json;
         EXPECT_NE(std::string::npos, json.find(R"("score":0.5)")) << name << json;
     }
     // Without paths on the result type the number stays a number.
