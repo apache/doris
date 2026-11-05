@@ -24,7 +24,6 @@ suite("test_group_commit_schema_change_wal", "nonConcurrent") {
     def replayPoint = "WalTable.replay_wals.stop"
     def convertPoint = isCloudMode() ? "CloudSchemaChangeJob::process_alter_tablet.block"
                                      : "SchemaChangeJob::_do_process_alter_tablet.block"
-    def oldReader = (sql "SHOW GLOBAL VARIABLES LIKE 'enable_file_scanner_v2'")[0][1]
 
     def awaitAlter = { expected ->
         Awaitility.await().atMost(300, SECONDS).pollInterval(1, SECONDS).until {
@@ -82,16 +81,11 @@ suite("test_group_commit_schema_change_wal", "nonConcurrent") {
         }
     }
 
-    try {
-        sql "SET group_commit = off_mode"
-        sql "SET GLOBAL enable_file_scanner_v2 = true"
-        replayInState("RUNNING")
-        order_qt_running "SELECT * FROM test_group_commit_schema_change_wal"
-        replayInState("FINISHED")
-        order_qt_finished "SELECT * FROM test_group_commit_schema_change_wal"
-        replayInState("CANCELLED")
-        order_qt_cancelled "SELECT * FROM test_group_commit_schema_change_wal"
-    } finally {
-        sql "SET GLOBAL enable_file_scanner_v2 = ${oldReader}"
-    }
+    sql "SET group_commit = off_mode"
+    replayInState("RUNNING")
+    order_qt_running "SELECT * FROM test_group_commit_schema_change_wal"
+    replayInState("FINISHED")
+    order_qt_finished "SELECT * FROM test_group_commit_schema_change_wal"
+    replayInState("CANCELLED")
+    order_qt_cancelled "SELECT * FROM test_group_commit_schema_change_wal"
 }
