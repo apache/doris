@@ -90,11 +90,14 @@ suite("test_variant_values_index_mow", "p0,nonConcurrent") {
     }
     def finalQueries = [
         "SELECT id,v MATCH_ANY 'replacement retained',note FROM vvi_mow ORDER BY id",
-        "SELECT count(*) FROM vvi_mow WHERE v MATCH_ANY 'old new deleted'",
+        "SELECT id FROM vvi_mow WHERE v MATCH_ANY 'old' ORDER BY id",
+        "SELECT id FROM vvi_mow WHERE v MATCH_ANY 'new' ORDER BY id",
+        "SELECT id FROM vvi_mow WHERE v MATCH_ANY 'deleted' ORDER BY id",
+        "SELECT id,v,note FROM vvi_mow ORDER BY id",
         "SELECT id FROM vvi_mow WHERE v MATCH_ANY 'replacement' ORDER BY id",
         "SELECT id FROM vvi_mow WHERE v MATCH_ANY 'retained' ORDER BY id",
         "SELECT id FROM vvi_mow WHERE v MATCH_ALL 'hello world' ORDER BY id"]
     def before = check("before_compaction", finalQueries)
     trigger_and_wait_compaction("vvi_mow", "full", 1800)
-    assertEquals(before, check("after_compaction", finalQueries, false))
+    assertEquals(before, check("after_compaction", finalQueries))
 }

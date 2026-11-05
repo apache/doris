@@ -76,7 +76,8 @@ suite("test_variant_values_index_compaction", "p0,nonConcurrent") {
                     "SELECT id FROM vvi_compaction WHERE v MATCH_ALL '7' ORDER BY id",
                     "SELECT id FROM vvi_compaction WHERE v MATCH_ALL '7.5' ORDER BY id",
                     "SELECT id FROM vvi_compaction WHERE v MATCH_ALL '9.5' ORDER BY id",
-                    "SELECT id FROM vvi_compaction WHERE v MATCH_ANY 'ten' ORDER BY id"
+                    "SELECT id FROM vvi_compaction WHERE v MATCH_ANY 'ten' ORDER BY id",
+                    "SELECT id,v,plain FROM vvi_compaction WHERE id<7 ORDER BY id"
                 ]
                 def check = { String phase, List before ->
                     def rows = []
@@ -91,8 +92,8 @@ suite("test_variant_values_index_compaction", "p0,nonConcurrent") {
                             assertEquals(before[i], indexed)
                         }
                         rows.add(indexed)
-                        if (baseline == null && phase == "before") {
-                            quickTest("before_${i}", query, true)
+                        if (nativeMerge && mode == "horizontal") {
+                            quickTest("${phase}_${i}", query, true)
                         }
                     }
                     sql "SET enable_inverted_index_query=true"
