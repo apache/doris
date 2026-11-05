@@ -980,32 +980,33 @@ TEST_F(IndexStorageVariantCompactionReadTest, SameRootMultiIndexesSurviveCompact
         ASSERT_TRUE(reader.init().ok());
         auto entries = reader.snii_logical_indexes();
         ASSERT_TRUE(entries.has_value()) << entries.error();
-        auto check = [&](uint64_t id, const std::string& suffix, const std::string& term,
+        auto check = [&](IndexFileReader& file, uint32_t doc_count, uint64_t id,
+                         const std::string& suffix, const std::string& term,
                          const std::vector<uint32_t>& expected) {
-            auto index = reader.open_snii_logical_index(id, suffix, nullptr,
-                                                        snii::reader::LogicalIndexOpenMode::kQuery);
+            auto index = file.open_snii_logical_index(id, suffix, nullptr,
+                                                      snii::reader::LogicalIndexOpenMode::kQuery);
             ASSERT_TRUE(index.has_value()) << id << ":" << suffix << " " << index.error();
-            EXPECT_EQ((*index)->stats().doc_count, 8);
+            EXPECT_EQ((*index)->stats().doc_count, doc_count);
             EXPECT_EQ((*index)->stats().null_count, id == 72 ? 2 : 4);
             std::vector<uint32_t> actual;
             ASSERT_TRUE(snii::query::term_query(**index, term, &actual).ok());
             EXPECT_EQ(actual, expected) << id << ":" << suffix << " term=" << term;
         };
-        check(72, "", "hello", {0, 4});
-        check(72, "", "world", {});
-        check(73, "v%2Es", "HELLO", {0, 4});
-        check(73, "v%2Es", "hello", {});
-        check(74, "v%2Es", "hello", {0, 4});
-        check(75, "v%2Eexact", "exact", {0, 4});
-        check(76, "v%2EtagA", "alpha", {0, 4});
-        check(76, "v%2EtagA", "beta", {1, 5});
-        check(76, "v%2EtagB", "alpha", {1, 5});
-        check(76, "v%2EtagB", "beta", {0, 4});
+        check(reader, 8, 72, "", "hello", {0, 4});
+        check(reader, 8, 72, "", "world", {});
+        check(reader, 8, 73, "v%2Es", "HELLO", {0, 4});
+        check(reader, 8, 73, "v%2Es", "hello", {});
+        check(reader, 8, 74, "v%2Es", "hello", {0, 4});
+        check(reader, 8, 75, "v%2Eexact", "exact", {0, 4});
+        check(reader, 8, 76, "v%2EtagA", "alpha", {0, 4});
+        check(reader, 8, 76, "v%2EtagA", "beta", {1, 5});
+        check(reader, 8, 76, "v%2EtagB", "alpha", {1, 5});
+        check(reader, 8, 76, "v%2EtagB", "beta", {0, 4});
         if (mode.retry) {
             IndexRowsetSpec next;
             next.version = 2;
             next.batches.push_back(IndexBatch::single_variant(
-                    {R"({"s":"HELLO","exact":"EXACT","tagA":"alpha","tagB":"beta"})"}, 8));
+                    {R"({"exact":"EXACT","s":"HELLO","tagA":"alpha","tagB":"beta"})"}, 8));
             auto next_source = write_rowset(next);
             ASSERT_TRUE(next_source.has_value()) << next_source.error();
             FullCompaction second(*storage_engine(), tablet());
@@ -1024,12 +1025,22 @@ TEST_F(IndexStorageVariantCompactionReadTest, SameRootMultiIndexesSurviveCompact
                     std::string(InvertedIndexDescriptor::get_index_file_path_prefix(*next_path)),
                     InvertedIndexStorageFormatPB::SNII, next_segment.inverted_index_file_info());
             ASSERT_TRUE(next_reader.init().ok());
-            auto ordinary = next_reader.open_snii_logical_index(
-                    73, "v%2Es", nullptr, snii::reader::LogicalIndexOpenMode::kQuery);
-            ASSERT_TRUE(ordinary.has_value()) << ordinary.error();
-            std::vector<uint32_t> actual;
-            ASSERT_TRUE(snii::query::term_query(**ordinary, "HELLO", &actual).ok());
-            EXPECT_EQ(actual, (std::vector<uint32_t> {0, 4, 8}));
+            check(next_reader, 9, 72, "", "hello", {0, 4, 8});
+            check(next_reader, 9, 73, "v%2Es", "HELLO", {0, 4, 8});
+            check(next_reader, 9, 73, "v%2Es", "hello", {});
+            check(next_reader, 9, 74, "v%2Es", "hello", {0, 4, 8});
+            check(next_reader, 9, 75, "v%2Eexact", "exact", {0, 4, 8});
+            check(next_reader, 9, 76, "v%2EtagA", "alpha", {0, 4, 8});
+            check(next_reader, 9, 76, "v%2EtagA", "beta", {1, 5});
+            check(next_reader, 9, 76, "v%2EtagB", "alpha", {1, 5});
+            check(next_reader, 9, 76, "v%2EtagB", "beta", {0, 4, 8});
+            auto next_result = read_rowsets({second._output_rowset}, read);
+            ASSERT_TRUE(next_result.has_value()) << next_result.error();
+            EXPECT_EQ(canonical_variant_values(next_result->variant_values_by_uid.at(2)),
+                      canonical_variant_values(
+                              {documents[0], documents[1], std::nullopt, "{}", documents[0],
+                               documents[1], std::nullopt, "{}",
+                               R"({"exact":"EXACT","s":"HELLO","tagA":"alpha","tagB":"beta"})"}));
         }
         for (const auto& entry : *entries) {
             if (entry.index_id == 72) {

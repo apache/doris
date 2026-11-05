@@ -71,12 +71,12 @@ public class IndexTest {
     public void testValuesAndPathIndexPersistence() throws Exception {
         List<Index> indexes = List.of(
                 new Index(71, "values", List.of("V"), IndexType.INVERTED,
-                        Map.of("variant_index_scope", "values", "parser", "english",
+                        Map.of("variant_index_scope", "values", "analyzer", "english",
                                 "support_phrase", "false", "lower_case", "true"), "root"),
                 new Index(72, "paths", List.of("V"), IndexType.INVERTED,
                         Map.of("parser", "unicode", "lower_case", "false"), "paths"),
                 new Index(73, "template", List.of("V"), IndexType.INVERTED,
-                        Map.of("field_pattern", "tag*", "parser", "english"), "template"));
+                        Map.of("field_pattern", "tag*", "analyzer", "unicode"), "template"));
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         try (DataOutputStream output = new DataOutputStream(bytes)) {
             for (Index index : indexes) {
