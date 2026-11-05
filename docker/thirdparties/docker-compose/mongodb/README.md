@@ -8,12 +8,26 @@ CONTAINER_UID=doris-mongodb-test- bash docker/thirdparties/run-thirdparties-dock
 
 Set `MONGODB_PORT` to override the published port. Restarting this stack recreates the synthetic database `doris_mongodb_test`; do not point it at a production database. Both MongoDB data directories use disposable tmpfs mounts, so recreating or stopping the stack leaves no anonymous data volumes. The service authenticates with the fixture account `mongodb_test` / `mongodb_test` in `admin`. Readiness requires the final network-facing MongoDB process and the completed fixtures.
 
-Install the complete MongoDB plugin ZIP (`io.trino:trino-mongodb:435:zip`, published on Maven Central), or its directory from the Trino 435 server distribution in the operator-controlled Trino plugin directory on every FE and BE. Use the same connector version on both sides; copying only `trino-mongodb-435.jar` omits its runtime dependencies and service-provider metadata. Configure `trino_connector_plugin_dir` before starting Doris, and restart the processes after changing plugins. These suites use the preinstalled plugin and do not download or replace the other Trino fixtures.
+The suites call the existing synchronized Trino plugin dispatcher before creating
+catalogs. It downloads `regression/trino-connectors-435-regression-v1.tar.gz` from
+the configured regression bucket and distributes the complete Trino 435 plugin
+set, including MongoDB and its dependencies, to every FE and BE. Existing Trino
+suites use the same bundle and dispatcher, so concurrent suites wait for one
+successful distribution per runner process. Configure `trinoPluginsPath` and
+`trino_connector_plugin_dir` consistently and allow SSH/SCP from the runner to
+all FE/BE hosts, as for the other Trino suites. Run against fresh Doris processes;
+connector factories loaded before plugin replacement are not reloaded.
+
+The bundle contains the original eight connectors plus the complete Maven Central
+`io.trino:trino-mongodb:435:zip` distribution. Its SHA-256 is
+`e1b76e3be031395df0af988b198ad192674f29cb6e0b24ae912aa09e0ddba23c`;
+the Beijing and Hong Kong public regression buckets serve identical bytes.
 
 Add these values to `regression-test/conf/regression-conf-custom.groovy`, using the reachable Docker host and published port:
 
 ```groovy
 enableMongoDBTest = true
+trinoPluginsPath = "/tmp/trino_connector"
 externalEnvIp = "127.0.0.1"
 mongodb_port = 27017
 mongodb_user = "mongodb_test"
@@ -53,23 +67,3 @@ WHERE json_extract_int(payload, '$.n') = 7;
 ```
 
 Automatic schema inference still maps BSON documents to Trino `row` / Doris `STRUCT`. Use an explicit `json` declaration when a field should be read as a whole JSON value. BSON documents use the connector's Extended JSON representation, so embedded ObjectIds appear as `{"$oid":"..."}` objects. For BSON string values declared as `json`, their contents must be valid JSON text; malformed text fails the query. The JSON suite covers both real BSON documents and valid JSON text, plus a malformed-text negative case.
-
-### Deployment-managed Trino plugins
-
-For a CI cluster whose deployment step installs the complete Trino plugin set,
-set `trinoConnectorInstallMode = "preinstalled"` in the regression configuration.
-Keep `enableTrinoConnectorTest = true` and `enableMongoDBTest = true`: the mode
-only disables the shared dispatcher's download, SSH/SCP and directory replacement;
-it does not skip any catalog creation or query assertions. No S3 download settings
-or SSH access are required by the dispatcher in this mode.
-
-Install the full MongoDB 435 ZIP (including dependencies and service metadata)
-alongside every other connector needed by the selected suites on **every FE/BE**,
-in the directory configured by `trino_connector_plugin_dir`, before starting Doris.
-The deployment step must validate the files on every node and fail on incomplete
-installation. Missing or incompatible plugins still fail the regression queries;
-the framework does not install a fallback. Restart processes after plugin changes,
-because Trino connector factories are loaded only once.
-
-The default mode is `framework`, preserving existing shared-fixture distribution.
-An unknown mode fails explicitly rather than replacing a deployment-owned directory.

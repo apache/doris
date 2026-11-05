@@ -1465,22 +1465,24 @@ class Suite implements GroovyInterceptable {
         Assert.assertEquals(0, code)
     }
 
+    void dispatchTrinoConnectors() {
+        def host_ips = new ArrayList()
+        String[][] backends = sql "show backends"
+        for (def backend in backends) {
+            host_ips.add(backend[1])
+        }
+        String[][] frontends = sql "show frontends"
+        for (def frontend in frontends) {
+            host_ips.add(frontend[1])
+        }
+        dispatchTrinoConnectors(host_ips.unique())
+    }
+
     void dispatchTrinoConnectors(ArrayList host_ips)
     {
-        // Deployment may own this directory. Keep the test enable flags independent:
-        // returning here only bypasses installation, not the caller's catalog/query assertions.
-        String installMode = getConf("trinoConnectorInstallMode", "framework")
-        if (installMode == "preinstalled") {
-            logger.info("Use preinstalled Trino connectors; leave plugin directories unchanged")
-            return
-        }
-        if (installMode != "framework") {
-            throw new IllegalArgumentException("Unknown trinoConnectorInstallMode '${installMode}'; "
-                    + "expected framework or preinstalled")
-        }
-        def dir_download = getConf("trinoPluginsPath")
+        def dir_download = context.config.otherConfigs.get("trinoPluginsPath")
         def s3_url = getS3Url()
-        def url = "${s3_url}/regression/trino-connectors.tar.gz"
+        def url = "${s3_url}/regression/trino-connectors-435-regression-v1.tar.gz"
         dispatchTrinoConnectors_impl(host_ips, dir_download, url)
     }
 
