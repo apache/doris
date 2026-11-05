@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Compare repeated cached reads with live metadata and a Fluss-only read of the same fixtures.
+// Compare repeated cached reads with live metadata and independent Fluss/lake fixture reads.
 suite("test_fluss_scan_caches", "p0,external") {
     if (!context.config.otherConfigs.get("enableFlussTest")?.equalsIgnoreCase("true")) {
         return
@@ -49,8 +49,17 @@ suite("test_fluss_scan_caches", "p0,external") {
                         : "*"
                 String cachedQuery = "select ${projection} from test_fluss_scan_cached.fluss_test.${table} order by 1, 2"
                 String liveQuery = "select ${projection} from test_fluss_scan_live.fluss_test.${table} order by 1, 2"
+                String baselineQuery = "select ${projection} from test_fluss_scan_live.fluss_test.${table}"
+                if (table == "lake_pk_part") {
+                    // Retention dropped this live Fluss partition, but union reads must keep its lake rows.
+                    baselineQuery += """
+                        union all
+                        select ${projection} from test_fluss_scan_live.fluss_test.`${table}\$lake`
+                        where dt = '20260102'
+                    """
+                }
                 sql """set fluss_union_read_mode = 'disabled'"""
-                def expected = sql(liveQuery)
+                def expected = sql("${baselineQuery} order by 1, 2")
                 sql """set fluss_union_read_mode = 'auto'"""
                 // Separate statements/scans share a BE tail entry; compare every row, not just counts.
                 3.times {
