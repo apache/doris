@@ -112,10 +112,10 @@ public class ConnectPoolMgr {
     // Register one connection with its connection id.
     // Return -1 means register OK
     // Return >=0 means register failed, and return value is current connection num.
-    int registerConnection(ConnectContext ctx) {
+    int registerConnection(ConnectContext ctx, long userLimit) {
         boolean flight = isFlight(ctx);
         String qualifiedUser = ctx.getQualifiedUser();
-        long userLimit = ctx.getEnv().getAuth().getMaxConn(qualifiedUser);
+        // The caller reads userLimit before taking its lifecycle lock: Auth lookup may block.
         // Check and reserve the pool, Flight sub-quota and per-user quotas as one transition. Doing it
         // under a lock (rather than the earlier increment-check-rollback per counter) keeps a doomed
         // attempt from reserving one counter across another attempt's checks: a second Flight attempt
@@ -173,7 +173,11 @@ public class ConnectPoolMgr {
     void unregisterConnection(ConnectContext ctx) {
         synchronized (admissionLock) {
             if (connectionMap.remove(ctx.getConnectionId(), ctx)) {
-                connByUser.get(ctx.getQualifiedUser()).decrementAndGet();
+                // COM_CHANGE_USER may have changed the context to a user with no pool counter.
+                AtomicInteger conns = connByUser.get(ctx.getQualifiedUser());
+                if (conns != null) {
+                    conns.decrementAndGet();
+                }
                 if (ctx.traceId() != null) {
                     traceId2QueryId.remove(ctx.traceId());
                 }

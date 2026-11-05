@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Status;
 import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.qe.ConnectContext.CloseMode;
 import org.apache.doris.qe.protocol.ProtocolAdapter;
 import org.apache.doris.thrift.TStatusCode;
@@ -487,11 +488,18 @@ public class ConnectContextLifecycleTest {
         });
         ExecutorService workers = Executors.newFixedThreadPool(2);
         try {
-            Future<Integer> registration = workers.submit(() -> ctx.registerClientSession(pool));
+            Future<?> registration = workers.submit(() -> {
+                try {
+                    Assertions.assertEquals(-1, ctx.registerClientSession(pool));
+                } catch (ConnectContext.SessionClosedException closed) {
+                    // Closing may now win while the property lookup runs outside the gate.
+                    Assertions.assertTrue(ctx.isClosingOrClosed());
+                }
+            });
             await(reserving);
             Future<?> close = workers.submit(ctx::cleanup);
             finishRegistration.countDown();
-            Assertions.assertEquals(-1, registration.get(10, TimeUnit.SECONDS));
+            registration.get(10, TimeUnit.SECONDS);
             close.get(10, TimeUnit.SECONDS);
             Assertions.assertNull(pool.getContext(ctx.getConnectionId()));
             Assertions.assertEquals(0, pool.getConnectionNum());
@@ -554,4 +562,119 @@ public class ConnectContextLifecycleTest {
         Assertions.assertFalse(ctx.isClosingOrClosed());
         Assertions.assertSame(ctx, pool.getContext(ctx.getConnectionId()));
     }
+
+    @Test
+    public void testCloseInterruptsInitializationWhileQuotaLookupIsBlocked() throws Exception {
+        CountDownLatch lookup = new CountDownLatch(1);
+        CountDownLatch returnProperty = new CountDownLatch(1);
+        Auth auth = env.getAuth();
+        Mockito.doAnswer(call -> {
+            lookup.countDown();
+            await(returnProperty);
+            return 10L;
+        }).when(auth).getMaxConn(UserIdentity.ROOT.getQualifiedUser());
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> initialize = workers.submit(() -> ctx.runCommand(() ->
+                    Assertions.assertThrows(ConnectContext.SessionClosedException.class,
+                            () -> ctx.registerClientSession(pool))));
+            await(lookup);
+            workers.submit(ctx::cleanup).get(5, TimeUnit.SECONDS);
+            Mockito.verify(adapter).closeConnection(ctx);
+            Mockito.verify(adapter, Mockito.never()).releaseSession(ctx);
+            Assertions.assertTrue(ctx.isClosingOrClosed());
+            returnProperty.countDown();
+            initialize.get(10, TimeUnit.SECONDS);
+            Assertions.assertEquals(0, pool.getConnectionNum());
+            verifyReleasedOnce();
+        } finally {
+            returnProperty.countDown();
+            stop(workers);
+        }
+    }
+
+    @Test
+    public void testCloseInterruptsQueryWhileTimeoutPropertyLookupIsBlocked() throws Exception {
+        register();
+        StmtExecutor running = Mockito.mock(StmtExecutor.class);
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch exit = new CountDownLatch(1);
+        CountDownLatch lookup = new CountDownLatch(1);
+        CountDownLatch returnProperty = new CountDownLatch(1);
+        Auth auth = env.getAuth();
+        Mockito.doAnswer(call -> {
+            lookup.countDown();
+            await(returnProperty);
+            return 1;
+        }).when(auth).getQueryTimeout(UserIdentity.ROOT.getQualifiedUser());
+        ExecutorService workers = Executors.newFixedThreadPool(3);
+        try {
+            Future<?> query = workers.submit(() -> ctx.runCommand(() -> {
+                ctx.setCommand(MysqlCommand.COM_QUERY);
+                ctx.setExecutor(running);
+                entered.countDown();
+                await(exit);
+            }));
+            await(entered);
+            long now = ctx.getStartTime() + 2000;
+            Future<?> timeout = workers.submit(() -> ctx.checkTimeout(now));
+            await(lookup);
+            workers.submit(ctx::cleanup).get(5, TimeUnit.SECONDS);
+            Mockito.verify(adapter).closeConnection(ctx);
+            Mockito.verify(adapter, Mockito.never()).releaseSession(ctx);
+            returnProperty.countDown();
+            timeout.get(10, TimeUnit.SECONDS);
+            // Only immediate close cancels: the stale timeout decision observes STOPPING and exits.
+            ArgumentCaptor<Status> reason = ArgumentCaptor.forClass(Status.class);
+            Mockito.verify(running).cancel(reason.capture(), Mockito.eq(false));
+            Assertions.assertEquals(TStatusCode.CANCELLED, reason.getValue().getErrorCode());
+            exit.countDown();
+            query.get(10, TimeUnit.SECONDS);
+            verifyReleasedOnce();
+        } finally {
+            returnProperty.countDown();
+            exit.countDown();
+            stop(workers);
+        }
+    }
+
+    @Test
+    public void testTimeoutLookupDoesNotApplyPreviousQueryLimitToNextStatement() throws Exception {
+        register();
+        StmtExecutor earlier = Mockito.mock(StmtExecutor.class);
+        StmtExecutor next = Mockito.mock(StmtExecutor.class);
+        Mockito.when(next.isSyncLoadKindStmt()).thenReturn(true);
+        ctx.setCommand(MysqlCommand.COM_QUERY);
+        ctx.setExecutor(earlier);
+        long start = ctx.getStartTime();
+        CountDownLatch lookup = new CountDownLatch(1);
+        CountDownLatch returnProperty = new CountDownLatch(1);
+        Auth auth = env.getAuth();
+        Mockito.doAnswer(call -> {
+            lookup.countDown();
+            await(returnProperty);
+            return 1;
+        }).when(auth).getQueryTimeout(UserIdentity.ROOT.getQualifiedUser());
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> timeout = workers.submit(() -> ctx.checkTimeout(start + 2000));
+            await(lookup);
+            workers.submit(() -> ctx.runCommand(() -> {
+                ctx.setExecutor(next);
+                // Consecutive short statements can share a millisecond start time. Identity must
+                // still be rechecked; the preceding SELECT's limit is not this INSERT's limit.
+                ctx.startTime = start;
+                ctx.getSessionVariable().setInsertTimeoutS(100);
+            })).get(5, TimeUnit.SECONDS);
+            returnProperty.countDown();
+            timeout.get(10, TimeUnit.SECONDS);
+            Mockito.verify(earlier, Mockito.never()).cancel(Mockito.any(Status.class), Mockito.anyBoolean());
+            Mockito.verify(next, Mockito.never()).cancel(Mockito.any(Status.class), Mockito.anyBoolean());
+            Assertions.assertFalse(ctx.isClosingOrClosed());
+        } finally {
+            returnProperty.countDown();
+            stop(workers);
+        }
+    }
+
 }

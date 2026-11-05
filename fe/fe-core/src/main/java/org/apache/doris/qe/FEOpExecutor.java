@@ -69,8 +69,6 @@ public class FEOpExecutor {
     protected final ConnectContext ctx;
     protected final Env env;
     protected TMasterOpResult result;
-    // Keep the statement's dispatched BEs until audit has consumed them.
-    private volatile Set<Long> auditStatisticsBackendIds = Collections.emptySet();
     protected final TNetworkAddress feAddr;
 
     // Publication belongs to execute(), after the query identity has been assigned. An earlier
@@ -84,7 +82,7 @@ public class FEOpExecutor {
     protected boolean moreStmtExists = false;
 
     public FEOpExecutor(TNetworkAddress feAddress, OriginStatement originStmt, ConnectContext ctx, boolean isQuery) {
-        this.feAddr = feAddress.deepCopy();
+        this.feAddr = feAddress;
         this.originStmt = originStmt;
         this.ctx = ctx;
         this.env = ctx.getEnv();
@@ -94,8 +92,23 @@ public class FEOpExecutor {
     }
 
     public void execute() throws Exception {
-        auditStatisticsBackendIds = Collections.emptySet();
         TMasterOpRequest request = buildStmtForwardParams();
+        prepareCancellation(request);
+        result = forward(request);
+        if (ctx.isTxnModel()) {
+            if (result.isSetTxnLoadInfo()) {
+                ctx.getTxnEntry().setTxnLoadInfoInObserver(result.getTxnLoadInfo());
+            } else {
+                ctx.setTxnEntry(null);
+                LOG.info("set txn entry to null");
+            }
+        }
+        if (result.isSetAffectedRows()) {
+            ctx.updateReturnRows((int) result.getAffectedRows());
+        }
+    }
+
+    private void prepareCancellation(TMasterOpRequest request) throws UserException {
         TMasterOpRequest cancelRequest = new TMasterOpRequest();
         cancelRequest.setCancelQeury(true);
         if (request.isSetQueryId()) {
@@ -112,19 +125,6 @@ public class FEOpExecutor {
                     "A forwarded statement can only be executed once");
             throw new UserException("Query was cancelled before forwarding");
         }
-        result = forward(request);
-        rememberAuditStatisticsBackendIds();
-        if (ctx.isTxnModel()) {
-            if (result.isSetTxnLoadInfo()) {
-                ctx.getTxnEntry().setTxnLoadInfoInObserver(result.getTxnLoadInfo());
-            } else {
-                ctx.setTxnEntry(null);
-                LOG.info("set txn entry to null");
-            }
-        }
-        if (result.isSetAffectedRows()) {
-            ctx.updateReturnRows((int) result.getAffectedRows());
-        }
     }
 
     public void cancel() throws Exception {
@@ -133,7 +133,7 @@ public class FEOpExecutor {
 
     /**
      * Cancel only the statement this executor dispatched, even after its session has started the
-     * next one. The private snapshot is never passed to a client or read from the context again.
+     * next one. The published request is read-only and shared by concurrent cancellation calls.
      * A cancellation response is separate from the statement response and its audit information.
      */
     protected TMasterOpResult cancelForwardedQuery() throws Exception {
@@ -144,13 +144,7 @@ public class FEOpExecutor {
         if (request == CANCELLED_BEFORE_FORWARD || !request.isSetQueryId()) {
             return null;
         }
-        return forward(request.deepCopy());
-    }
-
-    private void rememberAuditStatisticsBackendIds() {
-        if (result != null && result.isSetAuditStatisticsBackendIds()) {
-            auditStatisticsBackendIds = ImmutableSet.copyOf(result.getAuditStatisticsBackendIds());
-        }
+        return forward(request);
     }
 
     // Send request to specific fe
@@ -373,9 +367,6 @@ public class FEOpExecutor {
     }
 
     public Set<Long> getAuditStatisticsBackendIds() {
-        if (!auditStatisticsBackendIds.isEmpty()) {
-            return auditStatisticsBackendIds;
-        }
         if (result == null || !result.isSetAuditStatisticsBackendIds()) {
             return Collections.emptySet();
         }

@@ -608,7 +608,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             }
         } catch (AsynchronousCloseException e) {
             // when this happened, timeout checker close this channel
-            // The context has already entered CLOSING; let the operation's finally report exit.
+            // Immediate closure has been requested; the command owner releases resources on exit.
             return;
         }
 
