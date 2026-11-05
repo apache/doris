@@ -1905,14 +1905,14 @@ EvolutionTopNFilter make_evolution_topn_filter(RuntimeState* state, bool ascendi
     desc.__set_target_node_id_to_target_expr({{20, target}});
     auto query = MockQueryContext::create();
     state->_query_ctx = query.get();
-    query->init_runtime_predicates({desc});
+    query->init_runtime_predicates({desc}, {});
     auto& predicate = query->get_runtime_predicate(10);
     predicate.set_detected_source();
     DORIS_CHECK(predicate.init_target(20, {}, -1).ok());
     TExprNode topn_node;
     topn_node.__set_type(std::make_shared<DataTypeUInt8>()->to_thrift());
     topn_node.__set_is_nullable(true);
-    auto topn = VTopNPred::create_shared(topn_node, 10, nullptr);
+    auto topn = VTopNPred::create_shared(topn_node, 10, 20, nullptr);
     topn->add_child(VSlotRef::create_shared(0, 0, -1, type, "k"));
     return {.query_context = std::move(query), .conjunct = prepared_conjunct(state, topn)};
 }

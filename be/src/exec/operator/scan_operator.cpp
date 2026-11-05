@@ -1108,7 +1108,8 @@ Status ScanLocalState<Derived>::_get_topn_filters(RuntimeState* state) {
     for (auto id : get_topn_filter_source_node_ids(state, false)) {
         const auto& pred = state->get_query_ctx()->get_runtime_predicate(id);
         VExprSPtr topn_pred;
-        RETURN_IF_ERROR(VTopNPred::create_vtopn_pred(pred.get_texpr(p.node_id()), id, topn_pred));
+        RETURN_IF_ERROR(VTopNPred::create_vtopn_pred(pred.get_texpr(p.node_id()), id, p.node_id(),
+                                                     topn_pred));
 
         VExprContextSPtr conjunct = VExprContext::create_shared(topn_pred);
         RETURN_IF_ERROR(conjunct->prepare(
@@ -1120,7 +1121,8 @@ Status ScanLocalState<Derived>::_get_topn_filters(RuntimeState* state) {
     for (auto id : get_topn_filter_source_node_ids(state, true)) {
         const auto& pred = state->get_query_ctx()->get_runtime_predicate(id);
         VExprSPtr topn_pred;
-        RETURN_IF_ERROR(VTopNPred::create_vtopn_pred(pred.get_texpr(p.node_id()), id, topn_pred));
+        RETURN_IF_ERROR(VTopNPred::create_vtopn_pred(pred.get_texpr(p.node_id()), id, p.node_id(),
+                                                     topn_pred));
 
         VExprContextSPtr conjunct = VExprContext::create_shared(topn_pred);
         RETURN_IF_ERROR(conjunct->prepare(

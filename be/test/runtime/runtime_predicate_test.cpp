@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <utility>
 
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_number.h"
@@ -31,6 +32,7 @@
 #include "exprs/vtopn_pred.h"
 #include "runtime/descriptors.h"
 #include "runtime/query_context.h"
+#include "storage/index/zone_map/zone_map_index.h"
 #include "testutil/mock/mock_runtime_state.h"
 
 namespace doris {
@@ -61,29 +63,68 @@ SlotDescriptor create_int_slot_descriptor() {
     return slot_desc;
 }
 
-VExprContextSPtr create_prepared_topn_expr(MockRuntimeState* state, const DataTypePtr& data_type,
-                                           const Field& top_value = Field(), bool is_asc = true,
-                                           bool nulls_first = false) {
-    DORIS_CHECK(state != nullptr);
-    DORIS_CHECK(data_type != nullptr);
-    auto desc = create_topn_filter_desc(data_type->get_primitive_type(), is_asc, nulls_first);
-    state->get_query_ctx()->init_runtime_predicates({desc});
-    auto& predicate = state->get_query_ctx()->get_runtime_predicate(SOURCE_NODE_ID);
-    predicate.set_detected_source();
-    DORIS_CHECK(predicate.init_target(TARGET_NODE_ID, {}, -1).ok());
-    if (!top_value.is_null()) {
-        DORIS_CHECK(predicate.update(top_value).ok());
-    }
+TPlanNode topn_plan_node(int id, TPlanNodeType::type type, int children = 0) {
+    TPlanNode node;
+    node.__set_node_id(id);
+    node.__set_node_type(type);
+    node.__set_num_children(children);
+    node.__set_limit(-1);
+    return node;
+}
 
+TPlanNode heap_topn_plan_node() {
+    auto node = topn_plan_node(SOURCE_NODE_ID, TPlanNodeType::SORT_NODE, 1);
+    node.sort_node.__set_algorithm(TSortAlgorithm::HEAP_SORT);
+    node.sort_node.sort_info.__set_ordering_exprs({TRuntimeFilterDescBuilder::get_default_expr()});
+    return node;
+}
+
+VExprContextSPtr prepare_topn_target(MockRuntimeState* state, const DataTypePtr& data_type,
+                                     int target_node_id) {
     TExprNode node;
     node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
     node.__set_is_nullable(data_type->is_nullable());
-    auto expr = VTopNPred::create_shared(node, SOURCE_NODE_ID, nullptr);
+    auto expr = VTopNPred::create_shared(node, SOURCE_NODE_ID, target_node_id, nullptr);
     expr->add_child(VSlotRef::create_shared(SLOT_ID, 0, -1, data_type, "topn_column"));
     auto context = VExprContext::create_shared(std::move(expr));
     DORIS_CHECK(context->prepare(state, RowDescriptor()).ok());
     DORIS_CHECK(context->open(state).ok());
     return context;
+}
+
+VExprContextSPtr create_prepared_topn_expr(MockRuntimeState* state, const DataTypePtr& data_type,
+                                           const Field& top_value = Field(), bool is_asc = true,
+                                           bool nulls_first = false, bool is_strict = false,
+                                           bool init_source = true) {
+    DORIS_CHECK(state != nullptr);
+    DORIS_CHECK(data_type != nullptr);
+    auto desc = create_topn_filter_desc(data_type->get_primitive_type(), is_asc, nulls_first);
+    TSortNode sort;
+    sort.__set_algorithm(TSortAlgorithm::HEAP_SORT);
+    sort.sort_info.__set_ordering_exprs(std::vector<TExpr>(
+            is_strict ? 1 : 2, desc.target_node_id_to_target_expr.at(TARGET_NODE_ID)));
+    TPlanNode source;
+    source.__set_node_id(SOURCE_NODE_ID);
+    source.__set_node_type(TPlanNodeType::SORT_NODE);
+    source.__set_sort_node(sort);
+    source.__set_num_children(1);
+    TPlanNode scan;
+    scan.__set_node_id(TARGET_NODE_ID);
+    scan.__set_node_type(TPlanNodeType::FILE_SCAN_NODE);
+    scan.__set_limit(-1);
+    TPipelineFragmentParams params;
+    params.fragment.plan.__set_nodes({source, scan});
+    state->get_query_ctx()->init_runtime_predicates({desc}, {params});
+    auto& predicate = state->get_query_ctx()->get_runtime_predicate(SOURCE_NODE_ID);
+    if (init_source) {
+        predicate.set_detected_source();
+    }
+    DORIS_CHECK(predicate.init_target(TARGET_NODE_ID, {}, -1).ok());
+    if (!top_value.is_null()) {
+        DORIS_CHECK(predicate.update(top_value).ok());
+    }
+
+    return prepare_topn_target(state, data_type, TARGET_NODE_ID);
 }
 
 void check_topn_uuid_scanner_predicate(bool is_asc, bool nulls_first) {
@@ -99,7 +140,7 @@ void check_topn_uuid_scanner_predicate(bool is_asc, bool nulls_first) {
 
     SCOPED_TRACE(is_asc);
     SCOPED_TRACE(nulls_first);
-    RuntimePredicate predicate(create_topn_filter_desc(TYPE_UUID, is_asc, nulls_first));
+    RuntimePredicate predicate(create_topn_filter_desc(TYPE_UUID, is_asc, nulls_first), {});
     predicate.set_detected_source();
     SlotDescriptor slot_desc;
     slot_desc._id = SLOT_ID;
@@ -132,10 +173,472 @@ void check_topn_uuid_scanner_predicate(bool is_asc, bool nulls_first) {
                      : (std::array<bool, 6> {false, false, false, true, true, nulls_first}));
 }
 
+void check_strict_scanner_predicate(bool ascending, bool nulls_first) {
+    RuntimePredicate predicate(create_topn_filter_desc(TYPE_INT, ascending, nulls_first),
+                               {TARGET_NODE_ID});
+    predicate.set_detected_source();
+    auto slot = create_int_slot_descriptor();
+    ASSERT_TRUE(predicate.init_target(TARGET_NODE_ID, {{SLOT_ID, &slot}}, 0).ok());
+    const auto scanner_predicate = predicate.get_predicate(TARGET_NODE_ID);
+    auto column = ColumnInt32::create();
+    for (int value : {2, 3, 4}) {
+        column->insert_value(value);
+    }
+    std::array<bool, 3> matches {};
+    scanner_predicate->evaluate_vec(*column, matches.size(), matches.data());
+    EXPECT_EQ(matches, (std::array<bool, 3> {true, true, true}));
+    ASSERT_TRUE(predicate.update(Field::create_field<TYPE_INT>(3)).ok());
+    scanner_predicate->evaluate_vec(*column, matches.size(), matches.data());
+    EXPECT_EQ(matches, ascending ? (std::array<bool, 3> {true, false, false})
+                                 : (std::array<bool, 3> {false, false, true}));
+    segment_v2::ZoneMap zone_map;
+    zone_map.has_not_null = true;
+    zone_map.min_value = Field::create_field<TYPE_INT>(3);
+    zone_map.max_value = Field::create_field<TYPE_INT>(3);
+    EXPECT_FALSE(scanner_predicate->evaluate_and(zone_map));
+    zone_map.has_null = true;
+    EXPECT_EQ(scanner_predicate->evaluate_and(zone_map), nulls_first);
+}
+
+void check_comparison_mode(bool ascending, bool strict, const char* expected_function) {
+    RuntimePredicate predicate(
+            create_topn_filter_desc(TYPE_INT, ascending, false),
+            strict ? std::unordered_set<int32_t> {TARGET_NODE_ID} : std::unordered_set<int32_t> {});
+    EXPECT_EQ(predicate.is_strict(TARGET_NODE_ID), strict);
+    predicate.set_detected_source();
+    EXPECT_EQ(predicate.is_strict(TARGET_NODE_ID), strict);
+    EXPECT_STREQ(predicate.comparison_function(TARGET_NODE_ID), expected_function);
+    const auto bound = Field::create_field<TYPE_INT>(3);
+    ASSERT_TRUE(predicate.update(bound).ok());
+    predicate.set_detected_source();
+    EXPECT_TRUE(predicate.has_value());
+    EXPECT_EQ(predicate.get_value(), bound);
+}
+
+void check_scan_prepared_before_source(bool ascending) {
+    MockRuntimeState state;
+    const auto type = std::make_shared<DataTypeInt32>();
+    auto context = create_prepared_topn_expr(&state, type, Field(), ascending, false, true, false);
+    auto& predicate = state.get_query_ctx()->get_runtime_predicate(SOURCE_NODE_ID);
+    auto slot = create_int_slot_descriptor();
+    ASSERT_TRUE(predicate.init_target(TARGET_NODE_ID, {{SLOT_ID, &slot}}, 0).ok());
+    const auto scanner_predicate = predicate.get_predicate(TARGET_NODE_ID);
+    ASSERT_NE(scanner_predicate, nullptr);
+
+    Block block;
+    auto column = ColumnInt32::create();
+    for (int value : {2, 3, 4}) {
+        column->insert_value(value);
+    }
+    block.insert({std::move(column), type, "topn_column"});
+    ColumnPtr result;
+    ASSERT_TRUE(context->root()->execute_column(context.get(), &block, nullptr, 3, result).ok());
+    for (size_t row = 0; row < 3; ++row) {
+        EXPECT_TRUE(result->get_bool(row));
+    }
+
+    predicate.set_detected_source();
+    ASSERT_TRUE(predicate.update(Field::create_field<TYPE_INT>(3)).ok());
+    ASSERT_TRUE(context->root()->execute_column(context.get(), &block, nullptr, 3, result).ok());
+    const std::array<int32_t, 3> values {2, 3, 4};
+    IColumn::Filter matches(3, 1);
+    ASSERT_TRUE(context->root()
+                        ->execute_on_raw_fixed_values(
+                                reinterpret_cast<const uint8_t*>(values.data()), values.size(),
+                                sizeof(int32_t), type, 0, matches.data())
+                        .ok());
+    const IColumn::Filter expected =
+            ascending ? IColumn::Filter {1, 0, 0} : IColumn::Filter {0, 0, 1};
+    std::array<bool, 3> scanner_matches {};
+    scanner_predicate->evaluate_vec(*block.get_by_position(0).column, 3, scanner_matches.data());
+    EXPECT_EQ(matches, expected);
+    for (size_t row = 0; row < 3; ++row) {
+        EXPECT_EQ(result->get_bool(row), expected[row]);
+        EXPECT_EQ(scanner_matches[row], expected[row]);
+    }
+    context->close();
+}
+
+void check_bounds_reset(bool ascending, bool strict) {
+    RuntimePredicate predicate(
+            create_topn_filter_desc(TYPE_INT, ascending, false),
+            strict ? std::unordered_set<int32_t> {TARGET_NODE_ID} : std::unordered_set<int32_t> {});
+    predicate.set_detected_source();
+    auto slot = create_int_slot_descriptor();
+    ASSERT_TRUE(predicate.init_target(TARGET_NODE_ID, {{SLOT_ID, &slot}}, 0).ok());
+    const auto scanner_predicate = predicate.get_predicate(TARGET_NODE_ID);
+    ASSERT_TRUE(predicate.update(Field::create_field<TYPE_INT>(3)).ok());
+
+    predicate.reset_bounds();
+    EXPECT_FALSE(predicate.has_value());
+    EXPECT_EQ(predicate.get_predicate(TARGET_NODE_ID), scanner_predicate);
+
+    auto column = ColumnInt32::create();
+    const int new_bound = ascending ? 5 : 1;
+    for (int value : {new_bound - 1, new_bound, new_bound + 1}) {
+        column->insert_value(value);
+    }
+    std::array<bool, 3> matches {};
+    scanner_predicate->evaluate_vec(*column, 3, matches.data());
+    EXPECT_EQ(matches, (std::array<bool, 3> {true, true, true}));
+
+    // The new heap can have a worse frontier than the previous round's heap.
+    predicate.set_detected_source();
+    ASSERT_TRUE(predicate.update(Field::create_field<TYPE_INT>(new_bound)).ok());
+    EXPECT_EQ(predicate.get_value(), Field::create_field<TYPE_INT>(new_bound));
+    scanner_predicate->evaluate_vec(*column, 3, matches.data());
+    EXPECT_EQ(matches, ascending ? (std::array<bool, 3> {true, !strict, false})
+                                 : (std::array<bool, 3> {false, !strict, true}));
+}
+
+void check_inclusive_bounds(bool ascending) {
+    RuntimePredicate predicate(create_topn_filter_desc(TYPE_INT, ascending, false), {});
+    predicate.set_detected_source();
+    EXPECT_FALSE(predicate.is_strict(TARGET_NODE_ID));
+    EXPECT_STREQ(predicate.comparison_function(TARGET_NODE_ID), ascending ? "le" : "ge");
+    EXPECT_EQ(predicate.comparison_opcode(TARGET_NODE_ID),
+              ascending ? TExprOpcode::LE : TExprOpcode::GE);
+
+    auto slot = create_int_slot_descriptor();
+    ASSERT_TRUE(predicate.init_target(TARGET_NODE_ID, {{SLOT_ID, &slot}}, 0).ok());
+    ASSERT_TRUE(predicate.enable());
+    ASSERT_TRUE(predicate.update(Field::create_field<TYPE_INT>(3)).ok());
+    const auto scanner_predicate = predicate.get_predicate(TARGET_NODE_ID);
+    auto column = ColumnInt32::create();
+    for (const int value : {2, 3, 4}) {
+        column->insert_value(value);
+    }
+    std::array<bool, 3> matches {};
+    scanner_predicate->evaluate_vec(*column, matches.size(), matches.data());
+    EXPECT_EQ(matches, ascending ? (std::array<bool, 3> {true, true, false})
+                                 : (std::array<bool, 3> {false, true, true}));
+    segment_v2::ZoneMap zone_map;
+    zone_map.has_not_null = true;
+    zone_map.min_value = Field::create_field<TYPE_INT>(3);
+    zone_map.max_value = Field::create_field<TYPE_INT>(3);
+    EXPECT_TRUE(scanner_predicate->evaluate_and(zone_map));
+}
+
+void check_mixed_target_evaluation(RuntimePredicate& predicate, const VExprContextSPtr& context,
+                                   int target, bool ascending) {
+    const auto type = std::make_shared<DataTypeInt32>();
+    const bool strict = target == 30;
+    std::array<int32_t, 24> values {};
+    auto column = ColumnInt32::create();
+    for (size_t row = 0; row < values.size(); ++row) {
+        values[row] = 2 + row % 3;
+        column->insert_value(values[row]);
+    }
+    Block block;
+    block.insert({std::move(column), type, "topn_column"});
+    ColumnPtr result;
+    ASSERT_TRUE(context->root()
+                        ->execute_column(context.get(), &block, nullptr, values.size(), result)
+                        .ok());
+    IColumn::Filter matches(values.size(), 1);
+    ASSERT_TRUE(context->root()
+                        ->execute_on_raw_fixed_values(
+                                reinterpret_cast<const uint8_t*>(values.data()), values.size(),
+                                sizeof(int32_t), type, 0, matches.data())
+                        .ok());
+    std::array<bool, 24> storage_matches {};
+    predicate.get_predicate(target)->evaluate_vec(*block.get_by_position(0).column, values.size(),
+                                                  storage_matches.data());
+    for (size_t row = 0; row < values.size(); ++row) {
+        const bool expected =
+                (values[row] == 3 && !strict) || (ascending ? values[row] < 3 : values[row] > 3);
+        EXPECT_EQ(result->get_bool(row), expected);
+        EXPECT_EQ(matches[row], expected);
+        EXPECT_EQ(storage_matches[row], expected);
+    }
+    DictionaryEvalContext dictionary;
+    dictionary.slots.emplace(
+            0, DictionaryEvalContext::SlotDictionary {
+                       .data_type = type, .values = {Field::create_field<TYPE_INT>(3)}});
+    EXPECT_EQ(context->root()->evaluate_dictionary_filter(dictionary),
+              strict ? ZoneMapFilterResult::kNoMatch : ZoneMapFilterResult::kMayMatch);
+    VExprSPtr binary;
+    ASSERT_TRUE(assert_cast<VTopNPred*>(context->root().get())->get_binary_expr(binary));
+    EXPECT_EQ(binary->op(), predicate.comparison_opcode(target));
+}
+
+void check_mixed_target_lifecycle(bool ascending) {
+    MockRuntimeState state;
+    auto desc = create_topn_filter_desc(TYPE_INT, ascending);
+    desc.target_node_id_to_target_expr.emplace(30, desc.target_node_id_to_target_expr.at(20));
+    TPipelineFragmentParams params;
+    params.fragment.plan.__set_nodes({heap_topn_plan_node(),
+                                      topn_plan_node(11, TPlanNodeType::UNION_NODE, 2),
+                                      topn_plan_node(21, TPlanNodeType::AGGREGATION_NODE, 1),
+                                      topn_plan_node(20, TPlanNodeType::FILE_SCAN_NODE),
+                                      topn_plan_node(30, TPlanNodeType::FILE_SCAN_NODE)});
+    state.get_query_ctx()->init_runtime_predicates({desc}, {params});
+    auto& predicate = state.get_query_ctx()->get_runtime_predicate(SOURCE_NODE_ID);
+    const auto type = std::make_shared<DataTypeInt32>();
+    auto slot = create_int_slot_descriptor();
+    std::vector<std::pair<int, VExprContextSPtr>> expressions;
+    for (const auto target : {20, 30}) {
+        ASSERT_TRUE(predicate.init_target(target, {{SLOT_ID, &slot}}, 0).ok());
+        auto expression = prepare_topn_target(&state, type, target);
+        VExprContextSPtr clone;
+        ASSERT_TRUE(expression->clone(&state, clone).ok());
+        expressions.emplace_back(target, expression);
+        expressions.emplace_back(target, clone);
+    }
+    // Prepare both targets (and clones) before detecting the source and publishing a bound.
+    predicate.set_detected_source();
+    ASSERT_TRUE(predicate.update(Field::create_field<TYPE_INT>(3)).ok());
+    for (const auto& [target, expression] : expressions) {
+        ASSERT_NO_FATAL_FAILURE(check_mixed_target_evaluation(predicate, expression, target, ascending));
+    }
+    predicate.reset_bounds();
+    EXPECT_FALSE(predicate.is_strict(20));
+    EXPECT_TRUE(predicate.is_strict(30));
+    EXPECT_FALSE(predicate.has_value());
+    for (auto& [target, expression] : expressions) {
+        expression->close();
+    }
+}
+
+void check_intermediate_target_mode(TPlanNode middle, bool strict) {
+    MockRuntimeState state;
+    TPipelineFragmentParams params;
+    params.fragment.plan.__set_nodes(
+            {heap_topn_plan_node(), middle,
+             topn_plan_node(TARGET_NODE_ID, TPlanNodeType::FILE_SCAN_NODE)});
+    if (middle.num_children == 2) {
+        params.fragment.plan.nodes.push_back(topn_plan_node(31, TPlanNodeType::EMPTY_SET_NODE));
+    }
+    state.get_query_ctx()->init_runtime_predicates({create_topn_filter_desc()}, {params});
+    EXPECT_EQ(
+            state.get_query_ctx()->get_runtime_predicate(SOURCE_NODE_ID).is_strict(TARGET_NODE_ID),
+            strict);
+}
+
 } // namespace
 
+TEST(RuntimePredicateTest, InclusiveBoundsRetainEqualRows) {
+    for (const bool ascending : {false, true}) {
+        ASSERT_NO_FATAL_FAILURE(check_inclusive_bounds(ascending));
+    }
+}
+
+TEST(RuntimePredicateTest, SourcePreservesComparisonModeAndPublishedBounds) {
+    ASSERT_NO_FATAL_FAILURE(check_comparison_mode(true, false, "le"));
+    ASSERT_NO_FATAL_FAILURE(check_comparison_mode(true, true, "lt"));
+    ASSERT_NO_FATAL_FAILURE(check_comparison_mode(false, false, "ge"));
+    ASSERT_NO_FATAL_FAILURE(check_comparison_mode(false, true, "gt"));
+}
+
+TEST(RuntimePredicateTest, TargetPathsKeepAggregateTiesAndPruneSiblingTies) {
+    for (const auto aggregation :
+         {TPlanNodeType::AGGREGATION_NODE, TPlanNodeType::BUCKETED_AGGREGATION_NODE}) {
+        MockRuntimeState state;
+        auto desc = create_topn_filter_desc();
+        desc.target_node_id_to_target_expr.emplace(30, desc.target_node_id_to_target_expr.at(20));
+        desc.target_node_id_to_target_expr.emplace(99, desc.target_node_id_to_target_expr.at(20));
+        TPipelineFragmentParams params;
+        params.fragment.plan.__set_nodes({heap_topn_plan_node(),
+                                          topn_plan_node(11, TPlanNodeType::UNION_NODE, 2),
+                                          topn_plan_node(21, aggregation, 1),
+                                          topn_plan_node(20, TPlanNodeType::FILE_SCAN_NODE),
+                                          topn_plan_node(30, TPlanNodeType::FILE_SCAN_NODE)});
+        state.get_query_ctx()->init_runtime_predicates({desc}, {params});
+        auto& predicate = state.get_query_ctx()->get_runtime_predicate(SOURCE_NODE_ID);
+        EXPECT_FALSE(predicate.is_strict(20));
+        EXPECT_TRUE(predicate.is_strict(30));
+        EXPECT_FALSE(predicate.is_strict(99)); // Target plan is absent from this request.
+    }
+}
+
+TEST(RuntimePredicateTest, TargetModesFollowExchangeSendersWithoutGuessingMissingPaths) {
+    for (const bool include_source : {false, true}) {
+        for (const bool connect_sibling : {false, true}) {
+            MockRuntimeState state;
+            auto desc = create_topn_filter_desc();
+            desc.target_node_id_to_target_expr.emplace(30,
+                                                       desc.target_node_id_to_target_expr.at(20));
+            TPipelineFragmentParams source;
+            source.fragment.plan.__set_nodes({heap_topn_plan_node(),
+                                              topn_plan_node(11, TPlanNodeType::UNION_NODE, 2),
+                                              topn_plan_node(12, TPlanNodeType::EXCHANGE_NODE),
+                                              topn_plan_node(13, TPlanNodeType::EXCHANGE_NODE)});
+            TPipelineFragmentParams aggregate;
+            aggregate.fragment.plan.__set_nodes(
+                    {topn_plan_node(21, TPlanNodeType::AGGREGATION_NODE, 1),
+                     topn_plan_node(20, TPlanNodeType::FILE_SCAN_NODE)});
+            TDataStreamSink sink;
+            sink.__set_dest_node_id(12);
+            aggregate.fragment.output_sink.__set_stream_sink(sink);
+            TPipelineFragmentParams sibling;
+            sibling.fragment.plan.__set_nodes({topn_plan_node(30, TPlanNodeType::FILE_SCAN_NODE)});
+            if (connect_sibling) {
+                sink.__set_dest_node_id(13);
+                sibling.fragment.output_sink.__set_stream_sink(sink);
+            }
+            std::vector<TPipelineFragmentParams> params {aggregate, sibling};
+            if (include_source) {
+                params.push_back(source); // Target fragments precede their source.
+            }
+            state.get_query_ctx()->init_runtime_predicates({desc}, params);
+            auto& predicate = state.get_query_ctx()->get_runtime_predicate(SOURCE_NODE_ID);
+            EXPECT_FALSE(predicate.is_strict(20));
+            EXPECT_EQ(predicate.is_strict(30), include_source && connect_sibling);
+        }
+    }
+}
+
+TEST(RuntimePredicateTest, AggregateAboveSourceDoesNotChangeItsTargetMode) {
+    MockRuntimeState state;
+    TPipelineFragmentParams params;
+    params.fragment.plan.__set_nodes(
+            {topn_plan_node(1, TPlanNodeType::AGGREGATION_NODE, 1), heap_topn_plan_node(),
+             topn_plan_node(TARGET_NODE_ID, TPlanNodeType::FILE_SCAN_NODE)});
+    state.get_query_ctx()->init_runtime_predicates({create_topn_filter_desc()}, {params});
+    EXPECT_TRUE(
+            state.get_query_ctx()->get_runtime_predicate(SOURCE_NODE_ID).is_strict(TARGET_NODE_ID));
+}
+
+TEST(RuntimePredicateTest, IntermediateLimitsAndRowChangingOperatorsKeepTies) {
+    auto select = topn_plan_node(11, TPlanNodeType::SELECT_NODE, 1);
+    ASSERT_NO_FATAL_FAILURE(check_intermediate_target_mode(select, true));
+    select.__set_limit(1);
+    ASSERT_NO_FATAL_FAILURE(check_intermediate_target_mode(select, false));
+    for (const auto type : {TPlanNodeType::ASSERT_NUM_ROWS_NODE, TPlanNodeType::REPEAT_NODE,
+                            TPlanNodeType::ANALYTIC_EVAL_NODE, TPlanNodeType::PARTITION_SORT_NODE,
+                            TPlanNodeType::REC_CTE_NODE}) {
+        ASSERT_NO_FATAL_FAILURE(check_intermediate_target_mode(topn_plan_node(11, type, 1), false));
+    }
+}
+
+TEST(RuntimePredicateTest, JoinsThatCanCreateBuildRowsKeepTies) {
+    for (const auto join :
+         {TJoinOp::INNER_JOIN, TJoinOp::LEFT_OUTER_JOIN, TJoinOp::LEFT_SEMI_JOIN,
+          TJoinOp::LEFT_ANTI_JOIN, TJoinOp::RIGHT_OUTER_JOIN, TJoinOp::FULL_OUTER_JOIN,
+          TJoinOp::RIGHT_SEMI_JOIN, TJoinOp::RIGHT_ANTI_JOIN, TJoinOp::ASOF_RIGHT_OUTER_JOIN}) {
+        const bool strict = join == TJoinOp::INNER_JOIN || join == TJoinOp::LEFT_OUTER_JOIN ||
+                            join == TJoinOp::LEFT_SEMI_JOIN || join == TJoinOp::LEFT_ANTI_JOIN;
+        auto hash_join = topn_plan_node(11, TPlanNodeType::HASH_JOIN_NODE, 2);
+        hash_join.hash_join_node.__set_join_op(join);
+        ASSERT_NO_FATAL_FAILURE(check_intermediate_target_mode(hash_join, strict));
+        auto nested_join = topn_plan_node(11, TPlanNodeType::CROSS_JOIN_NODE, 2);
+        nested_join.nested_loop_join_node.__set_join_op(join);
+        ASSERT_NO_FATAL_FAILURE(check_intermediate_target_mode(nested_join, strict));
+    }
+}
+
+TEST(RuntimePredicateTest, NativeMergeTargetsUseInclusiveBounds) {
+    for (const auto keys : {TKeysType::DUP_KEYS, TKeysType::AGG_KEYS, TKeysType::UNIQUE_KEYS}) {
+        for (const bool mow : {false, true}) {
+            for (const bool changelog : {false, true}) {
+                MockRuntimeState state;
+                auto scan = topn_plan_node(TARGET_NODE_ID, TPlanNodeType::OLAP_SCAN_NODE);
+                scan.olap_scan_node.__set_keyType(keys);
+                scan.olap_scan_node.__set_enable_unique_key_merge_on_write(mow);
+                scan.olap_scan_node.__set_read_changelog(changelog);
+                TPipelineFragmentParams params;
+                params.fragment.plan.__set_nodes({heap_topn_plan_node(), scan});
+                state.get_query_ctx()->init_runtime_predicates({create_topn_filter_desc()},
+                                                               {params});
+                EXPECT_EQ(state.get_query_ctx()
+                                  ->get_runtime_predicate(SOURCE_NODE_ID)
+                                  .is_strict(TARGET_NODE_ID),
+                          !changelog && (keys == TKeysType::DUP_KEYS ||
+                                         (keys == TKeysType::UNIQUE_KEYS && mow)));
+            }
+        }
+    }
+    MockRuntimeState state;
+    TPipelineFragmentParams params;
+    params.fragment.plan.__set_nodes(
+            {heap_topn_plan_node(), topn_plan_node(TARGET_NODE_ID, TPlanNodeType::OLAP_SCAN_NODE)});
+    state.get_query_ctx()->init_runtime_predicates({create_topn_filter_desc()}, {params});
+    EXPECT_FALSE(state.get_query_ctx()
+                         ->get_runtime_predicate(SOURCE_NODE_ID)
+                         .is_strict(TARGET_NODE_ID)); // Missing storage model.
+}
+
+TEST(RuntimePredicateTest, MixedTargetsKeepTheirModesAcrossEvaluationCloneAndReset) {
+    ASSERT_NO_FATAL_FAILURE(check_mixed_target_lifecycle(false));
+    ASSERT_NO_FATAL_FAILURE(check_mixed_target_lifecycle(true));
+}
+
+TEST(RuntimePredicateTest, ScanPreparedBeforeSourceUsesBackendModeAcrossEvaluationPaths) {
+    ASSERT_NO_FATAL_FAILURE(check_scan_prepared_before_source(true));
+    ASSERT_NO_FATAL_FAILURE(check_scan_prepared_before_source(false));
+}
+
+TEST(RuntimePredicateTest, NewExecutionClearsBoundsAndAcceptsAWorseFrontier) {
+    ASSERT_NO_FATAL_FAILURE(check_bounds_reset(true, false));
+    ASSERT_NO_FATAL_FAILURE(check_bounds_reset(true, true));
+    ASSERT_NO_FATAL_FAILURE(check_bounds_reset(false, false));
+    ASSERT_NO_FATAL_FAILURE(check_bounds_reset(false, true));
+}
+
+TEST(RuntimePredicateTest, StrictBoundsRejectEqualRowsAndEqualZoneMaps) {
+    for (const bool ascending : {false, true}) {
+        for (const bool nulls_first : {false, true}) {
+            ASSERT_NO_FATAL_FAILURE(check_strict_scanner_predicate(ascending, nulls_first));
+        }
+    }
+}
+
+TEST(RuntimePredicateTest, StrictBoundsAgreeAcrossColumnRawAndDictionaryEvaluation) {
+    for (const bool ascending : {false, true}) {
+        MockRuntimeState state;
+        const auto type = std::make_shared<DataTypeInt32>();
+        auto context = create_prepared_topn_expr(&state, type, Field::create_field<TYPE_INT>(3),
+                                                 ascending, false, true);
+        const std::array<int32_t, 3> values {2, 3, 4};
+        IColumn::Filter matches(3, 1);
+        ASSERT_TRUE(context->root()
+                            ->execute_on_raw_fixed_values(
+                                    reinterpret_cast<const uint8_t*>(values.data()), values.size(),
+                                    sizeof(int32_t), type, 0, matches.data())
+                            .ok());
+        EXPECT_EQ(matches, ascending ? (IColumn::Filter {1, 0, 0}) : (IColumn::Filter {0, 0, 1}));
+        Block block;
+        auto column = ColumnInt32::create();
+        for (const auto value : values) {
+            column->insert_value(value);
+        }
+        block.insert({std::move(column), type, "topn_column"});
+        ColumnPtr result;
+        ASSERT_TRUE(
+                context->root()->execute_column(context.get(), &block, nullptr, 3, result).ok());
+        for (size_t row = 0; row < 3; ++row) {
+            EXPECT_EQ(result->get_bool(row), matches[row]);
+        }
+        DictionaryEvalContext dictionary;
+        dictionary.slots.emplace(
+                0, DictionaryEvalContext::SlotDictionary {
+                           .data_type = type, .values = {Field::create_field<TYPE_INT>(3)}});
+        EXPECT_EQ(context->root()->evaluate_dictionary_filter(dictionary),
+                  ZoneMapFilterResult::kNoMatch);
+        context->close();
+    }
+}
+
+TEST(RuntimePredicateTest, StrictBinaryBoundsRejectEquality) {
+    for (const bool ascending : {false, true}) {
+        MockRuntimeState state;
+        const auto type = DataTypeFactory::instance().create_data_type(TYPE_STRING, false);
+        auto context = create_prepared_topn_expr(
+                &state, type, Field::create_field<TYPE_STRING>("middle"), ascending, false, true);
+        const std::array<StringRef, 3> values {StringRef("alpha"), StringRef("middle"),
+                                               StringRef("zulu")};
+        IColumn::Filter matches(3, 1);
+        ASSERT_TRUE(context->root()
+                            ->execute_on_raw_binary_values(values.data(), values.size(), type, 0,
+                                                           matches.data())
+                            .ok());
+        EXPECT_EQ(matches, ascending ? (IColumn::Filter {1, 0, 0}) : (IColumn::Filter {0, 0, 1}));
+        context->close();
+    }
+}
+
 TEST(RuntimePredicateTest, init_target_creates_column_predicate_for_valid_column_id) {
-    RuntimePredicate predicate(create_topn_filter_desc());
+    RuntimePredicate predicate(create_topn_filter_desc(), {});
     predicate.set_detected_source();
 
     auto slot_desc = create_int_slot_descriptor();
@@ -150,7 +653,7 @@ TEST(RuntimePredicateTest, init_target_creates_column_predicate_for_valid_column
 }
 
 TEST(RuntimePredicateTest, init_target_without_column_predicate_still_enables_runtime_filter) {
-    RuntimePredicate predicate(create_topn_filter_desc());
+    RuntimePredicate predicate(create_topn_filter_desc(), {});
     predicate.set_detected_source();
 
     phmap::flat_hash_map<int, SlotDescriptor*> slot_id_to_slot_desc;

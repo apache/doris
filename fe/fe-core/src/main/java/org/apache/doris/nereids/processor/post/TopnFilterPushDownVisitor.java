@@ -24,12 +24,15 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.algebra.Union;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
@@ -37,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
@@ -48,6 +52,7 @@ import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * push down topn filter
@@ -82,8 +87,6 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
 
     @Override
     public Boolean visit(Plan plan, PushDownContext ctx) {
-        // A bound on a grouping key can exclude whole groups. Stopping at unlisted operators
-        // here would disable existing scan filters below aggregates and their join inputs.
         boolean pushed = false;
         for (Plan child : plan.children()) {
             pushed |= child.accept(this, ctx);
@@ -171,6 +174,25 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
         return false;
     }
 
+    @Override
+    public Boolean visitPhysicalHashAggregate(PhysicalHashAggregate<? extends Plan> aggregate,
+            PushDownContext ctx) {
+        // BE uses inclusive bounds for this target path. A candidate group's key passes
+        // every earlier, wider bound, so all of its contributions remain. Do not substitute
+        // aggregate results with input values: SUM(v) <= bound does not imply v <= bound.
+        if (!aggregate.getGroupByExpressions().containsAll(ctx.probeExpr.getInputSlots())) {
+            return false;
+        }
+        return aggregate.child().accept(this, ctx);
+    }
+
+    @Override
+    public Boolean visitPhysicalRepeat(PhysicalRepeat<? extends Plan> repeat, PushDownContext ctx) {
+        // GROUPING SETS can replace a non-NULL input key with NULL in another output group.
+        // Removing the aggregate barrier must not admit a filter with a different output key.
+        return false;
+    }
+
     private PushDownContext adjustProbeExprNullableThroughOuterJoin(Plan leftChild, PushDownContext ctx) {
         Expression probeExpr = ctx.probeExpr;
         Map<Expression, Expression> replaceMap = Maps.newHashMap();
@@ -191,6 +213,25 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
         return ctx;
     }
 
+    private boolean canPushDownToLeftChild(AbstractPhysicalJoin<? extends Plan, ? extends Plan> join,
+            Expression probeExpr) {
+        JoinType joinType = join.getJoinType();
+        if (joinType.isRightAntiJoin() || (joinType.isRightSemiJoin() && join.isMarkJoin())) {
+            // Removing a probe can create an unmatched right row or change its mark value.
+            // This also applies to constant probes, which have no input slots.
+            return false;
+        }
+        if (joinType.isRightOuterJoin() || joinType.isFullOuterJoin() || joinType.isAsofRightOuterJoin()) {
+            // A right-side ordering key keeps its value when a match is removed, but the left
+            // payload changes. Strict bounds can then return a row that the original join would
+            // not produce. Slot-free expressions have the same problem. Check the original
+            // probe before substituting a right equality key with its left counterpart.
+            Set<Slot> inputSlots = probeExpr.getInputSlots();
+            return !inputSlots.isEmpty() && join.left().getOutputSet().containsAll(inputSlots);
+        }
+        return true;
+    }
+
     @Override
     public Boolean visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> join,
             PushDownContext ctx) {
@@ -199,6 +240,9 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
             // and to the right child of rightOuterJoin,
             // but PushDownTopNThroughJoin rule already pushes topn to the left and right side.
             // the topn-filter will be generated according to the inferred topn node.
+            return false;
+        }
+        if (!canPushDownToLeftChild(join, ctx.probeExpr)) {
             return false;
         }
         if (join.left().getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
@@ -235,7 +279,8 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
             return false;
         }
         // push to left child. right child is blocking operator, do not need topn-filter
-        if (join.left().getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
+        if (join.left().getOutputSet().containsAll(ctx.probeExpr.getInputSlots())
+                && canPushDownToLeftChild(join, ctx.probeExpr)) {
             return join.left().accept(this, ctx);
         }
         return false;
@@ -243,6 +288,11 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
 
     @Override
     public Boolean visitPhysicalRelation(PhysicalRelation relation, PushDownContext ctx) {
+        // The scan evaluates this fully expanded probe independently of the source projection.
+        // Re-evaluating a volatile expression can change its rank or advance a separate random sequence.
+        if (ctx.probeExpr.containsVolatileExpression()) {
+            return false;
+        }
         if (supportPhysicalRelations(relation) && relation.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
             // in ut, relation.getStats() may return null
             if (relation.getStats() == null || ConnectContext.get() == null
@@ -263,13 +313,10 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
     }
 
     private boolean supportPhysicalRelations(PhysicalRelation relation) {
-        if (relation instanceof PhysicalOlapScan
-                && ((PhysicalOlapScan) relation).getTable().hasRowTtl()) {
-            return false;
+        if (relation instanceof PhysicalOlapScan) {
+            // BE uses inclusive comparisons when the selected index or reader merges rows.
+            return !((PhysicalOlapScan) relation).getTable().hasRowTtl();
         }
-        return relation instanceof PhysicalOlapScan
-                || relation instanceof PhysicalOdbcScan
-                || relation instanceof PhysicalFileScan
-                || relation instanceof PhysicalLazyMaterializeOlapScan;
+        return relation instanceof PhysicalOdbcScan || relation instanceof PhysicalFileScan;
     }
 }

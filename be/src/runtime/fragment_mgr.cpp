@@ -574,7 +574,8 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
                                 }
                             }
                             if (info.__isset.topn_filter_descs) {
-                                query_ctx->init_runtime_predicates(info.topn_filter_descs);
+                                query_ctx->init_runtime_predicates(info.topn_filter_descs,
+                                                                   parent.params_list);
                             }
                         }
 
@@ -1360,6 +1361,15 @@ Status FragmentMgr::rerun_fragment(const std::shared_ptr<brpc::ClosureGuard>& gu
                 q_ctx->runtime_filter_mgr()->remove_filter(filter_id);
             }
             info = it->second;
+        }
+
+        // WAIT_FOR_DESTROY has drained the old recursive tasks. A rebuilt TopN has an empty
+        // heap, so a bound such as abs(k) < 1 from the previous round no longer has candidates
+        // to support it. Clear this source's bounds before preparing its new fragment.
+        for (const auto& node : info.params.fragment.plan.nodes) {
+            if (q_ctx->has_runtime_predicate(node.node_id)) {
+                q_ctx->get_runtime_predicate(node.node_id).reset_bounds();
+            }
         }
 
         auto context = std::make_shared<PipelineFragmentContext>(
