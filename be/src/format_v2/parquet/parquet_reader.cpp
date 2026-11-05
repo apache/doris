@@ -17,6 +17,8 @@
 
 #include "format_v2/parquet/parquet_reader.h"
 
+#include <arrow/util/secure_string.h>
+
 #include <algorithm>
 #include <map>
 #include <memory>
@@ -575,16 +577,27 @@ ParquetReader::ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_p
                              std::optional<format::GlobalRowIdContext> global_rowid_context,
                              bool enable_mapping_timestamp_tz, bool enable_mapping_varbinary,
                              std::optional<std::string> hive_parquet_time_zone,
-                             bool preserve_binary_uuid, ParquetProfileCache* profile_cache)
+                             bool preserve_binary_uuid, ParquetProfileCache* profile_cache,
+                             std::optional<TFileEncryptionInfo> encryption_info)
         : FileReader(system_properties, file_description, io_ctx, profile),
           _profile_cache(profile_cache),
           _global_rowid_context(global_rowid_context),
           _enable_mapping_timestamp_tz(enable_mapping_timestamp_tz),
           _enable_mapping_varbinary(enable_mapping_varbinary),
           _preserve_binary_uuid(preserve_binary_uuid),
-          _hive_parquet_time_zone(std::move(hive_parquet_time_zone)) {}
+          _hive_parquet_time_zone(std::move(hive_parquet_time_zone)),
+          _encryption_info(std::move(encryption_info)) {}
 
-ParquetReader::~ParquetReader() = default;
+ParquetReader::~ParquetReader() {
+    _clear_decryption_parameters();
+}
+
+void ParquetReader::_clear_decryption_parameters() {
+    if (_encryption_info.has_value()) {
+        ::arrow::util::SecureString::SecureClear(&_encryption_info->key);
+        _encryption_info.reset();
+    }
+}
 
 Status ParquetReader::init(RuntimeState* state) {
     _init_profile();
@@ -633,9 +646,18 @@ Status ParquetReader::init(RuntimeState* state) {
     // around the whole operation so footer/cache latency cannot disappear from a slow profile.
     {
         SCOPED_TIMER(_parquet_profile.parse_footer_time);
-        RETURN_IF_ERROR(_state->file_context.open(
+        auto footer_status = _state->file_context.open(
                 _tracing_file_reader, _io_ctx.get(), _state->enable_page_cache, *_file_description,
-                _enable_mapping_timestamp_tz, _enable_mapping_varbinary, _preserve_binary_uuid));
+                _enable_mapping_timestamp_tz, _enable_mapping_varbinary, _preserve_binary_uuid,
+                _encryption_info.has_value() ? &*_encryption_info : nullptr);
+        // The file context owns a SecureString after opening; discard the temporary wire copy
+        // on success and failure, before any scan request can retain it.
+        _clear_decryption_parameters();
+        RETURN_IF_ERROR(footer_status);
+        if (_state->file_context.native_metadata->encryption() != nullptr) {
+            _state->enable_bloom_filter = false;
+            _state->enable_page_cache = false;
+        }
     }
     if (_profile != nullptr) {
         COUNTER_UPDATE(_parquet_profile.file_footer_read_calls,
@@ -894,7 +916,8 @@ void ParquetReader::_sync_page_cache_profile() {
 }
 
 void ParquetReader::set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) {
-    if (_state == nullptr || _state->scan_plan == nullptr) {
+    if (_state == nullptr || _state->scan_plan == nullptr ||
+        _state->file_context.native_metadata->encryption() != nullptr) {
         return;
     }
     _state->scheduler.set_condition_cache_context(std::move(ctx));
@@ -924,6 +947,9 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
     if (_state == nullptr || _state->file_context.native_metadata == nullptr ||
         _state->scan_plan == nullptr) {
         return Status::Uninitialized("ParquetReader is not open");
+    }
+    if (_state->file_context.native_metadata->encryption() != nullptr) {
+        return Status::NotSupported("File encryption [AGGREGATE_UNAVAILABLE]");
     }
     if (_should_stop()) {
         return Status::EndOfFile("stop");
@@ -1089,6 +1115,7 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
 }
 
 Status ParquetReader::close() {
+    _clear_decryption_parameters();
     SCOPED_TIMER(_parquet_profile.total_time);
     if (_state != nullptr) {
         _state->scheduler.close();

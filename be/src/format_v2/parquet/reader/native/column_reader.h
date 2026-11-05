@@ -42,6 +42,10 @@ namespace cctz {
 class time_zone;
 } // namespace cctz
 
+namespace doris::format::parquet {
+class ParquetFileCrypto;
+}
+
 namespace doris::io {
 struct IOContext;
 } // namespace doris::io
@@ -253,7 +257,8 @@ public:
             const std::set<uint64_t>& filter_column_ids = {},
             const std::string& page_cache_file_key = {}, const ParquetReaderCompat& compat = {},
             bool enable_strict_mode = false,
-            std::optional<const cctz::time_zone*> int96_timezone_override = std::nullopt);
+            std::optional<const cctz::time_zone*> int96_timezone_override = std::nullopt,
+            const ParquetFileCrypto* file_crypto = nullptr, int row_group_ordinal = -1);
     virtual const std::vector<level_t>& get_rep_level() const = 0;
     virtual const std::vector<level_t>& get_def_level() const = 0;
     virtual ColumnStatistics column_statistics() = 0;
@@ -302,7 +307,8 @@ public:
     ~ScalarColumnReader() override { close(); }
     Status init(io::FileReaderSPtr file, NativeFieldSchema* field, size_t max_buf_size,
                 RuntimeState* state, const std::string& page_cache_file_key,
-                const ParquetReaderCompat& compat, bool enable_strict_mode);
+                const ParquetReaderCompat& compat, bool enable_strict_mode,
+                std::shared_ptr<ParquetColumnCrypto> crypto = nullptr);
     Status read_column_data(ColumnPtr& doris_column, const DataTypePtr& type,
                             const std::shared_ptr<NativeSchemaNode>& root_node,
                             FilterMap& filter_map, size_t batch_size, size_t* read_rows, bool* eof,

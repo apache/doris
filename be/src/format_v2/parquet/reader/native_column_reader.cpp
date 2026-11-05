@@ -383,7 +383,7 @@ Status NativeColumnReader::init(
     _offset_indexes = &offset_indexes;
     _schema_node = std::move(schema_node);
     _projected_column_ids = std::move(projected_column_ids);
-    _dictionary_filter_enabled = enable_dictionary_filter;
+    _dictionary_filter_enabled = enable_dictionary_filter && metadata->encryption() == nullptr;
 
     const size_t max_group_buffer = config::parquet_rowgroup_max_buffer_mb << 20;
     const size_t max_column_buffer = config::parquet_column_max_buffer_mb << 20;
@@ -405,9 +405,11 @@ Status NativeColumnReader::init(
     RETURN_IF_ERROR(native::ColumnReader::create(
             std::move(file), field, row_group, _row_ranges, timezone, io_ctx, _native_reader,
             max_buffer_size, *_offset_indexes, native_runtime_state, false, _projected_column_ids,
-            _filter_column_ids, page_cache_file_key, compat,
+            _filter_column_ids,
+            metadata->encryption() == nullptr ? page_cache_file_key : std::string(), compat,
             runtime_state != nullptr && runtime_state->enable_strict_mode(),
-            int96_timezone_override));
+            int96_timezone_override, metadata->encryption().get(),
+            row_group.__isset.ordinal ? row_group.ordinal : row_group_id));
     DORIS_CHECK(_native_reader != nullptr);
     _skip_column = _native_type->create_column();
     if (_variant_plan != nullptr) {
