@@ -87,8 +87,7 @@ public class Coalesce extends ScalarFunction implements CustomSignature, NeedSes
             return null;
         } else {
             for (Expression stringLiteral : partitioned.get(true)) {
-                Optional<Expression> option = TypeCoercionUtils.characterLiteralTypeCoercion(
-                        ((Literal) stringLiteral).getStringValue(), commonType.get());
+                Optional<Expression> option = TypeCoercionUtils.literalTypeCoercion(stringLiteral, commonType.get());
                 if (!option.isPresent()) {
                     commonType = TypeCoercionUtils.findWiderTypeForTwo(
                             commonType.get(), stringLiteral.getDataType(), false, true);

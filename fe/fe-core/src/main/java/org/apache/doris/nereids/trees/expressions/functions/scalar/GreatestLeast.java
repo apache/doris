@@ -63,8 +63,7 @@ public abstract class GreatestLeast extends ScalarFunction
             return null;
         } else {
             for (Expression stringLiteral : partitioned.get(true)) {
-                Optional<Expression> option = TypeCoercionUtils.characterLiteralTypeCoercion(
-                        ((Literal) stringLiteral).getStringValue(), commonType.get());
+                Optional<Expression> option = TypeCoercionUtils.literalTypeCoercion(stringLiteral, commonType.get());
                 if (!option.isPresent()) {
                     commonType = TypeCoercionUtils.findWiderTypeForTwo(
                             commonType.get(), stringLiteral.getDataType(), false, false);

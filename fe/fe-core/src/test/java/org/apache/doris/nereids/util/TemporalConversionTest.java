@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
@@ -107,6 +108,52 @@ class TemporalConversionTest {
     }
 
     @Test
+    void exactNsLiteralStillPrefersNativeNsSignature() {
+        Expression input = new TimeStampNsLiteral("2024-01-02 03:04:05.123000000");
+        FunctionSignature dateSignature = FunctionSignature.ret(DateTimeV2Type.of(3)).args(DateTimeV2Type.of(3));
+        FunctionSignature nsSignature = FunctionSignature.ret(TimeStampNsType.INSTANCE).args(TimeStampNsType.INSTANCE);
+        Assertions.assertEquals(Optional.of(nsSignature),
+                searchSignature(List.of(dateSignature, nsSignature), List.of(input)));
+        Assertions.assertEquals(Optional.of(nsSignature),
+                searchSignature(List.of(nsSignature, dateSignature), List.of(input)));
+    }
+
+    @Test
+    void exactNsLiteralDoesNotBypassImplicitOnlyMatchingRounds() {
+        Expression input = new TimeStampNsLiteral("2024-01-02 03:04:05.123000000");
+        DataType target = DateTimeV2Type.of(3);
+        FunctionSignature signature = FunctionSignature.ret(target).args(target);
+        Optional<FunctionSignature> result = SearchSignature.from(Mockito.mock(ComputeSignature.class),
+                List.of(signature), List.of(input))
+                .orElseSearch(IdenticalSignature::isIdentical)
+                .orElseSearch(NullOrIdenticalSignature::isNullOrIdentical)
+                .orElseSearch(ImplicitlyCastableSignature::isImplicitlyCastable)
+                .result();
+        Assertions.assertTrue(result.isEmpty());
+        Assertions.assertEquals(Optional.of(signature), searchSignature(List.of(signature), List.of(input)));
+    }
+
+    @Test
+    void wildcardLiteralCoercionProducesConcretePrecisionWithoutRounding() {
+        Expression exact = new TimeStampNsLiteral("2024-01-02 03:04:05.123456000");
+        Expression inexact = new TimeStampNsLiteral("2024-01-02 03:04:05.123456001");
+        List<DataType> targets = List.of(DateTimeV2Type.WILDCARD, TimeStampTzType.WILDCARD);
+        List<DataType> concreteTypes = List.of(DateTimeV2Type.MAX, TimeStampTzType.MAX);
+        for (int i = 0; i < targets.size(); i++) {
+            DataType target = targets.get(i);
+            Expression coerced = TypeCoercionUtils.literalTypeCoercion(exact, target).orElseThrow();
+            Assertions.assertInstanceOf(Literal.class, coerced);
+            Assertions.assertEquals(concreteTypes.get(i), coerced.getDataType());
+            Assertions.assertTrue(TypeCoercionUtils.literalTypeCoercion(inexact, target).isEmpty());
+            FunctionSignature signature = FunctionSignature.ret(target).args(target);
+            Assertions.assertEquals(Optional.of(signature), searchSignature(List.of(signature), List.of(exact)));
+            Assertions.assertTrue(searchSignature(List.of(signature), List.of(inexact)).isEmpty());
+        }
+        Assertions.assertEquals("2024-01-02 03:04:05.123456000", ((Literal) exact).getStringValue());
+        Assertions.assertEquals("2024-01-02 03:04:05.123456001", ((Literal) inexact).getStringValue());
+    }
+
+    @Test
     void literalExactnessChecksTheValueWithoutRounding() {
         TimeStampNsLiteral value = new TimeStampNsLiteral("2024-01-02 03:04:05.123000000");
         Assertions.assertTrue(TemporalConversionProperties.isTimeStampNsLiteralExactlyRepresentable(
@@ -163,6 +210,7 @@ class TemporalConversionTest {
     void nullCastResultsDoNotProveLiteralExactness() {
         DateV2Literal outsideRange = new DateV2Literal("1600-01-01");
         DataType target = DateTimeV2Type.MAX;
+        assertTemporalCoercion(new NullLiteral(TimeStampNsType.INSTANCE), target, false);
         try (MockedStatic<SessionVariable> session = Mockito.mockStatic(SessionVariable.class)) {
             session.when(SessionVariable::enableStrictCast).thenReturn(false);
             Cast cast = new Cast(outsideRange, TimeStampNsType.INSTANCE);
@@ -208,7 +256,18 @@ class TemporalConversionTest {
         Assertions.assertEquals(accepted ? Optional.of(signature) : Optional.empty(),
                 searchSignature(List.of(signature), List.of(input)));
         Assertions.assertEquals(accepted ? Optional.of(target) : Optional.empty(),
-                TypeCoercionUtils.implicitCast(input, target));
+                TypeCoercionUtils.literalTypeCoercion(input, target).map(Expression::getDataType));
+        // Exercise parameter insertion with the same expected type. The proof must not replace
+        // the original argument or strip an explicitly requested CAST from its expression tree.
+        Expression argument = TypeCoercionUtils.implicitCastInputTypes(
+                new Nullable(input), List.of(target)).child(0);
+        if (accepted) {
+            Assertions.assertInstanceOf(Cast.class, argument);
+            Assertions.assertEquals(target, argument.getDataType());
+            Assertions.assertSame(input, argument.child(0));
+        } else {
+            Assertions.assertSame(input, argument);
+        }
     }
 
     private void assertTemporalCastFailure(Cast input) {
@@ -219,7 +278,9 @@ class TemporalConversionTest {
         Assertions.assertEquals(expected.getMessage(), Assertions.assertThrows(CastException.class,
                 () -> searchSignature(signatures, List.of(input))).getMessage());
         Assertions.assertEquals(expected.getMessage(), Assertions.assertThrows(CastException.class,
-                () -> TypeCoercionUtils.implicitCast(input, target)).getMessage());
+                () -> TypeCoercionUtils.literalTypeCoercion(input, target)).getMessage());
+        Assertions.assertEquals(expected.getMessage(), Assertions.assertThrows(CastException.class,
+                () -> TypeCoercionUtils.implicitCastInputTypes(new Nullable(input), List.of(target))).getMessage());
     }
 
     @Test
