@@ -58,7 +58,7 @@ class HivePartitionBatchLoaderTest {
         Assertions.assertTrue(initial.isDone());
         List<HmsPartitionInfo> all = new ArrayList<>(loader.take(16));
         Assertions.assertEquals(1, scheduler.tasks.size(), "next HMS batch overlaps the first directory batch");
-        scheduler.runNext();
+        scheduler.runAll();
         Assertions.assertEquals(List.of(16, 984), requests);
         while (!loader.isFinished()) {
             List<HmsPartitionInfo> batch = loader.take(16);
@@ -68,6 +68,164 @@ class HivePartitionBatchLoaderTest {
         Assertions.assertEquals(1000, all.size());
         Assertions.assertEquals(1000, new HashSet<>(all.stream().map(HmsPartitionInfo::getValues)
                 .collect(java.util.stream.Collectors.toList())).size());
+    }
+
+    @Test
+    void takingFirstDirectoryBatchDoesNotWalkTheNextLargeCachedBatch() {
+        QueuedScheduler scheduler = new QueuedScheduler();
+        List<Integer> probes = new ArrayList<>();
+        HivePartitionBatchLoader loader = new HivePartitionBatchLoader(scheduler, new ConnectorScanContext(),
+                names(1000), 1024, 3, batch -> {
+                    probes.add(batch.size());
+                    return Optional.of(partitions(batch));
+                }, batch -> {
+                    throw new AssertionError("cached metadata must not issue an HMS request");
+                });
+        Assertions.assertNull(loader.isBlocked());
+        Assertions.assertEquals(16, loader.take(16).size());
+        Assertions.assertEquals(List.of(16), probes,
+                "claiming the first slice must not prepare the following 984 cached partitions inline");
+        Assertions.assertEquals(1, scheduler.tasks.size());
+        Runnable queued = scheduler.tasks.element();
+        Assertions.assertNull(loader.isBlocked(), "an idle reader can help the cache probe");
+        queued.run();
+        Assertions.assertTrue(scheduler.tasks.isEmpty(), "the helped task must be removed from the queue");
+        Assertions.assertEquals(List.of(16, 984), probes);
+        int count = 16;
+        while (!loader.isFinished()) {
+            count += loader.take(16).size();
+        }
+        Assertions.assertEquals(1000, count);
+    }
+
+    @Test
+    void helperAndMetadataWorkerCannotRunTheSameCacheProbeTwice() throws Exception {
+        QueuedScheduler scheduler = new QueuedScheduler();
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger probes = new AtomicInteger();
+        HivePartitionBatchLoader loader = new HivePartitionBatchLoader(scheduler, new ConnectorScanContext(),
+                names(1000), 1024, 3, batch -> {
+                    probes.incrementAndGet();
+                    if (batch.size() > 16) {
+                        entered.countDown();
+                        try {
+                            Assertions.assertTrue(release.await(5, TimeUnit.SECONDS));
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            throw new IllegalStateException(e);
+                        }
+                    }
+                    return Optional.of(partitions(batch));
+                }, batch -> {
+                    throw new AssertionError("cache hit must not issue an HMS request");
+                });
+        loader.isBlocked();
+        loader.take(16);
+        ExecutorService reader = Executors.newSingleThreadExecutor();
+        try {
+            Future<CompletableFuture<Void>> helper = reader.submit(loader::isBlocked);
+            Assertions.assertTrue(entered.await(5, TimeUnit.SECONDS));
+            scheduler.runNext();
+            Assertions.assertFalse(helper.isDone(), "the metadata worker must not duplicate the helper's probe");
+            release.countDown();
+            Assertions.assertNull(helper.get(5, TimeUnit.SECONDS));
+            Assertions.assertEquals(2, probes.get());
+            Assertions.assertTrue(scheduler.tasks.isEmpty());
+        } finally {
+            release.countDown();
+            reader.shutdownNow();
+        }
+    }
+
+    @Test
+    void helpedCacheMissHandsOneQueueSlotToRemoteLoadWithoutWaiting() {
+        QueuedScheduler scheduler = new QueuedScheduler();
+        scheduler.capacity = 1;
+        AtomicInteger requests = new AtomicInteger();
+        HivePartitionBatchLoader loader = new HivePartitionBatchLoader(scheduler, new ConnectorScanContext(),
+                names(1000), 1024, 3,
+                batch -> batch.size() == 16 ? Optional.of(partitions(batch)) : Optional.empty(), batch -> {
+                    requests.incrementAndGet();
+                    return partitions(batch);
+                });
+        loader.isBlocked();
+        Assertions.assertEquals(16, loader.take(16).size());
+        CompletableFuture<Void> pending = loader.isBlocked();
+        Assertions.assertFalse(pending.isDone());
+        Assertions.assertEquals(0, requests.get(), "helping a cache miss must not perform the RPC");
+        Assertions.assertEquals(1, scheduler.tasks.size());
+        Assertions.assertNull(scheduler.onSpace, "removing the helped cache task must admit the remote task");
+        scheduler.runNext();
+        Assertions.assertTrue(pending.isDone());
+        Assertions.assertEquals(1, requests.get());
+    }
+
+    @Test
+    void failureInLargeCachedProbeWakesReaders() {
+        QueuedScheduler scheduler = new QueuedScheduler();
+        IllegalStateException failure = new IllegalStateException("cache probe failed");
+        HivePartitionBatchLoader loader = new HivePartitionBatchLoader(scheduler, new ConnectorScanContext(),
+                names(1000), 1024, 3, batch -> {
+                    if (batch.size() > 16) {
+                        throw failure;
+                    }
+                    return Optional.of(partitions(batch));
+                }, batch -> {
+                    throw new AssertionError("failed cache probe must not issue an HMS request");
+                });
+        Assertions.assertNull(loader.isBlocked());
+        Assertions.assertEquals(16, loader.take(16).size());
+        scheduler.runNext();
+        CompletableFuture<Void> pending = loader.isBlocked();
+        Assertions.assertSame(failure, Assertions.assertThrows(CompletionException.class, pending::join).getCause());
+        Assertions.assertSame(failure, Assertions.assertThrows(CompletionException.class,
+                () -> loader.take(16)).getCause());
+    }
+
+    @Test
+    void cancellingQueuedLargeCachedProbePreventsItsExecution() {
+        QueuedScheduler scheduler = new QueuedScheduler();
+        ConnectorScanContext context = new ConnectorScanContext();
+        List<Integer> probes = new ArrayList<>();
+        HivePartitionBatchLoader loader = new HivePartitionBatchLoader(scheduler, context,
+                names(1000), 1024, 3, batch -> {
+                    probes.add(batch.size());
+                    return Optional.of(partitions(batch));
+                }, batch -> {
+                    throw new AssertionError("stopped cached scan must not issue an HMS request");
+                });
+        loader.isBlocked();
+        loader.take(16);
+        Runnable stale = scheduler.tasks.element();
+        context.cancel();
+        Assertions.assertTrue(loader.isBlocked().isCompletedExceptionally());
+        Assertions.assertTrue(scheduler.tasks.isEmpty());
+        stale.run();
+        Assertions.assertEquals(List.of(16), probes);
+    }
+
+    @Test
+    void cancellationDuringLargeCacheMissDoesNotStartAnHmsRequest() {
+        QueuedScheduler scheduler = new QueuedScheduler();
+        ConnectorScanContext context = new ConnectorScanContext();
+        AtomicInteger requests = new AtomicInteger();
+        HivePartitionBatchLoader loader = new HivePartitionBatchLoader(scheduler, context,
+                names(1000), 1024, 3, batch -> {
+                    if (batch.size() > 16) {
+                        context.cancel();
+                        return Optional.empty();
+                    }
+                    return Optional.of(partitions(batch));
+                }, batch -> {
+                    requests.incrementAndGet();
+                    return partitions(batch);
+                });
+        loader.isBlocked();
+        loader.take(16);
+        scheduler.runNext();
+        Assertions.assertTrue(loader.isBlocked().isCompletedExceptionally());
+        Assertions.assertEquals(0, requests.get());
     }
 
     @Test
@@ -111,7 +269,7 @@ class HivePartitionBatchLoaderTest {
         loader.isBlocked();
         scheduler.runNext();
         loader.take(16);
-        scheduler.runNext();
+        scheduler.runAll();
         Assertions.assertNull(loader.isBlocked());
         Assertions.assertTrue(scheduler.tasks.isEmpty());
         loader.take(16);
@@ -121,8 +279,9 @@ class HivePartitionBatchLoaderTest {
     }
 
     @Test
-    void fullyCachedMetadataDoesNotNeedExecutorAdmission() {
+    void fullyCachedMetadataDoesNotNeedMetadataCapacity() {
         QueuedScheduler scheduler = new QueuedScheduler();
+        scheduler.full = true;
         HivePartitionBatchLoader loader = new HivePartitionBatchLoader(scheduler, new ConnectorScanContext(),
                 names(100), 32, 3, batch -> Optional.of(partitions(batch)), batch -> {
                     throw new AssertionError("cache hit must not load remotely");
@@ -134,6 +293,7 @@ class HivePartitionBatchLoaderTest {
         }
         Assertions.assertEquals(100, count);
         Assertions.assertTrue(scheduler.tasks.isEmpty());
+        Assertions.assertNull(scheduler.onSpace);
     }
 
     @Test
@@ -334,12 +494,13 @@ class HivePartitionBatchLoaderTest {
     private static final class QueuedScheduler implements ConnectorTaskScheduler {
         private final Queue<Runnable> tasks = new ArrayDeque<>();
         private boolean full;
+        private int capacity = Integer.MAX_VALUE;
         private Runnable onSpace;
         private Consumer<Throwable> onFailure;
 
         @Override
         public boolean tryExecute(Runnable task, Consumer<Throwable> onFailure, Runnable callback) {
-            if (full) {
+            if (full || tasks.size() >= capacity) {
                 onSpace = callback;
                 return false;
             }
@@ -357,12 +518,22 @@ class HivePartitionBatchLoaderTest {
 
         @Override
         public void remove(Runnable task) {
-            tasks.remove(task);
+            if (tasks.remove(task) && !full && tasks.size() < capacity && onSpace != null) {
+                Runnable callback = onSpace;
+                onSpace = null;
+                callback.run();
+            }
         }
 
         @Override
         public void execute(Runnable task) {
             throw new UnsupportedOperationException();
+        }
+
+        private void runAll() {
+            while (!tasks.isEmpty()) {
+                runNext();
+            }
         }
 
         private void runNext() {

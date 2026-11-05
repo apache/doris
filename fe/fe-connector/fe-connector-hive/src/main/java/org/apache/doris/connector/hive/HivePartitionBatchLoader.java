@@ -28,16 +28,19 @@ import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 
 /**
  * One scan's serial HMS producer. Readers claim small directory batches from one bounded result list.
  * Claiming its last slice permits one next metadata batch, overlapping HMS with directory work without
- * waiting for children or accumulating an unbounded queue. Both stages use the existing schedulers.
+ * waiting for children or accumulating an unbounded queue. Large cache probes are queued separately
+ * from remote reads, so an idle reader can help its own cache probe without doing remote I/O.
  */
 final class HivePartitionBatchLoader {
+    private static final int INITIAL_BATCH_SIZE = 16;
     private final ConnectorTaskScheduler scheduler;
     private final ConnectorScanContext scanContext;
     private final List<String> names;
@@ -71,6 +74,13 @@ final class HivePartitionBatchLoader {
 
     CompletableFuture<Void> isBlocked() {
         pump();
+        LoadTask task;
+        synchronized (this) {
+            task = current;
+        }
+        if (task != null) {
+            task.helpCacheProbe();
+        }
         synchronized (this) {
             return failure != null || (ready.isEmpty() && (current != null || nextName < names.size()))
                     ? available : null;
@@ -123,7 +133,7 @@ final class HivePartitionBatchLoader {
             LoadTask task = null;
             synchronized (this) {
                 if (failure == null && current == null && ready.isEmpty() && nextName < names.size()) {
-                    int size = nextName == 0 ? Math.min(16, maxBatchSize) : maxBatchSize;
+                    int size = nextName == 0 ? Math.min(INITIAL_BATCH_SIZE, maxBatchSize) : maxBatchSize;
                     int end = nextName + Math.min(size, names.size() - nextName);
                     task = new LoadTask(names.subList(nextName, end));
                     nextName = end;
@@ -133,11 +143,16 @@ final class HivePartitionBatchLoader {
             if (task != null) {
                 try {
                     scanContext.checkCancelled();
-                    Optional<List<HmsPartitionInfo>> hit = cached.apply(task.batch);
-                    if (hit.isPresent()) {
-                        publish(task, hit.get());
+                    if (task.deferredCacheProbe) {
+                        // Return the directory slice before walking the next large cached batch.
+                        task.cacheProbe.admit();
                     } else {
-                        task.admit();
+                        Optional<List<HmsPartitionInfo>> hit = cached.apply(task.batch);
+                        if (hit.isPresent()) {
+                            publish(task, hit.get());
+                        } else {
+                            task.remoteLoad.admit();
+                        }
                     }
                 } catch (Throwable e) {
                     fail(e);
@@ -192,63 +207,110 @@ final class HivePartitionBatchLoader {
         }
     }
 
-    private final class LoadTask extends CompletableFuture<Void> implements Runnable {
+    private final class LoadTask extends CompletableFuture<Void> {
         private final List<String> batch;
-        private final AtomicBoolean started = new AtomicBoolean();
-        private final AtomicInteger admitting = new AtomicInteger();
-        private boolean admitted;
-        private final Runnable onSpace = this::admit;
+        private final boolean deferredCacheProbe;
+        private final ScheduledStage cacheProbe;
+        private final ScheduledStage remoteLoad;
 
         private LoadTask(List<String> batch) {
             this.batch = batch;
-            whenComplete((unused, error) -> {
-                scheduler.removeSpaceListener(onSpace);
-                scheduler.remove(this);
-            });
-        }
-
-        private void admit() {
-            // onSpace may run before tryExecute returns. Coalesce concurrent and inline retries,
-            // and never admit this task twice after one retry has already succeeded.
-            if (admitting.getAndIncrement() != 0) {
-                return;
-            }
-            int missed = 1;
-            do {
-                if (!isDone() && !admitted) {
-                    try {
-                        admitted = scheduler.tryExecute(this, HivePartitionBatchLoader.this::fail, onSpace);
-                        if (admitted) {
-                            scheduler.removeSpaceListener(onSpace);
-                        }
-                    } catch (RuntimeException e) {
-                        fail(e);
-                    }
-                }
-                if (isDone()) {
-                    scheduler.removeSpaceListener(onSpace);
-                    scheduler.remove(this);
-                }
-                missed = admitting.addAndGet(-missed);
-            } while (missed != 0);
-        }
-
-        @Override
-        public void run() {
-            if (isDone() || !started.compareAndSet(false, true)) {
-                return;
-            }
-            ClassLoader previous = Thread.currentThread().getContextClassLoader();
-            try {
-                Thread.currentThread().setContextClassLoader(HivePartitionBatchLoader.class.getClassLoader());
-                scanContext.checkCancelled();
+            this.deferredCacheProbe = batch.size() > INITIAL_BATCH_SIZE;
+            this.remoteLoad = new ScheduledStage(() -> {
                 List<HmsPartitionInfo> partitions = loader.apply(batch);
                 scanContext.checkCancelled();
                 publish(this, partitions);
-            } catch (Throwable e) {
-                fail(e);
-            } finally {
-                Thread.currentThread().setContextClassLoader(previous);
+            });
+            this.cacheProbe = new ScheduledStage(() -> {
+                Optional<List<HmsPartitionInfo>> hit = cached.apply(batch);
+                // A cancellation during a cache miss must not start another HMS request.
+                scanContext.checkCancelled();
+                if (hit.isPresent()) {
+                    publish(this, hit.get());
+                } else {
+                    remoteLoad.admit();
+                }
+            });
+            whenComplete((unused, error) -> {
+                cacheProbe.cancel(false);
+                remoteLoad.cancel(false);
+            });
+        }
+
+        private void helpCacheProbe() {
+            if (deferredCacheProbe) {
+                // FutureTask elects one executor, even if a metadata worker dequeues it concurrently.
+                // Helpers only probe the cache; a miss submits remoteLoad and returns without waiting.
+                cacheProbe.run();
+            }
+        }
+
+        private final class ScheduledStage extends FutureTask<Void> {
+            private final AtomicInteger admitting = new AtomicInteger();
+            private boolean admitted;
+            private final Runnable onSpace = this::admit;
+
+            private ScheduledStage(Runnable action) {
+                super(() -> {
+                    ClassLoader previous = Thread.currentThread().getContextClassLoader();
+                    try {
+                        Thread.currentThread().setContextClassLoader(HivePartitionBatchLoader.class.getClassLoader());
+                        scanContext.checkCancelled();
+                        if (!LoadTask.this.isDone()) {
+                            action.run();
+                        }
+                        return null;
+                    } finally {
+                        Thread.currentThread().setContextClassLoader(previous);
+                    }
+                });
+            }
+
+            private void admit() {
+                // Capacity callbacks can race admission, including inline notification.
+                if (admitting.getAndIncrement() != 0) {
+                    return;
+                }
+                int missed = 1;
+                do {
+                    // Cancelling one stage can synchronously notify another stage's capacity callback.
+                    if (!isDone() && !LoadTask.this.isDone() && !admitted) {
+                        try {
+                            admitted = scheduler.tryExecute(this, this::setException, onSpace);
+                            if (admitted) {
+                                scheduler.removeSpaceListener(onSpace);
+                            }
+                        } catch (RuntimeException e) {
+                            setException(e);
+                        }
+                    }
+                    if (isDone()) {
+                        scheduler.removeSpaceListener(onSpace);
+                        scheduler.remove(this);
+                    }
+                    missed = admitting.addAndGet(-missed);
+                } while (missed != 0);
+            }
+
+            @Override
+            protected void done() {
+                scheduler.removeSpaceListener(onSpace);
+                // A helper may have executed this task while its queue entry was still pending.
+                scheduler.remove(this);
+                if (LoadTask.this.isDone()) {
+                    return;
+                }
+                try {
+                    // FutureTask invokes done only after completion; get never waits here.
+                    get();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    fail(e);
+                } catch (ExecutionException e) {
+                    fail(e.getCause());
+                } catch (CancellationException e) {
+                    fail(e);
+                }
             }
         }
     }
