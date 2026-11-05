@@ -96,7 +96,7 @@ public class DorisBatchStreamLoad implements Serializable {
     private final Lock lock = new ReentrantLock();
     private final Condition block = lock.newCondition();
     private final Map<String, ReadWriteLock> bufferMapLock = new ConcurrentHashMap<>();
-    @Setter @Getter private String currentTaskId;
+    @Setter @Getter private volatile String currentTaskId;
     private String targetDb;
     private String jobId;
     @Setter private String token;
