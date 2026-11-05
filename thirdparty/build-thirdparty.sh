@@ -2081,18 +2081,11 @@ build_icu() {
 
 # jindofs
 build_jindofs() {
-    local jar
-    for jar in "${JINDOFS_NAME}" "${JINDOFS_SDK_NAME}" \
-            "${JINDOFS_UBUNTU22_NAME}" "${JINDOFS_AARCH64_NAME}"; do
-        check_if_archive_exist "${jar}"
-    done
+    check_if_source_exist "${JINDOFS_SOURCE}"
 
     rm -rf "${TP_INSTALL_DIR}/jindofs_libs/"
     mkdir -p "${TP_INSTALL_DIR}/jindofs_libs/"
-    for jar in "${JINDOFS_NAME}" "${JINDOFS_SDK_NAME}" \
-            "${JINDOFS_UBUNTU22_NAME}" "${JINDOFS_AARCH64_NAME}"; do
-        cp -p "${TP_SOURCE_DIR}/${jar}" "${TP_INSTALL_DIR}/jindofs_libs/"
-    done
+    cp -r ${TP_SOURCE_DIR}/${JINDOFS_SOURCE}/* "${TP_INSTALL_DIR}/jindofs_libs/"
 }
 
 # juicefs

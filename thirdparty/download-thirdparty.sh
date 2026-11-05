@@ -74,13 +74,6 @@ while [[ $# -gt 0 ]]; do
     )
 done
 if [[ "${SPEC_LIB}" != "" ]]; then
-    if [[ " ${SPEC_ARCHIVES[*]} " == *' JINDOFS '* ]]; then
-        for jindofs_companion in JINDOFS_SDK JINDOFS_UBUNTU22 JINDOFS_AARCH64; do
-            if [[ " ${SPEC_ARCHIVES[*]} " != *" ${jindofs_companion} "* ]]; then
-                SPEC_ARCHIVES+=("${jindofs_companion}")
-            fi
-        done
-    fi
     # Arrow builds xsimd and Brotli from their source archives.
     if [[ " ${SPEC_ARCHIVES[*]} " == *' ARROW '* ]]; then
         for arrow_companion in XSIMD BROTLI; do

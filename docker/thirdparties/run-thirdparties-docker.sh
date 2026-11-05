@@ -343,14 +343,14 @@ JUICEFS_LOCAL_BIN="${JUICEFS_RUNTIME_ROOT}/bin/juicefs"
 
 find_juicefs_hadoop_jar() {
     local -a jar_globs=(
-        "${JUICEFS_RUNTIME_ROOT}/lib/juicefs-hadoop-${JUICEFS_DEFAULT_VERSION}.jar"
-        "${DORIS_ROOT}/thirdparty/installed/juicefs_libs/juicefs-hadoop-${JUICEFS_DEFAULT_VERSION}.jar"
-        "${DORIS_ROOT}/output/fe/lib/juicefs/juicefs-hadoop-${JUICEFS_DEFAULT_VERSION}.jar"
-        "${DORIS_ROOT}/output/be/lib/java_extensions/juicefs/juicefs-hadoop-${JUICEFS_DEFAULT_VERSION}.jar"
-        "${DORIS_ROOT}/../../../clusterEnv/*/Cluster*/fe/lib/juicefs/juicefs-hadoop-${JUICEFS_DEFAULT_VERSION}.jar"
-        "${DORIS_ROOT}/../../../clusterEnv/*/Cluster*/be/lib/java_extensions/juicefs/juicefs-hadoop-${JUICEFS_DEFAULT_VERSION}.jar"
-        "/mnt/ssd01/pipline/OpenSourceDoris/clusterEnv/*/Cluster*/fe/lib/juicefs/juicefs-hadoop-${JUICEFS_DEFAULT_VERSION}.jar"
-        "/mnt/ssd01/pipline/OpenSourceDoris/clusterEnv/*/Cluster*/be/lib/java_extensions/juicefs/juicefs-hadoop-${JUICEFS_DEFAULT_VERSION}.jar"
+        "${JUICEFS_RUNTIME_ROOT}/lib/juicefs-hadoop-[0-9]*.jar"
+        "${DORIS_ROOT}/thirdparty/installed/juicefs_libs/juicefs-hadoop-[0-9]*.jar"
+        "${DORIS_ROOT}/output/fe/lib/juicefs/juicefs-hadoop-[0-9]*.jar"
+        "${DORIS_ROOT}/output/be/lib/java_extensions/juicefs/juicefs-hadoop-[0-9]*.jar"
+        "${DORIS_ROOT}/../../../clusterEnv/*/Cluster*/fe/lib/juicefs/juicefs-hadoop-[0-9]*.jar"
+        "${DORIS_ROOT}/../../../clusterEnv/*/Cluster*/be/lib/java_extensions/juicefs/juicefs-hadoop-[0-9]*.jar"
+        "/mnt/ssd01/pipline/OpenSourceDoris/clusterEnv/*/Cluster*/fe/lib/juicefs/juicefs-hadoop-[0-9]*.jar"
+        "/mnt/ssd01/pipline/OpenSourceDoris/clusterEnv/*/Cluster*/be/lib/java_extensions/juicefs/juicefs-hadoop-[0-9]*.jar"
     )
     juicefs_find_hadoop_jar_by_globs "${jar_globs[@]}"
 }

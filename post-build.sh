@@ -53,10 +53,10 @@ TARGET_ARCH="${TARGET_ARCH:-$(uname -m)}"
 
 find_juicefs_hadoop_jar() {
     juicefs_find_hadoop_jar_by_globs \
-        "${DORIS_THIRDPARTY}/installed/juicefs_libs/juicefs-hadoop-${JUICEFS_DEFAULT_VERSION}.jar" \
-        "${DORIS_THIRDPARTY}/src/juicefs-hadoop-${JUICEFS_DEFAULT_VERSION}.jar" \
-        "${DORIS_HOME}/thirdparty/installed/juicefs_libs/juicefs-hadoop-${JUICEFS_DEFAULT_VERSION}.jar" \
-        "${DORIS_HOME}/thirdparty/src/juicefs-hadoop-${JUICEFS_DEFAULT_VERSION}.jar"
+        "${DORIS_THIRDPARTY}/installed/juicefs_libs/juicefs-hadoop-[0-9]*.jar" \
+        "${DORIS_THIRDPARTY}/src/juicefs-hadoop-[0-9]*.jar" \
+        "${DORIS_HOME}/thirdparty/installed/juicefs_libs/juicefs-hadoop-[0-9]*.jar" \
+        "${DORIS_HOME}/thirdparty/src/juicefs-hadoop-[0-9]*.jar"
 }
 
 detect_juicefs_version() {
@@ -81,19 +81,10 @@ copy_juicefs_hadoop_jar() {
         source_jar=$(download_juicefs_hadoop_jar "${juicefs_version}" || true)
     fi
     if [[ -z "${source_jar}" ]]; then
-        echo "ERROR: requested JuiceFS jar is unavailable and download failed" >&2
-        return 1
+        echo "WARN: skip copying juicefs-hadoop jar, not found in thirdparty and download failed"
+        return 0
     fi
-    juicefs_validate_hadoop_jar "${source_jar}" || return 1
-    local jar_name
-    jar_name=$(basename "${source_jar}")
-    cp -p "${source_jar}" "${target_dir}/${jar_name}.tmp"
-    mv -f "${target_dir}/${jar_name}.tmp" "${target_dir}/${jar_name}"
-    local old_jar
-    for old_jar in "${target_dir}"/juicefs-hadoop-*.jar; do
-        [[ "${old_jar}" == "${target_dir}/${jar_name}" ]] && continue
-        rm -f -- "${old_jar}"
-    done
+    cp -r -p "${source_jar}" "${target_dir}/"
     echo "Copy JuiceFS Hadoop jar to ${target_dir}: $(basename "${source_jar}")"
 }
 
