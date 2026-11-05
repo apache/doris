@@ -34,8 +34,9 @@ import java.util.List;
  * literal exactness and nullable output layout. Shared by implicit coercion and explicit CAST.
  *
  * <p>This class does not choose target types, admit function overloads or select a cast mode.
- * {@link TemporalTypeCoercion} owns type selection; callers use these properties to decide how
- * to materialize or rewrite a conversion. Explicit CAST legality remains in CheckCast, and
+ * {@link TemporalTypeCoercion} supplies temporal common-type rules; {@link TypeCoercionUtils}
+ * applies implicit conversion and constructs casts. Rewrite rules also consume these properties.
+ * Explicit CAST legality remains in CheckCast, and
  * timezone value conversion is implemented by {@link TemporalValueConversion}.
  */
 public final class TemporalConversionProperties {
@@ -106,7 +107,7 @@ public final class TemporalConversionProperties {
     }
 
     /** Exact fractional representability; unlike CAST, this must not round the value. */
-    public static boolean isFractionExactlyRepresentable(long nanos, int scale) {
+    private static boolean isFractionExactlyRepresentable(long nanos, int scale) {
         long factor = (long) Math.pow(10, TimeStampNsType.SCALE - scale);
         return nanos % factor == 0;
     }

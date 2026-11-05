@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.catalog.FunctionSignature.TripleFunction;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -37,7 +38,6 @@ import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.ComplexDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToArgumentType;
-import org.apache.doris.nereids.types.coercion.ScaleTimeType;
 import org.apache.doris.nereids.util.ResponsibilityChain;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.GlobalVariable;
@@ -495,38 +495,19 @@ public class ComputeSignatureHelper {
             } else {
                 targetType = signature.getArgType(i);
             }
-            // Extract matching source and target slots through the same capability interface.
-            List<DataType> nestedInputTypes = extractArgumentTypeBySignature(
-                    AdjustableScaleTimeType.class, targetType, arguments.get(i).getDataType());
-            List<DataType> nestedTargetTypes = extractSignatureTypes(
-                    AdjustableScaleTimeType.class, targetType, arguments.get(i).getDataType());
-            if (nestedInputTypes.isEmpty()) {
-                // No adjustable temporal slot in this argument.
-                continue;
-            }
-
-            // for Map or Struct, we have more than one nested type.
-            // targetType may be ScaleTimeType or comlex type(Array, Struct) with ScaleTimeType nested.
-            Expression arg = arguments.get(i);
-            for (int j = 0; j < nestedInputTypes.size(); j++) {
-                // inputType could be any legal input type
-                DataType inputType = nestedInputTypes.get(j);
-                // corresponding target slot type for inputType
-                DataType nestedTargetType = nestedTargetTypes.get(j);
-                int targetScale = 0;
-
-                // for string input, try to get the most suitable scale
-                if (arg instanceof StringLikeLiteral) {
-                    ScaleTimeType timelikeType = (ScaleTimeType) nestedTargetType;
-                    targetScale = timelikeType.forTypeFromString((StringLikeLiteral) arg).getScale();
+            Expression argument = arguments.get(i);
+            // Pair each temporal target with its source in one traversal of the nested type tree.
+            List<Pair<AdjustableScaleTimeType, DataType>> temporalSlots = extractBySignature(
+                    AdjustableScaleTimeType.class, targetType, argument.getDataType(),
+                    (sig, arg) -> Pair.of((AdjustableScaleTimeType) sig, arg));
+            for (Pair<AdjustableScaleTimeType, DataType> slot : temporalSlots) {
+                int targetScale;
+                if (argument instanceof StringLikeLiteral) {
+                    targetScale = slot.first.forTypeFromString((StringLikeLiteral) argument).getScale();
                 } else {
-                    // for all other input types, get the target scale when cast it to targetType
-                    ScaleTimeType targetScaleType = (ScaleTimeType) nestedTargetType;
-                    ScaleTimeType promotedType = targetScaleType.scaleTypeForType(inputType);
-                    targetScale = promotedType.getScale();
+                    targetScale = slot.first.scaleTypeForType(slot.second).getScale();
                 }
-
-                finalTypeScale = Math.max(finalTypeScale, targetScale); // init value -1 always promotes
+                finalTypeScale = Math.max(finalTypeScale, targetScale);
             }
         }
 
@@ -603,14 +584,9 @@ public class ComputeSignatureHelper {
         return extractBySignature(targetType, signatureType, argumentType, (sig, arg) -> arg);
     }
 
-    private static List<DataType> extractSignatureTypes(Class<?> targetType, DataType signatureType,
-            DataType argumentType) {
-        return extractBySignature(targetType, signatureType, argumentType, (sig, arg) -> sig);
-    }
-
-    // if signatureType is a super type of targetType, then extract corresponding argumentType slot
-    private static List<DataType> extractBySignature(Class<?> targetType,
-            DataType signatureType, DataType argumentType, BiFunction<DataType, DataType, DataType> pick) {
+    // Traverse aligned type slots and apply the picker wherever the signature matches the target capability.
+    private static <T> List<T> extractBySignature(Class<?> targetType,
+            DataType signatureType, DataType argumentType, BiFunction<DataType, DataType, T> pick) {
         if (targetType.isAssignableFrom(signatureType.getClass())) {
             return Lists.newArrayList(pick.apply(signatureType, argumentType));
         } else if (signatureType instanceof ArrayType) {
@@ -625,13 +601,13 @@ public class ComputeSignatureHelper {
             }
         } else if (signatureType instanceof MapType) {
             if (argumentType instanceof NullType) {
-                List<DataType> ret = extractBySignature(targetType, ((MapType) signatureType).getKeyType(),
+                List<T> ret = extractBySignature(targetType, ((MapType) signatureType).getKeyType(),
                         argumentType, pick);
                 ret.addAll(extractBySignature(targetType, ((MapType) signatureType).getValueType(),
                         argumentType, pick));
                 return ret;
             } else if (argumentType instanceof MapType) {
-                List<DataType> ret = extractBySignature(targetType, ((MapType) signatureType).getKeyType(),
+                List<T> ret = extractBySignature(targetType, ((MapType) signatureType).getKeyType(),
                         ((MapType) argumentType).getKeyType(), pick);
                 ret.addAll(extractBySignature(targetType, ((MapType) signatureType).getValueType(),
                         ((MapType) argumentType).getValueType(), pick));

@@ -81,7 +81,7 @@ public class PredicateRewriteForPartitionPrune
                     return in;
                 }
                 TimeStampNsLiteral literal = (TimeStampNsLiteral) option;
-                if (canRepresentExactly(literal, sourceType.getScale())) {
+                if (TemporalConversionProperties.isTimeStampNsLiteralExactlyRepresentable(literal, sourceType)) {
                     children.add(literal.roundFloorToDateTimeV2(sourceType.getScale()));
                 }
             }
@@ -147,7 +147,7 @@ public class PredicateRewriteForPartitionPrune
             Cast cast = (Cast) equalTo.left();
             DateTimeV2Type sourceType = (DateTimeV2Type) cast.child().getDataType();
             TimeStampNsLiteral literal = (TimeStampNsLiteral) equalTo.right();
-            return canRepresentExactly(literal, sourceType.getScale())
+            return TemporalConversionProperties.isTimeStampNsLiteralExactlyRepresentable(literal, sourceType)
                     ? new EqualTo(cast.child(), literal.roundFloorToDateTimeV2(sourceType.getScale()))
                     : BooleanLiteral.FALSE;
         }
@@ -164,10 +164,6 @@ public class PredicateRewriteForPartitionPrune
         return expression instanceof Cast
                 && expression.getDataType() instanceof TimeStampNsType
                 && expression.child(0).getDataType() instanceof DateTimeV2Type;
-    }
-
-    private static boolean canRepresentExactly(TimeStampNsLiteral literal, int scale) {
-        return TemporalConversionProperties.isFractionExactlyRepresentable(literal.getNanoSecond(), scale);
     }
 
     private static Optional<Expression> timestampNsDateRange(Expression dateChild, Expression option) {

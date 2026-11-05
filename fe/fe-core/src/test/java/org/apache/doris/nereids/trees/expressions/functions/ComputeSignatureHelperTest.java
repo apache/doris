@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.types.ArrayType;
@@ -625,6 +626,39 @@ public class ComputeSignatureHelperTest {
         Assertions.assertTrue(((MapType) signature.returnType).getValueType() instanceof ArrayType);
         Assertions.assertEquals(TimeV2Type.of(4),
                         ((ArrayType) ((MapType) signature.returnType).getValueType()).getItemType());
+    }
+
+    @Test
+    void testNestedTimestampPrecisionPromotionPreservesFixedScale() {
+        DataType zonedTimes = MapType.of(TimeStampTzType.SYSTEM_DEFAULT, ArrayType.of(TimeV2Type.SYSTEM_DEFAULT));
+        DataType datetimes = ArrayType.of(MapType.of(DateTimeV2Type.SYSTEM_DEFAULT, TimeStampNsType.INSTANCE));
+        FunctionSignature signature = FunctionSignature.ret(datetimes).args(zonedTimes, datetimes, zonedTimes);
+        List<Expression> arguments = List.of(
+                new SlotReference("zoned_times", MapType.of(TimeStampTzType.of(4), ArrayType.of(TimeV2Type.of(2)))),
+                new SlotReference("datetimes", ArrayType.of(MapType.of(DateTimeV2Type.of(3), TimeStampNsType.INSTANCE))),
+                new NullLiteral());
+
+        signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(), signature, arguments);
+
+        DataType promotedZonedTimes = MapType.of(TimeStampTzType.of(4), ArrayType.of(TimeV2Type.of(4)));
+        DataType promotedDatetimes = ArrayType.of(MapType.of(DateTimeV2Type.of(4), TimeStampNsType.INSTANCE));
+        Assertions.assertEquals(List.of(promotedZonedTimes, promotedDatetimes, promotedZonedTimes),
+                signature.argumentsTypes);
+        Assertions.assertEquals(promotedDatetimes, signature.returnType);
+    }
+
+    @Test
+    void testMixedTemporalStringPrecisionPromotion() {
+        FunctionSignature signature = FunctionSignature.ret(TimeStampTzType.SYSTEM_DEFAULT).args(
+                DateTimeV2Type.SYSTEM_DEFAULT, TimeV2Type.SYSTEM_DEFAULT, TimeStampTzType.SYSTEM_DEFAULT);
+        List<Expression> arguments = List.of(new StringLiteral("2024-01-02 03:04:05.12"),
+                new StringLiteral("12:34:56.1234"), new StringLiteral("2024-01-02 03:04:05.123"));
+
+        signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(), signature, arguments);
+
+        Assertions.assertEquals(List.of(DateTimeV2Type.of(4), TimeV2Type.of(4), TimeStampTzType.of(4)),
+                signature.argumentsTypes);
+        Assertions.assertEquals(TimeStampTzType.of(4), signature.returnType);
     }
 
     @Test

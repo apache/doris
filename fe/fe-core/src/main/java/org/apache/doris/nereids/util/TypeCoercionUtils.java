@@ -380,18 +380,6 @@ public class TypeCoercionUtils {
         return hasSpecifiedType(dataType, DateTimeV2Type.class);
     }
 
-    public static boolean hasTimeV2Type(DataType dataType) {
-        return hasSpecifiedType(dataType, TimeV2Type.class);
-    }
-
-    public static boolean hasTimestampTzType(DataType dataType) {
-        return hasSpecifiedType(dataType, TimeStampTzType.class);
-    }
-
-    public static boolean hasTimeStampNsType(DataType dataType) {
-        return hasSpecifiedType(dataType, TimeStampNsType.class);
-    }
-
     public static boolean hasVarBinaryType(DataType dataType) {
         return hasSpecifiedType(dataType, VarBinaryType.class);
     }

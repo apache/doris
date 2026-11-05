@@ -1094,10 +1094,7 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "convert_tz")
     public static Expression convertTz(DateTimeV2Literal datetime, StringLikeLiteral fromTz, StringLikeLiteral toTz) {
-        return DateTimeV2Literal.fromJavaDateType(
-                TemporalValueConversion.convertZone(
-                        datetime.toJavaDateType(), fromTz.getStringValue(), toTz.getStringValue()),
-                datetime.getDataType().getScale());
+        return datetime.inTimeZone(fromTz.getStringValue(), toTz.getStringValue());
     }
 
     @ExecFunction(name = "convert_tz")
