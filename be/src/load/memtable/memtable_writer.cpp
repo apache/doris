@@ -288,9 +288,9 @@ Status MemTableWriter::wait_flush() {
 void MemTableWriter::_reset_mem_table() {
     {
         std::lock_guard<std::mutex> l(_mem_table_ptr_lock);
-        _mem_table.reset(new MemTable(_req.tablet_id, _tablet_schema, _req.slots, _req.tuple_desc,
+        _mem_table = MemTable::create(_req.tablet_id, _tablet_schema, _req.slots, _req.tuple_desc,
                                       _unique_key_mow, _partial_update_info.get(), _resource_ctx,
-                                      _need_lsn));
+                                      _need_lsn);
     }
 
     _segment_num++;
