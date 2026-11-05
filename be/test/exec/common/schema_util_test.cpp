@@ -343,6 +343,69 @@ TEST_F(SchemaUtilTest, test_multiple_index_inheritance) {
     }
 }
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): GTest assertions keep the index-order and leaf-type matrix together.
+TEST_F(SchemaUtilTest, ValuesIndexPositionDoesNotChangePathInheritance) {
+    auto make_index = [](int64_t id, bool values, const std::string& parser,
+                         const std::string& selector = "parser") {
+        TabletIndexPB pb;
+        pb.set_index_id(id);
+        pb.set_index_name("idx_" + std::to_string(id));
+        pb.set_index_type(IndexType::INVERTED);
+        pb.add_col_unique_id(1);
+        (*pb.mutable_properties())[selector] = parser;
+        if (values) {
+            (*pb.mutable_properties())["variant_index_scope"] = "values";
+        }
+        TabletIndex index;
+        index.init_from_pb(pb);
+        return index;
+    };
+    for (bool analyzer : {false, true}) {
+        const std::string selector = analyzer ? "analyzer" : "parser";
+        auto english = make_index(101, false, "english", selector);
+        auto unicode = make_index(102, false, "unicode");
+        auto values = make_index(103, true, "english");
+        for (size_t position = 0; position < 3; ++position) {
+            SCOPED_TRACE(position);
+            std::vector<const TabletIndex*> parents {&english, &unicode};
+            parents.insert(parents.begin() + position, &values);
+            TabletIndexes inherited;
+            ASSERT_TRUE(variant_util::inherit_index(parents, inherited,
+                                                    FieldType::OLAP_FIELD_TYPE_STRING, "v.s"));
+            ASSERT_EQ(inherited.size(), 2);
+            EXPECT_EQ(inherited[0]->index_id(), 101);
+            EXPECT_EQ(inherited[1]->index_id(), 102);
+            EXPECT_EQ(inherited[0]->properties().at(selector), "english");
+            EXPECT_EQ(inherited[1]->properties().at("parser"), "unicode");
+            for (const auto& index : inherited) {
+                EXPECT_FALSE(index->is_variant_values_index());
+                EXPECT_EQ(index->get_index_suffix(), "v%2Es");
+            }
+            for (bool array : {false, true}) {
+                for (auto type : {FieldType::OLAP_FIELD_TYPE_INT, FieldType::OLAP_FIELD_TYPE_DOUBLE,
+                                  FieldType::OLAP_FIELD_TYPE_STRING}) {
+                    if (!array && type == FieldType::OLAP_FIELD_TYPE_STRING) {
+                        continue; // Scalar strings were checked above; arrays inherit only the first index.
+                    }
+                    ASSERT_TRUE(
+                            variant_util::inherit_index(parents, inherited, type, "v.n", array));
+                    ASSERT_EQ(inherited.size(), 1);
+                    EXPECT_EQ(inherited.front()->index_id(), 101);
+                    EXPECT_FALSE(inherited.front()->properties().contains("parser"));
+                    EXPECT_FALSE(inherited.front()->properties().contains("analyzer"));
+                    EXPECT_EQ(inherited.front()->get_index_suffix(), "v%2En");
+                }
+            }
+            ASSERT_FALSE(variant_util::inherit_index({&values}, inherited,
+                                                     FieldType::OLAP_FIELD_TYPE_STRING, "v.s"));
+            EXPECT_TRUE(inherited.empty());
+            ASSERT_FALSE(variant_util::inherit_index({&values}, inherited,
+                                                     FieldType::OLAP_FIELD_TYPE_INT, "v.n"));
+            EXPECT_TRUE(inherited.empty());
+        }
+    }
+}
+
 // static std::unordered_map<std::string, int> construct_column_map_with_random_values(
 //         auto& column_map, int key_size, int value_size, const std::string& prefix) {
 //     std::unordered_map<std::string, int> key_value_counts;
