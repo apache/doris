@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_variant_values_index_alter_atomicity", "p0,nonConcurrent") {
+    sql "SET enable_add_index_for_new_data=true"
     sql "SET default_variant_enable_doc_mode=false"
     sql "SET default_variant_enable_nested_group=false"
     sql "SET enable_match_without_inverted_index=false"
@@ -46,12 +47,13 @@ suite("test_variant_values_index_alter_atomicity", "p0,nonConcurrent") {
             PROPERTIES("replication_num"="1","disable_auto_compaction"="true","inverted_index_storage_format"="SNII"${mow})"""
         sql """INSERT INTO ${table} VALUES(1,11,parse_to_variant('{"s":"hello"}'))"""
         int rowId = 1
-        for (String clauses : ['DROP COLUMN aux, DROP INDEX values_idx',
-                               'ADD COLUMN extra INT, DROP INDEX values_idx',
-                               'DROP INDEX values_idx, DROP COLUMN aux',
-                               'DROP INDEX values_idx, ADD COLUMN extra INT']) {
+        String addValues = 'ADD INDEX another_values(v) USING INVERTED PROPERTIES("variant_index_scope"="values","parser"="english")'
+        for (String clauses : ["DROP COLUMN aux, ${addValues}",
+                               "ADD COLUMN extra INT, ${addValues}",
+                               "${addValues}, DROP COLUMN aux",
+                               "${addValues}, ADD COLUMN extra INT"]) {
             def before = state(table)
-            test { sql "ALTER TABLE ${table} ${clauses}"; exception "DROP INDEX is not supported for a VARIANT values index" }
+            test { sql "ALTER TABLE ${table} ${clauses}"; exception "ADD VARIANT values index can not be combined with other schema changes" }
             def after = state(table)
             rowId++
             sql """INSERT INTO ${table} VALUES(${rowId},22,parse_to_variant('{"s":"world"}'))"""

@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_variant_values_index_ddl", "p0") {
+    sql "SET enable_add_index_for_new_data=true"
     sql "SET enable_match_without_inverted_index=true"
     sql "SET enable_inverted_index_query=true"
     sql "SET enable_sql_cache=false"
@@ -108,17 +109,13 @@ suite("test_variant_values_index_ddl", "p0") {
         'ALTER TABLE vvi_ddl_english ADD INDEX new_values(v) USING INVERTED PROPERTIES("variant_index_scope"="values","parser"="english")']) {
         test {
             sql statement
-            exception "VARIANT values index can only be declared in CREATE TABLE"
+            exception "VARIANT column supports only one values index"
         }
     }
     test {
         sql(isCloudMode() ? "BUILD INDEX ON vvi_ddl_english"
                           : "BUILD INDEX values_idx ON vvi_ddl_english")
         exception "BUILD INDEX is not supported on a table with a VARIANT values index"
-    }
-    test {
-        sql "DROP INDEX values_idx ON vvi_ddl_english"
-        exception "DROP INDEX is not supported for a VARIANT values index"
     }
     sql 'ALTER TABLE vvi_ddl_english ADD INDEX path_idx(v) USING INVERTED PROPERTIES("parser"="english")'
     waitForSchemaChangeDone {
