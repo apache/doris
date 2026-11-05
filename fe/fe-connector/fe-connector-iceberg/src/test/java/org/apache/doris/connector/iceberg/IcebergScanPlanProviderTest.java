@@ -209,6 +209,73 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertTrue(encryptedSplits > 2);
     }
 
+    @Test
+    public void encryptedDeleteFilesAreRejectedBeforeLosingTheirKeys() {
+        for (boolean equality : new boolean[] {false, true}) {
+            Table table = createTable("encrypted_deletes_" + equality, SCHEMA, PartitionSpec.unpartitioned());
+            FileMetadata.Builder builder = FileMetadata.deleteFileBuilder(table.spec());
+            if (equality) {
+                builder.ofEqualityDeletes(1);
+            } else {
+                builder.ofPositionDeletes();
+            }
+            DeleteFile delete = builder.withPath("s3://bucket/delete.parquet").withFormat("parquet")
+                    .withFileSizeInBytes(100).withRecordCount(1)
+                    .withEncryptionKeyMetadata(ByteBuffer.wrap(new byte[] {1})).build();
+            if (!equality) {
+                Table withDeletes = tableWithPositionDelete(delete);
+                Assertions.assertThrows(UnsupportedOperationException.class,
+                        () -> planPositionDeletes(withDeletes, Collections.emptyList()));
+                IcebergScanPlanProvider countProvider = new IcebergScanPlanProvider(
+                        IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(withDeletes));
+                ConnectorSession countSession = new FakeScanSession("UTC",
+                        Collections.singletonMap("ignore_iceberg_dangling_delete", "true"));
+                Assertions.assertThrows(UnsupportedOperationException.class,
+                        () -> planCount(countProvider, countSession, true));
+            }
+            UnsupportedOperationException error = Assertions.assertThrows(UnsupportedOperationException.class,
+                    () -> provider().convertDelete(delete, UnaryOperator.identity()));
+            Assertions.assertEquals("Iceberg encryption [DELETE_READ_UNAVAILABLE]", error.getMessage());
+        }
+    }
+
+    @Test
+    public void mixedEncryptedFilesCannotCollapseMetadataCount() {
+        for (boolean cached : new boolean[] {false, true}) {
+            for (boolean missingManifestRows : new boolean[] {false, true}) {
+                Table table = createTable("mixed_count_" + cached + "_" + missingManifestRows,
+                        SCHEMA, PartitionSpec.unpartitioned());
+                byte[] metadata = new byte[22];
+                metadata[0] = 1;
+                metadata[1] = 32;
+                Arrays.fill(metadata, 2, 18, (byte) 7);
+                metadata[18] = 2;
+                metadata[19] = 2;
+                metadata[20] = 9;
+                DataFile encrypted = DataFiles.builder(table.spec()).withPath("s3://bucket/encrypted.parquet")
+                        .withFileSizeInBytes(512).withRecordCount(4).withFormat("parquet")
+                        .withEncryptionKeyMetadata(ByteBuffer.wrap(metadata)).build();
+                table.newAppend().appendFile(encrypted).commit();
+                table.newAppend().appendFile(dataFile(table.spec(), "s3://bucket/plain.parquet", 512,
+                        null, null)).commit();
+                Table plannedTable = missingManifestRows
+                        ? tableWithMissingManifestRowsAndIo(table, table.io()) : table;
+                IcebergScanPlanProvider provider = cached
+                        ? manifestProvider(manifestCacheProps(), plannedTable, new IcebergManifestCache())
+                        : new IcebergScanPlanProvider(IcebergCatalogProperties.of(Collections.emptyMap()),
+                                opsReturning(plannedTable));
+                List<ConnectorScanRange> ranges = planCount(provider, cached ? emptySession() : null, true);
+                Assertions.assertEquals(2, ranges.size(), "Every file must retain its own encryption marker");
+                for (ConnectorScanRange range : ranges) {
+                    TFileRangeDesc desc = populate(range);
+                    Assertions.assertEquals(-1, desc.getTableFormatParams().getTableLevelRowCount());
+                    Assertions.assertEquals(range.getPath().orElseThrow().endsWith("encrypted.parquet"),
+                            desc.getTableFormatParams().getIcebergParams().isSetEncryptionInfo());
+                }
+            }
+        }
+    }
+
     // --- in-memory iceberg table helpers (offline; DataFile metadata only, no real data files) ---
 
     private static Table createTable(String name, Schema schema, PartitionSpec spec) {
@@ -5708,7 +5775,7 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
-    public void countPushdownManifestCacheReadsOnlyRepresentativeFile() {
+    public void countPushdownManifestCacheValidatesEveryFileBeforeCollapse() {
         // Three appends -> three data manifests; manifest-list live-row aggregates sum to 10+20+30 = 60.
         Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
         table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
@@ -5729,9 +5796,9 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals(1, cached.size());
         Assertions.assertEquals(60L, cached.get(0).getPushDownRowCount());
         Assertions.assertEquals(sdk.get(0).getPushDownRowCount(), cached.get(0).getPushDownRowCount());
-        // The manifest list already carries exact live-row aggregates. Only the first manifest's entries are
-        // needed to obtain a representative file for the collapsed range.
-        Assertions.assertEquals(1, cache.size());
+        // Manifest aggregates contain no per-file encryption marker. Validate all entries before choosing
+        // a representative, including manifests after the first plaintext file.
+        Assertions.assertEquals(totalManifests, cache.size());
     }
 
     @Test

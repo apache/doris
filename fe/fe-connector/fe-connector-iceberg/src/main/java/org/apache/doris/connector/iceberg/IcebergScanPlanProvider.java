@@ -1297,6 +1297,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             List<NestedField> outputPartitionFields, boolean enableMappingVarbinary, ZoneId zone,
             UnaryOperator<String> uriNormalizer) {
         DeleteFile deleteFile = task.file();
+        rejectEncryptedDelete(deleteFile);
         String originalPath = deleteFile.path().toString();
         IcebergScanRange.Builder builder = new IcebergScanRange.Builder()
                 .path(uriNormalizer.apply(originalPath))
@@ -1520,8 +1521,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 
     /**
      * Build a collapsed COUNT(*) range from current manifest-list aggregates. Summing each data manifest's
-     * added and existing row counts is O(manifests), while only the first live {@link FileScanTask} is needed as
-     * the representative range. Old manifest lists that omit these aggregates use the bounded O(files) fallback.
+     * added and existing row counts gives the count, but all live file metadata must still be checked before
+     * selecting a representative range. Old manifest lists without aggregates use the bounded per-file sum.
      * Equality deletes and non-netted position deletes make the optimization unsafe and tell the caller to
      * perform a normal scan.
      */
@@ -1636,22 +1637,33 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             Table table, Schema scanSchema, CloseableIterable<FileScanTask> tasks, long exactCount,
             int formatVersion, boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
             UnaryOperator<String> uriNormalizer, boolean netPositionDeletes) {
+        FileScanTask representative = null;
         try (CloseableIterable<FileScanTask> closeableTasks = tasks) {
             for (FileScanTask task : closeableTasks) {
+                // Manifest totals cannot prove that later files are plaintext. Inspect every live file,
+                // retaining only one representative, so COUNT cannot erase an encrypted file's BE guard.
+                if (task.file().keyMetadata() != null) {
+                    return Optional.empty();
+                }
                 // Data-manifest rows and the separately netted live delete files are authoritative, but retain
                 // this defensive check for malformed metadata before exposing the aggregate as a query result.
                 if (hasNonIgnorableTaskDeletes(task, netPositionDeletes) || task.file().recordCount() < 0) {
                     return Optional.empty();
                 }
-                return Optional.of(Collections.singletonList(buildRange(
-                        table, scanSchema, task.file(), task, formatVersion, partitioned,
-                        orderedPartitionKeys, zone, uriNormalizer, exactCount, -1, null)));
+                if (representative == null) {
+                    representative = task;
+                }
             }
         } catch (IOException e) {
             throw new RuntimeException("Failed to plan iceberg count-pushdown file, error message is:"
                     + e.getMessage(), e);
         }
-        return exactCount == 0 ? Optional.of(Collections.emptyList()) : Optional.empty();
+        if (representative == null) {
+            return exactCount == 0 ? Optional.of(Collections.emptyList()) : Optional.empty();
+        }
+        return Optional.of(Collections.singletonList(buildRange(
+                table, scanSchema, representative.file(), representative, formatVersion, partitioned,
+                orderedPartitionKeys, zone, uriNormalizer, exactCount, -1, null)));
     }
 
     private Optional<List<ConnectorScanRange>> planCountPushdownFromFileTasks(
@@ -1695,8 +1707,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         long exactCount = 0;
         try (CloseableIterable<FileScanTask> closeableTasks = tasks) {
             for (FileScanTask task : closeableTasks) {
-                // A metadata count is safe only when manifests alone prove the exact visible row count.
-                if (hasNonIgnorableTaskDeletes(task, netPositionDeletes) || task.file().recordCount() < 0) {
+                // Keep every encrypted file's descriptor instead of hiding it behind a plaintext representative.
+                if (task.file().keyMetadata() != null || hasNonIgnorableTaskDeletes(task, netPositionDeletes)
+                        || task.file().recordCount() < 0) {
                     return Optional.empty();
                 }
                 try {
@@ -1732,7 +1745,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             return false;
         }
         for (DeleteFile delete : task.deletes()) {
-            if (!netPositionDeletes || delete.content() != FileContent.POSITION_DELETES) {
+            if (delete.keyMetadata() != null || !netPositionDeletes
+                    || delete.content() != FileContent.POSITION_DELETES) {
                 return true;
             }
         }
@@ -1766,7 +1780,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             try (ManifestReader<DeleteFile> reader = ManifestFiles.readDeleteManifest(
                     manifest, table.io(), table.specs())) {
                 for (DeleteFile delete : reader) {
-                    if (delete.content() != FileContent.POSITION_DELETES || delete.recordCount() < 0) {
+                    if (delete.keyMetadata() != null || delete.content() != FileContent.POSITION_DELETES
+                            || delete.recordCount() < 0) {
                         return OptionalLong.empty();
                     }
                     try {
@@ -2004,6 +2019,14 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         return result;
     }
 
+    private static void rejectEncryptedDelete(DeleteFile delete) {
+        // Plaintext data can reference an independently encrypted delete. Until delete decryption is
+        // integrated, dropping its key would send BE a plaintext descriptor for encrypted content.
+        if (delete.keyMetadata() != null) {
+            throw new UnsupportedOperationException("Iceberg encryption [DELETE_READ_UNAVAILABLE]");
+        }
+    }
+
     /**
      * Convert one iceberg {@link DeleteFile} into a BE-facing carrier, a faithful port of legacy
      * {@code getDeleteFileFilters} + {@code IcebergDeleteFileFilter.create*} + {@code setIcebergParams}:
@@ -2020,6 +2043,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * Package-private for direct unit testing.
      */
     IcebergScanRange.DeleteFile convertDelete(DeleteFile delete, UnaryOperator<String> uriNormalizer) {
+        rejectEncryptedDelete(delete);
         String path = uriNormalizer.apply(delete.path().toString());
         FileContent content = delete.content();
         if (content == FileContent.POSITION_DELETES) {
@@ -3328,7 +3352,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * each through the manifest cache on demand, and yields the surviving (metrics + residual pruned)
      * {@link BaseFileScanTask}s one file at a time so the consumer never holds the whole table's task list. Not
      * thread-safe: single-pass, driven by ONE consumer (the sync materialize loop, the streaming pump, or the
-     * COUNT take-first). {@code schemaJson}/{@code currentSpecJson} are hoisted loop invariants (constant per
+     * COUNT file validation). {@code schemaJson}/{@code currentSpecJson} are hoisted loop invariants (constant per
      * table / per manifest spec), byte-identical to the pre-PERF-04 per-file computation.
      */
     private final class ManifestCacheFileScanTaskIterator implements CloseableIterator<FileScanTask> {
