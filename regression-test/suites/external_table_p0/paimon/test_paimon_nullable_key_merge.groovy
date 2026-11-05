@@ -86,7 +86,7 @@ suite("test_paimon_nullable_key_merge", "p0,external,paimon") {
             USING (SELECT CAST(NULL AS INT) AS id, 101 AS v
                    UNION ALL SELECT CAST(NULL AS INT), 102) s ON t.id <=> s.id
             WHEN MATCHED THEN UPDATE SET v=s.v"""
-        exception "Connector MERGE matched one target row with multiple source rows"
+        exception "Paimon MERGE matched one target row with multiple source rows"
     }
     order_qt_null_key_duplicate_unchanged "SELECT * FROM nullable_target ORDER BY id NULLS FIRST"
     test {
@@ -94,7 +94,7 @@ suite("test_paimon_nullable_key_merge", "p0,external,paimon") {
             USING (SELECT CAST(NULL AS INT) AS id, 101 AS v
                    UNION ALL SELECT CAST(NULL AS INT), 102) s ON t.id = s.id
             WHEN NOT MATCHED THEN INSERT (id,v) VALUES (s.id,s.v)"""
-        exception "Connector MERGE attempted to insert multiple rows with the same primary key"
+        exception "Paimon MERGE attempted to insert multiple rows with the same primary key"
     }
     order_qt_duplicate_null_insert_unchanged "SELECT * FROM nullable_target ORDER BY id NULLS FIRST"
     sql """MERGE INTO nullable_target t
