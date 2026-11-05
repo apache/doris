@@ -19,7 +19,6 @@ package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -221,7 +220,7 @@ public final class IcebergMetadataDeletePredicate {
     private static Optional<org.apache.iceberg.expressions.Expression> convertComparison(
             Expression expression, Schema schema) {
         Optional<NestedField> field = resolveSingleField(expression, schema);
-        if (!field.isPresent() || !isSupportedType(field.get().type())) {
+        if (!field.isPresent() || !isSupportedValueType(field.get().type())) {
             return Optional.empty();
         }
 
@@ -243,70 +242,62 @@ public final class IcebergMetadataDeletePredicate {
             return Optional.empty();
         }
 
-        Object value;
-        try {
-            value = IcebergNereidsUtils.extractNereidsLiteralValue(literal, field.get().type());
-        } catch (UserException e) {
-            return Optional.empty();
-        }
+        // Use the same already-analyzed literal contract as scan predicates. The maintenance
+        // helper has different timestamp precision/timezone semantics and is not exact here.
+        Object value = IcebergUtils.extractDorisLiteral(field.get().type(), literal.toLegacyLiteral());
         if (value == null) {
             return Optional.empty();
         }
 
         String columnName = field.get().name();
+        org.apache.iceberg.expressions.Expression comparison;
         if (expression instanceof EqualTo) {
-            return Optional.of(Expressions.equal(columnName, value));
-        }
-        if (expression instanceof GreaterThan) {
-            return Optional.of(literalOnLeft
+            comparison = Expressions.equal(columnName, value);
+        } else if (expression instanceof GreaterThan) {
+            comparison = literalOnLeft
                     ? Expressions.lessThan(columnName, value)
-                    : Expressions.greaterThan(columnName, value));
-        }
-        if (expression instanceof GreaterThanEqual) {
-            return Optional.of(literalOnLeft
+                    : Expressions.greaterThan(columnName, value);
+        } else if (expression instanceof GreaterThanEqual) {
+            comparison = literalOnLeft
                     ? Expressions.lessThanOrEqual(columnName, value)
-                    : Expressions.greaterThanOrEqual(columnName, value));
-        }
-        if (expression instanceof LessThan) {
-            return Optional.of(literalOnLeft
+                    : Expressions.greaterThanOrEqual(columnName, value);
+        } else if (expression instanceof LessThan) {
+            comparison = literalOnLeft
                     ? Expressions.greaterThan(columnName, value)
-                    : Expressions.lessThan(columnName, value));
-        }
-        if (expression instanceof LessThanEqual) {
-            return Optional.of(literalOnLeft
+                    : Expressions.lessThan(columnName, value);
+        } else if (expression instanceof LessThanEqual) {
+            comparison = literalOnLeft
                     ? Expressions.greaterThanOrEqual(columnName, value)
-                    : Expressions.lessThanOrEqual(columnName, value));
+                    : Expressions.lessThanOrEqual(columnName, value);
+        } else {
+            return Optional.empty();
         }
-        return Optional.empty();
+        // Iceberg 1.11 partition residuals order NULL before non-NULL for LT/LT_EQ. SQL
+        // comparisons exclude NULL; keep that condition inside each atom, including OR arms.
+        return Optional.of(Expressions.and(Expressions.notNull(columnName), comparison));
     }
 
     private static Optional<org.apache.iceberg.expressions.Expression> convertIn(
             InPredicate predicate, Schema schema) {
         Optional<NestedField> field = resolveSingleField(predicate, schema);
-        if (!field.isPresent() || !isSupportedType(field.get().type())) {
+        if (!field.isPresent() || !isSupportedValueType(field.get().type())) {
             return Optional.empty();
         }
-        if (!(predicate.child(0) instanceof Slot)
-                || predicate.optionsContainsNullLiteral()) {
+        if (!(predicate.child(0) instanceof Slot) || predicate.optionsContainsNullLiteral()) {
             return Optional.empty();
         }
 
         List<Object> values = new ArrayList<>();
-        try {
-            for (int i = 1; i < predicate.children().size(); i++) {
-                Expression child = predicate.child(i);
-                if (!(child instanceof Literal)) {
-                    return Optional.empty();
-                }
-                Object value = IcebergNereidsUtils.extractNereidsLiteralValue(
-                        (Literal) child, field.get().type());
-                if (value == null) {
-                    return Optional.empty();
-                }
-                values.add(value);
+        for (int i = 1; i < predicate.children().size(); i++) {
+            Expression child = predicate.child(i);
+            if (!(child instanceof Literal)) {
+                return Optional.empty();
             }
-        } catch (UserException e) {
-            return Optional.empty();
+            Object value = IcebergUtils.extractDorisLiteral(field.get().type(), ((Literal) child).toLegacyLiteral());
+            if (value == null) {
+                return Optional.empty();
+            }
+            values.add(value);
         }
         return values.isEmpty() ? Optional.empty()
                 : Optional.of(Expressions.in(field.get().name(), values));
@@ -327,28 +318,22 @@ public final class IcebergMetadataDeletePredicate {
     private static Optional<org.apache.iceberg.expressions.Expression> convertBetween(
             Between predicate, Schema schema) {
         Optional<NestedField> field = resolveSingleField(predicate, schema);
-        if (!field.isPresent() || !isSupportedType(field.get().type())
+        if (!field.isPresent() || !isSupportedValueType(field.get().type())
                 || !(predicate.getCompareExpr() instanceof Slot)
                 || !(predicate.getLowerBound() instanceof Literal)
                 || !(predicate.getUpperBound() instanceof Literal)) {
             return Optional.empty();
         }
-        Object lower;
-        Object upper;
-        try {
-            lower = IcebergNereidsUtils.extractNereidsLiteralValue(
-                    (Literal) predicate.getLowerBound(), field.get().type());
-            upper = IcebergNereidsUtils.extractNereidsLiteralValue(
-                    (Literal) predicate.getUpperBound(), field.get().type());
-        } catch (UserException e) {
-            return Optional.empty();
-        }
+        Object lower = IcebergUtils.extractDorisLiteral(
+                field.get().type(), ((Literal) predicate.getLowerBound()).toLegacyLiteral());
+        Object upper = IcebergUtils.extractDorisLiteral(
+                field.get().type(), ((Literal) predicate.getUpperBound()).toLegacyLiteral());
         if (lower == null || upper == null) {
             return Optional.empty();
         }
-        return Optional.of(Expressions.and(
+        return Optional.of(Expressions.and(Expressions.notNull(field.get().name()), Expressions.and(
                 Expressions.greaterThanOrEqual(field.get().name(), lower),
-                Expressions.lessThanOrEqual(field.get().name(), upper)));
+                Expressions.lessThanOrEqual(field.get().name(), upper))));
     }
 
     private static Optional<NestedField> resolveSingleField(Expression predicate, Schema schema) {
@@ -367,6 +352,12 @@ public final class IcebergMetadataDeletePredicate {
             return Optional.empty();
         }
         return Optional.ofNullable(schema.caseInsensitiveFindField(reference.getName()));
+    }
+
+    private static boolean isSupportedValueType(Type type) {
+        // Java/Iceberg distinguish signed zero in FLOAT/DOUBLE ordering while Doris SQL
+        // treats both zeros as equal. Preserve row-level evaluation for these value predicates.
+        return isSupportedType(type) && type.typeId() != Type.TypeID.FLOAT && type.typeId() != Type.TypeID.DOUBLE;
     }
 
     private static boolean isSupportedType(Type type) {

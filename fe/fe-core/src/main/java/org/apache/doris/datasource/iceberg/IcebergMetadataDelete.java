@@ -36,9 +36,9 @@ import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotSummary;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableScan;
-import org.apache.iceberg.Transaction;
 import org.apache.iceberg.encryption.EncryptionManager;
 import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.expressions.Evaluator;
@@ -64,10 +64,10 @@ import java.util.function.BooleanSupplier;
 /**
  * Whole-file metadata delete for Iceberg tables.
  *
- * <p>The branch-4.2 path is intentionally implemented over the existing Iceberg metadata,
- * transaction, and cache-generation machinery. Candidate files must all be proven to match in
- * full; any partial match, existing delete file, cancellation, or concurrent snapshot change falls
- * back to the unchanged row-level DELETE path.
+ * <p>This path uses the existing Iceberg metadata and cache-generation machinery. Candidate files
+ * must all match in full; partial matches and existing delete files retain row-level DELETE.
+ * The final refresh selects the current snapshot, as in the source feature. Later snapshot changes
+ * decline the shortcut, while cancellation prevents publication of the pending delete.
  */
 public final class IcebergMetadataDelete {
     private static final Logger LOG = LogManager.getLogger(IcebergMetadataDelete.class);
@@ -146,9 +146,14 @@ public final class IcebergMetadataDelete {
         long requiredSnapshotId = refreshed.snapshotId();
 
         try {
-            Transaction transaction = newMetadataDeleteTransaction(
-                    table, requiredSnapshotId, ((HasTableOperations) table).operations().current());
-            DeleteFiles deleteFiles = transaction.newDelete();
+            // The SDK update owns cleanup directly. A discarded BaseTransaction would only
+            // enqueue deletion of staged manifests, leaking them on cancellation or validation.
+            TableOperations liveOperations = IcebergSnapshotCacheValue.unwrapRetainedTableOperations(
+                    ((BaseTable) table).operations());
+            RequiredSnapshotTableOperations operations = new RequiredSnapshotTableOperations(
+                    liveOperations, requiredSnapshotId, ((BaseTable) table).operations().current(), isCancelled);
+            Table deleteTable = new BaseTable(operations, table.name(), ((BaseTable) table).reporter());
+            DeleteFiles deleteFiles = deleteTable.newDelete();
             if (executor != null) {
                 deleteFiles = deleteFiles.scanManifestsWith(executor);
             }
@@ -157,13 +162,10 @@ public final class IcebergMetadataDelete {
                 return OptionalLong.empty();
             }
             deleteFiles.commit();
-            if (isCancelled.getAsBoolean()) {
-                LOG.info("Metadata delete of {} was cancelled before the remote commit.", table.name());
-                return OptionalLong.empty();
-            }
-            transaction.commitTransaction();
 
-            Snapshot committed = transaction.table().currentSnapshot();
+            // Read the immutable metadata passed to this successful CAS. The live table can
+            // already contain another writer's snapshot when SDK post-commit cleanup refreshes it.
+            Snapshot committed = operations.getCommittedSnapshot();
             if (committed == null || committed.snapshotId() == requiredSnapshotId) {
                 return OptionalLong.of(0L);
             }
@@ -174,19 +176,6 @@ public final class IcebergMetadataDelete {
                     table.name(), e.getMessage());
             return OptionalLong.empty();
         }
-    }
-
-    private static Transaction newMetadataDeleteTransaction(
-            Table table, long requiredSnapshotId, TableMetadata expectedMetadata) {
-        Preconditions.checkState(table instanceof HasTableOperations,
-                "Iceberg table %s does not expose table operations", table.name());
-        TableOperations operations = ((HasTableOperations) table).operations();
-        TableOperations validatingOperations =
-                new RequiredSnapshotTableOperations(operations, requiredSnapshotId, expectedMetadata);
-        BaseTable validatingTable = table instanceof BaseTable
-                ? new BaseTable(validatingOperations, table.name(), ((BaseTable) table).reporter())
-                : new BaseTable(validatingOperations, table.name());
-        return validatingTable.newTransaction();
     }
 
     /**
@@ -290,12 +279,15 @@ public final class IcebergMetadataDelete {
         private final TableOperations delegate;
         private final long requiredSnapshotId;
         private final TableMetadata expectedMetadata;
+        private final BooleanSupplier isCancelled;
+        private Snapshot committedSnapshot;
 
-        private RequiredSnapshotTableOperations(
-                TableOperations delegate, long requiredSnapshotId, TableMetadata expectedMetadata) {
+        private RequiredSnapshotTableOperations(TableOperations delegate, long requiredSnapshotId,
+                TableMetadata expectedMetadata, BooleanSupplier isCancelled) {
             this.delegate = delegate;
             this.requiredSnapshotId = requiredSnapshotId;
             this.expectedMetadata = expectedMetadata;
+            this.isCancelled = isCancelled;
         }
 
         @Override
@@ -305,6 +297,12 @@ public final class IcebergMetadataDelete {
 
         @Override
         public TableMetadata refresh() {
+            if (committedSnapshot != null) {
+                // SnapshotProducer refreshes for best-effort cleanup after its durable commit.
+                // Later changes or cancellation must not turn that success into a fallback.
+                return delegate.refresh();
+            }
+            checkNotCancelled();
             TableMetadata metadata = delegate.refresh();
             checkMetadata(metadata);
             return metadata;
@@ -312,10 +310,29 @@ public final class IcebergMetadataDelete {
 
         @Override
         public void commit(TableMetadata base, TableMetadata metadata) {
+            checkNotCancelled();
             TableMetadata refreshed = Preconditions.checkNotNull(
                     delegate.refresh(), "Iceberg table metadata changed before metadata delete");
-            checkMetadata(refreshed);
+            String metadataFileLocation = Preconditions.checkNotNull(
+                    refreshed.metadataFileLocation(), "Iceberg table has no current metadata file");
+            // Hadoop refresh can reuse a cached object after DROP/recreate at the same vN path.
+            // Match the existing writer fence by checking the actual current JSON before the CAS.
+            checkMetadata(TableMetadataParser.read(delegate.io(), metadataFileLocation));
+            checkNotCancelled();
             delegate.commit(base, metadata);
+            committedSnapshot = metadata.currentSnapshot();
+        }
+
+        private Snapshot getCommittedSnapshot() {
+            return committedSnapshot;
+        }
+
+        private void checkNotCancelled() {
+            if (isCancelled.getAsBoolean()) {
+                // ValidationException is a known pre-commit failure: the SDK reclaims the
+                // manifests it wrote. Unknown commit outcomes never enter this cleanup path.
+                throw new ValidationException("Metadata delete was cancelled before the remote commit");
+            }
         }
 
         private void checkMetadata(TableMetadata metadata) {
