@@ -829,13 +829,13 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
      */
     private static Map<String, String> staticPartitionSpec(ConnectorWriteHandle handle,
             IcebergWriteSchemaContext schemaContext) {
-        Map<String, String> spec = handle.getStaticPartitionSpec();
-        Map<String, String> normalized = spec;
-        if (!handle.getStaticPartitionNullKeys().isEmpty()) {
-            // The engine carries SQL NULL separately; both commit validation and BE must see the same null keys.
-            normalized = new HashMap<>(spec);
-            normalized.replaceAll((key, value) ->
-                    handle.getStaticPartitionNullKeys().contains(key) ? null : value);
+        // Use the values cast to the target types for both the overwrite filter and the sink.
+        // The cast rounds a local timestamp before it applies the time zone rule. In New York,
+        // 2021-03-14 02:59:59.9999996 rounds to 03:00:00, or 07:00:00 UTC, at scale 6.
+        Map<String, String> normalized = new HashMap<>(handle.getCastStaticPartitionSpec());
+        // The cast values exclude SQL NULL keys. Restore them before the field-name conversion.
+        for (String key : handle.getStaticPartitionNullKeys()) {
+            normalized.put(key, null);
         }
         if (schemaContext != null) {
             normalized = IcebergPartitionUtils.toPartitionFieldKeys(normalized, schemaContext.getSchema(),

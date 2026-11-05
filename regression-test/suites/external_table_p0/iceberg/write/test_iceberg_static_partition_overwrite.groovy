@@ -131,7 +131,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external") {
     try {
         sql "SET time_zone = 'UTC'"
         sql """INSERT INTO timestamp_gap_overwrite VALUES
-            (1, '2021-03-14 07:00:00.123456+00:00', 'a'),
+            (1, '2021-03-14 07:00:00+00:00', 'a'),
             (2, '2021-03-14 07:30:00.123456+00:00', 'a'),
             (3, '2021-03-14 07:30:00.123456+00:00', 'b')"""
         sql "SET time_zone = 'America/New_York'"
@@ -142,10 +142,16 @@ suite("test_iceberg_static_partition_overwrite", "p0,external") {
         // String comparison checks the fraction without the tolerance used for decimal results.
         qt_gap_full_static """SELECT id, CAST(unix_timestamp(event_time) AS STRING), region
             FROM timestamp_gap_overwrite ORDER BY id"""
-        // Hybrid overwrite replaces both regions at 07:30 UTC. Row 1 must remain.
+        // Round .1234556 to .123456 before the gap shift. Replace both regions at 07:30 UTC.
+        // Row 1 must remain.
         sql """INSERT OVERWRITE TABLE timestamp_gap_overwrite
-            PARTITION(event_time='2021-03-14 02:30:00.123456') SELECT 20, 'c'"""
+            PARTITION(event_time='2021-03-14 02:30:00.1234556') SELECT 20, 'c'"""
         qt_gap_hybrid """SELECT id, CAST(unix_timestamp(event_time) AS STRING), region
+            FROM timestamp_gap_overwrite ORDER BY id"""
+        // Rounding reaches 03:00, outside the gap. Replace row 1 at 07:00 UTC; keep row 20.
+        sql """INSERT OVERWRITE TABLE timestamp_gap_overwrite
+            PARTITION(event_time='2021-03-14 02:59:59.9999996', region='a') SELECT 30"""
+        qt_gap_round_to_end """SELECT id, CAST(unix_timestamp(event_time) AS STRING), region
             FROM timestamp_gap_overwrite ORDER BY id"""
         spark_iceberg "REFRESH TABLE demo.${db1}.timestamp_gap_overwrite"
         assertSparkDorisResultEquals(spark_iceberg("""SELECT id, region
