@@ -484,20 +484,76 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
 
     @Override
     public Void visitMapContainsKey(MapContainsKey mapContainsKey, CollectorContext context) {
+        // MAP_CONTAINS_KEY(<map>, <key>)
+        //
+        // isFunctionNullCheckPath checks whether the parent of this expression is IS NULL,
+        // splitting queries into two shapes:
+        //
+        // Shape A (parent is IS NULL):
+        //   SQL: SELECT ... WHERE map_contains_key(m, k) IS NULL
+        //   map_contains_key(m, k) returns NULL only when m itself is NULL — so the path
+        //   should be m.NULL, not m.KEYS.NULL
+        //
+        // Shape B (regular predicate):
+        //   SQL: SELECT ... WHERE map_contains_key(m, element_at(s, 'city'))
+        //                     AND element_at(s, 'city') IS NULL
+        //   We add the KEYS prefix for the map column and visit key arg: `element_at(s, 'city')` with a
+        //   fresh context.
+        //   s collects two paths:
+        //     [s, city]        ← from key arg (fresh context → DATA path)
+        //     [s, city, NULL]  ← from IS NULL
+        //   NestedColumnPruning sees [s, city] and strips [s, city, NULL] in prune phase.
+        if (isFunctionNullCheckPath(context.accessPathBuilder.accessPath)) {
+            // Shape A: skip KEYS prefix, route NULL directly to the map column.
+            return continueCollectAccessPath(mapContainsKey.getArgument(0), context);
+        }
+        // Shape B: map argument — only the key sub-column is needed.
         context.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_MAP_KEYS);
-        return continueCollectAccessPath(mapContainsKey.getArgument(0), context);
+        continueCollectAccessPath(mapContainsKey.getArgument(0), context);
+        // Shape B: key argument — visit with a fresh context to register full-data paths.
+        Expression keyArg = mapContainsKey.getArgument(1);
+        CollectorContext keyCtx = new CollectorContext(context.statementContext, context.bottomFilter);
+        continueCollectAccessPath(keyArg, keyCtx);
+        return null;
     }
 
     @Override
     public Void visitMapContainsValue(MapContainsValue mapContainsValue, CollectorContext context) {
+        // MAP_CONTAINS_VALUE(<map>, <value>)
+        // Same two-shape logic as visitMapContainsKey; see that method for the full rationale.
+        //
+        // Shape A (parent is IS NULL): skip VALUES prefix, route NULL to m → m.NULL.
+        // Shape B (regular predicate): add VALUES prefix for m, visit value arg with fresh context.
+        if (isFunctionNullCheckPath(context.accessPathBuilder.accessPath)) {
+            return continueCollectAccessPath(mapContainsValue.getArgument(0), context);
+        }
         context.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_MAP_VALUES);
-        return continueCollectAccessPath(mapContainsValue.getArgument(0), context);
+        continueCollectAccessPath(mapContainsValue.getArgument(0), context);
+        Expression valueArg = mapContainsValue.getArgument(1);
+        CollectorContext valueCtx = new CollectorContext(context.statementContext, context.bottomFilter);
+        continueCollectAccessPath(valueArg, valueCtx);
+        return null;
     }
 
     @Override
     public Void visitMapContainsEntry(MapContainsEntry mapContainsEntry, CollectorContext context) {
+        // MAP_CONTAINS_ENTRY(<map>, <key>, <value>)
+        // Same two-shape logic as visitMapContainsKey; see that method for the full rationale.
+        //
+        // Shape A (parent is IS NULL): skip sub-column prefix, route NULL to m → m.NULL.
+        // Shape B (regular predicate): add ACCESS_ALL for m (needs both keys and values),
+        //     visit key/value args with fresh context.
+        if (isFunctionNullCheckPath(context.accessPathBuilder.accessPath)) {
+            return continueCollectAccessPath(mapContainsEntry.getArgument(0), context);
+        }
         context.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_ALL);
-        return continueCollectAccessPath(mapContainsEntry.getArgument(0), context);
+        continueCollectAccessPath(mapContainsEntry.getArgument(0), context);
+        for (int i = 1; i < mapContainsEntry.arity(); i++) {
+            Expression entryArg = mapContainsEntry.getArgument(i);
+            CollectorContext entryCtx = new CollectorContext(context.statementContext, context.bottomFilter);
+            continueCollectAccessPath(entryArg, entryCtx);
+        }
+        return null;
     }
 
     @Override
