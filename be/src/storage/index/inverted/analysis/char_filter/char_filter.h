@@ -17,53 +17,20 @@
 
 #pragma once
 
-#include <memory>
-
-#include "common/exception.h"
-#include "storage/index/inverted/analysis/reader.h"
+#include <string>
+#include <string_view>
 
 namespace doris::segment_v2::inverted_index {
 
-class DorisCharFilter : public lucene::util::Reader {
+// A text-to-text function run over a whole value before it is tokenized. A stream owns its char
+// filters, so a filter may keep state from one value to the next.
+class TextCharFilter {
 public:
-    DorisCharFilter(ReaderPtr reader) : _reader(std::move(reader)) {}
-    ~DorisCharFilter() override = default;
+    virtual ~TextCharFilter() = default;
 
-    virtual void initialize() = 0;
-
-    virtual int32_t correct_offset(int32_t current_offset) const {
-        if (const auto* nested = dynamic_cast<const DorisCharFilter*>(_reader.get());
-            nested != nullptr) {
-            return nested->correct_offset(current_offset);
-        }
-        return current_offset;
-    }
-
-    // Map an offset that starts a term. A position inside an expanded edit belongs to the source
-    // start of that edit, while correct_offset() maps it to the edit's source end.
-    virtual int32_t correct_start_offset(int32_t current_offset) const {
-        if (const auto* nested = dynamic_cast<const DorisCharFilter*>(_reader.get());
-            nested != nullptr) {
-            return nested->correct_start_offset(current_offset);
-        }
-        return current_offset;
-    }
-
-    int64_t position() override {
-        throw Exception(ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, "CharFilter::position");
-    }
-
-    int64_t skip(int64_t ntoskip) override {
-        throw Exception(ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, "CharFilter::skip");
-    }
-
-    size_t size() override {
-        throw Exception(ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, "CharFilter::size");
-    }
-
-protected:
-    ReaderPtr _reader;
+    // Returns `text` itself when the filter leaves it as it is, and otherwise the filtered text,
+    // written to `scratch`.
+    virtual std::string_view apply(std::string_view text, std::string& scratch) = 0;
 };
-using CharFilterPtr = std::shared_ptr<DorisCharFilter>;
 
 } // namespace doris::segment_v2::inverted_index

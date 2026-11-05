@@ -26,12 +26,12 @@
 #include <string>
 #include <vector>
 
-#include "CLucene.h"
 #include "common/config.h"
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "storage/index/inverted/analysis/analyzer/kuromoji/dict/kuromoji_dictionary.h"
 #include "storage/index/inverted/analysis/analyzer/kuromoji/kuromoji_viterbi.h"
 #include "storage/index/inverted/analysis/inverted_index_parser.h"
+#include "storage/index/inverted/analysis/text_stream_contract.h"
 #include "util/defer_op.h"
 
 // End-to-end against the REAL IPADIC dictionary generated under be/dict/kuromoji.
@@ -120,8 +120,8 @@ TEST(KuromojiRealDictTest, KnownCompoundWord) {
     EXPECT_EQ(toks[0], nihongo);
 }
 
-// Full analyzer path: parser="kuromoji" -> create_builtin_analyzer -> initDict loads
-// the real dictionary -> tokenStream emits morphemes. Points the dict-path config at
+// Full analyzer path: parser="kuromoji" -> create_builtin_analyzer loads the real
+// dictionary -> its stream emits morphemes. Points the dict-path config at
 // be/dict (so + "/kuromoji" resolves) and restores it so other tests are unaffected.
 TEST(KuromojiRealDictTest, AnalyzerSegmentsViaBuiltinParser) {
     if (!real_dict_present()) {
@@ -148,14 +148,7 @@ TEST(KuromojiRealDictTest, AnalyzerSegmentsViaBuiltinParser) {
         const std::string text =
                 "\xE6\x9D\xB1\xE4\xBA\xAC\xE9\x83\xBD\xE3\x81\xAB\xE4\xBD\x8F"
                 "\xE3\x82\x93\xE3\x81\xA7\xE3\x81\x84\xE3\x81\xBE\xE3\x81\x99";
-        lucene::util::SStringReader<char> reader;
-        reader.init(text.data(), text.size(), false);
-        std::unique_ptr<lucene::analysis::TokenStream> ts(
-                (lucene::analysis::TokenStream*)analyzer->tokenStream(L"", &reader));
-        lucene::analysis::Token t;
-        while (ts->next(&t) != nullptr) {
-            toks.emplace_back(t.termBuffer<char>(), static_cast<std::size_t>(t.termLength<char>()));
-        }
+        toks = collect_terms(*analyzer, text);
     }
 
     std::cout << "Analyzer tokens for the Japanese sentence:";

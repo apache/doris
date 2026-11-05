@@ -22,28 +22,27 @@
 #include <cstddef>
 #include <cstdio>
 #include <fstream>
+#include <memory>
+#include <string>
+#include <unordered_set>
 #include <utility>
+#include <vector>
 
+#include "storage/index/inverted/analysis/text_stream_contract.h"
 #include "storage/index/inverted/analysis/token_filter/word_delimiter_filter_factory.h"
 #include "storage/index/inverted/analysis/tokenizer/keyword/keyword_tokenizer_factory.h"
 
 namespace doris::segment_v2::inverted_index {
 
-TokenStreamPtr create_filter(const std::string& text, int32_t flags,
-                             const std::unordered_set<std::string>& prot_words = {}) {
-    ReaderPtr reader = std::make_shared<lucene::util::SStringReader<char>>();
-    reader->init(text.data(), text.size(), false);
-
+std::unique_ptr<TextTokenStream> create_filter(
+        int32_t flags, const std::unordered_set<std::string>& prot_words = {}) {
     Settings settings;
     KeywordTokenizerFactory tokenizer_factory;
     tokenizer_factory.initialize(settings);
-    auto tokenizer = tokenizer_factory.create();
-    tokenizer->set_reader(reader);
 
-    auto token_filter = std::make_shared<WordDelimiterFilter>(
-            tokenizer, WordDelimiterIterator::DEFAULT_WORD_DELIM_TABLE, flags, prot_words);
-    token_filter->reset();
-    return token_filter;
+    return std::make_unique<WordDelimiterFilter>(tokenizer_factory.create(),
+                                                 WordDelimiterIterator::DEFAULT_WORD_DELIM_TABLE,
+                                                 flags, prot_words);
 }
 
 struct ExpectedToken {
@@ -53,16 +52,15 @@ struct ExpectedToken {
 
 TEST(WordDelimiterFilterTest, SplitOnDelimiter) {
     std::string text = "foo-bar";
-    auto filter = create_filter(text, WordDelimiterFilter::GENERATE_WORD_PARTS);
+    auto filter = create_filter(WordDelimiterFilter::GENERATE_WORD_PARTS);
 
     std::vector<ExpectedToken> expected = {{"foo", 1}, {"bar", 1}};
 
-    Token t;
     size_t i = 0;
-    while (filter->next(&t)) {
-        std::string term(t.termBuffer<char>(), t.termLength<char>());
+    for (const CollectedToken& t : collect_checked(*filter, text)) {
+        const std::string& term = t.term;
         EXPECT_EQ(term, expected[i].term) << "Term mismatch at index " << i;
-        EXPECT_EQ(t.getPositionIncrement(), expected[i].pos_inc)
+        EXPECT_EQ(t.position_increment, expected[i].pos_inc)
                 << "Pos increment mismatch at index " << i;
         ++i;
     }
@@ -71,16 +69,15 @@ TEST(WordDelimiterFilterTest, SplitOnDelimiter) {
 
 TEST(WordDelimiterFilterTest, HandleNumbers) {
     std::string text = "123-456";
-    auto filter = create_filter(text, WordDelimiterFilter::GENERATE_NUMBER_PARTS);
+    auto filter = create_filter(WordDelimiterFilter::GENERATE_NUMBER_PARTS);
 
     std::vector<ExpectedToken> expected = {{"123", 1}, {"456", 1}};
 
-    Token t;
     size_t i = 0;
-    while (filter->next(&t)) {
-        std::string term(t.termBuffer<char>(), t.termLength<char>());
+    for (const CollectedToken& t : collect_checked(*filter, text)) {
+        const std::string& term = t.term;
         EXPECT_EQ(term, expected[i].term);
-        EXPECT_EQ(t.getPositionIncrement(), expected[i].pos_inc);
+        EXPECT_EQ(t.position_increment, expected[i].pos_inc);
         ++i;
     }
     EXPECT_EQ(i, expected.size());
@@ -88,16 +85,15 @@ TEST(WordDelimiterFilterTest, HandleNumbers) {
 
 TEST(WordDelimiterFilterTest, CatenateWords) {
     std::string text = "foo-bar";
-    auto filter = create_filter(text, WordDelimiterFilter::CATENATE_WORDS);
+    auto filter = create_filter(WordDelimiterFilter::CATENATE_WORDS);
 
     std::vector<ExpectedToken> expected = {{"foobar", 1}};
 
-    Token t;
     size_t i = 0;
-    while (filter->next(&t)) {
-        std::string term(t.termBuffer<char>(), t.termLength<char>());
+    for (const CollectedToken& t : collect_checked(*filter, text)) {
+        const std::string& term = t.term;
         EXPECT_EQ(term, expected[i].term);
-        EXPECT_EQ(t.getPositionIncrement(), expected[i].pos_inc);
+        EXPECT_EQ(t.position_increment, expected[i].pos_inc);
         ++i;
     }
     EXPECT_EQ(i, expected.size());
@@ -105,16 +101,15 @@ TEST(WordDelimiterFilterTest, CatenateWords) {
 
 TEST(WordDelimiterFilterTest, CatenateNumbers) {
     std::string text = "123-456";
-    auto filter = create_filter(text, WordDelimiterFilter::CATENATE_NUMBERS);
+    auto filter = create_filter(WordDelimiterFilter::CATENATE_NUMBERS);
 
     std::vector<ExpectedToken> expected = {{"123456", 1}};
 
-    Token t;
     size_t i = 0;
-    while (filter->next(&t)) {
-        std::string term(t.termBuffer<char>(), t.termLength<char>());
+    for (const CollectedToken& t : collect_checked(*filter, text)) {
+        const std::string& term = t.term;
         EXPECT_EQ(term, expected[i].term);
-        EXPECT_EQ(t.getPositionIncrement(), expected[i].pos_inc);
+        EXPECT_EQ(t.position_increment, expected[i].pos_inc);
         ++i;
     }
     EXPECT_EQ(i, expected.size());
@@ -122,31 +117,50 @@ TEST(WordDelimiterFilterTest, CatenateNumbers) {
 
 TEST(WordDelimiterFilterTest, CatenateAll) {
     std::string text = "foo-123-bar";
-    auto filter = create_filter(text, WordDelimiterFilter::CATENATE_ALL);
+    auto filter = create_filter(WordDelimiterFilter::CATENATE_ALL);
 
     std::vector<ExpectedToken> expected = {{"foo123bar", 1}};
 
-    Token t;
     size_t i = 0;
-    while (filter->next(&t)) {
-        std::string term(t.termBuffer<char>(), t.termLength<char>());
+    for (const CollectedToken& t : collect_checked(*filter, text)) {
+        const std::string& term = t.term;
         EXPECT_EQ(term, expected[i].term);
-        EXPECT_EQ(t.getPositionIncrement(), expected[i].pos_inc);
+        EXPECT_EQ(t.position_increment, expected[i].pos_inc);
         ++i;
     }
     EXPECT_EQ(i, expected.size());
 }
 
+// A NUL inside a token delimits like '-', also when the parts are concatenated. Concatenation used to
+// read the token only up to the NUL and throw std::out_of_range for the parts after it.
+TEST(WordDelimiterFilterTest, CatenatePartsAcrossNul) {
+    const auto terms = [](const std::string& text, int32_t flags) {
+        return collect_terms(*create_filter(flags), text);
+    };
+    const std::string with_nul(
+            "foo\0"
+            "123\0"
+            "bar",
+            11);
+    for (int32_t flags :
+         {WordDelimiterFilter::CATENATE_ALL,
+          WordDelimiterFilter::GENERATE_WORD_PARTS | WordDelimiterFilter::CATENATE_WORDS,
+          WordDelimiterFilter::GENERATE_NUMBER_PARTS | WordDelimiterFilter::CATENATE_NUMBERS}) {
+        std::vector<std::string> nul_terms;
+        ASSERT_NO_THROW(nul_terms = terms(with_nul, flags)) << flags;
+        EXPECT_EQ(nul_terms, terms("foo-123-bar", flags)) << flags;
+    }
+}
+
 TEST(WordDelimiterFilterTest, PreserveOriginal) {
     auto cut_words = [](const auto& text, const std::vector<ExpectedToken>& expected) {
-        auto filter = create_filter(text, WordDelimiterFilter::PRESERVE_ORIGINAL);
+        auto filter = create_filter(WordDelimiterFilter::PRESERVE_ORIGINAL);
 
-        Token t;
         size_t i = 0;
-        while (filter->next(&t)) {
-            std::string term(t.termBuffer<char>(), t.termLength<char>());
+        for (const CollectedToken& t : collect_checked(*filter, text)) {
+            const std::string& term = t.term;
             EXPECT_EQ(term, expected[i].term);
-            EXPECT_EQ(t.getPositionIncrement(), expected[i].pos_inc);
+            EXPECT_EQ(t.position_increment, expected[i].pos_inc);
             ++i;
         }
         EXPECT_EQ(i, expected.size());
@@ -167,17 +181,16 @@ TEST(WordDelimiterFilterTest, PreserveOriginal) {
 
 TEST(WordDelimiterFilterTest, PreserveOriginalAndGenerateParts) {
     std::string text = "foo-bar";
-    auto filter = create_filter(text, WordDelimiterFilter::PRESERVE_ORIGINAL |
-                                              WordDelimiterFilter::GENERATE_WORD_PARTS);
+    auto filter = create_filter(WordDelimiterFilter::PRESERVE_ORIGINAL |
+                                WordDelimiterFilter::GENERATE_WORD_PARTS);
 
     std::vector<ExpectedToken> expected = {{"foo-bar", 1}, {"foo", 0}, {"bar", 1}};
 
-    Token t;
     size_t i = 0;
-    while (filter->next(&t)) {
-        std::string term(t.termBuffer<char>(), t.termLength<char>());
+    for (const CollectedToken& t : collect_checked(*filter, text)) {
+        const std::string& term = t.term;
         EXPECT_EQ(term, expected[i].term);
-        EXPECT_EQ(t.getPositionIncrement(), expected[i].pos_inc);
+        EXPECT_EQ(t.position_increment, expected[i].pos_inc);
         ++i;
     }
     EXPECT_EQ(i, expected.size());
@@ -185,17 +198,16 @@ TEST(WordDelimiterFilterTest, PreserveOriginalAndGenerateParts) {
 
 TEST(WordDelimiterFilterTest, SplitOnCaseChange) {
     std::string text = "fooBar";
-    auto filter = create_filter(text, WordDelimiterFilter::GENERATE_WORD_PARTS |
-                                              WordDelimiterFilter::SPLIT_ON_CASE_CHANGE);
+    auto filter = create_filter(WordDelimiterFilter::GENERATE_WORD_PARTS |
+                                WordDelimiterFilter::SPLIT_ON_CASE_CHANGE);
 
     std::vector<ExpectedToken> expected = {{"foo", 1}, {"Bar", 1}};
 
-    Token t;
     size_t i = 0;
-    while (filter->next(&t)) {
-        std::string term(t.termBuffer<char>(), t.termLength<char>());
+    for (const CollectedToken& t : collect_checked(*filter, text)) {
+        const std::string& term = t.term;
         EXPECT_EQ(term, expected[i].term);
-        EXPECT_EQ(t.getPositionIncrement(), expected[i].pos_inc);
+        EXPECT_EQ(t.position_increment, expected[i].pos_inc);
         ++i;
     }
     EXPECT_EQ(i, expected.size());
@@ -203,18 +215,17 @@ TEST(WordDelimiterFilterTest, SplitOnCaseChange) {
 
 TEST(WordDelimiterFilterTest, SplitOnNumerics) {
     std::string text = "foo123bar";
-    auto filter = create_filter(text, WordDelimiterFilter::GENERATE_WORD_PARTS |
-                                              WordDelimiterFilter::GENERATE_NUMBER_PARTS |
-                                              WordDelimiterFilter::SPLIT_ON_NUMERICS);
+    auto filter = create_filter(WordDelimiterFilter::GENERATE_WORD_PARTS |
+                                WordDelimiterFilter::GENERATE_NUMBER_PARTS |
+                                WordDelimiterFilter::SPLIT_ON_NUMERICS);
 
     std::vector<ExpectedToken> expected = {{"foo", 1}, {"123", 1}, {"bar", 1}};
 
-    Token t;
     size_t i = 0;
-    while (filter->next(&t)) {
-        std::string term(t.termBuffer<char>(), t.termLength<char>());
+    for (const CollectedToken& t : collect_checked(*filter, text)) {
+        const std::string& term = t.term;
         EXPECT_EQ(term, expected[i].term);
-        EXPECT_EQ(t.getPositionIncrement(), expected[i].pos_inc);
+        EXPECT_EQ(t.position_increment, expected[i].pos_inc);
         ++i;
     }
     EXPECT_EQ(i, expected.size());
@@ -222,17 +233,16 @@ TEST(WordDelimiterFilterTest, SplitOnNumerics) {
 
 TEST(WordDelimiterFilterTest, StemEnglishPossessive) {
     std::string text = "John's";
-    auto filter = create_filter(text, WordDelimiterFilter::GENERATE_WORD_PARTS |
-                                              WordDelimiterFilter::STEM_ENGLISH_POSSESSIVE);
+    auto filter = create_filter(WordDelimiterFilter::GENERATE_WORD_PARTS |
+                                WordDelimiterFilter::STEM_ENGLISH_POSSESSIVE);
 
     std::vector<ExpectedToken> expected = {{"John", 1}};
 
-    Token t;
     size_t i = 0;
-    while (filter->next(&t)) {
-        std::string term(t.termBuffer<char>(), t.termLength<char>());
+    for (const CollectedToken& t : collect_checked(*filter, text)) {
+        const std::string& term = t.term;
         EXPECT_EQ(term, expected[i].term);
-        EXPECT_EQ(t.getPositionIncrement(), expected[i].pos_inc);
+        EXPECT_EQ(t.position_increment, expected[i].pos_inc);
         ++i;
     }
     EXPECT_EQ(i, expected.size());
@@ -241,16 +251,15 @@ TEST(WordDelimiterFilterTest, StemEnglishPossessive) {
 TEST(WordDelimiterFilterTest, IgnoreKeywords) {
     std::string text = "foo-bar";
     std::unordered_set<std::string> prot_words = {"foo-bar"};
-    auto filter = create_filter(text, WordDelimiterFilter::GENERATE_WORD_PARTS, prot_words);
+    auto filter = create_filter(WordDelimiterFilter::GENERATE_WORD_PARTS, prot_words);
 
     std::vector<ExpectedToken> expected = {{"foo-bar", 1}};
 
-    Token t;
     size_t i = 0;
-    while (filter->next(&t)) {
-        std::string term(t.termBuffer<char>(), t.termLength<char>());
+    for (const CollectedToken& t : collect_checked(*filter, text)) {
+        const std::string& term = t.term;
         EXPECT_EQ(term, expected[i].term);
-        EXPECT_EQ(t.getPositionIncrement(), expected[i].pos_inc);
+        EXPECT_EQ(t.position_increment, expected[i].pos_inc);
         ++i;
     }
     EXPECT_EQ(i, expected.size());
@@ -259,16 +268,15 @@ TEST(WordDelimiterFilterTest, IgnoreKeywords) {
 TEST(WordDelimiterFilterTest, SplitNonKeywords) {
     std::string text = "baz-qux";
     std::unordered_set<std::string> prot_words = {"foo-bar"};
-    auto filter = create_filter(text, WordDelimiterFilter::GENERATE_WORD_PARTS, prot_words);
+    auto filter = create_filter(WordDelimiterFilter::GENERATE_WORD_PARTS, prot_words);
 
     std::vector<ExpectedToken> expected = {{"baz", 1}, {"qux", 1}};
 
-    Token t;
     size_t i = 0;
-    while (filter->next(&t)) {
-        std::string term(t.termBuffer<char>(), t.termLength<char>());
+    for (const CollectedToken& t : collect_checked(*filter, text)) {
+        const std::string& term = t.term;
         EXPECT_EQ(term, expected[i].term);
-        EXPECT_EQ(t.getPositionIncrement(), expected[i].pos_inc);
+        EXPECT_EQ(t.position_increment, expected[i].pos_inc);
         ++i;
     }
     EXPECT_EQ(i, expected.size());
@@ -276,16 +284,15 @@ TEST(WordDelimiterFilterTest, SplitNonKeywords) {
 
 TEST(WordDelimiterFilterTest, MultipleTokens) {
     std::string text = "foo-bar baz-qux";
-    auto filter = create_filter(text, WordDelimiterFilter::GENERATE_WORD_PARTS);
+    auto filter = create_filter(WordDelimiterFilter::GENERATE_WORD_PARTS);
 
     std::vector<ExpectedToken> expected = {{"foo", 1}, {"bar", 1}, {"baz", 1}, {"qux", 1}};
 
-    Token t;
     size_t i = 0;
-    while (filter->next(&t)) {
-        std::string term(t.termBuffer<char>(), t.termLength<char>());
+    for (const CollectedToken& t : collect_checked(*filter, text)) {
+        const std::string& term = t.term;
         EXPECT_EQ(term, expected[i].term);
-        EXPECT_EQ(t.getPositionIncrement(), expected[i].pos_inc);
+        EXPECT_EQ(t.position_increment, expected[i].pos_inc);
         ++i;
     }
     EXPECT_EQ(i, expected.size());
@@ -293,36 +300,32 @@ TEST(WordDelimiterFilterTest, MultipleTokens) {
 
 TEST(WordDelimiterFilterTest, EmptyString) {
     std::string text;
-    auto filter = create_filter(text, WordDelimiterFilter::GENERATE_WORD_PARTS);
+    auto filter = create_filter(WordDelimiterFilter::GENERATE_WORD_PARTS);
 
-    Token t;
-    EXPECT_EQ(filter->next(&t), nullptr);
+    EXPECT_TRUE(collect_checked(*filter, text).empty());
 }
 
 TEST(WordDelimiterFilterTest, SingleDelimiter) {
     std::string text = "-";
-    auto filter = create_filter(text, WordDelimiterFilter::GENERATE_WORD_PARTS);
+    auto filter = create_filter(WordDelimiterFilter::GENERATE_WORD_PARTS);
 
-    Token t;
-    EXPECT_EQ(filter->next(&t), nullptr);
+    EXPECT_TRUE(collect_checked(*filter, text).empty());
 }
 
 TEST(WordDelimiterFilterTest, SortedTokensWithPositionIncrement) {
     std::string text = "01-02-03";
-    auto filter = create_filter(text, WordDelimiterFilter::CATENATE_NUMBERS |
-                                              WordDelimiterFilter::GENERATE_NUMBER_PARTS |
-                                              WordDelimiterFilter::PRESERVE_ORIGINAL);
+    auto filter = create_filter(WordDelimiterFilter::CATENATE_NUMBERS |
+                                WordDelimiterFilter::GENERATE_NUMBER_PARTS |
+                                WordDelimiterFilter::PRESERVE_ORIGINAL);
 
     std::vector<ExpectedToken> expected = {
             {"01-02-03", 1}, {"01", 0}, {"010203", 0}, {"02", 1}, {"03", 1}};
 
-    Token t;
     size_t i = 0;
-    while (filter->next(&t)) {
-        std::string term(t.termBuffer<char>(), t.termLength<char>());
+    for (const CollectedToken& t : collect_checked(*filter, text)) {
+        const std::string& term = t.term;
         EXPECT_EQ(term, expected[i].term) << "Mismatch at position " << i;
-        EXPECT_EQ(t.getPositionIncrement(), expected[i].pos_inc)
-                << "Wrong position increment at " << i;
+        EXPECT_EQ(t.position_increment, expected[i].pos_inc) << "Wrong position increment at " << i;
         ++i;
     }
     EXPECT_EQ(i, expected.size()) << "Token count mismatch. Check splitting rules.";
@@ -334,32 +337,18 @@ TEST(WordDelimiterFilterTest, RepeatedFilterDropsTrailingMalformedByte) {
     const std::string text = std::string("abc\xFF") + " def";
     const int32_t flags = WordDelimiterFilter::GENERATE_WORD_PARTS;
 
-    auto collect = [](const TokenStreamPtr& stream) {
-        std::vector<std::string> terms;
-        Token token;
-        while (stream->next(&token)) {
-            terms.emplace_back(token.termBuffer<char>(), token.termLength<char>());
-        }
-        return terms;
-    };
+    const std::vector<std::string> once = collect_terms(*create_filter(flags), text);
 
-    const std::vector<std::string> once = collect(create_filter(text, flags));
-
-    ReaderPtr reader = std::make_shared<lucene::util::SStringReader<char>>();
-    reader->init(text.data(), text.size(), false);
     Settings settings;
     KeywordTokenizerFactory tokenizer_factory;
     tokenizer_factory.initialize(settings);
-    auto tokenizer = tokenizer_factory.create();
-    tokenizer->set_reader(reader);
-    auto inner = std::make_shared<WordDelimiterFilter>(
-            tokenizer, WordDelimiterIterator::DEFAULT_WORD_DELIM_TABLE, flags,
+    auto inner = std::make_unique<WordDelimiterFilter>(
+            tokenizer_factory.create(), WordDelimiterIterator::DEFAULT_WORD_DELIM_TABLE, flags,
             std::unordered_set<std::string> {});
-    auto outer = std::make_shared<WordDelimiterFilter>(
-            inner, WordDelimiterIterator::DEFAULT_WORD_DELIM_TABLE, flags,
+    auto outer = std::make_unique<WordDelimiterFilter>(
+            std::move(inner), WordDelimiterIterator::DEFAULT_WORD_DELIM_TABLE, flags,
             std::unordered_set<std::string> {});
-    outer->reset();
-    const std::vector<std::string> twice = collect(outer);
+    const std::vector<std::string> twice = collect_terms(*outer, text);
 
     ASSERT_EQ(once.size(), 2);
     EXPECT_EQ(once[0], std::string("abc\xFF"));

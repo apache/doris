@@ -25,18 +25,21 @@
 #include "storage/index/inverted/analysis/analyzer/ik/core/ISegmenter.h"
 namespace doris::segment_v2 {
 
-class CN_QuantifierSegmenter : public ISegmenter {
+class CN_QuantifierSegmenter final : public ISegmenter {
 public:
     static constexpr AnalyzeContext::SegmenterType SEGMENTER_TYPE =
             AnalyzeContext::SegmenterType::CN_QUANTIFIER;
     static const std::u32string CHINESE_NUMBERS;
     static const std::unordered_set<char32_t> CHINESE_NUMBER_CHARS;
 
-    CN_QuantifierSegmenter();
+    explicit CN_QuantifierSegmenter(const Dictionary& dictionary);
     ~CN_QuantifierSegmenter() override = default;
 
     void analyze(AnalyzeContext& context) override;
     void reset() override;
+    // No numeral and no quantifier in progress: analyze() then only releases the lock on a
+    // character that is not Chinese.
+    bool isIdle() const { return number_start_ == -1 && number_end_ == -1 && count_hits_.empty(); }
 
 private:
     void processCNumber(AnalyzeContext& context);
@@ -44,6 +47,7 @@ private:
     bool needCountScan(AnalyzeContext& context);
     void outputNumLexeme(AnalyzeContext& context);
 
+    const Dictionary& dictionary_;
     int number_start_;
     int number_end_;
     std::vector<Hit> count_hits_;
