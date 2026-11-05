@@ -25,6 +25,7 @@
 #include "common/config.h"
 #include "common/metrics/doris_metrics.h"
 #include "exec/scan/scanner_scheduler.h"
+#include "format_v2/lance/lance_memory.h"
 #include "format_v2/lance/lance_reader_helper.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
@@ -90,6 +91,7 @@ Status LanceHostRuntime::start() {
     options.struct_size = sizeof(options);
     options.context = this;
     options.submit = submit_service;
+    RETURN_IF_ERROR(install_lance_memory_services());
     if (lance_runtime_install_host_services_v1(&options) != 0)
         return lance_error("install host runtime services");
     RETURN_IF_ERROR(_reactor->submit_func([] {
@@ -220,6 +222,12 @@ Status LanceHostRuntime::create_executor(RuntimeState* state, ::LanceHostExecuto
                                       std::max(1, config::max_s3_file_system_thread_num));
     *out = lance_host_executor_new_v1(&options);
     release_query(context);
-    return *out ? Status::OK() : lance_error("create query host executor");
+    if (*out == nullptr) return lance_error("create query host executor");
+    auto status = attach_lance_memory_account(*out, state);
+    if (!status.ok()) {
+        lance_host_executor_free(*out);
+        *out = nullptr;
+    }
+    return status;
 }
 } // namespace doris::format::lance

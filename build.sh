@@ -474,10 +474,10 @@ if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ||
     fi
 fi
 
-# The pinned Lance-C archive is unchanged, but its local C ABI now includes host execution.
+# The pinned Lance-C archive is unchanged, but its local C ABI now includes host execution and memory services.
 # Refresh only Lance when reusing an installation that predates that patch.
 if [[ -e "${DORIS_THIRDPARTY}/installed/lib64/.lance-installing" ]] ||
-    ! grep -q '^#define LANCE_DORIS_HOST_RUNTIME_ABI 5$' \
+    ! grep -q '^#define LANCE_DORIS_HOST_RUNTIME_ABI 6$' \
     "${DORIS_THIRDPARTY}/installed/include/lance/lance.h"; then
     if [[ ! -f "${DORIS_THIRDPARTY}/build-thirdparty.sh" ]]; then
         echo "Lance-C host executor support is missing. Refresh the third-party installation." >&2

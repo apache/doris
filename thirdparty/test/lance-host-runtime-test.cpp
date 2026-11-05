@@ -26,6 +26,7 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <queue>
@@ -33,6 +34,42 @@
 #include <thread>
 #include <utility>
 #include <vector>
+
+// The C++ callback ABI must balance Rust-owned buffers after all SDK handles close.
+struct MemoryLedger {
+    std::atomic<int64_t> bytes {0};
+    std::atomic<int64_t> peak {0};
+    std::atomic<int64_t> references {1};
+    std::atomic<uint64_t> reservations {0};
+    static void record(void* context, int64_t delta) noexcept {
+        auto* ledger = static_cast<MemoryLedger*>(context);
+        const auto now = ledger->bytes.fetch_add(delta) + delta;
+        auto previous = ledger->peak.load();
+        while (previous < now && !ledger->peak.compare_exchange_weak(previous, now)) {
+        }
+    }
+    LanceHostMemoryAccountOptionsV1 options() {
+        LanceHostMemoryAccountOptionsV1 result {};
+        result.abi_version = 1;
+        result.struct_size = sizeof(result);
+        result.context = this;
+        result.retain_context = [](void* p) { static_cast<MemoryLedger*>(p)->references++; };
+        result.release_context = [](void* p) { static_cast<MemoryLedger*>(p)->references--; };
+        result.record = record;
+        result.reserve = [](void* p, size_t size) -> int32_t {
+            if (size > static_cast<size_t>(std::numeric_limits<int64_t>::max())) return 1;
+            auto* ledger = static_cast<MemoryLedger*>(p);
+            ledger->reservations++;
+            record(p, static_cast<int64_t>(size));
+            return 0;
+        };
+        result.finish_reserve = [](void* p, size_t size, bool allocated) {
+            if (!allocated) record(p, -static_cast<int64_t>(size));
+        };
+        result.check = [](void*) -> int32_t { return 0; };
+        return result;
+    }
+};
 
 // The test owns every worker before entering the SDK. A scan must not add any SDK threads.
 class HostPool {
@@ -156,6 +193,15 @@ int main(int argc, char** argv) {
     services.struct_size = sizeof(services);
     services.context = &pool;
     services.submit = HostPool::submit;
+    // Service contexts have process lifetime, independently of the query ledger below.
+    static MemoryLedger background_memory, index_memory, metadata_memory;
+    LanceHostMemoryServicesOptionsV1 memory_services {};
+    memory_services.abi_version = 1;
+    memory_services.struct_size = sizeof(memory_services);
+    memory_services.background = background_memory.options();
+    memory_services.index_cache = index_memory.options();
+    memory_services.metadata_cache = metadata_memory.options();
+    if (lance_runtime_install_memory_services_v1(&memory_services) != 0) return 3;
     if (lance_runtime_install_host_services_v1(&services) != 0) return 3;
     std::thread reactor([] {
         if (lance_runtime_drive() != 0) std::abort();
@@ -170,6 +216,10 @@ int main(int argc, char** argv) {
     options.max_cpu_drivers = 8;
     options.max_io_drivers = 8;
     auto* executor = lance_host_executor_new_v1(&options);
+    MemoryLedger query_memory;
+    auto query_memory_options = query_memory.options();
+    if (!executor || lance_host_executor_set_memory_v1(executor, &query_memory_options) != 0)
+        return 3;
     auto* scope = lance_host_executor_enter(executor);
     HostStorage storage;
     LanceHostStorageOptionsV1 storage_options {};
@@ -235,7 +285,8 @@ int main(int argc, char** argv) {
     // Closing an unconsumed async stream cancels host pumps asynchronously. Keep services
     // running until those jobs release their retained storage context.
     const auto cleanup_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-    while ((storage.refs != 1 || storage.files != 0) &&
+    while ((storage.refs != 1 || storage.files != 0 || query_memory.bytes != 0 ||
+            query_memory.references != 1) &&
            std::chrono::steady_clock::now() < cleanup_deadline) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
@@ -244,11 +295,16 @@ int main(int argc, char** argv) {
     lance_runtime_stop();
     reactor.join();
 
+    const auto reservations = query_memory.reservations.load() +
+                              metadata_memory.reservations.load() +
+                              index_memory.reservations.load();
     std::cout << "rows=" << rows << ", host polls=" << polls << ", threads=" << before << "->"
               << after << ", host reads=" << storage.reads << ", open files=" << storage.files
-              << ", refs=" << storage.refs << '\n';
+              << ", refs=" << storage.refs << ", query memory=" << query_memory.bytes
+              << ", query peak=" << query_memory.peak << ", reservations=" << reservations << '\n';
     return rows > 0 && polls > 0 && before == after && storage.reads > 0 && storage.files == 0 &&
-                           storage.refs == 1
+                           storage.refs == 1 && query_memory.bytes == 0 &&
+                           query_memory.references == 1 && query_memory.peak > 0 && reservations > 0
                    ? 0
                    : 1;
 }

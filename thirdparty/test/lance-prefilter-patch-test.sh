@@ -74,6 +74,14 @@ check_sources() {
         || fail "Lance must use the pinned, locally patched SDK"
     grep -q lance_host_executor_new_v1 "${source}/include/lance/lance.h" \
         || fail "missing host executor C API"
+    grep -q '^#define LANCE_DORIS_HOST_RUNTIME_ABI 6$' "${source}/include/lance/lance.h" \
+        || fail "stale host memory ABI"
+    grep -q lance_runtime_install_memory_services_v1 "${source}/src/host_memory.rs" \
+        || fail "missing retained host memory services"
+    grep -q 'fn host_memory_accounts_follow_real_reads' "${source}/tests/host_memory_test.rs" \
+        || fail "missing host memory integration regression"
+    grep -q 'pub struct TrackedAllocator' "$1/src/${LANCE_RUST_SOURCE}/rust/lance-core/src/utils/memory.rs" \
+        || fail "missing allocation-owner tracking"
     grep -q 'pub trait Executor' "$1/src/${LANCE_RUST_SOURCE}/rust/lance-core/src/utils/task_executor.rs" \
         || fail "missing Rust executor injection API"
     grep -q 'pub fn blocking_task_executor' "$1/src/${LANCE_TOKIO_SOURCE}/src/runtime/builder.rs" \

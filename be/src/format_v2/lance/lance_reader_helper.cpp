@@ -753,6 +753,7 @@ Status build_lance_storage_options(const TFileScanRangeParams* scan_params,
 }
 
 Status lance_error(std::string_view operation) {
+    const auto code = lance_last_error_code();
     const char* raw_message = lance_last_error_message();
     std::string message = raw_message == nullptr ? "" : raw_message;
     if (raw_message != nullptr) {
@@ -761,6 +762,16 @@ Status lance_error(std::string_view operation) {
     if (message.empty()) {
         message = fmt::format("error_code={}", static_cast<int>(lance_last_error_code()));
     }
+    // Preserve Doris limit categories so memory failures reach query cancellation
+    // and diagnostics instead of being reported as generic reader errors.
+    if (code == LANCE_ERR_MEMORY_LIMIT)
+        return Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>("{} failed: {}", operation, message);
+    if (code == LANCE_ERR_WORKLOAD_GROUP_MEMORY_LIMIT)
+        return Status::Error<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>("{} failed: {}", operation,
+                                                                        message);
+    if (code == LANCE_ERR_PROCESS_MEMORY_LIMIT)
+        return Status::Error<ErrorCode::PROCESS_MEMORY_EXCEEDED>("{} failed: {}", operation,
+                                                                 message);
     return Status::InternalError("{} failed: {}", operation, message);
 }
 
