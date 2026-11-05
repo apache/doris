@@ -22,6 +22,7 @@
 #include <atomic>
 #include <limits>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace doris::io {
@@ -231,6 +232,83 @@ TEST_F(FileCacheIOAdaptorTest, AllActiveBucketsShareProbeSlots) {
     for (const auto count : probes) {
         EXPECT_GT(count, 0);
     }
+}
+
+using SparseTraffic = std::pair<size_t, size_t>;
+
+class FileCacheIOAdaptorSparseTrafficTest : public FileCacheIOAdaptorTest,
+                                            public testing::WithParamInterface<SparseTraffic> {};
+
+TEST_P(FileCacheIOAdaptorSparseTrafficTest, SparseBucketsRecoverDespiteInterveningSmallHits) {
+    const auto [small_requests, large_requests] = GetParam();
+    const auto period = small_requests + large_requests;
+    seed(50, 100, 1000);
+    seed(50, 20000, 1000, 1 << 20);
+    std::array<size_t, 2> probes {};
+    size_t requests_since_probe = 0;
+    int64_t last_probe_us = -2'000'000;
+    // A fixed 64-hit activity window expires the large bucket immediately before its
+    // next request. Bursts must not erase the long gap that its pending probe must cover.
+    for (size_t request = 0; request < 128 * period; ++request) {
+        const bool large = request % period >= small_requests;
+        const size_t bytes = large ? 1 << 20 : READ_SIZE;
+        const auto now_us = static_cast<int64_t>(request / period) * 2'000'000;
+        const auto decision = adaptor._select(bytes, 1.0, now_us);
+        ++requests_since_probe;
+        if (decision.read_remote()) {
+            adaptor.record_remote(bytes, 1000);
+        } else {
+            adaptor.record_local(bytes, 100);
+        }
+        if (decision.is_probe()) {
+            EXPECT_GE(requests_since_probe, 64);
+            EXPECT_GE(now_us - last_probe_us, 1'000'000);
+            ++probes[large];
+            requests_since_probe = 0;
+            last_probe_us = now_us;
+            adaptor.finish_probe();
+        }
+    }
+    EXPECT_GT(probes[0], 0);
+    EXPECT_GE(probes[1], 50);
+    const auto decision = adaptor._select(1 << 20, 1.0, 256'000'000);
+    EXPECT_EQ(decision.local_latency_us, 100);
+    EXPECT_EQ(decision.read_remote(), decision.remote_probe);
+    if (decision.is_probe()) {
+        adaptor.finish_probe();
+    }
+}
+
+INSTANTIATE_TEST_SUITE_P(SparseTraffic, FileCacheIOAdaptorSparseTrafficTest,
+                         testing::Values(SparseTraffic {64, 1}, SparseTraffic {128, 1},
+                                         SparseTraffic {256, 1}, SparseTraffic {1024, 1},
+                                         SparseTraffic {64, 2}, SparseTraffic {256, 2}));
+
+TEST_F(FileCacheIOAdaptorTest, SparseBucketStopsReservingAfterItsProbe) {
+    seed(50, 100, 1000);
+    seed(50, 20000, 1000, 1 << 20);
+    bool large_probed = false;
+    int64_t now_us = 0;
+    // Learn a sparse cadence and grant its probe, then stop sending that size entirely.
+    for (size_t request = 0; request < 8 * 257 && !large_probed; ++request) {
+        const bool large = request % 257 == 256;
+        now_us = static_cast<int64_t>(request / 257) * 2'000'000;
+        const auto decision = adaptor._select(large ? 1 << 20 : READ_SIZE, 1.0, now_us);
+        if (decision.is_probe()) {
+            large_probed = large;
+            adaptor.finish_probe();
+        }
+    }
+    ASSERT_TRUE(large_probed);
+    size_t small_probes = 0;
+    for (int64_t request = 1; request <= 512; ++request) {
+        const auto decision = adaptor._select(READ_SIZE, 1.0, now_us + request * 2'000'000);
+        if (decision.is_probe()) {
+            ++small_probes;
+            adaptor.finish_probe();
+        }
+    }
+    EXPECT_GE(small_probes, 6);
 }
 
 TEST_F(FileCacheIOAdaptorTest, InactiveBucketDoesNotBlockRemainingTraffic) {

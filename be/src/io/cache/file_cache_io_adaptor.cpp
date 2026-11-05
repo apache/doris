@@ -18,6 +18,7 @@
 #include "io/cache/file_cache_io_adaptor.h"
 
 #include <algorithm>
+#include <limits>
 
 #include "cpp/sync_point.h"
 #include "util/time.h"
@@ -58,9 +59,18 @@ FileCacheIOAdaptor::Decision FileCacheIOAdaptor::_select(size_t bytes, double sk
     std::lock_guard lock(_mutex);
     const auto index = bucket_index(bytes);
     for (auto& candidate : _buckets) {
-        candidate.idle_requests = std::min(candidate.idle_requests + 1, PROBE_REQUEST_INTERVAL);
+        // Only seen buckets age; saturation prevents an idle bucket from wrapping into activity.
+        if (candidate.probe_wait_requests != 0 &&
+            candidate.idle_requests != std::numeric_limits<size_t>::max()) {
+            ++candidate.idle_requests;
+        }
     }
     auto& bucket = _buckets[index];
+    // With 64 small hits then one large hit, a fixed 64-hit expiry steals the large bucket's
+    // turn just before it returns. Retain its observed gap until it gets a probe; a short
+    // burst must not erase the longer wait either.
+    bucket.probe_wait_requests =
+            std::max({bucket.probe_wait_requests, bucket.idle_requests, PROBE_REQUEST_INTERVAL});
     bucket.idle_requests = 0;
     Decision decision;
     decision.local_latency_us = bucket.local.average();
@@ -79,14 +89,14 @@ FileCacheIOAdaptor::Decision FileCacheIOAdaptor::_select(size_t bytes, double sk
     if (bucket.local.count == WINDOW_SIZE && !_probe_inflight && now_us >= _next_probe_us &&
         _requests_since_probe == PROBE_REQUEST_INTERVAL) {
         // With 63 small hits followed by one large hit, granting every 64th request would
-        // probe only the large bucket forever. Rotate among buckets seen in the last 64 hits,
-        // retaining the available quota until the selected bucket's next request. Expire
-        // inactive buckets so a size that stops appearing cannot stall the remaining traffic.
+        // probe only the large bucket forever. Rotate among buckets within their observed
+        // request gaps, retaining quota for the selected bucket's next request. A bucket that
+        // stays absent beyond its gap expires without blocking the remaining traffic forever.
         auto probe_bucket = _next_probe_bucket;
         for (size_t visited = 0; visited < BUCKET_COUNT; ++visited) {
             const auto& candidate = _buckets[probe_bucket];
             if (candidate.local.count == WINDOW_SIZE &&
-                candidate.idle_requests < PROBE_REQUEST_INTERVAL) {
+                candidate.idle_requests < candidate.probe_wait_requests) {
                 break;
             }
             probe_bucket = (probe_bucket + 1) % BUCKET_COUNT;
@@ -99,6 +109,8 @@ FileCacheIOAdaptor::Decision FileCacheIOAdaptor::_select(size_t bytes, double sk
             _requests_since_probe = 0;
             _next_probe_us = now_us + PROBE_INTERVAL_US;
             _next_probe_bucket = (index + 1) % BUCKET_COUNT;
+            // Reset after admission so an old sparse burst cannot pin later probe turns.
+            bucket.probe_wait_requests = PROBE_REQUEST_INTERVAL;
         }
     }
     return decision;

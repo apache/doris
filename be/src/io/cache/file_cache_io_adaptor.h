@@ -63,8 +63,9 @@ private:
     struct Bucket {
         Window local;
         Window remote;
-        // A silent bucket must not reserve the shared probe slot indefinitely.
-        size_t idle_requests = PROBE_REQUEST_INTERVAL;
+        size_t idle_requests = 0;
+        // Keep the longest observed gap until a probe is admitted. Zero means unseen.
+        size_t probe_wait_requests = 0;
     };
     static size_t bucket_index(size_t bytes);
     Decision _select(size_t bytes, double skip_read_factor, int64_t now_us);
