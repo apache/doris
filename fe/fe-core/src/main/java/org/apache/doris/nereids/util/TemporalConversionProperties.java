@@ -37,7 +37,7 @@ import java.util.List;
  * {@link TypeCoercionUtils} chooses common types, applies implicit conversion and constructs casts.
  * Rewrite rules also consume these properties.
  * Explicit CAST legality remains in CheckCast, and
- * timezone value conversion is implemented by {@link TemporalValueConversion}.
+ * timezone value conversion is implemented by {@link DateUtils}.
  */
 public final class TemporalConversionProperties {
     private TemporalConversionProperties() {

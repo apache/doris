@@ -29,7 +29,7 @@ import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
-import org.apache.doris.nereids.util.TemporalValueConversion;
+import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import java.time.LocalDateTime;
@@ -191,7 +191,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
 
     /** Convert the value without changing its declared precision or bypassing range validation. */
     public DateTimeV2Literal inTimeZone(String fromZone, String toZone) {
-        return fromJavaDateType(TemporalValueConversion.convertZone(toJavaDateType(), fromZone, toZone),
+        return fromJavaDateType(DateUtils.convertTimeZone(toJavaDateType(), fromZone, toZone),
                 getDataType().getScale());
     }
 

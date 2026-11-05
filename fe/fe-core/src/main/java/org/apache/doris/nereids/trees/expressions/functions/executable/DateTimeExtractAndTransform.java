@@ -50,7 +50,6 @@ import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.util.DateTimeFormatterUtils;
 import org.apache.doris.nereids.util.DateUtils;
-import org.apache.doris.nereids.util.TemporalValueConversion;
 import org.apache.doris.qe.ConnectContext;
 
 import org.apache.commons.lang3.StringUtils;
@@ -1101,7 +1100,7 @@ public class DateTimeExtractAndTransform {
     public static Expression convertTz(TimeStampNsLiteral datetime, StringLikeLiteral fromTz,
             StringLikeLiteral toTz) {
         return TimeStampNsLiteral.fromJavaDateType(
-                TemporalValueConversion.convertZone(
+                DateUtils.convertTimeZone(
                         datetime.toJavaDateType(), fromTz.getStringValue(), toTz.getStringValue()));
     }
 
