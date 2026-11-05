@@ -610,6 +610,7 @@ Status ParquetFileContext::close() {
     native_io_ctx = nullptr;
     native_page_cache_enabled = false;
     native_page_cache_file_key.clear();
+    decoded_column_cache_file_key.clear();
     contains_variant = false;
     return Status::OK();
 }

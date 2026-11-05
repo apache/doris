@@ -41,6 +41,7 @@
 #include "format_v2/parquet/parquet_scan.h"
 #include "format_v2/parquet/parquet_statistics.h"
 #include "format_v2/parquet/reader/count_column_reader.h"
+#include "format_v2/parquet/reader/decoded_column_cache.h"
 #include "io/io_common.h"
 #include "runtime/runtime_state.h"
 #include "util/timezone_utils.h"
@@ -622,6 +623,10 @@ Status ParquetReader::init(RuntimeState* state) {
         _state->scheduler.set_timezone(&state->timezone_obj());
         _state->scheduler.set_enable_strict_mode(_state->enable_strict_mode);
         _state->scheduler.set_runtime_state(state);
+    }
+    if (DecodedColumnCache::instance() != nullptr && _system_properties != nullptr) {
+        _state->file_context.decoded_column_cache_file_key = DecodedColumnCache::file_key(
+                *_system_properties, *_file_description, _file_reader->size());
     }
     int64_t merge_read_slice_size = -1;
     if (state != nullptr && state->query_options().__isset.merge_read_slice_size) {

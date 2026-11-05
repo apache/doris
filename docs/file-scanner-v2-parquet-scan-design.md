@@ -648,7 +648,7 @@ flowchart TD
 
 ## 9. Cache and I/O Optimization
 
-Parquet V2 has five complementary cache and I/O paths: cache footer/parsed metadata, cache remote
+Alongside the optional decoded-column cache, Parquet V2 has five complementary cache and I/O paths: cache footer/parsed metadata, cache remote
 file blocks, cache serialized Parquet ranges, cache predicate results, and merge small random reads.
 
 ```mermaid
@@ -673,6 +673,36 @@ flowchart TB
 | Parquet Page Cache | Serialized bytes within registered Column Chunk ranges | Stable file key depends on path, mtime/version, and file size; disabled when mtime is unreliable | Reduce repeated page reads and support exact/subrange coverage |
 | Condition Cache | Condition-surviving granule bitmap | Managed by condition and file-range context | Reuse filtering results before reading columns |
 | MergeRangeFileReader | Not a cache; merges small ranges into larger slices | Installed temporarily for projected chunks of the current Row Group | Reduce remote small-I/O count and request overhead |
+
+### Optional decoded-column cache
+
+`parquet_decoded_column_cache_capacity_bytes` is a startup-only BE setting, defaulting to `0`
+(disabled). A positive capacity enables a separate byte-bounded LRU for complete row-group output
+columns. `parquet_decoded_column_cache_max_entry_bytes` defaults to 8 MiB and
+`parquet_decoded_column_cache_max_file_admission_bytes` defaults to 64 MiB. The shared reservation
+budget includes pending fills, resident entries, and entries pinned by active readers, including
+replaced or evicted entries that remain referenced. CacheManager can reclaim unpinned entries.
+
+The initial scope is top-level TINYINT, SMALLINT, INT, BIGINT, FLOAT and DOUBLE, including nullable
+columns, from files explicitly declared immutable by the table layer. Mutable files bypass the
+cache even with a nonzero mtime: a seconds-resolution timestamp cannot prove that a same-size
+in-place overwrite did not occur. Source properties are hashed into the file identity; row group,
+physical leaf, field ID, complete output type and strict decode mode complete the column key.
+Timestamp, decimal, binary/string, nested and Variant values retain the normal native path.
+
+Only naturally dense, unfiltered output scans fill entries. A fill is published after the entire
+column has been materialized successfully; close, errors, skip and selection abandon partial fills.
+Predicate columns are excluded because direct predicate execution can produce dictionary IDs or
+placeholders instead of full values. Hits can serve filtered output and row-ID reads using the
+same physical-row skip/select contract. Table mapping, casts, defaults and deletes run normally.
+No native column reader or output-chunk prefetch is created for a decoded hit.
+
+`DecodedColumnCacheRequests`, `Hits`, `Misses`, `Writes`, `ReadBytes` and `Bypasses` are exposed
+under `ParquetReader` with the common `DecodedColumnCache` prefix. `ReadTime` and `FillTime`
+attribute cache-copy overhead separately from native decoding. Existing cache-manager metrics
+report resident usage and evictions. Compare cold and warm scans against the decompressed page
+cache using CPU time, latency, memory, `DecodeValueTime`, `DecodeDictTime` and native reader calls;
+a cache hit count alone is not a performance result.
 
 ### Footer Cache Parity with V1
 

@@ -48,6 +48,7 @@
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_file_context.h"
 #include "format_v2/parquet/parquet_statistics.h"
+#include "format_v2/parquet/reader/decoded_column_cache.h"
 #include "format_v2/parquet/reader/global_rowid_column_reader.h"
 #include "format_v2/parquet/reader/native/column_chunk_reader.h"
 #include "format_v2/parquet/reader/native_column_reader.h"
@@ -1290,6 +1291,7 @@ void ParquetScanScheduler::reset_current_row_group() {
     _has_current_row_group = false;
     _current_predicate_columns.clear();
     _current_non_predicate_columns.clear();
+    _current_decoded_cache_hits.clear();
     _current_row_group_request.reset();
     _current_dictionary_filters.clear();
     _current_dictionary_residual_conjuncts.clear();
@@ -1667,10 +1669,35 @@ Status ParquetScanScheduler::open_next_row_group(
     _current_range_rows_read = 0;
     _current_predicate_columns.clear();
     _current_non_predicate_columns.clear();
+    _current_decoded_cache_hits.clear();
     _current_dictionary_filters.clear();
     RETURN_IF_ERROR(prepare_current_dictionary_filters(file_context, file_schema, request,
                                                        row_group_request.predicate_columns,
                                                        row_group_idx, row_group_metadata));
+    auto* decoded_cache = DecodedColumnCache::instance();
+    std::map<LocalColumnId, DecodedColumnCache::ReadPlan> decoded_plans;
+    if (decoded_cache != nullptr) {
+        for (const auto& col : row_group_request.non_predicate_columns) {
+            const auto local_id = col.column_id();
+            if (request.is_count_star_placeholder(local_id) ||
+                local_id == format::LocalColumnId(format::ROW_POSITION_COLUMN_ID) ||
+                local_id == format::LocalColumnId(format::GLOBAL_ROWID_COLUMN_ID)) {
+                continue;
+            }
+            DORIS_CHECK(local_id.is_valid() &&
+                        local_id.value() < static_cast<int32_t>(file_schema.size()));
+            const auto& schema = file_schema[local_id.value()];
+            DORIS_CHECK(schema != nullptr);
+            auto key = DecodedColumnCache::column_key(file_context.decoded_column_cache_file_key,
+                                                      *schema, row_group_idx, _enable_strict_mode);
+            auto plan = decoded_cache->prepare_reader(std::move(key), *schema,
+                                                      _scan_profile.column_reader_profile);
+            if (plan.hit) {
+                _current_decoded_cache_hits.insert(local_id);
+            }
+            decoded_plans.emplace(local_id, std::move(plan));
+        }
+    }
     // Dictionary probing is complete, so the native data-page readers can now share the same
     // row-group-scoped MergeRangeFileReader policy as v1. Sharing one wrapper is important: a
     // separate merge reader per leaf would duplicate its 128MB scratch capacity and defeat lazy
@@ -1679,8 +1706,16 @@ Status ParquetScanScheduler::open_next_row_group(
     const auto compat = native::parquet_reader_compat(
             thrift_metadata.__isset.created_by ? thrift_metadata.created_by : std::string {});
     std::vector<ParquetPageCacheRange> native_ranges;
+    auto native_columns = request_scan_columns(row_group_request);
+    // Pin hits before choosing useful ranges. Native misses capture the installed wrapper, so
+    // excluding a hit only from later prefetch would still merge/download its adjacent chunk.
+    if (!_current_decoded_cache_hits.empty()) {
+        std::erase_if(native_columns, [&](const auto& col) {
+            return _current_decoded_cache_hits.contains(col.column_id());
+        });
+    }
     RETURN_IF_ERROR(detail::build_native_prefetch_ranges(
-            thrift_metadata, file_schema, request_scan_columns(row_group_request), row_group_idx,
+            thrift_metadata, file_schema, native_columns, row_group_idx,
             file_context.native_file->size(), compat.parquet_816_padding, &native_ranges));
     if (!request.row_ids.has_value() && request.non_predicate_positions.empty()) {
         _current_merge_range_active = file_context.set_native_random_access_ranges(
@@ -1758,12 +1793,32 @@ Status ParquetScanScheduler::open_next_row_group(
         const auto& column_schema = file_schema[local_id.value()];
         DORIS_CHECK(column_schema != nullptr);
         std::unique_ptr<ParquetColumnReader> column_reader;
-        RETURN_IF_ERROR(NativeColumnReader::create(
-                *column_schema, &col, file_context.native_data_file(), file_context.native_metadata,
-                row_group_idx, _current_selected_ranges, _current_offset_indexes, _timezone,
-                _int96_timezone, file_context.native_io_ctx, _runtime_state,
-                file_context.native_page_cache_enabled, file_context.native_page_cache_file_key,
-                false, _scan_profile.column_reader_profile, &column_reader));
+        auto create_native = [&](std::unique_ptr<ParquetColumnReader>* result) {
+            return NativeColumnReader::create(
+                    *column_schema, &col, file_context.native_data_file(),
+                    file_context.native_metadata, row_group_idx, _current_selected_ranges,
+                    _current_offset_indexes, _timezone, _int96_timezone, file_context.native_io_ctx,
+                    _runtime_state, file_context.native_page_cache_enabled,
+                    file_context.native_page_cache_file_key, false,
+                    _scan_profile.column_reader_profile, result);
+        };
+        if (decoded_cache != nullptr) {
+            // Only dense output columns are filled. Predicate readers can return dictionary IDs
+            // or placeholders, and lazy output columns can have gaps; neither is a complete value
+            // column. Existing complete entries can still serve selected reads and row-ID fetches.
+            const bool allow_fill =
+                    request.predicate_columns.empty() && request.conjuncts.empty() &&
+                    request.delete_conjuncts.empty() && !request.row_ids.has_value() &&
+                    _current_selected_ranges.size() == 1 &&
+                    _current_selected_ranges[0].start == 0 &&
+                    _current_selected_ranges[0].length == row_group_metadata.num_rows;
+            RETURN_IF_ERROR(decoded_cache->create_reader(
+                    std::move(decoded_plans.at(local_id)), *column_schema,
+                    row_group_metadata.num_rows, allow_fill, _scan_profile.column_reader_profile,
+                    &_decoded_cache_file_admission_bytes, create_native, &column_reader));
+        } else {
+            RETURN_IF_ERROR(create_native(&column_reader));
+        }
         _current_non_predicate_columns[local_id] = std::move(column_reader);
     }
     if (!_current_merge_range_active &&
@@ -3017,8 +3072,21 @@ Status ParquetScanScheduler::prefetch_current_row_group_columns(
     const auto compat = native::parquet_reader_compat(
             metadata.__isset.created_by ? metadata.created_by : std::string {});
     std::vector<ParquetPageCacheRange> ranges;
+    // A decoded hit needs no column-chunk bytes. Exclude it before background prefetch as well
+    // as before constructing a native decoder, otherwise a warm query would still download data.
+    std::vector<format::LocalColumnIndex> uncached_columns;
+    const auto* columns_to_prefetch = &scan_columns;
+    if (!_current_decoded_cache_hits.empty()) {
+        uncached_columns.reserve(scan_columns.size());
+        for (const auto& col : scan_columns) {
+            if (!_current_decoded_cache_hits.contains(col.column_id())) {
+                uncached_columns.push_back(col);
+            }
+        }
+        columns_to_prefetch = &uncached_columns;
+    }
     RETURN_IF_ERROR(detail::build_native_prefetch_ranges(
-            metadata, file_schema, scan_columns, _current_row_group_id,
+            metadata, file_schema, *columns_to_prefetch, _current_row_group_id,
             file_context.native_file->size(), compat.parquet_816_padding, &ranges));
     file_context.prefetch_ranges(ranges, nullptr);
     return Status::OK();

@@ -64,6 +64,14 @@ struct ParquetColumnReaderProfile {
     RuntimeProfile::Counter* level_only_read_time = nullptr;
     RuntimeProfile::Counter* level_only_skip_time = nullptr;
     RuntimeProfile::Counter* materialization_time = nullptr; // value materialization time (ns)
+    RuntimeProfile::Counter* decoded_cache_requests = nullptr;
+    RuntimeProfile::Counter* decoded_cache_hits = nullptr;
+    RuntimeProfile::Counter* decoded_cache_misses = nullptr;
+    RuntimeProfile::Counter* decoded_cache_writes = nullptr;
+    RuntimeProfile::Counter* decoded_cache_read_bytes = nullptr;
+    RuntimeProfile::Counter* decoded_cache_read_time = nullptr;
+    RuntimeProfile::Counter* decoded_cache_fill_time = nullptr;
+    RuntimeProfile::Counter* decoded_cache_bypasses = nullptr;
     // One ownership reference per profile copy, rather than one per Variant counter.
     std::shared_ptr<const ParquetVariantProfile> variant_counters;
 
@@ -205,6 +213,14 @@ struct ParquetProfile {
     RuntimeProfile::Counter* level_only_read_time = nullptr;
     RuntimeProfile::Counter* level_only_skip_time = nullptr;
     RuntimeProfile::Counter* materialization_time = nullptr;
+    RuntimeProfile::Counter* decoded_cache_requests = nullptr;
+    RuntimeProfile::Counter* decoded_cache_hits = nullptr;
+    RuntimeProfile::Counter* decoded_cache_misses = nullptr;
+    RuntimeProfile::Counter* decoded_cache_writes = nullptr;
+    RuntimeProfile::Counter* decoded_cache_read_bytes = nullptr;
+    RuntimeProfile::Counter* decoded_cache_read_time = nullptr;
+    RuntimeProfile::Counter* decoded_cache_fill_time = nullptr;
+    RuntimeProfile::Counter* decoded_cache_bypasses = nullptr;
     // One ownership reference per profile copy, rather than one per Variant counter.
     std::shared_ptr<const ParquetVariantProfile> variant_counters;
 

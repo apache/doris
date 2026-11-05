@@ -139,6 +139,8 @@ struct ParquetFileContext {
     int64_t native_footer_cache_hits = 0;
     bool native_page_cache_enabled = false;
     std::string native_page_cache_file_key;
+    // Separate identity for decoded values: includes source options and requires immutable files.
+    std::string decoded_column_cache_file_key;
     // Set once after the logical file schema is built. Per-request planning uses this guard so
     // ordinary files never enter Variant projection or shredded-statistics paths.
     bool contains_variant = false;
