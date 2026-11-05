@@ -33,6 +33,7 @@
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "storage/index/inverted/analysis/analyzer/analyzer_provider.h"
 #include "storage/index/inverted/analysis/analyzer/custom_analyzer.h"
+#include "storage/index/inverted/analysis/text_analyzer.h"
 #include "storage/index/inverted/clucene/clucene_index_reader.h"
 #include "storage/index/inverted/common/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_reader.h"
@@ -50,7 +51,7 @@ using inverted_index::AnalyzerProvider;
 
 class RecordingFailingAnalyzerProvider final : public AnalyzerProvider {
 public:
-    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const override {
+    inverted_index::TextAnalyzerPtr get_analyzer() const override {
         ++calls;
         throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
                         "forced analyzer provider failure");
@@ -59,70 +60,49 @@ public:
     mutable uint32_t calls = 0;
 };
 
-class PartialFailureTokenStream final : public lucene::analysis::TokenStream {
+class PartialFailureTokenStream final : public inverted_index::TextTokenizer {
 public:
     explicit PartialFailureTokenStream(std::shared_ptr<std::atomic<uint32_t>> emitted_tokens)
             : _emitted_tokens(std::move(emitted_tokens)) {}
 
-    lucene::analysis::Token* next(lucene::analysis::Token* token) override {
+    void reset(std::string_view /*text*/) override { _emitted = false; }
+
+    // One batch with one token, then a failure.
+    bool next_batch(inverted_index::TokenBatch& batch) override {
+        batch.clear();
         if (!_emitted) {
             _emitted = true;
-            _term = "partial";
-            token->clear();
-            token->setTextNoCopy(_term.data(), static_cast<int32_t>(_term.size()));
-            token->positionIncrement = 1;
+            batch.push("partial", 1);
             _emitted_tokens->fetch_add(1, std::memory_order_relaxed);
-            return token;
+            return true;
         }
         throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
                         "forced failure after first token");
     }
 
-    void close() override {}
-    void reset() override { _emitted = false; }
+    size_t reserved_bytes() const override { return 0; }
 
 private:
     std::shared_ptr<std::atomic<uint32_t>> _emitted_tokens;
     bool _emitted = false;
-    std::string _term;
 };
 
-class PartialFailureAnalyzer final : public lucene::analysis::Analyzer {
+class PartialFailureAnalyzer final : public inverted_index::TextAnalyzer {
 public:
     explicit PartialFailureAnalyzer(std::shared_ptr<std::atomic<uint32_t>> emitted_tokens)
             : _emitted_tokens(std::move(emitted_tokens)) {}
 
-    bool isSDocOpt() override { return true; }
-
-    lucene::analysis::TokenStream* tokenStream(const TCHAR*, lucene::util::Reader*) override {
-        return new PartialFailureTokenStream(_emitted_tokens);
-    }
-
-    lucene::analysis::TokenStream* reusableTokenStream(const TCHAR*,
-                                                       lucene::util::Reader*) override {
-        _reusable = std::make_unique<PartialFailureTokenStream>(_emitted_tokens);
-        return _reusable.get();
-    }
-
-    lucene::analysis::TokenStream* tokenStream(const TCHAR*,
-                                               const inverted_index::ReaderPtr&) override {
-        return new PartialFailureTokenStream(_emitted_tokens);
-    }
-
-    lucene::analysis::TokenStream* reusableTokenStream(const TCHAR*,
-                                                       const inverted_index::ReaderPtr&) override {
-        _reusable = std::make_unique<PartialFailureTokenStream>(_emitted_tokens);
-        return _reusable.get();
+    std::unique_ptr<inverted_index::TextTokenStream> create_stream() const override {
+        return std::make_unique<PartialFailureTokenStream>(_emitted_tokens);
     }
 
 private:
     std::shared_ptr<std::atomic<uint32_t>> _emitted_tokens;
-    std::unique_ptr<PartialFailureTokenStream> _reusable;
 };
 
 class RecordingPartialFailureAnalyzerProvider final : public AnalyzerProvider {
 public:
-    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const override {
+    inverted_index::TextAnalyzerPtr get_analyzer() const override {
         ++calls;
         return std::make_shared<PartialFailureAnalyzer>(emitted_tokens);
     }

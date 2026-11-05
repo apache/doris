@@ -20,33 +20,30 @@
 #include <unicode/normalizer2.h>
 
 #include <memory>
-#include <span>
 #include <string>
 
-#include "storage/index/inverted/analysis/token_filter/token_filter.h"
+#include "storage/index/inverted/analysis/per_token_stream.h"
 
 namespace doris::segment_v2::inverted_index {
 
-class ICUNormalizerFilter : public DorisTokenFilter {
+// Normalizes every token with an ICU normalizer, NFKC_CF by default.
+class ICUNormalizerFilter final : public PerTokenFilter {
 public:
-    ICUNormalizerFilter(TokenStreamPtr in, std::shared_ptr<const icu::Normalizer2> normalizer);
-    ~ICUNormalizerFilter() override = default;
+    ICUNormalizerFilter(std::unique_ptr<TextTokenStream> in,
+                        std::shared_ptr<const icu::Normalizer2> normalizer);
 
-    Token* next(Token* t) override;
-    void reset() override;
+    // The scratch of one normalized token, and the input.
+    size_t reserved_bytes() const override {
+        return PerTokenFilter::reserved_bytes() + _output_buffer.capacity();
+    }
 
-    std::span<const int32_t> get_source_byte_offsets() const override;
-    std::span<const int32_t> get_source_byte_end_offsets() const override;
-    bool get_conservative_source_byte_span(int32_t& start, int32_t& end) const override;
-    void set_source_byte_offsets_enabled(bool enabled) override;
+protected:
+    void on_reset() override;
+    bool next_token(TokenRef& token) override;
 
 private:
     std::shared_ptr<const icu::Normalizer2> _normalizer;
     std::string _output_buffer;
-    int32_t _normalized_source_length = 0;
-    bool _text_changed = false;
-    bool _source_byte_offsets_enabled = false;
 };
-using ICUNormalizerFilterPtr = std::shared_ptr<ICUNormalizerFilter>;
 
 } // namespace doris::segment_v2::inverted_index

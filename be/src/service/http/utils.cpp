@@ -43,6 +43,7 @@
 #include "service/http/http_method.h"
 #include "service/http/http_request.h"
 #include "service/http/http_status.h"
+#include "util/debug_points.h"
 #include "util/md5.h"
 #include "util/path_util.h"
 #include "util/security.h"

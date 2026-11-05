@@ -17,107 +17,54 @@
 
 #include "storage/index/inverted/analysis/token_filter/ascii_folding_filter.h"
 
+#include <unicode/uchar.h>
+#include <unicode/utf8.h>
+
 #include <optional>
 #include <string_view>
 
+#include "common/logging.h"
+#include "storage/index/inverted/analysis/scratch.h"
+
 namespace doris::segment_v2::inverted_index {
 
-namespace {
+ASCIIFoldingFilter::ASCIIFoldingFilter(std::unique_ptr<TextTokenStream> in, bool preserve_original)
+        : PerTokenFilter(std::move(in)), _preserve_original(preserve_original), _output(512, 0) {}
 
-int32_t count_utf8_runes(std::string_view text) {
-    const auto length = static_cast<int32_t>(text.size());
-    const char* data = text.data();
-    int32_t offset = 0;
-    int32_t count = 0;
-    while (offset < length) {
-        UChar32 codepoint = U_UNASSIGNED;
-        U8_NEXT(data, offset, length, codepoint);
-        if (codepoint < 0) {
-            return -1;
-        }
-        ++count;
-    }
-    return count;
-}
-
-} // namespace
-
-ASCIIFoldingFilter::ASCIIFoldingFilter(const TokenStreamPtr& in, bool preserve_original)
-        : DorisTokenFilter(in), _preserve_original(preserve_original), _output(512, 0) {}
-
-Token* ASCIIFoldingFilter::next(Token* t) {
-    _rune_count_changed = false;
-    _has_source_span = false;
+bool ASCIIFoldingFilter::next_token(TokenRef& token) {
     if (_state != std::nullopt) {
-        assert(_preserve_original);
-        set(t, std::string_view(_state->data(), _state->size()), 0);
+        DCHECK(_preserve_original);
+        // The input token it views is still in the input batch: input_token() has not run since.
+        token = {.data = _state->data(),
+                 .size = static_cast<uint32_t>(_state->size()),
+                 .position_increment = 0};
         _state = std::nullopt;
-        return t;
+        return true;
     }
-    if (_in->next(t)) {
-        const char* buffer = t->termBuffer<char>();
-        auto length = static_cast<int32_t>(t->termLength<char>());
-        for (int32_t i = 0; i < length;) {
-            UChar32 c = U_UNASSIGNED;
-            U8_NEXT(buffer, i, length, c);
-            if (c < 0) {
-                continue;
-            }
-            if (c >= 0x0080) {
-                fold_to_ascii(buffer, length);
-                // Rune counts only matter to a downstream provenance consumer. Malformed bytes
-                // are skipped while folding, so the upstream map no longer describes the output.
-                if (_source_byte_offsets_enabled) {
-                    const int32_t input_runes = count_utf8_runes(std::string_view(buffer, length));
-                    _rune_count_changed =
-                            input_runes < 0 || input_runes != count_utf8_runes(std::string_view(
-                                                                      _output.data(), _output_pos));
-                }
-                if (_rune_count_changed) {
-                    _has_source_span =
-                            get_delegated_source_byte_span(*t, _source_start, _source_end);
-                }
-                set_text(t, std::string_view(_output.data(), _output_pos));
-                break;
-            }
-        }
-        return t;
-    }
-    return nullptr;
-}
-
-void ASCIIFoldingFilter::reset() {
-    DorisTokenFilter::reset();
-    _state = std::nullopt;
-    _rune_count_changed = false;
-    _has_source_span = false;
-}
-
-std::span<const int32_t> ASCIIFoldingFilter::get_source_byte_offsets() const {
-    return _rune_count_changed ? std::span<const int32_t> {}
-                               : DorisTokenFilter::get_source_byte_offsets();
-}
-
-std::span<const int32_t> ASCIIFoldingFilter::get_source_byte_end_offsets() const {
-    return _rune_count_changed ? std::span<const int32_t> {}
-                               : DorisTokenFilter::get_source_byte_end_offsets();
-}
-
-bool ASCIIFoldingFilter::get_conservative_source_byte_span(int32_t& start, int32_t& end) const {
-    if (!_rune_count_changed) {
-        return DorisTokenFilter::get_conservative_source_byte_span(start, end);
-    }
-    if (!_has_source_span) {
+    if (!input_token(token)) {
         return false;
     }
-    start = _source_start;
-    end = _source_end;
+    const char* buffer = token.data;
+    auto length = static_cast<int32_t>(token.size);
+    for (int32_t i = 0; i < length;) {
+        UChar32 c = U_UNASSIGNED;
+        U8_NEXT(buffer, i, length, c);
+        if (c < 0) {
+            continue;
+        }
+        if (c >= 0x0080) {
+            fold_to_ascii(buffer, length);
+            token.data = _output.data();
+            token.size = static_cast<uint32_t>(_output_pos);
+            break;
+        }
+    }
     return true;
 }
 
-void ASCIIFoldingFilter::set_source_byte_offsets_enabled(bool enabled) {
-    _source_byte_offsets_enabled = enabled;
-    DorisTokenFilter::set_source_byte_offsets_enabled(enabled);
+void ASCIIFoldingFilter::on_reset() {
+    _state = std::nullopt;
+    release_oversized_scratch(_output);
 }
 
 void ASCIIFoldingFilter::fold_to_ascii(const char* in, int32_t length) {

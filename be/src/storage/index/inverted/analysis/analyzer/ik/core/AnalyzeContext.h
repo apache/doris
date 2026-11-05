@@ -27,14 +27,13 @@
 #include <set>
 #include <string>
 
-#include "CLucene/_ApiHeader.h"
-#include "CLucene/util/CLStreams.h"
 #include "common/logging.h"
 #include "core/arena.h"
 #include "storage/index/inverted/analysis/analyzer/ik/cfg/Configuration.h"
 #include "storage/index/inverted/analysis/analyzer/ik/core/CharacterUtil.h"
 #include "storage/index/inverted/analysis/analyzer/ik/core/LexemePath.h"
 #include "storage/index/inverted/analysis/analyzer/ik/dic/Dictionary.h"
+#include "storage/index/inverted/analysis/common/text_cursor.h"
 
 namespace doris::segment_v2 {
 
@@ -92,7 +91,12 @@ public:
     size_t getBufferOffset() const { return buffer_offset_; }
     size_t getLastUselessCharNum() const { return last_useless_char_num_; }
 
-    size_t fillBuffer(lucene::util::Reader* reader);
+    size_t fillBuffer(inverted_index::TextCursor& cursor);
+    // The read window and the runes decoded from it, both sized by BUFF_SIZE.
+    size_t reserved_bytes() const {
+        return segment_buff_.capacity() +
+               typed_runes_.capacity() * sizeof(CharacterUtil::TypedRune);
+    }
     bool moveCursor();
     void initCursor();
     bool isBufferConsumed() const;

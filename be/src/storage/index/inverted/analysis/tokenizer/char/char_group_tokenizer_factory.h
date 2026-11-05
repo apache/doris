@@ -17,6 +17,10 @@
 
 #pragma once
 
+#include <unicode/unistr.h>
+
+#include <unordered_set>
+
 #include "storage/index/inverted/analysis/tokenizer/tokenizer_factory.h"
 
 namespace doris::segment_v2::inverted_index {
@@ -28,11 +32,7 @@ public:
 
     void initialize(const Settings& settings) override;
 
-    TokenizerPtr create() override;
-
-    PositionCapability position_capability() const override {
-        return PositionCapability::kAlwaysUnitIncrement;
-    }
+    std::unique_ptr<TextTokenizer> create() const override;
 
 private:
     static UChar32 parse_escaped_char(const icu::UnicodeString& unicode_str);

@@ -137,17 +137,6 @@ TEST(SniiCluceneDecouplingGuardTest, CoreHasNoCluceneRef) {
         if (entry.path().parent_path() == *snii_core_dir) {
             continue;
         }
-        // Narrow exemption: compaction eligibility resolves the DESTINATION
-        // index's analyzer through Doris's analyzer stack, whose factory is
-        // CLucene-backed and throws CLuceneError. That resolution is
-        // integration work that currently lives one directory deep; until it
-        // moves behind an integration-layer factory, this single file may
-        // reference CLucene. Keep the exemption to exactly this file so any
-        // new core reference still fails the guard.
-        if (entry.path().parent_path().filename() == "compaction" &&
-            entry.path().filename() == "eligibility.cpp") {
-            continue;
-        }
         ++scanned_files;
         if (!scan_file_for_clucene(entry.path(), &hits)) {
             unreadable.push_back(entry.path().string());

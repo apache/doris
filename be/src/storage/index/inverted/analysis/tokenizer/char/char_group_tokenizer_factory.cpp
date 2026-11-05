@@ -17,6 +17,7 @@
 
 #include "storage/index/inverted/analysis/tokenizer/char/char_group_tokenizer_factory.h"
 
+#include <unicode/uchar.h>
 #include <unicode/uscript.h>
 
 #include "common/exception.h"
@@ -73,7 +74,7 @@ UChar32 CharGroupTokenizerFactory::parse_escaped_char(const icu::UnicodeString& 
     return unescaped.char32At(0);
 }
 
-TokenizerPtr CharGroupTokenizerFactory::create() {
+std::unique_ptr<TextTokenizer> CharGroupTokenizerFactory::create() const {
     struct CharGroupConfig {
         bool tokenize_on_space = false;
         bool tokenize_on_letter = false;
@@ -148,9 +149,9 @@ TokenizerPtr CharGroupTokenizerFactory::create() {
                            _tokenize_on_punctuation, _tokenize_on_symbol, _tokenize_on_cjk,
                            _tokenize_on_chars);
 
-    auto tokenzier = std::make_shared<CharGroupTokenizerImpl>(std::move(config));
-    tokenzier->initialize(_max_token_length);
-    return tokenzier;
+    auto tokenizer = std::make_unique<CharGroupTokenizerImpl>(std::move(config));
+    tokenizer->initialize(_max_token_length);
+    return tokenizer;
 }
 
 } // namespace doris::segment_v2::inverted_index

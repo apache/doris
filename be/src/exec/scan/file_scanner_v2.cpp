@@ -89,9 +89,6 @@ const std::string FileScannerV2::FileReadTimeProfile = "FileReadTime";
 
 namespace {
 
-constexpr int kIcebergPositionDeleteContent = 1;
-constexpr int kIcebergDeletionVectorContent = 3;
-
 std::string table_format_name(const TFileRangeDesc& range);
 
 std::string table_format_name(const TFileRangeDesc& range) {

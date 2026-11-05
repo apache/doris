@@ -37,10 +37,10 @@ public:
         }
     }
 
-    TokenizerPtr create() override {
-        auto tokenzier = std::make_shared<BasicTokenizer>();
-        tokenzier->initialize(_extra_chars);
-        return tokenzier;
+    std::unique_ptr<TextTokenizer> create() const override {
+        auto tokenizer = std::make_unique<BasicTokenizer>();
+        tokenizer->initialize(_extra_chars);
+        return tokenizer;
     }
 
 private:

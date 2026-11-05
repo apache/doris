@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <CLucene.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -29,9 +30,10 @@
 #include <vector>
 
 #include "io/fs/local_file_system.h"
-#include "storage/index/index_common.h"
+#include "storage/index/index_common_impl.h"
 #include "storage/index/index_iterator.h"
 #include "storage/index/inverted/analysis/analyzer/custom_analyzer.h"
+#include "storage/index/inverted/clucene/lucene_analyzer_bridge.h"
 #include "storage/index/inverted/clucene/spi/clucene_index_source.h"
 #include "storage/index/inverted/common/inverted_index_cache.h"
 #include "storage/index/inverted/common/string_helper.h"
@@ -379,7 +381,8 @@ protected:
     static void write_field_index(const std::string& directory, uint32_t field) {
         CustomAnalyzerConfig::Builder config;
         config.with_tokenizer_config("standard", {});
-        auto analyzer = CustomAnalyzer::build_custom_analyzer(config.build());
+        auto analyzer = std::make_shared<LuceneAnalyzerBridge>(
+                CustomAnalyzer::build_custom_analyzer(config.build()));
         auto input = std::make_shared<lucene::util::SStringReader<char>>();
         auto writer = std::make_unique<lucene::index::IndexWriter>(directory.c_str(),
                                                                    analyzer.get(), true);

@@ -17,48 +17,22 @@
 
 #pragma once
 
+#include <memory>
+#include <string>
+#include <string_view>
 #include <utility>
 
+#include "common/exception.h"
+#include "storage/index/inverted/analysis/per_token_stream.h"
 #include "storage/index/inverted/analysis/tokenizer/standard/standard_tokenizer_impl.h"
-#include "storage/index/inverted/analysis/tokenizer/tokenizer.h"
 
 namespace doris::segment_v2::inverted_index {
 
-class StandardTokenizer : public DorisTokenizer {
+// The words of the value by the Unicode word break rules (UAX#29); a word longer than
+// max_token_length is dropped, and its position is skipped.
+class StandardTokenizer final : public PerTokenTokenizer {
 public:
     StandardTokenizer() { _scanner = std::make_unique<StandardTokenizerImpl>(); }
-
-    Token* next(Token* t) override {
-        _skipped_positions = 0;
-        while (true) {
-            const auto token_type = _scanner->get_next_token();
-
-            if (token_type == StandardTokenizerImpl::TokenType::EOF_TOKEN) {
-                return nullptr;
-            }
-
-            std::string_view term = _scanner->get_text();
-            size_t token_length = _scanner->yylength();
-            if (std::cmp_less_equal(token_length, _max_token_length)) {
-                set(t, term, _skipped_positions + 1);
-                const int32_t token_start = _scanner->get_token_start_offset();
-                const int32_t token_end = _scanner->get_token_end_offset();
-                set_source_byte_offsets(term, token_start);
-                t->setStartOffset(correct_source_start_offset(token_start));
-                t->setEndOffset(correct_source_offset(token_end));
-                return t;
-            } else {
-                _skipped_positions++;
-            }
-        }
-        return nullptr;
-    }
-
-    void reset() override {
-        DorisTokenizer::reset();
-        _scanner->yyreset(_in);
-        _skipped_positions = 0;
-    };
 
     void set_max_token_length(int32_t length) {
         if (length < 1) {
@@ -75,13 +49,35 @@ public:
         }
     }
 
+    // The scan window, max_token_length bytes.
+    size_t reserved_bytes() const override { return _scanner->buffer_capacity(); }
+
     static constexpr int32_t DEFAULT_MAX_TOKEN_LENGTH = 255;
     static constexpr int32_t MAX_TOKEN_LENGTH_LIMIT = 16383;
 
+protected:
+    void on_reset(std::string_view text) override { _scanner->yyreset(text); }
+
+    bool next_token(TokenRef& token) override {
+        int32_t skipped_positions = 0;
+        while (true) {
+            const auto token_type = _scanner->get_next_token();
+            if (token_type == StandardTokenizerImpl::TokenType::EOF_TOKEN) {
+                return false;
+            }
+            if (std::cmp_less_equal(_scanner->yylength(), _max_token_length)) {
+                const std::string_view term = _scanner->get_text();
+                token = {.data = term.data(),
+                         .size = static_cast<uint32_t>(term.size()),
+                         .position_increment = skipped_positions + 1};
+                return true;
+            }
+            skipped_positions++;
+        }
+    }
+
 private:
     StandardTokenizerImplPtr _scanner;
-
-    int32_t _skipped_positions = 0;
     int32_t _max_token_length = DEFAULT_MAX_TOKEN_LENGTH;
 };
 
