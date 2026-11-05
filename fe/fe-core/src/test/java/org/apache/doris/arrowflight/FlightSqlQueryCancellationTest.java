@@ -19,6 +19,7 @@ package org.apache.doris.arrowflight;
 
 import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
 import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
+import org.apache.doris.common.Status;
 import org.apache.doris.proto.InternalService.PCancelPlanFragmentResult;
 import org.apache.doris.proto.Types.PStatus;
 import org.apache.doris.qe.ConnectContext;
@@ -31,6 +32,7 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.SettableFuture;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
@@ -215,6 +217,41 @@ public class FlightSqlQueryCancellationTest {
         Assertions.assertEquals(TStatusCode.NOT_FOUND, routes.cancel(SECOND).getStatusCode());
         // Nothing is left to drop the second time.
         routes.unregister(ctx);
+        Assertions.assertEquals(0, routes.routedResults());
+        Assertions.assertEquals(0, routes.routedBackends());
+    }
+
+    // A request that fails before answering with tickets cancels the queries of its routes on all their BEs, except
+    // those cancelled through their deferred coordinators, and drops the routes without waiting for the BEs.
+    @Test
+    public void failedRequestCancelsWithoutWaitingAndDropsRoutes() throws Exception {
+        FlightSqlQueryCancellation routes =
+                new FlightSqlQueryCancellation(() -> 0L, FlightSqlQueryCancellation.MAX_ROUTED_RESULTS,
+                        FlightSqlQueryCancellation.MAX_ROUTED_BACKENDS);
+        TUniqueId deferredQuery = new TUniqueId(12L, 20L);
+        TUniqueId deferredResult = new TUniqueId(12L, 21L);
+        routes.register(QUERY, ImmutableList.of(FIRST), ImmutableList.of(FINISHED_BE, ACTIVE_BE), 120);
+        routes.register(deferredQuery, ImmutableList.of(deferredResult), ImmutableList.of(ACTIVE_BE), 120);
+        ConnectContext ctx = ConnectContext.forFlight("flight-query-cancellation-failed-request-peer");
+        ctx.addFlightSqlEndpointsLocation(endpoint(FIRST));
+        ctx.addFlightSqlEndpointsLocation(endpoint(deferredResult));
+        BackendServiceProxy proxy = Mockito.mock(BackendServiceProxy.class);
+        // The BEs never answer.
+        Mockito.when(proxy.cancelPipelineXPlanFragmentAsync(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(SettableFuture.create());
+        try (MockedStatic<BackendServiceProxy> mocked = Mockito.mockStatic(BackendServiceProxy.class)) {
+            mocked.when(BackendServiceProxy::getInstance).thenReturn(proxy);
+            long start = System.nanoTime();
+            routes.cancelFailedRequest(ctx, ImmutableList.of(deferredQuery),
+                    new Status(TStatusCode.CANCELLED, "get flight info failed"));
+            Assertions.assertTrue(System.nanoTime() - start < TimeUnit.MILLISECONDS.toNanos(500));
+            Mockito.verify(proxy).cancelPipelineXPlanFragmentAsync(Mockito.eq(FINISHED_BE),
+                    Mockito.eq(QUERY), Mockito.any());
+            Mockito.verify(proxy).cancelPipelineXPlanFragmentAsync(Mockito.eq(ACTIVE_BE),
+                    Mockito.eq(QUERY), Mockito.any());
+            Mockito.verify(proxy, Mockito.never()).cancelPipelineXPlanFragmentAsync(Mockito.any(),
+                    Mockito.eq(deferredQuery), Mockito.any());
+        }
         Assertions.assertEquals(0, routes.routedResults());
         Assertions.assertEquals(0, routes.routedBackends());
     }
