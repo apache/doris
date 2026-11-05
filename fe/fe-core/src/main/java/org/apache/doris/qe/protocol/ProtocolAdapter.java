@@ -146,6 +146,16 @@ public interface ProtocolAdapter {
             throws IOException;
 
     /**
+     * Whether an accepted response still needs session resources after its request returns. Called
+     * only by the execution owner, including during handoff: this must be a pure, non-throwing check,
+     * without expiry, resource release or callbacks. MySQL delivers its response before yielding;
+     * Flight retains local results and deferred queries for later DoGet or expiry.
+     */
+    default boolean hasPendingResponse() {
+        return false;
+    }
+
+    /**
      * Releases what the protocol still holds for the session after ConnectContext.cleanup has
      * stopped admission and all in-flight operations have exited: for Arrow Flight SQL the
      * channel-cached results and the deferred query coordinators,
