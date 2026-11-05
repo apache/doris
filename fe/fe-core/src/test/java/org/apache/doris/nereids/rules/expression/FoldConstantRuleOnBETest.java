@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnBE;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
@@ -32,8 +33,12 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.UuidLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.UuidType;
 import org.apache.doris.thrift.TExpr;
 
@@ -86,6 +91,23 @@ class FoldConstantRuleOnBETest extends ExpressionRewriteTestHelper {
                 new IntegerLiteral(3));
         Assertions.assertEquals(ImmutableList.of(supported),
                 collectConstants(new And(new IsNull(uuidResult), supported)));
+    }
+
+    @Test
+    void testSkipCastFromVarBinary() {
+        // FE leaves these casts for BE because no FE string literal carries 0xFF. BE folding would build such a
+        // literal from its result anyway, decoding 0xFF as U+FFFD, so they wait for BE to evaluate them.
+        VarBinaryLiteral notUtf8 = new VarBinaryLiteral(new byte[] {(byte) 0xFF});
+        List<Expression> casts = ImmutableList.of(new Cast(notUtf8, StringType.INSTANCE),
+                new Cast(new ArrayLiteral(ImmutableList.of(notUtf8)), ArrayType.of(StringType.INSTANCE)));
+        for (Expression cast : casts) {
+            Assertions.assertEquals(cast, FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(cast, context));
+            Assertions.assertTrue(collectConstants(cast).isEmpty(), cast.toSql());
+        }
+        Expression filter = new EqualTo(casts.get(0), new StringLiteral(String.valueOf((char) 0xFFFD)));
+        Expression supported = new EqualTo(new Add(new IntegerLiteral(1), new IntegerLiteral(2)),
+                new IntegerLiteral(3));
+        Assertions.assertEquals(ImmutableList.of(supported), collectConstants(new And(filter, supported)));
     }
 
     private List<Expression> collectConstants(Expression expression) {
