@@ -43,8 +43,8 @@ import org.apache.doris.foundation.security.JdbcDriverUrlSecurity;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
 import org.apache.iceberg.Table;
+import org.apache.iceberg.catalog.BaseViewSessionCatalog;
 import org.apache.iceberg.catalog.Catalog;
-import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -286,7 +286,7 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
         cacheMgr.removeCatalogByEngine(getId(), IcebergExternalMetaCache.ENGINE);
         Catalog retiredCatalog = catalog;
-        RESTSessionCatalog retiredRestCatalog = msProperties instanceof IcebergRestProperties
+        BaseViewSessionCatalog retiredRestCatalog = msProperties instanceof IcebergRestProperties
                 ? ((IcebergRestProperties) msProperties).getRestSessionCatalog() : null;
         catalog = null;
         resourceTracker.retireCurrent(() -> {
