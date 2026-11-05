@@ -80,6 +80,22 @@ public class ElementAtTest {
         Assertions.assertEquals(100, ((VariantType) signature.getArgType(0)).getVariantMaxSubcolumnsCount());
 
         Assertions.assertTrue(signature.getArgType(1) instanceof VarcharType);
+        Assertions.assertFalse(((VariantType) signature.getArgType(0)).getEscapeDotsInKeys());
+        Assertions.assertFalse(((VariantType) signature.returnType).getEscapeDotsInKeys());
+    }
+
+    @Test
+    public void testComputeSignaturePreservesEscapeDotsInKeys() {
+        VariantType input = new VariantType(Collections.emptyList(), 100, false, 10000,
+                3, false, 0L, 64, false, true);
+        ElementAt elementAt = new ElementAt(new MockVariantExpression(input), new VarcharLiteral("obj"));
+        FunctionSignature signature = elementAt.getSignature();
+        Assertions.assertTrue(((VariantType) signature.getArgType(0)).getEscapeDotsInKeys());
+        Assertions.assertTrue(((VariantType) signature.returnType).getEscapeDotsInKeys());
+        Assertions.assertEquals(100, ((VariantType) signature.returnType).getVariantMaxSubcolumnsCount());
+        ElementAt chained = new ElementAt(elementAt, new VarcharLiteral("a.b"));
+        Assertions.assertTrue(((VariantType) chained.getSignature().getArgType(0)).getEscapeDotsInKeys());
+        Assertions.assertTrue(((VariantType) chained.getSignature().returnType).getEscapeDotsInKeys());
     }
 
     @Test
