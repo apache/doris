@@ -848,8 +848,10 @@ public class Config extends ConfigBase {
      * 1. load job
      * 2. restore job
      */
+    // Keep consistent with BE config `storage_flood_stage_usage_percent` (default 90),
+    // so that FE will not schedule load/restore jobs to a BE whose disk is already in flood stage.
     @ConfField(mutable = true, masterOnly = true)
-    public static int storage_flood_stage_usage_percent = 95;
+    public static int storage_flood_stage_usage_percent = 90;
     @ConfField(mutable = true, masterOnly = true)
     public static long storage_flood_stage_left_capacity_bytes = 1 * 1024 * 1024 * 1024; // 1GB
 
