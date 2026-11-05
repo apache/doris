@@ -23,6 +23,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.datasource.paimon.PaimonWriteTarget;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -32,11 +33,11 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.commands.info.PaimonRowChangeSpec;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeMatchedClause;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeNotMatchedClause;
-import org.apache.doris.nereids.trees.plans.commands.merge.MergeUtils;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -81,8 +82,9 @@ class PaimonMergePlannerTest {
                 new SlotReference("id", IntegerType.INSTANCE, true, ImmutableList.of("source")),
                 new SlotReference("__DORIS_CHANGELOG_TARGET_PRESENT__", IntegerType.INSTANCE, true,
                         ImmutableList.of("source"))));
-        LogicalPlan child = MergeUtils.buildMergeJoin(target, source,
-                new EqualTo(target.getOutput().get(0), source.getOutput().get(0)), true);
+        LogicalPlan child = new LogicalJoin<>(JoinType.RIGHT_OUTER_JOIN, ImmutableList.of(),
+                ImmutableList.of(new EqualTo(target.getOutput().get(0), source.getOutput().get(0))),
+                target, source, JoinReorderContext.EMPTY);
         MergeMatchedClause update = new MergeMatchedClause(Optional.empty(), ImmutableList.of(
                 new EqualTo(new UnboundSlot("value"),
                         new UnboundSlot("__DORIS_CHANGELOG_TARGET_PRESENT__"))), false);

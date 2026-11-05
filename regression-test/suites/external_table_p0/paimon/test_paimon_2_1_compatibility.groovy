@@ -58,7 +58,7 @@ suite("test_paimon_2_1_compatibility", "p0,external,paimon") {
                 'bucket'='1', 'write-only'='true', 'deletion-vectors.enabled'='false')"""
         sql "INSERT INTO nullable_keys_single VALUES (NULL,10), (1,100), (NULL,20), (1,200)"
         order_qt_nullable_single_jni "SELECT id,v FROM nullable_keys_single ORDER BY id NULLS FIRST"
-        sql "set force_jni_scanner=false"
+        // Keep logical splits: native Parquet bypasses the JNI/Rust reader selection.
         sql "set enable_paimon_rust_reader=true"
         order_qt_nullable_keys_rust "SELECT id,v FROM nullable_keys_single ORDER BY id NULLS FIRST"
         def queryId = sql("select last_query_id()")[0][0].toString()
