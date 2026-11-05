@@ -18,10 +18,25 @@
 #pragma once
 
 #include "common/status.h"
-#include "format/table/file_encryption_info.h"
 #include "gen_cpp/PlanNodes_types.h"
 
 namespace doris {
+
+// Return only static classifications: malformed wire payloads must not enter error messages.
+inline const char* file_encryption_validation_error(const TFileEncryptionInfo& info) {
+    if (!info.__isset.version) {
+        return "File encryption [INVALID_DESCRIPTOR]";
+    }
+    if (info.version != 1) {
+        return "File encryption [UNSUPPORTED_VERSION]";
+    }
+    const auto length = info.key.size();
+    if (!info.__isset.key || (length != 16 && length != 24 && length != 32) ||
+        !info.__isset.aad_prefix) {
+        return "File encryption [INVALID_DESCRIPTOR]";
+    }
+    return nullptr;
+}
 
 inline Status validate_file_scan_support(const TFileScanRangeParams& params,
                                          const TFileRangeDesc* range = nullptr) {
@@ -38,16 +53,15 @@ inline Status validate_file_scan_support(const TFileScanRangeParams& params,
             const auto& iceberg = table.iceberg_params;
             bool encrypted = iceberg.__isset.encryption_info;
             if (encrypted) {
-                if (const auto* error =
-                            format::file_encryption_validation_error(iceberg.encryption_info)) {
+                if (const auto* error = file_encryption_validation_error(iceberg.encryption_info)) {
                     return Status::InvalidArgument(error);
                 }
             }
             if (iceberg.__isset.delete_files) {
                 for (const auto& file : iceberg.delete_files) {
                     if (file.__isset.encryption_info) {
-                        if (const auto* error = format::file_encryption_validation_error(
-                                    file.encryption_info)) {
+                        if (const auto* error =
+                                    file_encryption_validation_error(file.encryption_info)) {
                             return Status::InvalidArgument(error);
                         }
                         encrypted = true;

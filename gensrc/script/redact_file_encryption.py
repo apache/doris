@@ -16,7 +16,15 @@
 # specific language governing permissions and limitations
 # under the License.
 
-"""Redact the generated secret carrier, including nested Thrift diagnostics.
+"""Protect file-key diagnostics by transforming generated Thrift code at build time.
+
+The FE Thrift module and regression framework invoke this in Maven process-sources,
+after Java generation; gensrc/thrift/Makefile invokes it after C++ generation.
+Queries execute the transformed code, without invoking this Python script.
+
+TFileEncryptionInfo intentionally carries an unwrapped per-file key and AAD from
+FE to BE for reader setup. Default generated strings and JSON can expose those
+bytes in diagnostics, so redact them while preserving the actual RPC payload.
 
 Thrift 0.24 ignores sensitive annotations. Keep this transform narrow and fail
 on generator drift rather than silently compiling an unredacted representation.

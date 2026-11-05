@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "format/table/file_encryption_info.h"
-
 #include <gtest/gtest.h>
 #include <thrift/TToString.h>
 #include <thrift/protocol/TBinaryProtocol.h>
@@ -29,6 +27,8 @@
 #include <sstream>
 #include <string>
 #include <vector>
+
+#include "exec/scan/file_scan_range_utils.h"
 
 namespace doris {
 namespace {
@@ -46,24 +46,21 @@ TFileEncryptionInfo encryption_info() {
 
 TEST(FileEncryptionInfoTest, ValidatePresenceVersionAndKeySizes) {
     auto info = encryption_info();
-    EXPECT_EQ(format::file_encryption_validation_error(info), nullptr);
+    EXPECT_EQ(file_encryption_validation_error(info), nullptr);
     info.__set_aad_prefix("");
     for (size_t length : {16, 24, 32}) {
         info.__set_key(std::string(length, 'k'));
-        EXPECT_EQ(format::file_encryption_validation_error(info), nullptr);
+        EXPECT_EQ(file_encryption_validation_error(info), nullptr);
     }
     info.__isset.aad_prefix = false;
-    EXPECT_STREQ(format::file_encryption_validation_error(info),
-                 "File encryption [INVALID_DESCRIPTOR]");
+    EXPECT_STREQ(file_encryption_validation_error(info), "File encryption [INVALID_DESCRIPTOR]");
     info = encryption_info();
     info.__set_key("");
-    EXPECT_STREQ(format::file_encryption_validation_error(info),
-                 "File encryption [INVALID_DESCRIPTOR]");
+    EXPECT_STREQ(file_encryption_validation_error(info), "File encryption [INVALID_DESCRIPTOR]");
     info = encryption_info();
     info.__set_version(9);
-    EXPECT_STREQ(format::file_encryption_validation_error(info),
-                 "File encryption [UNSUPPORTED_VERSION]");
-    EXPECT_STREQ(format::file_encryption_validation_error(TFileEncryptionInfo()),
+    EXPECT_STREQ(file_encryption_validation_error(info), "File encryption [UNSUPPORTED_VERSION]");
+    EXPECT_STREQ(file_encryption_validation_error(TFileEncryptionInfo()),
                  "File encryption [INVALID_DESCRIPTOR]");
 }
 

@@ -322,11 +322,14 @@ struct TFileAttributes {
     1001: optional bool ignore_csv_redundant_col;
 }
 
-// Query-scoped secrets. Generated diagnostics are redacted by redact_file_encryption.py.
+// Per-file decryption payload for FE-to-BE reader setup. Execution remains blocked until
+// native decryption and protected transport are available.
+// redact_file_encryption.py runs after code generation to hide these fields in diagnostics.
 // Only binary/compact RPC preserves this payload; diagnostic JSON is deliberately lossy.
 struct TFileEncryptionInfo {
     // Version 1: Parquet AES_GCM_V1, with an unwrapped file key and the exact SDK AAD prefix.
     1: optional i32 version;
+    // Unwrapped file data-encryption key for the BE reader; never a KMS master key.
     2: optional binary key;
     // Presence is required by version 1, including when the prefix is empty.
     3: optional binary aad_prefix;

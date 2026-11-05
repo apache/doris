@@ -16,7 +16,12 @@
 # specific language governing permissions and limitations
 # under the License.
 
-"""Run with Python 3; uses the repository's actual Thrift compiler."""
+"""Test the build-time redaction transform with the repository's Thrift compiler.
+
+Check generated-code shape, idempotence and preservation of unrelated diagnostics.
+The Java and C++ contract tests separately exercise runtime protocol round trips
+and diagnostic output from the transformed code.
+"""
 
 import os
 import pathlib
