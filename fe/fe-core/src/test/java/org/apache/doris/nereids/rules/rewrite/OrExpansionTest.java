@@ -17,15 +17,27 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.plans.DistributeType;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
+import java.util.stream.Collectors;
 
 class OrExpansionTest extends TestWithFeService implements MemoPatternMatchSupported {
     @Override
@@ -46,8 +58,154 @@ class OrExpansionTest extends TestWithFeService implements MemoPatternMatchSuppo
                         + ")\n"
                         + "DUPLICATE KEY(id1)\n"
                         + "DISTRIBUTED BY HASH(id2) BUCKETS 10\n"
+                        + "PROPERTIES (\"replication_num\" = \"1\")\n",
+                "CREATE TABLE IF NOT EXISTS a (\n"
+                        + "    k1 int not null,\n"
+                        + "    k2 int not null\n"
+                        + ")\n"
+                        + "DUPLICATE KEY(k1)\n"
+                        + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                        + "PROPERTIES (\"replication_num\" = \"1\")\n",
+                "CREATE TABLE IF NOT EXISTS b (\n"
+                        + "    k1 int not null,\n"
+                        + "    k2 int not null\n"
+                        + ")\n"
+                        + "DUPLICATE KEY(k1)\n"
+                        + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                         + "PROPERTIES (\"replication_num\" = \"1\")\n"
         );
+    }
+
+    // A RIGHT JOIN written in SQL is commuted to LEFT JOIN by SemiJoinCommute unless join reorder is disabled,
+    // so RIGHT_OUTER_JOIN reaches OrExpansion when disable_join_reorder is true (or the join has leading /
+    // distribute hint). Here we disable join reorder to keep the RIGHT JOIN, and apply OrExpansion directly
+    // on the analyzed plan to cover that branch.
+    //
+    // a right join b on (a.k1 = b.k1 or a.k2 = b.k2)
+    // => union all(
+    //      a inner join b on a.k1 = b.k1,
+    //      a inner join b on a.k2 = b.k2 and (a.k1 != b.k1 or ...),
+    //      project(null as a.k1, null as a.k2, b.k1, b.k2)(b left anti join a on cond1 left anti join a on cond2))
+    @Test
+    void testOrExpandRightOuterJoin() {
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        try {
+            checkOrExpandRightOuterJoin();
+        } finally {
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+        }
+    }
+
+    private void checkOrExpandRightOuterJoin() {
+        String sql = "select * from a right join b on a.k1 = b.k1 or a.k2 = b.k2";
+        PlanChecker checker = PlanChecker.from(connectContext).analyze(sql);
+
+        // precondition: OrExpansion sees a nested loop RIGHT OUTER JOIN
+        Plan analyzed = checker.getPlan();
+        List<LogicalJoin<?, ?>> originJoins = analyzed.collectToList(LogicalJoin.class::isInstance);
+        Assertions.assertEquals(1, originJoins.size(), analyzed.treeString());
+        Assertions.assertTrue(originJoins.get(0).getJoinType().isRightOuterJoin(), analyzed.treeString());
+        Assertions.assertTrue(originJoins.get(0).getHashJoinConjuncts().isEmpty(), analyzed.treeString());
+
+        Plan plan = checker.applyCustom(OrExpansion.INSTANCE).printlnTree().getPlan();
+
+        // no RIGHT OUTER JOIN is left, and every join has hash conditions
+        List<LogicalJoin<?, ?>> joins = plan.collectToList(LogicalJoin.class::isInstance);
+        Assertions.assertTrue(joins.stream().noneMatch(j -> j.getJoinType().isRightOuterJoin()), plan.treeString());
+        Assertions.assertTrue(joins.stream().allMatch(j -> !j.getHashJoinConjuncts().isEmpty()), plan.treeString());
+
+        List<LogicalUnion> unions = plan.collectToList(LogicalUnion.class::isInstance);
+        Assertions.assertEquals(1, unions.size(), plan.treeString());
+        LogicalUnion union = unions.get(0);
+        // 2 inner join branches + 1 anti join branch
+        Assertions.assertEquals(3, union.arity(), plan.treeString());
+        Assertions.assertEquals(2, union.children().stream()
+                .filter(c -> c instanceof LogicalJoin && ((LogicalJoin<?, ?>) c).getJoinType().isInnerJoin())
+                .count(), plan.treeString());
+        List<Plan> antiBranches = union.children().stream()
+                .filter(c -> c.anyMatch(p -> p instanceof LogicalJoin
+                        && ((LogicalJoin<?, ?>) p).getJoinType() == JoinType.LEFT_ANTI_JOIN))
+                .collect(Collectors.toList());
+        Assertions.assertEquals(1, antiBranches.size(), plan.treeString());
+
+        // the anti branch keeps unmatched rows of b (right child):
+        // output follows origin join output [a.k1, a.k2, b.k1, b.k2], a.* must be null and b.* must be real columns.
+        // If RIGHT OUTER JOIN were expanded as LEFT OUTER JOIN, b.* would be null instead.
+        Plan antiBranch = antiBranches.get(0);
+        Assertions.assertTrue(antiBranch instanceof LogicalProject, plan.treeString());
+        List<NamedExpression> projects = ((LogicalProject<?>) antiBranch).getProjects();
+        Assertions.assertEquals(4, projects.size(), projects.toString());
+        for (int i = 0; i < 2; i++) {
+            Assertions.assertTrue(projects.get(i) instanceof Alias
+                    && projects.get(i).child(0) instanceof NullLiteral, projects.toString());
+        }
+        for (int i = 2; i < 4; i++) {
+            Assertions.assertTrue(projects.get(i) instanceof SlotReference, projects.toString());
+        }
+    }
+
+    // The right-unmatched branch of RIGHT / FULL OUTER JOIN is built as "b left anti join a" with swapped
+    // children. BROADCAST_RIGHT was written for b, so it must not be copied to that anti join (it would
+    // broadcast a). SHUFFLE_RIGHT treats both sides the same and is kept.
+    @Test
+    void testOrExpandSwappedAntiJoinDistributeHint() {
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        try {
+            for (String joinType : new String[] {"right outer join", "full outer join"}) {
+                checkSwappedAntiJoinHint(joinType, "[broadcast]",
+                        DistributeType.BROADCAST_RIGHT, DistributeType.NONE);
+                checkSwappedAntiJoinHint(joinType, "[shuffle]",
+                        DistributeType.SHUFFLE_RIGHT, DistributeType.SHUFFLE_RIGHT);
+            }
+        } finally {
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+        }
+    }
+
+    private void checkSwappedAntiJoinHint(String joinType, String hint,
+            DistributeType expectedOriginHint, DistributeType expectedSwappedAntiHint) {
+        String sql = "select * from a " + joinType + " " + hint + " b on a.k1 = b.k1 or a.k2 = b.k2";
+        PlanChecker checker = PlanChecker.from(connectContext).analyze(sql);
+        Plan analyzed = checker.getPlan();
+        List<LogicalJoin<?, ?>> originJoins = analyzed.collectToList(LogicalJoin.class::isInstance);
+        Assertions.assertEquals(1, originJoins.size(), analyzed.treeString());
+        Assertions.assertEquals(expectedOriginHint, originJoins.get(0).getDistributeHint().distributeType, sql);
+
+        Plan plan = checker.applyCustom(OrExpansion.INSTANCE).getPlan();
+        List<LogicalJoin<?, ?>> joins = plan.collectToList(LogicalJoin.class::isInstance);
+
+        // inner join branches keep the origin hint
+        List<LogicalJoin<?, ?>> innerJoins = joins.stream()
+                .filter(j -> j.getJoinType().isInnerJoin()).collect(Collectors.toList());
+        Assertions.assertEquals(2, innerJoins.size(), plan.treeString());
+        innerJoins.forEach(j -> Assertions.assertEquals(expectedOriginHint,
+                j.getDistributeHint().distributeType, sql + "\n" + plan.treeString()));
+
+        // anti joins whose left side is b's CTE consumer come from the swapped branch
+        List<LogicalJoin<?, ?>> swappedAntiJoins = joins.stream()
+                .filter(j -> j.getJoinType() == JoinType.LEFT_ANTI_JOIN && isAntiLeftFromB(j))
+                .collect(Collectors.toList());
+        Assertions.assertFalse(swappedAntiJoins.isEmpty(), plan.treeString());
+        swappedAntiJoins.forEach(j -> Assertions.assertEquals(expectedSwappedAntiHint,
+                j.getDistributeHint().distributeType, sql + "\n" + plan.treeString()));
+
+        // for FULL OUTER JOIN, the non-swapped anti branch (a left anti join b) keeps the origin hint
+        joins.stream()
+                .filter(j -> j.getJoinType() == JoinType.LEFT_ANTI_JOIN && !isAntiLeftFromB(j))
+                .forEach(j -> Assertions.assertEquals(expectedOriginHint,
+                        j.getDistributeHint().distributeType, sql + "\n" + plan.treeString()));
+    }
+
+    // the leftmost leaf of an anti join chain is the CTE consumer of the kept side.
+    // consumer slots generated by OrExpansion have an empty qualifier, so check the producer slots instead.
+    private boolean isAntiLeftFromB(LogicalJoin<?, ?> antiJoin) {
+        Plan left = antiJoin.left();
+        while (!(left instanceof LogicalCTEConsumer) && left.arity() > 0) {
+            left = left.child(0);
+        }
+        LogicalCTEConsumer consumer = (LogicalCTEConsumer) left;
+        return consumer.getOutput().stream().allMatch(
+                s -> ((SlotReference) consumer.getProducerSlot(s)).getQualifier().contains("b"));
     }
 
     @Test
