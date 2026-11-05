@@ -23,11 +23,12 @@ import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecMaxComputeTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.properties.MustLocalSortOrderSpec;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.properties.OrderSpec;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -109,7 +110,13 @@ public class PhysicalMaxComputeTableSink<CHILD_TYPE extends Plan> extends Physic
 
     @Override
     public PhysicalProperties getRequirePhysicalProperties() {
-        Set<String> partitionNames = ((MaxComputeExternalTable) targetTable).getPartitionColumns().stream()
+        return buildRequirePhysicalProperties(
+                (MaxComputeExternalTable) targetTable, cols, child().getOutput());
+    }
+
+    static PhysicalProperties buildRequirePhysicalProperties(
+            MaxComputeExternalTable targetTable, List<Column> cols, List<Slot> childOutput) {
+        Set<String> partitionNames = targetTable.getPartitionColumns().stream()
                 .map(Column::getName)
                 .collect(Collectors.toSet());
         if (!partitionNames.isEmpty()) {
@@ -137,19 +144,21 @@ public class PhysicalMaxComputeTableSink<CHILD_TYPE extends Plan> extends Physic
                 }
             }
             List<ExprId> exprIds = columnIdx.stream()
-                    .map(idx -> child().getOutput().get(idx).getExprId())
+                    .map(idx -> childOutput.get(idx).getExprId())
                     .collect(Collectors.toList());
             DistributionSpecMaxComputeTableSinkHashPartitioned shuffleInfo
                     = new DistributionSpecMaxComputeTableSinkHashPartitioned(exprIds);
-            // Require local sort by partition columns so that rows for the same partition
-            // are grouped together. MaxCompute Storage API streams dynamic partition data
-            // and will close a partition writer once it sees a different partition;
-            // unsorted data causes "writer has been closed" errors.
+            // A plain OrderSpec is deliberate, NOT MustLocalSortOrderSpec: the enforcer reads
+            // MustLocalSortOrderSpec as "sort locally before distributing" and therefore emits
+            // localSort -> distribution -> global sort. That appends a merging exchange after
+            // the partition shuffle, whose receiver can deadlock against local-channel
+            // backpressure. The plain OrderSpec yields distribution -> local sort, keeping each
+            // partition's rows contiguous in one writer stream without a global sort.
             List<OrderKey> orderKeys = columnIdx.stream()
-                    .map(idx -> new OrderKey(child().getOutput().get(idx), true, false))
+                    .map(idx -> new OrderKey(childOutput.get(idx), true, false))
                     .collect(Collectors.toList());
             return new PhysicalProperties(shuffleInfo)
-                    .withOrderSpec(new MustLocalSortOrderSpec(orderKeys));
+                    .withOrderSpec(new OrderSpec(orderKeys));
         }
         // Keep sharing the original Hive-style non-partitioned writer scaling until
         // MaxCompute defines an independent sink-exchange contract.

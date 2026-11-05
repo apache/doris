@@ -465,4 +465,20 @@ class RequestPropertyDeriverTest {
                 Lists.newArrayList(key1.getExprId(), key2.getExprId()), ShuffleType.REQUIRE);
         Assertions.assertTrue(actual.contains(ImmutableList.of(aggProp)) && actual.contains(ImmutableList.of(parentProp)));
     }
+
+    @Test
+    void testMaxComputeWriterContractSurvivesStrictConsistencyDmlOff() {
+        jobContext.getRequiredProperties();
+        PhysicalProperties dynamicPartitionWrite = PhysicalProperties.GATHER;
+        Assertions.assertSame(dynamicPartitionWrite,
+                RequestPropertyDeriver.getMaxComputeRequestProperties(dynamicPartitionWrite, false));
+        Assertions.assertSame(dynamicPartitionWrite,
+                RequestPropertyDeriver.getMaxComputeRequestProperties(dynamicPartitionWrite, true));
+
+        PhysicalProperties parallelUnpartitioned = PhysicalProperties.EXTERNAL_TABLE_SINK_UNPARTITIONED;
+        Assertions.assertSame(PhysicalProperties.ANY,
+                RequestPropertyDeriver.getMaxComputeRequestProperties(parallelUnpartitioned, false));
+        Assertions.assertSame(parallelUnpartitioned,
+                RequestPropertyDeriver.getMaxComputeRequestProperties(parallelUnpartitioned, true));
+    }
 }
