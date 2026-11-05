@@ -23,9 +23,13 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.Planner;
+import org.apache.doris.thrift.TDescriptorTable;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprList;
+import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TQueryOptions;
+import org.apache.doris.thrift.TSlotDescriptor;
+import org.apache.doris.thrift.TTypeNodeType;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -42,6 +46,9 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 public class ShortCircuitQueryContext {
+    // BE Reusable::tuple_desc() consumes tuple 0. Auxiliary tuples, such as a full base-index
+    // tuple created for an explicitly selected rollup, are not row-store decoding inputs.
+    private static final int POINT_QUERY_TUPLE_ID = 0;
     // Cached for better CPU performance, since serialize DescriptorTable and
     // outputExprs are heavy work
     public final Planner planner;
@@ -59,6 +66,7 @@ public class ShortCircuitQueryContext {
     private final long fileCacheQueryLimitBytes;
     private final long partitionTopologyVersion;
     public final String tableName;
+    private final boolean enablePruneNestedColumns;
 
     public final OlapScanNode scanNode;
     public final Queriable analzyedQuery;
@@ -84,11 +92,16 @@ public class ShortCircuitQueryContext {
         return returnTypes;
     }
 
-    public ShortCircuitQueryContext(Planner planner, Queriable analzyedQuery) throws TException {
+    public ShortCircuitQueryContext(Planner planner, Queriable analzyedQuery,
+            SessionVariable effectiveSession) throws TException {
         this.planner = planner;
+        TDescriptorTable descriptors = planner.getDescTable().toThrift();
+        validateDescriptors(descriptors);
         this.serializedDescTable = ByteString.copyFrom(
-                new TSerializer().serialize(planner.getDescTable().toThrift()));
+                new TSerializer().serialize(descriptors));
         TQueryOptions options = planner.getQueryOptions() != null ? planner.getQueryOptions() : new TQueryOptions();
+        // Capture effective planning options here, before StmtExecutor rolls back SET_VAR.
+        this.enablePruneNestedColumns = effectiveSession.enablePruneNestedColumns;
         this.fileCacheQueryLimitBytes = options.isSetFileCacheQueryLimitBytes()
                 ? options.getFileCacheQueryLimitBytes()
                 : -1;
@@ -129,15 +142,37 @@ public class ShortCircuitQueryContext {
         this.schemaVersion = schemaVersion;
         this.fileCacheQueryLimitBytes = fileCacheQueryLimitBytes;
         this.partitionTopologyVersion = tbl.getPartitionTopologyVersion();
+        this.enablePruneNestedColumns = new SessionVariable().enablePruneNestedColumns;
         this.scanNode = null;
         this.analzyedQuery = null;
     }
 
     public boolean isReusable(ConnectContext ctx) {
-        return !this.tbl.isDropped && Objects.equals(this.tableName, this.tbl.getName())
+        return ctx.getSessionVariable().isEnableShortCircuitQuery()
+                && this.enablePruneNestedColumns == ctx.getSessionVariable().enablePruneNestedColumns
+                && !this.tbl.isDropped && Objects.equals(this.tableName, this.tbl.getName())
                 && this.tbl.getBaseSchemaVersion() == this.schemaVersion
                 && this.fileCacheQueryLimitBytes == ctx.getSessionVariable().fileCacheQueryLimitBytes
                 && this.tbl.getPartitionTopologyVersion() == this.partitionTopologyVersion;
+    }
+
+    @VisibleForTesting
+    static void validateDescriptors(TDescriptorTable descriptors) throws TException {
+        if (descriptors.isSetSlotDescriptors()) {
+            for (TSlotDescriptor slot : descriptors.getSlotDescriptors()) {
+                if (slot.getParent() != POINT_QUERY_TUPLE_ID) {
+                    continue;
+                }
+                if ((slot.isSetAllAccessPaths() && !slot.getAllAccessPaths().isEmpty())
+                        || (slot.isSetPredicateAccessPaths() && !slot.getPredicateAccessPaths().isEmpty())
+                        || (slot.isSetColumnPaths() && !slot.getColumnPaths().isEmpty())
+                        || slot.getSlotType().getTypesSize() != 1
+                        || slot.getSlotType().getTypes().get(0).getType() != TTypeNodeType.SCALAR
+                        || slot.getSlotType().getTypes().get(0).getScalarType().getType() == TPrimitiveType.VARIANT) {
+                    throw new TException("Short-circuit point queries require scalar slots without access paths");
+                }
+            }
+        }
     }
 
     public void sanitize() {

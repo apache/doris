@@ -16,13 +16,23 @@
 // under the License.
 
 #include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/Descriptors_constants.h>
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gtest/gtest.h>
 
+#include <string>
+#include <utility>
+#include <vector>
+
 #include "common/object_pool.h"
 #include "core/block/block.h"
+#include "core/block/column_with_type_and_name.h"
+#include "core/column/column_string.h"
+#include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
+#include "core/data_type_serde/data_type_serde.h"
 #include "exprs/vexpr.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
@@ -30,6 +40,8 @@
 #include "runtime/runtime_state.h"
 #include "service/point_query_executor.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/utils.h"
+#include "util/jsonb/serialize.h"
 
 namespace doris {
 
@@ -197,8 +209,151 @@ std::shared_ptr<TabletSchema> ReusableTestHelper::tablet_schema = []() {
         schema->append_column(TabletColumn(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
                                            FieldType::OLAP_FIELD_TYPE_BIGINT));
     }
+    TabletColumn delete_sign;
+    delete_sign.set_name(DELETE_SIGN);
+    delete_sign.set_unique_id(1000);
+    delete_sign.set_type(FieldType::OLAP_FIELD_TYPE_TINYINT);
+    schema->append_column(delete_sign);
     return schema;
 }();
+
+TEST(PointQueryReusableTest, AcceptDescriptorsWithoutAccessPaths) {
+    auto descriptor = ReusableTestHelper::create_descriptor_tablet();
+    for (auto& slot : descriptor.slotDescriptors) {
+        slot.__set_all_access_paths({});
+        slot.__set_predicate_access_paths({});
+    }
+    Reusable reusable;
+    auto status =
+            reusable.init(descriptor, ReusableTestHelper::output_exprs,
+                          ReusableTestHelper::query_options, *ReusableTestHelper::tablet_schema, 2);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+}
+
+TEST(PointQueryReusableTest, RejectAllColumnAccessPaths) {
+    std::vector<TColumnAccessPath> paths;
+    for (const auto& components : std::vector<std::vector<std::string>> {
+                 {"k1"}, {"k1", "leaf"}, {"k1", "OFFSET"}, {"k1", "NULL"}}) {
+        TColumnAccessPath data_path;
+        data_path.__set_type(TAccessPathType::DATA);
+        TDataAccessPath data;
+        data.__set_path(components);
+        data_path.__set_data_access_path(data);
+        paths.push_back(data_path); // Legacy DATA paths have no version field.
+        data_path.__set_version(g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_TYPED);
+        paths.push_back(data_path);
+
+        TColumnAccessPath meta_path;
+        meta_path.__set_type(TAccessPathType::META);
+        meta_path.__set_version(g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_TYPED);
+        TMetaAccessPath meta;
+        meta.__set_path(components);
+        meta_path.__set_meta_access_path(meta);
+        paths.push_back(meta_path);
+    }
+    paths.emplace_back(); // Even a malformed path must not bypass the guard.
+    for (size_t path_idx = 0; path_idx < paths.size(); ++path_idx) {
+        SCOPED_TRACE(path_idx);
+        for (const bool predicate : {false, true}) {
+            SCOPED_TRACE(predicate);
+            auto descriptor = ReusableTestHelper::create_descriptor_tablet();
+            auto& slot = descriptor.slotDescriptors[0];
+            slot.__set_all_access_paths(predicate ? TColumnAccessPaths {}
+                                                  : TColumnAccessPaths {paths[path_idx]});
+            slot.__set_predicate_access_paths(predicate ? TColumnAccessPaths {paths[path_idx]}
+                                                        : TColumnAccessPaths {});
+            Reusable reusable;
+            auto status = reusable.init(descriptor, ReusableTestHelper::output_exprs,
+                                        ReusableTestHelper::query_options,
+                                        *ReusableTestHelper::tablet_schema, 2);
+            ASSERT_FALSE(status.ok());
+            EXPECT_NE(status.to_string().find("does not support column access paths"),
+                      std::string::npos);
+            EXPECT_NE(status.to_string().find("k1"), std::string::npos);
+        }
+    }
+}
+
+TEST(PointQueryReusableTest, RejectFullStructRootAccessPaths) {
+    TabletSchema schema;
+    schema.copy_from(*ReusableTestHelper::tablet_schema);
+    TabletColumn column;
+    column.set_name("typed");
+    column.set_unique_id(100);
+    column.set_type(FieldType::OLAP_FIELD_TYPE_STRUCT);
+    TabletColumn child;
+    child.set_name("leaf");
+    child.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    column.add_sub_column(child);
+    schema.append_column(column);
+
+    auto descriptor = ReusableTestHelper::create_descriptor_tablet();
+    descriptor.slotDescriptors.resize(1);
+    auto& slot = descriptor.slotDescriptors[0];
+    slot.__set_colName("typed");
+    slot.__set_col_unique_id(100);
+    const DataTypePtr full_type = std::make_shared<DataTypeStruct>(
+            DataTypes {std::make_shared<DataTypeString>()}, Strings {"leaf"});
+    slot.__set_slotType(full_type->to_thrift());
+    TColumnAccessPath root;
+    root.__set_type(TAccessPathType::DATA);
+    TDataAccessPath data;
+    data.__set_path({"typed"});
+    root.__set_data_access_path(data);
+    for (const bool predicate : {false, true}) {
+        slot.__set_all_access_paths(predicate ? TColumnAccessPaths {} : TColumnAccessPaths {root});
+        slot.__set_predicate_access_paths(predicate ? TColumnAccessPaths {root}
+                                                    : TColumnAccessPaths {});
+        Reusable reusable;
+        auto status = reusable.init(descriptor, ReusableTestHelper::output_exprs,
+                                    ReusableTestHelper::query_options, schema, 2);
+        ASSERT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("does not support column access paths"),
+                  std::string::npos);
+    }
+}
+
+TEST(PointQueryReusableTest, MissingScalarWithoutPathsUsesPayloadOrFeDefault) {
+    const DataTypePtr string_type = std::make_shared<DataTypeString>();
+    const std::string stored_value = "payload";
+    for (const bool payload_has_uid : {false, true}) {
+        TabletColumn source_column;
+        source_column.set_name("source");
+        source_column.set_unique_id(payload_has_uid ? 100 : 99);
+        source_column.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+        TabletSchema source_schema;
+        source_schema.append_column(source_column);
+        auto values = string_type->create_column();
+        values->insert_data(stored_value.data(), stored_value.size());
+        Block source;
+        source.insert({std::move(values), string_type, "source"});
+        auto jsonb_column = ColumnString::create();
+        JsonbSerializeUtil::block_to_jsonb(source_schema, source, *jsonb_column, 1,
+                                           DataTypeSerDeSPtrs {string_type->get_serde()}, {});
+        auto descriptor = ReusableTestHelper::create_descriptor_tablet();
+        descriptor.slotDescriptors.resize(1);
+        auto& slot = descriptor.slotDescriptors[0];
+        slot.__set_colName("new_column");
+        slot.__set_col_unique_id(100);
+        slot.__set_slotType(string_type->to_thrift());
+        slot.__set_nullIndicatorBit(-1);
+        slot.__set_col_default_value("abcd");
+
+        Reusable reusable;
+        auto status = reusable.init(descriptor, ReusableTestHelper::output_exprs,
+                                    ReusableTestHelper::query_options,
+                                    *ReusableTestHelper::tablet_schema, 1);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        Block decoded(reusable.tuple_desc()->slots(), 1);
+        status = JsonbSerializeUtil::jsonb_to_block(reusable.get_data_type_serdes(), *jsonb_column,
+                                                    reusable.get_col_uid_to_idx(), decoded,
+                                                    reusable.get_col_default_values(), {});
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        ASSERT_EQ(decoded.rows(), 1);
+        EXPECT_EQ(decoded.get_by_position(0).column->get_data_at(0).to_string(),
+                  payload_has_uid ? stored_value : "abcd");
+    }
+}
 
 // RowCache test class
 class RowCacheTest : public testing::Test {

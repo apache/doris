@@ -313,7 +313,7 @@ public class ExecuteCommandTest {
 
         // A real ShortCircuitQueryContext (built from a mocked planner) that passes isReusable().
         Planner planner = Mockito.mock(Planner.class);
-        Mockito.when(planner.getQueryOptions()).thenReturn(new TQueryOptions());
+        Mockito.when(planner.getQueryOptions()).thenReturn(new TQueryOptions().setEnablePruneNestedColumn(true));
         DescriptorTable descriptorTable = new DescriptorTable();
         descriptorTable.createTupleDescriptor();
         Mockito.when(planner.getDescTable()).thenReturn(descriptorTable);
@@ -325,7 +325,8 @@ public class ExecuteCommandTest {
         Mockito.when(scanNode.getTableNameInPlan()).thenReturn("tbl");
         Mockito.when(scanNode.getConjuncts()).thenReturn(Collections.emptyList());
         Mockito.when(planner.getScanNodes()).thenReturn(Collections.singletonList(scanNode));
-        ShortCircuitQueryContext cachedPlan = new ShortCircuitQueryContext(planner, Mockito.mock(Queriable.class));
+        ShortCircuitQueryContext cachedPlan = new ShortCircuitQueryContext(planner, Mockito.mock(Queriable.class),
+                new SessionVariable());
         preparedStatement.shortCircuitQueryContext = Optional.of(cachedPlan);
 
         StmtExecutor executor = Mockito.mock(StmtExecutor.class);
@@ -348,6 +349,84 @@ public class ExecuteCommandTest {
                 "the fast path installs the validated cache on the fresh context (second, reusable EXECUTE)");
         Mockito.verify(executor, Mockito.times(2)).executeAndSendResult(Mockito.anyBoolean(), Mockito.anyBoolean(),
                 Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    public void testRoutingHintsRequirePlanning() {
+        Assertions.assertTrue(ExecuteCommand.hasShortCircuitRoutingHint(parseWithContext(
+                "select /*+ SET_VAR(enable_prune_nested_column=true) */ v from t where k=1")));
+        Assertions.assertTrue(ExecuteCommand.hasShortCircuitRoutingHint(parseWithContext(
+                "select /*+ SET_VAR(enable_short_circuit_query=true) */ v from t where k=1")));
+        Assertions.assertFalse(ExecuteCommand.hasShortCircuitRoutingHint(parseWithContext(
+                "select v from t where k=1")));
+    }
+
+    @Test
+    public void testFallbackClearsInheritedShortCircuitEligibility() throws Exception {
+        for (int scenario = 0; scenario < 3; scenario++) {
+            boolean hasCachedPlan = scenario != 0;
+            String hint = scenario == 2 ? "/*+ SET_VAR(enable_prune_nested_column=true) */" : "";
+            String sql = "select " + hint + " v from tbl where k=1";
+            LogicalPlan plan = parseWithContext(sql);
+            ConnectContext connection = Mockito.spy(new ConnectContext());
+            StatementContext previous = new StatementContext(connection, new OriginStatement(sql, 0));
+            previous.setShortCircuitQuery(true);
+            connection.setStatementContext(previous);
+            PrepareCommand prepare = new PrepareCommand("stmt", plan, Collections.emptyList(),
+                    new OriginStatement(sql, 0));
+            PreparedStatementContext prepared = new PreparedStatementContext(prepare, connection, previous, "stmt");
+            if (hasCachedPlan) {
+                ShortCircuitQueryContext cached = Mockito.mock(ShortCircuitQueryContext.class);
+                // A routing hint requires refresh even if the cached metadata remains reusable.
+                Mockito.when(cached.isReusable(connection)).thenReturn(!hint.isEmpty());
+                prepared.shortCircuitQueryContext = Optional.of(cached);
+            }
+            Mockito.doReturn(prepared).when(connection).getPreparedStementContext("stmt");
+            StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+            Mockito.when(executor.getContext()).thenReturn(connection);
+            Mockito.doAnswer(invocation -> {
+                connection.setStatementContext(invocation.getArgument(0));
+                return null;
+            }).when(executor).setStatementContext(Mockito.any());
+            Mockito.doAnswer(ignored -> {
+                Assertions.assertFalse(prepared.getStatementContext().isShortCircuitQuery());
+                Assertions.assertNull(prepared.getStatementContext().getShortCircuitQueryContext());
+                Assertions.assertFalse(prepared.shortCircuitQueryContext.isPresent());
+                return null;
+            }).when(executor).execute();
+            ConnectContext threadContext = ConnectContext.get();
+            connection.setThreadLocalInfo();
+            try {
+                new ExecuteCommand("stmt", prepare, previous).run(connection, executor);
+                Mockito.verify(executor).execute();
+                if (hasCachedPlan) {
+                    Assertions.assertNotSame(prepare, prepared.command,
+                            "stale cached plans must retain upstream reparse behavior");
+                } else {
+                    Assertions.assertSame(prepare, prepared.command);
+                }
+            } finally {
+                ConnectContext.remove();
+                if (threadContext != null) {
+                    threadContext.setThreadLocalInfo();
+                }
+            }
+        }
+    }
+
+    private LogicalPlan parseWithContext(String sql) {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext parsing = new ConnectContext();
+        parsing.setStatementContext(new StatementContext(parsing, new OriginStatement(sql, 0)));
+        parsing.setThreadLocalInfo();
+        try {
+            return new NereidsParser().parseSingle(sql);
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
     }
 
     private String resolveNextSnapshot(TableScanParams scanParams, AtomicInteger snapshotId) {

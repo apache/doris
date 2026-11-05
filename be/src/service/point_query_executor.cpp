@@ -26,6 +26,7 @@
 #include <google/protobuf/extension_set.h>
 #include <stdlib.h>
 
+#include <algorithm>
 #include <climits>
 #include <memory>
 #include <unordered_map>
@@ -136,6 +137,16 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
     _runtime_state->set_query_options(query_options);
     RETURN_IF_ERROR(DescriptorTbl::create(_runtime_state->obj_pool(), t_desc_tbl, &_desc_tbl));
     _runtime_state->set_desc_tbl(_desc_tbl);
+    // Point queries decode full row-store values and do not interpret access paths.
+    // Keep old FE descriptors with access paths away from the row-store decoder.
+    for (const auto* slot : tuple_desc()->slots()) {
+        if (!slot->all_access_paths().empty() || !slot->predicate_access_paths().empty()) {
+            return Status::InternalError(
+                    "Short-circuit point query does not support column access paths, "
+                    "slot: {}. Please upgrade FE to use normal planning for these queries.",
+                    slot->col_name());
+        }
+    }
     _block_pool.resize(block_size);
     for (auto& i : _block_pool) {
         i = Block::create_unique(tuple_desc()->slots(), 2);
