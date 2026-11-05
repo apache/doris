@@ -138,6 +138,9 @@ suite("part_partition_invalid", "p0,external,external_docker") {
     waitingMTMVTaskFinished(getJobName(olap_db, mv_name))
     order_qt_query_mv_directly """select * from ${mv_name};"""
 
+    // Check partition validity independently of cold external scan cost estimates.
+    query_sql = query_sql.replaceFirst("select", "select /*+ use_mv(${mv_name}) */")
+
     // test query rewrite by mv, should fail ,because materialized_view_rewrite_enable_contain_external_table
     // is false default
     mv_not_part_in(query_sql, mv_name)
