@@ -23,13 +23,17 @@
 #include <string>
 #include <vector>
 
+#include "common/config.h"
 #include "core/assert_cast.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type_serde/data_type_variant_v2_serde.h"
 #include "core/field.h"
 #include "exec/common/variant_util.h"
+#include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "io/fs/file_writer.h"
@@ -46,6 +50,7 @@
 #include "storage/predicate/comparison_predicate.h"
 #include "storage/row_cursor.h"
 #include "storage/rowset/rowset_meta.h"
+#include "storage/rowset/rowset_writer_context.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/row_ranges.h"
 #include "storage/segment/segment.h"
@@ -53,6 +58,7 @@
 #include "storage/segment/test_segment_writer.h"
 #include "storage/tablet/tablet_schema_helper.h"
 #include "storage/utils.h"
+#include "testutil/mock/mock_slot_ref.h"
 
 namespace doris::segment_v2 {
 namespace {
@@ -69,9 +75,10 @@ Field int_field(int32_t value) {
     return Field::create_field<TYPE_INT>(value);
 }
 
-class IntMaxAtLeastExpr final : public VExpr {
+template <PrimitiveType PType>
+class IntegerMaxAtLeastExpr final : public VExpr {
 public:
-    IntMaxAtLeastExpr(int column_id, int32_t threshold)
+    IntegerMaxAtLeastExpr(int column_id, int64_t threshold)
             : _column_id(column_id), _threshold(threshold) {
         _data_type = std::make_shared<DataTypeUInt8>();
     }
@@ -99,15 +106,18 @@ public:
         if (!zone_map->has_not_null) {
             return ZoneMapFilterResult::kNoMatch;
         }
-        return zone_map->max_value.get<TYPE_INT>() >= _threshold ? ZoneMapFilterResult::kMayMatch
-                                                                 : ZoneMapFilterResult::kNoMatch;
+        return zone_map->max_value.get<PType>() >= _threshold ? ZoneMapFilterResult::kMayMatch
+                                                              : ZoneMapFilterResult::kNoMatch;
     }
 
 private:
     int _column_id;
-    int32_t _threshold;
+    int64_t _threshold;
     std::string _expr_name = "int_max_at_least_expr";
 };
+
+using IntMaxAtLeastExpr = IntegerMaxAtLeastExpr<TYPE_INT>;
+using BigIntMaxAtLeastExpr = IntegerMaxAtLeastExpr<TYPE_BIGINT>;
 
 TabletSchemaSPtr make_tablet_schema() {
     auto tablet_schema = std::make_shared<TabletSchema>();
@@ -393,6 +403,261 @@ protected:
     OlapReaderStatistics _stats;
     RuntimeState _runtime_state;
 };
+
+// Exercise real persisted VARIANT subcolumns in both legacy and binary encoding modes.
+class SegmentIteratorVariantExprZonemapTest : public SegmentIteratorExprZonemapTest,
+                                              public testing::WithParamInterface<bool> {
+protected:
+    // Materialized VARIANT leaves use 64KB pages; 8192 BIGINT values fill a page.
+    static constexpr int kVariantNumRows = 32768;
+
+    void SetUp() override {
+        SegmentIteratorExprZonemapTest::SetUp();
+        _saved_binary_encoding = config::enable_binary_zone_map;
+        config::enable_binary_zone_map = GetParam();
+        _tablet_schema = make_schema_with_added_nullable_variant();
+        _tablet_schema->mutable_column(1).set_variant_max_subcolumns_count(10);
+    }
+
+    void TearDown() override {
+        config::enable_binary_zone_map = _saved_binary_encoding;
+        SegmentIteratorExprZonemapTest::TearDown();
+    }
+
+    void build_variant_segment(std::shared_ptr<Segment>* segment) {
+        auto keys = ColumnInt32::create();
+        auto values = ColumnVariantV2::create();
+        auto nulls = ColumnUInt8::create();
+        DataTypeVariantV2SerDe serde;
+        DataTypeSerDe::FormatOptions format_options;
+        for (int rid = 0; rid < kVariantNumRows; ++rid) {
+            keys->insert_value(rid);
+            // Separate scalar, object, missing-path and SQL-NULL runs. JSON integers produce
+            // BIGINT leaves with enough data pages to retain usable zone maps.
+            const std::string json = rid < kVariantNumRows / 2
+                                             ? fmt::format(R"({{"a":{}}})", 100000 + rid)
+                                     : rid < kVariantNumRows * 3 / 4
+                                             ? fmt::format(R"({{"a":{{"b":{}}}}})", 100000 + rid)
+                                             : "{}";
+            Slice slice(json);
+            ASSERT_TRUE(serde.deserialize_one_cell_from_json(*values, slice, format_options).ok());
+            nulls->insert_value(rid >= kVariantNumRows * 7 / 8);
+        }
+        Block block = _tablet_schema->create_storage_block();
+        MutableColumns columns;
+        columns.push_back(std::move(keys));
+        columns.push_back(ColumnNullable::create(std::move(values), std::move(nulls)));
+        block.set_columns(std::move(columns));
+
+        const auto path = std::string(kTestDir) + "/variant_expr_zonemap.dat";
+        auto fs = io::global_local_filesystem();
+        io::FileWriterPtr file_writer;
+        ASSERT_TRUE(fs->create_file(path, &file_writer).ok());
+        RowsetWriterContext rowset_context;
+        rowset_context.tablet_schema = _tablet_schema;
+        VerticalSegmentWriterOptions writer_options;
+        writer_options.rowset_ctx = &rowset_context;
+        VerticalSegmentWriter writer(file_writer.get(), 0, _tablet_schema, nullptr, nullptr,
+                                     writer_options, nullptr);
+        ASSERT_TRUE(writer.init().ok());
+        auto st = writer.append_block(&block, 0, kVariantNumRows);
+        ASSERT_TRUE(st.ok()) << st;
+        uint64_t index_size = 0;
+        uint64_t file_size = 0;
+        ASSERT_TRUE(writer.finalize_columns(&index_size).ok());
+        ASSERT_TRUE(writer.finalize_footer(&file_size).ok());
+        ASSERT_TRUE(file_writer->close().ok());
+        st = Segment::open(fs, path, 100, 0, kRowsetId, _tablet_schema, io::FileReaderOptions {},
+                           segment);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_EQ(kVariantNumRows, (*segment)->num_rows());
+        // Decoding must follow the persisted encoding, independently of the current write flag.
+        config::enable_binary_zone_map = !GetParam();
+    }
+
+    ReadSchemaSPtr path_schema(const std::string& path) {
+        auto column = std::make_shared<TabletColumn>();
+        column->set_unique_id(-1);
+        column->set_parent_unique_id(1);
+        column->set_name(path);
+        column->set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+        column->set_is_nullable(true);
+        column->set_path_info(PathInData(path));
+        return std::make_shared<ReadSchema>(std::vector<TabletColumnPtr> {
+                std::make_shared<TabletColumn>(_tablet_schema->column(0)), std::move(column)});
+    }
+
+    VExprContextSPtr null_predicate(const ReadSchemaSPtr& schema, bool is_null) {
+        TFunctionName name;
+        name.__set_function_name(is_null ? "is_null_pred" : "is_not_null_pred");
+        TFunction fn;
+        fn.__set_name(name);
+        fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+        fn.__set_arg_types({create_type_desc(TYPE_VARIANT)});
+        fn.__set_ret_type(create_type_desc(TYPE_BOOLEAN));
+        fn.__set_has_var_args(false);
+        TExprNode node;
+        node.__set_node_type(TExprNodeType::IS_NULL_PRED);
+        node.__set_type(create_type_desc(TYPE_BOOLEAN));
+        node.__set_fn(fn);
+        node.__set_num_children(1);
+        node.__set_is_nullable(false);
+        auto expr = VectorizedFnCall::create_shared(node);
+        expr->add_child(std::make_shared<MockSlotRef>(1, schema->data_type(1)));
+        return VExprContext::create_shared(expr);
+    }
+
+    void check_physical_zone_maps(const std::shared_ptr<Segment>& segment,
+                                  const ReadSchemaSPtr& schema, StorageReadOptions& read_options) {
+        std::shared_ptr<ColumnReader> reader;
+        auto st = segment->get_column_reader_for_pruning(*schema->column(1), read_options, &reader);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_EQ(TYPE_BIGINT, remove_nullable(reader->get_vec_data_type())->get_primitive_type());
+        ASSERT_TRUE(reader->has_zone_map());
+        ColumnIteratorOptions opts;
+        opts.stats = &_stats;
+        opts.file_reader = segment->file_reader().get();
+        opts.io_ctx = read_options.io_ctx;
+        const std::vector<ZoneMapPB>* pages = nullptr;
+        ASSERT_TRUE(reader->get_page_zone_maps(opts, &pages).ok());
+        ASSERT_NE(nullptr, pages);
+        ASSERT_GT(pages->size(), 1);
+        bool has_valid_bound = false;
+        bool has_all_null_page = false;
+        for (const auto& page : *pages) {
+            if (page.has_not_null() && !page.pass_all()) {
+                EXPECT_EQ(GetParam() ? 1 : 0, page.value_encoding());
+                has_valid_bound = true;
+            }
+            has_all_null_page |= page.has_null() && !page.has_not_null();
+        }
+        ASSERT_TRUE(has_valid_bound);
+        ASSERT_TRUE(has_all_null_page);
+    }
+
+private:
+    bool _saved_binary_encoding = false;
+};
+
+TEST_P(SegmentIteratorVariantExprZonemapTest, PageZoneMapsSkipReconstructedPath) {
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_variant_segment(&segment));
+    auto schema = path_schema("v.a");
+    StorageReadOptions options(_stats);
+    options.io_ctx.reader_type = ReaderType::READER_QUERY;
+    ASSERT_EQ(TYPE_VARIANT,
+              remove_nullable(
+                      segment->get_data_type_of(*schema->column(1), schema->data_type(1), options))
+                      ->get_primitive_type());
+    ASSERT_NO_FATAL_FAILURE(check_physical_zone_maps(segment, schema, options));
+    for (bool is_null : {false, true}) {
+        auto expr = null_predicate(schema, is_null);
+        ASSERT_NO_FATAL_FAILURE(prepare_expr_context(expr));
+        SegmentIterator iter(segment, schema, options);
+        iter._file_reader = segment->file_reader();
+        auto ranges = RowRanges::create_single(kVariantNumRows);
+        auto st = iter._apply_expr_zonemap_to_row_ranges({expr}, 0, &ranges);
+        ASSERT_TRUE(st.ok()) << st;
+        EXPECT_EQ(kVariantNumRows, ranges.count());
+        EXPECT_EQ(0, _stats.expr_zonemap_filtered_pages);
+    }
+}
+
+TEST_P(SegmentIteratorVariantExprZonemapTest, SegmentZoneMapsSkipReconstructedPath) {
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_variant_segment(&segment));
+    auto schema = path_schema("v.a");
+    for (bool is_null : {false, true}) {
+        auto expr = null_predicate(schema, is_null);
+        ASSERT_NO_FATAL_FAILURE(prepare_expr_context(expr));
+        StorageReadOptions options(_stats);
+        options.runtime_state = &_runtime_state;
+        options.io_ctx.reader_type = ReaderType::READER_QUERY;
+        options.common_expr_ctxs_push_down = {expr};
+        const auto unusable_before = _stats.expr_zonemap_unusable_evals;
+        std::unique_ptr<RowwiseIterator> iter;
+        auto st = segment->new_iterator(schema, options, &iter);
+        ASSERT_TRUE(st.ok()) << st;
+        EXPECT_FALSE(iter->empty());
+        EXPECT_GT(_stats.expr_zonemap_unusable_evals, unusable_before);
+        EXPECT_EQ(0, _stats.expr_zonemap_filtered_segments);
+    }
+}
+
+TEST_P(SegmentIteratorVariantExprZonemapTest, SegmentZoneMapsStillPruneScalarLeaf) {
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_variant_segment(&segment));
+    auto schema = path_schema("v.a.b");
+    auto expr = std::make_shared<VExprContext>(std::make_shared<BigIntMaxAtLeastExpr>(1, 200000));
+    ASSERT_NO_FATAL_FAILURE(prepare_expr_context(expr));
+    StorageReadOptions options(_stats);
+    options.runtime_state = &_runtime_state;
+    options.io_ctx.reader_type = ReaderType::READER_QUERY;
+    options.common_expr_ctxs_push_down = {expr};
+    std::unique_ptr<RowwiseIterator> iter;
+    auto st = segment->new_iterator(schema, options, &iter);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_TRUE(iter->empty());
+    EXPECT_EQ(1, _stats.expr_zonemap_filtered_segments);
+}
+
+TEST_P(SegmentIteratorVariantExprZonemapTest, QueryPreservesScalarObjectAndNullRows) {
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_variant_segment(&segment));
+    auto schema = path_schema("v.a");
+    for (bool is_null : {false, true}) {
+        auto expr = null_predicate(schema, is_null);
+        ASSERT_NO_FATAL_FAILURE(prepare_expr_context(expr));
+        StorageReadOptions options(_stats);
+        options.runtime_state = &_runtime_state;
+        options.io_ctx.reader_type = ReaderType::READER_QUERY;
+        options.common_expr_ctxs_push_down = {expr};
+        std::unique_ptr<RowwiseIterator> iter;
+        ASSERT_TRUE(segment->new_iterator(schema, options, &iter).ok());
+        int expected_id = is_null ? kVariantNumRows * 3 / 4 : 0;
+        while (true) {
+            Block block = schema->create_read_block();
+            auto st = iter->next_batch(&block);
+            if (st.is<ErrorCode::END_OF_FILE>()) {
+                break;
+            }
+            ASSERT_TRUE(st.ok()) << st;
+            const auto& keys = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+            for (size_t row = 0; row < block.rows(); ++row) {
+                EXPECT_EQ(expected_id++, keys.get_element(row));
+            }
+        }
+        EXPECT_EQ(is_null ? kVariantNumRows : kVariantNumRows * 3 / 4, expected_id);
+    }
+}
+
+TEST_P(SegmentIteratorVariantExprZonemapTest, PageZoneMapsStillPruneScalarLeaf) {
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_variant_segment(&segment));
+    auto schema = path_schema("v.a.b");
+    StorageReadOptions options(_stats);
+    options.io_ctx.reader_type = ReaderType::READER_QUERY;
+    ASSERT_EQ(TYPE_BIGINT, remove_nullable(segment->get_data_type_of(*schema->column(1),
+                                                                     schema->data_type(1), options))
+                                   ->get_primitive_type());
+    ASSERT_NO_FATAL_FAILURE(check_physical_zone_maps(segment, schema, options));
+    auto expr = null_predicate(schema, false);
+    ASSERT_NO_FATAL_FAILURE(prepare_expr_context(expr));
+    SegmentIterator iter(segment, schema, options);
+    iter._file_reader = segment->file_reader();
+    auto ranges = RowRanges::create_single(kVariantNumRows);
+    auto st = iter._apply_expr_zonemap_to_row_ranges({expr}, 0, &ranges);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_GT(_stats.expr_zonemap_filtered_pages, 0);
+    EXPECT_LT(ranges.count(), kVariantNumRows);
+    RowRanges matching_rows;
+    matching_rows.add(RowRange(kVariantNumRows / 2, kVariantNumRows * 3 / 4));
+    RowRanges overlap;
+    RowRanges::ranges_intersection(ranges, matching_rows, &overlap);
+    EXPECT_EQ(kVariantNumRows / 4, overlap.count());
+}
+
+INSTANTIATE_TEST_SUITE_P(Encodings, SegmentIteratorVariantExprZonemapTest, testing::Bool());
 
 TEST_F(SegmentIteratorExprZonemapTest, NewIteratorPrunesWholeSegmentByExprZonemap) {
     std::shared_ptr<Segment> segment;

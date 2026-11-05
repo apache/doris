@@ -68,21 +68,8 @@ struct ZoneMap {
 
     bool has_nan = false;
 
-    void to_proto(ZoneMapPB* dst, const DataTypePtr& data_type) const {
-        if (pass_all || !has_not_null) {
-            dst->set_min("");
-            dst->set_max("");
-        } else {
-            dst->set_min(data_type->get_serde()->to_olap_string(min_value));
-            dst->set_max(data_type->get_serde()->to_olap_string(max_value));
-        }
-        dst->set_has_null(has_null);
-        dst->set_has_not_null(has_not_null);
-        dst->set_pass_all(pass_all);
-        dst->set_has_positive_inf(has_positive_inf);
-        dst->set_has_negative_inf(has_negative_inf);
-        dst->set_has_nan(has_nan);
-    }
+    void to_proto(ZoneMapPB* dst, const DataTypePtr& data_type,
+                  bool use_binary_encoding = false) const;
 
     static Status from_proto(const ZoneMapPB& zone_map, const DataTypePtr& data_type,
                              ZoneMap& zone_map_info);
@@ -160,6 +147,7 @@ private:
     void _materialize_page_minmax();
 
     DataTypePtr _data_type;
+    const bool _use_binary_encoding;
     ZoneMap _page_zone_map;
     ZoneMap _segment_zone_map;
     // Running min/max for the current page kept as raw ValType.
