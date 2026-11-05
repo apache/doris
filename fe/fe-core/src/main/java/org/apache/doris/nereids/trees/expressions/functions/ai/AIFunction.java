@@ -50,6 +50,11 @@ public abstract class AIFunction extends ScalarFunction
     public abstract int getMaxArgsNum();
 
     @Override
+    public boolean isDeterministic() {
+        return false;
+    }
+
+    @Override
     public void checkLegalityAfterRewrite() {
         if (arity() == getMaxArgsNum()) {
             //The resource must be literal
