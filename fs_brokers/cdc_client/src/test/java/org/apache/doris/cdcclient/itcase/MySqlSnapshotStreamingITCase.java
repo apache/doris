@@ -97,6 +97,7 @@ class MySqlSnapshotStreamingITCase {
                                         "initial"),
                                 "snapshot-streaming",
                                 0);
+        assertThat(config.getFetchSize()).isEqualTo(Integer.MIN_VALUE);
 
         try (MySqlConnection jdbc = DebeziumUtils.createMySqlConnection(config)) {
             // Use the same statement builder as snapshot splits, including an unbounded split.
