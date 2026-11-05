@@ -2169,6 +2169,29 @@ public abstract class RoutineLoadJob
 
     public abstract void modifyProperties(AlterRoutineLoadCommand command) throws UserException;
 
+    /**
+     * Checks the workload group an ALTER leaves the job with, in the compute group the ALTER leaves the job in, as
+     * CREATE does and as every task resolves it ({@code KafkaTaskInfo#rePlan}): as the owner, whom the tasks run
+     * as. One that group does not have, or the owner may not use, would otherwise fail every task with the
+     * retryable CREATE_TASKS_ERR, which auto resume repeats for good. Only an ALTER that sets a workload group or
+     * declares a compute group changes what the tasks look up; a workload group it does not set is the one the
+     * job keeps. Called on the statement thread under the job's write lock, so that of two ALTERs running at once
+     * the later one checks what the earlier one left; never when an ALTER is replayed.
+     */
+    protected void checkAlteredWorkloadGroup(Map<String, String> alteredJobProperties) throws UserException {
+        String declaredComputeGroup = alteredJobProperties.get(COMPUTE_GROUP);
+        String alteredWorkloadGroup = alteredJobProperties.get(WORKLOAD_GROUP);
+        if (StringUtils.isEmpty(declaredComputeGroup) && StringUtils.isEmpty(alteredWorkloadGroup)) {
+            return;
+        }
+        String workloadGroup = StringUtils.isEmpty(alteredWorkloadGroup) ? getWorkloadGroup() : alteredWorkloadGroup;
+        if (StringUtils.isEmpty(workloadGroup)) {
+            return;
+        }
+        CreateRoutineLoadInfo.checkWorkloadGroup(getUserIdentity(), workloadGroup,
+                StringUtils.isEmpty(declaredComputeGroup) ? getCloudCluster() : declaredComputeGroup);
+    }
+
     public abstract void replayModifyProperties(AlterRoutineLoadJobOperationLog log);
 
     public abstract NereidsRoutineLoadTaskInfo toNereidsRoutineLoadTaskInfo() throws UserException;
