@@ -46,14 +46,23 @@ public class InfoSchemaDb extends MysqlCompatibleDatabase {
         return catalogName + "." + dbName;
     }
 
-    /** The inverse of {@link #getMysqlTableSchema}, for a name that arrives from a client. */
+    /**
+     * The inverse of {@link #getMysqlTableSchema}, for a name that arrives from a client.
+     *
+     * <p>Only the catalog qualifier added by {@link #getMysqlTableSchema} is removed. The
+     * database name itself may contain dots, e.g. a nested Iceberg namespace {@code a.b}, so
+     * the name must not be split on dots.
+     */
     public static String getDbNameFromMysqlTableSchema(String catalogName, String schemaName) {
+        if (!GlobalVariable.showFullDbNameInInfoSchemaDb) {
+            return schemaName;
+        }
         if (InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalogName)) {
             return schemaName;
         }
-        String[] parts = schemaName.split("\\.");
-        if (parts.length == 2) {
-            return parts[1];
+        String prefix = catalogName + ".";
+        if (schemaName.startsWith(prefix)) {
+            return schemaName.substring(prefix.length());
         }
         return schemaName;
     }
