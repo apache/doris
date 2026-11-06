@@ -112,8 +112,8 @@ suite("test_search_input_binding", "p0") {
         contains "search("
         contains "sub path: [city]"
     }
-    // Each branch has a different physical column name for the same output.
-    explain {
+    // A set-operation output has no unique source index or analyzer.
+    test {
         sql """
             SELECT id FROM (
                 SELECT id, title AS label FROM search_input_left
@@ -121,11 +121,9 @@ suite("test_search_input_binding", "p0") {
                 SELECT id, body FROM search_input_right
             ) t WHERE search('label:hello') ORDER BY id
         """
-        contains "search_input_left"
-        contains "search_input_right"
-        multiContains "search(", 2
+        exception "search() is only supported in filters directly on an OLAP table scan"
     }
-    explain {
+    test {
         sql """
             SELECT id FROM (
                 SELECT id, title AS label FROM search_input_left
@@ -133,11 +131,9 @@ suite("test_search_input_binding", "p0") {
                 SELECT id - 3, body FROM search_input_right
             ) t WHERE search('label:hello') ORDER BY id
         """
-        contains "search_input_left"
-        contains "search_input_right"
-        multiContains "search(", 2
+        exception "search() is only supported in filters directly on an OLAP table scan"
     }
-    explain {
+    test {
         sql """
             SELECT id FROM (
                 SELECT id, v AS doc FROM search_input_left
@@ -145,10 +141,7 @@ suite("test_search_input_binding", "p0") {
                 SELECT id, payload FROM search_input_right
             ) t WHERE search('doc.city:beijing') ORDER BY id
         """
-        contains "search_input_left"
-        contains "search_input_right"
-        multiContains "search(", 2
-        contains "sub path: [city]"
+        exception "search() is only supported in filters directly on an OLAP table scan"
     }
 
     // Binding uses only visible input columns and still requires a unique name.
@@ -194,6 +187,6 @@ suite("test_search_input_binding", "p0") {
                 UNION ALL
                 SELECT id, plain_body FROM search_input_right
             ) t WHERE search('label:hello')"""
-        exception "Field 'plain_body' has no inverted index"
+        exception "search() is only supported in filters directly on an OLAP table scan"
     }
 }

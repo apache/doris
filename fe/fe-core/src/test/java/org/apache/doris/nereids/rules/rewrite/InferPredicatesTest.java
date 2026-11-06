@@ -23,7 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
-import org.apache.doris.nereids.trees.expressions.NonInferableExpression;
+import org.apache.doris.nereids.trees.expressions.SourceDependentExpression;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.DistributeType;
@@ -827,7 +827,7 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
 
     private long countNonInferablePredicates(Plan plan) {
         return plan.getExpressions().stream()
-                .filter(expr -> expr.containsType(NonInferableExpression.class)).count()
+                .filter(expr -> expr.containsType(SourceDependentExpression.class)).count()
                 + plan.children().stream().mapToLong(this::countNonInferablePredicates).sum();
     }
 

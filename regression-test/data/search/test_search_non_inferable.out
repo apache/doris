@@ -21,3 +21,8 @@ hello world
 -- !multi_match_partial_constant --
 1
 
+-- !search_branch_except --
+
+-- !search_branch_union --
+hello world
+

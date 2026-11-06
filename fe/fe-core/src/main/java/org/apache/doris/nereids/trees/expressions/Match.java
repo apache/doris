@@ -37,7 +37,7 @@ import java.util.Optional;
  * like expression: a MATCH 'hello'.
  */
 public abstract class Match extends BinaryOperator
-        implements PropagateNullable, PreferPushDownProject, NonInferableExpression {
+        implements PropagateNullable, PreferPushDownProject, SourceDependentExpression {
 
     private final Optional<String> analyzer;
 

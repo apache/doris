@@ -417,17 +417,20 @@ public class CheckSearchUsageTest extends TestWithFeService implements MemoPatte
     }
 
     @Test
-    public void testSearchBindsUnionOutput() {
-        PlanChecker.from(connectContext)
-                .analyze("SELECT id FROM (SELECT id, title AS label FROM test_search_table "
-                        + "UNION ALL SELECT id, body FROM test_search_input_other) t WHERE search('label:hello')")
-                .rewrite()
-                .matches(logicalFilter(logicalOlapScan()).when(filter -> filter.getExpressions().stream()
-                        .anyMatch(expr -> expr.anyMatch(e -> e instanceof SearchExpression
-                                && ((SlotReference) e.child(0)).getOriginalColumn().get().getName().equals("title")))))
-                .matches(logicalFilter(logicalOlapScan()).when(filter -> filter.getExpressions().stream()
-                        .anyMatch(expr -> expr.anyMatch(e -> e instanceof SearchExpression
-                                && ((SlotReference) e.child(0)).getOriginalColumn().get().getName().equals("body")))));
+    public void testSearchAboveSetOperationRejected() {
+        for (String operator : new String[] {"UNION ALL", "UNION", "INTERSECT", "EXCEPT"}) {
+            for (String predicate : new String[] {"search('label:hello')",
+                    "search('label:hello') AND id > 0", "search('label:hello') OR id > 0",
+                    "NOT search('label:hello')"}) {
+                AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () ->
+                        PlanChecker.from(connectContext)
+                                .analyze("SELECT id FROM (SELECT id, title AS label FROM test_search_table "
+                                        + operator + " SELECT id, body FROM test_search_input_other) t WHERE " + predicate)
+                                .rewrite());
+                Assertions.assertTrue(exception.getMessage().contains("filters directly on an OLAP table scan"),
+                        exception.getMessage());
+            }
+        }
     }
 
     @Test
@@ -459,12 +462,12 @@ public class CheckSearchUsageTest extends TestWithFeService implements MemoPatte
     }
 
     @Test
-    public void testSearchChecksEachUnionBranchIndex() {
+    public void testSearchAboveUnionWithoutBranchIndexRejected() {
         PlanChecker checker = PlanChecker.from(connectContext)
                 .analyze("SELECT id FROM (SELECT id, title AS label FROM test_search_table "
                         + "UNION ALL SELECT id, plain FROM test_search_input_other) t WHERE search('label:hello')");
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class, checker::rewrite);
-        Assertions.assertTrue(exception.getMessage().contains("Field 'plain' has no inverted index"),
+        Assertions.assertTrue(exception.getMessage().contains("filters directly on an OLAP table scan"),
                 exception.getMessage());
     }
 

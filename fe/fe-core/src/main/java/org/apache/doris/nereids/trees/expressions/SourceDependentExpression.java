@@ -18,11 +18,12 @@
 package org.apache.doris.nereids.trees.expressions;
 
 /**
- * Marks expressions that must not be used to derive additional predicates by equivalent-expression
- * substitution or propagation to sibling plan branches. For example, a search predicate depends on
- * its source column's index and analyzer, which an equivalent column may not share.
+ * Marks expressions whose semantics depend on their source columns, including index and analyzer
+ * metadata, rather than column values alone.
  *
- * <p>This trait does not prevent normal predicate pushdown, alias substitution, or pruning.
+ * <p>Rewrites must preserve the original column source. Value equivalence alone does not justify
+ * substitution or propagation to another source, including pushdown through set operations.
+ * Alias substitution and predicate movement that preserve the source are allowed.
  */
-public interface NonInferableExpression {
+public interface SourceDependentExpression {
 }

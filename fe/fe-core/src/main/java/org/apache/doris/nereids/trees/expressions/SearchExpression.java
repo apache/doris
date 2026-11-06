@@ -32,7 +32,7 @@ import java.util.Optional;
  * SearchExpression represents a search query with bound slot references.
  * This is created by RewriteSearchToSlots rule from Search scalar function.
  */
-public class SearchExpression extends Expression implements NonInferableExpression {
+public class SearchExpression extends Expression implements SourceDependentExpression {
     private final String dslString;
     // The second argument of search(dsl, options), kept so that toSql() reproduces the call.
     private final Optional<String> optionsJson;

@@ -27,11 +27,11 @@ import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.MatchAny;
 import org.apache.doris.nereids.trees.expressions.MatchPhrase;
-import org.apache.doris.nereids.trees.expressions.NonInferableExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.SourceDependentExpression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
@@ -140,7 +140,7 @@ public class InferPredicateByReplaceTest {
         Assertions.assertEquals(inputs, PredicateInferUtils.inferAllPredicate(inputs));
     }
 
-    private static class NonInferableLike extends Like implements NonInferableExpression {
+    private static class NonInferableLike extends Like implements SourceDependentExpression {
         NonInferableLike(Expression left, Expression right) {
             super(left, right);
         }

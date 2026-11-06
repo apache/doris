@@ -49,4 +49,21 @@ suite("test_search_non_inferable", "p0") {
         WHERE title = 'hello world' AND multi_match(title, 'any', 'hello') ORDER BY id"""
     qt_multi_match_partial_constant """SELECT id FROM search_non_inferable
         WHERE title = 'hello world' AND multi_match(title, body, 'any', 'hello') ORDER BY id"""
+    // Outer SEARCH must not acquire a different analyzer in each set-operation branch.
+    ["UNION ALL", "UNION", "INTERSECT", "EXCEPT"].each { operator ->
+        ["search('label:hello')", "search('label:hello') AND id > 0",
+         "search('label:hello') OR id > 0", "NOT search('label:hello')"].each { predicate ->
+            test {
+                sql """SELECT label FROM (
+                    SELECT id, title AS label FROM search_non_inferable
+                    ${operator} SELECT id, body FROM search_non_inferable
+                ) s WHERE ${predicate}"""
+                exception "search() is only supported in filters directly on an OLAP table scan"
+            }
+        }
+    }
+    qt_search_branch_except """SELECT title FROM search_non_inferable WHERE search('title:hello')
+        EXCEPT SELECT body FROM search_non_inferable ORDER BY 1"""
+    qt_search_branch_union """SELECT title FROM search_non_inferable WHERE search('title:hello')
+        UNION ALL SELECT body FROM search_non_inferable WHERE search('body:hello') ORDER BY 1"""
 }
