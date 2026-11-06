@@ -59,11 +59,11 @@ suite("sparse_ancestor_promotion", "p0") {
                     int id = batch * 5
                     int value = batch * 100
                     sql """INSERT INTO ${tableName} VALUES
-                        (${id + 1}, parse_to_variant('{"a":${value + 1},"hot_${batch}":1}')),
-                        (${id + 2}, parse_to_variant('{"a":${value + 2},"hot_${batch}":2}')),
-                        (${id + 3}, parse_to_variant('{"hot_${batch}":3}')),
-                        (${id + 4}, parse_to_variant('{"hot_${batch}":4}')),
-                        (${id + 5}, parse_to_variant('{"a":{"b":${value + 5}},"hot_${batch}":5}'))
+                        (${id + 1}, '{"a":${value + 1},"hot_${batch}":1}'),
+                        (${id + 2}, '{"a":${value + 2},"hot_${batch}":2}'),
+                        (${id + 3}, '{"hot_${batch}":3}'),
+                        (${id + 4}, '{"hot_${batch}":4}'),
+                        (${id + 5}, '{"a":{"b":${value + 5}},"hot_${batch}":5}')
                     """
                 }
                 def projection = """SELECT id, CAST(v['a'] AS STRING), v['a']['b'],
@@ -76,11 +76,11 @@ suite("sparse_ancestor_promotion", "p0") {
                 // Add another source with a sparse ancestor and compact against the new
                 // materialized ancestor, exercising both sides of the promotion boundary.
                 sql """INSERT INTO ${tableName} VALUES
-                    (16, parse_to_variant('{"a":301,"hot_3":1}')),
-                    (17, parse_to_variant('{"a":302,"hot_3":2}')),
-                    (18, parse_to_variant('{"hot_3":3}')),
-                    (19, parse_to_variant('{"hot_3":4}')),
-                    (20, parse_to_variant('{"a":{"b":305},"hot_3":5}'))
+                    (16, '{"a":301,"hot_3":1}'),
+                    (17, '{"a":302,"hot_3":2}'),
+                    (18, '{"hot_3":3}'),
+                    (19, '{"hot_3":4}'),
+                    (20, '{"a":{"b":305},"hot_3":5}')
                 """
                 qt_before_second projection
                 trigger_and_wait_compaction(tableName, "full", 1800)

@@ -68,7 +68,7 @@ suite("sparse_ancestor_promotion_extended", "p0,nonConcurrent") {
                 value['a-'] = batch + 200
                 value['a%2Eb'] = batch + 300
             }
-            rows.add("(${batch * 6 + row + 1}, parse_to_variant('${JsonOutput.toJson(value)}'))")
+            rows.add("(${batch * 6 + row + 1}, '${JsonOutput.toJson(value)}')")
         }
         sql "INSERT INTO sparse_ancestor_extended_deep VALUES ${rows.join(',')}"
     }
@@ -99,7 +99,7 @@ suite("sparse_ancestor_promotion_extended", "p0,nonConcurrent") {
                 } else if (row == 4) {
                     value['p'] = wrap([child: [leaf: batch + 500]])
                 }
-                rows.add("(${200 + batch * 6 + row}, parse_to_variant('${JsonOutput.toJson(value)}'))")
+                rows.add("(${200 + batch * 6 + row}, '${JsonOutput.toJson(value)}')")
             }
             sql "INSERT INTO sparse_ancestor_extended_deep VALUES ${rows.join(',')}"
         }
@@ -119,20 +119,20 @@ suite("sparse_ancestor_promotion_extended", "p0,nonConcurrent") {
         "storage_format"="V3")"""
     for (int batch = 0; batch < 3; ++batch) {
         sql """INSERT INTO sparse_ancestor_extended_mow VALUES
-            (${batch*5+1},parse_to_variant('{"p":{"a":${batch+10}},"hot_${batch}":1}')),
-            (${batch*5+2},parse_to_variant('{"p":{"a":${batch+20}},"hot_${batch}":2}')),
-            (${batch*5+3},parse_to_variant('{"p":{"a":{"b":${batch+30}}},"hot_${batch}":3}')),
-            (${batch*5+4},parse_to_variant('{"hot_${batch}":4}')),
-            (${batch*5+5},parse_to_variant('{"hot_${batch}":5}'))"""
+            (${batch*5+1},'{"p":{"a":${batch+10}},"hot_${batch}":1}'),
+            (${batch*5+2},'{"p":{"a":${batch+20}},"hot_${batch}":2}'),
+            (${batch*5+3},'{"p":{"a":{"b":${batch+30}}},"hot_${batch}":3}'),
+            (${batch*5+4},'{"hot_${batch}":4}'),
+            (${batch*5+5},'{"hot_${batch}":5}')"""
     }
     def mowProjection = """SELECT id, CAST(v['p'] AS STRING), CAST(v['p']['a'] AS STRING),
         v['p']['a']['b'], CAST(v AS STRING) FROM sparse_ancestor_extended_mow ORDER BY id"""
     compact('sparse_ancestor_extended_mow')
     sql """INSERT INTO sparse_ancestor_extended_mow VALUES
-        (1,parse_to_variant('{"p":{"a":{"b":901}}}')),
-        (3,parse_to_variant('{"p":{"a":903}}')),
-        (6,parse_to_variant('{"p":{"a":[]}}')),
-        (8,parse_to_variant('{"p":{"a":null}}'))"""
+        (1,'{"p":{"a":{"b":901}}}'),
+        (3,'{"p":{"a":903}}'),
+        (6,'{"p":{"a":[]}}'),
+        (8,'{"p":{"a":null}}')"""
     sql "DELETE FROM sparse_ancestor_extended_mow WHERE id=2"
     qt_mow_before_second mowProjection
     compact('sparse_ancestor_extended_mow')
