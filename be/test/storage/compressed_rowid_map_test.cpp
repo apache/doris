@@ -25,6 +25,7 @@
 #include <random>
 #include <vector>
 
+#include "runtime/thread_context.h"
 #include "storage/index/inverted/snii/compaction/rowid_conversion.h"
 #include "storage/rowid_conversion.h"
 
@@ -339,6 +340,47 @@ TEST(CompressedRowIdMapTest, TrackedMemoryIsBalancedAndAllocationFailureIsAStatu
         EXPECT_TRUE(status.is<ErrorCode::MEM_LIMIT_EXCEEDED>()) << status;
     }
     EXPECT_EQ(consumed(), baseline);
+}
+
+TEST(CompressedRowIdMapTest, StorageAlternativesReleaseAllTrackedMemory) {
+    auto tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER, "rowid-storage-test");
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(tracker);
+    const auto consumed = [&] {
+        thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+        return tracker->consumption();
+    };
+    int64_t baseline = consumed();
+    RowsetId rowset;
+    rowset.init(45);
+    using Mode = RowIdConversion::Mode;
+    for (auto mode : {Mode::DENSE, Mode::LAZY_CHUNKED, Mode::COMPRESSED}) {
+        {
+            RowIdConversion map;
+            // Compaction selects storage before registration; replaced alternatives must be freed.
+            map.set_mode(Mode::COMPRESSED);
+            map.set_mode(mode);
+            EXPECT_EQ(map.mode(), mode);
+            ASSERT_TRUE(map.init_segment_map(rowset, {7, 91}, {8193, 4}).ok());
+            ASSERT_TRUE(map.add({RowLocation(rowset, 7, 0), RowLocation(rowset, 91, 2)}, {2}).ok());
+            ASSERT_TRUE(map.add({RowLocation(rowset, 7, 8192)}, {2, 1}).ok());
+            ASSERT_TRUE(map.finalize({2, 1}).ok());
+            ASSERT_TRUE(map.finalize({2, 1}).ok());
+            Map::Cursor cursor;
+            Map::DecodeWorkspace workspace;
+            RowIdConversion::RowIdPair target;
+            auto source = map.find_source(rowset, 7);
+            EXPECT_EQ(source.is_dense(), mode == Mode::DENSE);
+            ASSERT_TRUE(source.get(8192, cursor, workspace, &target).ok());
+            EXPECT_EQ(target, (RowIdConversion::RowIdPair {1, 0}));
+            ASSERT_TRUE(source.get(1, cursor, workspace, &target).ok());
+            EXPECT_EQ(target, (RowIdConversion::RowIdPair {UINT32_MAX, UINT32_MAX}));
+            ASSERT_TRUE(source.get(0, cursor, workspace, &target).ok());
+            EXPECT_EQ(target, (RowIdConversion::RowIdPair {0, 0}));
+            EXPECT_GT(consumed(), baseline);
+        }
+        EXPECT_EQ(consumed(), baseline);
+    }
 }
 
 TEST(CompressedRowIdMapTest, EmptyOutputsSentinelAndZeroLengthDestinationSegments) {
