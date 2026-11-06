@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// SniiBlobDirectory: the read-only lucene::store::Directory shim that lets
-// CLucene/faiss readers consume opaque blob files straight out of an SNII
-// container. Contract pins (design 2026-07-28 §5.1):
+// SniiBlobDirectory: the read-only lucene::store::Directory test shell that lets
+// snii_blob_bkd_roundtrip_test's CLucene bkd_reader consume opaque blob files
+// straight out of an SNII container. Contract pins (design 2026-07-28 §5.1):
 //   * openInput on a 0-length entry returns a length()==0 input -- it must NOT
 //     throw CL_ERR_EmptyIndexSegment (the searcher would mistake an empty BKD
 //     index for a corrupt one);
