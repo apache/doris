@@ -2223,6 +2223,13 @@ public class SchemaChangeHandler extends AlterHandler {
                             }
                         }
 
+                        if (!Config.enable_light_index_change) {
+                            throw new DdlException(
+                                    "DROP INDEX ON PARTITION requires enable_light_index_change=true");
+                        }
+                        checkNoIndexChangeJobOnPartitions(db, olapTable,
+                                ImmutableList.of(found), specifiedPartitions);
+
                         alterIndexes.add(found);
                         indexOnPartitions.put(found.getIndexId(), specifiedPartitions);
                         isDropIndex = true;
@@ -3503,11 +3510,15 @@ public class SchemaChangeHandler extends AlterHandler {
         if (droppedIndexes.isEmpty()) {
             return;
         }
-        Set<String> partitionNames = olapTable.getPartitionNames();
+        checkNoIndexChangeJobOnPartitions(db, olapTable, droppedIndexes, olapTable.getPartitionNames());
+    }
+
+    private void checkNoIndexChangeJobOnPartitions(Database db, OlapTable olapTable, List<Index> alterIndexes,
+            Set<String> partitionNames) throws DdlException {
         for (IndexChangeJob indexChangeJob : ImmutableList.copyOf(indexChangeJobs.values())) {
             if (partitionNames.contains(indexChangeJob.getPartitionName())
                     && isConflictingIndexChangeJob(indexChangeJob, olapTable.getBaseIndexId(), db.getId(),
-                    olapTable.getId(), droppedIndexes)) {
+                    olapTable.getId(), alterIndexes)) {
                 throw new DdlException("partition " + indexChangeJob.getPartitionName() + " of table "
                         + olapTable.getName() + " has an unfinished index change job, please retry after it finishes.");
             }

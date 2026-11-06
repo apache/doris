@@ -26,29 +26,20 @@ suite("test_drop_index_on_partition", "inverted_index") {
     }
 
     def wait_for_build_index_on_partition_finish = { table_name, expected_job_count, OpTimeout ->
-        def useTime = 0
+        assertTrue(expected_job_count > 0, "No index change jobs were created for ${table_name}")
+        def finished = false
         for (int t = delta_time; t <= OpTimeout; t += delta_time) {
             def alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}";"""
-            if (alter_res.size() < expected_job_count) {
-                useTime = t
-                sleep(delta_time)
-                continue
-            }
-            def finished_num = 0
-            for (int i = 0; i < alter_res.size(); i++) {
-                logger.info(table_name + " build index job state: " + alter_res[i][7] + " idx: " + i)
-                if (alter_res[i][7] == "FINISHED") {
-                    ++finished_num
-                }
-            }
-            if (finished_num == alter_res.size()) {
-                logger.info(table_name + " all build index jobs finished, detail: " + alter_res)
+            assertTrue(!alter_res.any { it[7] == "CANCELLED" },
+                    "An index change job was cancelled: ${alter_res}")
+            if (alter_res.size() >= expected_job_count && alter_res.every { it[7] == "FINISHED" }) {
+                logger.info(table_name + " all index change jobs finished: " + alter_res)
+                finished = true
                 break
             }
-            useTime = t
             sleep(delta_time)
         }
-        assertTrue(useTime <= OpTimeout, "wait_for_build_index_on_partition_finish timeout")
+        assertTrue(finished, "Index change jobs did not finish within ${OpTimeout} ms for ${table_name}")
     }
 
     // case 1: basic DROP INDEX ON PARTITION with job count verification
@@ -78,7 +69,7 @@ suite("test_drop_index_on_partition", "inverted_index") {
     sql "CREATE INDEX idx_v2 ON ${tableName1}(v2) USING INVERTED"
     // Build physical files before testing partition deletion.
     build_index_on_table("idx_v2", tableName1)
-    wait_for_last_build_index_finish(tableName1, timeout)
+    wait_for_build_index_on_partition_finish(tableName1, get_build_index_job_count(tableName1), timeout)
 
     // verify index exists
     def show_idx = sql "SHOW INDEX FROM ${tableName1}"
@@ -137,7 +128,7 @@ suite("test_drop_index_on_partition", "inverted_index") {
 
     sql "CREATE INDEX idx_v1 ON ${tableName2}(v1) USING INVERTED"
     build_index_on_table("idx_v1", tableName2)
-    wait_for_last_build_index_finish(tableName2, timeout)
+    wait_for_build_index_on_partition_finish(tableName2, get_build_index_job_count(tableName2), timeout)
 
     job_count_before = get_build_index_job_count(tableName2)
 
@@ -175,7 +166,7 @@ suite("test_drop_index_on_partition", "inverted_index") {
     sql "INSERT INTO ${tableName3} VALUES (1, 'test')"
     sql "CREATE INDEX idx_v1 ON ${tableName3}(v1) USING INVERTED"
     build_index_on_table("idx_v1", tableName3)
-    wait_for_last_build_index_finish(tableName3, timeout)
+    wait_for_build_index_on_partition_finish(tableName3, get_build_index_job_count(tableName3), timeout)
 
     test {
         sql "DROP INDEX idx_v1 ON ${tableName3} PARTITION (p1)"
@@ -254,7 +245,7 @@ suite("test_drop_index_on_partition", "inverted_index") {
 
     sql "CREATE INDEX idx_v1 ON ${tableName5}(v1) USING INVERTED"
     build_index_on_table("idx_v1", tableName5)
-    wait_for_last_build_index_finish(tableName5, timeout)
+    wait_for_build_index_on_partition_finish(tableName5, get_build_index_job_count(tableName5), timeout)
 
     job_count_before = get_build_index_job_count(tableName5)
 
