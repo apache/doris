@@ -975,6 +975,12 @@ public class MetadataGenerator {
 
     private static TFetchSchemaTableDataResult queriesMetadataResult(TSchemaTableRequestParams tSchemaTableParams,
             TFetchSchemaTableDataRequest parentRequest) {
+        if (!tSchemaTableParams.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+        UserIdentity currentUserIdentity = UserIdentity.fromThrift(tSchemaTableParams.getCurrentUserIdent());
+        boolean isAdmin = Env.getCurrentEnv().getAccessManager()
+                .checkGlobalPriv(currentUserIdentity, PrivPredicate.ADMIN);
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
 
         String selfNode = Env.getCurrentEnv().getSelfNode().getHost();
@@ -992,6 +998,11 @@ public class MetadataGenerator {
         for (Map.Entry<String, QueryInfo> entry : queryInfoMap.entrySet()) {
             String queryId = entry.getKey();
             QueryInfo queryInfo = entry.getValue();
+            ConnectContext queryContext = queryInfo.getConnectContext();
+            if (!isAdmin && (queryContext == null
+                    || !currentUserIdentity.equals(queryContext.getCurrentUserIdentity()))) {
+                continue;
+            }
 
             TRow trow = new TRow();
             trow.addToColumnValue(new TCell().setStringVal(queryId));
