@@ -92,6 +92,7 @@ int main(int argc, char** argv) {
     doris::DiskInfo::init();
     doris::MemInfo::init();
     doris::BackendOptions::init();
+    doris::ExecEnv::GetInstance()->init_fluss_union_tail_cache();
 
     auto service = std::make_unique<doris::HttpService>(doris::ExecEnv::GetInstance(), 0, 1);
     auto status = service->start();
@@ -111,6 +112,7 @@ int main(int argc, char** argv) {
     updatePHDRCache();
     try {
         int res = RUN_ALL_TESTS();
+        doris::ExecEnv::GetInstance()->destroy_fluss_union_tail_cache();
         doris::ExecEnv::GetInstance()->set_non_block_close_thread_pool(nullptr);
         return res;
     } catch (doris::Exception& e) {

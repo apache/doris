@@ -107,13 +107,9 @@ public class FlussConnector implements Connector {
         this.properties = properties;
         this.catalogName = context.getCatalogName();
         this.context = context;
-        this.tableInfos = new FlussTableInfoCache(Long.parseLong(properties.getRawCatalogProperties()
-                .getOrDefault(FlussTableInfoCache.TTL_PROPERTY, String.valueOf(FlussTableInfoCache.DEFAULT_TTL_SEC))));
-        this.lakeProperties = new FlussLakePropertiesCache(Long.parseLong(properties.getRawCatalogProperties()
-                .getOrDefault(FlussTableInfoCache.TTL_PROPERTY, String.valueOf(FlussTableInfoCache.DEFAULT_TTL_SEC))));
-        this.partitionCacheTtlSec = Long.parseLong(properties.getRawCatalogProperties()
-                .getOrDefault(FlussPartitionListCache.TTL_PROPERTY,
-                        String.valueOf(FlussPartitionListCache.DEFAULT_TTL_SEC)));
+        this.tableInfos = new FlussTableInfoCache(properties.getMetadataCacheTtlSec());
+        this.lakeProperties = new FlussLakePropertiesCache(properties.getMetadataCacheTtlSec());
+        this.partitionCacheTtlSec = properties.getPartitionCacheTtlSec();
     }
 
     @Override
