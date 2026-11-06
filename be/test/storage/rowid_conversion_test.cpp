@@ -612,9 +612,10 @@ TEST_F(TestRowIdConversion, ConvertDestinationPositionToPhysicalSegmentId) {
     DeleteBitmap output_delete_bitmap(1);
     std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>> location_map;
     auto tablet = create_tablet(*tablet_schema, true);
-    tablet->calc_compaction_output_rowset_delete_bitmap(
-            {input_rowset}, output_rowset, rowid_conversion, 0, 10, nullptr, &location_map,
-            input_delete_bitmap, &output_delete_bitmap);
+    ASSERT_TRUE(tablet->calc_compaction_output_rowset_delete_bitmap(
+                              {input_rowset}, output_rowset, rowid_conversion, 0, 10, nullptr,
+                              &location_map, input_delete_bitmap, &output_delete_bitmap)
+                        .ok());
 
     EXPECT_TRUE(output_delete_bitmap.contains({output_rowset_id, 100, 5}, 0));
     EXPECT_FALSE(output_delete_bitmap.contains({output_rowset_id, 0, 5}, 0));
@@ -644,7 +645,8 @@ TEST_F(TestRowIdConversion, VisibilityFilteredRowsDoNotMaskMissingMappings) {
     auto output = std::make_shared<BetaRowset>(tablet_schema, output_meta, absolute_dir);
     auto tablet = create_tablet(*tablet_schema, true);
 
-    for (auto mode : {RowIdConversion::Mode::DENSE, RowIdConversion::Mode::LAZY_CHUNKED}) {
+    for (auto mode : {RowIdConversion::Mode::DENSE, RowIdConversion::Mode::LAZY_CHUNKED,
+                      RowIdConversion::Mode::COMPRESSED}) {
         RowIdConversion conversion(mode);
         ASSERT_TRUE(conversion.init_segment_map(input_id, {10}, {3}).ok());
         conversion.set_dst_rowset_id(output_id);
@@ -659,9 +661,19 @@ TEST_F(TestRowIdConversion, VisibilityFilteredRowsDoNotMaskMissingMappings) {
         input_bitmap.add({input_id, 10, 7}, 1);
         DeleteBitmap output_bitmap(1);
         std::set<RowLocation> missed_rows;
-        tablet->calc_compaction_output_rowset_delete_bitmap({input}, output, conversion, 0, 10,
-                                                            &missed_rows, nullptr, input_bitmap,
-                                                            &output_bitmap);
+        if (mode == RowIdConversion::Mode::COMPRESSED) {
+            // A conversion error must propagate; it is not a deleted source row.
+            EXPECT_FALSE(tablet->calc_compaction_output_rowset_delete_bitmap(
+                                       {input}, output, conversion, 0, 10, &missed_rows, nullptr,
+                                       input_bitmap, &output_bitmap)
+                                 .ok());
+            EXPECT_TRUE(missed_rows.empty());
+        }
+        ASSERT_TRUE(conversion.finalize({1}).ok());
+        ASSERT_TRUE(tablet->calc_compaction_output_rowset_delete_bitmap(
+                                  {input}, output, conversion, 0, 10, &missed_rows, nullptr,
+                                  input_bitmap, &output_bitmap)
+                            .ok());
 
         EXPECT_TRUE(output_bitmap.contains({output_id, 100, 5}, 0));
         ASSERT_EQ(missed_rows.size(), 1);
