@@ -684,9 +684,6 @@ Status ColumnReader::_create_scalar_reader(const ColumnReaderCreateContext& cont
     }
     std::shared_ptr<ParquetColumnCrypto> crypto;
     if (context.file_crypto != nullptr) {
-        if (offset_index != nullptr) {
-            return Status::NotSupported("File encryption [INDEX_READ_UNAVAILABLE]");
-        }
         RETURN_IF_ERROR(context.file_crypto->column_crypto(chunk, context.row_group_ordinal,
                                                            physical_index, &crypto));
     }

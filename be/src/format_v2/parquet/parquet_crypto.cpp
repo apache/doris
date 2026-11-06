@@ -167,6 +167,19 @@ Status deserialize_crypto_metadata(std::span<const uint8_t> bytes, uint32_t* con
     return deserialize_bounded(bytes, consumed, metadata);
 }
 
+Status deserialize_crypto_metadata(std::span<const uint8_t> bytes, uint32_t* consumed,
+                                   tparquet::ColumnIndex* metadata) {
+    return deserialize_bounded(bytes, consumed, metadata);
+}
+Status deserialize_crypto_metadata(std::span<const uint8_t> bytes, uint32_t* consumed,
+                                   tparquet::OffsetIndex* metadata) {
+    return deserialize_bounded(bytes, consumed, metadata);
+}
+Status deserialize_crypto_metadata(std::span<const uint8_t> bytes, uint32_t* consumed,
+                                   tparquet::BloomFilterHeader* metadata) {
+    return deserialize_bounded(bytes, consumed, metadata);
+}
+
 struct ParquetFileCrypto::Impl {
 #if __has_include(<parquet/encryption/encryption_internal.h>)
     std::shared_ptr<const crypto_detail::FileKey> key;
@@ -286,6 +299,22 @@ Status ParquetFileCrypto::column_crypto(const tparquet::ColumnChunk& column, int
     } catch (const std::exception&) {
         return Status::NotSupported("File encryption [PME_DEPENDENCY_UNAVAILABLE]");
     }
+#else
+    return Status::NotSupported("File encryption [PME_DEPENDENCY_UNAVAILABLE]");
+#endif
+}
+
+Status ParquetColumnCrypto::decrypt_metadata(ParquetMetadataModule module,
+                                             std::span<const uint8_t> bytes,
+                                             DorisVector<uint8_t>* plaintext) {
+#if __has_include(<parquet/encryption/encryption_internal.h>)
+    // Index and Bloom modules bind the physical column and row group, but have no page ordinal.
+    // In particular, a ColumnIndex (6) cannot authenticate an OffsetIndex (7) for the same column.
+    return decrypt_module(_impl->header.get(), *_impl->key,
+                          ::parquet::encryption::CreateModuleAad(
+                                  _impl->key->file_aad, static_cast<int8_t>(module),
+                                  _impl->row_group, _impl->column, -1),
+                          bytes, plaintext);
 #else
     return Status::NotSupported("File encryption [PME_DEPENDENCY_UNAVAILABLE]");
 #endif

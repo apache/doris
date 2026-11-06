@@ -23,6 +23,7 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <limits>
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -154,8 +155,10 @@ void PageReader<IN_COLLECTION, OFFSET_INDEX>::_reconcile_offset_index_location(
     const auto& location = _offset_index->page_locations[_page_index];
     const bool data_page = _cur_page_header.type == tparquet::PageType::DATA_PAGE ||
                            _cur_page_header.type == tparquet::PageType::DATA_PAGE_V2;
-    const uint64_t serialized_size = static_cast<uint64_t>(header_size) +
-                                     static_cast<uint64_t>(_cur_page_header.compressed_page_size);
+    // OffsetIndex sizes describe ciphertext on disk. Using the decrypted compressed size
+    // drops GCM framing/tag bytes, falsely invalidates the index and loses the seek's row range.
+    const uint64_t serialized_size =
+            static_cast<uint64_t>(header_size) + static_cast<uint64_t>(_serialized_page_size);
     const bool matches = data_page && location.offset >= 0 && location.compressed_page_size > 0 &&
                          header_offset == static_cast<uint64_t>(location.offset) &&
                          serialized_size == static_cast<uint64_t>(location.compressed_page_size);
@@ -207,6 +210,8 @@ Status PageReader<IN_COLLECTION, OFFSET_INDEX>::_try_cached_header(bool* loaded)
                                              &real_header_size, true, &_cur_page_header);
             RETURN_IF_ERROR(st);
             RETURN_IF_ERROR(_validate_page_header(real_header_size));
+            // Index reconciliation needs this page's disk size on cache hits as well as cold reads.
+            _serialized_page_size = _cur_page_header.compressed_page_size;
             _reconcile_offset_index_location(_offset, real_header_size);
             _update_sequential_row_range();
             if (_cur_page_header.type == tparquet::PageType::DATA_PAGE ||
@@ -232,7 +237,6 @@ Status PageReader<IN_COLLECTION, OFFSET_INDEX>::_try_cached_header(bool* loaded)
             _last_header_size = real_header_size;
             _page_statistics.parse_page_header_num++;
             _offset += real_header_size;
-            _serialized_page_size = _cur_page_header.compressed_page_size;
             _next_header_offset = _offset + _serialized_page_size;
             _state = HEADER_PARSED;
             *loaded = true;
@@ -273,6 +277,16 @@ Status PageReader<IN_COLLECTION, OFFSET_INDEX>::_parse_encrypted_header(uint32_t
                          _metadata.dictionary_page_offset < _metadata.data_page_offset &&
                          std::cmp_equal(_offset, _metadata.dictionary_page_offset);
     _crypto_page = _next_crypto_page;
+    if constexpr (OFFSET_INDEX) {
+        if (_offset_index != nullptr) {
+            // An indexed seek from page 0 to page 3 must authenticate physical ordinal 3,
+            // rather than the number of headers actually read. Dictionary pages consume no ordinal.
+            if (std::cmp_greater(_page_index, std::numeric_limits<int16_t>::max())) {
+                return Status::NotSupported("File encryption [ORDINAL_OUT_OF_RANGE]");
+            }
+            _crypto_page = static_cast<int32_t>(_page_index);
+        }
+    }
     DorisVector<uint8_t> decrypted;
     RETURN_IF_ERROR(_page_read_ctx.encryption->decrypt_header(
             std::span(bytes, encrypted_size), _crypto_dictionary, _crypto_page, &decrypted));
@@ -359,7 +373,7 @@ Status PageReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
         RETURN_IF_ERROR(_validate_page_header(header_size));
         if (_cur_page_header.type == tparquet::PageType::DATA_PAGE ||
             _cur_page_header.type == tparquet::PageType::DATA_PAGE_V2) {
-            ++_next_crypto_page;
+            _next_crypto_page = _crypto_page + 1;
         }
     }
     _reconcile_offset_index_location(_offset, header_size);
