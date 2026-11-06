@@ -451,27 +451,51 @@ Status Compaction::prepare_merge_input_rowsets_execution(MergeInputRowsetsContex
     ctx.input_rs_readers = context->input_rs_readers;
     RETURN_IF_ERROR(construct_output_rowset_writer(ctx));
 
-    // write merged rows to output rowset
-    // The test results show that merger is low-memory-footprint, there is no need to tracker its mem pool
-    // A non-empty index compaction set (per-column for V2/V3, per-index for
-    // SNII) means inverted index compaction runs and needs the row ID
-    // conversion matrix.
-    if (!ctx.columns_to_do_index_compaction.empty() || !ctx.snii_indexes_to_do_compaction.empty() ||
-        (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-         _tablet->enable_unique_key_merge_on_write())) {
-        // CLucene consumes a dense matrix. Cluster-key and sequence-map readers
-        // have different source ordering; only opt in to the proven forward scan.
-        if (config::enable_compressed_rowid_conversion &&
-            ctx.columns_to_do_index_compaction.empty() &&
-            !config::debug_inverted_index_compaction &&
-            _tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-            _tablet->enable_unique_key_merge_on_write() &&
-            _cur_tablet_schema->cluster_key_uids().empty() && !_cur_tablet_schema->has_seq_map()) {
-            _rowid_conversion->set_mode(RowIdConversion::Mode::COMPRESSED);
-        }
-        _stats.rowid_conversion = _rowid_conversion.get();
-    }
+    prepare_rowid_conversion(ctx);
     return Status::OK();
+}
+
+void Compaction::prepare_rowid_conversion(const RowsetWriterContext& ctx) {
+    // Both MoW delete bitmaps and postings compaction (including Duplicate Key SNII)
+    // need the mapping. Other compactions do not allocate it at all.
+    const bool needs_mapping = !ctx.columns_to_do_index_compaction.empty() ||
+                               !ctx.snii_indexes_to_do_compaction.empty() ||
+                               (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+                                _tablet->enable_unique_key_merge_on_write());
+    if (!needs_mapping) return;
+
+    auto mode = should_compress_rowid_conversion(ctx) ? RowIdConversion::Mode::COMPRESSED
+                                                      : RowIdConversion::Mode::DENSE;
+    _rowid_conversion->set_mode(mode);
+    _stats.rowid_conversion = _rowid_conversion.get();
+    _profile->add_info_string("RowIdConversion",
+                              mode == RowIdConversion::Mode::COMPRESSED ? "COMPRESSED" : "DENSE");
+}
+
+bool Compaction::should_compress_rowid_conversion(const RowsetWriterContext& ctx) const {
+    // CLucene and the legacy debug dump consume a dense matrix.
+    if (!config::enable_compressed_rowid_conversion ||
+        !ctx.columns_to_do_index_compaction.empty() || config::debug_inverted_index_compaction) {
+        return false;
+    }
+    // Cluster-key and sequence-map readers can revisit source rows, whereas this
+    // codec seals blocks during forward scans.
+    if (!_cur_tablet_schema->cluster_key_uids().empty() || _cur_tablet_schema->has_seq_map()) {
+        return false;
+    }
+    // The reader registers every physical row of each data input rowset, including
+    // deleted rows. Whole rowsets removed by changelog TTL have no mapping.
+    // Compare in rows to avoid overflowing rows * 8: at threshold 16, two rows
+    // stay dense and a third selects compression, even if all three are deleted.
+    uint64_t remaining_rows =
+            cast_set<uint64_t>(config::compressed_rowid_conversion_threshold_bytes) /
+            sizeof(RowIdConversion::RowIdPair);
+    for (const auto& rowset : _data_input_rowsets) {
+        uint64_t rows = cast_set<uint64_t>(rowset->num_rows());
+        if (rows > remaining_rows) return true;
+        remaining_rows -= rows;
+    }
+    return false;
 }
 
 Status Compaction::execute_merge_input_rowsets(MergeInputRowsetsContext* context) {
