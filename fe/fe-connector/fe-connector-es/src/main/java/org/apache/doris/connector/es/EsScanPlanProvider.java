@@ -239,6 +239,10 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
             return;
         }
         try {
+            if (!state.getFieldContext().getDateFormatContext().isEmpty()) {
+                nodeProps.put("date_format_context",
+                        JSON_MAPPER.writeValueAsString(state.getFieldContext().getDateFormatContext()));
+            }
             if (props.isDocValuesMode()) {
                 Map<String, String> docCtx = state.getFieldContext().getDocValueFieldsContext();
                 if (docCtx != null && !docCtx.isEmpty()) {
@@ -299,12 +303,13 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
         if (expression instanceof ConnectorColumnRef) {
             ConnectorColumnRef column = (ConnectorColumnRef) expression;
             String type = column.getType().getTypeName();
-            // Source arrays preserve their container (or JSON STRING), whereas ES matches elements
-            // and treats an empty array as missing. Source nullness must retain the local predicate.
+            // Source containers such as {} are nonnull even when ES indexes no leaf value.
+            // Source arrays also preserve their container (or JSON STRING), whereas ES matches elements.
             // _id comes from hit metadata and cannot acquire an array representation in source mode.
             if (!"_id".equals(column.getColumnName())
                     && ("STRING".equalsIgnoreCase(type) || "VARCHAR".equalsIgnoreCase(type)
-                            || "CHAR".equalsIgnoreCase(type) || "ARRAY".equalsIgnoreCase(type))) {
+                            || "CHAR".equalsIgnoreCase(type) || "ARRAY".equalsIgnoreCase(type)
+                            || "JSONB".equalsIgnoreCase(type))) {
                 fields.add(column.getColumnName());
             }
         }
@@ -389,6 +394,7 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
         copyIfPresent(properties, PROP_HTTP_SSL_ENABLED, esProperties);
         copyIfPresent(properties, PROP_DOC_VALUES_MODE, esProperties);
         copyIfPresent(properties, PROP_READ_FULL_SOURCE, esProperties);
+        copyIfPresent(properties, "date_format_context", esProperties);
         // Ask ES to stop after N hits instead of scrolling everything. Only correct when the engine has NO
         // filtering left to do after the scan (otherwise rows ES returns could still be filtered out, and
         // stopping early would lose rows), and only worth it when the limit fits in one BE batch. The engine

@@ -40,6 +40,7 @@ public class EsFieldContext {
 
     private final Map<String, String> fetchFieldsContext = new HashMap<>();
     private final Map<String, String> docValueFieldsContext = new HashMap<>();
+    private final Map<String, Map<String, String>> dateFormatContext = new HashMap<>();
     private final List<String> needCompatDateFields = new ArrayList<>();
     private final Set<String> sourceValueUnsafeFields = new HashSet<>();
     private final Set<String> sourceModeUnsafeFields = new HashSet<>();
@@ -53,6 +54,11 @@ public class EsFieldContext {
 
     public Map<String, String> getDocValueFieldsContext() {
         return docValueFieldsContext;
+    }
+
+    /** Backing index -> column -> ordered date formats; aliases can have different grammars. */
+    public Map<String, Map<String, String>> getDateFormatContext() {
+        return dateFormatContext;
     }
 
     public List<String> getNeedCompatDateFields() {

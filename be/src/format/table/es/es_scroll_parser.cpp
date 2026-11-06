@@ -427,106 +427,125 @@ static bool set_es_epoch_seconds(DateValue& value, int64_t seconds,
     return true;
 }
 
+static bool es_calendar_format_accepts(const std::string& text, std::string_view format,
+                                       bool* year_only) {
+    const bool digits = !text.empty() && text.find_first_not_of("0123456789") == std::string::npos;
+    *year_only = false;
+    // Compact dates win only for their mapped grammar. "20240101" is an epoch in the default
+    // format, whereas "2024" is a year only when an optional-date format precedes epoch_millis.
+    if (format == "basic_date" || format == "yyyyMMdd") {
+        return digits && text.size() == 8;
+    }
+    if (format == "strict_date_optional_time" || format == "date_optional_time" ||
+        format == "strict_date_optional_time_nanos") {
+        if (digits) {
+            *year_only = text.size() == 4;
+            return *year_only;
+        }
+        return true;
+    }
+    // Restrict named calendar shapes before trying a later epoch alternative.
+    if (format == "yyyy-MM-dd" || format == "strict_date" || format == "date") {
+        return text.size() == 10 && text[4] == '-' && text[7] == '-';
+    }
+    if (format == "yyyy-MM-dd HH:mm:ss") {
+        return text.size() == 19 && text[4] == '-' && text[7] == '-' && text[10] == ' ';
+    }
+    return true;
+}
+
+static bool parse_es_iso_datetime(const std::string& text, int64_t* seconds) {
+    std::chrono::system_clock::time_point time;
+    RE2 time_zone_pattern(R"([+-]\d{2}:?\d{2}|Z)");
+    re2::StringPiece suffix;
+    bool success;
+    if (time_zone_pattern.Match(text, 0, text.size(), RE2::UNANCHORED, &suffix, 1)) {
+        cctz::time_zone zone;
+        TimezoneUtils::find_cctz_time_zone(suffix.as_string(), zone);
+        success = cctz::parse("%Y-%m-%dT%H:%M:%E*S%Ez", text, zone, &time);
+    } else {
+        // ES interprets an ISO timestamp without a suffix in UTC, not the session time zone.
+        success = cctz::parse("%Y-%m-%dT%H:%M:%E*S", text, cctz::utc_time_zone(), &time);
+    }
+    if (success) {
+        // A pre-epoch fractional instant floors to its containing second, as numeric dates do.
+        *seconds = std::chrono::floor<std::chrono::seconds>(time).time_since_epoch().count();
+    }
+    return success;
+}
+
 template <PrimitiveType T>
-Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool is_date_str,
+static bool parse_es_calendar_date(const std::string& text, std::string_view format,
+                                   typename PrimitiveTypeTraits<T>::CppType& value,
+                                   const cctz::time_zone& time_zone) {
+    bool year_only;
+    if (!es_calendar_format_accepts(text, format, &year_only)) {
+        return false;
+    }
+    if (year_only) {
+        return parse_es_calendar_date<T>(text + "-01-01", format, value, time_zone);
+    }
+    if (text.size() > 19 || (text.size() == 19 && text[10] == 'T')) {
+        int64_t seconds;
+        // Validate the civil year before narrowing it, just as epoch inputs do.
+        return parse_es_iso_datetime(text, &seconds) &&
+               set_es_epoch_seconds(value, seconds, time_zone);
+    }
+    CastParameters params;
+    if constexpr (T == TYPE_DATE || T == TYPE_DATETIME) {
+        return CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE_TIME>(
+                {text.data(), text.size()}, value, nullptr, params);
+    } else if constexpr (T == TYPE_DATEV2) {
+        return CastToDateV2::from_string_non_strict_mode({text.data(), text.size()}, value, nullptr,
+                                                         params);
+    } else {
+        return CastToDatetimeV2::from_string_non_strict_mode({text.data(), text.size()}, value,
+                                                             nullptr, -1, params);
+    }
+}
+
+template <PrimitiveType T>
+static bool parse_es_date_string(const std::string& text, std::string_view formats,
+                                 typename PrimitiveTypeTraits<T>::CppType& value,
+                                 const cctz::time_zone& time_zone) {
+    if (formats.empty()) {
+        // Old FE requests carry no format context; preserve the default ES date grammar.
+        formats = "strict_date_optional_time||epoch_millis";
+    }
+    while (!formats.empty()) {
+        const auto separator = formats.find("||");
+        const auto format = formats.substr(0, separator);
+        if (format == "epoch_millis") {
+            int64_t seconds;
+            if (parse_es_epoch_millis(text, &seconds)) {
+                // Once a grammar accepts the input, an out-of-range date must fail rather than
+                // being reinterpreted by a later format with different semantics.
+                return set_es_epoch_seconds(value, seconds, time_zone);
+            }
+        } else if (parse_es_calendar_date<T>(text, format, value, time_zone)) {
+            return true;
+        }
+        if (separator == std::string_view::npos) {
+            break;
+        }
+        formats.remove_prefix(separator + 2);
+    }
+    return false;
+}
+
+template <PrimitiveType T>
+Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool parse_date_text,
                           typename PrimitiveTypeTraits<T>::CppType* slot,
-                          const cctz::time_zone& time_zone) {
+                          const cctz::time_zone& time_zone, std::string_view date_format) {
     constexpr bool is_datetime_v1 = T == TYPE_DATE || T == TYPE_DATETIME;
     typename PrimitiveTypeTraits<T>::CppType dt_val;
-    if (is_date_str) {
-        std::string str_date(col.GetString(), col.GetStringLength());
-        size_t str_length = col.GetStringLength();
-        // The default strict_date_optional_time parser wins over epoch_millis for a four-digit year.
-        // Thus "2024" means 2024-01-01, whereas "12345" means 12.345 seconds after the epoch.
-        if (str_length == 4 && str_date.find_first_not_of("0123456789") == std::string::npos) {
-            str_date += "-01-01";
-            str_length = str_date.size();
-        }
-        bool success = false;
-        int64_t epoch_seconds;
-        // Source fallback also reaches short, zero and fractional epoch strings, e.g. "0"/"1.5".
-        if (parse_es_epoch_millis(str_date, &epoch_seconds)) {
-            success = set_es_epoch_seconds(dt_val, epoch_seconds, time_zone);
-        } else if (str_length > 19) {
-            std::chrono::system_clock::time_point tp;
-            // time_zone suffix pattern
-            // Z/+08:00/-04:30
-            RE2 time_zone_pattern(R"([+-]\d{2}:?\d{2}|Z)");
-            bool ok = false;
-            std::string fmt;
-            re2::StringPiece value;
-            if (time_zone_pattern.Match(str_date, 0, str_date.size(), RE2::UNANCHORED, &value, 1)) {
-                // with time_zone info
-                // YYYY-MM-DDTHH:MM:SSZ or YYYY-MM-DDTHH:MM:SS+08:00
-                // or 2022-08-08T12:10:10.000Z or YYYY-MM-DDTHH:MM:SS-08:00
-                fmt = "%Y-%m-%dT%H:%M:%E*S%Ez";
-                cctz::time_zone ctz;
-                // find time_zone by time_zone suffix string
-                TimezoneUtils::find_cctz_time_zone(value.as_string(), ctz);
-                ok = cctz::parse(fmt, str_date, ctz, &tp);
-            } else {
-                // without time_zone info
-                // 2022-08-08T12:10:10.000
-                fmt = "%Y-%m-%dT%H:%M:%E*S";
-                // If the time without time_zone info, ES will assume it is UTC time.
-                // So we parse it in Doris with UTC time zone.
-                ok = cctz::parse(fmt, str_date, cctz::utc_time_zone(), &tp);
-            }
-            if (ok) {
-                // The local time zone can change by session variable `time_zone`
-                // We should use the user specified time zone, not the actual system local time zone.
-                success = true;
-                // A pre-epoch fractional instant must floor to its containing second, like numeric dates.
-                dt_val.from_unixtime(
-                        std::chrono::floor<std::chrono::seconds>(tp).time_since_epoch().count(),
-                        time_zone);
-            }
-        } else if (str_length == 19) {
-            // YYYY-MM-DDTHH:MM:SS
-            if (*(str_date.c_str() + 10) == 'T') {
-                std::chrono::system_clock::time_point tp;
-                const bool ok =
-                        cctz::parse("%Y-%m-%dT%H:%M:%S", str_date, cctz::utc_time_zone(), &tp);
-                if (ok) {
-                    success = true;
-                    dt_val.from_unixtime(std::chrono::system_clock::to_time_t(tp), time_zone);
-                }
-            } else {
-                // YYYY-MM-DD HH:MM:SS
-                CastParameters params;
-                if constexpr (is_datetime_v1) {
-                    success = CastToDateOrDatetime::from_string_non_strict_mode<
-                            DatelikeTargetType::DATE_TIME>({str_date.c_str(), str_length}, dt_val,
-                                                           nullptr, params);
-                } else if constexpr (T == TYPE_DATEV2) {
-                    success = CastToDateV2::from_string_non_strict_mode(
-                            {str_date.c_str(), str_length}, dt_val, nullptr, params);
-                } else {
-                    success = CastToDatetimeV2::from_string_non_strict_mode(
-                            {str_date.c_str(), str_length}, dt_val, nullptr, -1, params);
-                }
-            }
-
-        } else {
-            // YYYY-MM-DD or others
-            CastParameters params;
-            if constexpr (is_datetime_v1) {
-                success = CastToDateOrDatetime::from_string_non_strict_mode<
-                        DatelikeTargetType::DATE_TIME>({str_date.c_str(), str_length}, dt_val,
-                                                       nullptr, params);
-            } else if constexpr (T == TYPE_DATEV2) {
-                success = CastToDateV2::from_string_non_strict_mode({str_date.c_str(), str_length},
-                                                                    dt_val, nullptr, params);
-            } else {
-                success = CastToDatetimeV2::from_string_non_strict_mode(
-                        {str_date.c_str(), str_length}, dt_val, nullptr, -1, params);
-            }
-        }
-
-        if (!success) {
+    if (parse_date_text) {
+        const std::string text = col.IsString()
+                                         ? std::string(col.GetString(), col.GetStringLength())
+                                         : json_value_to_string(col);
+        if (!parse_es_date_string<T>(text, date_format, dt_val, time_zone)) {
             RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
         }
-
     } else {
         int64_t epoch_seconds;
         // Integral JSON values retain their exact bits; unsigned overflow cannot be a Doris date.
@@ -564,13 +583,12 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
 template <PrimitiveType T>
 Status get_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_doc_value,
                     typename PrimitiveTypeTraits<T>::CppType* slot,
-                    const cctz::time_zone& time_zone) {
-    // this would happend just only when `enable_docvalue_scan = false`, and field has timestamp format date from _source
+                    const cctz::time_zone& time_zone, std::string_view date_format) {
     if (col.IsNumber()) {
-        // ES process date/datetime field would use millisecond timestamp for index or docvalue
-        // processing date type field, if a number is encountered, Doris On ES will force it to be processed according to ms
-        // Doris On ES needs to be consistent with ES, so just divided by 1000 because the unit for from_unixtime is seconds
-        return get_date_value_int<T>(col, type, false, slot, time_zone);
+        // ES applies the mapped grammar to source numeric tokens too. Numeric docvalues are
+        // canonical epoch values; requests from an old FE also retain their millisecond decoder.
+        const bool mapped_source = !pure_doc_value && !date_format.empty();
+        return get_date_value_int<T>(col, type, mapped_source, slot, time_zone, date_format);
     } else if (col.IsArray() && pure_doc_value && !col.Empty()) {
         // this would happened just only when `enable_docvalue_scan = true`
         // ES add default format for all field after ES 6.4, if we not provided format for `date` field ES would impose
@@ -578,22 +596,23 @@ Status get_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_d
         // At present, we just process this string format date. After some PR were merged into Doris, we would impose `epoch_mills` for
         // date field's docvalue
         if (col[0].IsString()) {
-            return get_date_value_int<T>(col[0], type, true, slot, time_zone);
+            return get_date_value_int<T>(col[0], type, true, slot, time_zone, date_format);
         }
         // ES would return millisecond timestamp for date field, divided by 1000 because the unit for from_unixtime is seconds
-        return get_date_value_int<T>(col[0], type, false, slot, time_zone);
+        return get_date_value_int<T>(col[0], type, false, slot, time_zone, date_format);
     } else {
         // this would happened just only when `enable_docvalue_scan = false`, and field has string format date from _source
         RETURN_ERROR_IF_COL_IS_ARRAY(col, type, true);
         RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
-        return get_date_value_int<T>(col, type, true, slot, time_zone);
+        return get_date_value_int<T>(col, type, true, slot, time_zone, date_format);
     }
 }
 template <PrimitiveType T>
 Status fill_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_doc_value,
-                     IColumn* col_ptr, const cctz::time_zone& time_zone) {
+                     IColumn* col_ptr, const cctz::time_zone& time_zone,
+                     std::string_view date_format) {
     typename PrimitiveTypeTraits<T>::CppType data;
-    RETURN_IF_ERROR((get_date_int<T>(col, type, pure_doc_value, &data, time_zone)));
+    RETURN_IF_ERROR((get_date_int<T>(col, type, pure_doc_value, &data, time_zone, date_format)));
     col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&data)), 0);
     return Status::OK();
 }
@@ -712,7 +731,8 @@ Status handle_value(const rapidjson::Value& col, PrimitiveType sub_type, bool pu
             return Status::OK();
         }
 
-        if (col.IsNumber()) {
+        // ignore_malformed can retain 1.25 or wide integers in source; GetInt requires IsInt.
+        if (col.IsInt()) {
             val = static_cast<typename PrimitiveTypeTraits<T>::CppType>(col.GetInt());
             return Status::OK();
         }
@@ -728,6 +748,8 @@ Status handle_value(const rapidjson::Value& col, PrimitiveType sub_type, bool pu
         }
 
         const rapidjson::Value& str_col = is_nested_str ? col[0] : col;
+        // Disabled mappings can preserve objects instead of Boolean strings in source.
+        RETURN_ERROR_IF_COL_IS_NOT_STRING(str_col, sub_type);
         const std::string& str_val = str_col.GetString();
         size_t val_size = str_col.GetStringLength();
         StringParser::ParseResult result;
@@ -775,10 +797,12 @@ Status process_column(const rapidjson::Value& col, PrimitiveType sub_type, bool 
 
 template <PrimitiveType T>
 Status process_date_column(const rapidjson::Value& col, PrimitiveType sub_type, bool pure_doc_value,
-                           Array& array, const cctz::time_zone& time_zone) {
+                           Array& array, const cctz::time_zone& time_zone,
+                           std::string_view date_format) {
     if (!col.IsArray()) {
         typename PrimitiveTypeTraits<T>::CppType data;
-        RETURN_IF_ERROR((get_date_int<T>(col, sub_type, pure_doc_value, &data, time_zone)));
+        RETURN_IF_ERROR(
+                (get_date_int<T>(col, sub_type, pure_doc_value, &data, time_zone, date_format)));
         array.push_back(Field::create_field<T>(data));
     } else {
         for (const auto& sub_col : col.GetArray()) {
@@ -788,7 +812,8 @@ Status process_date_column(const rapidjson::Value& col, PrimitiveType sub_type, 
                 continue;
             }
             typename PrimitiveTypeTraits<T>::CppType data;
-            RETURN_IF_ERROR((get_date_int<T>(sub_col, sub_type, pure_doc_value, &data, time_zone)));
+            RETURN_IF_ERROR((get_date_int<T>(sub_col, sub_type, pure_doc_value, &data, time_zone,
+                                             date_format)));
             array.push_back(Field::create_field<T>(data));
         }
     }
@@ -820,7 +845,7 @@ Status process_jsonb_column(const rapidjson::Value& col, PrimitiveType sub_type,
 
 Status ScrollParser::parse_column(const rapidjson::Value& col, PrimitiveType sub_type,
                                   bool pure_doc_value, Array& array,
-                                  const cctz::time_zone& time_zone) {
+                                  const cctz::time_zone& time_zone, std::string_view date_format) {
     switch (sub_type) {
     case TYPE_CHAR:
     case TYPE_VARCHAR:
@@ -846,11 +871,12 @@ Status ScrollParser::parse_column(const rapidjson::Value& col, PrimitiveType sub
     // see https://github.com/apache/doris/pull/16304
     // No need to support date and datetime types.
     case TYPE_DATEV2: {
-        return process_date_column<TYPE_DATEV2>(col, sub_type, pure_doc_value, array, time_zone);
+        return process_date_column<TYPE_DATEV2>(col, sub_type, pure_doc_value, array, time_zone,
+                                                date_format);
     }
     case TYPE_DATETIMEV2: {
-        return process_date_column<TYPE_DATETIMEV2>(col, sub_type, pure_doc_value, array,
-                                                    time_zone);
+        return process_date_column<TYPE_DATETIMEV2>(col, sub_type, pure_doc_value, array, time_zone,
+                                                    date_format);
     }
     case TYPE_JSONB: {
         return process_jsonb_column(col, sub_type, pure_doc_value, array);
@@ -862,6 +888,49 @@ Status ScrollParser::parse_column(const rapidjson::Value& col, PrimitiveType sub
 }
 
 ScrollParser::ScrollParser(bool doc_value_mode) : _size(0), _line_index(0) {}
+
+Status ScrollParser::set_date_format_context(const std::string& context) {
+    _date_format_context.clear();
+    if (context.empty()) {
+        return Status::OK();
+    }
+    // The wire value is backing index -> field -> format. Reject malformed payloads before typed access.
+    rapidjson::Document formats;
+    formats.Parse(context.data(), context.size());
+    if (formats.HasParseError() || !formats.IsObject()) {
+        return Status::InvalidArgument("Invalid ES date format context");
+    }
+    for (const auto& index : formats.GetObject()) {
+        if (!index.value.IsObject()) {
+            return Status::InvalidArgument("Invalid ES backing-index date formats");
+        }
+        auto& fields = _date_format_context[index.name.GetString()];
+        for (const auto& field : index.value.GetObject()) {
+            if (!field.value.IsString()) {
+                return Status::InvalidArgument("Invalid ES field date format");
+            }
+            fields.emplace(field.name.GetString(),
+                           std::string(field.value.GetString(), field.value.GetStringLength()));
+        }
+    }
+    return Status::OK();
+}
+
+std::string_view ScrollParser::_date_format(const rapidjson::Value& hit,
+                                            const std::string& column) const {
+    if (!hit.HasMember("_index")) {
+        return {};
+    }
+    const auto index = _date_format_context.find(hit["_index"].GetString());
+    if (index == _date_format_context.end()) {
+        return {};
+    }
+    const auto format = index->second.find(column);
+    if (format == index->second.end()) {
+        return {};
+    }
+    return format->second;
+}
 
 ScrollParser::~ScrollParser() = default;
 
@@ -993,6 +1062,7 @@ Status ScrollParser::fill_columns(const std::vector<SlotDescriptor*>& slots,
             std::string details = absl::Substitute(INVALID_NULL_VALUE, col_name);
             return Status::RuntimeError(details);
         }
+        const auto date_format = [&] { return _date_format(obj, slot_desc->col_name()); };
         switch (type) {
         case TYPE_CHAR:
         case TYPE_VARCHAR:
@@ -1079,8 +1149,9 @@ Status ScrollParser::fill_columns(const std::vector<SlotDescriptor*>& slots,
                 break;
             }
 
-            if (col.IsNumber()) {
-                int8_t val = static_cast<int8_t>(col.GetInt());
+            // ignore_malformed can retain 1.25 or wide integers in source; GetInt requires IsInt.
+            if (col.IsInt()) {
+                auto val = static_cast<int8_t>(col.GetInt());
                 col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&val)), 0);
                 break;
             }
@@ -1100,6 +1171,8 @@ Status ScrollParser::fill_columns(const std::vector<SlotDescriptor*>& slots,
 
             RETURN_ERROR_IF_COL_IS_ARRAY(col, type, true);
 
+            // Disabled mappings can preserve objects instead of Boolean strings in source.
+            RETURN_ERROR_IF_COL_IS_NOT_STRING(str_col, type);
             const std::string& val = str_col.GetString();
             size_t val_size = str_col.GetStringLength();
             StringParser::ParseResult result;
@@ -1138,20 +1211,20 @@ Status ScrollParser::fill_columns(const std::vector<SlotDescriptor*>& slots,
         }
 
         case TYPE_DATE:
-            RETURN_IF_ERROR(
-                    fill_date_int<TYPE_DATE>(col, type, pure_doc_value, col_ptr, time_zone));
+            RETURN_IF_ERROR(fill_date_int<TYPE_DATE>(col, type, pure_doc_value, col_ptr, time_zone,
+                                                     date_format()));
             break;
         case TYPE_DATETIME:
-            RETURN_IF_ERROR(
-                    fill_date_int<TYPE_DATETIME>(col, type, pure_doc_value, col_ptr, time_zone));
+            RETURN_IF_ERROR(fill_date_int<TYPE_DATETIME>(col, type, pure_doc_value, col_ptr,
+                                                         time_zone, date_format()));
             break;
         case TYPE_DATEV2:
-            RETURN_IF_ERROR(
-                    fill_date_int<TYPE_DATEV2>(col, type, pure_doc_value, col_ptr, time_zone));
+            RETURN_IF_ERROR(fill_date_int<TYPE_DATEV2>(col, type, pure_doc_value, col_ptr,
+                                                       time_zone, date_format()));
             break;
         case TYPE_DATETIMEV2: {
-            RETURN_IF_ERROR(
-                    fill_date_int<TYPE_DATETIMEV2>(col, type, pure_doc_value, col_ptr, time_zone));
+            RETURN_IF_ERROR(fill_date_int<TYPE_DATETIMEV2>(col, type, pure_doc_value, col_ptr,
+                                                           time_zone, date_format()));
             break;
         }
         case TYPE_ARRAY: {
@@ -1160,7 +1233,8 @@ Status ScrollParser::fill_columns(const std::vector<SlotDescriptor*>& slots,
                     assert_cast<const DataTypeArray*>(remove_nullable(slot_desc->type()).get())
                             ->get_nested_type()
                             ->get_primitive_type();
-            RETURN_IF_ERROR(parse_column(col, sub_type, pure_doc_value, array, time_zone));
+            RETURN_IF_ERROR(
+                    parse_column(col, sub_type, pure_doc_value, array, time_zone, date_format()));
             col_ptr->insert(Field::create_field<TYPE_ARRAY>(array));
             break;
         }
