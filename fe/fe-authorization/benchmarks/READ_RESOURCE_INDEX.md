@@ -67,7 +67,7 @@ ReadScopes for one installed engine/version/config
         byte[] ADMIN/SELECT flags
         RangerPolicyResourceMatcher[] references to existing native matchers
   + TableAccess for global/parent/pattern resources, also sorted by user ID
-  + Set<user name> requiring native evaluation because of non-ASCII policy resources
+  + Set<user name> requiring native evaluation for non-ASCII or dynamic policy resources
 ```
 
 The new index does not copy column names, column sets, resource matchers or
@@ -105,6 +105,15 @@ containing a non-ASCII resource value marks its direct read users for native
 evaluation. Other users retain the index; full and copy-on-update delta refreshes
 recompute this set. A non-ASCII user name alone is supported, but using that name
 as a fake column makes it a non-ASCII resource value and triggers this fallback.
+
+Installed resource matchers reporting `getNeedsDynamicEval()` also mark their
+read users for native evaluation. Default Ranger token processing treats
+backslashes as escapes, even in an otherwise exact ASCII value. With native
+request context, a paired backslash expands to one; an empty matcher context
+skips that expansion. Such a matcher cannot be evaluated by this static index.
+The check uses the installed native matcher flag rather than reimplementing
+Ranger's token rules. A domain-qualified AD name used as a fake column can
+therefore trigger this conservative fallback even with ASCII characters.
 
 In-place policy updates disable this
 index because they can mutate the matchers referenced by a previously published
@@ -147,7 +156,8 @@ gaps and close/refresh interleavings using latches, independently installed nati
 controller comparisons across randomized full and mixed delta snapshots, audit
 result-sequence equivalence, actual in-place revocation, binding-limit fallback,
 failed-install rejection, native delegate-admin pruning and Unicode candidate
-selection parity. See `READ_RESOURCE_INDEX_CORRECTNESS.txt` for the reproduced
+selection parity, escaped resources at every level and native dynamic-matcher
+fallback with per-user full/delta removal. See `READ_RESOURCE_INDEX_CORRECTNESS.txt` for the reproduced
 defect, regression evidence and current validation limits.
 
 ## Reproduce the comparison

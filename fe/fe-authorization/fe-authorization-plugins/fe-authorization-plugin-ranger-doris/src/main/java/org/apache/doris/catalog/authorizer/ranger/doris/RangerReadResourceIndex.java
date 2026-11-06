@@ -108,9 +108,11 @@ final class RangerReadResourceIndex {
                 continue;
             }
             for (RangerPolicyResourceEvaluator resource : evaluator.getResourceEvaluators()) {
-                if (!hasOnlyAsciiValues(resource.getPolicyResource())) {
+                if (resource.getPolicyResourceMatcher().getNeedsDynamicEval()
+                        || !hasOnlyAsciiValues(resource.getPolicyResource())) {
                     // Native trie lookup and equalsIgnoreCase matchers can disagree on Unicode folds.
-                    // Reusing the matcher alone must not grant an access rejected by native candidate lookup.
+                    // Dynamic matchers also require native request context for token/escape expansion.
+                    // Neither can be evaluated safely by this static index alone.
                     nativeUsers.addAll(actions.keySet());
                     continue;
                 }

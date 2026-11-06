@@ -24,7 +24,7 @@ ranger-plugins-common-2.9.0.jar matches the original Maven artifact SHA256:
 
 Baseline: frozen pre-index Doris plugins from 65db4e385fd (descriptor sharing
 and negative parent-scope summary). Indexed: Boolean controller path at a536d851c95.
-These historical measurements predate the subsequent Unicode correctness guard;
+These historical measurements predate the subsequent Unicode and dynamic-resource correctness guards;
 they are not a fresh benchmark of that revision. Current correctness validation
 is recorded separately in READ_RESOURCE_INDEX_CORRECTNESS.txt.
 All variants share unmodified Ranger 2.9.0 and matching dependencies.

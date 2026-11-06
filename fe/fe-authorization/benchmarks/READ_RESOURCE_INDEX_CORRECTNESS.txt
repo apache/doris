@@ -44,12 +44,29 @@ Pre-fix evidence:
   [\u017fales, c1, sales, c1] ==> expected: <false> but was: <true>
 The production sources at that run were the committed a536d851c95 implementation.
 
+A second defect was found by the formal production reviewer and reproduced
+against the 8aba3eb5c45 production implementation. Exact ASCII resource text with two
+consecutive backslashes was native-denied but index-granted. The native default
+request processor supplies USER context; StringTokenReplacer then reduces the
+paired backslash to one. The index's empty matcher context skips this expansion.
+The reverse request, using the expanded single-backslash text, can be natively
+granted but incorrectly denied by the old index.
+
+Pre-fix evidence:
+  .test-env/read-resource-index/correctness-001/escape-before-fix.log
+  escapedResourcesPreserveNativeExpansionAtEveryResourceLevel
+  catalog[sc\\ope, sc\\ope] ==> expected: <false> but was: <true>
+
 Correction
 
 - Any enabled native read resource block with a non-ASCII value marks its direct
   ADMIN/SELECT users for native evaluation. This includes column values.
 - The set is per installed snapshot and per user, rather than disabling the
   entire service. Unaffected users retain the index.
+- Installed resource matchers reporting getNeedsDynamicEval() also mark their
+  read users for native evaluation. Native token/escape expansion is not
+  reimplemented. ASCII domain-qualified AD names used as fake columns can
+  conservatively trigger this fallback as well.
 - Non-ASCII request columns also use native evaluation; request prefixes already
   had conservative native fallback. Exact Unicode grants remain usable.
 - User identity strings can still contain Unicode. If such an identity is also
@@ -61,7 +78,7 @@ Correction
 
 Regression coverage
 
-RangerReadResourceIndexCorrectnessTest contains 14 test methods:
+RangerReadResourceIndexCorrectnessTest contains 16 test methods:
 
 - Full refresh and copy-on-update delta are each paused by a native auth-context
   listener after engine installation, before Doris can publish the new index.
@@ -96,17 +113,21 @@ RangerReadResourceIndexCorrectnessTest contains 14 test methods:
 - Unicode regressions cover long s, dotless i, patterns and exact names across
   catalog/database/table/column; per-user isolation; a native-only user absent
   from the ID dictionary; and clearing fallback on full/delta policy removal.
+- Escaped-resource regressions cover paired-backslash literal denial, expanded
+  single-backslash acceptance and unchanged single-backslash values at all four
+  levels. Per-user isolation, missing dictionary entries and full/COW delta
+  removal/re-addition also exercise the native dynamic-matcher fallback.
 - Delegate-admin-only mode uses the native evaluator's pruned policy, so items
   present only in the unpruned payload cannot be reintroduced as grants.
 
 Recorded validation
 
 Module package with the Maven build cache disabled:
-  155 tests passed, one existing test skipped, zero failures/errors.
-  .test-env/read-resource-index/correctness-001/full-module-final.log
+  157 tests passed, one existing test skipped, zero failures/errors.
+  .test-env/read-resource-index/correctness-001/full-module-escape-final.log
 
 Five FE integration gates passed 51 tests, zero failures/errors/skips:
-  .test-env/read-resource-index/correctness-001/core-integration-final.log
+  .test-env/read-resource-index/correctness-001/core-integration-escape-final.log
   AccessControllerManagerTest, AccessTranslationTest, LegacyAccessControllerPluginTest,
   AccessControlBehaviorBaselineTest, AuthorizationPluginFromDirectoryTest.
 The reactor used current plugin target/classes with the Maven build cache disabled.
@@ -114,7 +135,7 @@ Unchanged FE main classes were reused; the five selected gate classes executed.
 These gates cover kernel routing/baselines and generic installed-plugin behavior,
 not a live deployment of the Ranger plugin or an actual AD/OIDC login.
 
-Together 206 tests passed, one existing test skipped. Authorization behavior/API
+Together 208 tests passed, one existing test skipped. Authorization behavior/API
 golden files are not regenerated. Formal review is recorded separately under
 review-docs/ for the immutable final local commit.
 The historical performance report identifies its earlier measured source; this
@@ -131,5 +152,5 @@ Native jar SHA256 (unchanged):
 0e7426640614810290e2510e89cfe6c42a90497b453c94ff11a0e9a0019e010b
 
 Production source SHA256 for this correctness revision:
-RangerReadResourceIndex.java 7848081f687278372a8b5d59e1ea6496a2eaf8de60ade9cca6f4735e81789b71
+RangerReadResourceIndex.java beb314d878d089bcee068492fa24896eb13851309430fdd52fab2764a4db246e
 RangerDorisPlugin.java 1419e493f6fd076e7075744ce928a88e0472e654e2a8bf484a5a207b559c6caf

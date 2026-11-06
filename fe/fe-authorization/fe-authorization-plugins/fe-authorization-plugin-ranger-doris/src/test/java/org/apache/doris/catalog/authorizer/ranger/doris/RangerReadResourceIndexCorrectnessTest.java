@@ -475,16 +475,25 @@ class RangerReadResourceIndexCorrectnessTest {
 
     @Test
     void unicodePolicyFallbackIsPerUserAndDisappearsWhenThePolicyIsRemoved() {
+        assertPolicyFallbackIsPerUser("ſecret");
+    }
+
+    @Test
+    void escapedPolicyFallbackIsPerUserAndDisappearsWhenThePolicyIsRemoved() {
+        assertPolicyFallbackIsPerUser("se\\\\cret");
+    }
+
+    private static void assertPolicyFallbackIsPerUser(String unsafeColumn) {
         CountingPlugin plugin = new CountingPlugin();
         try {
-            RangerPolicy unicode = RangerReadScopeSummaryTest.policy(1, "alice", "SELECT",
-                    RangerReadScopeSummaryTest.resource("db", "t", "ſecret", "c3"));
-            unicode.getPolicyItems().get(0).setUsers(List.of("alice", "carol"));
+            RangerPolicy unsafe = RangerReadScopeSummaryTest.policy(1, "alice", "SELECT",
+                    RangerReadScopeSummaryTest.resource("db", "t", unsafeColumn, "c3"));
+            unsafe.getPolicyItems().get(0).setUsers(List.of("alice", "carol"));
             RangerPolicy bob = RangerReadScopeSummaryTest.policy(2, "bob", "SELECT",
                     RangerReadScopeSummaryTest.resource("db", "t", "c1"));
             RangerPolicy ascii = RangerReadScopeSummaryTest.policy(3, "alice", "SELECT",
                     RangerReadScopeSummaryTest.resource("db", "t", "c2"));
-            ServicePolicies initial = snapshot(1, unicode, bob, ascii);
+            ServicePolicies initial = snapshot(1, unsafe, bob, ascii);
             plugin.setPolicies(copy(initial));
             Assertions.assertNull(plugin.indexedReadPrivilege("alice", DorisAccessType.SELECT, column("c2")));
             Assertions.assertNull(plugin.indexedReadPrivilege("carol", DorisAccessType.SELECT, column("c3")),
@@ -505,7 +514,7 @@ class RangerReadResourceIndexCorrectnessTest {
             Assertions.assertTrue(allowed(controller, "alice", "internal", "db", "t", Set.of("c2")));
             Assertions.assertFalse(allowed(controller, "alice", "internal", "db", "t", Set.of("secret")));
             Assertions.assertEquals(0, plugin.requests.get(), "native-only user state must not outlive its policy");
-            ServicePolicies restored = snapshot(3, unicode, bob, ascii);
+            ServicePolicies restored = snapshot(3, unsafe, bob, ascii);
             plugin.setPolicies(changes(removed, restored));
             Assertions.assertNull(plugin.indexedReadPrivilege("alice", DorisAccessType.SELECT, column("c2")));
             Assertions.assertTrue(allowed(controller, "carol", "internal", "db", "t", Set.of("c3")));
@@ -540,6 +549,38 @@ class RangerReadResourceIndexCorrectnessTest {
                     Assertions.assertEquals(expected, actual, fields.get(level) + values);
                     Assertions.assertEquals(values.get(0).equals(values.get(1)), expected,
                             "the fixture must cover native denial of aliases and native acceptance of exact names");
+                } finally {
+                    optimized.cleanup();
+                    nativePlugin.cleanup();
+                }
+            }
+        }
+    }
+
+    @Test
+    void escapedResourcesPreserveNativeExpansionAtEveryResourceLevel() {
+        List<String> fields = List.of("catalog", "database", "table", "column");
+        for (int level = 0; level < fields.size(); level++) {
+            for (List<String> values : List.of(List.of("sc\\\\ope", "sc\\\\ope"),
+                    List.of("sc\\\\ope", "sc\\ope"), List.of("sc\\ope", "sc\\ope"))) {
+                CountingPlugin optimized = new CountingPlugin();
+                RangerBasePlugin nativePlugin = new RangerBasePlugin(config());
+                try {
+                    RangerPolicy policy = grant("c1");
+                    policy.getResources().put(fields.get(level), new RangerPolicyResource(values.get(0)));
+                    List<String> query = new ArrayList<>(List.of("internal", "db", "t", "c1"));
+                    query.set(level, values.get(1));
+                    optimized.setPolicies(copy(snapshot(1, policy)));
+                    nativePlugin.setPolicies(copy(snapshot(1, policy)));
+                    boolean expected = allowed(new RangerDorisAccessController(nativePlugin, CONTEXT),
+                            "alice", query.get(0), query.get(1), query.get(2), Set.of(query.get(3)));
+                    boolean actual = allowed(new RangerDorisAccessController(optimized, CONTEXT),
+                            "alice", query.get(0), query.get(1), query.get(2), Set.of(query.get(3)));
+                    Assertions.assertEquals("sc\\ope".equals(values.get(1)), expected,
+                            "native context must unescape paired backslashes and preserve single backslashes");
+                    Assertions.assertEquals(expected, actual, fields.get(level) + values);
+                    Assertions.assertNull(optimized.indexedReadPrivilege("alice", DorisAccessType.SELECT,
+                            column(query.get(0), query.get(1), query.get(2), query.get(3))));
                 } finally {
                     optimized.cleanup();
                     nativePlugin.cleanup();
