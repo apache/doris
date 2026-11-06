@@ -1412,6 +1412,7 @@ Status Segment::seek_and_read_by_rowid(const TabletColumn& read_column, SlotDesc
     auto io_ctx = storage_read_options.io_ctx;
     io_ctx.reader_type = ReaderType::READER_QUERY;
     io_ctx.file_cache_stats = &storage_read_options.stats->file_cache_stats;
+    // Rowid reads may reuse an iterator and bypass both scan and column-iterator construction.
     segment_v2::ColumnIteratorOptions opt {
             .use_page_cache = !config::disable_storage_page_cache,
             .file_reader = file_reader().get(),
@@ -1429,11 +1430,14 @@ Status Segment::seek_and_read_by_rowid(const TabletColumn& read_column, SlotDesc
         RETURN_IF_ERROR(
                 _create_column_meta_once(storage_read_options.stats, &storage_read_options.io_ctx));
 
-        const PathInData path(read_column.name_lower_case(), slot->column_paths());
+        const PathInData path =
+                make_variant_storage_path(read_column.name_lower_case(), slot->column_paths(),
+                                          read_column.variant_escape_dots_in_keys());
         TabletColumn column = variant_util::get_column_by_type(
                 make_nullable(slot->type()), path.get_path(),
                 variant_util::ExtraInfo {.parent_unique_id = slot->col_unique_id(),
                                          .path_info = path});
+        variant_util::inherit_column_attributes(read_column, column);
         auto storage_type = get_data_type_of(column, slot->type(), storage_read_options);
         DCHECK(storage_type != nullptr);
         MutableColumnPtr file_storage_column = storage_type->create_column();

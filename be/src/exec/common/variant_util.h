@@ -59,6 +59,8 @@ const std::string SPARSE_COLUMN_PATH = "__DORIS_VARIANT_SPARSE__";
 const std::string DOC_VALUE_COLUMN_PATH = "__DORIS_VARIANT_DOC_VALUE__";
 namespace doris::variant_util {
 
+void inherit_variant_path_encoding(const TabletSchema& schema, TabletColumn& column);
+
 using PathToNoneNullValues = std::unordered_map<std::string, int64_t>;
 using PathToDataTypes = std::unordered_map<PathInData, std::vector<DataTypePtr>, PathInData::Hash>;
 
@@ -105,6 +107,8 @@ struct ExtraInfo {
 
 TabletColumn get_column_by_type(const DataTypePtr& data_type, const std::string& name,
                                 const ExtraInfo& ext_info);
+
+// A retained Variant UID cannot change storage path encoding. New column identities are allowed.
 
 // check if the tuple_paths has ambiguous paths
 // situation:
@@ -162,13 +166,15 @@ void get_field_info(const Field& field, FieldInfo* info);
 // inherit index from parent column
 bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
                    TabletIndexes& sub_column_indexes, FieldType column_type,
-                   const std::string& suffix_path, bool is_array_nested_type = false);
+                   const std::string& suffix_path, bool is_array_nested_type = false,
+                   bool escape_dots = false);
 
 bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
                    TabletIndexes& sub_column_indexes, const TabletColumn& column);
 
 bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
-                   TabletIndexes& sub_column_indexes, const segment_v2::ColumnMetaPB& column_pb);
+                   TabletIndexes& sub_column_indexes, const segment_v2::ColumnMetaPB& column_pb,
+                   bool escape_dots = false);
 
 Status update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolumns_types,
                                     TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,

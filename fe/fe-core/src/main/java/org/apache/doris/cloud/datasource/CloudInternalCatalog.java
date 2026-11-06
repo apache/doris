@@ -411,7 +411,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                         indexId == tbl.getBaseIndexId() ? partitionInvertedIndexFileStorageFormat : null,
                         tbl.rowStorePageSize(),
-                        tbl.variantEnableFlattenNested(), clusterKeyUids,
+                        tbl.variantEnableFlattenNested(), tbl.getVariantEscapeDotsInKeys(), clusterKeyUids,
                         tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),
                         tbl.storageDictPageSize(), true,
                         tbl.getColumnSeqMapping(),
@@ -449,7 +449,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
             List<Integer> rowStoreColumnUniqueIds,
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
-            boolean variantEnableFlattenNested, List<Integer> clusterKeyUids,
+            boolean variantEnableFlattenNested, boolean variantEscapeDotsInKeys, List<Integer> clusterKeyUids,
             long storagePageSize, EncryptionAlgorithmPB encryptionAlgorithm, long storageDictPageSize,
             boolean createInitialRowset, Map<String, List<String>> columnSeqMapping,
             int verticalCompactionNumColumnsPerGroup, OlapFile.TabletRolePB tabletRole) throws DdlException {
@@ -645,6 +645,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         schemaBuilder.setStoragePageSize(storagePageSize);
         schemaBuilder.setStorageDictPageSize(storageDictPageSize);
         schemaBuilder.setEnableVariantFlattenNested(variantEnableFlattenNested);
+        schemaBuilder.setVariantEscapeDotsInKeys(variantEscapeDotsInKeys);
         if (!CollectionUtils.isEmpty(clusterKeyUids)) {
             schemaBuilder.addAllClusterKeyUids(clusterKeyUids);
         }

@@ -175,6 +175,7 @@ struct ObjectEmitter {
     StringRef previous_path;
     std::vector<ObjectScope> scopes;
 
+    bool decode_keys = false;
     ObjectEmitter() { scopes.reserve(8); }
 
     static size_t component_end(StringRef path, size_t offset) {
@@ -226,7 +227,14 @@ struct ObjectEmitter {
         for (size_t part = 0; part < depth; ++part) {
             const size_t end = component_end(path, offset);
             if (part >= common_depth) {
-                scopes.back().add_key({path_data + offset, end - offset});
+                const std::string_view key(path_data + offset, end - offset);
+                if (decode_keys && key.find('%') != std::string_view::npos) {
+                    std::string decoded;
+                    THROW_IF_ERROR(decode_variant_path_component(key, &decoded));
+                    scopes.back().add_key({decoded.data(), decoded.size()});
+                } else {
+                    scopes.back().add_key({key.data(), key.size()});
+                }
                 if (part + 1 < depth) {
                     scopes.push_back(row->start_object());
                 }
@@ -611,7 +619,7 @@ Status assemble_hierarchical_row(StorageMapKind storage_map_kind, bool has_root,
     return Status::OK();
 }
 
-Status assemble_hierarchical(StorageMapKind storage_map_kind, bool has_root,
+Status assemble_hierarchical(uint32_t path_encoding, StorageMapKind storage_map_kind, bool has_root,
                              const PathInData& requested,
                              std::span<const MaterializedSlot> materialized_slots,
                              const VariantAssemblerBatchView& batch,
@@ -625,6 +633,7 @@ Status assemble_hierarchical(StorageMapKind storage_map_kind, bool has_root,
     outer->reserve(batch.num_rows);
     DorisVector<MergeValue> pending;
     ObjectEmitter emitter;
+    emitter.decode_keys = path_encoding == 1;
     for (size_t row_index = 0; row_index < batch.num_rows; ++row_index) {
         auto row = builder.begin_row();
         if (prepared.root_nulls != nullptr && prepared.root_nulls[row_index] != 0) {
@@ -707,14 +716,16 @@ Result<std::unique_ptr<VariantAssembler>> VariantAssembler::create(
     RETURN_IF_ERROR_RESULT(check_options(options));
     DorisVector<MaterializedSlot> materialized = build_materialized_slots(options);
     return std::unique_ptr<VariantAssembler>(
-            new VariantAssembler(options.storage_map_kind, options.has_root, options.requested_path,
-                                 std::move(materialized)));
+            new VariantAssembler(options.path_encoding, options.storage_map_kind, options.has_root,
+                                 options.requested_path, std::move(materialized)));
 }
 
 VariantAssembler::VariantAssembler(
-        StorageMapKind storage_map_kind, bool has_root, const PathInData& requested,
+        uint32_t path_encoding, StorageMapKind storage_map_kind, bool has_root,
+        const PathInData& requested,
         DorisVector<variant_assembler_detail::MaterializedSlot> materialized)
-        : _storage_map_kind(storage_map_kind),
+        : _path_encoding(path_encoding),
+          _storage_map_kind(storage_map_kind),
           _has_root(has_root),
           _requested(requested),
           _materialized(std::move(materialized)) {}
@@ -724,8 +735,8 @@ Status VariantAssembler::assemble(const VariantAssemblerBatchView& batch,
     DORIS_CHECK(output != nullptr);
     try {
         ColumnNullable::MutablePtr result;
-        const Status status = assemble_hierarchical(_storage_map_kind, _has_root, _requested,
-                                                    _materialized, batch, &result);
+        const Status status = assemble_hierarchical(_path_encoding, _storage_map_kind, _has_root,
+                                                    _requested, _materialized, batch, &result);
         if (!status.ok()) {
             return status;
         }

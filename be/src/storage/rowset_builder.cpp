@@ -32,6 +32,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "core/block/block.h"
+#include "exec/common/variant_util.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "runtime/memory/global_memory_arbitrator.h"

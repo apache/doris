@@ -110,6 +110,7 @@ public class TableProperty implements GsonPostProcessable {
 
     private boolean disableAutoCompaction = false;
 
+    private boolean variantEscapeDotsInKeys = false;
     private boolean variantEnableFlattenNested = false;
 
     private int verticalCompactionNumColumnsPerGroup = 5;
@@ -375,6 +376,19 @@ public class TableProperty implements GsonPostProcessable {
 
     public boolean disableAutoCompaction() {
         return disableAutoCompaction;
+    }
+
+    public TableProperty buildVariantEscapeDotsInKeys() {
+        variantEscapeDotsInKeys = Boolean.parseBoolean(properties.getOrDefault(
+                PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS, "false"));
+        if (!variantEscapeDotsInKeys) {
+            properties.remove(PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS);
+        }
+        return this;
+    }
+
+    public boolean getVariantEscapeDotsInKeys() {
+        return variantEscapeDotsInKeys;
     }
 
     public TableProperty buildVariantEnableFlattenNested() {
@@ -1026,6 +1040,7 @@ public class TableProperty implements GsonPostProcessable {
         buildTimeSeriesCompactionEmptyRowsetsThreshold();
         buildTimeSeriesCompactionLevelThreshold();
         buildTTLSeconds();
+        buildVariantEscapeDotsInKeys();
         buildVariantEnableFlattenNested();
         buildInAtomicRestore();
         buildPartitionRetentionCount();

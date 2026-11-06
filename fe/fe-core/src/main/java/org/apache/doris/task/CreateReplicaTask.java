@@ -139,6 +139,7 @@ public class CreateReplicaTask extends AgentTask {
     private Map<Object, Object> objectPool;
     private List<Integer> rowStoreColumnUniqueIds;
 
+    private final boolean variantEscapeDotsInKeys;
     private boolean variantEnableFlattenNested;
 
     private TEncryptionAlgorithm tdeAlgorithm;
@@ -170,7 +171,7 @@ public class CreateReplicaTask extends AgentTask {
                              List<Integer> rowStoreColumnUniqueIds,
                              Map<Object, Object> objectPool,
                              long rowStorePageSize,
-                             boolean variantEnableFlattenNested,
+                             boolean variantEnableFlattenNested, boolean variantEscapeDotsInKeys,
                              long storagePageSize, TEncryptionAlgorithm tdeAlgorithm,
                              long storageDictPageSize, Map<String, List<String>> columnSeqMapping,
                              int verticalCompactionNumColumnsPerGroup,
@@ -223,6 +224,7 @@ public class CreateReplicaTask extends AgentTask {
         this.objectPool = objectPool;
         this.rowStorePageSize = rowStorePageSize;
         this.variantEnableFlattenNested = variantEnableFlattenNested;
+        this.variantEscapeDotsInKeys = variantEscapeDotsInKeys;
         this.storagePageSize = storagePageSize;
         this.storageDictPageSize = storageDictPageSize;
         this.tdeAlgorithm = tdeAlgorithm;
@@ -412,6 +414,7 @@ public class CreateReplicaTask extends AgentTask {
         tSchema.setIsInMemory(isInMemory);
         tSchema.setDisableAutoCompaction(disableAutoCompaction);
         tSchema.setVariantEnableFlattenNested(variantEnableFlattenNested);
+        tSchema.setVariantEscapeDotsInKeys(variantEscapeDotsInKeys);
         tSchema.setSkipWriteIndexOnLoad(skipWriteIndexOnLoad);
         tSchema.setStoreRowColumn(storeRowColumn);
         tSchema.setRowStorePageSize(rowStorePageSize);

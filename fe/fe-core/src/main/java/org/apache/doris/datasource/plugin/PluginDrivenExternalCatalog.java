@@ -37,6 +37,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.ConnectorFactory;
 import org.apache.doris.connector.ConnectorSessionBuilder;
@@ -798,9 +799,11 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     @Override
     public void validateCreateTableProperties(CreateTableInfo createTableInfo) throws DdlException {
         try {
+            PropertyAnalyzer.rejectVariantEscapeDotsInKeysExternal(
+                    createTableInfo.getProperties());
             // Provider preflight is configuration-only and must run before catalog initialization or remote lookup.
             ConnectorFactory.validateCreateTable(getType(), getProperties());
-        } catch (DorisConnectorException e) {
+        } catch (DorisConnectorException | AnalysisException e) {
             throw new DdlException(e.getMessage(), e);
         }
     }

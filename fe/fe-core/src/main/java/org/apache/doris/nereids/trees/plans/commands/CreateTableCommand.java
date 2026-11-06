@@ -24,6 +24,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -236,6 +237,15 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
         }
         List<String> qualifierTableName = RelationUtil.getQualifierName(ctx, createTableInfo.getTableNameParts());
         createTableInfo.validateCreateTableAsSelect(qualifierTableName, columnsOfQuery.build(), ctx);
+        if (!createTableInfo.isExternal()
+                && CreateTableInfo.ENGINE_OLAP.equalsIgnoreCase(createTableInfo.getEngineName())) {
+            try {
+                createTableInfo.setProperties(PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                        createTableInfo.getProperties(), ctx.getStatementContext().getTables().values(), false));
+            } catch (org.apache.doris.common.AnalysisException e) {
+                throw new AnalysisException(e.getMessage(), e);
+            }
+        }
     }
 
     void handleFallbackFailedCtas(ConnectContext ctx) {

@@ -258,6 +258,21 @@ TEST_F(SchemaUtilTest, TestInheritIndex) {
     EXPECT_FALSE(result);
 }
 
+TEST_F(SchemaUtilTest, EscapedVariantIndexInheritanceUsesStoragePathOnce) {
+    TabletColumn parent;
+    parent.set_unique_id(1);
+    parent.set_name("v");
+    parent.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    parent.set_variant_escape_dots_in_keys(true);
+    TabletColumn child;
+    child.set_unique_id(-1);
+    child.set_parent_unique_id(1);
+    child.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    child.set_path_info(PathInData("v.a%2Eb"));
+    variant_util::inherit_column_attributes(parent, child);
+    EXPECT_TRUE(child.variant_escape_dots_in_keys());
+}
+
 TEST_F(SchemaUtilTest, inherit_column_attributes) {
     TabletSchemaPB schema_pb;
     schema_pb.set_keys_type(KeysType::DUP_KEYS);

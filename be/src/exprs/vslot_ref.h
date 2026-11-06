@@ -88,6 +88,7 @@ private:
     int _slot_id;
     int _column_id;
     int _column_uniq_id = -1;
+    uint64_t _column_paths_digest = 0;
     std::string _owned_column_name;
     const std::string* _column_name = nullptr;
     const std::string _column_label;
