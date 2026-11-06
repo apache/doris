@@ -20,6 +20,7 @@
 #include "common/cast_set.h"
 #include "common/exception.h"
 #include "core/value/variant/variant_leaf_visitor.h"
+#include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/snii/snii_index_writer.h"
 #include "storage/tablet/tablet_schema.h"
 
@@ -40,6 +41,11 @@ Status VariantValuesIndexWriter::init() {
     DORIS_CHECK(_index_file_writer != nullptr);
     DORIS_CHECK(_index_meta != nullptr);
     DORIS_CHECK(_index_meta->is_variant_values_index());
+    // RESTORE/RECOVER can bring back a legacy container while the table has a values
+    // index. Reject it before creating the SNII writer or writing any index bytes.
+    if (_index_file_writer->get_storage_format() != InvertedIndexStorageFormatPB::SNII) {
+        return Status::InvalidArgument("VARIANT values index requires SNII storage format");
+    }
     _writer = std::make_unique<SniiIndexColumnWriter>(_index_file_writer, _index_meta,
                                                       FieldType::OLAP_FIELD_TYPE_VARCHAR);
     RETURN_IF_ERROR(_writer->init());
