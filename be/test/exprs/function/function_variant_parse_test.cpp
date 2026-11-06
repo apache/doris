@@ -33,6 +33,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_variant.h"
 #include "core/data_type/data_type_variant_v2.h"
+#include "core/value/variant/variant_decimal_paths.h"
 #include "core/value/variant/variant_parquet_encoding.h"
 #include "exprs/function/function_test_util.h"
 #include "exprs/function/parse/variant_string_parse.h"
@@ -368,6 +369,67 @@ TEST(FunctionVariantParseTest, ConfiguredInputValidationUsesFailOrOuterNull) {
         ASSERT_TRUE(null.status.ok()) << null.status.to_string();
         EXPECT_TRUE(is_sql_null_at(null.output, 0));
     }
+}
+
+TEST(FunctionVariantParseTest, DecimalTemplatePathsOnTheResultTypeParseNumbersFromText) {
+    const DataTypePtr string_type = std::make_shared<DataTypeString>();
+    auto paths = std::make_shared<const VariantDecimalPathSet>(std::vector<VariantTemplatePath> {
+            {.pattern = "money.amount", .is_glob = false, .is_decimal = true}});
+    const std::string document = R"({"money":{"amount":123456789012.345678},"score":0.5})";
+    for (const char* name : {"parse_to_variant", "try_parse_to_variant"}) {
+        DataTypePtr typed = std::make_shared<DataTypeVariantV2>(0, false, paths);
+        if (std::string_view(name) == "try_parse_to_variant") {
+            typed = make_nullable(typed);
+        }
+        ExecutionResult result =
+                execute_parse(name, make_strings({document}), string_type, 1, typed);
+        ASSERT_TRUE(result.status.ok()) << name << ": " << result.status.to_string();
+        const std::string json = variant_json_at(result.output, 0);
+        EXPECT_NE(std::string::npos, json.find(R"("amount":123456789012.345678)")) << name << json;
+        EXPECT_NE(std::string::npos, json.find(R"("score":0.5)")) << name << json;
+    }
+    // Without paths on the result type the number stays a number.
+    ExecutionResult plain =
+            execute_parse("parse_to_variant", make_strings({document}), string_type, 1);
+    ASSERT_TRUE(plain.status.ok()) << plain.status.to_string();
+    EXPECT_EQ(std::string::npos, variant_json_at(plain.output, 0).find("123456789012.345678"));
+}
+
+TEST(FunctionVariantParseTest, DecimalTemplatePathsStopAtAnArrayInsideAnArray) {
+    const DataTypePtr string_type = std::make_shared<DataTypeString>();
+    auto paths = std::make_shared<const VariantDecimalPathSet>(std::vector<VariantTemplatePath> {
+            {.pattern = "prices", .is_glob = false, .is_decimal = true}});
+    const DataTypePtr typed = std::make_shared<DataTypeVariantV2>(0, false, paths);
+    // Scalars directly inside the declared array are the ARRAY<DECIMAL> field's: read from text.
+    ExecutionResult direct = execute_parse(
+            "parse_to_variant", make_strings({R"({"prices":[1.50]})"}), string_type, 1, typed);
+    ASSERT_TRUE(direct.status.ok()) << direct.status.to_string();
+    EXPECT_NE(std::string::npos, variant_json_at(direct.output, 0).find(R"("prices":[1.50])"));
+    // An array nested inside it is off the template's path like an object element: the template
+    // addresses an array as a leaf, so its number keeps the parser's double, rendered 1.5.
+    ExecutionResult nested = execute_parse(
+            "parse_to_variant", make_strings({R"({"prices":[[1.50]]})"}), string_type, 1, typed);
+    ASSERT_TRUE(nested.status.ok()) << nested.status.to_string();
+    const std::string json = variant_json_at(nested.output, 0);
+    EXPECT_NE(std::string::npos, json.find(R"("prices":[[1.5]])")) << json;
+    EXPECT_EQ(std::string::npos, json.find("1.50")) << json;
+}
+
+TEST(FunctionVariantParseTest, DecimalTemplatePathsDoNotRescueALeadingZero) {
+    const DataTypePtr string_type = std::make_shared<DataTypeString>();
+    auto paths = std::make_shared<const VariantDecimalPathSet>(std::vector<VariantTemplatePath> {
+            {.pattern = "money.amount", .is_glob = false, .is_decimal = true}});
+    // "01" is not a JSON number; a declared path does not change the document's verdict.
+    const std::string document = R"({"money":{"amount":01}})";
+    ExecutionResult failure =
+            execute_parse("parse_to_variant", make_strings({document}), string_type, 1,
+                          std::make_shared<DataTypeVariantV2>(0, false, paths));
+    EXPECT_FALSE(failure.status.ok());
+    ExecutionResult recoverable =
+            execute_parse("try_parse_to_variant", make_strings({document}), string_type, 1,
+                          make_nullable(std::make_shared<DataTypeVariantV2>(0, false, paths)));
+    ASSERT_TRUE(recoverable.status.ok()) << recoverable.status.to_string();
+    EXPECT_TRUE(is_sql_null_at(recoverable.output, 0));
 }
 
 } // namespace doris

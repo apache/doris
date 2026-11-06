@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
+import org.apache.doris.thrift.TVariantTemplatePath;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -209,6 +210,36 @@ public class VariantType extends ScalarType {
         scalarType.setVariantMaxSubcolumnsCount(variantMaxSubcolumnsCount);
         scalarType.setVariantEnableDocMode(enableVariantDocMode);
         scalarType.setVariantIsV2(true);
+        ArrayList<TVariantTemplatePath> templatePaths = collectTemplatePaths();
+        if (!templatePaths.isEmpty()) {
+            scalarType.setVariantTemplatePaths(templatePaths);
+        }
+    }
+
+    /**
+     * The predefined fields in declaration order, for the BE's parser, or an empty list when none of them is
+     * DECIMAL (or ARRAY of DECIMAL): a JSON number on a path whose first matching field is DECIMAL is parsed
+     * from its text instead of through a binary64. The whole template rides so the BE matches a path the way
+     * the shredder does, first field wins: with 'amount*':string before 'amount':decimal(10,2) the number
+     * under "amount" stays off the text path on both sides. A template cannot hold a DECIMALV2 field.
+     */
+    public ArrayList<TVariantTemplatePath> collectTemplatePaths() {
+        ArrayList<TVariantTemplatePath> paths = Lists.newArrayList();
+        boolean anyDecimal = false;
+        for (VariantField field : predefinedFields) {
+            Type fieldType = field.getType();
+            if (fieldType instanceof ArrayType) {
+                fieldType = ((ArrayType) fieldType).getItemType();
+            }
+            boolean isDecimal = fieldType.isDecimalV3();
+            anyDecimal |= isDecimal;
+            TVariantTemplatePath path = new TVariantTemplatePath();
+            path.setPattern(field.getPattern());
+            path.setIsGlob(field.getPatternType() != PatternType.MATCH_NAME);
+            path.setIsDecimal(isDecimal);
+            paths.add(path);
+        }
+        return anyDecimal ? paths : Lists.newArrayList();
     }
 
     @Override

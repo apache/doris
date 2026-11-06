@@ -104,13 +104,14 @@ public class VariantField {
             return false;
         }
         VariantField that = (VariantField) o;
-        return Objects.equals(pattern, that.pattern) && Objects.equals(dataType,
-                that.dataType);
+        // the pattern type decides how the pattern matches (literally or as a glob), on the BE too
+        return Objects.equals(pattern, that.pattern) && Objects.equals(dataType, that.dataType)
+                && patternType == that.patternType;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(pattern, dataType);
+        return Objects.hash(pattern, dataType, patternType);
     }
 
     @Override
