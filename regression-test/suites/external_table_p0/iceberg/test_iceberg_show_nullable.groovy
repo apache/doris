@@ -92,11 +92,11 @@ suite("test_iceberg_show_nullable", "p0,external,doris,external_docker,external_
 
         test {
             sql """insert into ${tableName} values (null, 'bad', '2026-01-02 00:00:00')"""
-            exception "Column 'id' is declared non-nullable but contains nulls"
+            exception "required field 'id' contains NULL"
         }
         test {
             sql """insert into ${tableName} values (3, null, '2026-01-02 00:00:00')"""
-            exception "Column 'value' is declared non-nullable but contains nulls"
+            exception "required field 'value' contains NULL"
         }
         assertEquals(2L, sql("select count(*) from ${tableName}")[0][0])
 
