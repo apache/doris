@@ -24,6 +24,8 @@ import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -34,6 +36,8 @@ import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.PrepareCommandPlanner;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.thrift.TUniqueId;
 
 import org.junit.jupiter.api.Assertions;
@@ -255,6 +259,33 @@ public class MysqlConnectProcessorLongDataTest {
     }
 
     @Test
+    public void testStringWireTypesPreserveBinaryUploadsAndForwarding() throws Exception {
+        for (MysqlColType type : new MysqlColType[] {MysqlColType.MYSQL_TYPE_STRING,
+                MysqlColType.MYSQL_TYPE_VARSTRING, MysqlColType.MYSQL_TYPE_VARCHAR}) {
+            Harness h = new Harness(type, MysqlColType.MYSQL_TYPE_LONG);
+            byte[] bytes = new byte[] {0, (byte) 0x80, (byte) 0xff, 65, (byte) 0xc3, 40};
+            h.upload(7, 0, new byte[] {0, (byte) 0x80});
+            h.upload(7, 0, new byte[] {(byte) 0xff, 65, (byte) 0xc3, 40});
+            h.execute(new byte[] {0, 0, 42, 0, 0, 0});
+            Expression expected = new Cast(new VarBinaryLiteral(bytes), type == MysqlColType.MYSQL_TYPE_VARCHAR
+                    ? VarcharType.createVarcharType(bytes.length) : StringType.INSTANCE);
+            Assertions.assertEquals(expected, h.bound(0));
+            Assertions.assertEquals(new IntegerLiteral(42), h.bound(1));
+            assertForwardedParameters(h);
+
+            MysqlSerializer inline = MysqlSerializer.newInstance();
+            inline.writeInt1(0);
+            inline.writeInt1(0); // Reuse the parameter types cached by the upload execution.
+            inline.writeLenEncodedBytes(bytes);
+            inline.writeInt4(43);
+            h.execute(inline.toArray());
+            Assertions.assertEquals(expected, h.bound(0));
+            Assertions.assertEquals(new IntegerLiteral(43), h.bound(1));
+            assertForwardedParameters(h);
+        }
+    }
+
+    @Test
     public void testTruncatedBlobFailsBinding() {
         Assertions.assertThrows(IllegalArgumentException.class,
                 () -> Literal.getLiteralByMysqlType(MysqlColType.MYSQL_TYPE_BLOB, false,
@@ -360,8 +391,8 @@ public class MysqlConnectProcessorLongDataTest {
             }
         }
 
-        Literal bound(int parameter) {
-            return (Literal) prepared.getStatementContext().getIdToPlaceholderRealExpr()
+        Expression bound(int parameter) {
+            return prepared.getStatementContext().getIdToPlaceholderRealExpr()
                     .get(prepared.command.getPlaceholders().get(parameter).getPlaceholderId());
         }
     }

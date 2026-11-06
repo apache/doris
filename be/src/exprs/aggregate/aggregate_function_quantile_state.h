@@ -83,7 +83,10 @@ struct AggregateFunctionQuantileStateData {
 
     void read(BufferReadable& buf) { DataTypeQuantileState::deserialize_as_stream(value, buf); }
 
-    void reset() { is_first = true; }
+    void reset() {
+        is_first = true;
+        value.reset();
+    }
 
     DataType& get() { return value; }
 

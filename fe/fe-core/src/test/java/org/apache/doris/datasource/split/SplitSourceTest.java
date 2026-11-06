@@ -24,11 +24,14 @@ import org.apache.doris.qe.VarAttrDef;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExternalScanRange;
+import org.apache.doris.thrift.TFileEncryptionInfo;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TIcebergFileDesc;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Multimap;
@@ -438,6 +441,23 @@ public class SplitSourceTest {
         assignment.finishSchedule();
         Assertions.assertEquals(ranges.subList(1, 2), second.getNextBatch(1));
         Assertions.assertTrue(second.getNextBatch(1).isEmpty());
+    }
+
+    @Test
+    void encryptionRejectionRemainsTerminalAfterTheLastBatchWasDrained() throws Exception {
+        TFileRangeDesc file = ranges.get(0).getScanRange().getExtScanRange().getFileScanRange().getRanges().get(0);
+        file.setTableFormatParams(new TTableFormatFileDesc().setIcebergParams(new TIcebergFileDesc()
+                .setEncryptionInfo(new TFileEncryptionInfo().setVersion(1)
+                        .setKey(new byte[16]).setAadPrefix(new byte[0]))));
+        assignment.addToQueue(splits.subList(0, 2));
+        assignment.finishSchedule();
+        SplitSource source = new SplitSource(backend, assignment, 1000);
+        UserException failure = Assertions.assertThrows(UserException.class, () -> source.getNextBatch(10));
+        Assertions.assertTrue(failure.getMessage().contains("READ_UNAVAILABLE"));
+        Assertions.assertSame(failure, Assertions.assertThrows(UserException.class, () -> source.getNextBatch(10)),
+                "A denied last batch must not become a successful EOF on retry");
+        Assertions.assertSame(failure, Assertions.assertThrows(UserException.class,
+                () -> new SplitSource(backend, assignment, 1000).getNextBatch(10)));
     }
 
     @Test

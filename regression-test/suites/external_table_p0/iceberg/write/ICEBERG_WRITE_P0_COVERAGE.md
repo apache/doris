@@ -53,6 +53,7 @@ Coverage status:
 | R16 | CTAS behaves inconsistently for complex types, NULL, partition transforms, file formats and failure cleanup | Black box: DDL and writer committed together | Schema, file format, atomicity | P0 |
 | R17 | Combining sort order, distribution mode, multiple file flushes and concurrent commits causes misordering, lost rows or duplicate commits | White box: exchange, sort writer, optimistic commit | Distributed correctness, stability | P0 |
 | R18 | STRING identity/bucket/truncate computes wrong physical partition values for empty strings, Chinese text, emoji, combining characters and NULL | Black box: UTF-8 transform metadata | Partition routing, pruning | P0 |
+| R19 | Written data files, position deletes or deletion vectors are recorded in metadata under the normalized address BE actually wrote them at (such as s3://) instead of the table's own location (such as s3a:// or oss://) | White box: sink write path versus commit path | Whether other engines and maintenance operations can open the files | P0 |
 
 ## Combined coverage
 
@@ -87,6 +88,7 @@ Coverage status:
 | Sort and distribution properties | Multi-column sort order, NULL ordering, none/hash/range distribution, forced multi-file flush | Covered (verified) | `test_iceberg_write_order_distribution_properties` |
 | Concurrent writes | Serializability invariant of conflicting MERGEs on the same row, non-conflicting distributed appends | Covered (verified) | `test_iceberg_write_concurrent_merge_invariants` |
 | Distributed execution | Multi-bucket source tables, multi-partition Iceberg sinks, multiple BE writers, no catalog/database shared between suites | Covered (verified) | All suites added by this work |
+| File path recording | Every file written by INSERT, partition OVERWRITE, branch INSERT, DELETE, UPDATE, MERGE and rewrite_data_files (v2 position deletes, v3 deletion vectors) is recorded under the table's data location | Covered (regular regression) | `test_iceberg_write_file_locations` |
 | Spark cross-check | Fifteen positive suites compare row by row after the last write; the STRING transform suite also compares physical partition metadata before and after evolution | Covered (verified) | The fifteen positive suites; physical metadata in `test_iceberg_write_string_transform_metadata` |
 
 ## Design of the added cases
@@ -112,9 +114,10 @@ Coverage status:
 | W17 | Verify sort order, distribution mode and multi-file flush | R03, R11, R17 | Correctness, stability | Multi-BE Doris | NULL sort keys, multi-column ascending/descending order, none/hash/range, low target file size | The plan contains the declared sort; the total row count across files is correct; the three distribution modes agree |
 | W18 | Verify commit invariants of concurrent MERGE and append | R11, R13, R17 | Concurrency, atomicity | Multi-BE Doris | A readiness barrier makes two independent sessions ready to dispatch at the same time; updates of the same row and non-conflicting appends | Commits on the same row are serializable with cardinality one; only Iceberg validation/commit conflicts are accepted; non-conflicting writes are neither lost nor duplicated |
 | W19 | Verify type safety of the MERGE source projection entering the truncate transform | R12, R18 | Regular regression, stability | Iceberg v2 MOR | Matched updates and unmatched inserts on a required STRING truncate column | MERGE accepts non-NULL values in the nullable physical projection and produces correct physical partitions |
+| W20 | Verify that every write operation records its file paths under the table's own location | R19 | Correctness, compatibility | The REST fixture's warehouse is s3a://, which BE normalizes to s3:// | INSERT, partition OVERWRITE, branch INSERT, DELETE, UPDATE, MERGE and rewrite_data_files in turn on v2 and v3 tables | Every file in `$all_files` starts with the LOCATION from `SHOW CREATE TABLE` plus `/data/`; new write operations are added to this case too |
 
 ## P0 coverage check
 
-Each of R01-R18 maps to at least one P0 regression. After the last successful write, all fifteen positive suites cross-check the logical result of the same table between Spark and Doris; transforms, rollover, CTAS properties and failure atomicity additionally have physical metadata or state oracles. W08, W10 and W19 run as regular regressions; W07, which may still write unreadable required-null files, keeps its isolation switch so that it does not damage a shared cluster.
+Each of R01-R19 maps to at least one P0 regression. After the last successful write, all fifteen positive suites cross-check the logical result of the same table between Spark and Doris; transforms, rollover, CTAS properties and failure atomicity additionally have physical metadata or state oracles. W08, W10 and W19 run as regular regressions; W07, which may still write unreadable required-null files, keeps its isolation switch so that it does not damage a shared cluster.
 
 This matrix has no uncovered items. COW row-level DML, branch row-level DML, tag writes and Avro writes are explicit current capability boundaries, each pinned by an expected-rejection case that fixes the error semantics and failure atomicity; only the known required-null defect keeps using an isolated negative regression.

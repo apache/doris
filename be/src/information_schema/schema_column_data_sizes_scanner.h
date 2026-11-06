@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "information_schema/schema_scanner.h"
+#include "storage/rowset/rowset_fwd.h"
 
 namespace doris {
 class RuntimeState;

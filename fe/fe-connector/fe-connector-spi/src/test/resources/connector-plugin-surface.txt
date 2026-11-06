@@ -20,6 +20,7 @@ org.apache.doris.connector.spi.Connector#preCreateValidation(org.apache.doris.co
 org.apache.doris.connector.spi.Connector#schemaCacheTtlSecondOverride():java.util.OptionalLong
 org.apache.doris.connector.spi.Connector#testConnection(org.apache.doris.connector.spi.ConnectorSession):org.apache.doris.connector.spi.ConnectorTestResult
 org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_COLUMN_AUTO_ANALYZE
+org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_CONNECTOR_PARTITION_PRUNING
 org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_FIELD_ID_ACCESS_PATH
 org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_METADATA_PRELOAD
 org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_MVCC_SNAPSHOT
@@ -123,6 +124,21 @@ org.apache.doris.connector.spi.ConnectorStatementScope#getIfPresent(java.lang.St
 org.apache.doris.connector.spi.ConnectorStatementScope#getOrCreateMetadata(java.lang.String,java.util.function.Supplier):org.apache.doris.connector.spi.ConnectorMetadata
 org.apache.doris.connector.spi.ConnectorStatementScopes#getIfPresent(org.apache.doris.connector.spi.ConnectorSession,java.lang.String,java.lang.String,java.lang.String):java.lang.Object
 org.apache.doris.connector.spi.ConnectorStatementScopes#resolveInStatement(org.apache.doris.connector.spi.ConnectorSession,java.lang.String,java.lang.String,java.lang.String,java.util.function.Supplier):java.lang.Object
+org.apache.doris.connector.spi.ConnectorTableNotFoundException#addSuppressed(java.lang.Throwable):void
+org.apache.doris.connector.spi.ConnectorTableNotFoundException#fillInStackTrace():java.lang.Throwable
+org.apache.doris.connector.spi.ConnectorTableNotFoundException#getCause():java.lang.Throwable
+org.apache.doris.connector.spi.ConnectorTableNotFoundException#getDatabaseName():java.lang.String
+org.apache.doris.connector.spi.ConnectorTableNotFoundException#getLocalizedMessage():java.lang.String
+org.apache.doris.connector.spi.ConnectorTableNotFoundException#getMessage():java.lang.String
+org.apache.doris.connector.spi.ConnectorTableNotFoundException#getStackTrace():java.lang.StackTraceElement[]
+org.apache.doris.connector.spi.ConnectorTableNotFoundException#getSuppressed():java.lang.Throwable[]
+org.apache.doris.connector.spi.ConnectorTableNotFoundException#getTableName():java.lang.String
+org.apache.doris.connector.spi.ConnectorTableNotFoundException#initCause(java.lang.Throwable):java.lang.Throwable
+org.apache.doris.connector.spi.ConnectorTableNotFoundException#printStackTrace():void
+org.apache.doris.connector.spi.ConnectorTableNotFoundException#printStackTrace(java.io.PrintStream):void
+org.apache.doris.connector.spi.ConnectorTableNotFoundException#printStackTrace(java.io.PrintWriter):void
+org.apache.doris.connector.spi.ConnectorTableNotFoundException#setStackTrace(java.lang.StackTraceElement[]):void
+org.apache.doris.connector.spi.ConnectorTableNotFoundException#toString():java.lang.String
 org.apache.doris.connector.spi.ConnectorTableSchema#equals(java.lang.Object):boolean
 org.apache.doris.connector.spi.ConnectorTableSchema#getColumns():java.util.List
 org.apache.doris.connector.spi.ConnectorTableSchema#getProperties():java.util.Map
@@ -203,6 +219,7 @@ org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#planScanForPartiti
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#populateScanLevelParams(org.apache.doris.thrift.TFileScanRangeParams,java.util.Map):void
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#releaseReadTransaction(java.lang.String):void
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#scannedPartitionCount(java.util.List):java.util.OptionalLong
+org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#streamPartitionSources(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.scan.ConnectorScanRequest,int,int):java.util.Optional
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#streamSplits(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.scan.ConnectorScanRequest):org.apache.doris.connector.spi.scan.ConnectorSplitSource
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#streamingSplitEstimate(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,java.util.Optional,boolean):long
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#supportsBatchScan(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle):boolean
@@ -256,6 +273,7 @@ org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder#requiredPartiti
 org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder#scanContext(org.apache.doris.connector.spi.scan.ConnectorScanContext):org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder
 org.apache.doris.connector.spi.scan.ConnectorSplitSource#close():void
 org.apache.doris.connector.spi.scan.ConnectorSplitSource#hasNext():boolean
+org.apache.doris.connector.spi.scan.ConnectorSplitSource#isBlocked():java.util.concurrent.CompletableFuture
 org.apache.doris.connector.spi.scan.ConnectorSplitSource#next():org.apache.doris.connector.spi.scan.ConnectorScanRange
 org.apache.doris.connector.spi.scan.ConnectorSplitSource#onMoreSplitsRequested():void
 org.apache.doris.connector.spi.scan.ScanNodePropertyKeys#field:FILE_FORMAT_TYPE:java.lang.String=file_format_type

@@ -424,10 +424,14 @@ void QuantileState::add_value(const double& value) {
     }
 }
 
-void QuantileState::clear() {
+void QuantileState::reset() {
     _type = EMPTY;
     _tdigest_ptr.reset();
     _explicit_data.clear();
+}
+
+void QuantileState::clear() {
+    reset();
     _explicit_data.shrink_to_fit();
 }
 

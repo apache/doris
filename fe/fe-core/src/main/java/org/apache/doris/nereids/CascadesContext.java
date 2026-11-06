@@ -42,6 +42,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -276,15 +277,22 @@ public class CascadesContext implements ScheduleContext {
         if (!statementContext.getRewrittenPlansByMv().isEmpty()) {
             // copy tmp plan for mv rewrite firstly
             for (Plan rewrittenPlan : rewrittenPlansByMv) {
+                // the rewritten plan may define a constant output with another exprId than the origin plan, align
+                // the outputs before the comparison, only a same constant is allowed to change the exprId
+                Plan alignedPlan = MaterializedViewUtils.normalizeSinkExpressions(rewrittenPlan, plan);
+                if (alignedPlan != null && !alignedPlan.getLogicalProperties().equals(plan.getLogicalProperties())) {
+                    alignedPlan = MaterializedViewUtils.alignPlanOutputWithOrigin(rewrittenPlan, plan);
+                }
                 // aggregate_without_roll_up query_13_0 cause error into targetGroup but differ in logical properties
                 // tmp rewritten plan output is different from final rewritten plan output
-                if (!rewrittenPlan.getLogicalProperties().equals(plan.getLogicalProperties())) {
+                if (alignedPlan == null
+                        || !alignedPlan.getLogicalProperties().equals(plan.getLogicalProperties())) {
                     LOG.error("rewritten plan in rbo logical properties are "
                                     + "different from original plan, query id is {}",
                             getConnectContext().getQueryIdentifier());
                     continue;
                 }
-                this.memo.copyIn(rewrittenPlan, this.memo.getRoot(), false);
+                this.memo.copyIn(alignedPlan, this.memo.getRoot(), false);
             }
         }
     }

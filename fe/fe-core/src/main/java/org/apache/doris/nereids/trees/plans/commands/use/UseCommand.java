@@ -54,6 +54,14 @@ public class UseCommand extends Command implements NoForward {
         this.databaseName = databaseName;
     }
 
+    public String getCatalogName() {
+        return catalogName;
+    }
+
+    public String getDatabaseName() {
+        return databaseName;
+    }
+
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);

@@ -121,6 +121,8 @@ public class TrinoPluginManager implements PluginInstaller {
     }
 
     private void installPluginInternal(Plugin plugin) {
+        // Register logical types before a connector resolves its schema through the shared TypeManager.
+        plugin.getTypes().forEach(typeRegistry::addType);
         for (ConnectorFactory connectorFactory : plugin.getConnectorFactories()) {
             LOG.info("Registering connector {}", connectorFactory.getName());
             ConnectorFactory existing = connectorFactories.putIfAbsent(

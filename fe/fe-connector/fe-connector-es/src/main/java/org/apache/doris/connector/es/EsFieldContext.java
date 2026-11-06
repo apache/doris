@@ -19,8 +19,10 @@ package org.apache.doris.connector.es;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Holds field-level context derived from ES index mapping analysis.
@@ -39,6 +41,10 @@ public class EsFieldContext {
     private final Map<String, String> fetchFieldsContext = new HashMap<>();
     private final Map<String, String> docValueFieldsContext = new HashMap<>();
     private final List<String> needCompatDateFields = new ArrayList<>();
+    private final Set<String> sourceValueUnsafeFields = new HashSet<>();
+    private final Set<String> sourceModeUnsafeFields = new HashSet<>();
+    private boolean requiresFullSourceRead;
+
     private final Map<String, String> column2typeMap = new HashMap<>();
 
     public Map<String, String> getFetchFieldsContext() {
@@ -59,6 +65,22 @@ public class EsFieldContext {
      */
     public Map<String, String> getColumn2typeMap() {
         return column2typeMap;
+    }
+
+    public Set<String> getSourceValueUnsafeFields() {
+        return sourceValueUnsafeFields;
+    }
+
+    public Set<String> getSourceModeUnsafeFields() {
+        return sourceModeUnsafeFields;
+    }
+
+    public boolean requiresFullSourceRead() {
+        return requiresFullSourceRead;
+    }
+
+    public void requireFullSourceRead() {
+        requiresFullSourceRead = true;
     }
 
     @Override

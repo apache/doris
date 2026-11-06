@@ -18,6 +18,7 @@
 #pragma once
 
 #include <limits>
+#include <utility>
 
 #include "format_v2/parquet/reader/native/decoder.h"
 
@@ -41,15 +42,32 @@ public:
 
     Status set_dict(DorisUniqueBufferPtr<uint8_t>& dict, int32_t length,
                     size_t num_values) override {
-        if (UNLIKELY(_type_length <= 0 || length < 0 ||
-                     num_values > std::numeric_limits<size_t>::max() /
-                                          static_cast<size_t>(_type_length) ||
-                     num_values * static_cast<size_t>(_type_length) !=
-                             static_cast<size_t>(length))) {
-            return Status::Corruption("Wrong dictionary data for fixed length type");
-        }
         if (UNLIKELY(dict == nullptr)) {
             return Status::Corruption("Fixed-length Parquet dictionary is null");
+        }
+        if constexpr (PhysicalType == tparquet::Type::BOOLEAN) {
+            // A PLAIN BOOLEAN dictionary is LSB-first bit-packed, so nine entries need two bytes.
+            // Validate that extent before expanding; division first also avoids count + 7 overflow.
+            const size_t packed_bytes = num_values / 8 + (num_values % 8 != 0U);
+            if (UNLIKELY(std::cmp_not_equal(packed_bytes, length))) {
+                return Status::Corruption("Wrong dictionary data for boolean type");
+            }
+            // SerDe consumes contiguous one-byte values: e.g. 0x02 becomes {false, true}.
+            auto unpacked = make_unique_buffer<uint8_t>(num_values);
+            for (size_t row = 0; row < num_values; ++row) {
+                unpacked[row] = static_cast<uint8_t>((dict[row / 8] >> (row % 8)) & 1);
+            }
+            dict = std::move(unpacked);
+            _type_length = sizeof(uint8_t);
+        } else {
+            // Other physical types store one complete fixed-width value per dictionary entry.
+            if (UNLIKELY(_type_length <= 0 || length < 0 ||
+                         num_values > std::numeric_limits<size_t>::max() /
+                                              static_cast<size_t>(_type_length) ||
+                         num_values * static_cast<size_t>(_type_length) !=
+                                 static_cast<size_t>(length))) {
+                return Status::Corruption("Wrong dictionary data for fixed length type");
+            }
         }
         _dict = std::move(dict);
         _num_dictionary_values = num_values;

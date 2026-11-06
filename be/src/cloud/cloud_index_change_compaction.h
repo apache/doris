@@ -21,6 +21,7 @@
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
+#include "gen_cpp/cloud.pb.h"
 #include "storage/compaction/compaction.h"
 
 namespace doris {

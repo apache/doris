@@ -32,7 +32,10 @@
 #include "io/cache/file_cache_common.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "util/slice.h"
-#include "util/threadpool.h"
+
+namespace doris {
+class ThreadPool;
+}
 
 namespace doris::io {
 

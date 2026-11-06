@@ -410,6 +410,18 @@ Status DataTypeNullableSerDe::read_column_from_arrow(IColumn& column,
                                                      const arrow::Array* arrow_array, int64_t start,
                                                      int64_t end,
                                                      const cctz::time_zone& ctz) const {
+    if (arrow_array->type_id() == arrow::Type::NA) {
+        // Arrow Null has neither a validity bitmap nor values, even when sliced. Avoid the
+        // physical SerDe for Doris's UInt8 placeholder and keep nested values and nulls aligned.
+        if (arrow_array->offset() < 0 || start < 0 || end < start || end > arrow_array->length()) {
+            return Status::InvalidArgument(
+                    "Invalid Arrow Null read range: start={}, end={}, "
+                    "length={}, offset={}",
+                    start, end, arrow_array->length(), arrow_array->offset());
+        }
+        column.insert_many_defaults(end - start);
+        return Status::OK();
+    }
     if (config::enable_arrow_input_validation) {
         check_arrow_array_range(*arrow_array, start, end);
         check_arrow_validity_bitmap(*arrow_array);
@@ -580,8 +592,10 @@ void DataTypeNullableSerDe::to_string(const IColumn& column, size_t row_num, Buf
                                       const FormatOptions& options) const {
     const auto& col_null = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(column);
     if (col_null.is_null_at(row_num)) {
+        // A child may reserve lowercase null for a value; use its paired SQL-null marker.
         if (_nesting_level > 1) {
-            bw.write("null", 4);
+            const auto null_format = nested_serde->get_nested_null_format();
+            bw.write(null_format.data, null_format.size);
         } else {
             bw.write("NULL", 4);
         }
@@ -592,6 +606,28 @@ void DataTypeNullableSerDe::to_string(const IColumn& column, size_t row_num, Buf
 
 std::string DataTypeNullableSerDe::to_olap_string(const Field& field) const {
     return nested_serde->to_olap_string(field);
+}
+
+Status DataTypeNullableSerDe::from_string_as_nested(StringRef& str, IColumn& column,
+                                                    const FormatOptions& options,
+                                                    bool is_strict_mode) const {
+    auto& null_column = assert_cast<ColumnNullable&>(column);
+    // Match the unquoted marker before parsing the value: for JSON, null and
+    // "null" are non-SQL-null values, whereas NULL is the SQL-null marker.
+    if (str == nested_serde->get_nested_null_format()) {
+        null_column.insert_default();
+        return Status::OK();
+    }
+    auto status = nested_serde->from_string_as_nested(str, null_column.get_nested_column(), options,
+                                                      is_strict_mode);
+    // Malformed children become SQL NULL only in non-strict mode, just as in from_string.
+    if (!status.ok() && !is_strict_mode) {
+        null_column.insert_default();
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(status);
+    null_column.get_null_map_data().push_back(0);
+    return Status::OK();
 }
 
 // In non-strict mode, from string will handle errors by inserting a null value.
