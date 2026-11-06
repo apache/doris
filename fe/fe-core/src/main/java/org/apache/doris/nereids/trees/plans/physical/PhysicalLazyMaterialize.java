@@ -38,13 +38,16 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.collect.BiMap;
+import com.google.common.collect.HashBiMap;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -188,6 +191,23 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
         relations = relationListBuilder.build();
         rowIdList = rowIdListBuilder.build();
         this.materializeOutput = outputBuilder.build();
+    }
+
+    @Override
+    public AbstractPhysicalPlan copyForProfile(Function<Plan, Plan> copyPlan) {
+        Map<Relation, List<Slot>> copiedLazySlots = new LinkedHashMap<>();
+        relationToLazySlotMap.forEach((relation, slots) ->
+                copiedLazySlots.put((Relation) copyPlan.apply((Plan) relation), slots));
+        BiMap<Relation, SlotReference> copiedRowIds = HashBiMap.create();
+        relationToRowId.forEach((relation, slot) ->
+                copiedRowIds.put((Relation) copyPlan.apply((Plan) relation), slot));
+        Map<Slot, MaterializeSource> copiedSources = new LinkedHashMap<>();
+        materializeMap.forEach((slot, source) -> copiedSources.put(slot,
+                new MaterializeSource((Relation) copyPlan.apply((Plan) source.relation), source.baseSlot)));
+        Plan copiedChild = copyPlan.apply(child());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalLazyMaterialize<>(copiedChild,
+                materializeInput, materializedSlots, copiedLazySlots, copiedRowIds, copiedSources,
+                physicalProperties, null));
     }
 
     @Override

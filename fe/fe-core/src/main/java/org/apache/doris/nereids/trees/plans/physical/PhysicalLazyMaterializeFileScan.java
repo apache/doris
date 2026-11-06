@@ -19,11 +19,14 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 
 /**
     wrapper for FileScan used for lazy materialization
@@ -46,6 +49,13 @@ public class PhysicalLazyMaterializeFileScan extends PhysicalFileScan {
         this.scan = scan;
         this.rowId = rowId;
         this.lazySlots = lazySlots;
+    }
+
+    @Override
+    public AbstractPhysicalPlan copyForProfile(Function<Plan, Plan> copyPlan) {
+        PhysicalFileScan copiedScan = (PhysicalFileScan) copyPlan.apply(scan);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalLazyMaterializeFileScan(
+                copiedScan, rowId, lazySlots));
     }
 
     @Override

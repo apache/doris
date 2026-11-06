@@ -1601,10 +1601,6 @@ public class StmtExecutor {
                 summaryInfo = getSummaryInfo(isFinished);
             }
             profile.updateSummary(summaryInfo, isFinished, this.planner);
-            if (planner instanceof NereidsPlanner) {
-                NereidsPlanner nereidsPlanner = ((NereidsPlanner) planner);
-                profile.setPhysicalPlan(nereidsPlanner.getPhysicalPlan());
-            }
         } catch (Throwable t) {
             LOG.warn("failed to update profile, ignore this error", t);
         }

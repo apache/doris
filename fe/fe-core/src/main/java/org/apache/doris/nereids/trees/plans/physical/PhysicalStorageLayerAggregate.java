@@ -38,6 +38,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
 
 /** PhysicalStorageLayerAggregate */
 public class PhysicalStorageLayerAggregate extends PhysicalCatalogRelation {
@@ -80,6 +81,14 @@ public class PhysicalStorageLayerAggregate extends PhysicalCatalogRelation {
 
     public List<ExprId> getCountArgumentExprIds() {
         return countArgumentExprIds;
+    }
+
+    @Override
+    public AbstractPhysicalPlan copyForProfile(Function<Plan, Plan> copyPlan) {
+        PhysicalCatalogRelation copiedRelation = (PhysicalCatalogRelation) copyPlan.apply(relation);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalStorageLayerAggregate(
+                copiedRelation, aggOp, countArgumentExprIds,
+                Optional.empty(), copiedRelation.getLogicalProperties(), physicalProperties, null));
     }
 
     @Override

@@ -21,6 +21,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.statistics.model.Statistics;
@@ -28,6 +29,7 @@ import org.apache.doris.statistics.model.Statistics;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.function.Function;
 
 /**
  * PhysicalLazyMaterializeOlapScan
@@ -67,6 +69,13 @@ public class PhysicalLazyMaterializeOlapScan extends PhysicalOlapScan {
         this.scan = physicalOlapScan;
         this.rowId = rowId;
         this.lazySlots = ImmutableList.copyOf(lazySlots);
+    }
+
+    @Override
+    public AbstractPhysicalPlan copyForProfile(Function<Plan, Plan> copyPlan) {
+        PhysicalOlapScan copiedScan = (PhysicalOlapScan) copyPlan.apply(scan);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalLazyMaterializeOlapScan(
+                copiedScan, rowId, lazySlots));
     }
 
     @Override
