@@ -36,7 +36,9 @@ import org.apache.doris.thrift.TTableType;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.table.DataTable;
+import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.system.SystemTableLoader;
@@ -184,6 +186,25 @@ public class PaimonSysExternalTable extends ExternalTable {
                     dataTable, resolvedOptions(dataTable, scanParams));
         } else {
             PaimonReaderOptions.validateEffectiveTable(PaimonReaderOptions.runtimeSafeTable(dataTable));
+        }
+        if ("file_indexes".equalsIgnoreCase(sysTableType)) {
+            // This wrapper defers the data scan to BE. Check catalog query authorization on FE
+            // while the catalog loader is available, as ordinary FE-planned scans do.
+            authorizeDeferredScan(dataTable);
+        }
+    }
+
+    static void authorizeDeferredScan(FileStoreTable dataTable) {
+        FileStoreTable undecorated = PaimonTableDecorators.unwrapToFallbackOrBase(dataTable);
+        if (undecorated instanceof FallbackReadFileStoreTable) {
+            FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) undecorated;
+            authorizeDeferredScan(pair.wrapped());
+            authorizeDeferredScan(pair.other());
+            return;
+        }
+        CoreOptions options = undecorated.coreOptions();
+        if (options.queryAuthEnabled()) {
+            undecorated.catalogEnvironment().tableQueryAuth(options).auth(null);
         }
     }
 

@@ -22,19 +22,17 @@ import org.apache.doris.nereids.analyzer.UnboundPaimonTableSink;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.parser.LogicalPlanBuilderAssistant;
-import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Explainable;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.PaimonRowChangeSpec;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeMatchedClause;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeNotMatchedClause;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeUtils;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -100,10 +98,7 @@ public class PaimonMergeCommand extends Command implements ForwardWithSync, Expl
         if (targetAlias.isPresent()) {
             target = new LogicalSubQueryAlias<>(targetAlias.get(), target);
         }
-        JoinType joinType = notMatchedClauses.isEmpty()
-                ? JoinType.INNER_JOIN : JoinType.LEFT_OUTER_JOIN;
-        return new LogicalJoin<>(joinType, ImmutableList.of(), ImmutableList.of(onClause),
-                source, target, JoinReorderContext.EMPTY);
+        return MergeUtils.buildMergeJoin(target, source, onClause, !notMatchedClauses.isEmpty());
     }
 
     @Override
