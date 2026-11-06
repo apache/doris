@@ -138,7 +138,6 @@ import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJob;
-import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.GroupCommitManager;
 import org.apache.doris.load.StreamLoadRecordMgr;
@@ -2498,6 +2497,7 @@ public class Env {
 
     public long loadExportJob(DataInputStream dis, long checksum) throws IOException, DdlException {
         long curTime = System.currentTimeMillis();
+        long ttlSeconds = Config.history_job_keep_max_second;
         long newChecksum = checksum;
         int size = dis.readInt();
         newChecksum = checksum ^ size;
@@ -2506,7 +2506,7 @@ public class Env {
             newChecksum ^= jobId;
             ExportJob job = ExportJob.read(dis);
             job.cancelReplayedExportJob();
-            if (!job.isExpired(curTime)) {
+            if (!job.isRemovableAt(curTime, ttlSeconds)) {
                 exportMgr.unprotectAddJob(job);
             }
         }
@@ -2885,18 +2885,7 @@ public class Env {
 
     public long saveExportJob(CountingDataOutputStream dos, long checksum) throws IOException {
         long curTime = System.currentTimeMillis();
-        List<ExportJob> jobs = exportMgr.getJobs().stream().filter(t -> !t.isExpired(curTime))
-                .collect(Collectors.toList());
-        if (jobs.size() > Config.max_export_history_job_num) {
-            jobs.sort(Comparator.comparingLong(ExportJob::getCreateTimeMs));
-            Iterator<ExportJob> iterator = jobs.iterator();
-            while (jobs.size() > Config.max_export_history_job_num && iterator.hasNext()) {
-                ExportJob job = iterator.next();
-                if (job.getState() == ExportJobState.FINISHED || job.getState() == ExportJobState.CANCELLED) {
-                    iterator.remove();
-                }
-            }
-        }
+        List<ExportJob> jobs = exportMgr.getJobsForImage(curTime);
         int size = jobs.size();
         checksum ^= size;
         dos.writeInt(size);
