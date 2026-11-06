@@ -22,6 +22,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorPushdownOps;
+import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
 import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
@@ -148,6 +149,45 @@ public class PluginDrivenScanNodeCastPredicateTest extends TestWithFeService {
         Assertions.assertEquals(catalogAccepts && readerAccepts, buildFilter(node, provider).isPresent());
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void sharedCatalogKeepsCastPolicyLocalToEachScan(boolean deltaFirst) throws Exception {
+        List<Expr> conjuncts = planConjuncts("cast(amount as bigint) = 123 and id = 1");
+        Assertions.assertEquals(2, conjuncts.size());
+        Assertions.assertTrue(conjuncts.stream().anyMatch(PluginDrivenScanNode::containsCastExpr));
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        Mockito.when(metadata.supportsCastPredicatePushdown(Mockito.any())).thenReturn(true);
+        // An HMS statement shares its catalog metadata across Delta and Iceberg scan nodes.
+        PluginDrivenScanNode delta = nodeWith(Expr.cloneList(conjuncts), metadata);
+        PluginDrivenScanNode iceberg = nodeWith(Expr.cloneList(conjuncts), metadata);
+        ConnectorScanPlanProvider deltaProvider = Mockito.mock(ConnectorScanPlanProvider.class,
+                Mockito.withSettings().extraInterfaces(ConnectorPushdownOps.class));
+        Mockito.when(((ConnectorPushdownOps) deltaProvider).supportsCastPredicatePushdown(Mockito.any()))
+                .thenReturn(false);
+        ConnectorScanPlanProvider icebergProvider = Mockito.mock(ConnectorScanPlanProvider.class);
+
+        // Revisit both scans in both orders: a catalog-wide or last-table policy must not leak between them.
+        List<PluginDrivenScanNode> scans = deltaFirst ? List.of(delta, iceberg, delta, iceberg)
+                : List.of(iceberg, delta, iceberg, delta);
+        for (PluginDrivenScanNode scan : scans) {
+            ConnectorExpression filter = buildFilter(scan, scan == delta ? deltaProvider : icebergProvider)
+                    .orElseThrow();
+            if (scan == delta) {
+                Assertions.assertInstanceOf(ConnectorComparison.class, filter);
+                Assertions.assertEquals("id",
+                        ((ConnectorColumnRef) ((ConnectorComparison) filter).getLeft()).getColumnName());
+                int plainIndex = PluginDrivenScanNode.containsCastExpr(conjuncts.get(0)) ? 1 : 0;
+                Assertions.assertEquals(List.of(plainIndex),
+                        Deencapsulation.getField(scan, "filteredToOriginalIndex"));
+            } else {
+                Assertions.assertInstanceOf(ConnectorAnd.class, filter);
+                Assertions.assertEquals(2, filter.getChildren().size());
+                Assertions.assertNull(Deencapsulation.getField(scan, "filteredToOriginalIndex"));
+            }
+            Assertions.assertEquals(conjuncts, Deencapsulation.getField(scan, "conjuncts"));
+        }
+    }
+
     private static Optional<ConnectorExpression> buildFilter(PluginDrivenScanNode node,
             ConnectorScanPlanProvider provider) {
         return Deencapsulation.invoke(node, "buildRemainingFilter", provider);
@@ -167,9 +207,13 @@ public class PluginDrivenScanNodeCastPredicateTest extends TestWithFeService {
      * {@code cachedMetadata} is injected directly so the per-statement metadata funnel stays out of the test.
      */
     private static PluginDrivenScanNode nodeWith(List<Expr> conjuncts, boolean supportsCast) {
-        PluginDrivenScanNode node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         Mockito.when(metadata.supportsCastPredicatePushdown(Mockito.any())).thenReturn(supportsCast);
+        return nodeWith(conjuncts, metadata);
+    }
+
+    private static PluginDrivenScanNode nodeWith(List<Expr> conjuncts, ConnectorMetadata metadata) {
+        PluginDrivenScanNode node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
         Deencapsulation.setField(node, "cachedMetadata", metadata);
         Deencapsulation.setField(node, "conjuncts", conjuncts);
         return node;
