@@ -109,6 +109,7 @@ suite("test_mow_table_with_format_v2", "inverted_index_format_v2") {
         }
 
         sql """ DROP TABLE IF EXISTS ${tableName} """
+        // All eight insert transactions must write to the tablet checked for compaction below.
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
                 `user_id` LARGEINT NOT NULL COMMENT "用户id",
@@ -130,7 +131,7 @@ suite("test_mow_table_with_format_v2", "inverted_index_format_v2") {
                 INDEX idx_user_id (`user_id`) USING INVERTED,
                 INDEX idx_date (`date`) USING INVERTED,
                 INDEX idx_city (`city`) USING INVERTED)
-            UNIQUE KEY(`user_id`, `date`, `datev2`, `datetimev2_1`, `datetimev2_2`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
+            UNIQUE KEY(`user_id`, `date`, `datev2`, `datetimev2_1`, `datetimev2_2`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
             PROPERTIES ( "replication_num" = "1", "disable_auto_compaction" = "true", "enable_unique_key_merge_on_write" = "true" );
         """
 
@@ -201,6 +202,8 @@ suite("test_mow_table_with_format_v2", "inverted_index_format_v2") {
             logger.info("run compaction:" + tablet_id)
             (code, out, err) = be_run_cumulative_compaction(ip, port, tablet_id)
             logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
+            assertEquals(0, code)
+            assertEquals("success", parseJson(out.trim()).status.toLowerCase(), out)
             do {
                 Thread.sleep(100)
                 (code, out, err) = be_get_compaction_status(ip, port, tablet_id)
