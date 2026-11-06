@@ -592,11 +592,6 @@ struct TRuntimeFilterParams {
 
   // Used if this filter has a remote target
   5: optional map<i32, list<TRuntimeFilterTargetParamsV2>> rid_to_target_paramv2
-
-  // The FE has checked the complete query plan: no runtime filter can be reset for another
-  // recursive round, and each BE receives its initial fragments in one complete batch.
-  // Missing/false keeps the merge QueryContext alive until cancellation or timeout.
-  6: optional bool rf_merge_context_single_use
 }
 
 // Parameters for a single execution instance of a particular TPlanFragment

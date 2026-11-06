@@ -26,7 +26,6 @@
 #include "exec/runtime_filter/runtime_filter_producer.h"
 #include "runtime/query_context.h"
 #include "testutil/mock/mock_runtime_state.h"
-#include "util/brpc_closure.h"
 
 namespace doris {
 namespace {
@@ -209,65 +208,6 @@ TEST_F(RuntimeFilterMgrTest, TestRuntimeFilterMergeControllerEntity) {
                         .add_rid_to_target_paramv2(rid, {TRuntimeFilterTargetParamsV2()})
                         .build();
         EXPECT_TRUE(entity->init(ctx, param).ok());
-    }
-}
-
-TEST_F(RuntimeFilterMgrTest, MergeSizeDispatchCallbackAcceptsEofButRejectsOtherFailures) {
-    GlobalMergeContext context;
-    context.completion = std::make_shared<GlobalMergeContext::Completion>();
-    auto previous_round = context.completion;
-    previous_round->pending_callbacks.store(1);
-    auto eof_callback = make_merge_size_dispatch_callback({}, previous_round);
-    eof_callback->response_->mutable_status()->set_status_code(TStatusCode::END_OF_FILE);
-
-    // Reset replaces the member while the old round's callback is still in flight.
-    // The callback must finish only its captured Completion, not the next round's.
-    context.completion = std::make_shared<GlobalMergeContext::Completion>();
-    eof_callback->call();
-    EXPECT_FALSE(previous_round->failed.load());
-    EXPECT_EQ(previous_round->pending_callbacks.load(), 0);
-    EXPECT_EQ(context.completion->pending_callbacks.load(), 0);
-    EXPECT_FALSE(context.completion->publish_dispatch_finished.load());
-
-    for (auto status_code : {TStatusCode::INTERNAL_ERROR, TStatusCode::OK}) {
-        auto completion = std::make_shared<GlobalMergeContext::Completion>();
-        completion->pending_callbacks.store(1);
-        auto callback = make_merge_size_dispatch_callback({}, completion);
-        callback->response_->mutable_status()->set_status_code(status_code);
-        if (status_code == TStatusCode::OK) {
-            callback->cntl_->SetFailed("injected transport failure");
-        }
-        callback->call();
-        EXPECT_TRUE(completion->failed.load());
-        EXPECT_EQ(completion->pending_callbacks.load(), 0);
-    }
-}
-
-TEST_F(RuntimeFilterMgrTest, IgnoredMergeDispatchFailureIsTerminalAfterCallbacksDrain) {
-    for (bool ignore_error : {false, true}) {
-        for (bool transport_failure : {false, true}) {
-            auto completion = std::make_shared<GlobalMergeContext::Completion>();
-            completion->ignore_runtime_filter_error = ignore_error;
-            completion->size_dispatch_finished.store(false);
-            completion->pending_callbacks.store(1);
-            auto callback = make_merge_size_dispatch_callback({}, completion);
-            if (transport_failure) {
-                callback->cntl_->SetFailed("injected transport failure");
-            } else {
-                callback->response_->mutable_status()->set_status_code(TStatusCode::INTERNAL_ERROR);
-            }
-
-            // A synchronous stub failure can coexist with an already-sent, pending RPC.
-            completion->finish_dispatch(completion->publish_dispatch_finished, false);
-            completion->finish_dispatch(completion->size_dispatch_finished, false);
-            EXPECT_EQ(completion->publish_dispatch_finished.load(), ignore_error);
-            EXPECT_EQ(completion->size_dispatch_finished.load(), ignore_error);
-            EXPECT_EQ(completion->pending_callbacks.load(), 1);
-
-            callback->call();
-            EXPECT_EQ(completion->failed.load(), !ignore_error);
-            EXPECT_EQ(completion->pending_callbacks.load(), 0);
-        }
     }
 }
 

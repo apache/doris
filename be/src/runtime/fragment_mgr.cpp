@@ -297,20 +297,9 @@ Status ConcurrentContextMap<Key, Value, ValueType>::apply_if_not_exists(
 template <typename Key, typename Value, typename ValueType>
 bool ConcurrentContextMap<Key, Value, ValueType>::erase(const Key& query_id) {
     auto id = get_map_id(query_id, _internal_map.size());
-    Value removed;
-    {
-        std::unique_lock lock(*_internal_map[id].first);
-        auto& map = _internal_map[id].second;
-        auto it = map.find(query_id);
-        if (it == map.end()) {
-            return false;
-        }
-        // QueryContext destruction re-enters FragmentMgr::remove_query_context().
-        // Extract the last strong reference before erasing the entry under the shard lock.
-        removed = std::move(it->second);
-        map.erase(it);
-    }
-    return true;
+    std::unique_lock lock(*_internal_map[id].first);
+    auto& map = _internal_map[id].second;
+    return map.erase(query_id) != 0;
 }
 
 template <typename Key, typename Value, typename ValueType>
@@ -846,31 +835,9 @@ void FragmentMgr::cancel_worker() {
                                       "Source frontend is not running or restarted"));
         }
 
-        _release_finished_rf_query_contexts();
-
     } while (!_stop_background_threads_latch.wait_for(
             std::chrono::seconds(config::fragment_mgr_cancel_worker_interval_seconds)));
     LOG(INFO) << "FragmentMgr cancel worker is going to exit.";
-}
-
-void FragmentMgr::_release_finished_rf_query_contexts() {
-    std::vector<std::pair<TUniqueId, std::shared_ptr<QueryContext>>> candidates;
-    _query_ctx_map_delay_delete.apply([&](auto& map) {
-        for (const auto& [id, context] : map) {
-            candidates.emplace_back(id, context);
-        }
-        return Status::OK();
-    });
-    // Never run RF callbacks or release the last QueryContext while a map shard is locked.
-    // A local-only RF can finish before the next fragment is deployed, so the controller
-    // additionally requires the service's complete initial-batch marker.
-    for (const auto& [id, context] : candidates) {
-        auto controller = context->get_merge_controller_handler();
-        DORIS_CHECK(controller);
-        if (controller->can_release_query_context()) {
-            _query_ctx_map_delay_delete.erase(id);
-        }
-    }
 }
 
 void FragmentMgr::_collect_timeout_queries_and_brpc_items(

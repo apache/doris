@@ -54,43 +54,6 @@ namespace doris {
 
 namespace {
 
-bool needs_global_size_sync(const TRuntimeFilterDesc& desc) {
-    // Only Bloom-backed, non-broadcast producers wait for a query-wide size. A MIN/MAX
-    // producer never sends a size RPC even when the optional flag is present.
-    return !desc.is_broadcast_join && desc.__isset.build_bf_by_runtime_size &&
-           desc.build_bf_by_runtime_size &&
-           (desc.type == TRuntimeFilterType::BLOOM || desc.type == TRuntimeFilterType::IN_OR_BLOOM);
-}
-
-template <typename Response>
-class MergeDispatchCallback final : public HandleErrorBrpcCallback<Response> {
-public:
-    MergeDispatchCallback(std::weak_ptr<QueryContext> context,
-                          std::shared_ptr<GlobalMergeContext::Completion> completion)
-            : HandleErrorBrpcCallback<Response>(std::move(context)),
-              _completion(std::move(completion)) {}
-
-    void call() override {
-        bool failed = this->cntl_->Failed();
-        if constexpr (HasStatus<Response>) {
-            Status status = Status::create(this->response_->status());
-            // A producer can finish before a delayed size-sync reaches it; its EOF is a
-            // normal acknowledgement, unlike a transport failure or another RPC error.
-            failed |= !status.ok() && !status.is<ErrorCode::END_OF_FILE>();
-        }
-        HandleErrorBrpcCallback<Response>::call();
-        // An ignored RPC error acknowledges this dispatch for cleanup, but a non-ignored
-        // error must block release before the last pending callback disappears.
-        if (failed && !_completion->ignore_runtime_filter_error) {
-            _completion->failed.store(true, std::memory_order_release);
-        }
-        _completion->pending_callbacks.fetch_sub(1, std::memory_order_acq_rel);
-    }
-
-private:
-    std::shared_ptr<GlobalMergeContext::Completion> _completion;
-};
-
 std::vector<RuntimeFilterPublishTarget> build_runtime_filter_publish_targets(
         const std::vector<TRuntimeFilterTargetParamsV2>& targets) {
     std::vector<RuntimeFilterPublishTarget> publish_targets;
@@ -165,13 +128,6 @@ void set_request_direct_publish_target(const TRuntimeFilterTargetParamsV2& targe
 }
 
 } // namespace
-
-std::shared_ptr<HandleErrorBrpcCallback<PSyncFilterSizeResponse>> make_merge_size_dispatch_callback(
-        std::weak_ptr<QueryContext> context,
-        std::shared_ptr<GlobalMergeContext::Completion> completion) {
-    return std::make_shared<MergeDispatchCallback<PSyncFilterSizeResponse>>(std::move(context),
-                                                                            std::move(completion));
-}
 
 std::vector<std::vector<RuntimeFilterPublishTarget>> split_runtime_filter_publish_targets(
         const std::vector<RuntimeFilterPublishTarget>& targets, int fanout) {
@@ -443,10 +399,6 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     // so we need to copy to cnt_val
     cnt_val->runtime_filter_desc = *runtime_filter_desc;
     cnt_val->targetv2_info = targetv2_info;
-    cnt_val->completion = std::make_shared<GlobalMergeContext::Completion>();
-    cnt_val->completion->ignore_runtime_filter_error = query_ctx->ignore_runtime_filter_error();
-    cnt_val->completion->size_dispatch_finished.store(!needs_global_size_sync(*runtime_filter_desc),
-                                                      std::memory_order_relaxed);
     RETURN_IF_ERROR(
             RuntimeFilterMerger::create(query_ctx.get(), runtime_filter_desc, &cnt_val->merger));
     cnt_val->merger->increase_expected_producer_num(producer_size);
@@ -456,8 +408,6 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
 
 Status RuntimeFilterMergeControllerEntity::init(std::shared_ptr<QueryContext> query_ctx,
                                                 const TRuntimeFilterParams& runtime_filter_params) {
-    _single_use = runtime_filter_params.__isset.rf_merge_context_single_use &&
-                  runtime_filter_params.rf_merge_context_single_use;
     _mem_tracker = std::make_shared<MemTracker>("RuntimeFilterMergeControllerEntity(experimental)");
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     if (runtime_filter_params.__isset.rid_to_runtime_filter) {
@@ -482,26 +432,6 @@ Status RuntimeFilterMergeControllerEntity::init(std::shared_ptr<QueryContext> qu
         }
     }
     return Status::OK();
-}
-
-bool RuntimeFilterMergeControllerEntity::can_release_query_context() {
-    if (!_single_use || !_initial_fragments_prepared.load(std::memory_order_acquire)) {
-        return false;
-    }
-    SharedLockGuard guard(_filter_map_mutex);
-    return std::ranges::all_of(_filter_map, [](const auto& entry) {
-        const auto& context = entry.second;
-        // Local-only filters never send a merge RPC. They must remain registered for
-        // compatibility with reset, but cannot hold a finished single-use query open.
-        if (!context.runtime_filter_desc.has_remote_targets) {
-            return true;
-        }
-        const auto& completion = context.completion;
-        return completion->publish_dispatch_finished.load(std::memory_order_acquire) &&
-               completion->size_dispatch_finished.load(std::memory_order_acquire) &&
-               completion->pending_callbacks.load(std::memory_order_acquire) == 0 &&
-               !completion->failed.load(std::memory_order_acquire);
-    });
 }
 
 Status RuntimeFilterMergeControllerEntity::send_filter_size(std::shared_ptr<QueryContext> query_ctx,
@@ -547,10 +477,9 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(std::shared_ptr<Quer
             auto sync_request = std::make_shared<PSyncFilterSizeRequest>();
             sync_request->set_stage(cnt_val.stage);
 
-            auto callback = make_merge_size_dispatch_callback(
+            auto callback = HandleErrorBrpcCallback<PSyncFilterSizeResponse>::create_shared(
                     query_ctx->ignore_runtime_filter_error() ? std::weak_ptr<QueryContext> {}
-                                                             : query_ctx->weak_from_this(),
-                    cnt_val.completion);
+                                                             : query_ctx->weak_from_this());
             cnt_val.sync_size_callbacks[i] = callback;
             auto closure = AutoReleaseClosure<
                     PSyncFilterSizeRequest,
@@ -568,14 +497,10 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(std::shared_ptr<Quer
 
             closure->request_->set_filter_id(filter_id);
             closure->request_->set_filter_size(cnt_val.merger->get_received_sum_size());
-            cnt_val.completion->pending_callbacks.fetch_add(1, std::memory_order_relaxed);
             stub->sync_filter_size(closure->cntl_.get(), closure->request_.get(),
                                    closure->response_.get(), closure.get());
             closure.release();
         }
-        // A disabled producer may send its size before its disabled RF payload arrives.
-        // Thus the publish completion alone cannot prove the size phase is finished.
-        cnt_val.completion->finish_dispatch(cnt_val.completion->size_dispatch_finished, st.ok());
     }
     return st;
 }
@@ -644,7 +569,6 @@ Status RuntimeFilterMergeControllerEntity::merge(std::shared_ptr<QueryContext> q
     }
     auto& cnt_val = iter->second;
     bool is_ready = false;
-    std::shared_ptr<GlobalMergeContext::Completion> completion;
     {
         std::lock_guard<std::mutex> l(cnt_val.mtx);
         // Discard stale-stage merge requests from old recursive CTE rounds.
@@ -672,9 +596,6 @@ Status RuntimeFilterMergeControllerEntity::merge(std::shared_ptr<QueryContext> q
                                                    /*other_wrapper_exclusively_owned=*/true));
 
         cnt_val.arrive_id.insert(UniqueId(request->fragment_instance_id()));
-        // Reset may replace this round's Completion before the publisher returns. Keep
-        // the old round alive, e.g. while a recursive CTE starts its next round.
-        completion = cnt_val.completion;
     }
 
     if (is_ready) {
@@ -682,15 +603,14 @@ Status RuntimeFilterMergeControllerEntity::merge(std::shared_ptr<QueryContext> q
                                   query_ctx->ignore_runtime_filter_error()
                                           ? std::weak_ptr<QueryContext> {}
                                           : query_ctx,
-                                  std::move(completion), merge_time, request->query_id(),
-                                  query_ctx->execution_timeout(), query_ctx->query_options());
+                                  merge_time, request->query_id(), query_ctx->execution_timeout(),
+                                  query_ctx->query_options());
     }
     return Status::OK();
 }
 
 Status RuntimeFilterMergeControllerEntity::_send_rf_to_target(
-        GlobalMergeContext& cnt_val, std::weak_ptr<QueryContext> ctx,
-        std::shared_ptr<GlobalMergeContext::Completion> completion, int64_t merge_time,
+        GlobalMergeContext& cnt_val, std::weak_ptr<QueryContext> ctx, int64_t merge_time,
         PUniqueId query_id, int execution_timeout, const TQueryOptions& query_options) {
     if (cnt_val.targetv2_info.empty()) {
         return Status::InternalError(
@@ -753,8 +673,7 @@ Status RuntimeFilterMergeControllerEntity::_send_rf_to_target(
         auto st = Status::OK();
         for (size_t i = 0; i < tasks.size(); ++i) {
             const auto& task = tasks[i];
-            auto callback = std::make_shared<MergeDispatchCallback<PPublishFilterResponse>>(
-                    ctx, completion);
+            auto callback = HandleErrorBrpcCallback<PPublishFilterResponse>::create_shared(ctx);
             cnt_val.publish_callbacks[i] = callback;
             auto closure = AutoReleaseClosure<PPublishFilterRequestV2,
                                               HandleErrorBrpcCallback<PPublishFilterResponse>>::
@@ -780,12 +699,10 @@ Status RuntimeFilterMergeControllerEntity::_send_rf_to_target(
                                            task.receiver.addr.port());
                 continue;
             }
-            completion->pending_callbacks.fetch_add(1, std::memory_order_relaxed);
             stub->apply_filterv2(closure->cntl_.get(), closure->request_.get(),
                                  closure->response_.get(), closure.get());
             closure.release();
         }
-        completion->finish_dispatch(completion->publish_dispatch_finished, st.ok());
         return st;
     }
 
@@ -793,8 +710,7 @@ Status RuntimeFilterMergeControllerEntity::_send_rf_to_target(
     cnt_val.publish_callbacks.resize(targets.size());
     for (size_t i = 0; i < targets.size(); ++i) {
         auto& target = targets[i];
-        auto callback =
-                std::make_shared<MergeDispatchCallback<PPublishFilterResponse>>(ctx, completion);
+        auto callback = HandleErrorBrpcCallback<PPublishFilterResponse>::create_shared(ctx);
         cnt_val.publish_callbacks[i] = callback;
         auto closure = AutoReleaseClosure<PPublishFilterRequestV2,
                                           HandleErrorBrpcCallback<PPublishFilterResponse>>::
@@ -823,12 +739,10 @@ Status RuntimeFilterMergeControllerEntity::_send_rf_to_target(
                                        target.target_fragment_instance_addr.port);
             continue;
         }
-        completion->pending_callbacks.fetch_add(1, std::memory_order_relaxed);
         stub->apply_filterv2(closure->cntl_.get(), closure->request_.get(),
                              closure->response_.get(), closure.get());
         closure.release();
     }
-    completion->finish_dispatch(completion->publish_dispatch_finished, st.ok());
     return st;
 }
 
@@ -847,10 +761,6 @@ Status GlobalMergeContext::reset(QueryContext* query_ctx) {
     sync_size_callbacks.clear();
     publish_callbacks.clear();
     done = false;
-    completion = std::make_shared<Completion>();
-    completion->ignore_runtime_filter_error = query_ctx->ignore_runtime_filter_error();
-    completion->size_dispatch_finished.store(!needs_global_size_sync(runtime_filter_desc),
-                                             std::memory_order_relaxed);
     stage++;
     // Keep the Merger's own stage in sync for consistent debug output.
     merger->set_stage(stage);

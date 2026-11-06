@@ -110,7 +110,7 @@ public class ThriftPlansBuilder {
         List<PipelineDistributedPlan> distributedPlans = coordinatorContext.distributedPlans;
         Set<Integer> fragmentToNotifyClose = setParamsForRecursiveCteNode(distributedPlans,
                 coordinatorContext.runtimeFilters);
-        boolean rfMergeContextSingleUse = isRfMergeContextSingleUse(distributedPlans);
+        boolean omitRfMergeParams = canOmitRfMergeParams(distributedPlans, coordinatorContext.runtimeFilters);
 
         // Determine whether this query is assigned to a single backend and propagate it to
         // TQueryOptions so that BE can apply more appropriate optimization strategies (e.g.
@@ -158,7 +158,7 @@ public class ThriftPlansBuilder {
             for (Entry<DistributedPlanWorker, TPipelineFragmentParams> kv : workerToCurrentFragment.entrySet()) {
                 TPipelineFragmentParamsList fragments = fragmentsGroupByWorker.computeIfAbsent(
                         kv.getKey(), w -> beToThrift(kv.getKey(), runtimeFiltersThriftBuilder,
-                                topNFilterThriftSupplier, rfMergeContextSingleUse));
+                                topNFilterThriftSupplier, omitRfMergeParams));
                 fragments.addToParamsList(kv.getValue());
             }
         }
@@ -407,10 +407,11 @@ public class ThriftPlansBuilder {
         return destination;
     }
 
-    static boolean isRfMergeContextSingleUse(List<PipelineDistributedPlan> distributedPlans) {
-        // A recursive node on another BE can reset this BE's merge controller after its local
-        // fragments finish. Inspect the entire query, not only the merge BE's fragment.
-        if (distributedPlans.isEmpty()) {
+    static boolean canOmitRfMergeParams(
+            List<PipelineDistributedPlan> distributedPlans, List<RuntimeFilter> runtimeFilters) {
+        // Local RFs are registered from plan nodes, not the global merge metadata. Omitting this
+        // metadata avoids retaining a QueryContext solely for local RFs that never send merge RPCs.
+        if (distributedPlans.isEmpty() || runtimeFilters.stream().anyMatch(RuntimeFilter::hasRemoteTargets)) {
             return false;
         }
         Map<String, DistributedPlanWorker> endpointOwners = Maps.newHashMap();
@@ -425,8 +426,10 @@ public class ThriftPlansBuilder {
                 }
             }
             PlanNode root = plan.getFragmentJob().getFragment().getPlanRoot();
-            if (root == null || !root.collectInCurrentFragment(RecursiveCteNode.class::isInstance).isEmpty()
-                    || !root.collectInCurrentFragment(RecursiveCteScanNode.class::isInstance).isEmpty()) {
+            // Even an empty recursive reset RPC looks up the merge BE's QueryContext. Preserve
+            // the original metadata and its ownership for recursive queries on any BE.
+            if (root == null || !root.collectInCurrentFragment(
+                    node -> node instanceof RecursiveCteNode || node instanceof RecursiveCteScanNode).isEmpty()) {
                 return false;
             }
         }
@@ -437,15 +440,14 @@ public class ThriftPlansBuilder {
             DistributedPlanWorker worker,
             RuntimeFiltersThriftBuilder runtimeFiltersThriftBuilder,
             Supplier<List<TTopnFilterDesc>> topNFilterThriftSupplier,
-            boolean rfMergeContextSingleUse) {
+            boolean omitRfMergeParams) {
         TPipelineFragmentParamsList beParam = new TPipelineFragmentParamsList();
         TRuntimeFilterInfo runtimeFilterInfo = new TRuntimeFilterInfo();
         runtimeFilterInfo.setTopnFilterDescs(topNFilterThriftSupplier.get());
 
         TRuntimeFilterParams runtimeFilterParams = new TRuntimeFilterParams();
         runtimeFilterParams.setRuntimeFilterMergeAddr(runtimeFiltersThriftBuilder.mergeAddress);
-        runtimeFilterParams.setRfMergeContextSingleUse(rfMergeContextSingleUse);
-        if (worker.host().equals(runtimeFiltersThriftBuilder.mergeAddress.getHostname())
+        if (!omitRfMergeParams && worker.host().equals(runtimeFiltersThriftBuilder.mergeAddress.getHostname())
                 && worker.brpcPort() == runtimeFiltersThriftBuilder.mergeAddress.getPort()) {
             // only set following information for merge BE node
             runtimeFiltersThriftBuilder.populateRuntimeFilterParams(runtimeFilterParams);

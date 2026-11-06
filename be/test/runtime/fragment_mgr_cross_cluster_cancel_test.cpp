@@ -19,8 +19,8 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gtest/gtest.h>
 
+#include "common/config.h"
 #include "exec/pipeline/pipeline_fragment_context.h"
-#include "exec/pipeline/thrift_builder.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -49,7 +49,7 @@ public:
     }
 
     void TearDown() override {
-        if (_exec_env._fragment_mgr != nullptr && !_fragment_mgr_stopped) {
+        if (_exec_env._fragment_mgr != nullptr) {
             _exec_env._fragment_mgr->stop();
         }
         delete _exec_env._fragment_mgr;
@@ -60,13 +60,6 @@ public:
     }
 
 protected:
-    void stop_fragment_mgr_background() {
-        // These synthetic ownership tests drive cleanup themselves. Stop the eager
-        // cancel worker before publishing a partially initialized test context.
-        _exec_env.fragment_mgr()->stop();
-        _fragment_mgr_stopped = true;
-    }
-
     static TDescriptorTable _make_min_desc_tbl() {
         TDescriptorTableBuilder dtb;
         TTupleDescriptorBuilder tuple_builder;
@@ -91,7 +84,6 @@ protected:
     }
 
     ExecEnv _exec_env;
-    bool _fragment_mgr_stopped = false;
 };
 
 TEST_F(FragmentMgrCrossClusterCancelTest,
@@ -170,253 +162,10 @@ TEST_F(FragmentMgrCrossClusterCancelTest, CancelWorkerInvalidQueryDetectionSkips
     EXPECT_TRUE(queries_pipeline_task_leak.empty());
 }
 
-TEST_F(FragmentMgrCrossClusterCancelTest, LocalOnlyRfMergeOwnerReleasedAfterLastFragmentOwner) {
-    stop_fragment_mgr_background();
-    auto* fragment_mgr = _exec_env.fragment_mgr();
-
-    TUniqueId query_id;
-    query_id.__set_hi(707);
-    query_id.__set_lo(808);
-
-    TNetworkAddress coord;
-    coord.hostname = "fe-local-rf";
-    coord.port = 9030;
-
-    TPipelineFragmentParams params;
-    params.__set_query_id(query_id);
-    params.__set_is_simplified_param(false);
-    params.__set_coord(coord);
-    params.__set_is_nereids(true);
-    params.__set_current_connect_fe(coord);
-    params.__set_fragment_num_on_host(1);
-    params.__set_query_options(_make_min_query_options(/*fe_process_uuid*/ 0));
-    params.__set_desc_tbl(_make_min_desc_tbl());
-
-    TRuntimeFilterParams rf_params =
-            TRuntimeFilterParamsBuilder()
-                    .add_rid_to_runtime_filter(
-                            1, TRuntimeFilterDescBuilder(1).add_planId_to_target_expr(0).build())
-                    .add_runtime_filter_builder_num(1, 1)
-                    .build();
-    rf_params.__set_rf_merge_context_single_use(true);
-    TRuntimeFilterInfo rf_info;
-    rf_info.__set_runtime_filter_params(rf_params);
-    TPipelineFragmentParamsList parent;
-    parent.__set_runtime_filter_info(rf_info);
-
-    std::shared_ptr<QueryContext> query_ctx;
-    auto st = fragment_mgr->_get_or_create_query_ctx(params, parent, QuerySource::INTERNAL_FRONTEND,
-                                                     query_ctx);
-    ASSERT_TRUE(st.ok()) << st.to_string();
-    ASSERT_NE(query_ctx, nullptr);
-    ASSERT_NE(query_ctx->get_merge_controller_handler(), nullptr);
-    std::weak_ptr<QueryContext> weak_query_ctx = query_ctx;
-
-    // The first fragment may finish while a later simplified fragment is still being prepared.
-    fragment_mgr->_release_finished_rf_query_contexts();
-    EXPECT_FALSE(weak_query_ctx.expired());
-
-    auto controller = query_ctx->get_merge_controller_handler();
-    controller->mark_initial_fragments_prepared();
-    controller.reset();
-    fragment_mgr->_release_finished_rf_query_contexts();
-    EXPECT_NE(fragment_mgr->get_query_ctx(query_id), nullptr);
-    query_ctx.reset();
-    EXPECT_TRUE(weak_query_ctx.expired());
-}
-
-TEST_F(FragmentMgrCrossClusterCancelTest, MissingSingleUseContractKeepsMergeOwnerForReset) {
-    stop_fragment_mgr_background();
-    auto* fragment_mgr = _exec_env.fragment_mgr();
-    TUniqueId query_id;
-    query_id.__set_hi(709);
-    query_id.__set_lo(810);
-    TNetworkAddress coord;
-    coord.hostname = "fe-legacy-rf";
-    coord.port = 9030;
-    TPipelineFragmentParams params;
-    params.__set_query_id(query_id);
-    params.__set_is_simplified_param(false);
-    params.__set_coord(coord);
-    params.__set_is_nereids(true);
-    params.__set_current_connect_fe(coord);
-    params.__set_fragment_num_on_host(1);
-    params.__set_query_options(_make_min_query_options(/*fe_process_uuid*/ 0));
-    params.__set_desc_tbl(_make_min_desc_tbl());
-    TRuntimeFilterParams rf_params =
-            TRuntimeFilterParamsBuilder()
-                    .add_rid_to_runtime_filter(
-                            1, TRuntimeFilterDescBuilder(1).add_planId_to_target_expr(0).build())
-                    .add_runtime_filter_builder_num(1, 1)
-                    .build();
-    TRuntimeFilterInfo rf_info;
-    rf_info.__set_runtime_filter_params(rf_params);
-    TPipelineFragmentParamsList parent;
-    parent.__set_runtime_filter_info(rf_info);
-    std::shared_ptr<QueryContext> query_ctx;
-    ASSERT_TRUE(fragment_mgr
-                        ->_get_or_create_query_ctx(params, parent, QuerySource::INTERNAL_FRONTEND,
-                                                   query_ctx)
-                        .ok());
-    query_ctx->get_merge_controller_handler()->mark_initial_fragments_prepared();
-    std::weak_ptr<QueryContext> weak_query_ctx = query_ctx;
-    query_ctx.reset();
-    fragment_mgr->_release_finished_rf_query_contexts();
-    EXPECT_FALSE(weak_query_ctx.expired());
-
-    google::protobuf::RepeatedField<int32_t> empty_ids;
-    EXPECT_TRUE(fragment_mgr->reset_global_rf(query_id, empty_ids).ok());
-    google::protobuf::RepeatedField<int32_t> filter_ids;
-    filter_ids.Add(1);
-    EXPECT_TRUE(fragment_mgr->reset_global_rf(query_id, filter_ids).ok());
-    rf_params.__set_rf_merge_context_single_use(false);
-    RuntimeFilterMergeControllerEntity explicit_false_controller;
-    auto live_query_ctx = fragment_mgr->get_query_ctx(query_id);
-    ASSERT_TRUE(explicit_false_controller.init(live_query_ctx, rf_params).ok());
-    explicit_false_controller.mark_initial_fragments_prepared();
-    EXPECT_FALSE(explicit_false_controller.can_release_query_context());
-    live_query_ctx.reset();
-    fragment_mgr->remove_query_context(query_id);
-    EXPECT_TRUE(weak_query_ctx.expired());
-}
-
-TEST_F(FragmentMgrCrossClusterCancelTest, RemoteRfRequiresSizeDispatchAndCallbackCompletion) {
-    stop_fragment_mgr_background();
-    auto* fragment_mgr = _exec_env.fragment_mgr();
-    TUniqueId query_id;
-    query_id.__set_hi(711);
-    query_id.__set_lo(812);
-    TNetworkAddress coord;
-    coord.hostname = "fe-remote-rf";
-    coord.port = 9030;
-    TPipelineFragmentParams params;
-    params.__set_query_id(query_id);
-    params.__set_is_simplified_param(false);
-    params.__set_coord(coord);
-    params.__set_is_nereids(true);
-    params.__set_current_connect_fe(coord);
-    params.__set_fragment_num_on_host(1);
-    params.__set_query_options(_make_min_query_options(/*fe_process_uuid*/ 0));
-    params.__set_desc_tbl(_make_min_desc_tbl());
-    TRuntimeFilterParams rf_params =
-            TRuntimeFilterParamsBuilder()
-                    .add_rid_to_runtime_filter(1, TRuntimeFilterDescBuilder(1)
-                                                          .add_planId_to_target_expr(0)
-                                                          .set_mode(false)
-                                                          .set_build_bf_by_runtime_size(true)
-                                                          .build())
-                    .add_runtime_filter_builder_num(1, 1)
-                    .add_rid_to_runtime_filter(
-                            2, TRuntimeFilterDescBuilder(2).add_planId_to_target_expr(0).build())
-                    .add_runtime_filter_builder_num(2, 1)
-                    .build();
-    rf_params.__set_rf_merge_context_single_use(true);
-    TRuntimeFilterInfo rf_info;
-    rf_info.__set_runtime_filter_params(rf_params);
-    TPipelineFragmentParamsList parent;
-    parent.__set_runtime_filter_info(rf_info);
-    std::shared_ptr<QueryContext> query_ctx;
-    ASSERT_TRUE(fragment_mgr
-                        ->_get_or_create_query_ctx(params, parent, QuerySource::INTERNAL_FRONTEND,
-                                                   query_ctx)
-                        .ok());
-    auto controller = query_ctx->get_merge_controller_handler();
-    controller->mark_initial_fragments_prepared();
-    std::shared_ptr<GlobalMergeContext::Completion> completion;
-    {
-        SharedLockGuard guard(controller->_filter_map_mutex);
-        completion = controller->_filter_map.at(1).completion;
-    }
-    std::weak_ptr<QueryContext> weak_query_ctx = query_ctx;
-
-    // Dispatch begins only after all producers have merged. Its earlier 'done' flag is
-    // not sufficient: the size phase and all async callbacks must also have finished.
-    query_ctx.reset();
-    fragment_mgr->_release_finished_rf_query_contexts();
-    EXPECT_FALSE(weak_query_ctx.expired());
-    completion->publish_dispatch_finished.store(true);
-    fragment_mgr->_release_finished_rf_query_contexts();
-    EXPECT_FALSE(weak_query_ctx.expired());
-    completion->size_dispatch_finished.store(true);
-    completion->pending_callbacks.store(1);
-    fragment_mgr->_release_finished_rf_query_contexts();
-    EXPECT_FALSE(weak_query_ctx.expired());
-    completion->pending_callbacks.store(0);
-    controller.reset();
-    fragment_mgr->_release_finished_rf_query_contexts();
-    EXPECT_TRUE(weak_query_ctx.expired());
-}
-
-TEST_F(FragmentMgrCrossClusterCancelTest, IgnoredRfDispatchFailureReleasesQueryContext) {
-    stop_fragment_mgr_background();
-    auto* fragment_mgr = _exec_env.fragment_mgr();
-    TUniqueId query_id;
-    query_id.__set_hi(713);
-    query_id.__set_lo(814);
-    TNetworkAddress coord;
-    coord.hostname = "fe-ignored-rf-error";
-    coord.port = 9030;
-    TPipelineFragmentParams params;
-    params.__set_query_id(query_id);
-    params.__set_is_simplified_param(false);
-    params.__set_coord(coord);
-    params.__set_is_nereids(true);
-    params.__set_current_connect_fe(coord);
-    params.__set_fragment_num_on_host(1);
-    auto query_options = _make_min_query_options(/*fe_process_uuid*/ 0);
-    query_options.__set_ignore_runtime_filter_error(true);
-    params.__set_query_options(query_options);
-    params.__set_desc_tbl(_make_min_desc_tbl());
-    TRuntimeFilterParams rf_params =
-            TRuntimeFilterParamsBuilder()
-                    .add_rid_to_runtime_filter(1, TRuntimeFilterDescBuilder(1)
-                                                          .add_planId_to_target_expr(0)
-                                                          .set_mode(false)
-                                                          .set_build_bf_by_runtime_size(true)
-                                                          .build())
-                    .add_runtime_filter_builder_num(1, 1)
-                    .build();
-    rf_params.__set_rf_merge_context_single_use(true);
-    TRuntimeFilterInfo rf_info;
-    rf_info.__set_runtime_filter_params(rf_params);
-    TPipelineFragmentParamsList parent;
-    parent.__set_runtime_filter_info(rf_info);
-    std::shared_ptr<QueryContext> query_ctx;
-    ASSERT_TRUE(fragment_mgr
-                        ->_get_or_create_query_ctx(params, parent, QuerySource::INTERNAL_FRONTEND,
-                                                   query_ctx)
-                        .ok());
-    auto controller = query_ctx->get_merge_controller_handler();
-    controller->mark_initial_fragments_prepared();
-    std::shared_ptr<GlobalMergeContext::Completion> completion;
-    {
-        SharedLockGuard guard(controller->_filter_map_mutex);
-        completion = controller->_filter_map.at(1).completion;
-    }
-    ASSERT_TRUE(completion->ignore_runtime_filter_error);
-    completion->finish_dispatch(completion->publish_dispatch_finished, false);
-    completion->pending_callbacks.store(1);
-    auto callback = make_merge_size_dispatch_callback({}, completion);
-    callback->cntl_->SetFailed("injected ignored size RPC failure");
-    completion->finish_dispatch(completion->size_dispatch_finished, false);
-    std::weak_ptr<QueryContext> weak_query_ctx = query_ctx;
-    query_ctx.reset();
-    fragment_mgr->_release_finished_rf_query_contexts();
-    EXPECT_FALSE(weak_query_ctx.expired());
-
-    callback->call();
-    EXPECT_FALSE(completion->failed.load());
-    EXPECT_EQ(completion->pending_callbacks.load(), 0);
-    controller.reset();
-    fragment_mgr->_release_finished_rf_query_contexts();
-    EXPECT_TRUE(weak_query_ctx.expired());
-}
-
 TEST(FragmentMgrDelayDeleteMapTest, ClearShouldNotAbortWhenReleasingLastQueryContextRef) {
     auto* exec_env = ExecEnv::GetInstance();
     auto* previous_fragment_mgr = exec_env->_fragment_mgr;
     exec_env->_fragment_mgr = new FragmentMgr(exec_env);
-    exec_env->_fragment_mgr->stop();
 
     TUniqueId query_id;
     query_id.__set_hi(101);
@@ -438,34 +187,7 @@ TEST(FragmentMgrDelayDeleteMapTest, ClearShouldNotAbortWhenReleasingLastQueryCon
     query_ctx.reset();
 
     exec_env->_fragment_mgr->_query_ctx_map_delay_delete.clear();
-    delete exec_env->_fragment_mgr;
-    exec_env->_fragment_mgr = previous_fragment_mgr;
-}
-
-TEST(FragmentMgrDelayDeleteMapTest, EraseReleasesLastQueryContextRefOutsideLock) {
-    auto* exec_env = ExecEnv::GetInstance();
-    auto* previous_fragment_mgr = exec_env->_fragment_mgr;
-    exec_env->_fragment_mgr = new FragmentMgr(exec_env);
     exec_env->_fragment_mgr->stop();
-    TUniqueId query_id;
-    query_id.__set_hi(103);
-    query_id.__set_lo(204);
-    TQueryOptions query_options;
-    query_options.__set_query_type(TQueryType::SELECT);
-    query_options.__set_execution_timeout(60);
-    query_options.__set_mem_limit(64L * 1024 * 1024);
-    TNetworkAddress fe_addr;
-    fe_addr.hostname = "127.0.0.1";
-    fe_addr.port = 9030;
-    auto query_ctx =
-            QueryContext::create(query_id, exec_env, query_options, fe_addr,
-                                 /*is_nereids*/ true, fe_addr, QuerySource::INTERNAL_FRONTEND);
-    std::weak_ptr<QueryContext> weak_query_ctx = query_ctx;
-    exec_env->_fragment_mgr->_query_ctx_map_delay_delete.insert(query_id, query_ctx);
-    query_ctx.reset();
-
-    EXPECT_TRUE(exec_env->_fragment_mgr->_query_ctx_map_delay_delete.erase(query_id));
-    EXPECT_TRUE(weak_query_ctx.expired());
     delete exec_env->_fragment_mgr;
     exec_env->_fragment_mgr = previous_fragment_mgr;
 }

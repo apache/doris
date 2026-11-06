@@ -23,7 +23,6 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <glog/logging.h>
 
-#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <map>
@@ -92,26 +91,6 @@ struct LocalMergeContext {
 };
 
 struct GlobalMergeContext {
-    struct Completion {
-        std::atomic<bool> publish_dispatch_finished {false};
-        std::atomic<bool> size_dispatch_finished {true};
-        std::atomic<bool> failed {false};
-        std::atomic<int> pending_callbacks {0};
-        bool ignore_runtime_filter_error = false;
-
-        // Stores failed on non-ignored errors, so this method cannot be const.
-        // NOLINTNEXTLINE(readability-make-member-function-const)
-        void finish_dispatch(std::atomic<bool>& finished, bool succeeded) {
-            // A missing RPC stub is terminal even when the query intentionally ignores RF
-            // errors; other in-flight callbacks still have to drain before cleanup.
-            if (succeeded || ignore_runtime_filter_error) {
-                finished.store(true, std::memory_order_release);
-            } else {
-                failed.store(true, std::memory_order_release);
-            }
-        }
-    };
-
     std::mutex mtx;
     std::shared_ptr<RuntimeFilterMerger> merger;
     TRuntimeFilterDesc runtime_filter_desc;
@@ -122,7 +101,6 @@ struct GlobalMergeContext {
             sync_size_callbacks;
     std::vector<std::shared_ptr<HandleErrorBrpcCallback<PPublishFilterResponse>>> publish_callbacks;
     std::atomic<bool> done = false;
-    std::shared_ptr<Completion> completion;
 
     // for represent the round number of recursive cte
     // if lower stage rf input to higher stage, we just discard the rf
@@ -130,10 +108,6 @@ struct GlobalMergeContext {
 
     Status reset(QueryContext* query_ctx);
 };
-
-std::shared_ptr<HandleErrorBrpcCallback<PSyncFilterSizeResponse>> make_merge_size_dispatch_callback(
-        std::weak_ptr<QueryContext> context,
-        std::shared_ptr<GlobalMergeContext::Completion> completion);
 
 // owned by RuntimeState
 // RuntimeFilterMgr will be destroyed when RuntimeState is destroyed
@@ -209,8 +183,10 @@ private:
     bool _has_merge_addr = false;
 };
 
-// The QueryContext owns the merge controller. FragmentMgr retains an additional QueryContext
-// owner until a single-use query has completed its initial deployment and remote RF dispatches.
+// controller -> <query-id, entity>
+// RuntimeFilterMergeControllerEntity is the context used by runtimefilter for merging
+// During a query, only the last sink node owns this class, with the end of the query,
+// the class is destroyed with the last fragment_exec.
 class RuntimeFilterMergeControllerEntity {
 public:
     Status init(std::shared_ptr<QueryContext> query_ctx,
@@ -230,12 +206,6 @@ public:
         return _filter_map.empty();
     }
 
-    void mark_initial_fragments_prepared() {
-        _initial_fragments_prepared.store(true, std::memory_order_release);
-    }
-
-    bool can_release_query_context();
-
     Status reset_global_rf(QueryContext* query_ctx,
                            const google::protobuf::RepeatedField<int32_t>& filter_ids);
 
@@ -246,7 +216,6 @@ private:
                            const int producer_size);
 
     Status _send_rf_to_target(GlobalMergeContext& cnt_val, std::weak_ptr<QueryContext> ctx,
-                              std::shared_ptr<GlobalMergeContext::Completion> completion,
                               int64_t merge_time, PUniqueId query_id, int execution_timeout,
                               const TQueryOptions& query_options);
 
@@ -255,7 +224,5 @@ private:
     std::shared_ptr<MemTracker> _mem_tracker;
 
     std::map<int, GlobalMergeContext> _filter_map GUARDED_BY(_filter_map_mutex);
-    bool _single_use = false;
-    std::atomic<bool> _initial_fragments_prepared {false};
 };
 } // namespace doris
