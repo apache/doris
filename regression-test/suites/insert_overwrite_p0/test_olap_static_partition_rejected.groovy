@@ -32,6 +32,10 @@ suite("test_olap_static_partition_rejected") {
     sql "INSERT INTO test_olap_static_partition_rejected VALUES (4, '2026-11-04'), (5, '2026-11-05')"
 
     test {
+        sql "SELECT * FROM test_olap_static_partition_rejected PARTITION(`dt`='2026-11-04')"
+        exception "mismatched input '='"
+    }
+    test {
         sql """INSERT INTO test_olap_static_partition_rejected PARTITION(`dt`='2026-11-04')
                VALUES (40, '2026-11-04')"""
         exception "Static partition syntax PARTITION (column=value) is not supported for OLAP tables"
