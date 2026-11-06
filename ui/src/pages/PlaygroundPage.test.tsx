@@ -129,6 +129,7 @@ function renderPage() {
 
 describe('PlaygroundPage', () => {
   beforeEach(() => {
+    sessionStorage.clear();
     sessionMocks.execute.mockReset();
     sessionMocks.cancel.mockReset().mockResolvedValue({ cancelRequested: true });
     sessionMocks.reset.mockReset().mockResolvedValue({ sessionId: 'fe-hint.session-id' });
@@ -138,6 +139,34 @@ describe('PlaygroundPage', () => {
       if (/^(SHOW|DESC)/.test(statement)) return Promise.resolve(emptyResult());
       return Promise.resolve(emptyResult());
     });
+  });
+
+  it('runs queries past empty statements without submitting a trailing comment', async () => {
+    renderPage();
+    await waitFor(() => expect(sessionMocks.execute).toHaveBeenCalledWith('SHOW CATALOGS'));
+    sessionMocks.execute.mockClear();
+
+    fireEvent.change(screen.getByLabelText('SQL editor'), {
+      target: { value: '; SELECT 1;; /* between */; SELECT 2; -- done' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+
+    expect(await screen.findByText('Result 2')).toBeInTheDocument();
+    expect(sessionMocks.execute.mock.calls).toEqual([['SELECT 1;'], ['SELECT 2;']]);
+  });
+
+  it('warns without executing a comment-only script', async () => {
+    renderPage();
+    await waitFor(() => expect(sessionMocks.execute).toHaveBeenCalledWith('SHOW CATALOGS'));
+    sessionMocks.execute.mockClear();
+
+    fireEvent.change(screen.getByLabelText('SQL editor'), {
+      target: { value: '-- comment;\n/* another */;' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+
+    expect(await screen.findByText('Select or enter one SQL statement first.')).toBeInTheDocument();
+    expect(sessionMocks.execute).not.toHaveBeenCalled();
   });
 
   it('keeps multiple result tabs and displays rows, query metadata, empty results, and truncation', async () => {
