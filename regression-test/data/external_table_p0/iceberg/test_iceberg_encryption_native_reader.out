@@ -52,6 +52,26 @@
 7	shared	[]	\N
 8	shared	[null, 8]	8
 
+-- !index_tail_false --
+61	902	1022	49
+
+-- !index_membership_false --
+900	\N
+1022	value-511
+
+-- !index_absent_false --
+0
+
+-- !index_tail_true --
+61	902	1022	49
+
+-- !index_membership_true --
+900	\N
+1022	value-511
+
+-- !index_absent_true --
+0
+
 -- !plain_after_truncation --
 8	6	36
 
