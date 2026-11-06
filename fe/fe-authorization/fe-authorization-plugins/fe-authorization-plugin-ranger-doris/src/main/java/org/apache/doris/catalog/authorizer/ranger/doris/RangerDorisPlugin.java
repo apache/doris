@@ -20,6 +20,8 @@ package org.apache.doris.catalog.authorizer.ranger.doris;
 import org.apache.doris.catalog.authorizer.ranger.LoadedRangerPlugin;
 import org.apache.doris.catalog.authorizer.ranger.RangerUserStoreGroups;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.apache.ranger.authorization.hadoop.config.RangerPluginConfig;
 import org.apache.ranger.plugin.policyengine.RangerPolicyEngine;
 import org.apache.ranger.plugin.service.RangerAuthContextListener;
@@ -33,18 +35,22 @@ import java.util.Map;
  * {@link LoadedRangerPlugin}.
  */
 public class RangerDorisPlugin extends LoadedRangerPlugin {
+    private static final Logger LOG = LogManager.getLogger(RangerDorisPlugin.class);
     private volatile ReadScopes readScopes;
 
     private static final class ReadScopes {
         private final RangerPolicyEngine engine;
         private final Map<String, String> config;
         private final RangerReadScopeSummary summary;
+        private final RangerReadResourceIndex resources;
         private final long version;
 
-        private ReadScopes(RangerPolicyEngine engine, Map<String, String> config, RangerReadScopeSummary summary) {
+        private ReadScopes(RangerPolicyEngine engine, Map<String, String> config, RangerReadScopeSummary summary,
+                RangerReadResourceIndex resources) {
             this.engine = engine;
             this.config = config;
             this.summary = summary;
+            this.resources = resources;
             this.version = engine.getPolicyVersion();
         }
     }
@@ -88,7 +94,13 @@ public class RangerDorisPlugin extends LoadedRangerPlugin {
         RangerReadScopeSummary summary = RangerReadScopeSummary.build(policies, getConfig(), installedConfig,
                 previous == null ? null : previous.summary);
         if (summary != null) {
-            readScopes = new ReadScopes(installedEngine, installedConfig, summary);
+            RangerReadResourceIndex resources = RangerReadResourceIndex.build(
+                    installedEngine, getConfig(), installedConfig);
+            readScopes = new ReadScopes(installedEngine, installedConfig, summary, resources);
+            if (resources != null) {
+                LOG.info("Ranger read resource index initialized: version={}, tables={}, users={}, bindings={}",
+                        getPoliciesVersion(), resources.tableCount(), resources.userCount(), resources.bindingCount());
+            }
         }
     }
 
@@ -105,15 +117,31 @@ public class RangerDorisPlugin extends LoadedRangerPlugin {
     }
 
     boolean mayGrantReadPrivilege(String user, RangerDorisResource resource) {
+        ReadScopes current = readScopesOf(user);
+        return current == null || current.summary.mayGrant(user, resource);
+    }
+
+    Boolean indexedReadPrivilege(String user, DorisAccessType action, RangerDorisResource resource) {
+        if (action != DorisAccessType.SELECT && action != DorisAccessType.ADMIN) {
+            return null;
+        }
+        ReadScopes current = readScopesOf(user);
+        if (current == null || current.resources == null) {
+            return null;
+        }
+        return current.resources.allows(user, action, resource);
+    }
+
+    private ReadScopes readScopesOf(String user) {
         ReadScopes current = readScopes;
         if (current == null || getResultProcessor() != null || current.engine != getPolicyEngine()
                 || current.version != getPoliciesVersion() || current.config != getServiceConfigs()) {
-            return true;
+            return null;
         }
         if (getConfig().isSuperUser(user)
                 || getConfig().hasSuperGroup(RangerUserStoreGroups.groupsOf(this, user))) {
-            return true;
+            return null;
         }
-        return current.summary.mayGrant(user, resource);
+        return current;
     }
 }

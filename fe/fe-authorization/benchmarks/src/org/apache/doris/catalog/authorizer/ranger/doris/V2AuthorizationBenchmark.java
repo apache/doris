@@ -60,6 +60,8 @@ public final class V2AuthorizationBenchmark {
         public String mode = "cascade";
         public String requirement = "read";
         public boolean refresh = true;
+        public boolean controllerVerdictsOnly = false;
+        public boolean bootstrapAdminPolicy = false;
         public String adapter = "";
         public String serviceDef;
     }
@@ -164,6 +166,7 @@ public final class V2AuthorizationBenchmark {
     private final Adapter adapter;
     private long checks;
     private long fingerprint;
+    private long requestFingerprint;
 
     private V2AuthorizationBenchmark(Config config, Adapter adapter) {
         this.config = config;
@@ -198,6 +201,22 @@ public final class V2AuthorizationBenchmark {
 
     private ServicePolicies snapshot(long version, boolean revokeFirstTable) throws Exception {
         List<RangerPolicy> policies = new ArrayList<>();
+        if (config.bootstrapAdminPolicy) {
+            RangerPolicy admin = new RangerPolicy();
+            admin.setId(config.users + 1L);
+            admin.setVersion(version);
+            admin.setName("bootstrap_admin");
+            admin.setService("authorization-benchmark");
+            admin.setIsEnabled(true);
+            admin.setIsAuditEnabled(true);
+            admin.setPolicyType(RangerPolicy.POLICY_TYPE_ACCESS);
+            admin.setResources(Map.of("global", new RangerPolicyResource("*")));
+            RangerPolicyItem item = new RangerPolicyItem();
+            item.setUsers(List.of("bootstrap-admin"));
+            item.setAccesses(List.of(new RangerPolicyItemAccess("ADMIN", true)));
+            admin.setPolicyItems(List.of(item));
+            policies.add(admin);
+        }
         for (int user = 0; user < config.users; user++) {
             String name = "ad_" + user;
             RangerPolicy policy = new RangerPolicy();
@@ -247,10 +266,14 @@ public final class V2AuthorizationBenchmark {
             throw new IllegalStateException("Engine returned no authorization result");
         }
         checks++;
-        fingerprint = fingerprint * 31 + result.getPolicyId();
-        fingerprint = fingerprint * 31 + result.getAuditPolicyId();
+        if (!config.controllerVerdictsOnly) {
+            fingerprint = fingerprint * 31 + result.getPolicyId();
+            fingerprint = fingerprint * 31 + result.getAuditPolicyId();
+        }
         fingerprint = fingerprint * 31 + (result.getIsAllowed() ? 1 : 0);
-        fingerprint = fingerprint * 31 + (result.getIsAudited() ? 1 : 0);
+        if (!config.controllerVerdictsOnly) {
+            fingerprint = fingerprint * 31 + (result.getIsAudited() ? 1 : 0);
+        }
         return result.getIsAllowed();
     }
 
@@ -265,6 +288,18 @@ public final class V2AuthorizationBenchmark {
     private boolean authorize(int user, int table) {
         if (config.mode.equals("column")) {
             return ask(user, "catalog", "internal", "database", "db", "table", "t" + table, "column", "c0");
+        }
+        if (config.mode.equals("sr-columns")) {
+            // Isolate SR's per-column SELECT call pattern using identical Ranger policies and dependencies.
+            // This is an engine-call model, not a StarRocks FE/SQL benchmark.
+            for (int column = 0; column < config.columns; column++) {
+                String name = column == 0 ? "c0" : "c" + table + "_" + column;
+                if (!check(user, "SELECT", "catalog", "internal", "database", "db",
+                        "table", "t" + table, "column", name)) {
+                    return false;
+                }
+            }
+            return true;
         }
         if (ask(user, "global", "*")) {
             return true;
@@ -298,6 +333,7 @@ public final class V2AuthorizationBenchmark {
             throw new IllegalStateException("Wrong verdict for user=" + user
                     + " table=" + table + " expected=" + expected);
         }
+        requestFingerprint = ((requestFingerprint * 31 + user) * 31 + table) * 31 + (allowed ? 1 : 0);
         return allowed;
     }
 
@@ -365,7 +401,14 @@ public final class V2AuthorizationBenchmark {
             output.put("p99Ms", percentile(times, .99));
             output.put("allowedP50Ms", percentile(allowedTimes.stream().mapToLong(Long::longValue).toArray(), .50));
             output.put("deniedP50Ms", percentile(deniedTimes.stream().mapToLong(Long::longValue).toArray(), .50));
-            output.put("verdictAndAuditFingerprint", fingerprint);
+            if (config.controllerVerdictsOnly) {
+                output.put("authorizationQuestionVerdictFingerprint", fingerprint);
+            } else {
+                output.put("verdictAndAuditFingerprint", fingerprint);
+            }
+            output.put("requestVerdictFingerprint", requestFingerprint);
+            output.put("resultSemantics",
+                    config.controllerVerdictsOnly ? "controller-boolean" : "native-result-metadata");
             output.put("postRequestRetainedPolicyMiB", mib(retainedHeap() - baseline));
             if (config.refresh) {
                 sampler.reset();
@@ -399,7 +442,8 @@ public final class V2AuthorizationBenchmark {
         Config config = mapper.readValue(Path.of(args[0]).toFile(), Config.class);
         if (config.users < 1 || config.columns < 1 || config.tablesPerUser < 1
                 || config.tablesPerUser >= config.tables || config.samples < 2
-                || (!config.mode.equals("cascade") && !config.mode.equals("column"))
+                || (!config.mode.equals("cascade") && !config.mode.equals("column")
+                        && !config.mode.equals("sr-columns"))
                 || (!config.requirement.equals("read") && !config.requirement.equals("select"))) {
             throw new IllegalArgumentException("Invalid benchmark dimensions or mode");
         }

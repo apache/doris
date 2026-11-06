@@ -1,0 +1,127 @@
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements. See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership. The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License. You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied. See the License for the
+specific language governing permissions and limitations
+under the License.
+
+
+Read resource index comparison 2026-11-06
+
+No Ranger source, class or dependency artifact was modified. The shipped native
+ranger-plugins-common-2.9.0.jar matches the original Maven artifact SHA256:
+0e7426640614810290e2510e89cfe6c42a90497b453c94ff11a0e9a0019e010b
+
+Baseline: frozen pre-index Doris plugins from 65db4e385fd (descriptor sharing
+and negative parent-scope summary). Indexed: current Boolean controller path.
+All variants share unmodified Ranger 2.9.0 and matching dependencies.
+Host/JVM: shared Intel Xeon Platinum 8369B host, 16 logical CPUs, no CPU pinning;
+Oracle JDK 17.0.10, G1, -Xms256m -Xmx12g. No other task builds/tests overlapped
+this formal serial matrix; unrelated workloads on the host were not controlled.
+
+Model: 5000 physical tables, one SELECT policy per user, 800 separate OR blocks
+per user, plus one global ADMIN policy for a separate bootstrap administrator.
+Each employee block has three real columns and the user-named AD fake column.
+20 warmups and 120 samples, seed83, half allowed and half denied.
+Each variant uses its own JVM. Installation and a full replacement refresh are
+included in heap observations; request percentiles exclude installation.
+No login, SQL planning/execution, HTTP download or audit sink is measured.
+User-store group lookup/context enrichers are disabled in this isolated model.
+
+scope: prior Doris ADMIN OR SELECT cascade with impossible parents omitted.
+sr: native per-column SELECT call pattern using identical DORIS service data;
+    this is NOT a StarRocks FE, service-definition or SQL performance result.
+indexed: same Doris Boolean checks, using table/user/native-matcher references.
+Result comparison covers final request verdicts. Raw Ranger API metadata is
+unchanged and covered by the separate audit/native regression suites.
+
+Request latency (milliseconds) and retained policy heap (MiB)
+users | variant | retained MiB | P50 ms | P95 ms | P99 ms | native calls / 120 requests
+260 | scope | 275.63 | 67.626252 | 143.212935 | 179.012121 | 480
+260 | sr | 318.24 | 25.100727 | 60.902505 | 71.482267 | 240
+260 | indexed | 277.85 | 0.090478 | 0.583755 | 1.042088 | 0
+500 | scope | 541.01 | 127.027974 | 266.186173 | 335.349007 | 480
+500 | sr | 622.91 | 36.443785 | 95.612506 | 124.125669 | 240
+500 | indexed | 543.43 | 0.085285 | 0.256232 | 0.340140 | 0
+3000 | scope | 3107.67 | 676.283428 | 1376.459378 | 1603.451223 | 480
+3000 | sr | 3629.97 | 307.099599 | 775.997705 | 946.372824 | 240
+3000 | indexed | 3132.76 | 0.068846 | 0.254502 | 0.377179 | 0
+
+Incremental retained heap and P50 ratios
+users | indexed minus scope MiB | scope/indexed | sr-call-model/indexed
+260 | 2.22 | 747.43x | 277.42x
+500 | 2.42 | 1489.45x | 427.32x
+3000 | 25.10 | 9823.13x | 4460.67x
+
+Allowed and denied paths (milliseconds)
+users | variant | allowed P50 | denied P50 | main-thread CPU ms / batch | allocated MiB / batch
+260 | scope | 101.921253 | 46.534023 | 8167.204 | 397.713
+260 | sr | 32.713681 | 24.105547 | 3158.701 | 149.631
+260 | indexed | 0.123908 | 0.053987 | 14.304 | 1.633
+500 | scope | 192.324233 | 90.910426 | 16010.443 | 761.681
+500 | sr | 49.458484 | 35.054376 | 5169.230 | 285.717
+500 | indexed | 0.106115 | 0.041486 | 11.440 | 1.633
+3000 | scope | 1070.023191 | 427.877261 | 88037.218 | 4735.760
+3000 | sr | 482.938858 | 274.554280 | 42004.511 | 1880.934
+3000 | indexed | 0.098397 | 0.037311 | 9.966 | 1.633
+
+Installation and full replacement refresh
+users | variant | initial install s | refresh install s | sampled refresh peak MiB | retained after refresh MiB
+260 | scope | 4.090 | 3.018 | 808.28 | 275.76
+260 | sr | 4.127 | 2.959 | 856.67 | 318.49
+260 | indexed | 5.163 | 3.813 | 821.77 | 278.31
+500 | scope | 8.432 | 6.620 | 1615.61 | 538.82
+500 | sr | 5.222 | 4.170 | 1600.87 | 620.08
+500 | indexed | 6.505 | 5.037 | 1357.50 | 543.49
+3000 | scope | 35.475 | 34.738 | 8134.26 | 3121.44
+3000 | sr | 32.630 | 38.323 | 7937.10 | 3600.13
+3000 | indexed | 43.782 | 37.680 | 9207.41 | 3131.10
+
+Correctness and practical limits
+- All final request fingerprints agree across the three variants at every size.
+- Each run verifies revocation of an old table and access to a newly granted one.
+- Native calls count policy-engine API entries; indexed queries still execute
+  the original Ranger column resource matcher for their relevant blocks.
+- The raw Ranger API, audit callbacks and complex policy paths remain native.
+- Services with unsupported enabled policies use fallback;
+  a default group policy can disable the fast path for the complete service.
+- Native policy/evaluator/index memory is retained. Added steady index memory
+  does not represent the FE heap requirement or the policy refresh peak.
+- In the 3000-user run, observed refresh peak was 8134.26 MiB for scope and
+  9207.41 MiB for indexed. Installation/refresh are not claimed to improve.
+  Peaks include generation/install/validation/explicit GC, sampled every 5 ms;
+  they depend on GC/heap dynamics and are not a safe capacity bound.
+- This is one short serial batch on a shared host. No end-to-end SQL, concurrent
+  client capacity or refresh-time query-tail SLA follows from these numbers.
+- The benchmark builds request/result wrapper objects to model the controller;
+  production indexed Boolean decisions return before creating a raw request.
+- Small policy sets may see little benefit or extra lookup overhead.
+- Ranger 2.8 compatibility smoke passed with identical verdict fingerprints;
+  this is not a tested source backport or an older-FE binary replacement.
+
+Regression: full module suite 141 passed / 1 skipped; five FE integration gates
+51 passed. Ten focused index tests also passed with column access restrictions.
+Benchmark Java Checkstyle and Python compilation passed. No behavior baseline
+or frozen plugin API resource was regenerated.
+
+Local evidence: .test-env/read-resource-index/formal-002-bootstrap/ contains per-run JSON,
+GC logs, frozen benchmark sources/jars, classpath hashes and comparisons.json.
+Full module log: .test-env/read-resource-index/global-admin-module-tests.log
+FE gates: .test-env/read-resource-index/final-core-integration-cached.log
+Bootstrap compatibility: .test-env/read-resource-index/bootstrap-smoke-001/
+Ranger 2.8 bootstrap smoke: .test-env/read-resource-index/ranger28-bootstrap-smoke/
+
+Production source SHA256
+RangerReadResourceIndex.java c3d0915209a5448cf6f5b8715674c6b2758be84d50ade93dfbdc6e0ad1524ddd
+RangerDorisPlugin.java 7d5fffc4de967908216aa754445d382e301b4d1ec1f01a202628c99cb10eae76
+RangerDorisAccessController.java 43362eab66f415ba2e1843eaf4cad1a4bca756a38fa8c20980b424d7bf7876af

@@ -109,8 +109,10 @@ class RangerReadScopeSummaryTest {
     }
 
     @Test
-    void parentChecksAreSkippedButColumnsAndVisibilityStillReachRanger() throws Exception {
-        CountingPlugin plugin = new CountingPlugin();
+    void scopeOnlyModeSkipsParentsButColumnsAndVisibilityStillReachRanger() throws Exception {
+        RangerPluginConfig configuration = config();
+        configuration.set(configuration.getPropertyPrefix() + RangerReadResourceIndex.ENABLED, "false");
+        CountingPlugin plugin = new CountingPlugin(configuration);
         try {
             plugin.setPolicies(snapshot(1, policy(1, "alice", "SELECT", resource("db", "t", "c1", "alice"))));
             RangerDorisAccessController controller = new RangerDorisAccessController(plugin, CONTEXT);

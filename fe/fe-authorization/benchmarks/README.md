@@ -19,6 +19,10 @@ under the License.
 
 # Ranger policy memory and authorization benchmark
 
+This runner keeps the read resource index disabled to preserve the scope-only
+baseline. See [Read resource index](READ_RESOURCE_INDEX.md) for the newer
+Boolean controller index and its separate comparison runner.
+
 This standalone tool compares the original Ranger plugin with the Doris plugin's
 resource compaction and parent-scope pruning. It is independent of the default
 Maven build and adds no production dependency. It measures in-process policy

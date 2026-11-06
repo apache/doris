@@ -30,6 +30,7 @@ public final class DorisScopeBenchmarkAdapter implements V2AuthorizationBenchmar
     private long nativeChecks;
 
     public DorisScopeBenchmarkAdapter(RangerPluginConfig configuration) {
+        configuration.set(configuration.getPropertyPrefix() + ".read.resource.index.enabled", "false");
         plugin = new RangerDorisPlugin(configuration);
     }
 

@@ -72,7 +72,8 @@ def stage(destination, dependencies):
         jars.append(frozen)
         manifest.append({"artifact": module, "sha256": digest(frozen)})
     sources = []
-    for name in ["V2AuthorizationBenchmark.java", "DorisScopeBenchmarkAdapter.java"]:
+    for name in ["V2AuthorizationBenchmark.java", "DorisScopeBenchmarkAdapter.java",
+                 "DorisIndexedReadBenchmarkAdapter.java"]:
         source = HERE / "src/org/apache/doris/catalog/authorizer/ranger/doris" / name
         frozen = runtime / name
         shutil.copyfile(source, frozen)

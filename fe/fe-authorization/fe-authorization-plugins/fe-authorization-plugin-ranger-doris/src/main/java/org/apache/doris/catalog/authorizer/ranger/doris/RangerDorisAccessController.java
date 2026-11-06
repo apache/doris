@@ -288,6 +288,18 @@ public class RangerDorisAccessController extends RangerAccessController {
                     && !((RangerDorisPlugin) dorisPlugin).mayGrantReadPrivilege(subject.getUser(), resource)) {
                 return false;
             }
+            if ((accessType == DorisAccessType.SELECT || accessType == DorisAccessType.ADMIN)
+                    && dorisPlugin instanceof RangerDorisPlugin) {
+                Boolean indexed = ((RangerDorisPlugin) dorisPlugin).indexedReadPrivilege(
+                        subject.getUser(), accessType, resource);
+                if (indexed != null) {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("ranger indexed privilege: user={}, access={}, resource={}, allowed={}",
+                                subject.getUser(), accessType, resource, indexed);
+                    }
+                    return indexed;
+                }
+            }
             RangerAccessRequestImpl request = createRequest(subject, accessType, context);
             request.setResource(resource);
             if (LOG.isDebugEnabled()) {
