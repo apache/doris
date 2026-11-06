@@ -59,7 +59,6 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -451,7 +450,7 @@ class ChildOutputPropertyDeriverTest {
 
         Assertions.assertEquals(ShuffleType.NATURAL, actual.getShuffleType());
         Assertions.assertEquals(
-                SessionVariable.canUseNereidsDistributePlanner() ? rightTableId : -1L, actual.getTableId()
+                rightTableId, actual.getTableId()
         );
         // check merged
         Assertions.assertEquals(1, actual.getExprIdToEquivalenceSet().size());

@@ -1319,10 +1319,11 @@ public class MetadataGenerator {
         ConnectorSession session = catalog.buildCrossStatementSession();
         try {
             ConnectorMetadata metadata = PluginDrivenMetadata.get(session, catalog.getConnector());
-            Optional<ConnectorTableHandle> handle = metadata.getTableHandle(
-                    session, table.getRemoteDbName(), table.getRemoteName());
+            PluginDrivenExternalTable pluginTable = (PluginDrivenExternalTable) table;
+            PluginDrivenExternalTable.MetadataRead read = pluginTable.observeConnectorMetadata(session, metadata);
+            Optional<ConnectorTableHandle> handle = pluginTable.resolveConnectorTableHandle(session, metadata);
             if (handle.isPresent()) {
-                for (String partition : metadata.listPartitionNames(session, handle.get())) {
+                for (String partition : read.execute(() -> metadata.listPartitionNames(session, handle.get()))) {
                     TRow trow = new TRow();
                     trow.addToColumnValue(new TCell().setStringVal(partition));
                     dataBatch.add(trow);

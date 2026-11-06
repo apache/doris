@@ -88,13 +88,15 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        Assertions.assertEquals("28.0", version.getProperty("api.version"));
+        // Major 29 adds typed table-absence errors after the upstream API 28 changes.
+        Assertions.assertEquals("30.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
     private static final List<Class<?>> FROZEN_TYPES = Arrays.asList(
             ConnectorTaskScheduler.class,
             DiagnosticException.class,
+            ConnectorTableNotFoundException.class,
             ConnectorProvider.class,
             ConnectorSecuritySurface.class,
             ConnectorContext.class,
