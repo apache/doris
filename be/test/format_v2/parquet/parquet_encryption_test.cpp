@@ -398,6 +398,64 @@ TEST(ParquetEncryptionTest, IndexContainerBudgetDoesNotTrustWireElementTypes) {
     EXPECT_TRUE(parsed.min_values.empty());
 }
 
+TEST(ParquetEncryptionTest, UnknownIndexFieldsDoNotPoisonHistogramAccounting) {
+    using namespace apache::thrift::protocol;
+    constexpr uint32_t pages = 30000;
+    constexpr uint32_t bins_per_page = 101;
+    auto transport = std::make_shared<apache::thrift::transport::TMemoryBuffer>();
+    TCompactProtocol writer(transport);
+    writer.writeStructBegin("ColumnIndex");
+    // Forward-compatible unknown metadata enters Thrift's nonvirtual template skip path.
+    writer.writeFieldBegin("future", T_STRUCT, 100);
+    writer.writeStructBegin("FutureMetadata");
+    writer.writeFieldBegin("nested", T_LIST, 7);
+    writer.writeListBegin(T_BYTE, 1);
+    writer.writeByte(0);
+    writer.writeListEnd();
+    writer.writeFieldEnd();
+    writer.writeFieldStop();
+    writer.writeStructEnd();
+    writer.writeFieldEnd();
+    writer.writeFieldBegin("null_pages", T_LIST, 1);
+    writer.writeListBegin(T_BOOL, pages);
+    for (uint32_t page = 0; page < pages; ++page) {
+        writer.writeBool(false);
+    }
+    writer.writeListEnd();
+    writer.writeFieldEnd();
+    for (int16_t field : {2, 3}) {
+        writer.writeFieldBegin("bounds", T_LIST, field);
+        writer.writeListBegin(T_STRING, pages);
+        for (uint32_t page = 0; page < pages; ++page) {
+            writer.writeBinary(std::string(4, '\0'));
+        }
+        writer.writeListEnd();
+        writer.writeFieldEnd();
+    }
+    writer.writeFieldBegin("boundary_order", T_I32, 4);
+    writer.writeI32(tparquet::BoundaryOrder::UNORDERED);
+    writer.writeFieldEnd();
+    writer.writeFieldBegin("definition_level_histograms", T_LIST, 7);
+    writer.writeListBegin(T_I64, pages * bins_per_page);
+    for (uint32_t bin = 0; bin < pages * bins_per_page; ++bin) {
+        writer.writeI64(bin % bins_per_page == bins_per_page - 1 ? 1 : 0);
+    }
+    writer.writeListEnd();
+    writer.writeFieldEnd();
+    writer.writeFieldStop();
+    writer.writeStructEnd();
+    uint8_t* bytes = nullptr;
+    uint32_t size = 0;
+    transport->getBuffer(&bytes, &size);
+    tparquet::ColumnIndex parsed;
+    uint32_t consumed = 0;
+    const auto status = deserialize_crypto_metadata(std::span(bytes, size), &consumed, &parsed);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(consumed, size);
+    EXPECT_EQ(parsed.min_values.size(), pages);
+    EXPECT_EQ(parsed.definition_level_histograms.size(), pages * bins_per_page);
+}
+
 tparquet::FileCryptoMetaData crypto_metadata() {
     tparquet::AesGcmV1 aes;
     aes.__set_aad_file_unique("12345678");
@@ -1368,6 +1426,71 @@ TEST(ParquetEncryptionTest, ManyPageEncryptedIndexesFitNativeContainerBudget) {
         EXPECT_EQ(indexes.at(0).offset_index.page_locations.back().first_row_index, pages - 1);
     }
     ASSERT_TRUE(context.close().ok());
+}
+
+std::vector<uint8_t> encrypted_histogram_file(int16_t max_definition_level, int32_t pages) {
+    auto sink = ::arrow::io::BufferOutputStream::Create().ValueOrDie();
+    auto field = ::parquet::schema::PrimitiveNode::Make("value", ::parquet::Repetition::OPTIONAL,
+                                                        ::parquet::Type::INT32);
+    for (int level = 1; level < max_definition_level; ++level) {
+        field = ::parquet::schema::GroupNode::Make("level_" + std::to_string(level),
+                                                   ::parquet::Repetition::OPTIONAL, {field});
+    }
+    auto schema =
+            ::parquet::schema::GroupNode::Make("schema", ::parquet::Repetition::REQUIRED, {field});
+    ::parquet::FileEncryptionProperties::Builder encryption {
+            ::arrow::util::SecureString(std::string(KEY))};
+    encryption.aad_prefix(AAD)->disable_aad_prefix_storage();
+    ::parquet::WriterProperties::Builder properties;
+    properties.encryption(encryption.build())
+            ->compression(::parquet::Compression::SNAPPY)
+            ->disable_dictionary()
+            ->enable_write_page_index()
+            ->set_size_statistics_level(::parquet::SizeStatisticsLevel::PageAndColumnChunk)
+            ->max_rows_per_page(1)
+            ->data_pagesize(1)
+            ->write_batch_size(1);
+    auto writer = ::parquet::ParquetFileWriter::Open(
+            sink, std::static_pointer_cast<::parquet::schema::GroupNode>(schema),
+            properties.build());
+    auto* group = writer->AppendRowGroup();
+    auto* column = static_cast<::parquet::Int32Writer*>(group->NextColumn());
+    for (int32_t row = 0; row < pages; ++row) {
+        column->WriteBatch(1, &max_definition_level, nullptr, &row);
+    }
+    group->Close();
+    writer->Close();
+    auto bytes = sink->Finish().ValueOrDie();
+    return {bytes->data(), bytes->data() + bytes->size()};
+}
+
+void verify_encrypted_histogram(int16_t max_definition_level, int32_t pages) {
+    auto file = std::make_shared<EncryptionMemoryReader>(
+            encrypted_histogram_file(max_definition_level, pages));
+    auto info = parameters();
+    ParquetFileContext context;
+    io::FileDescription description;
+    ASSERT_TRUE(context.open(file, nullptr, false, description, false, false, false, &info).ok());
+    std::unordered_map<int, NativeParquetPageIndex> indexes;
+    const auto status = context.load_native_page_indexes(0, {0}, &indexes);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(indexes.size(), 1);
+    const auto& index = indexes.at(0);
+    EXPECT_EQ(index.column_index.min_values.size(), pages);
+    ASSERT_EQ(index.column_index.definition_level_histograms.size(),
+              pages * (max_definition_level + 1));
+    EXPECT_EQ(index.column_index.definition_level_histograms[max_definition_level], 1);
+    EXPECT_EQ(index.column_index.definition_level_histograms.back(), 1);
+    EXPECT_EQ(index.offset_index.page_locations.size(), pages);
+    ASSERT_TRUE(context.close().ok());
+}
+
+TEST(ParquetEncryptionTest, NestedEncryptedHistogramsExceedFooterContainerLimit) {
+    verify_encrypted_histogram(2, 22000);
+}
+
+TEST(ParquetEncryptionTest, DeepEncryptedHistogramsUseNativeCounterBudget) {
+    verify_encrypted_histogram(100, 30000);
 }
 
 void verify_loaded_indexes(ParquetFileContext& context, int group,

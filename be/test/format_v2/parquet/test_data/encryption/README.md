@@ -98,10 +98,15 @@ pruning, and authenticate indexes against their module type, file, row group and
 physical column. Additional C++ fixtures cover
 Page V1/V2, dictionary/plain pages and indexed seeks past earlier pages. Modified
 index/Bloom authentication tags, oversized module prefixes and invalid index
-ranges must fail explicitly. Index parsing uses root-specific native element
-sizes for its decoded-container budget and the same recursion and module-size
-limits as encrypted footers. A generated encrypted file with 30,000 pages per
-row group covers valid indexes beyond the old footer-based allocation estimate.
+ranges must fail explicitly. Index parsing charges known list fields by their
+generated native element sizes, independently of advertised wire element types;
+unknown and skipped containers retain conservative accounting. Histogram list
+counts follow the decoded-byte budget rather than the footer's 65,536-element
+cap. Recursion and module-size limits remain shared with encrypted footers.
+Generated encrypted files cover 30,000-page indexes, 66,000 shallow-nesting
+histogram bins, and 3.03 million deeply nested histogram counters whose native
+storage still fits the budget. An unknown-field test covers accounting after
+Thrift's recursive skip path.
 
 SQL tests compare the plaintext twin with Bloom filtering enabled and disabled;
 native footer and page pruning remain active in both SQL scans. The fully
