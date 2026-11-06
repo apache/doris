@@ -7415,6 +7415,290 @@ TEST(MetaServiceTest, UpdateDeleteBitmapScOverrideExistingKey) {
     }
 }
 
+// Update delete bitmaps of `key_count` rowsets ("0", "1", ...) in one request, so that the pending
+// delete bitmap of the tablet contains `key_count` delete bitmap keys.
+static void update_delete_bitmap_with_keys(MetaServiceProxy* meta_service, int64_t table_id,
+                                           int64_t partition_id, int64_t tablet_id, int64_t lock_id,
+                                           int64_t initiator, int key_count, int64_t txn_id = -1,
+                                           bool is_explicit_txn = false, int rowset_id_offset = 0) {
+    brpc::Controller cntl;
+    UpdateDeleteBitmapRequest req;
+    UpdateDeleteBitmapResponse res;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_table_id(table_id);
+    req.set_partition_id(partition_id);
+    req.set_lock_id(lock_id);
+    req.set_initiator(initiator);
+    req.set_tablet_id(tablet_id);
+    if (txn_id > 0) {
+        req.set_txn_id(txn_id);
+    }
+    if (is_explicit_txn) {
+        req.set_is_explicit_txn(true);
+    }
+    for (int i = 0; i < key_count; ++i) {
+        req.add_rowset_ids(std::to_string(rowset_id_offset + i));
+        req.add_segment_ids(0);
+        req.add_versions(100);
+        req.add_segment_delete_bitmaps("v");
+    }
+    meta_service->update_delete_bitmap(reinterpret_cast<google::protobuf::RpcController*>(&cntl),
+                                       &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+}
+
+// Check the pending delete bitmap of the tablet contains `expected_count` keys, and whether it is
+// stored as a single plain KV or split into multiple KVs.
+static void check_pending_delete_bitmap(MetaServiceProxy* meta_service,
+                                        const std::string& instance_id, int64_t tablet_id,
+                                        int expected_count, bool expect_split) {
+    std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
+    std::string pending_key_end = pending_key;
+    encode_int64(INT64_MAX, &pending_key_end);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string raw_value;
+    ASSERT_EQ(txn->get(pending_key, &raw_value),
+              expect_split ? TxnErrorCode::TXN_KEY_NOT_FOUND : TxnErrorCode::TXN_OK);
+    std::unique_ptr<RangeGetIterator> it;
+    ASSERT_EQ(txn->get(pending_key, pending_key_end, &it), TxnErrorCode::TXN_OK);
+    if (expect_split) {
+        ASSERT_GT(it->size(), 1);
+    } else {
+        // no stale split KVs left
+        ASSERT_EQ(it->size(), 1);
+    }
+    ValueBuf value;
+    ASSERT_EQ(cloud::blob_get(txn.get(), pending_key, &value), TxnErrorCode::TXN_OK);
+    PendingDeleteBitmapPB pending_info;
+    ASSERT_TRUE(value.to_pb(&pending_info));
+    ASSERT_EQ(pending_info.delete_bitmap_keys_size(), expected_count);
+}
+
+static void check_pending_delete_bitmap_removed(MetaServiceProxy* meta_service,
+                                                const std::string& instance_id, int64_t tablet_id) {
+    std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
+    std::string pending_key_end = pending_key;
+    encode_int64(INT64_MAX, &pending_key_end);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::unique_ptr<RangeGetIterator> it;
+    ASSERT_EQ(txn->get(pending_key, pending_key_end, &it), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(it->size(), 0);
+}
+
+TEST(MetaServiceTest, UpdateDeleteBitmapSplitLargePendingDeleteBitmap) {
+    auto meta_service = get_meta_service();
+    bool old_split = config::split_pending_delete_bitmap_kv;
+    DORIS_CLOUD_DEFER {
+        config::split_pending_delete_bitmap_kv = old_split;
+    };
+
+    extern std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
+                                       const std::string& cloud_unique_id);
+    auto instance_id = get_instance_id(meta_service->resource_mgr(), "test_cloud_unique_id");
+
+    int64_t db_id = 99999;
+    int64_t table_id = 1802;
+    int64_t partition_id = 2002;
+    int64_t tablet_id = 3002;
+    int64_t lock_id = -2;
+    int64_t initiator = 1009;
+    ASSERT_NO_FATAL_FAILURE(create_tablet_with_db_id(meta_service.get(), db_id, table_id, 4802,
+                                                     partition_id, tablet_id));
+    get_delete_bitmap_update_lock(meta_service.get(), table_id, partition_id, lock_id, initiator);
+
+    // each delete bitmap key is ~70 bytes, 2000 keys exceed DEFAULT_BLOB_SPLIT_SIZE
+    constexpr int kLargeCount = 2000;
+    constexpr int kSmallCount = 100;
+
+    // 1. disabled: keep the original single KV format even if the value is large
+    config::split_pending_delete_bitmap_kv = false;
+    ASSERT_NO_FATAL_FAILURE(update_delete_bitmap_with_keys(meta_service.get(), table_id,
+                                                           partition_id, tablet_id, lock_id,
+                                                           initiator, kLargeCount));
+    ASSERT_NO_FATAL_FAILURE(check_pending_delete_bitmap(meta_service.get(), instance_id, tablet_id,
+                                                        kLargeCount, false));
+
+    // 2. enabled: a large value is split into multiple KVs
+    config::split_pending_delete_bitmap_kv = true;
+    ASSERT_NO_FATAL_FAILURE(update_delete_bitmap_with_keys(meta_service.get(), table_id,
+                                                           partition_id, tablet_id, lock_id,
+                                                           initiator, kLargeCount));
+    ASSERT_NO_FATAL_FAILURE(check_pending_delete_bitmap(meta_service.get(), instance_id, tablet_id,
+                                                        kLargeCount, true));
+
+    // 3. a small value is still written as a single KV, and stale split KVs are removed.
+    // The split pending delete bitmap of the previous trial must be read correctly, so that
+    // the delete bitmaps it records are cleaned.
+    ASSERT_NO_FATAL_FAILURE(update_delete_bitmap_with_keys(meta_service.get(), table_id,
+                                                           partition_id, tablet_id, lock_id,
+                                                           initiator, kSmallCount));
+    ASSERT_NO_FATAL_FAILURE(check_pending_delete_bitmap(meta_service.get(), instance_id, tablet_id,
+                                                        kSmallCount, false));
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        // only the delete bitmaps of the latest trial are left, the ones recorded by the split
+        // pending delete bitmap of the previous trial have been cleaned
+        std::string begin_key = meta_delete_bitmap_key({instance_id, tablet_id, "", 0, 0});
+        std::string end_key = meta_delete_bitmap_key({instance_id, tablet_id + 1, "", 0, 0});
+        std::unique_ptr<RangeGetIterator> it;
+        ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+        int num_delete_bitmaps = 0;
+        while (it->has_next()) {
+            it->next();
+            ++num_delete_bitmaps;
+        }
+        ASSERT_EQ(num_delete_bitmaps, kSmallCount);
+    }
+
+    // 4. alternate between split and plain values
+    for (int i = 0; i < 10; ++i) {
+        int count = (i % 2 == 0) ? kLargeCount : kSmallCount;
+        ASSERT_NO_FATAL_FAILURE(update_delete_bitmap_with_keys(
+                meta_service.get(), table_id, partition_id, tablet_id, lock_id, initiator, count));
+        ASSERT_NO_FATAL_FAILURE(check_pending_delete_bitmap(meta_service.get(), instance_id,
+                                                            tablet_id, count, i % 2 == 0));
+    }
+
+    // 5. disabled again: split KVs written before are replaced by a single KV
+    ASSERT_NO_FATAL_FAILURE(update_delete_bitmap_with_keys(meta_service.get(), table_id,
+                                                           partition_id, tablet_id, lock_id,
+                                                           initiator, kLargeCount));
+    ASSERT_NO_FATAL_FAILURE(check_pending_delete_bitmap(meta_service.get(), instance_id, tablet_id,
+                                                        kLargeCount, true));
+    config::split_pending_delete_bitmap_kv = false;
+    ASSERT_NO_FATAL_FAILURE(update_delete_bitmap_with_keys(meta_service.get(), table_id,
+                                                           partition_id, tablet_id, lock_id,
+                                                           initiator, kSmallCount));
+    ASSERT_NO_FATAL_FAILURE(check_pending_delete_bitmap(meta_service.get(), instance_id, tablet_id,
+                                                        kSmallCount, false));
+}
+
+TEST(MetaServiceTest, UpdateDeleteBitmapSplitPendingDeleteBitmapWithExplicitTxn) {
+    auto meta_service = get_meta_service();
+    bool old_split = config::split_pending_delete_bitmap_kv;
+    config::split_pending_delete_bitmap_kv = true;
+    DORIS_CLOUD_DEFER {
+        config::split_pending_delete_bitmap_kv = old_split;
+    };
+
+    extern std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
+                                       const std::string& cloud_unique_id);
+    auto instance_id = get_instance_id(meta_service->resource_mgr(), "test_cloud_unique_id");
+
+    int64_t db_id = 99999;
+    int64_t table_id = 1803;
+    int64_t partition_id = 2003;
+    int64_t tablet_id = 3003;
+    ASSERT_NO_FATAL_FAILURE(create_tablet_with_db_id(meta_service.get(), db_id, table_id, 4803,
+                                                     partition_id, tablet_id));
+    int64_t txn_id = 0;
+    ASSERT_NO_FATAL_FAILURE(begin_txn_and_commit_rowset(meta_service.get(), "label_explicit_split",
+                                                        db_id, table_id, partition_id, tablet_id,
+                                                        &txn_id));
+    get_delete_bitmap_update_lock(meta_service.get(), table_id, partition_id, txn_id, -1);
+
+    // the first sub txn writes a split pending delete bitmap
+    ASSERT_NO_FATAL_FAILURE(update_delete_bitmap_with_keys(
+            meta_service.get(), table_id, partition_id, tablet_id, txn_id, -1, 2000, txn_id, true));
+    ASSERT_NO_FATAL_FAILURE(
+            check_pending_delete_bitmap(meta_service.get(), instance_id, tablet_id, 2000, true));
+
+    // the following sub txn must read the split pending delete bitmap of previous sub txns and
+    // merge its own keys into it
+    ASSERT_NO_FATAL_FAILURE(update_delete_bitmap_with_keys(meta_service.get(), table_id,
+                                                           partition_id, tablet_id, txn_id, -1, 100,
+                                                           txn_id + 1, true, 2000));
+    ASSERT_NO_FATAL_FAILURE(
+            check_pending_delete_bitmap(meta_service.get(), instance_id, tablet_id, 2100, true));
+}
+
+// Load path (lock_id > 0) writes a split pending delete bitmap, and committing the txn must remove
+// every split KV of it.
+enum class CommitTxnPath { IMMEDIATELY, EVENTUALLY };
+
+static void testCommitTxnRemoveSplitPendingDeleteBitmap(CommitTxnPath path) {
+    auto meta_service = get_meta_service();
+    brpc::Controller cntl;
+    bool eventually = path != CommitTxnPath::IMMEDIATELY;
+    bool old_split = config::split_pending_delete_bitmap_kv;
+    int32_t old_threshold = config::txn_lazy_commit_rowsets_thresold;
+    config::split_pending_delete_bitmap_kv = true;
+    if (eventually) {
+        // make the single tmp rowset exceed the threshold so that commit goes to eventually
+        config::txn_lazy_commit_rowsets_thresold = 0;
+    }
+    DORIS_CLOUD_DEFER {
+        config::split_pending_delete_bitmap_kv = old_split;
+        config::txn_lazy_commit_rowsets_thresold = old_threshold;
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    bool eventually_hit = false;
+    bool immediately_hit = false;
+    auto sp = SyncPoint::get_instance();
+    sp->set_call_back("commit_txn_eventually::finish", [&](auto&&) { eventually_hit = true; });
+    sp->set_call_back("commit_txn_immediately::finish", [&](auto&&) { immediately_hit = true; });
+    sp->enable_processing();
+
+    extern std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
+                                       const std::string& cloud_unique_id);
+    auto instance_id = get_instance_id(meta_service->resource_mgr(), "test_cloud_unique_id");
+
+    int64_t db_id = 99999;
+    int64_t table_id = 1811 + static_cast<int64_t>(path);
+    int64_t partition_id = table_id + 200;
+    int64_t tablet_id = table_id + 1200;
+    constexpr int kKeyCount = 2000;
+    ASSERT_NO_FATAL_FAILURE(create_tablet_with_db_id(meta_service.get(), db_id, table_id,
+                                                     table_id + 3000, partition_id, tablet_id));
+    int64_t txn_id = 0;
+    ASSERT_NO_FATAL_FAILURE(begin_txn_and_commit_rowset(
+            meta_service.get(), "label_split_pending_" + std::to_string(table_id), db_id, table_id,
+            partition_id, tablet_id, &txn_id));
+
+    // load takes the delete bitmap lock with its txn id and writes the pending delete bitmap
+    get_delete_bitmap_update_lock(meta_service.get(), table_id, partition_id, txn_id, -1);
+    ASSERT_NO_FATAL_FAILURE(update_delete_bitmap_with_keys(
+            meta_service.get(), table_id, partition_id, tablet_id, txn_id, -1, kKeyCount, txn_id));
+    ASSERT_NO_FATAL_FAILURE(check_pending_delete_bitmap(meta_service.get(), instance_id, tablet_id,
+                                                        kKeyCount, true));
+
+    CommitTxnRequest req;
+    CommitTxnResponse res;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_db_id(db_id);
+    req.set_txn_id(txn_id);
+    req.add_mow_table_ids(table_id);
+    if (eventually) {
+        req.set_is_2pc(false);
+        req.set_enable_txn_lazy_commit(true);
+    }
+    meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                             &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+    ASSERT_EQ(eventually_hit, eventually);
+    ASSERT_EQ(immediately_hit, !eventually);
+
+    // the lock and every split KV of the pending delete bitmap must be gone
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string lock_val;
+    ASSERT_EQ(txn->get(meta_delete_bitmap_update_lock_key({instance_id, table_id, -1}), &lock_val),
+              TxnErrorCode::TXN_KEY_NOT_FOUND);
+    ASSERT_NO_FATAL_FAILURE(
+            check_pending_delete_bitmap_removed(meta_service.get(), instance_id, tablet_id));
+}
+
+TEST(MetaServiceTest, CommitTxnImmediatelyRemoveSplitPendingDeleteBitmap) {
+    testCommitTxnRemoveSplitPendingDeleteBitmap(CommitTxnPath::IMMEDIATELY);
+}
+
+TEST(MetaServiceTest, CommitTxnEventuallyRemoveSplitPendingDeleteBitmap) {
+    testCommitTxnRemoveSplitPendingDeleteBitmap(CommitTxnPath::EVENTUALLY);
+}
+
 void testUpdateDeleteBitmap(int lock_version) {
     config::delete_bitmap_lock_v2_white_list = lock_version == 1 ? "" : "*";
     auto meta_service = get_meta_service();

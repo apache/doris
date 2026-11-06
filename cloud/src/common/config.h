@@ -348,6 +348,9 @@ CONF_Bool(delete_bitmap_enable_retry_txn_conflict, "true");
 // reserve 1MB of buffer, so setting the default value to 7MB is
 // more reasonable.
 CONF_mInt64(max_txn_commit_byte, "7340032");
+// Split large pending delete bitmap values to avoid FDB's 100KB single-value limit.
+// Keep disabled until all MS instances support reading split values.
+CONF_mBool(split_pending_delete_bitmap_kv, "false");
 
 // true: scan txn_running_key entries and fetch transaction info via the corresponding txn_info_key.
 // false: scan txn_info_key entries directly; these usually far outnumber txn_running_key entries.

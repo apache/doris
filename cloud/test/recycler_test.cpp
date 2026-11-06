@@ -49,6 +49,7 @@
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
 #include "meta-store/blob_message.h"
+#include "meta-store/codec.h"
 #include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/mem_txn_kv.h"
@@ -3349,6 +3350,65 @@ TEST(RecyclerTest, delete_bitmap_collect_shard_keys) {
     EXPECT_EQ(storage_type, InstanceRecycler::DeleteBitmapStorageType::IN_FDB);
 }
 
+TEST(RecyclerTest, recycle_tablet_with_split_pending_delete_bitmap) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("recycle_tablet_split_pending");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("recycle_tablet_split_pending");
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    constexpr int table_id = 10000, index_id = 10001, partition_id = 10002, tablet_id = 10003;
+    ASSERT_EQ(0, create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id));
+    ASSERT_EQ(create_partition_version_kv(txn_kv.get(), table_id, partition_id), 0);
+
+    // a pending delete bitmap which is split into multiple KVs, as done by update_delete_bitmap
+    // when split_pending_delete_bitmap_kv is enabled
+    std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
+    std::string pending_key_end = pending_key;
+    encode_int64(INT64_MAX, &pending_key_end);
+    {
+        PendingDeleteBitmapPB pending_info;
+        for (int i = 0; i < 2000; ++i) {
+            pending_info.add_delete_bitmap_keys(
+                    meta_delete_bitmap_key({instance_id, tablet_id, std::to_string(i), 10, 0}));
+        }
+        std::string pending_val;
+        ASSERT_TRUE(pending_info.SerializeToString(&pending_val));
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        cloud::blob_put(txn.get(), pending_key, pending_val, 0);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::unique_ptr<RangeGetIterator> it;
+        ASSERT_EQ(txn->get(pending_key, pending_key_end, &it), TxnErrorCode::TXN_OK);
+        ASSERT_GT(it->size(), 1);
+    }
+
+    ASSERT_EQ(0, recycler.recycle_tablets(table_id, index_id, ctx));
+
+    // not only the first KV, but every split KV of the pending delete bitmap is removed
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::unique_ptr<RangeGetIterator> it;
+    ASSERT_EQ(txn->get(pending_key, pending_key_end, &it), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(it->size(), 0);
+}
+
 TEST(RecyclerTest, recycle_indexes) {
     config::retention_seconds = 0;
     auto txn_kv = std::make_shared<MemTxnKv>();
@@ -5999,7 +6059,7 @@ TEST(CheckerTest, do_inspect) {
     }
 }
 
-TEST(CheckerTest, delete_bitmap_inverted_check_normal) {
+static void test_delete_bitmap_inverted_check_normal(bool split_pending) {
     // normal case, all delete bitmaps belong to a rowset
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
@@ -6058,8 +6118,19 @@ TEST(CheckerTest, delete_bitmap_inverted_check_normal) {
                 meta_delete_bitmap_key(key_info, &key);
                 delete_bitmap_keys.add_delete_bitmap_keys(key);
             }
-            delete_bitmap_keys.SerializeToString(&pending_val);
-            txn->put(pending_key, pending_val);
+            if (split_pending) {
+                // pending delete bitmap may be split into multiple KVs if too large
+                for (int j = 0; j < 500; j++) {
+                    delete_bitmap_keys.add_delete_bitmap_keys(meta_delete_bitmap_key(
+                            {instance_id, tablet_id, "pending_" + std::to_string(j), 10, 0}));
+                }
+                delete_bitmap_keys.SerializeToString(&pending_val);
+                ASSERT_GT(pending_val.size(), MIN_BLOB_SPLIT_SIZE);
+                cloud::blob_put(txn.get(), pending_key, pending_val, 0, MIN_BLOB_SPLIT_SIZE);
+            } else {
+                delete_bitmap_keys.SerializeToString(&pending_val);
+                txn->put(pending_key, pending_val);
+            }
         }
     }
 
@@ -6078,6 +6149,14 @@ TEST(CheckerTest, delete_bitmap_inverted_check_normal) {
     ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
 
     ASSERT_EQ(checker.do_delete_bitmap_inverted_check(), 0);
+}
+
+TEST(CheckerTest, delete_bitmap_inverted_check_normal) {
+    test_delete_bitmap_inverted_check_normal(false);
+}
+
+TEST(CheckerTest, delete_bitmap_inverted_check_normal_split_pending) {
+    test_delete_bitmap_inverted_check_normal(true);
 }
 
 TEST(CheckerTest, delete_bitmap_inverted_check_unexpired_tmp_rowset) {

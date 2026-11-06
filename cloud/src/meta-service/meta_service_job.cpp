@@ -39,6 +39,7 @@
 #include "meta-service/meta_service_tablet_stats.h"
 #include "meta-store/blob_message.h"
 #include "meta-store/clone_chain_reader.h"
+#include "meta-store/codec.h"
 #include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/meta_reader.h"
@@ -1834,7 +1835,9 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
         }
 
         std::string pending_key = meta_pending_delete_bitmap_key({instance_id, new_tablet_id});
-        txn->remove(pending_key);
+        std::string pending_key_end = pending_key;
+        encode_int64(INT64_MAX, &pending_key_end);
+        txn->remove(pending_key, pending_key_end);
         LOG(INFO) << "xxx sc remove delete bitmap pending key, pending_key=" << hex(pending_key)
                   << " tablet_id=" << new_tablet_id << ", job_id=" << schema_change.id();
     }
