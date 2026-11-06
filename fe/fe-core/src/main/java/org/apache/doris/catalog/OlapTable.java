@@ -1121,6 +1121,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             }
         }
 
+        // Remapping IDs can change index order. Rebuild before publishing the table
+        // so its layout matches the schema reconstructed by Gson on other FEs.
+        rebuildFullSchema();
         return Status.OK;
     }
 

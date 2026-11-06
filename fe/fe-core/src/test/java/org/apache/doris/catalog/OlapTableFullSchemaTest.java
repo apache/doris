@@ -22,9 +22,12 @@ import org.apache.doris.thrift.TStorageType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class OlapTableFullSchemaTest {
     @Test
@@ -72,6 +75,39 @@ public class OlapTableFullSchemaTest {
         table.deleteIndexInfo("mv_first");
         Assertions.assertEquals(List.of("k", "mv_shared", "mv_b"), names(table));
         Assertions.assertSame(secondShared, table.getColumn("mv_shared"));
+    }
+
+    @Test
+    public void testSameLayoutAfterRestoreRemapsIndexIds() {
+        OlapTable table = createTable();
+        Column baseColumn = table.getBaseSchema().get(0);
+        Column firstShared = column("mv_shared", 1);
+        Column secondShared = column("mv_shared", 2);
+        addIndex(table, 1, "mv_first", firstShared, column("mv_a", 3));
+        addIndex(table, 16, "mv_second", secondShared, column("mv_b", 4));
+        table.rebuildFullSchema();
+        Assertions.assertEquals(List.of("k", "mv_shared", "mv_a", "mv_b"), names(table));
+        Assertions.assertSame(firstShared, table.getColumn("mv_shared"));
+
+        Env env = Mockito.mock(Env.class);
+        AtomicLong nextId = new AtomicLong(1000);
+        Mockito.when(env.getNextId()).thenAnswer(invocation -> nextId.getAndIncrement());
+        // RESTORE allocates new IDs in HashMap order, visiting index 16 before index 1.
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentColocateIndex).thenReturn(new ColocateTableIndex());
+            Assertions.assertTrue(table.resetIdsForRestore(env, new Database(2000, "restored_db"),
+                    ReplicaAllocation.DEFAULT_ALLOCATION, false, false, new ArrayList<>(), "source_db").ok());
+        }
+        Assertions.assertTrue(table.getIndexIdByName("mv_second") < table.getIndexIdByName("mv_first"));
+
+        // The leader publishes this object; followers deserialize the same metadata.
+        OlapTable follower = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(table), OlapTable.class);
+        Assertions.assertEquals(follower.getFullSchema(), table.getFullSchema());
+        Assertions.assertEquals(List.of("k", "mv_shared", "mv_b", "mv_a"), names(table));
+        Assertions.assertSame(baseColumn, table.getFullSchema().get(0));
+        Assertions.assertSame(secondShared, table.getColumn("mv_shared"));
+        Assertions.assertEquals(follower.getColumn("mv_shared").getUniqueId(),
+                table.getColumn("mv_shared").getUniqueId());
     }
 
     private static OlapTable createTable() {
