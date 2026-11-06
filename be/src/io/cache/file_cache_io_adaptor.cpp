@@ -86,16 +86,22 @@ FileCacheIOAdaptor::Decision FileCacheIOAdaptor::_select(size_t bytes, double sk
     // History cannot reveal an unobserved recovery (e.g. local 20 ms -> 100 us). Route a real
     // request through the other path, at most once per second and once per 64 eligible hits.
     // Keep one probe in flight across the entire cache path, including slow local disk reads.
-    if (bucket.local.count == WINDOW_SIZE && !_probe_inflight && now_us >= _next_probe_us &&
+    // Below the 5 ms floor, remote observations cannot enable bypass. Probing a 100 us local
+    // hit through a 20 ms remote path would only increase healthy-cache tail latency.
+    if (bucket.local.count == WINDOW_SIZE && decision.local_latency_us >= MIN_LOCAL_LATENCY_US &&
+        !_probe_inflight && now_us >= _next_probe_us &&
         _requests_since_probe == PROBE_REQUEST_INTERVAL) {
         // With 63 small hits followed by one large hit, granting every 64th request would
         // probe only the large bucket forever. Rotate among buckets within their observed
         // request gaps, retaining quota for the selected bucket's next request. A bucket that
         // stays absent beyond its gap expires without blocking the remaining traffic forever.
+        // Apply the same latency floor here: a fast 4 KiB bucket must not reserve a slow
+        // 1 MiB bucket's probe turn when it cannot use that turn itself.
         auto probe_bucket = _next_probe_bucket;
         for (size_t visited = 0; visited < BUCKET_COUNT; ++visited) {
             const auto& candidate = _buckets[probe_bucket];
             if (candidate.local.count == WINDOW_SIZE &&
+                candidate.local.average() >= MIN_LOCAL_LATENCY_US &&
                 candidate.idle_requests < candidate.probe_wait_requests) {
                 break;
             }
