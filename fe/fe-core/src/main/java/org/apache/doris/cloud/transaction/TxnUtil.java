@@ -17,6 +17,7 @@
 
 package org.apache.doris.cloud.transaction;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.cloud.proto.Cloud.RLTaskTxnCommitAttachmentPB;
 import org.apache.doris.cloud.proto.Cloud.RoutineLoadProgressPB;
 import org.apache.doris.cloud.proto.Cloud.StreamingTaskCommitAttachmentPB;
@@ -28,6 +29,7 @@ import org.apache.doris.cloud.proto.Cloud.TxnCommitAttachmentPB.LoadJobFinalOper
 import org.apache.doris.cloud.proto.Cloud.TxnCoordinatorPB;
 import org.apache.doris.cloud.proto.Cloud.TxnInfoPB;
 import org.apache.doris.cloud.proto.Cloud.TxnSourceTypePB;
+import org.apache.doris.cloud.proto.Cloud.TxnUserPB;
 import org.apache.doris.cloud.proto.Cloud.UniqueIdPB;
 import org.apache.doris.job.extensions.insert.streaming.StreamingTaskTxnCommitAttachment;
 import org.apache.doris.load.EtlStatus;
@@ -338,6 +340,17 @@ public class TxnUtil {
                 txnCoordinatorPB.getId(), txnCoordinatorPB.getIp(), txnCoordinatorPB.getStartTime());
     }
 
+    public static TxnUserPB txnUserToPb(UserIdentity txnUser) {
+        return TxnUserPB.newBuilder().setUser(txnUser.getQualifiedUser()).setHost(txnUser.getHost())
+                .setIsDomain(txnUser.isDomain()).build();
+    }
+
+    public static UserIdentity txnUserFromPb(TxnUserPB txnUser) {
+        return txnUser.getIsDomain()
+                ? UserIdentity.createAnalyzedUserIdentWithDomain(txnUser.getUser(), txnUser.getHost())
+                : UserIdentity.createAnalyzedUserIdentWithIp(txnUser.getUser(), txnUser.getHost());
+    }
+
     public static TransactionState transactionStateFromPb(TxnInfoPB txnInfo) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("txnInfo={}", txnInfo);
@@ -409,6 +422,9 @@ public class TxnUtil {
                 finishTime
         );
         transactionState.setCommitTSO(txnInfo.hasCommitTso() ? txnInfo.getCommitTso() : -1);
+        if (txnInfo.hasTxnUser()) {
+            transactionState.setTxnUser(txnUserFromPb(txnInfo.getTxnUser()));
+        }
         if (LOG.isDebugEnabled()) {
             LOG.debug("transactionState={}", transactionState);
         }

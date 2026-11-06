@@ -26,6 +26,9 @@ import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
+import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionUtil;
 
 import com.google.common.base.Strings;
 import jakarta.servlet.http.HttpServletRequest;
@@ -81,7 +84,18 @@ public class CancelLoadAction extends RestBaseController {
         }
 
         try {
-            Env.getCurrentGlobalTransactionMgr().abortTransaction(db.getId(), label, "user cancel");
+            GlobalTransactionMgrIface transactionMgr = Env.getCurrentGlobalTransactionMgr();
+            Long txnId = transactionMgr.getTransactionId(db.getId(), label);
+            if (txnId == null) {
+                throw new UserException("txn with label " + label + " does not exist");
+            }
+            TransactionState transactionState = transactionMgr.getTransactionState(db.getId(), txnId);
+            if (transactionState == null) {
+                throw new UserException("transaction [" + txnId + "] not found");
+            }
+            TransactionUtil.checkTransactionUser(ConnectContext.get().getCurrentUserIdentity(), transactionState);
+            // Abort the checked transaction even if the label is reused concurrently.
+            transactionMgr.abortTransaction(db.getId(), txnId, "user cancel");
         } catch (UserException e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }

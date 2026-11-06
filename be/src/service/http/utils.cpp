@@ -89,8 +89,6 @@ bool parse_basic_auth(const HttpRequest& req, std::string* user, std::string* pa
 bool parse_basic_auth(const HttpRequest& req, AuthInfo* auth) {
     // deprecated, removed in 3.1, use AUTH_TOKEN
     const auto& token = req.header("token");
-    // deprecated, removed in 3.1, use AUTH_TOKEN
-    const auto& auth_code = req.header(HTTP_AUTH_CODE);
     const auto& auth_token = req.header(HttpHeaders::AUTH_TOKEN);
 
     std::tuple<std::string, std::string, std::string> tmp;
@@ -107,20 +105,13 @@ bool parse_basic_auth(const HttpRequest& req, AuthInfo* auth) {
         auth->cluster = cluster;
     }
 
+    // Ignore the deprecated HTTP auth_code header. For example, Basic credentials plus
+    // auth_code:1 must still reach FE password verification and transaction owner assignment.
+    // Only internal tasks may populate AuthInfo::auth_code directly.
     if (!token.empty()) {
         auth->token = token; // deprecated
     } else if (!auth_token.empty()) {
         auth->token = auth_token;
-    } else if (!auth_code.empty()) {
-        // auth_code comes straight from a request header, a malformed one is just an
-        // invalid credential and must not throw out of the http callback. The value is a
-        // credential that is_sensitive_header() masks elsewhere, so it is not logged.
-        auto parsed_auth_code = safe_stoll(auth_code, HTTP_AUTH_CODE);
-        if (!parsed_auth_code.has_value()) {
-            LOG(WARNING) << "parse auth code failed, malformed " << HTTP_AUTH_CODE << " header";
-            return false;
-        }
-        auth->auth_code = parsed_auth_code.value(); // deprecated
     } else if (!valid_basic_auth) {
         return false;
     }

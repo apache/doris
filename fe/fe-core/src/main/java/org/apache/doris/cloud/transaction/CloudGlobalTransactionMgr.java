@@ -17,6 +17,7 @@
 
 package org.apache.doris.cloud.transaction;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.CloudTabletStatMgr;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
@@ -264,6 +265,16 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             TxnCoordinator coordinator, LoadJobSourceType sourceType, long listenerId, long timeoutSecond)
             throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException,
             QuotaExceedException, MetaNotFoundException {
+        return beginTransaction(dbId, tableIdList, label, requestId, coordinator, sourceType, listenerId,
+                timeoutSecond, null);
+    }
+
+    @Override
+    public long beginTransaction(long dbId, List<Long> tableIdList, String label, TUniqueId requestId,
+            TxnCoordinator coordinator, LoadJobSourceType sourceType, long listenerId, long timeoutSecond,
+            UserIdentity txnUser)
+            throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException,
+            QuotaExceedException, MetaNotFoundException {
 
         LOG.info("try to begin transaction, dbId: {}, label: {}", dbId, label);
         if (Config.disable_load_job) {
@@ -300,6 +311,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             txnInfoBuilder.addAllTableIds(tableIdList);
             txnInfoBuilder.setLabel(label);
             txnInfoBuilder.setListenerId(listenerId);
+            if (txnUser != null) {
+                txnInfoBuilder.setTxnUser(TxnUtil.txnUserToPb(txnUser));
+            }
 
             if (requestId != null) {
                 UniqueIdPB.Builder uniqueIdBuilder = UniqueIdPB.newBuilder();
