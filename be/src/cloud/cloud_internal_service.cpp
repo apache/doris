@@ -377,7 +377,7 @@ std::string get_rowset_meta_resource_id_from_request(const PFetchPeerDataRequest
 }
 
 std::string get_peer_cache_filename(std::string_view path) {
-    return io::Path(std::string(path)).filename().native();
+    return io::BlockFileCache::doris_table_cache_file_name(path);
 }
 
 std::string format_peer_request_context(const PFetchPeerDataRequest* request,

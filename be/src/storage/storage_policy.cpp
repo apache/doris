@@ -27,9 +27,9 @@
 #include <ranges>
 #include <unordered_map>
 
+#include "cpp/remote_path.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/rowset_meta.h"
-#include "util/hash_util.hpp"
 
 namespace doris {
 
@@ -157,47 +157,29 @@ namespace {
 } // namespace
 
 StorageResource::StorageResource(io::RemoteFileSystemSPtr fs_,
-                                 const cloud::StorageVaultPB_PathFormat& path_format)
-        : fs(std::move(fs_)), path_version(path_format.path_version()) {
-    switch (path_version) {
-    case 0:
-        break;
-    case 1:
-        shard_fn = [shard_num = path_format.shard_num()](int64_t tablet_id) {
-            return HashUtil::murmur_hash64A(static_cast<void*>(&tablet_id), sizeof(tablet_id),
-                                            HashUtil::MURMUR_SEED) %
-                   shard_num;
-        };
-        break;
-    default:
-        exit_at_unknown_path_version(fs->id(), path_version);
+                                 const cloud::StorageVaultPB_PathFormat& path_format_pb)
+        : fs(std::move(fs_)),
+          path_format {.path_version = path_format_pb.path_version(),
+                       .shard_num = path_format_pb.shard_num()} {
+    if (path_format.path_version != 0 && path_format.path_version != 1) {
+        exit_at_unknown_path_version(fs->id(), path_format.path_version);
+    }
+    if (!path_format.is_supported()) {
+        throw Exception(
+                Status::FatalError("invalid shard num, it must be positive when path version is 1. "
+                                   "resource_id={} shard_num={}",
+                                   fs->id(), path_format.shard_num));
     }
 }
 
 std::string StorageResource::remote_segment_path(int64_t tablet_id, std::string_view rowset_id,
                                                  int64_t seg_id) const {
-    switch (path_version) {
-    case 0:
-        return fmt::format("{}/{}/{}_{}.dat", DATA_PREFIX, tablet_id, rowset_id, seg_id);
-    case 1:
-        return fmt::format("{}/{}/{}/{}/{}.dat", DATA_PREFIX, shard_fn(tablet_id), tablet_id,
-                           rowset_id, seg_id);
-    default:
-        exit_at_unknown_path_version(fs->id(), path_version);
-    }
+    return ::doris::remote_segment_path(path_format, tablet_id, rowset_id, seg_id);
 }
 
 std::string StorageResource::remote_segment_path(const RowsetMeta& rowset, int64_t seg_id) const {
-    switch (path_version) {
-    case 0:
-        return fmt::format("{}/{}/{}_{}.dat", DATA_PREFIX, rowset.tablet_id(),
-                           rowset.rowset_id().to_string(), seg_id);
-    case 1:
-        return fmt::format("{}/{}/{}/{}/{}.dat", DATA_PREFIX, shard_fn(rowset.tablet_id()),
-                           rowset.tablet_id(), rowset.rowset_id().to_string(), seg_id);
-    default:
-        exit_at_unknown_path_version(fs->id(), path_version);
-    }
+    return ::doris::remote_segment_path(path_format, rowset.tablet_id(),
+                                        rowset.rowset_id().to_string(), seg_id);
 }
 
 // TODO(dx)
@@ -287,56 +269,23 @@ std::optional<int64_t> StorageResource::parse_tablet_id_from_path(const std::str
 std::string StorageResource::remote_idx_v1_path(const RowsetMeta& rowset, int64_t seg_id,
                                                 int64_t index_id,
                                                 std::string_view index_path_suffix) const {
-    std::string suffix =
-            index_path_suffix.empty() ? "" : std::string {"@"} + index_path_suffix.data();
-    switch (path_version) {
-    case 0:
-        return fmt::format("{}/{}/{}_{}_{}{}.idx", DATA_PREFIX, rowset.tablet_id(),
-                           rowset.rowset_id().to_string(), seg_id, index_id, suffix);
-    case 1:
-        return fmt::format("{}/{}/{}/{}/{}_{}{}.idx", DATA_PREFIX, shard_fn(rowset.tablet_id()),
-                           rowset.tablet_id(), rowset.rowset_id().to_string(), seg_id, index_id,
-                           suffix);
-    default:
-        exit_at_unknown_path_version(fs->id(), path_version);
-    }
+    return ::doris::remote_inverted_index_path_v1(path_format, rowset.tablet_id(),
+                                                  rowset.rowset_id().to_string(), seg_id, index_id,
+                                                  index_path_suffix);
 }
 
 std::string StorageResource::remote_idx_v2_path(const RowsetMeta& rowset, int64_t seg_id) const {
-    switch (path_version) {
-    case 0:
-        return fmt::format("{}/{}/{}_{}.idx", DATA_PREFIX, rowset.tablet_id(),
-                           rowset.rowset_id().to_string(), seg_id);
-    case 1:
-        return fmt::format("{}/{}/{}/{}/{}.idx", DATA_PREFIX, shard_fn(rowset.tablet_id()),
-                           rowset.tablet_id(), rowset.rowset_id().to_string(), seg_id);
-    default:
-        exit_at_unknown_path_version(fs->id(), path_version);
-    }
+    return ::doris::remote_inverted_index_path_v2(path_format, rowset.tablet_id(),
+                                                  rowset.rowset_id().to_string(), seg_id);
 }
 
 std::string StorageResource::remote_tablet_path(int64_t tablet_id) const {
-    switch (path_version) {
-    case 0:
-        return fmt::format("{}/{}", DATA_PREFIX, tablet_id);
-    case 1:
-        return fmt::format("{}/{}/{}", DATA_PREFIX, shard_fn(tablet_id), tablet_id);
-    default:
-        exit_at_unknown_path_version(fs->id(), path_version);
-    }
+    return ::doris::remote_tablet_path(path_format, tablet_id);
 }
 
 std::string StorageResource::remote_delete_bitmap_path(int64_t tablet_id,
                                                        std::string_view rowset_id) const {
-    switch (path_version) {
-    case 0:
-        return fmt::format("{}/{}/{}_delete_bitmap.db", DATA_PREFIX, tablet_id, rowset_id);
-    case 1:
-        return fmt::format("{}/{}/{}/{}_delete_bitmap.db", DATA_PREFIX, shard_fn(tablet_id),
-                           tablet_id, rowset_id);
-    default:
-        exit_at_unknown_path_version(fs->id(), path_version);
-    }
+    return ::doris::remote_delete_bitmap_path(path_format, tablet_id, rowset_id);
 }
 
 std::string StorageResource::cooldown_tablet_meta_path(int64_t tablet_id, int64_t replica_id,

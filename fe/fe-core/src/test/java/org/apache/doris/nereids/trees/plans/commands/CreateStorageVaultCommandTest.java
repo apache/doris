@@ -68,4 +68,52 @@ public class CreateStorageVaultCommandTest extends TestWithFeService {
         Assertions.assertThrows(AnalysisException.class, () -> command1.validate());
         Config.cloud_unique_id = "";
     }
+
+    @Test
+    public void testValidatePathFormat() throws Exception {
+        Env env = Env.getCurrentEnv();
+        AccessControllerManager accessManager = env.getAccessManager();
+        AccessControllerManager spyAcm = Mockito.spy(accessManager);
+        Mockito.doReturn(true).when(spyAcm).checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
+
+        Config.cloud_unique_id = "not_empty_nereids";
+        CreateStorageVaultCommand command = new CreateStorageVaultCommand(true, vaultName,
+                ImmutableMap.of("type", "hdfs", "path_version", "1", "shard_num", "1024"));
+        Assertions.assertDoesNotThrow(() -> command.validate());
+        Assertions.assertEquals(1, command.getPathVersion());
+        Assertions.assertEquals(1024, command.getNumShard());
+        Assertions.assertFalse(command.getProperties().containsKey("path_version"));
+        Assertions.assertFalse(command.getProperties().containsKey("shard_num"));
+        Assertions.assertEquals("hdfs", command.getProperties().get("type"));
+
+        CreateStorageVaultCommand command0 = new CreateStorageVaultCommand(true, vaultName,
+                ImmutableMap.of("type", "hdfs", "path_version", "0"));
+        Assertions.assertDoesNotThrow(() -> command0.validate());
+        Assertions.assertEquals(0, command0.getPathVersion());
+        Assertions.assertEquals(0, command0.getNumShard());
+
+        String[][] invalidPathFormats = {
+                {"path_version", "1"},
+                {"path_version", "2"},
+                {"path_version", "-1"},
+                {"path_version", "abc"},
+                {"shard_num", "16"},
+                {"path_version", "1", "shard_num", "0"},
+                {"path_version", "1", "shard_num", "-8"},
+                {"path_version", "1", "shard_num", "abc"},
+                {"path_version", "0", "shard_num", "16"},
+        };
+        for (String[] pathFormat : invalidPathFormats) {
+            ImmutableMap.Builder<String, String> builder = ImmutableMap.<String, String>builder().put("type", "hdfs");
+            for (int i = 0; i < pathFormat.length; i += 2) {
+                builder.put(pathFormat[i], pathFormat[i + 1]);
+            }
+            CreateStorageVaultCommand invalid = new CreateStorageVaultCommand(true, vaultName, builder.build());
+            Assertions.assertThrows(AnalysisException.class, () -> invalid.validate(),
+                    String.join(",", pathFormat));
+        }
+        Config.cloud_unique_id = "";
+    }
 }

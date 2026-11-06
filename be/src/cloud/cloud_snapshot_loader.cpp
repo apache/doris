@@ -200,9 +200,10 @@ Status CloudSnapshotLoader::download(const std::map<std::string, std::string>& s
             if (find == file_mapping.end()) {
                 continue;
             }
-            std::string target_file = find->second;
+            // The target is the full path in the layout of the storage resource, see
+            // `CloudSnapshotMgr::make_snapshot`
+            const std::string& full_target_file = find->second;
             std::string full_remote_file = remote_path + "/" + remote_file + "." + file_stat.md5;
-            std::string full_target_file = target_path + "/" + target_file;
             LOG(INFO) << "begin to download from " << full_remote_file << " to "
                       << full_target_file;
             io::FileReaderOptions nested_reader_options {

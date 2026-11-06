@@ -599,7 +599,8 @@ static int create_committed_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor
                                    const std::string& resource_id, int64_t tablet_id,
                                    int64_t version, int64_t index_id, int num_segments = 1,
                                    int num_inverted_indexes = 1,
-                                   bool enable_create_delete_bitmaps_v2 = false) {
+                                   bool enable_create_delete_bitmaps_v2 = false,
+                                   const RemotePathFormat& path_format = {}) {
     std::string key;
     std::string val;
     int64_t schema_version = tablet_id + version + num_inverted_indexes + 1;
@@ -660,10 +661,10 @@ static int create_committed_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor
     }
 
     for (int i = 0; i < num_segments; ++i) {
-        auto path = segment_path(tablet_id, rowset_id, i);
+        auto path = segment_path(tablet_id, rowset_id, i, path_format);
         accessor->put_file(path, "");
         for (int j = 0; j < num_inverted_indexes; ++j) {
-            auto path = inverted_index_path_v1(tablet_id, rowset_id, i, j, "");
+            auto path = inverted_index_path_v1(tablet_id, rowset_id, i, j, "", path_format);
             accessor->put_file(path, "");
         }
     }
@@ -5771,6 +5772,70 @@ TEST(CheckerTest, normal) {
     ASSERT_EQ(checker.do_check(), 0);
 }
 
+TEST(CheckerTest, path_version_1) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    RemotePathFormat path_format {.path_version = 1, .shard_num = 16};
+    checker.path_format_map_["1"] = path_format;
+
+    auto accessor = checker.accessor_map_.begin()->second;
+    for (int t = 10001; t <= 10020; ++t) {
+        for (int v = 0; v < 5; ++v) {
+            create_committed_rowset(txn_kv.get(), accessor.get(), "1", t, v, t * 2, 1, 1, false,
+                                    path_format);
+        }
+    }
+    ASSERT_EQ(checker.do_check(), 0);
+
+    // Lose one segment file
+    std::unique_ptr<ListIterator> list_iter;
+    ASSERT_EQ(0, accessor->list_directory(tablet_path_prefix(10001, path_format), &list_iter));
+    std::string lost_path;
+    for (auto file = list_iter->next(); file.has_value(); file = list_iter->next()) {
+        if (file->path.ends_with(".dat")) {
+            lost_path = file->path;
+            break;
+        }
+    }
+    ASSERT_TRUE(lost_path.starts_with(tablet_path_prefix(10001, path_format))) << lost_path;
+    ASSERT_EQ(0, accessor->delete_file(lost_path));
+    ASSERT_EQ(checker.do_check(), 1);
+}
+
+TEST(CheckerTest, inverted_check_path_version_1) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    RemotePathFormat path_format {.path_version = 1, .shard_num = 16};
+    checker.path_format_map_["1"] = path_format;
+
+    auto accessor = checker.accessor_map_.begin()->second;
+    for (int t = 10001; t <= 10020; ++t) {
+        for (int v = 0; v < 5; ++v) {
+            create_committed_rowset(txn_kv.get(), accessor.get(), "1", t, v, t * 2, 1, 0, false,
+                                    path_format);
+        }
+    }
+    ASSERT_EQ(checker.do_inverted_check(), 0);
+
+    // A segment file of a rowset without rowset meta
+    ASSERT_EQ(0, accessor->put_file(segment_path(10001, next_rowset_id(), 0, path_format), ""));
+    ASSERT_NE(checker.do_inverted_check(), 0);
+}
+
 TEST(CheckerTest, abnormal) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
@@ -7384,6 +7449,147 @@ TEST(RecyclerTest, delete_partial_update_rowset_data_by_recycling_state) {
         EXPECT_EQ(accessor->exists(extra_segment),
                   type == RowsetRecyclingState::FORMAL_ROWSET ? 0 : 1);
     }
+}
+
+TEST(RecyclerTest, vault_path_format) {
+    // path_version 0, must be unchanged
+    RemotePathFormat v0;
+    EXPECT_EQ(tablet_path_prefix(10005, v0), "data/10005/");
+    EXPECT_EQ(rowset_path_prefix(10005, "r", v0), "data/10005/r_");
+    EXPECT_EQ(segment_path(10005, "r", 5, v0), "data/10005/r_5.dat");
+    EXPECT_EQ(inverted_index_path_v1(10005, "r", 5, 7, "", v0), "data/10005/r_5_7.idx");
+    EXPECT_EQ(inverted_index_path_v1(10005, "r", 5, 7, "suffix", v0),
+              "data/10005/r_5_7@suffix.idx");
+    EXPECT_EQ(inverted_index_path_v2(10005, "r", 5, v0), "data/10005/r_5.idx");
+    EXPECT_EQ(delete_bitmap_path(10005, "r", v0), "data/10005/r_delete_bitmap.db");
+    EXPECT_EQ(segment_path(10005, "r", 5), segment_path(10005, "r", 5, v0));
+
+    // path_version 1, must be identical to BE `StorageResource`, see storage_resource_test.cpp
+    RemotePathFormat v1 {.path_version = 1, .shard_num = 1000};
+    EXPECT_EQ(remote_tablet_shard(10005, 1000), uint64_t {611});
+    EXPECT_EQ(tablet_path_prefix(10005, v1), "data/611/10005/");
+    EXPECT_EQ(rowset_path_prefix(10005, "r", v1), "data/611/10005/r/");
+    EXPECT_EQ(segment_path(10005, "r", 5, v1), "data/611/10005/r/5.dat");
+    EXPECT_EQ(inverted_index_path_v1(10005, "r", 5, 7, "", v1), "data/611/10005/r/5_7.idx");
+    EXPECT_EQ(inverted_index_path_v1(10005, "r", 5, 7, "suffix", v1),
+              "data/611/10005/r/5_7@suffix.idx");
+    EXPECT_EQ(inverted_index_path_v2(10005, "r", 5, v1), "data/611/10005/r/5.idx");
+    EXPECT_EQ(delete_bitmap_path(10005, "r", v1), "data/611/10005/r_delete_bitmap.db");
+
+    EXPECT_TRUE(v0.is_supported());
+    EXPECT_TRUE(v1.is_supported());
+    EXPECT_FALSE((RemotePathFormat {.path_version = 1, .shard_num = 0}).is_supported());
+    EXPECT_FALSE((RemotePathFormat {.path_version = 2, .shard_num = 16}).is_supported());
+    StorageVaultPB vault;
+    EXPECT_EQ(path_format_from_pb(vault.path_format()).path_version, 0);
+
+    // object key splitting, file name is normalized to path_version 0 form
+    int64_t tablet_id = 0;
+    std::string file_name;
+    ASSERT_TRUE(split_remote_tablet_file_key(segment_path(10005, "r", 5, v0), v0, &tablet_id,
+                                             &file_name));
+    EXPECT_EQ(tablet_id, 10005);
+    EXPECT_EQ(file_name, "r_5.dat");
+    ASSERT_TRUE(split_remote_tablet_file_key(segment_path(10005, "r", 5, v1), v1, &tablet_id,
+                                             &file_name));
+    EXPECT_EQ(tablet_id, 10005);
+    EXPECT_EQ(file_name, "r_5.dat");
+    ASSERT_TRUE(split_remote_tablet_file_key(inverted_index_path_v1(10005, "r", 5, 7, "suffix", v1),
+                                             v1, &tablet_id, &file_name));
+    EXPECT_EQ(file_name, "r_5_7@suffix.idx");
+    ASSERT_TRUE(split_remote_tablet_file_key(inverted_index_path_v2(10005, "r", 5, v1), v1,
+                                             &tablet_id, &file_name));
+    EXPECT_EQ(file_name, "r_5.idx");
+    ASSERT_TRUE(split_remote_tablet_file_key(delete_bitmap_path(10005, "r", v1), v1, &tablet_id,
+                                             &file_name));
+    EXPECT_EQ(tablet_id, 10005);
+    EXPECT_EQ(file_name, "r_delete_bitmap.db");
+    EXPECT_FALSE(split_remote_tablet_file_key("data/10005", v0, &tablet_id, &file_name));
+    EXPECT_FALSE(split_remote_tablet_file_key("data/packed_file/xxx", v0, &tablet_id, &file_name));
+    EXPECT_FALSE(split_remote_tablet_file_key("data/611/10005", v1, &tablet_id, &file_name));
+}
+
+TEST(RecyclerTest, delete_rowset_data_path_version_1) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    constexpr auto resource_id = "delete_rowset_data_path_version_1";
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    instance.add_obj_info()->set_id(resource_id);
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    auto accessor = recycler.accessor_map_.at(resource_id);
+    RemotePathFormat path_format {.path_version = 1, .shard_num = 1000};
+    recycler.path_format_map_[resource_id] = path_format;
+
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
+    auto index = schema.add_index();
+    index->set_index_id(100);
+    index->set_index_type(IndexType::INVERTED);
+
+    constexpr int64_t tablet_id = 10005;
+    constexpr int num_segments = 2;
+    auto put_rowset_files = [&](const doris::RowsetMetaCloudPB& rowset) {
+        std::vector<std::string> paths;
+        for (int i = 0; i < num_segments; ++i) {
+            paths.push_back(segment_path(tablet_id, rowset.rowset_id_v2(), i, path_format));
+            paths.push_back(
+                    inverted_index_path_v2(tablet_id, rowset.rowset_id_v2(), i, path_format));
+        }
+        for (const auto& path : paths) {
+            EXPECT_TRUE(path.starts_with("data/611/10005/" + rowset.rowset_id_v2() + "/")) << path;
+            EXPECT_EQ(accessor->put_file(path, ""), 0);
+        }
+        return paths;
+    };
+    auto expect_exists = [&](const std::vector<std::string>& paths, int expected) {
+        for (const auto& path : paths) {
+            EXPECT_EQ(accessor->exists(path), expected) << path;
+        }
+    };
+
+    // Rowset kept in the same tablet must not be touched
+    auto kept_rowset = create_rowset(resource_id, tablet_id, 10001, num_segments, schema);
+    auto kept_paths = put_rowset_files(kept_rowset);
+
+    // Delete files of one rowset
+    auto rowset = create_rowset(resource_id, tablet_id, 10001, num_segments, schema);
+    auto paths = put_rowset_files(rowset);
+    ASSERT_EQ(recycler.delete_rowset_data(rowset), 0);
+    expect_exists(paths, 1);
+    expect_exists(kept_paths, 0);
+
+    // Delete files of a batch of rowsets
+    auto batch_rowset = create_rowset(resource_id, tablet_id, 10001, num_segments, schema);
+    paths = put_rowset_files(batch_rowset);
+    std::map<std::string, doris::RowsetMetaCloudPB> rowsets {
+            {batch_rowset.rowset_id_v2(), batch_rowset}};
+    RecyclerMetricsContext metrics_context;
+    ASSERT_EQ(recycler.delete_rowset_data(rowsets, RowsetRecyclingState::FORMAL_ROWSET,
+                                          metrics_context),
+              0);
+    expect_exists(paths, 1);
+    expect_exists(kept_paths, 0);
+
+    // Delete by rowset prefix, the delete bitmap is outside of the rowset directory
+    auto prefix_rowset = create_rowset(resource_id, tablet_id, 10001, num_segments, schema);
+    paths = put_rowset_files(prefix_rowset);
+    paths.push_back(delete_bitmap_path(tablet_id, prefix_rowset.rowset_id_v2(), path_format));
+    ASSERT_EQ(accessor->put_file(paths.back(), ""), 0);
+    ASSERT_EQ(recycler.delete_rowset_data(resource_id, tablet_id, prefix_rowset.rowset_id_v2()), 0);
+    expect_exists(paths, 1);
+    expect_exists(kept_paths, 0);
+
+    // The tablet directory used by tablet recycling covers all files of the tablet
+    std::unique_ptr<ListIterator> list_iter;
+    ASSERT_EQ(accessor->list_directory(tablet_path_prefix(tablet_id, path_format), &list_iter), 0);
+    ASSERT_TRUE(list_iter->has_next());
+    ASSERT_EQ(accessor->delete_directory(tablet_path_prefix(tablet_id, path_format)), 0);
+    expect_exists(kept_paths, 1);
 }
 
 TEST(RecyclerTest, delete_v2_inverted_index_with_segment_list) {
