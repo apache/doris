@@ -83,7 +83,7 @@ suite("sparse_ancestor_promotion_extended", "p0,nonConcurrent") {
         order_qt_promoted_layout "DESC sparse_ancestor_extended_deep"
         // Ten occurrences force the ancestor back into sparse storage.
         sql """INSERT INTO sparse_ancestor_extended_deep SELECT 100 + number,
-            parse_to_variant(concat('{"takeover":', number, '}'))
+            concat('{"takeover":', number, '}')
             FROM numbers("number"="10")"""
         compact('sparse_ancestor_extended_deep')
         qt_demoted projection
