@@ -160,10 +160,10 @@ public class ConnectPoolMgr {
      * sub-quota and its usage are named whenever Flight sessions hold part of the pool - a MySQL
      * client refused by a pool that Flight sessions filled is told where the connections went -
      * and to a Flight client also when the sub-quota is tighter than the pool's limit, since then
-     * it can be the one that was reached. {@code Current} is the frontend's total and
-     * {@code User current} the user's own count - both read when the message is built, as
-     * {@code Current} always was - since the total alone reads as headroom that the user does
-     * not have.
+     * it can be the one that was reached. {@code Current} is the frontend's total at the refusal
+     * (the count {@link #registerConnection} returned) and {@code User current} the user's own
+     * count when the message is built, since the total alone reads as headroom that the user
+     * does not have.
      */
     public String limitReachedMessage(ConnectContext ctx, int current) {
         long userLimit = ctx.getEnv().getAuth().getMaxConn(ctx.getQualifiedUser());

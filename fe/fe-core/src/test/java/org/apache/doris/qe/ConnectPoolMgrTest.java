@@ -213,7 +213,10 @@ public class ConnectPoolMgrTest {
         }
         ConnectContext fourth = ConnectPoolTestSupport.mysqlConnection(env, ALICE);
         fourth.setConnectionId(103);
-        Assertions.assertEquals(3, pool.registerConnection(fourth));
+        // Refused by ALICE's own limit; the value returned is the pool's total, BOB's connection included.
+        Assertions.assertEquals(4, pool.registerConnection(fourth));
+        Assertions.assertEquals(3, pool.getUserConnectionMap().get(ALICE.getQualifiedUser()).get());
+        Assertions.assertEquals(4, pool.getConnectionNum());
     }
 
     // The refusal names the user's own count next to the frontend's total: "Current" alone reads as
