@@ -69,8 +69,7 @@ public class AdbcConnectorMetadata implements ConnectorMetadata {
     private final AdbcMetadataCache cache;
 
     /**
-     * @param dialect resolved lazily, because only the {@code executeSchema} fallback needs it and
-     *                resolving it can cost a remote call
+     * @param dialect resolved lazily for SQL generation, since resolving it can cost a remote call
      * @param cache   the catalog's, shared with every other statement
      */
     public AdbcConnectorMetadata(AdbcClient client, AdbcSchemaStrategy schemaStrategy,
@@ -184,6 +183,9 @@ public class AdbcConnectorMetadata implements ConnectorMetadata {
     // ========= internals =========
 
     private List<AdbcNamespace> readNamespaces() {
+        if (AdbcDorisMetadata.isDorisSource(client)) {
+            return client.withConnection(AdbcDorisMetadata::readNamespaces);
+        }
         return client.withConnection(connection -> {
             try (ArrowReader reader = connection.getObjects(
                     AdbcConnection.GetObjectsDepth.DB_SCHEMAS, null, null, null, null, null)) {
@@ -224,6 +226,9 @@ public class AdbcConnectorMetadata implements ConnectorMetadata {
     }
 
     private List<String> readTableNames(AdbcNamespace namespace) {
+        if (AdbcDorisMetadata.isDorisSource(client)) {
+            return client.withConnection(connection -> AdbcDorisMetadata.readTableNames(connection, namespace));
+        }
         return client.withConnection(connection -> {
             try (ArrowReader reader = connection.getObjects(AdbcConnection.GetObjectsDepth.TABLES,
                     emptyToNull(namespace.getRemoteCatalog()), emptyToNull(namespace.getRemoteDbSchema()),

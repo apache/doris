@@ -168,11 +168,10 @@ class AdbcDialectTest {
     // ---------- selection ----------
 
     @Test
-    void selectsAnsiWhenNothingIdentifiesTheSource() {
+    void sourceLookupFailureDoesNotSelectADialect() {
         AdbcDialectSelector selector = new AdbcDialectSelector("");
-        // The probe cannot run without a client; supplying one that fails stands in for a driver that
-        // refuses getInfo, which must land on ANSI rather than fail the query.
-        Assertions.assertSame(ANSI, selector.select(() -> {
+        // Connection failure says nothing about the vendor, so it must not fix the fallback dialect.
+        Assertions.assertThrows(DorisConnectorException.class, () -> selector.select(() -> {
             throw new DorisConnectorException("driver unavailable");
         }));
     }
