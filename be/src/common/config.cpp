@@ -2089,6 +2089,13 @@ DEFINE_mBool(enable_check_tablet_delete_bitmap_score, "true");
 // ATTN: this config is only for test
 DEFINE_mBool(enable_prune_delete_sign_when_base_compaction, "true");
 
+// Grace window (seconds) before delete-sign tombstones may be pruned during
+// base/full compaction for MOW tables with a sequence column. See config.h for
+// the rationale. Default 120s gives late lower-seq writes time to arrive before
+// the suppressing tombstone is reclaimed; set 0 for the legacy immediate-prune
+// behavior.
+DEFINE_mInt64(mow_sequence_delete_sign_grace_seconds, "120");
+
 DEFINE_mBool(enable_mow_verbose_log, "false");
 
 DEFINE_mInt32(tablet_sched_delay_time_ms, "5000");
