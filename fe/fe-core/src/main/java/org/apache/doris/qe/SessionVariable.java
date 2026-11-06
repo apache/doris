@@ -469,6 +469,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_RUNTIME_FILTER_PRUNE =
             "enable_runtime_filter_prune";
 
+    public static final String ENABLE_RUNTIME_FILTER_ON_EXCHANGE = "enable_runtime_filter_on_exchange";
+
     public static final String ENABLE_RUNTIME_FILTER_PARTITION_PRUNE =
             "enable_runtime_filter_partition_prune";
 
@@ -2232,6 +2234,10 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = ENABLE_RUNTIME_FILTER_PRUNE, needForward = true, fuzzy = true)
     public boolean enableRuntimeFilterPrune = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_RUNTIME_FILTER_ON_EXCHANGE, needForward = true,
+            description = "Apply scan runtime filters at exchange receivers as well. Requires BE exchange RF support.")
+    public boolean enableRuntimeFilterOnExchange = false;
 
     @VarAttrDef.VarAttr(
             name = ENABLE_RUNTIME_FILTER_PARTITION_PRUNE,
