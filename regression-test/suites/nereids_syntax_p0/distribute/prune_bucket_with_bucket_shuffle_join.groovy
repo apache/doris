@@ -64,17 +64,19 @@ suite("prune_bucket_with_bucket_shuffle_join") {
         }
     }
 
-    String sqlStr = """
-            SELECT * FROM
+    def joinSql = { boolean bucketShuffle -> """
+            SELECT /*+ SET_VAR(enable_bucket_shuffle_join=${bucketShuffle}, bucket_shuffle_downgrade_ratio=0) */ * FROM
             (select * from test_outer_join1 where c0 =1)a
             RIGHT OUTER JOIN
             (select * from test_outer_join2)b
             ON a.c0 = b.c0
-            """
+            """ }
 
-    extractFragment(sqlStr, "RIGHT OUTER JOIN(PARTITIONED)") { exchangeNum ->
+    // Keep the partitioned path covered without relying on the removed planner switch.
+    extractFragment(joinSql(false), "RIGHT OUTER JOIN(PARTITIONED)") { exchangeNum ->
         assertTrue(exchangeNum > 1)
     }
+    String sqlStr = joinSql(true)
 
     multi_sql """
         set enable_nereids_distribute_planner=true;
@@ -82,23 +84,7 @@ suite("prune_bucket_with_bucket_shuffle_join") {
         set disable_join_reorder=true;
         """
 
-    // With enable_nereids_distribute_planner=true the RIGHT OUTER JOIN distribution is
-    // non-deterministic between BUCKET_SHUFFLE and PARTITIONED. The choice is sticky within
-    // a connection (so retrying in the same connection can not change it), and both plans are
-    // correct -- BUCKET_SHUFFLE just saves one exchange. Only run the bucket-shuffle-specific
-    // checks when the planner actually chose BUCKET_SHUFFLE, otherwise return directly.
-    String bucketShuffleExplain = null
-    explain {
-        sql sqlStr
-        check { result ->
-            log.info("Explain result:\n${result}")
-            bucketShuffleExplain = result
-        }
-    }
-    if (!bucketShuffleExplain.contains("RIGHT OUTER JOIN(BUCKET_SHUFFLE)")) {
-        return
-    }
-
+    // Pin bucket shuffle so the pruning and receiver checks cannot be skipped by a downgrade.
     extractFragment(sqlStr, "RIGHT OUTER JOIN(BUCKET_SHUFFLE)") { exchangeNum ->
         assertTrue(exchangeNum == 1)
     }

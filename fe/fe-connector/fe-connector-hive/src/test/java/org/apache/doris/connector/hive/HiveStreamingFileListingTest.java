@@ -19,6 +19,7 @@ package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.MetaCache;
+import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.DorisConnectorException;
@@ -341,6 +342,32 @@ class HiveStreamingFileListingTest {
         Assertions.assertEquals(0, cache.size());
         Assertions.assertEquals(0, cache.pendingBytes());
         Assertions.assertEquals(1, raw.closed.get());
+    }
+
+    @Test
+    void cooperatingReadinessDoesNotAdvanceTheDirectoryOrBypassListingFailureHandling() throws Exception {
+        RecordingFiles raw = new RecordingFiles(3);
+        raw.failAfter = 1;
+        HiveFileListingCache cache = new HiveFileListingCache(HiveTestProperties.minimal());
+        FakeFileSystem fs = new FakeFileSystem().withIteratorFactory(location -> raw);
+        HmsPartitionInfo partition = new HmsPartitionInfo(List.of("1"), LOCATION, null, null, null, Map.of());
+        HiveTableHandle table = ((HiveTableHandle) request().getTableHandle()).toBuilder()
+                .partitionKeyNames(List.of("p")).prunedPartitionsByName(Map.of("p=1", partition)).build();
+        ConnectorScanRequest request = ConnectorScanRequest.builder(table, List.of())
+                .requiredPartitions(List.of("p=1")).build();
+        try (ConnectorSplitSource source = provider(cache, fs).streamPartitionSources(SESSION, request, 1, 1)
+                .orElseThrow().get(0)) {
+            Assertions.assertNull(source.isBlocked());
+            Assertions.assertTrue(source.hasNext());
+            Assertions.assertEquals(10, source.next().getLength());
+            Assertions.assertNull(source.isBlocked(), "readiness must not probe the next directory entry");
+            DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class, source::hasNext);
+            Assertions.assertTrue(failure.getMessage().contains("after producing splits"));
+        }
+        Assertions.assertEquals(1, raw.read.get());
+        Assertions.assertEquals(1, raw.closed.get());
+        Assertions.assertEquals(0, cache.size());
+        Assertions.assertEquals(0, cache.pendingBytes());
     }
 
     @Test

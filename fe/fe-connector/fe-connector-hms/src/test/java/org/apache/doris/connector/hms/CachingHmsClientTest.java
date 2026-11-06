@@ -343,6 +343,72 @@ public class CachingHmsClientTest {
     // ---- getPartitions ----
 
     @Test
+    public void cachedPartitionProbeDoesNotWaitForAnInFlightLoad() throws Exception {
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        RecordingHmsClient delegate = new RecordingHmsClient() {
+            @Override
+            public List<HmsPartitionInfo> getPartitions(String db, String table, List<String> names) {
+                entered.countDown();
+                awaitLatch(release);
+                return super.getPartitions(db, table, names);
+            }
+        };
+        CachingHmsClient cache = cache(delegate, Collections.emptyMap());
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        try {
+            List<String> names = Collections.singletonList("p=1");
+            Future<List<HmsPartitionInfo>> loading = workers.submit(() -> cache.getPartitions("db", "t", names));
+            Assertions.assertTrue(entered.await(5, TimeUnit.SECONDS));
+            Future<Boolean> probe = workers.submit(() -> cache.getCachedPartitionsWithStats("db", "t", names)
+                    .isPresent());
+            Assertions.assertFalse(probe.get(5, TimeUnit.SECONDS));
+            Assertions.assertFalse(loading.isDone());
+            release.countDown();
+            HmsPartitionInfo loaded = loading.get(5, TimeUnit.SECONDS).get(0);
+            Assertions.assertSame(loaded, cache.getCachedPartitionsWithStats("db", "t", names)
+                    .orElseThrow().getPartitions().get(0));
+            Assertions.assertEquals(1, delegate.getPartitionsCalls);
+        } finally {
+            release.countDown();
+            workers.shutdownNow();
+            cache.close();
+        }
+    }
+
+    @Test
+    public void cachedPartitionProbeNeverLoadsAndRespectsInvalidation() {
+        RecordingHmsClient delegate = new RecordingHmsClient();
+        CatalogMetaCache owner = CatalogMetaCache.unmanaged();
+        CachingHmsClient cache = new CachingHmsClient(owner, delegate, Collections.emptyMap());
+        Assertions.assertFalse(cache.getCachedPartitionsWithStats("db", "t", Arrays.asList("p=1", "p=2"))
+                .isPresent());
+        Assertions.assertEquals(0, delegate.getPartitionsCalls);
+        List<HmsPartitionInfo> loaded = cache.getPartitions("db", "t", Arrays.asList("p=1", "p=2"));
+        HmsPartitionBatchResult hit = cache.getCachedPartitionsWithStats("db", "t", Arrays.asList("p=2", "p=1"))
+                .orElseThrow(AssertionError::new);
+        Assertions.assertSame(loaded.get(1), hit.getPartitions().get(0));
+        Assertions.assertSame(loaded.get(0), hit.getPartitions().get(1));
+        Assertions.assertEquals(2, hit.getStats().getRequestedItems());
+        Assertions.assertEquals(0, hit.getStats().getTransportInvocations());
+        Assertions.assertFalse(cache.getCachedPartitionsWithStats("db", "t", Arrays.asList("p=1", "p=3"))
+                .isPresent());
+        Assertions.assertEquals(1, delegate.getPartitionsCalls);
+        owner.invalidateTable("db", "t");
+        Assertions.assertFalse(cache.getCachedPartitionsWithStats("db", "t", Collections.singletonList("p=1"))
+                .isPresent());
+        Assertions.assertEquals(1, delegate.getPartitionsCalls);
+    }
+
+    @Test
+    public void nonCachingClientProbeDoesNotFetchPartitions() {
+        RecordingHmsClient raw = new RecordingHmsClient();
+        Assertions.assertFalse(raw.getCachedPartitionsWithStats("db", "t", Collections.singletonList("p=1"))
+                .isPresent());
+        Assertions.assertEquals(0, raw.getPartitionsCalls);
+    }
+
+    @Test
     public void getPartitionsSharesPerPartitionEntriesAcrossRequests() {
         RecordingHmsClient delegate = new RecordingHmsClient();
         CachingHmsClient cache = cache(delegate, Collections.emptyMap());

@@ -57,6 +57,7 @@ import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
+import com.google.common.base.CharMatcher;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
@@ -282,6 +283,19 @@ public class CreateRoutineLoadInfo {
                     + modeStr);
         }
         return mode;
+    }
+
+    /**
+     * Rejects an enclose or escape that is not an ASCII character. Tasks are planned from the job's byte turned into
+     * text and parsed again (NereidsDataDescription), which keeps an ASCII byte but turns every byte from 0x80 up into
+     * 0xFD as enclose and 0xEF as escape, and in UTF-8 data such a byte is absent or part of a character anyway.
+     * CREATE and ALTER check with this; a job rebuilt from metadata ignores such a value that an older version took
+     * (RoutineLoadJob#csvControlByte).
+     */
+    public static void checkCsvControlValue(String key, String value) throws AnalysisException {
+        if (value != null && !CharMatcher.ascii().matchesAllOf(value)) {
+            throw new AnalysisException(key + " must be an ASCII character");
+        }
     }
 
     /**
@@ -707,6 +721,16 @@ public class CreateRoutineLoadInfo {
             }
         }
 
+        // Like the groups above, checked only when a statement is admitted, see isReplay: an older version took any
+        // character here, and failing on the metadata load path would cancel the job permanently. The rebuilt job
+        // takes enclose and escape from jobProperties, ignoring a value there that this rejects
+        // (RoutineLoadJob#csvControlByte).
+        if (!isReplay) {
+            checkCsvControlValue(CsvFileFormatProperties.PROP_ENCLOSE,
+                    jobProperties.get(CsvFileFormatProperties.PROP_ENCLOSE));
+            checkCsvControlValue(CsvFileFormatProperties.PROP_ESCAPE,
+                    jobProperties.get(CsvFileFormatProperties.PROP_ESCAPE));
+        }
         String format = jobProperties.getOrDefault(FileFormatProperties.PROP_FORMAT, "csv");
         fileFormatProperties = FileFormatProperties.createFileFormatProperties(format);
         fileFormatProperties.analyzeFileFormatProperties(jobProperties, false);

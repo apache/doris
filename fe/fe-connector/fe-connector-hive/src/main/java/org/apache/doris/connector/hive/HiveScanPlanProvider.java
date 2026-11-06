@@ -56,6 +56,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -278,6 +279,83 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         return new HiveSplitSource(session, hiveHandle, request.getRequiredPartitions(), request.getScanContext());
     }
 
+    @Override
+    public Optional<List<ConnectorSplitSource>> streamPartitionSources(ConnectorSession session,
+            ConnectorScanRequest request, int partitionsPerTask, int maxSources) {
+        HiveTableHandle handle = (HiveTableHandle) request.getTableHandle();
+        rejectTransactionalRead(handle);
+        List<String> names = request.getRequiredPartitions();
+        int sourceCount = Math.min(maxSources, (names.size() - 1) / partitionsPerTask + 1);
+        HivePartitionBatchLoader loader = new HivePartitionBatchLoader(
+                session.getTaskScheduler(ConnectorTaskScheduler.Stage.METADATA), request.getScanContext(), names,
+                catalogProperties.getHmsPartitionsBatchSizePerRpc(), sourceCount,
+                batch -> cachedBatchPartitions(handle, batch),
+                batch -> resolveBatchPartitions(handle, batch, request.getScanContext()));
+        List<ConnectorSplitSource> sources = new ArrayList<>(sourceCount);
+        for (int i = 0; i < sourceCount; i++) {
+            sources.add(new ConnectorSplitSource() {
+                private HiveSplitSource source;
+                private boolean closed;
+
+                @Override
+                public CompletableFuture<Void> isBlocked() {
+                    return closed ? null : source == null ? loader.isBlocked() : source.isBlocked();
+                }
+
+                @Override
+                public boolean hasNext() {
+                    if (closed) {
+                        return false;
+                    }
+                    if (source == null) {
+                        source = new HiveSplitSource(session, handle, names, request.getScanContext(),
+                                partitionsPerTask);
+                        source.partitionLoader = loader;
+                    }
+                    return source.hasNext();
+                }
+
+                @Override
+                public ConnectorScanRange next() {
+                    return source.next();
+                }
+
+                @Override
+                public void close() {
+                    if (!closed) {
+                        closed = true;
+                        if (source == null) {
+                            loader.readerClosed();
+                        } else {
+                            source.close();
+                        }
+                    }
+                }
+            });
+        }
+        return Optional.of(sources);
+    }
+
+    private Optional<List<HmsPartitionInfo>> cachedBatchPartitions(HiveTableHandle handle, List<String> names) {
+        Map<String, HmsPartitionInfo> retained = handle.getPrunedPartitionsByName();
+        if (!retained.isEmpty()) {
+            List<HmsPartitionInfo> result = new ArrayList<>(names.size());
+            for (String name : names) {
+                HmsPartitionInfo partition = retained.get(name);
+                if (partition == null) {
+                    return Optional.empty();
+                }
+                result.add(partition);
+            }
+            return Optional.of(result);
+        }
+        Optional<HmsPartitionBatchResult> result = hmsClient.getCachedPartitionsWithStats(
+                handle.getDbName(), handle.getTableName(), names);
+        result.ifPresent(hit -> partitionBatchProfile.record(
+                handle.getDbName(), handle.getTableName(), hit.getStats()));
+        return result.map(HmsPartitionBatchResult::getPartitions);
+    }
+
     private static void rejectTransactionalRead(HiveTableHandle handle) {
         // Both full ACID and insert-only layouts need write-id visibility; plain file scans
         // (including metadata-only counts) cannot return a transactionally correct result.
@@ -301,6 +379,8 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         private final boolean splittable;
         private final long targetSplitSize;
         private final int partitionBatchSize;
+        private HivePartitionBatchLoader partitionLoader;
+        private CompletableFuture<Void> blockedOnPartitions;
         private Iterator<PartitionScanInfo> partitions = Collections.emptyIterator();
         private HiveFileIterator files = HiveFileIterator.of(Collections.emptyIterator());
         private boolean partitionEmittedRange;
@@ -313,6 +393,12 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
 
         HiveSplitSource(ConnectorSession session, HiveTableHandle handle, List<String> requiredPartitions,
                 ConnectorScanContext scanContext) {
+            this(session, handle, requiredPartitions, scanContext, Math.max(1,
+                    sessionInt(session, "split_partition_batch_size", DEFAULT_PARTITION_BATCH_SIZE)));
+        }
+
+        HiveSplitSource(ConnectorSession session, HiveTableHandle handle, List<String> requiredPartitions,
+                ConnectorScanContext scanContext, int partitionsPerTask) {
             rejectTransactionalRead(handle);
             this.handle = handle;
             this.scanContext = scanContext;
@@ -325,13 +411,22 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             this.isLzo = isLzoInputFormat(handle.getInputFormat());
             this.splittable = tableFormat.isSplittable() && !isLzo;
             this.targetSplitSize = getTargetSplitSize(session);
-            this.partitionBatchSize = Math.max(1,
-                    sessionInt(session, "split_partition_batch_size", DEFAULT_PARTITION_BATCH_SIZE));
+            this.partitionBatchSize = partitionsPerTask;
             recordPruningProfile(handle);
         }
 
         @Override
+        public CompletableFuture<Void> isBlocked() {
+            // File iterator probes can perform directory I/O; readiness only tracks partition metadata.
+            if (closed || partitionLoader == null || partition != null || partitions.hasNext()) {
+                return null;
+            }
+            return blockedOnPartitions != null ? blockedOnPartitions : partitionLoader.isBlocked();
+        }
+
+        @Override
         public boolean hasNext() {
+            blockedOnPartitions = null;
             while (!closed && !scheduler.isClosed()) {
                 scanContext.checkCancelled();
                 try {
@@ -348,6 +443,14 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
                         continue;
                     }
                     if (!loadNextPartitions()) {
+                        if (partitionLoader != null) {
+                            // Retain readiness until the next read, even if metadata finishes meanwhile.
+                            blockedOnPartitions = partitionLoader.isBlocked();
+                            if (blockedOnPartitions == null && !partitionLoader.isFinished()) {
+                                // Another reader may have claimed the ready partitions.
+                                continue;
+                            }
+                        }
                         return false;
                     }
                 } catch (HiveDirectoryListingException e) {
@@ -389,6 +492,11 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         private boolean loadNextPartitions() {
+            if (partitionLoader != null) {
+                partitions = convertPartitions(partitionLoader.take(partitionBatchSize),
+                        handle.getPartitionKeyNames()).iterator();
+                return partitions.hasNext();
+            }
             List<String> keys = handle.getPartitionKeyNames();
             if (keys == null || keys.isEmpty()) {
                 if (unpartitionedInitialized) {
@@ -419,8 +527,18 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             }
             int end = Math.min(partitionNames.size(), nextPartition + partitionBatchSize);
             scanContext.checkCancelled();
-            partitions = convertPartitions(resolveBatchPartitions(handle,
-                    partitionNames.subList(nextPartition, end), scanContext), keys).iterator();
+            List<String> batch = partitionNames.subList(nextPartition, end);
+            // A retained pruning view belongs to this handle; never replace it with a newer cache view.
+            Optional<HmsPartitionBatchResult> cached = handle.getPrunedPartitionsByName().isEmpty()
+                    ? hmsClient.getCachedPartitionsWithStats(handle.getDbName(), handle.getTableName(), batch)
+                    : Optional.empty();
+            if (cached.isPresent()) {
+                partitionBatchProfile.record(handle.getDbName(), handle.getTableName(), cached.get().getStats());
+                partitions = convertPartitions(cached.get().getPartitions(), keys).iterator();
+                nextPartition = end;
+                return true;
+            }
+            partitions = convertPartitions(resolveBatchPartitions(handle, batch, scanContext), keys).iterator();
             nextPartition = end;
             return true;
         }
@@ -440,12 +558,17 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
                 return;
             }
             closed = true;
+            if (partitionLoader != null) {
+                partitionLoader.readerClosed();
+                partitionLoader = null;
+            }
             try {
                 files.close();
             } finally {
                 partitions = Collections.emptyIterator();
                 files = HiveFileIterator.of(Collections.emptyIterator());
                 ranges = Collections.emptyIterator();
+                blockedOnPartitions = null;
                 partitionNames = null;
                 partition = null;
             }
@@ -492,6 +615,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             ConnectorSession session,
             ConnectorScanRequest request,
             List<String> partitionBatch) {
+        rejectTransactionalRead((HiveTableHandle) request.getTableHandle());
         // Batch mode deliberately does not retain completed ranges in the statement scope: its
         // purpose is to bound FE memory while splits are streamed to the coordinator. Caching every
         // batch until statement close would materialize the full scan again and defeat that bound.

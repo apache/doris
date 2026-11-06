@@ -124,6 +124,7 @@ public class MySqlDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
             return DeserializeResult.schemaChange(Collections.emptyList(), freshSchemas);
         }
 
+        String db = context.get(Constants.DORIS_TARGET_DB);
         for (Map.Entry<TableId, TableChanges.TableChange> entry : freshSchemas.entrySet()) {
             if (entry.getValue().getType() != TableChanges.TableChangeType.ALTER) {
                 continue;
@@ -135,7 +136,7 @@ public class MySqlDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
                     .primaryKeyColumnNames()
                     .equals(entry.getValue().getTable().primaryKeyColumnNames())) {
                 return unsupportedSchemaChange(
-                        record, ddl, "Primary key changes are not supported", freshSchemas);
+                        db, record, ddl, "Primary key changes are not supported", freshSchemas);
             }
         }
 
@@ -148,7 +149,8 @@ public class MySqlDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
             changes = parser.getAndClearParsedChanges();
         } catch (Exception e) {
             LOG.warn("Failed to parse MySQL schema change DDL: {}", ddl, e);
-            return unsupportedSchemaChange(record, ddl, "Cannot parse schema change", freshSchemas);
+            return unsupportedSchemaChange(
+                    db, record, ddl, "Cannot parse schema change", freshSchemas);
         }
         if (changes.isEmpty()) {
             for (Map.Entry<TableId, TableChanges.TableChange> entry : freshSchemas.entrySet()) {
@@ -170,7 +172,7 @@ public class MySqlDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
                                 .collect(Collectors.toSet());
                 if (!before.equals(after)) {
                     return unsupportedSchemaChange(
-                            record, ddl, "Unrecognized column change", freshSchemas);
+                            db, record, ddl, "Unrecognized column change", freshSchemas);
                 }
             }
             return DeserializeResult.schemaChange(Collections.emptyList(), freshSchemas);
@@ -192,10 +194,15 @@ public class MySqlDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
             if (excluded.contains(columnName) && excluded.contains(newColumnName)) {
                 continue;
             }
+            String columnChange =
+                    columnName.equals(newColumnName)
+                            ? columnName
+                            : columnName + " -> " + newColumnName;
             return unsupportedSchemaChange(
+                    db,
                     record,
                     ddl,
-                    type + " COLUMN is not supported (" + columnName + " -> " + newColumnName + ")",
+                    type + " COLUMN is not supported (" + columnChange + ")",
                     freshSchemas);
         }
         if (supportedChanges.isEmpty()) {
@@ -220,7 +227,6 @@ public class MySqlDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
             Set<String> excludedCols =
                     excludeColumnsCache.getOrDefault(tableId.table(), Collections.emptySet());
             String targetTable = resolveTargetTable(tableId.table());
-            String db = context.get(Constants.DORIS_TARGET_DB);
             if (change.getType() == MySqlSchemaChange.Type.ADD) {
                 String columnName = change.getColumn().name();
                 if (excludedCols.contains(columnName)) {
@@ -285,6 +291,7 @@ public class MySqlDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
     }
 
     private DeserializeResult unsupportedSchemaChange(
+            String targetDb,
             SourceRecord record,
             String ddl,
             String reason,
@@ -295,7 +302,8 @@ public class MySqlDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
                 reason,
                 ddl,
                 record.sourceOffset());
-        return DeserializeResult.unsupportedSchemaChange(reason, tableSchemas, freshSchemas);
+        return DeserializeResult.unsupportedSchemaChange(
+                reason, tableSchemas, freshSchemas, targetDb, targetTableMappingsCache, ddl);
     }
 
     private Tables toTables(Map<TableId, TableChanges.TableChange> schemas) {
