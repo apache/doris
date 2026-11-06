@@ -552,10 +552,12 @@ Status Lz4BlockDecompressor::decompress(uint8_t* input, uint32_t input_len,
                 break;
             }
 
-            // Decompress this block.
+            // Decompress this block. Capacity must track output_ptr: remaining_output_len
+            // is fixed per large block while output_ptr advances per small block.
             auto decompressed_small_block_len = LZ4_decompress_safe(
                     reinterpret_cast<const char*>(input_ptr), reinterpret_cast<char*>(output_ptr),
-                    compressed_small_block_len, remaining_output_len);
+                    compressed_small_block_len,
+                    cast_set<uint32_t>(output_max_len - (output_ptr - output)));
             if (decompressed_small_block_len < 0) {
                 return Status::InvalidArgument("Failed to do Lz4Block decompress, error = {}",
                                                LZ4F_getErrorName(decompressed_small_block_len));
