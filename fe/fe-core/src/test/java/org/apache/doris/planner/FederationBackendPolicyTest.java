@@ -24,6 +24,7 @@ import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.NodeSelectionStrategy;
+import org.apache.doris.datasource.SplitWeight;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
@@ -51,10 +52,128 @@ import java.util.Objects;
 import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class FederationBackendPolicyTest {
     @Mocked
     private Env env;
+
+    @Test
+    public void testSingleBackendRemoteBatchesSkipHashing() throws UserException {
+        Backend backend = mockSingleBackend();
+        boolean previousLocalScheduling = Config.split_assigner_optimized_local_scheduling;
+        try {
+            for (boolean localScheduling : new boolean[] {false, true}) {
+                Config.split_assigner_optimized_local_scheduling = localScheduling;
+                for (NodeSelectionStrategy strategy : NodeSelectionStrategy.values()) {
+                    FederationBackendPolicy policy = new FederationBackendPolicy(strategy);
+                    policy.init();
+                    AtomicInteger hashReads = new AtomicInteger();
+                    long expectedWeight = 0;
+                    for (int batchSize : new int[] {0, 1, 8, 128, 3}) {
+                        List<Split> splits = new ArrayList<>();
+                        for (int i = 0; i < batchSize; i++) {
+                            SplitWeight weight = SplitWeight.fromProportion((i % 4 + 1) / 4.0);
+                            String[] hosts = i % 2 == 0 ? new String[] {backend.getHost()} : null;
+                            FileSplit split = new FileSplit(LocationPath.of("s3://bucket/file-" + i),
+                                    0, 100, 100, 0, hosts, Collections.emptyList()) {
+                                @Override
+                                public SplitWeight getSplitWeight() {
+                                    return weight;
+                                }
+
+                                @Override
+                                public String getConsistentHashString() {
+                                    hashReads.incrementAndGet();
+                                    return super.getConsistentHashString();
+                                }
+                            };
+                            split.setAlternativeHosts(Collections.singletonList("stale-host"));
+                            splits.add(split);
+                            expectedWeight += weight.getRawValue();
+                        }
+                        List<Split> expectedOrder = new ArrayList<>(splits);
+                        Collections.shuffle(expectedOrder, new Random(123456789L));
+                        Multimap<Backend, Split> assignment = policy.computeScanRangeAssignment(splits);
+                        Assert.assertEquals(batchSize, assignment.size());
+                        Assert.assertEquals(expectedOrder, new ArrayList<>(assignment.get(backend)));
+                        Assert.assertEquals(expectedWeight,
+                                policy.getAssignedWeightPerBackend().get(backend).longValue());
+                        for (Split split : splits) {
+                            Assert.assertEquals(Collections.emptyList(), split.getAlternativeHosts());
+                        }
+                    }
+                    Assert.assertEquals("One eligible backend does not need split hashing", 0, hashReads.get());
+                }
+            }
+        } finally {
+            Config.split_assigner_optimized_local_scheduling = previousLocalScheduling;
+        }
+    }
+
+    @Test
+    public void testSingleBackendPreservesLocalOnlySplitChecks() throws UserException {
+        Backend backend = mockSingleBackend();
+        for (NodeSelectionStrategy strategy : NodeSelectionStrategy.values()) {
+            FederationBackendPolicy policy = new FederationBackendPolicy(strategy);
+            policy.init();
+            FileSplit localSplit = localOnlySplit(backend.getHost());
+            FileSplit remoteSplit = genFileSplit("s3://bucket/remote", 100, 100);
+            List<Split> splits = new ArrayList<>();
+            splits.add(localSplit);
+            splits.add(remoteSplit);
+            Multimap<Backend, Split> assignment = policy.computeScanRangeAssignment(splits);
+            Assert.assertEquals(2, assignment.get(backend).size());
+            Assert.assertTrue(assignment.get(backend).contains(localSplit));
+            Assert.assertTrue(assignment.get(backend).contains(remoteSplit));
+            Assertions.assertThrows(UserException.class, () -> policy.computeScanRangeAssignment(
+                    new ArrayList<>(Collections.singletonList(localOnlySplit("unavailable-host")))));
+        }
+    }
+
+    @Test
+    public void testSingleBackendWeightOverflow() throws UserException {
+        Backend backend = mockSingleBackend();
+        FederationBackendPolicy policy = new FederationBackendPolicy();
+        policy.init();
+        policy.getAssignedWeightPerBackend().put(backend, Long.MAX_VALUE);
+        Assertions.assertThrows(ArithmeticException.class, () -> policy.computeScanRangeAssignment(
+                new ArrayList<>(Collections.singletonList(genFileSplit("s3://bucket/remote", 100, 100)))));
+        Assert.assertEquals(Long.MAX_VALUE, policy.getAssignedWeightPerBackend().get(backend).longValue());
+    }
+
+    private Backend mockSingleBackend() {
+        SystemInfoService service = new SystemInfoService();
+        Backend backend = new Backend(10002L, "172.30.0.100", 9050);
+        backend.setAlive(true);
+        service.addBackend(backend);
+        ComputeGroupMgr cgmgr = new ComputeGroupMgr(service);
+        new MockUp<Env>() {
+            @Mock
+            public SystemInfoService getCurrentSystemInfo() {
+                return service;
+            }
+
+            @Mock
+            public ComputeGroupMgr getComputeGroupMgr() {
+                return cgmgr;
+            }
+        };
+        return backend;
+    }
+
+    private FileSplit localOnlySplit(String host) {
+        FileSplit split = new FileSplit(LocationPath.of("file:///local/file"), 0, 100, 100, 0,
+                new String[] {host}, Collections.emptyList()) {
+            @Override
+            public boolean isRemotelyAccessible() {
+                return false;
+            }
+        };
+        split.setSelfSplitWeight(100L);
+        split.setTargetSplitSize(100L);
+        return split;
+    }
 
     @Test
     public void testRemoteSplits() throws UserException {

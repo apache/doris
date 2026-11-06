@@ -19,20 +19,27 @@ package org.apache.doris.datasource.hive;
 
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.metacache.EstimatorCalibrationAssertions;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.MetaCacheSizeEstimate;
 
 import com.google.common.collect.HashBiMap;
+import com.google.common.collect.ImmutableList;
+import org.apache.hadoop.hive.metastore.api.Partition;
+import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
@@ -47,6 +54,85 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class HiveMetaStoreCacheTest {
+    @Test
+    void cachedPartitionProbeDoesNotLoadAndHonorsInvalidation() {
+        ThreadPoolExecutor executor = ThreadPoolManager.newDaemonFixedThreadPool(1, 1, "part-probe", 1, false);
+        try {
+            HiveExternalMetaCache cache = new HiveExternalMetaCache(executor, executor);
+            cache.initCatalog(0, new HashMap<>());
+            NameMapping mapping = NameMapping.createForTest("db", "parts");
+            MetaCacheEntry<HiveExternalMetaCache.PartitionCacheKey, HivePartition> entry = cache.entry(0,
+                    HiveExternalMetaCache.ENTRY_PARTITION, HiveExternalMetaCache.PartitionCacheKey.class,
+                    HivePartition.class);
+            HivePartition original = new HivePartition(mapping, false, "parquet", "s3://bucket/old",
+                    ImmutableList.of("1"), Collections.emptyMap());
+            entry.put(new HiveExternalMetaCache.PartitionCacheKey(mapping, ImmutableList.of("1")), original);
+            List<HivePartition> retained = cache.getCachedPartitions(mapping,
+                    ImmutableList.of(ImmutableList.of("1"))).get();
+            Assertions.assertSame(original, retained.get(0));
+            Assertions.assertFalse(cache.getCachedPartitions(mapping,
+                    ImmutableList.of(ImmutableList.of("1"), ImmutableList.of("2"))).isPresent(),
+                    "a partial miss must not invoke the remote loader");
+            cache.invalidateTable(0, "db", "parts");
+            Assertions.assertFalse(cache.getCachedPartitions(mapping,
+                    ImmutableList.of(ImmutableList.of("1"))).isPresent());
+            HivePartition replacement = new HivePartition(mapping, false, "parquet", "s3://bucket/new",
+                    ImmutableList.of("1"), Collections.emptyMap());
+            entry.put(new HiveExternalMetaCache.PartitionCacheKey(mapping, ImmutableList.of("1")), replacement);
+            Assertions.assertSame(replacement, cache.getCachedPartitions(mapping,
+                    ImmutableList.of(ImmutableList.of("1"))).get().get(0));
+            Assertions.assertSame(original, retained.get(0), "invalidation must not mutate an active reader's view");
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void streamingBatchDoesNotReloadADroppedPartitionIndividually() {
+        ThreadPoolExecutor executor = ThreadPoolManager.newDaemonFixedThreadPool(1, 1, "part-missing", 1, false);
+        try {
+            HiveExternalMetaCache cache = new HiveExternalMetaCache(executor, executor);
+            cache.initCatalog(0, new HashMap<>());
+            NameMapping mapping = NameMapping.createForTest("db", "parts");
+            Env env = Mockito.mock(Env.class, Mockito.RETURNS_DEEP_STUBS);
+            HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+            HMSExternalDatabase database = Mockito.mock(HMSExternalDatabase.class);
+            HMSExternalTable table = Mockito.mock(HMSExternalTable.class);
+            HMSCachedClient client = Mockito.mock(HMSCachedClient.class);
+            CatalogMgr manager = env.getCatalogMgr();
+            Mockito.doReturn(catalog).when(manager).getCatalog(0L);
+            Mockito.doReturn(database).when(catalog).getDbNullable("db");
+            Mockito.when(database.getTableNullable("parts")).thenReturn(table);
+            Mockito.when(table.getPartitionColumns()).thenReturn(ImmutableList.of(new Column("p", Type.INT)));
+            Mockito.when(catalog.getClient()).thenReturn(client);
+            Partition existing = new Partition();
+            existing.setValues(ImmutableList.of("1"));
+            existing.setParameters(Collections.emptyMap());
+            StorageDescriptor descriptor = new StorageDescriptor();
+            descriptor.setInputFormat("parquet");
+            descriptor.setLocation("s3://bucket/p=1");
+            existing.setSd(descriptor);
+            Mockito.when(client.getExistingPartitions(Mockito.eq("db"), Mockito.eq("parts"), Mockito.anyList()))
+                    .thenReturn(ImmutableList.of(existing));
+            try (MockedStatic<Env> environment = Mockito.mockStatic(Env.class)) {
+                environment.when(Env::getCurrentEnv).thenReturn(env);
+                List<HivePartition> partitions = cache.getExistingPartitionsWithCache(
+                        mapping, ImmutableList.of(ImmutableList.of("1"), ImmutableList.of("2")));
+                Assertions.assertEquals(1, partitions.size());
+                Assertions.assertEquals(ImmutableList.of("1"), partitions.get(0).getPartitionValues());
+                Mockito.verify(client).getExistingPartitions("db", "parts", ImmutableList.of("p=1", "p=2"));
+                Mockito.verify(client, Mockito.never()).getPartition(Mockito.anyString(), Mockito.anyString(),
+                        Mockito.anyList());
+                Assertions.assertTrue(cache.getCachedPartitions(mapping,
+                        ImmutableList.of(ImmutableList.of("1"))).isPresent());
+                Assertions.assertFalse(cache.getCachedPartitions(mapping,
+                        ImmutableList.of(ImmutableList.of("2"))).isPresent());
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
 
     @Test
     public void testCachedFileCountUsesOnlyPresentEntriesAndHonorsInvalidation() {
