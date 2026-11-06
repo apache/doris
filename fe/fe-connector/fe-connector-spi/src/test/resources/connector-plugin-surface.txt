@@ -98,6 +98,7 @@ org.apache.doris.connector.spi.ConnectorSecuritySurface#jdbcDriverUrlKeys():java
 org.apache.doris.connector.spi.ConnectorSecuritySurface#ofJdbcDriverUrls(java.lang.String,java.lang.String[]):org.apache.doris.connector.spi.ConnectorSecuritySurface
 org.apache.doris.connector.spi.ConnectorSecuritySurface#ofSsrfEndpoints(java.lang.String[]):org.apache.doris.connector.spi.ConnectorSecuritySurface
 org.apache.doris.connector.spi.ConnectorSecuritySurface#ssrfEndpointKeys():java.util.List
+org.apache.doris.connector.spi.ConnectorSecuritySurface#withSsrfEndpoints(java.lang.String[]):org.apache.doris.connector.spi.ConnectorSecuritySurface
 org.apache.doris.connector.spi.ConnectorSession#allocateTransactionId():long
 org.apache.doris.connector.spi.ConnectorSession#getBeExecVersion():int
 org.apache.doris.connector.spi.ConnectorSession#getCatalogId():long

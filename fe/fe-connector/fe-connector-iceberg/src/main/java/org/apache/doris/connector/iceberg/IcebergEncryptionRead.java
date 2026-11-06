@@ -48,8 +48,9 @@ final class IcebergEncryptionRead {
             throw failure("READ_DISABLED", "Encrypted Iceberg reads are disabled; enable_encryption_read in "
                     + "iceberg.conf defaults to false");
         }
-        if (!IcebergCatalogProperties.TYPE_HMS.equals(catalog.getFlavor())) {
-            throw failure("UNSUPPORTED_CATALOG", "Encrypted Iceberg reads require an HMS catalog");
+        if (!IcebergCatalogProperties.TYPE_HMS.equals(catalog.getFlavor())
+                && !IcebergCatalogProperties.TYPE_REST.equals(catalog.getFlavor())) {
+            throw failure("UNSUPPORTED_CATALOG", "Encrypted Iceberg reads require an HMS or REST catalog");
         }
         if (metadata == null || metadata.formatVersion() != 3) {
             throw failure("UNSUPPORTED_TABLE_FORMAT", "Encrypted Iceberg reads require table format v3");
