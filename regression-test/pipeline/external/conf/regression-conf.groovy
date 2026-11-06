@@ -209,6 +209,12 @@ db2_11_port=50000
 // trino-connector catalog test config
 enableTrinoConnectorTest = true
 
+// MongoDB uses the same shared Trino plugin bundle and a dedicated Docker fixture.
+enableMongoDBTest = true
+mongodb_port = 27017
+mongodb_user = "mongodb_test"
+mongodb_password = "mongodb_test"
+
 // kerberos docker config
 enableKerberosTest = true
 kerberosHmsPort=9883
