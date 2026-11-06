@@ -197,6 +197,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             ctx.removeLastDBOfCatalog(removedCatalog.catalogName);
         }
         Env.getCurrentEnv().getQueryStats().clear(removedCatalog.catalogId);
+        Env.getCurrentEnv().onCatalogChanged(removedCatalog.catalogName);
         LOG.info("Removed catalog with id {}, name {}", removedCatalog.catalogId, removedCatalog.catalogName);
     }
 

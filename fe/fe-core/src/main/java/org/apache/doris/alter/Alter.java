@@ -43,7 +43,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MetaLockUtils;
@@ -411,8 +410,7 @@ public class Alter {
         }
         olapTable.writeLock();
         try {
-            NereidsSqlCacheManager sqlCacheManager = Env.getCurrentEnv().getSqlCacheManager();
-            sqlCacheManager.invalidateAboutTable(olapTable);
+            Env.getCurrentEnv().onTableChanged(olapTable);
         } finally {
             olapTable.writeUnlock();
         }
@@ -857,8 +855,11 @@ public class Alter {
             // rename origin table name to new table name and add it to database
             origTable.checkAndSetName(newTblName, false);
             db.registerTable(origTable);
-        } else {
-
+        }
+        // Advance revisions after the name mapping changes, retaining both original dependency identities.
+        Env.getCurrentEnv().onTableChanged(origTable, oldTblName);
+        Env.getCurrentEnv().onTableChanged(newTbl, newTblName);
+        if (!swapTable) {
             // not swap, the origin table is not used anymore, need to drop all its tablets.
             // put original table to recycle bin.
             if (isForce) {
