@@ -50,6 +50,7 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
@@ -313,28 +314,29 @@ public class BrokerLoadJob extends BulkLoadJob {
     protected LoadLoadingTask createTask(Database db, OlapTable table, List<BrokerFileGroup> brokerFileGroups,
             boolean isEnableMemtableOnSinkNode, int batchSize, FileGroupAggKey aggKey,
             BrokerPendingTaskAttachment attachment) throws UserException {
-        LoadLoadingTask task = new LoadLoadingTask(this.userInfo, db, table, brokerDesc,
-                brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
-                isStrictMode(), isPartialUpdate(), getPartialUpdateNewKeyPolicy(),
-                transactionId, this, getTimeZone(), getTimeout(),
-                getLoadParallelism(), getSendBatchParallelism(),
-                getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
-                getPriority(), isEnableMemtableOnSinkNode, batchSize);
-        task.setLoadBackendSelectionHint(getLoadBackendSelectionHint());
+        try (AutoCloseConnectContext scope = ConnectContext.get() == null
+                ? new AutoCloseConnectContext(new ConnectContext()) : null) {
+            LoadLoadingTask task = new LoadLoadingTask(this.userInfo, db, table, brokerDesc,
+                    brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
+                    isStrictMode(), isPartialUpdate(), getPartialUpdateNewKeyPolicy(),
+                    transactionId, this, getTimeZone(), getTimeout(),
+                    getLoadParallelism(), getSendBatchParallelism(),
+                    getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
+                    getPriority(), isEnableMemtableOnSinkNode, batchSize);
+            task.setLoadBackendSelectionHint(getLoadBackendSelectionHint());
 
-        UUID uuid = UUID.randomUUID();
-        TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+            UUID uuid = UUID.randomUUID();
+            TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
 
-        setComputeGroup();
+            setComputeGroup();
 
-        task.init(loadId, attachment.getFileStatusByTable(aggKey),
-                attachment.getFileNumByTable(aggKey), getUserInfo());
-        ConnectContext context = ConnectContext.get();
-        if (context != null) {
+            task.init(loadId, attachment.getFileStatusByTable(aggKey),
+                    attachment.getFileNumByTable(aggKey), getUserInfo());
+            ConnectContext context = ConnectContext.get();
             recordLoadBackendSelectionSummary(context.getBackendSelectionProfile().getLoadSummary());
+            task.settWorkloadGroups(tWorkloadGroups);
+            return task;
         }
-        task.settWorkloadGroups(tWorkloadGroups);
-        return task;
     }
 
     private void createLoadingTask(Database db, BrokerPendingTaskAttachment attachment) throws UserException {

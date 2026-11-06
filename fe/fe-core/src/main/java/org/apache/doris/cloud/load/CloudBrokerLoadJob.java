@@ -186,27 +186,24 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
 
     @Override
     protected void afterLoadingTaskCommitTransaction(List<Table> tableList) {
-        ConnectContext ctx = null;
-        if (ConnectContext.get() == null) {
-            ctx = new ConnectContext();
-            ctx.setThreadLocalInfo();
-        } else {
-            ctx = ConnectContext.get();
-        }
+        try (AutoCloseConnectContext scope = ConnectContext.get() == null
+                ? new AutoCloseConnectContext(new ConnectContext()) : null) {
+            ConnectContext ctx = ConnectContext.get();
 
-        if (ctx.getSessionVariable().enableMultiClusterSyncLoad()) {
-            // get the backends of each cluster expect the load cluster
-            CloudSystemInfoService infoService = (CloudSystemInfoService) Env.getCurrentSystemInfo();
-            List<List<Backend>> backendsList = infoService.getCloudClusterIds()
-                                                                .stream()
-                                                                .filter(id -> !id.equals(cloudClusterId))
-                                                                .map(id -> infoService.getBackendsByClusterId(id))
-                                                                .collect(Collectors.toList());
-            // for each all load table, get its tablets
-            tableList.forEach(table -> {
-                List<Long> allTabletIds = ((OlapTable) table).getAllTabletIds();
-                StmtExecutor.syncLoadForTablets(backendsList, allTabletIds);
-            });
+            if (ctx.getSessionVariable().enableMultiClusterSyncLoad()) {
+                // get the backends of each cluster expect the load cluster
+                CloudSystemInfoService infoService = (CloudSystemInfoService) Env.getCurrentSystemInfo();
+                List<List<Backend>> backendsList = infoService.getCloudClusterIds()
+                                                                    .stream()
+                                                                    .filter(id -> !id.equals(cloudClusterId))
+                                                                    .map(id -> infoService.getBackendsByClusterId(id))
+                                                                    .collect(Collectors.toList());
+                // for each all load table, get its tablets
+                tableList.forEach(table -> {
+                    List<Long> allTabletIds = ((OlapTable) table).getAllTabletIds();
+                    StmtExecutor.syncLoadForTablets(backendsList, allTabletIds);
+                });
+            }
         }
     }
 

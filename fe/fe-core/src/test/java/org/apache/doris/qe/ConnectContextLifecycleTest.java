@@ -21,11 +21,13 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Status;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.qe.ConnectContext.CloseMode;
 import org.apache.doris.qe.protocol.ProtocolAdapter;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TUniqueId;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -35,6 +37,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
@@ -94,6 +97,45 @@ public class ConnectContextLifecycleTest {
         Mockito.verify(adapter).releaseSession(ctx);
         Mockito.verify(ctx).closeTxn();
         Mockito.verify(ctx).deleteTempTable();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testCloseAndQueryIdPublicationLeaveNoTraceIndex(boolean publishBeforeClose) throws Exception {
+        ConnectScheduler scheduler = Mockito.mock(ConnectScheduler.class);
+        Mockito.when(scheduler.getConnectPoolMgr()).thenReturn(pool);
+        ctx.setConnectScheduler(scheduler);
+        ctx.setTraceId("closing-query-trace");
+        register();
+        TUniqueId queryId = new TUniqueId(1, 2);
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch exit = new CountDownLatch(1);
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> request = worker.submit(() -> ctx.runCommand(() -> {
+                if (publishBeforeClose) {
+                    ctx.setQueryId(queryId);
+                }
+                entered.countDown();
+                await(exit);
+                if (!publishBeforeClose) {
+                    ctx.setQueryId(queryId);
+                }
+            }));
+            await(entered);
+            Assertions.assertEquals(publishBeforeClose ? DebugUtil.printId(queryId) : "",
+                    pool.getQueryIdByTraceId("closing-query-trace"));
+            ctx.cleanup();
+            Assertions.assertEquals(0, pool.getConnectionNum());
+            exit.countDown();
+            request.get(10, TimeUnit.SECONDS);
+            Assertions.assertEquals(queryId, ctx.queryId());
+            Assertions.assertEquals("", pool.getQueryIdByTraceId("closing-query-trace"));
+            verifyReleasedOnce();
+        } finally {
+            exit.countDown();
+            stop(worker);
+        }
     }
 
     @Test

@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+/** Owns a private context for this scope, including its statement resources and thread binding. */
 public class AutoCloseConnectContext implements AutoCloseable {
 
     public final ConnectContext connectContext;
@@ -36,10 +37,15 @@ public class AutoCloseConnectContext implements AutoCloseable {
 
     @Override
     public void close() {
-        connectContext.clear();
-        ConnectContext.remove();
-        if (previousContext != null) {
-            previousContext.setThreadLocalInfo();
+        try {
+            // The synchronous scope has exited. Finish without cancelling its completed statement.
+            connectContext.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+        } finally {
+            if (previousContext == null) {
+                ConnectContext.remove();
+            } else {
+                previousContext.setThreadLocalInfo();
+            }
         }
     }
 }

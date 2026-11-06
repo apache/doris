@@ -247,28 +247,14 @@ public class CacheHotspotManagerUtils {
         return new AutoCloseConnectContext(connectContext);
     }
 
-    public static class AutoCloseConnectContext implements AutoCloseable {
-
-        public final ConnectContext connectContext;
-
-        private final ConnectContext previousContext;
+    public static class AutoCloseConnectContext extends org.apache.doris.qe.AutoCloseConnectContext {
 
         public AutoCloseConnectContext(ConnectContext connectContext) {
-            this.previousContext = ConnectContext.get();
-            this.connectContext = connectContext;
-            connectContext.setThreadLocalInfo();
+            super(connectContext);
             try {
                 connectContext.getCloudCluster();
             } catch (ComputeGroupException e) {
                 LOG.warn("failed to get compute group name", e);
-            }
-        }
-
-        @Override
-        public void close() {
-            ConnectContext.remove();
-            if (previousContext != null) {
-                previousContext.setThreadLocalInfo();
             }
         }
     }

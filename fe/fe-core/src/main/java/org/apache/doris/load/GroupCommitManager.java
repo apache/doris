@@ -33,6 +33,7 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.SlidingWindowCounter;
 import org.apache.doris.proto.InternalService.PGetWalQueueSizeRequest;
 import org.apache.doris.proto.InternalService.PGetWalQueueSizeResponse;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterOpExecutor;
 import org.apache.doris.resource.BackendSelection;
@@ -483,11 +484,9 @@ public class GroupCommitManager {
         if (!Env.getCurrentEnv().isMaster()) {
             ConnectContext ctx = new ConnectContext();
             ctx.setEnv(Env.getCurrentEnv());
-            ctx.setThreadLocalInfo();
             // set user to ADMIN_USER, so that we can get the proper resource tag
             ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
-            ctx.setThreadLocalInfo();
-            try {
+            try (AutoCloseConnectContext scope = new AutoCloseConnectContext(ctx)) {
                 new MasterOpExecutor(ctx).updateLoadData(tableId, receiveData);
             } catch (Exception e) {
                 throw new RuntimeException(e);

@@ -37,6 +37,7 @@ import org.apache.doris.httpv2.util.StreamLoadRedirectDrainUtil;
 import org.apache.doris.load.StreamLoadHandler;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.GroupCommitPlanner;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.resource.BackendSelectionManager;
@@ -138,12 +139,8 @@ public class LoadAction extends RestBaseController {
             }
             return executeWithClusterToken(request, response, db, table, true);
         } else {
-            try {
-                executeCheckPassword(request, response);
-                return executeWithoutPassword(request, response, db, table, true, groupCommit);
-            } finally {
-                ConnectContext.remove();
-            }
+            executeCheckPassword(request, response);
+            return executeWithoutPassword(request, response, db, table, true, groupCommit);
         }
     }
 
@@ -627,7 +624,6 @@ public class LoadAction extends RestBaseController {
         try {
             ConnectContext ctx = new ConnectContext();
             ctx.setEnv(Env.getCurrentEnv());
-            ctx.setThreadLocalInfo();
             ctx.setRemoteIP(request.getRemoteAddr());
             // set user to ADMIN_USER, so that we can get the proper resource tag
             // cloud need
@@ -669,8 +665,6 @@ public class LoadAction extends RestBaseController {
         } catch (Exception e) {
             LOG.warn("Failed to execute stream load with cluster token, {}", e.getMessage(), e);
             return new RestBaseResult(e.getMessage());
-        } finally {
-            ConnectContext.remove();
         }
     }
 
@@ -774,21 +768,11 @@ public class LoadAction extends RestBaseController {
             ctx.setCloudCluster(clusterName);
         }
 
-        Backend backend = null;
-        try {
-            ctx.setThreadLocalInfo();
-            backend = Env.getCurrentEnv().getGroupCommitManager()
-                    .selectBackendForGroupCommit(tableId, ctx);
+        try (AutoCloseConnectContext ignored = new AutoCloseConnectContext(ctx)) {
+            return Env.getCurrentEnv().getGroupCommitManager().selectBackendForGroupCommit(tableId, ctx);
         } catch (DdlException e) {
             throw new LoadException(e.getMessage(), e);
-        } finally {
-            if (currentCtx != null) {
-                currentCtx.setThreadLocalInfo();
-            } else {
-                ConnectContext.remove();
-            }
         }
-        return backend;
     }
 
     private static void inheritLoadSelectionContext(ConnectContext source, ConnectContext target) {

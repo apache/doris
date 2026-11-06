@@ -35,6 +35,7 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.nereids.load.NereidsBrokerFileGroup;
 import org.apache.doris.nereids.load.NereidsLoadingTaskPlanner;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
@@ -166,53 +167,54 @@ public class LoadLoadingTask extends LoadTask {
     }
 
     protected void executeOnce() throws Exception {
-        // The task may execute on a different worker after the submitting session has been
-        // cleared or reused. Restore the job-owned hint immediately before Coordinator resolves
-        // load backends, otherwise it can fall back to the current global/session variables.
-        ConnectContext executionContext = ConnectContext.get();
-        if (executionContext == null) {
-            executionContext = new ConnectContext();
-            executionContext.setThreadLocalInfo();
-            executionContext.setEnv(Env.getCurrentEnv());
-        }
-        BackendSelectionManager.restoreLoadSelection(executionContext, loadBackendSelectionHint);
-        final boolean enableProfile = this.jobProfile != null;
-        // New one query id,
-        Coordinator curCoordinator =  EnvFactory.getInstance().createCoordinator(callback.getCallbackId(),
-                loadId, planner.getDescTable(),
-                planner.getFragments(), planner.getScanNodes(), planner.getTimezone(), loadZeroTolerance,
-                enableProfile);
-        if (enableProfile) {
-            this.jobProfile.addExecutionProfile(curCoordinator.getExecutionProfile());
-        }
-        curCoordinator.setQueryType(TQueryType.LOAD);
-        curCoordinator.getQueryOptions().setEnableInsertStrict(strictMode);
-        curCoordinator.setExecMemoryLimit(execMemLimit);
+        try (AutoCloseConnectContext scope = ConnectContext.get() == null
+                ? new AutoCloseConnectContext(new ConnectContext()) : null) {
+            // The task may execute on a different worker after the submitting session has been
+            // cleared or reused. Restore the job-owned hint immediately before Coordinator resolves
+            // load backends, otherwise it can fall back to the current global/session variables.
+            ConnectContext executionContext = ConnectContext.get();
+            if (scope != null) {
+                executionContext.setEnv(Env.getCurrentEnv());
+            }
+            BackendSelectionManager.restoreLoadSelection(executionContext, loadBackendSelectionHint);
+            final boolean enableProfile = this.jobProfile != null;
+            // New one query id,
+            Coordinator curCoordinator =  EnvFactory.getInstance().createCoordinator(callback.getCallbackId(),
+                    loadId, planner.getDescTable(),
+                    planner.getFragments(), planner.getScanNodes(), planner.getTimezone(), loadZeroTolerance,
+                    enableProfile);
+            if (enableProfile) {
+                this.jobProfile.addExecutionProfile(curCoordinator.getExecutionProfile());
+            }
+            curCoordinator.setQueryType(TQueryType.LOAD);
+            curCoordinator.getQueryOptions().setEnableInsertStrict(strictMode);
+            curCoordinator.setExecMemoryLimit(execMemLimit);
 
-        curCoordinator.setMemTableOnSinkNode(enableMemTableOnSinkNode);
-        if (enableMemTableOnSinkNode) {
-            curCoordinator.setBatchSize(batchSize);
-        }
+            curCoordinator.setMemTableOnSinkNode(enableMemTableOnSinkNode);
+            if (enableMemTableOnSinkNode) {
+                curCoordinator.setBatchSize(batchSize);
+            }
 
-        long leftTimeMs = getLeftTimeMs();
-        if (leftTimeMs <= 0) {
-            throw new LoadException("failed to execute loading task when timeout");
-        }
-        // 1 second is the minimum granularity of actual execution
-        int timeoutS = Math.max((int) (leftTimeMs / 1000), 1);
-        curCoordinator.setTimeout(timeoutS);
+            long leftTimeMs = getLeftTimeMs();
+            if (leftTimeMs <= 0) {
+                throw new LoadException("failed to execute loading task when timeout");
+            }
+            // 1 second is the minimum granularity of actual execution
+            int timeoutS = Math.max((int) (leftTimeMs / 1000), 1);
+            curCoordinator.setTimeout(timeoutS);
 
-        // NOTE: currently broker load not enter workload group's queue
-        // so we set tWorkloadGroup here directly.
-        if (tWorkloadGroups != null) {
-            curCoordinator.setTWorkloadGroups(tWorkloadGroups);
-        }
+            // NOTE: currently broker load not enter workload group's queue
+            // so we set tWorkloadGroup here directly.
+            if (tWorkloadGroups != null) {
+                curCoordinator.setTWorkloadGroups(tWorkloadGroups);
+            }
 
-        try {
-            QeProcessorImpl.INSTANCE.registerQuery(loadId, new QeProcessorImpl.QueryInfo(curCoordinator));
-            actualExecute(curCoordinator, timeoutS);
-        } finally {
-            QeProcessorImpl.INSTANCE.unregisterQuery(loadId);
+            try {
+                QeProcessorImpl.INSTANCE.registerQuery(loadId, new QeProcessorImpl.QueryInfo(curCoordinator));
+                actualExecute(curCoordinator, timeoutS);
+            } finally {
+                QeProcessorImpl.INSTANCE.unregisterQuery(loadId);
+            }
         }
     }
 
