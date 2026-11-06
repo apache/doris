@@ -17,12 +17,6 @@
 
 #include "io/fs/s3_file_reader.h"
 
-#include <aws/core/http/URI.h>
-#include <aws/core/utils/Outcome.h>
-#include <aws/s3/S3Client.h>
-#include <aws/s3/S3Errors.h>
-#include <aws/s3/model/GetObjectRequest.h>
-#include <aws/s3/model/GetObjectResult.h>
 #include <bvar/latency_recorder.h>
 #include <bvar/reducer.h>
 #include <fmt/format.h>
@@ -38,8 +32,8 @@
 #include "io/cache/block_file_cache.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/read_io_trace.h"
-#include "io/fs/s3_file_system.h"
 #include "io/io_common.h"
+#include "io/obj_storage/obj_client_holder.h"
 #include "runtime/file_scan_profile.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/thread_context.h"
@@ -53,6 +47,11 @@
 #include "util/time.h"
 
 namespace doris::io {
+
+// HTTP 429 from the storage service, which this reader retries with backoff. AWS S3 reports
+// throttling as 503 SlowDown instead, and the SDK client retries that itself
+// (S3CustomRetryStrategy), so it does not take this branch.
+constexpr int OBJ_STORAGE_HTTP_TOO_MANY_REQUESTS = 429;
 
 bvar::Adder<uint64_t> s3_file_reader_read_counter("s3_file_reader", "read_at");
 bvar::Adder<uint64_t> s3_file_reader_total("s3_file_reader", "total_num");
@@ -96,8 +95,6 @@ S3FileReader::S3FileReader(std::shared_ptr<const ObjClientHolder> client, std::s
     DorisMetrics::instance()->s3_file_reader_total->increment(1);
     s3_file_reader_total << 1;
     s3_file_being_read << 1;
-
-    Aws::Http::SetCompliantRfc3986Encoding(true);
 }
 
 S3FileReader::~S3FileReader() {
@@ -195,8 +192,7 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
         }
         _s3_stats.total_get_request_counter++;
         if (resp.status.code != ErrorCode::OK) {
-            if (resp.http_code ==
-                static_cast<int>(Aws::Http::HttpResponseCode::TOO_MANY_REQUESTS)) {
+            if (resp.http_code == OBJ_STORAGE_HTTP_TOO_MANY_REQUESTS) {
                 s3_file_reader_too_many_request_counter << 1;
                 last_error = Status(resp.status.code, std::move(resp.status.msg));
                 retry_count++;

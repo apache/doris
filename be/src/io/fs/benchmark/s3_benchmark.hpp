@@ -24,8 +24,9 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/s3_file_reader.h"
 #include "io/fs/s3_file_system.h"
+#include "io/obj_storage/obj_storage_config_resolver.h"
+#include "io/obj_storage/obj_storage_uri.h"
 #include "runtime/exec_env.h"
-#include "util/s3_uri.h"
 #include "util/slice.h"
 
 namespace doris::io {
@@ -38,12 +39,9 @@ public:
     virtual ~S3Benchmark() = default;
 
     Status get_fs(const std::string& path, std::shared_ptr<io::S3FileSystem>* fs) {
-        S3URI s3_uri(path);
-        RETURN_IF_ERROR(s3_uri.parse());
-        S3Conf s3_conf;
-        RETURN_IF_ERROR(
-                S3ClientFactory::convert_properties_to_s3_conf(_conf_map, s3_uri, &s3_conf));
-        *fs = DORIS_TRY(io::S3FileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID));
+        auto location = DORIS_TRY(io::ObjStorageUri::parse_s3(path));
+        auto config = DORIS_TRY(io::ObjStorageConfigResolver::from_properties(_conf_map, location));
+        *fs = DORIS_TRY(io::S3FileSystem::create(std::move(config), io::FileSystem::TMP_FS_ID));
         return Status::OK();
     }
 };

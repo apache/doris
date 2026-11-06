@@ -45,6 +45,7 @@
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/segment/segment_index_file_cache_loader.h"
 #include "storage/storage_engine.h"
+#include "testutil/obj_storage_test_util.h"
 #include "util/threadpool.h"
 #include "util/time.h"
 
@@ -175,13 +176,9 @@ protected:
             _created_s3_upload_pool = true;
         }
 
-        S3Conf s3_conf;
-        s3_conf.client_conf.ak = "fake_ak";
-        s3_conf.client_conf.sk = "fake_sk";
-        s3_conf.client_conf.endpoint = "fake_s3_endpoint";
-        s3_conf.client_conf.region = "fake_s3_region";
-        s3_conf.bucket = "fake_s3_bucket";
-        s3_conf.prefix = "cloud_file_cache_write_index_only_e2e";
+        io::ObjStorageConfig s3_conf = io::make_test_s3_storage_config(
+                "fake_s3_bucket", "cloud_file_cache_write_index_only_e2e", "fake_s3_endpoint",
+                "fake_s3_region", "fake_ak", "fake_sk");
         auto fs = io::S3FileSystem::create(std::move(s3_conf), "cloud-file-cache-index-only-ut-fs");
         ASSERT_TRUE(fs.has_value()) << fs.error();
         _remote_fs = fs.value();
@@ -569,13 +566,9 @@ TEST_F(CloudFileCacheWriteIndexOnlyConfigTest,
     config::enable_file_cache_write_index_file_only = true;
     config::cloud_unique_id = "cloud_file_cache_empty_range_ut";
 
-    S3Conf s3_conf;
-    s3_conf.client_conf.ak = "fake_ak";
-    s3_conf.client_conf.sk = "fake_sk";
-    s3_conf.client_conf.endpoint = "fake_s3_endpoint";
-    s3_conf.client_conf.region = "fake_s3_region";
-    s3_conf.bucket = "fake_s3_bucket";
-    s3_conf.prefix = "cloud_file_cache_empty_range_ut";
+    io::ObjStorageConfig s3_conf = io::make_test_s3_storage_config(
+            "fake_s3_bucket", "cloud_file_cache_empty_range_ut", "fake_s3_endpoint",
+            "fake_s3_region", "fake_ak", "fake_sk");
     auto fs = io::S3FileSystem::create(std::move(s3_conf), "cloud-file-cache-empty-range-ut-fs");
     ASSERT_TRUE(fs.has_value()) << fs.error();
 

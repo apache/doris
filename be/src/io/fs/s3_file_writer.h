@@ -32,15 +32,7 @@
 #include "io/fs/path.h"
 #include "io/fs/s3_file_bufferpool.h"
 
-namespace Aws::S3 {
-namespace Model {
-class CompletedPart;
-}
-class S3Client;
-} // namespace Aws::S3
-
 namespace doris {
-struct S3Conf;
 
 namespace io {
 struct S3FileBuffer;

@@ -122,6 +122,7 @@
 #include "storage/storage_engine.h"
 #include "storage/storage_policy.h"
 #include "storage/tablet/tablet.h"
+#include "testutil/obj_storage_test_util.h"
 #include "util/defer_op.h"
 #include "util/threadpool.h"
 #include "util/time.h"
@@ -969,12 +970,8 @@ protected:
             ExecEnv::GetInstance()->_s3_file_upload_thread_pool = std::move(pool);
         }
 
-        S3Conf s3_conf;
-        s3_conf.client_conf.ak = ak;
-        s3_conf.client_conf.sk = sk;
-        s3_conf.client_conf.endpoint = endpoint;
-        s3_conf.client_conf.region = region;
-        s3_conf.bucket = bucket;
+        io::ObjStorageConfig s3_conf =
+                io::make_test_s3_storage_config(bucket, "", endpoint, region, ak, sk);
         // A per-pid prefix cannot be reused across runs, so reuse mode pins a stable one. It is
         // also why teardown must not delete it -- see _teardown_remote.
         s3_conf.prefix = _reuse_rowsets() ? std::string(kS3Prefix) + "reuse"
