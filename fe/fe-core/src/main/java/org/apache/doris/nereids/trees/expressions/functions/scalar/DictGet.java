@@ -113,9 +113,11 @@ public class DictGet extends ScalarFunction implements CustomSignature, AlwaysNu
             }
             DataType colType = colTypes.get(0);
             Optional<DataType> castType = TypeCoercionUtils.implicitCast(queryType, colType);
-            if (castType.isPresent() && !castType.get().equals(queryType)) {
-                queryType = castType.get();
+            if (!castType.isPresent()) {
+                throw new AnalysisException(
+                        "dict_get() cannot implicitly cast key from " + queryType + " to " + colType);
             }
+            queryType = castType.get();
         } else { // IP_TRIE
             if (!queryType.isIPType()) {
                 // we CAN'T CAST it because we dont know which one of ipv4 or ipv6 is the target.

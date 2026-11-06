@@ -215,7 +215,27 @@ Status MasterServerClient::confirm_unused_remote_files(
     return Status::OK();
 }
 
+std::string AgentUtils::shell_quote(const std::string& argument) {
+    std::string quoted = "'";
+    for (char ch : argument) {
+        // A single quote ends a quoted section. Insert it between two quoted sections.
+        // For example, a'b becomes 'a'\''b'.
+        if (ch == '\'') {
+            quoted += "'\\''";
+        } else {
+            quoted += ch;
+        }
+    }
+    quoted += '\'';
+    return quoted;
+}
+
 bool AgentUtils::exec_cmd(const std::string& command, std::string* errmsg, bool redirect_stderr) {
+    // popen reads a C string. A NUL byte would discard the rest of the command.
+    if (command.find('\0') != std::string::npos) {
+        *errmsg = "The shell command contains a NUL byte.\n";
+        return false;
+    }
     // The exit status of the command.
     uint32_t rc = 0;
 

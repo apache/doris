@@ -535,14 +535,19 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
      */
     @Override
     public void onRefreshCache(boolean invalidCache) {
-        if (!invalidCache) {
-            super.onRefreshCache(false);
-            return;
-        }
+        beginTableLookupRefresh();
         try {
-            invalidateAllConnectorCachesIfPresent();
+            if (!invalidCache) {
+                super.onRefreshCache(false);
+                return;
+            }
+            try {
+                invalidateAllConnectorCachesIfPresent();
+            } finally {
+                super.onRefreshCache(true);
+            }
         } finally {
-            super.onRefreshCache(true);
+            endTableLookupRefresh();
         }
     }
 
@@ -687,6 +692,11 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
      */
     @Override
     public void registerDatabaseFromEvent(String remoteDbName, String localDbName) {
+        // The database list leaves out what include_database_list and exclude_database_list keep out; an event must
+        // not add it to the list either.
+        if (!isDatabaseListed(remoteDbName)) {
+            return;
+        }
         long dbId = Util.genIdByName(getName(), localDbName);
         try {
             ExternalDatabase<? extends ExternalTable> db =
@@ -1044,20 +1054,25 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
                     .refreshTableInternal(db.get(), table.get(), info.getUpdateTime());
             return;
         }
-        ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+        beginTableLookupRefresh();
         try {
-            Connector replayConnector = connector;
-            if (isInitialized() && replayConnector != null) {
-                if (db.isPresent()) {
-                    replayConnector.invalidateDb(db.get().getRemoteName());
-                } else {
-                    replayConnector.invalidateAll();
+            ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+            try {
+                Connector replayConnector = connector;
+                if (isInitialized() && replayConnector != null) {
+                    if (db.isPresent()) {
+                        replayConnector.invalidateDb(db.get().getRemoteName());
+                    } else {
+                        replayConnector.invalidateAll();
+                    }
                 }
+            } finally {
+                long dbId = Util.genIdByName(getName(), info.getDb());
+                cacheMgr.invalidateTable(getId(), dbId, info.getDb(),
+                        Util.genIdByName(getName(), info.getDb(), info.getTable()), info.getTable());
             }
         } finally {
-            long dbId = Util.genIdByName(getName(), info.getDb());
-            cacheMgr.invalidateTable(getId(), dbId, info.getDb(),
-                    Util.genIdByName(getName(), info.getDb(), info.getTable()), info.getTable());
+            endTableLookupRefresh();
         }
     }
 

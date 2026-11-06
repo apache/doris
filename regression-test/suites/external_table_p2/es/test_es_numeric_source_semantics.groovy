@@ -75,7 +75,8 @@ suite("test_es_numeric_source_semantics", "p2,external") {
         "c = cast(2.34 as float)", "c = cast(2.33984375 as float)",
         "c > cast(2.33984375 as float)", "c in (cast(2.34 as float), cast(-2.34 as float))"]
     def nativeTerm = """esquery(b, '{"term":{"b":2.25}}')"""
-    def originalV2 = sql("show variables like 'enable_file_scanner_v2'")[0][1]
+    // SHOW prefixes deprecated variable names; scalar access keeps the compatibility name stable.
+    def originalV2 = sql("SELECT @@enable_file_scanner_v2")[0][0]
     def originalParallel = sql("show variables like 'enable_es_parallel_scroll'")[0][1]
     try {
         ["enabled", "disabled", "limited"].each { mode ->
