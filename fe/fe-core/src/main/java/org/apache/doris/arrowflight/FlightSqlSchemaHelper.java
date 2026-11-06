@@ -222,7 +222,8 @@ public class FlightSqlSchemaHelper {
             getDbsParams.setPattern(dbSchemaFilterPattern);
         }
         getDbsParams.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
-        return impl.getDbNames(getDbsParams);
+        // Flight carries the catalog separately, so both filtering and output must use raw schema names.
+        return impl.getDbNames(getDbsParams, false);
     }
 
     /**

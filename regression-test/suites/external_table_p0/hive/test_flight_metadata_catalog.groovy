@@ -26,7 +26,7 @@ import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.vector.VarBinaryVect
 import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.vector.ipc.ReadChannel
 import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.vector.ipc.message.MessageSerializer
 
-suite("test_flight_metadata_catalog", "p0,external") {
+suite("test_flight_metadata_catalog", "p0,external,nonConcurrent") {
     if (!"true".equalsIgnoreCase(context.config.otherConfigs.get("enableHiveTest"))) {
         return
     }
@@ -52,6 +52,7 @@ suite("test_flight_metadata_catalog", "p0,external") {
         'type' = 'hms',
         'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hmsPort}'
     )"""
+    String originalShowFullName = (sql "SHOW GLOBAL VARIABLES LIKE 'show_full_dbname_in_info_schema_db'")[0][1]
     try {
         def expectedSchemas = (sql "SHOW DATABASES FROM ${catalog} LIKE 'multi_catalog'")
                 .collect { [catalog, it[0].toString()] }
@@ -84,48 +85,63 @@ suite("test_flight_metadata_catalog", "p0,external") {
                         }
                         return rows
                     }
-                    def schemas = { String filter ->
-                        read(flight.getSchemas(filter, "multi_catalog", credential),
-                                ["catalog_name", "db_schema_name"])
-                    }
-                    assertEquals(expectedSchemas, schemas(catalog))
-                    // Omission must discover the external catalog even when the session starts in internal.
-                    assertEquals(expectedSchemas, schemas(null).findAll { it[0] == catalog })
-                    schemas("").each { row -> assertEquals("", row[0]) }
-
-                    for (boolean includeSchema : [false, true]) {
-                        for (String table : ["region", "hive_text_complex_type2"]) {
-                            def expectedTables = (sql "SHOW FULL TABLES FROM ${catalog}.multi_catalog LIKE '${table}'")
-                                    .findAll { it[0].toString() == table }
-                                    .collect { [catalog, "multi_catalog", it[0].toString(), it[1].toString()] }
-                            assertFalse(expectedTables.isEmpty(), "Hive table fixture is missing: ${table}")
-                            def columns = ["catalog_name", "db_schema_name", "table_name", "table_type"]
-                            if (includeSchema) {
-                                def fieldNames = (sql "DESC ${catalog}.multi_catalog.${table}")
-                                        .collect { it[0].toString() }
-                                expectedTables.each { it.add(fieldNames) }
-                                columns.add("table_schema")
-                            }
-                            def tables = { String filter ->
-                                read(flight.getTables(filter, "multi_catalog", table, null, includeSchema, credential),
-                                        columns).findAll { it[2] == table }
-                            }
-                            assertEquals(expectedTables, tables(catalog))
-                            assertEquals(expectedTables, tables(null).findAll { it[0] == catalog })
-                            tables("").each { row -> assertEquals("", row[0]) }
+                    for (boolean showFullName : [false, true]) {
+                        // Flight carries catalog and schema separately, regardless of MySQL display settings.
+                        sql "SET GLOBAL show_full_dbname_in_info_schema_db = ${showFullName}"
+                        def schemas = { String filter, String pattern ->
+                            read(flight.getSchemas(filter, pattern, credential),
+                                    ["catalog_name", "db_schema_name"])
                         }
+                        for (String pattern : ["multi_catalog", "multi%", null]) {
+                            String like = pattern == null ? "" : " LIKE '${pattern}'"
+                            def expected = (sql "SHOW DATABASES FROM ${catalog}${like}")
+                                    .collect { [catalog, it[0].toString()] }.sort()
+                            assertEquals(expected, schemas(catalog, pattern).sort())
+                            // Omission must discover the external catalog even when the session starts in internal.
+                            if (pattern != null) {
+                                assertEquals(expected, schemas(null, pattern).findAll { it[0] == catalog }.sort())
+                            }
+                            assertTrue(schemas("", pattern).isEmpty())
+                        }
+                        assertTrue(schemas(catalog, "missing_flight_schema%").isEmpty())
+
+                        for (boolean includeSchema : [false, true]) {
+                            for (String table : ["region", "hive_text_complex_type2"]) {
+                                def expectedTables = (sql "SHOW FULL TABLES FROM ${catalog}.multi_catalog LIKE '${table}'")
+                                        .findAll { it[0].toString() == table }
+                                        .collect { [catalog, "multi_catalog", it[0].toString(), it[1].toString()] }
+                                assertFalse(expectedTables.isEmpty(), "Hive table fixture is missing: ${table}")
+                                def columns = ["catalog_name", "db_schema_name", "table_name", "table_type"]
+                                if (includeSchema) {
+                                    def fieldNames = (sql "DESC ${catalog}.multi_catalog.${table}")
+                                            .collect { it[0].toString() }
+                                    expectedTables.each { it.add(fieldNames) }
+                                    columns.add("table_schema")
+                                }
+                                def tables = { String filter, String pattern ->
+                                    read(flight.getTables(filter, pattern, table, null, includeSchema, credential),
+                                            columns).findAll { it[1] == "multi_catalog" && it[2] == table }
+                                }
+                                for (String pattern : ["multi_catalog", "multi%"]) {
+                                    assertEquals(expectedTables, tables(catalog, pattern))
+                                    assertEquals(expectedTables, tables(null, pattern).findAll { it[0] == catalog })
+                                    assertTrue(tables("", pattern).isEmpty())
+                                }
+                            }
+                        }
+                        def internalSchemas = read(flight.getSchemas("internal", "information_schema", credential),
+                                ["catalog_name", "db_schema_name"])
+                        def allSchemas = read(flight.getSchemas(null, "information_schema", credential),
+                                ["catalog_name", "db_schema_name"])
+                        assertEquals(internalSchemas, allSchemas.findAll { it[0] == "internal" })
                     }
-                    def internalSchemas = read(flight.getSchemas("internal", "information_schema", credential),
-                            ["catalog_name", "db_schema_name"])
-                    def allSchemas = read(flight.getSchemas(null, "information_schema", credential),
-                            ["catalog_name", "db_schema_name"])
-                    assertEquals(internalSchemas, allSchemas.findAll { it[0] == "internal" })
                 } finally {
                     flight.closeSession(new CloseSessionRequest(), credential)
                 }
             }
         }
     } finally {
+        sql "SET GLOBAL show_full_dbname_in_info_schema_db = ${originalShowFullName}"
         sql "DROP CATALOG IF EXISTS ${catalog}"
     }
 }
