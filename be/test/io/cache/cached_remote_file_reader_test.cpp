@@ -2259,9 +2259,10 @@ protected:
         context.enable_file_cache_io_adaptor = true;
         reset_adaptor();
         auto& adaptor = cache()->io_adaptor();
+        // Keep local preferred but above the floor so these failure exits own a probe permit.
         for (int i = 0; i < 50; ++i) {
-            adaptor.record_local(expected.size(), 100);
-            adaptor.record_remote(expected.size(), 1000);
+            adaptor.record_local(expected.size(), 6000);
+            adaptor.record_remote(expected.size(), 10000);
         }
         adaptor._requests_since_probe = 63;
         auto remote = std::make_shared<CountingFileReader>(open_remote_file());
@@ -2272,6 +2273,8 @@ protected:
         std::string actual(expected.size(), '\xff');
         const auto status = reader->read_at(0, Slice(actual), &count, &context);
         EXPECT_EQ(remote->read_count(), 1);
+        // Admission consumes the quota even on cancellation before statistics are merged.
+        EXPECT_EQ(adaptor._requests_since_probe, 0);
         EXPECT_FALSE(adaptor._probe_inflight);
         EXPECT_EQ(reader->_io_adaptor_remote_failed.load(), failure != 2);
         if (failure == 2) {
@@ -2969,17 +2972,12 @@ TEST_F(AdaptiveCachedRemoteFileReaderTest, DISABLED_fast_local_latency_controlle
                       << " requests=200 request_bytes=" << expected.size()
                       << " local_service_us=1000 remote_service_us=8000 wall_ns=" << elapsed
                       << " bypass_count=" << stats.io_adaptor_bypass_count << std::endl;
-            // A fast disk still needs bounded remote probes to observe a later path change.
-            // Every remote read here must be a probe, never an ordinary slow-remote bypass.
-            EXPECT_EQ(remote->read_count() - previous_reads, stats.io_adaptor_remote_probes);
-            EXPECT_EQ(stats.io_adaptor_bypass_count, stats.io_adaptor_remote_probes);
+            // Local service stays below 5 ms, so sampling the slower remote path cannot
+            // enable bypass and must not add latency to these healthy-cache reads.
+            EXPECT_EQ(remote->read_count(), previous_reads);
+            EXPECT_EQ(stats.io_adaptor_bypass_count, 0);
             EXPECT_EQ(stats.io_adaptor_local_probes, 0);
-            if (enabled) {
-                EXPECT_GT(stats.io_adaptor_remote_probes, 0);
-                EXPECT_LE(stats.io_adaptor_remote_probes, 4);
-            } else {
-                EXPECT_EQ(stats.io_adaptor_remote_probes, 0);
-            }
+            EXPECT_EQ(stats.io_adaptor_remote_probes, 0);
             EXPECT_EQ(stats.bytes_write_into_cache, 0);
         }
     }
