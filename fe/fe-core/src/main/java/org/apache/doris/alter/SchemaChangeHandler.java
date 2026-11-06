@@ -3448,7 +3448,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     }
 
                     if (hasIndexChangeJobOnPartition(originIndexId, db.getId(), olapTable.getId(),
-                            partitionName, alterIndexes, isDropOp)) {
+                            partitionName, alterIndexes)) {
                         throw new DdlException("partition " + partitionName + " has been built specified index."
                                             + " please check your build stmt.");
                     }
