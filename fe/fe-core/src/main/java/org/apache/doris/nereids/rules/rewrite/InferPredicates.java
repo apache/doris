@@ -23,8 +23,8 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.NonInferableExpression;
 import org.apache.doris.nereids.trees.expressions.Or;
-import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -219,8 +219,8 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         Set<Expression> predicates = new LinkedHashSet<>();
         Set<Slot> planOutputs = plan.getOutputSet();
         for (Expression expr : expressions) {
-            // SEARCH depends on the source index/analyzer, which a sibling may not have.
-            if (expr.anyMatch(e -> e instanceof SearchExpression)
+            // Search predicates depend on the source index/analyzer, which a sibling may not have.
+            if (expr.containsType(NonInferableExpression.class)
                     || expr.containsVolatileOrNoneMovableExpression()) {
                 // Volatile expressions (e.g. rand(), uuid()) must not be cloned into
                 // subtrees that did not already evaluate them. Otherwise, callers that perform
@@ -253,8 +253,8 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         Set<Expression> predicates = new LinkedHashSet<>();
         Set<Slot> planOutputs = plan.getOutputSet();
         for (Expression expr : expressions) {
-            // SEARCH depends on the source index/analyzer, which a sibling may not have.
-            if (expr.anyMatch(e -> e instanceof SearchExpression)
+            // Search predicates depend on the source index/analyzer, which a sibling may not have.
+            if (expr.containsType(NonInferableExpression.class)
                     || expr.containsVolatileOrNoneMovableExpression()) {
                 // See inferNewPredicate for rationale: never clone volatile
                 // predicates into a subtree that did not already evaluate them.

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.analysis.SearchDslParser;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NonInferableExpression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
@@ -48,7 +49,7 @@ import java.util.List;
  * Example options: '{"default_field":"title","mode":"lucene","minimum_should_match":0}'
  */
 public class Search extends ScalarFunction
-        implements ExplicitlyCastableSignature, AlwaysNotNullable {
+        implements ExplicitlyCastableSignature, AlwaysNotNullable, NonInferableExpression {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             // Original signature: search(dsl_string)
