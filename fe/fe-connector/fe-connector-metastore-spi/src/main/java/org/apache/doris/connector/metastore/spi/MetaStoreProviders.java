@@ -20,9 +20,11 @@ package org.apache.doris.connector.metastore.spi;
 import org.apache.doris.connector.metastore.MetaStoreProperties;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.ServiceLoader;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -97,6 +99,19 @@ public final class MetaStoreProviders {
         throw new IllegalArgumentException(
                 "No MetaStoreProvider supports catalog type '" + catalogType + "'; registered providers: "
                         + registeredNames());
+    }
+
+    /**
+     * The sensitive property keys of every registered backend ({@link MetaStoreProvider#sensitivePropertyKeys}).
+     * A connector declares them on its {@code ConnectorSecuritySurface}: a catalog may name any backend, so
+     * the engine has to mask the secrets of all of them.
+     */
+    public static Set<String> sensitivePropertyKeys() {
+        Set<String> keys = new HashSet<>();
+        for (MetaStoreProvider provider : PROVIDERS) {
+            keys.addAll(provider.sensitivePropertyKeys());
+        }
+        return keys;
     }
 
     /** Names of the registered providers (for diagnostics). */

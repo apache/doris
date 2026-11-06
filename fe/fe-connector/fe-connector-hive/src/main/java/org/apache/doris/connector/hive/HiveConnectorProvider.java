@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.hive;
 
+import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
@@ -86,8 +87,10 @@ public class HiveConnectorProvider implements ConnectorProvider {
     public ConnectorSecuritySurface securitySurface() {
         // Every key the HMS client may take its thrift endpoint from: hive.metastore.uris, its documented alias
         // uri, and Hive 3's metastore.thrift.uris, which the client reads first. The engine's SSRF gate rejects
-        // an intranet target there at CREATE / ALTER CATALOG.
+        // an intranet target there at CREATE / ALTER CATALOG. The secrets are the metastore's sensitive
+        // properties (none today: a keytab is named by its path).
         return ConnectorSecuritySurface.ofSsrfEndpoints(HiveCatalogProperties.HIVE_METASTORE_URIS,
-                HiveCatalogProperties.URI, HiveCatalogProperties.METASTORE_THRIFT_URIS);
+                HiveCatalogProperties.URI, HiveCatalogProperties.METASTORE_THRIFT_URIS)
+                .withSensitiveKeys(MetaStoreProviders.sensitivePropertyKeys());
     }
 }

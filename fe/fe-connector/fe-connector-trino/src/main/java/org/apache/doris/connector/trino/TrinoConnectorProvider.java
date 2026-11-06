@@ -20,6 +20,7 @@ package org.apache.doris.connector.trino;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
+import org.apache.doris.connector.spi.ConnectorSecuritySurface;
 
 import java.util.Map;
 
@@ -54,5 +55,17 @@ public class TrinoConnectorProvider implements ConnectorProvider {
     @Override
     public void validateProperties(Map<String, String> properties) {
         TrinoCatalogProperties.of(properties);
+    }
+
+    /**
+     * The properties under {@link TrinoCatalogProperties#TRINO_PROPERTIES_PREFIX} go to the Trino connector
+     * unread, and each Trino connector names its own credentials ({@code trino.connection-password},
+     * {@code trino.hive.s3.aws-secret-key}, ...), so one of them is a secret when its name carries a
+     * credential-like word.
+     */
+    @Override
+    public ConnectorSecuritySurface securitySurface() {
+        return ConnectorSecuritySurface.ofSensitiveKeyPrefix(TrinoCatalogProperties.TRINO_PROPERTIES_PREFIX,
+                "key", "secret", "password", "token", "credential");
     }
 }

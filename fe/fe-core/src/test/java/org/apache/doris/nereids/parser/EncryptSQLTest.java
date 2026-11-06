@@ -161,6 +161,20 @@ public class EncryptSQLTest extends ParserTestBase {
                     + ")";
             parseAndCheck(sql, res);
 
+            // ALTER CATALOG sets the same secrets as CREATE CATALOG, so its audit text is masked the same way.
+            sql = "ALTER CATALOG ctl SET PROPERTIES("
+                    + " \"s3.endpoint\" = \"s3.us-east-1.amazonaws.com\","
+                    + " \"password\" = \"abc\","
+                    + " \"s3.secret_key\" = \"abc\""
+                    + ")";
+
+            res = "ALTER CATALOG ctl SET PROPERTIES("
+                    + " \"s3.endpoint\" = \"s3.us-east-1.amazonaws.com\","
+                    + " \"password\" = \"*XXX\","
+                    + " \"s3.secret_key\" = \"*XXX\""
+                    + ")";
+            parseAndCheck(sql, res);
+
             sql = "CREATE TABLE mysql_tbl("
                     + " k1 DATE,"
                     + " k2 INT,"
