@@ -28,6 +28,7 @@ import org.apache.iceberg.catalog.BaseViewSessionCatalog;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SessionCatalog.SessionContext;
+import org.apache.iceberg.catalog.TableCommit;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NotAuthorizedException;
 import org.apache.iceberg.io.FileIO;
@@ -103,6 +104,10 @@ public class ReauthenticatingRestSessionCatalog extends BaseViewSessionCatalog i
     @VisibleForTesting
     RESTSessionCatalog currentDelegate() {
         return delegate;
+    }
+
+    void commitTransaction(SessionContext context, List<TableCommit> commits) {
+        runWithAuthRecovery(context, () -> delegate.commitTransaction(context, commits));
     }
 
     FileIO takeCatalogFileIo(Table table) {

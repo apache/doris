@@ -26,9 +26,13 @@ import com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.catalog.BaseViewSessionCatalog;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.SessionCatalog;
+import org.apache.iceberg.catalog.SessionCatalog.SessionContext;
+import org.apache.iceberg.catalog.TableCommit;
 import org.apache.iceberg.catalog.ViewCatalog;
+import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -94,6 +98,21 @@ class IcebergSessionCatalogAdapter {
     ViewCatalog delegatedViewCatalog(ConnectorSession session) {
         requireDelegatedCredential(session);
         return requireSessionCatalog().asViewCatalog(toIcebergSessionContext(session, delegatedTokenMode));
+    }
+
+    void commitTransaction(ConnectorSession session, List<TableCommit> commits) {
+        requireDelegatedCredential(session);
+        commitTransaction(requireSessionCatalog(), toIcebergSessionContext(session, delegatedTokenMode), commits);
+    }
+
+    static void commitTransaction(BaseViewSessionCatalog catalog, SessionContext context, List<TableCommit> commits) {
+        if (catalog instanceof ReauthenticatingRestSessionCatalog) {
+            ((ReauthenticatingRestSessionCatalog) catalog).commitTransaction(context, commits);
+        } else if (catalog instanceof RESTSessionCatalog) {
+            ((RESTSessionCatalog) catalog).commitTransaction(context, commits);
+        } else {
+            throw new DorisConnectorException("Iceberg REST session catalog cannot commit table transactions");
+        }
     }
 
     /**
