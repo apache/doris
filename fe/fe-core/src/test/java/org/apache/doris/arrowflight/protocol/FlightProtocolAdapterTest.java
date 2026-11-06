@@ -507,7 +507,7 @@ public class FlightProtocolAdapterTest {
         StmtExecutor deferred = Mockito.mock(StmtExecutor.class);
         ctx.addFlightSqlDeferredExecutor(deferred);
         Assertions.assertEquals(Lists.newArrayList(deferred), ctx.getFlightSqlDeferredExecutors());
-        adapter.beginRequest();
+        adapter.resetRequestState();
         Assertions.assertTrue(ctx.getFlightSqlDeferredExecutors().isEmpty());
         Mockito.verify(deferred).finalizeArrowFlightQuery();
         Assertions.assertEquals(0, adapter.getChannel().resultNum());
@@ -567,7 +567,7 @@ public class FlightProtocolAdapterTest {
         Assertions.assertEquals(new TUniqueId(4, 4), ctx.getFlightSqlEndpointsLocations().get(1).getFinstId());
 
         // A new request starts from nothing.
-        adapter.beginRequest();
+        adapter.resetRequestState();
         adapter.beforeStatement(ctx);
         adapter.beforeAttempt(ctx);
         Assertions.assertTrue(ctx.getFlightSqlEndpointsLocations().isEmpty());
@@ -603,7 +603,7 @@ public class FlightProtocolAdapterTest {
         // request describes exactly one result, so a query that is not the last statement stops the
         // request too, wherever its result is -- and the query, which nobody will pull from the
         // backends, is cancelled there rather than left to the BE's result buffer timer ...
-        adapter.beginRequest();
+        adapter.resetRequestState();
         ctx.getState().reset();
         adapter.beforeStatement(ctx);
         adapter.beforeQuery(ctx);

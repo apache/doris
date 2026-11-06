@@ -130,7 +130,7 @@ class FlightSqlExecutionSchemaTest extends TestWithFeService {
                     prepared, actual, statement.getColLabels()));
             return actual;
         } finally {
-            FlightProtocolAdapter.of(flightContext).beginRequest();
+            FlightProtocolAdapter.of(flightContext).resetRequestState();
             connectContext.setThreadLocalInfo();
         }
     }
