@@ -85,6 +85,31 @@ public class AccountLockTest extends TestWithFeService {
         return Boolean.parseBoolean(info.get(8).get(1));
     }
 
+    private List<String> mysqlUserRow(String name) {
+        return auth().getAllUserInfo(UserIdentity.ROOT).stream()
+                .filter(row -> name.equals(row.get(1))).findFirst().orElseThrow(AssertionError::new);
+    }
+
+    // mysql.user is filled from the policy rows by name. The former "copy if exactly 8 rows" guard
+    // left EVERY password_policy column empty for every user once the administrative lock added a
+    // ninth row (#67792); the lock itself is now a column of its own.
+    @Test
+    public void testMysqlUserCarriesThePolicyColumnsAndTheLock() throws Exception {
+        run("CREATE USER 'mu1'@'%' IDENTIFIED BY 'p1' FAILED_LOGIN_ATTEMPTS 3 PASSWORD_LOCK_TIME 1 DAY");
+        List<String> row = mysqlUserRow("mu1");
+        Assertions.assertEquals(33, row.size());
+        Assertions.assertEquals("3", row.get(28), row.toString());      // password_policy.num_failed_login
+        Assertions.assertEquals("86400", row.get(29), row.toString());  // password_policy.password_lock_seconds
+        Assertions.assertEquals("0", row.get(30), row.toString());      // password_policy.failed_login_counter
+        Assertions.assertEquals("false", row.get(32), row.toString());  // password_policy.account_locked
+        Assertions.assertEquals("***", row.get(27));                     // history_passwords stays masked
+
+        run("ALTER USER 'mu1'@'%' ACCOUNT_LOCK");
+        Assertions.assertEquals("true", mysqlUserRow("mu1").get(32));
+        run("ALTER USER 'mu1'@'%' ACCOUNT_UNLOCK");
+        Assertions.assertEquals("false", mysqlUserRow("mu1").get(32));
+    }
+
     @Test
     public void testAlterLockRefusesLoginAndUnlockRestoresIt() throws Exception {
         run("CREATE USER 'lk1'@'%' IDENTIFIED BY 'p1'");

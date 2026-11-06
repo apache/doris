@@ -61,6 +61,14 @@ public class PasswordPolicy {
     private static final String FAILED_LOGIN_COUNTER = "password_policy.failed_login_counter";
     private static final String LOCK_TIME = "password_policy.lock_time";
     private static final String ACCOUNT_LOCKED = "password_policy.account_locked";
+    /**
+     * The password-policy columns of mysql.user, in column order (MysqlDBTable): every row name
+     * {@link #getInfo()} reports. mysql.user is filled from this list by name, so adding a row here
+     * (and its column there) is the whole of exposing a new policy field.
+     */
+    public static final List<String> MYSQL_USER_COLUMNS = Lists.newArrayList(EXPIRATION_SECONDS,
+            PASSWORD_CREATION_TIME, HISTORY_NUM, HISTORY_PASSWORDS, NUM_FAILED_LOGIN, PASSWORD_LOCK_SECONDS,
+            FAILED_LOGIN_COUNTER, LOCK_TIME, ACCOUNT_LOCKED);
 
     @SerializedName(value = "expirePolicy")
     private ExpirePolicy expirePolicy = new ExpirePolicy();

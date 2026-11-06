@@ -2332,7 +2332,7 @@ public class Auth implements Writable {
                         if (!canSeeAll && (currentUser == null || !userIdent.equals(currentUser))) {
                             continue;
                         }
-                        List<String> userInfo = Lists.newArrayList(Collections.nCopies(32, ""));
+                        List<String> userInfo = Lists.newArrayList(Collections.nCopies(33, ""));
                         userInfo.set(0, userIdent.getHost());
                         userInfo.set(1, userIdent.getQualifiedUser());
                         for (int i = 2; i <= 13; i++) {
@@ -2399,11 +2399,15 @@ public class Auth implements Writable {
 
                         // Set password policy info
                         userInfo.set(21, String.valueOf(getMaxConn(userIdent.getQualifiedUser())));
-                        List<List<String>> passWordPolicyInfo = getPasswdPolicyInfo(userIdent);
-                        if (passWordPolicyInfo.size() == 8) {
-                            for (int i = 0; i < passWordPolicyInfo.size(); i++) {
-                                userInfo.set(24 + i, passWordPolicyInfo.get(i).get(1));
-                            }
+                        // By row name, in the column order of MysqlDBTable: the former "copy if exactly
+                        // 8 rows" guard left every policy column empty once the administrative lock
+                        // added a ninth row (#67792).
+                        Map<String, String> policy = Maps.newHashMap();
+                        for (List<String> row : getPasswdPolicyInfo(userIdent)) {
+                            policy.put(row.get(0), row.get(1));
+                        }
+                        for (int i = 0; i < PasswordPolicy.MYSQL_USER_COLUMNS.size(); i++) {
+                            userInfo.set(24 + i, policy.getOrDefault(PasswordPolicy.MYSQL_USER_COLUMNS.get(i), ""));
                         }
                         // Never expose password-derived material through mysql.user. The
                         // authentication_string hash and the password_policy.history_passwords
