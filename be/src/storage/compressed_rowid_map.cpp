@@ -171,8 +171,8 @@ struct CompressedRowIdMap::Impl : TrackedRowIdObject {
             previous = value;
         }
         DORIS_CHECK_GT(meta.live, 0);
-        meta.kind = linear ? LINEAR : DELTA;
-        meta.flags = meta.live == meta.rows ? 0 : BITMAP;
+        meta.kind = linear ? Kind::LINEAR : Kind::DELTA;
+        meta.flags = meta.live == meta.rows ? 0 : flag_bits(Flag::BITMAP);
         if (linear && meta.flags == 0) {
             source.blocks[source.current_block] = meta;
             return Status::OK();
@@ -184,8 +184,15 @@ struct CompressedRowIdMap::Impl : TrackedRowIdObject {
         if (encoder->cctx == nullptr) {
             return Status::InternalError("Cannot initialize rowid Zstd encoder workspace");
         }
+        // Encode only live targets; the bitmap keeps their physical source positions.
+        // Example before optional Zstd (all shown integers fit in one varint byte):
+        //   source offsets:    0       1       2       3
+        //   target ordinals:  100   MISSING   103     104
+        //   meta: first=100, rows=4, live=3, kind=DELTA, flags=BITMAP
+        //   plain: [0x0d bitmap][0x02 gap][0x00 gap]
+        // The bitmap has bits 0,2,3 set; gaps are 103-100-1 and 104-103-1.
         uint8_t* plain = encoder->plain.get();
-        size_t bitmap_bytes = (meta.flags & BITMAP) != 0 ? (meta.rows + 7) / 8 : 0;
+        size_t bitmap_bytes = (meta.flags & flag_bits(Flag::BITMAP)) != 0 ? (meta.rows + 7) / 8 : 0;
         memset(plain, 0, bitmap_bytes);
         uint8_t* end = plain + bitmap_bytes;
         previous = MISSING;
@@ -209,13 +216,13 @@ struct CompressedRowIdMap::Impl : TrackedRowIdObject {
                                   ZSTD_compressBound(MAX_PLAIN_BYTES), plain, meta.plain_bytes, 1);
         RETURN_IF_ERROR(zstd_status(compressed_size));
         if (compressed_size < payload.size()) {
-            meta.flags |= ZSTD;
+            meta.flags |= flag_bits(Flag::ZSTD);
             payload = {encoder->compressed.get(), compressed_size};
         }
         // A sparse/outlier-heavy tail can have more varint bytes than raw rows.
         // Never expand the final payload beyond 8 bytes per physical source row.
         if (payload.size() > meta.rows * sizeof(uint64_t)) {
-            meta.kind = RAW64;
+            meta.kind = Kind::RAW64;
             meta.flags = 0;
             meta.plain_bytes = meta.rows * sizeof(uint64_t);
             payload = {reinterpret_cast<const uint8_t*>(source.builder.get()), meta.plain_bytes};
@@ -329,9 +336,9 @@ Status CompressedRowIdMap::block_payload(const BlockMeta& meta,
 Status CompressedRowIdMap::decode(const BlockMeta& meta, std::span<const uint8_t> payload,
                                   Cursor& cursor, DecodeWorkspace& workspace) {
     if (meta.rows == 0 || meta.rows > BLOCK_ROWS || meta.live > meta.rows || meta.reserved != 0 ||
-        (meta.flags & ~(BITMAP | ZSTD)) != 0 || meta.kind > RAW64 ||
-        meta.payload_bytes != payload.size() || meta.payload_bytes > meta.rows * sizeof(uint64_t) ||
-        meta.plain_bytes > MAX_PLAIN_BYTES) {
+        (meta.flags & ~(flag_bits(Flag::BITMAP) | flag_bits(Flag::ZSTD))) != 0 ||
+        meta.kind > Kind::RAW64 || meta.payload_bytes != payload.size() ||
+        meta.payload_bytes > meta.rows * sizeof(uint64_t) || meta.plain_bytes > MAX_PLAIN_BYTES) {
         return invalid_block("directory fields");
     }
     RETURN_IF_ERROR(cursor.reserve());
@@ -339,7 +346,7 @@ Status CompressedRowIdMap::decode(const BlockMeta& meta, std::span<const uint8_t
     cursor._impl->owner = nullptr;
     auto* values = cursor._impl->values.get();
     std::fill_n(values, BLOCK_ROWS, MISSING);
-    if (meta.kind == EMPTY) {
+    if (meta.kind == Kind::EMPTY) {
         return meta.live == 0 && meta.flags == 0 && payload.empty() && meta.plain_bytes == 0
                        ? Status::OK()
                        : invalid_block("nonempty EMPTY");
@@ -347,7 +354,7 @@ Status CompressedRowIdMap::decode(const BlockMeta& meta, std::span<const uint8_t
     if (meta.live == 0 || meta.first == MISSING) {
         return invalid_block("empty live sequence");
     }
-    if (meta.kind == RAW64) {
+    if (meta.kind == Kind::RAW64) {
         if (meta.flags != 0 || payload.size() != meta.rows * sizeof(uint64_t) ||
             meta.plain_bytes != payload.size()) {
             return invalid_block("RAW64 size/flags");
@@ -367,10 +374,10 @@ Status CompressedRowIdMap::decode(const BlockMeta& meta, std::span<const uint8_t
         }
         return live == meta.live ? Status::OK() : invalid_block("RAW64 live count");
     }
-    if (((meta.flags & BITMAP) != 0) != (meta.live != meta.rows)) {
+    if (((meta.flags & flag_bits(Flag::BITMAP)) != 0) != (meta.live != meta.rows)) {
         return invalid_block("bitmap flag/live count");
     }
-    if ((meta.flags & ZSTD) != 0) {
+    if ((meta.flags & flag_bits(Flag::ZSTD)) != 0) {
         RETURN_IF_CATCH_EXCEPTION({
             if (workspace._impl == nullptr) {
                 workspace._impl = std::make_unique<DecodeWorkspace::Impl>();
@@ -389,11 +396,16 @@ Status CompressedRowIdMap::decode(const BlockMeta& meta, std::span<const uint8_t
     } else if (meta.plain_bytes != payload.size()) {
         return invalid_block("plain length");
     }
-    size_t bitmap_bytes = (meta.flags & BITMAP) != 0 ? (meta.rows + 7) / 8 : 0;
+    size_t bitmap_bytes = (meta.flags & flag_bits(Flag::BITMAP)) != 0 ? (meta.rows + 7) / 8 : 0;
     if (payload.size() < bitmap_bytes || (bitmap_bytes != 0 && meta.rows % 8 != 0 &&
                                           (payload[bitmap_bytes - 1] >> (meta.rows % 8)) != 0)) {
         return invalid_block("bitmap length/padding");
     }
+    // Zstd, when present, has already been removed. Walk the bitmap in physical
+    // row order while consuming the live sequence: first, then previous + gap + 1.
+    // LINEAR consumes no varints (gap is implicitly zero); holes consume neither
+    // a target nor a gap. E.g. [0x0d | 0x02 0x00], first=100 reconstructs
+    // [100, MISSING, 103, 104], rather than advancing the live sequence at the hole.
     size_t position = bitmap_bytes;
     uint16_t live = 0;
     uint64_t value = meta.first;
@@ -403,7 +415,7 @@ Status CompressedRowIdMap::decode(const BlockMeta& meta, std::span<const uint8_t
         }
         if (live != 0) {
             uint64_t gap = 0;
-            if (meta.kind == DELTA) {
+            if (meta.kind == Kind::DELTA) {
                 // The general coding helper accepts an overflowing tenth byte.
                 // Check all ten bytes here before reconstructing a global ordinal.
                 bool terminated = false;
@@ -456,11 +468,11 @@ Status CompressedRowIdMap::get(uint32_t source_id, uint32_t row, Cursor& cursor,
     if (meta.rows != expected_rows) {
         return invalid_block("source block length");
     }
-    if (meta.kind == EMPTY && meta.live == 0 && meta.flags == 0 && meta.payload_bytes == 0 &&
+    if (meta.kind == Kind::EMPTY && meta.live == 0 && meta.flags == 0 && meta.payload_bytes == 0 &&
         meta.plain_bytes == 0 && meta.reserved == 0) {
         return Status::OK();
     }
-    if (meta.kind == LINEAR && meta.live == meta.rows && meta.flags == 0 &&
+    if (meta.kind == Kind::LINEAR && meta.live == meta.rows && meta.flags == 0 &&
         meta.payload_bytes == 0 && meta.plain_bytes == 0 && meta.reserved == 0) {
         if (meta.first >= MISSING - (meta.rows - 1)) {
             return invalid_block("LINEAR target overflow");

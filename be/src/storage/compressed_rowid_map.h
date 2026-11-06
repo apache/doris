@@ -90,8 +90,37 @@ public:
     MemoryUsage memory_usage() const;
 
 private:
-    enum Kind : uint8_t { EMPTY, LINEAR, DELTA, RAW64 };
-    enum Flag : uint8_t { BITMAP = 1, ZSTD = 2 };
+    enum class Kind : uint8_t { EMPTY, LINEAR, DELTA, RAW64 };
+    enum class Flag : uint8_t { BITMAP = 1, ZSTD = 2 };
+    static constexpr uint8_t flag_bits(Flag flag) { return static_cast<uint8_t>(flag); }
+
+    // Process-local layout, not a persistent/wire format. Each source has a directory:
+    //
+    // source row r --> blocks[r / BLOCK_ROWS] --> arena payload at meta.offset
+    //                  (one 32-byte entry)       (never crosses a 1 MiB page)
+    //
+    // BlockMeta field widths in bytes, in declaration order:
+    // +----------+---------+-----------+---------+--------+--------+--------+---------+------------+
+    // | offset:8 | first:8 | payload:4 | plain:4 | rows:2 | live:2 | kind:1 | flags:1 | reserved:2 |
+    // +----------+---------+-----------+---------+--------+--------+--------+---------+------------+
+    // offset is page_index * PAGE_BYTES + in_page_offset; first is the first live global
+    // target ordinal. rows counts physical source rows; live counts mapped rows. payload
+    // and plain denote payload_bytes (stored) and plain_bytes (before optional Zstd).
+    //
+    // Uncompressed payload by kind (N = rows, L = live, G = live target sequence):
+    //   EMPTY   []                                  all N source rows are missing
+    //   LINEAR  [validity bitmap, if BITMAP]         G[i] = first + i
+    //   DELTA   [validity bitmap, if BITMAP][varint(g1)]...[varint(gL-1)]
+    //                                              gi = G[i] - G[i-1] - 1
+    //   RAW64   [native uint64_t v0]...[vN-1]        one value per physical source row
+    //
+    // BITMAP uses ceil(N / 8) bytes, LSB first within each byte; 1 means mapped.
+    // It is omitted when L == N; padding bits are zero. RAW64 has no flags and uses
+    // MISSING for holes, with native byte order because the map never leaves this process.
+    // EMPTY and full LINEAR need no payload. Otherwise LINEAR/DELTA may set ZSTD:
+    // the entire [bitmap | varints] is replaced by one Zstd frame only if smaller.
+    // first stays in BlockMeta, never in the varint stream or the Zstd frame.
+
     struct BlockMeta {
         uint64_t offset = 0;
         uint64_t first = 0;
@@ -99,7 +128,7 @@ private:
         uint32_t plain_bytes = 0;
         uint16_t rows = 0;
         uint16_t live = 0;
-        uint8_t kind = EMPTY;
+        Kind kind = Kind::EMPTY;
         uint8_t flags = 0;
         uint16_t reserved = 0;
     };
