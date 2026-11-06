@@ -62,7 +62,10 @@ final class FlussTableInfoCache {
             return load.get();
         }
         Entry entry = entries.get(new Key(config, tablePath));
-        if (entry != null && nanoTime.getAsLong() - entry.expiresAtNanos < 0) {
+        long now = nanoTime.getAsLong();
+        // Catalogs and ALTER can share an entry but request a shorter TTL (600s -> 1s).
+        // A hit must still satisfy the requesting scan's freshness limit.
+        if (entry != null && now - entry.expiresAtNanos < 0 && now - entry.loadedAtNanos < ttlNanos) {
             return entry.info;
         }
         return reload(config, tablePath, ttlNanos, load);
@@ -76,7 +79,7 @@ final class FlussTableInfoCache {
         // kept for the life of the process.
         entries.values().removeIf(expired -> now - expired.expiresAtNanos >= 0);
         if (ttlNanos > 0) {
-            entries.put(new Key(config, tablePath), new Entry(info, nanoTime.getAsLong() + ttlNanos));
+            entries.put(new Key(config, tablePath), new Entry(info, nanoTime.getAsLong(), ttlNanos));
         }
         while (entries.size() > 4096) {
             entries.keySet().stream().findFirst().ifPresent(entries::remove);
@@ -115,11 +118,13 @@ final class FlussTableInfoCache {
 
     private static final class Entry {
         private final TableInfo info;
+        private final long loadedAtNanos;
         private final long expiresAtNanos;
 
-        private Entry(TableInfo info, long expiresAtNanos) {
+        private Entry(TableInfo info, long loadedAtNanos, long ttlNanos) {
             this.info = info;
-            this.expiresAtNanos = expiresAtNanos;
+            this.loadedAtNanos = loadedAtNanos;
+            this.expiresAtNanos = loadedAtNanos + ttlNanos;
         }
     }
 }
