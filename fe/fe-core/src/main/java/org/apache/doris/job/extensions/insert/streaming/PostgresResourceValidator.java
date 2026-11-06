@@ -30,6 +30,7 @@ import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -39,8 +40,8 @@ import java.util.Set;
 /**
  * Fail-fast validation of PostgreSQL replication slot and publication at CREATE JOB time,
  * before the CDC client connects. Catches mistakes (user-provided slot/publication missing,
- * conflicting jobId) with actionable errors. Validation runs only on initial create; restarts
- * skip this path by design, so an active slot held by the previous BE does not self-conflict.
+ * conflicting jobId) with actionable errors. ALTER only checks or extends the publication;
+ * replication slot validation runs only on initial create.
  */
 public class PostgresResourceValidator {
 
@@ -55,39 +56,22 @@ public class PostgresResourceValidator {
         String defaultPub = DataSourceConfigKeys.defaultPublicationName(jobId);
         boolean slotUserProvided = !defaultSlot.equals(slotName);
         boolean pubUserProvided = !defaultPub.equals(publicationName);
-        String pgSchema = sourceProperties.get(DataSourceConfigKeys.SCHEMA);
-        List<String> qualifiedTables = new ArrayList<>();
-        for (String name : tableNames) {
-            qualifiedTables.add(pgSchema + "." + name);
-        }
+        List<String> qualifiedTables = qualifyTables(sourceProperties, tableNames);
 
         JdbcClient jdbcClient = StreamingJobUtils.getJdbcClient(DataSourceType.POSTGRES, sourceProperties);
         try (Connection conn = jdbcClient.getConnection()) {
-            boolean pubExists = publicationExists(conn, publicationName);
-            if (!pubExists && pubUserProvided) {
-                throw new JobException(
-                        "publication does not exist: " + publicationName
-                                + ". Create it before starting the job or omit "
-                                + DataSourceConfigKeys.PUBLICATION_NAME
-                                + " to let Doris create one.");
-            }
-            if (pubExists) {
+            if (pubUserProvided) {
+                validateUserPublication(conn, publicationName, qualifiedTables);
+            } else if (publicationExists(conn, publicationName)) {
                 List<String> missing = findMissingTables(conn, publicationName, qualifiedTables);
                 if (!missing.isEmpty()) {
-                    if (pubUserProvided) {
-                        throw new JobException(
-                                "publication " + publicationName
-                                        + " is missing required tables: " + missing
-                                        + ". Add them via ALTER PUBLICATION ... ADD TABLE before starting.");
-                    } else {
-                        throw new JobException(
-                                "publication " + publicationName
-                                        + " already exists but does not cover the configured"
-                                        + " include_tables (missing: " + missing
-                                        + "). Another Doris cluster may be using the same jobId."
-                                        + " Please set " + DataSourceConfigKeys.PUBLICATION_NAME
-                                        + " explicitly to avoid the conflict.");
-                    }
+                    throw new JobException(
+                            "publication " + publicationName
+                                    + " already exists but does not cover the configured"
+                                    + " include_tables (missing: " + missing
+                                    + "). Another Doris cluster may be using the same jobId."
+                                    + " Please set " + DataSourceConfigKeys.PUBLICATION_NAME
+                                    + " explicitly to avoid the conflict.");
                 }
             }
             Boolean slotActive = queryReplicationSlotActive(conn, slotName);
@@ -114,6 +98,70 @@ public class PostgresResourceValidator {
                             + ": " + e.getMessage(), e);
         } finally {
             jdbcClient.closeClient();
+        }
+    }
+
+    public static void ensurePublicationCoversTables(Map<String, String> sourceProperties, String jobId,
+            List<String> tableNames) throws JobException {
+        String configuredName = sourceProperties.get(DataSourceConfigKeys.PUBLICATION_NAME);
+        // Jobs created before per-job publication names use the CDC client's legacy default.
+        String publicationName = StringUtils.isNotBlank(configuredName)
+                ? configuredName : DataSourceConfigKeys.LEGACY_PUBLICATION_NAME;
+        List<String> qualifiedTables = qualifyTables(sourceProperties, tableNames);
+        JdbcClient jdbcClient = StreamingJobUtils.getJdbcClient(DataSourceType.POSTGRES, sourceProperties);
+        try (Connection conn = jdbcClient.getConnection()) {
+            if (!DataSourceConfigKeys.defaultPublicationName(jobId).equals(publicationName)) {
+                validateUserPublication(conn, publicationName, qualifiedTables);
+            } else {
+                List<String> missing = findMissingTables(conn, publicationName, qualifiedTables);
+                if (!missing.isEmpty()) {
+                    String schema = sourceProperties.get(DataSourceConfigKeys.SCHEMA);
+                    List<String> quotedTables = new ArrayList<>();
+                    for (String table : missing) {
+                        quotedTables.add(quoteIdentifier(schema) + "."
+                                + quoteIdentifier(table.substring(schema.length() + 1)));
+                    }
+                    // Preserve old members if ALTER fails before the new job state is persisted.
+                    try (Statement statement = conn.createStatement()) {
+                        statement.execute("ALTER PUBLICATION " + quoteIdentifier(publicationName)
+                                + " ADD TABLE " + String.join(", ", quotedTables));
+                    }
+                }
+            }
+        } catch (JobException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new JobException("Failed to prepare PG publication " + publicationName
+                    + ": " + e.getMessage(), e);
+        } finally {
+            jdbcClient.closeClient();
+        }
+    }
+
+    private static List<String> qualifyTables(Map<String, String> sourceProperties, List<String> tableNames) {
+        String schema = sourceProperties.get(DataSourceConfigKeys.SCHEMA);
+        List<String> qualifiedTables = new ArrayList<>();
+        for (String table : tableNames) {
+            qualifiedTables.add(schema + "." + table);
+        }
+        return qualifiedTables;
+    }
+
+    private static String quoteIdentifier(String identifier) {
+        return "\"" + identifier.replace("\"", "\"\"") + "\"";
+    }
+
+    private static void validateUserPublication(Connection conn, String publicationName, List<String> tables)
+            throws Exception {
+        if (!publicationExists(conn, publicationName)) {
+            throw new JobException("publication does not exist: " + publicationName
+                    + ". Create it before starting the job or omit " + DataSourceConfigKeys.PUBLICATION_NAME
+                    + " to let Doris create one.");
+        }
+        List<String> missing = findMissingTables(conn, publicationName, tables);
+        if (!missing.isEmpty()) {
+            throw new JobException("publication " + publicationName + " is missing required tables: " + missing
+                    + ". Add them via ALTER PUBLICATION ... ADD TABLE before starting.");
         }
     }
 
@@ -152,6 +200,7 @@ public class PostgresResourceValidator {
     private static List<String> findMissingTables(Connection conn, String publicationName, List<String> tables)
             throws Exception {
         Set<String> covered = new HashSet<>();
+        // This view also expands FOR ALL TABLES publications used by legacy jobs.
         try (PreparedStatement ps = conn.prepareStatement(
                 "SELECT schemaname, tablename FROM pg_publication_tables WHERE pubname = ?")) {
             ps.setString(1, publicationName);

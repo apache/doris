@@ -264,11 +264,9 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         request.setTolerateSchemaChange(getStreamingJob().isTolerateSchemaChange());
         // Reader reuse applies only to the binlog phase (snapshot rebinds/closes per split).
         request.setReuseReader(!offset.snapshotSplit());
-        if (offsetProvider instanceof JdbcSourceOffsetProvider) {
-            String schemas = ((JdbcSourceOffsetProvider) offsetProvider).getTableSchemas();
-            if (schemas != null) {
-                request.setTableSchemas(schemas);
-            }
+        String schemas = offsetProvider.getTableSchemas();
+        if (schemas != null) {
+            request.setTableSchemas(schemas);
         }
         return request;
     }

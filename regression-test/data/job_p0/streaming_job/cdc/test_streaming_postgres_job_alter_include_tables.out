@@ -1,0 +1,10 @@
+-- Expected results derived from the source writes and synchronization rules before execution.
+-- !retained_after_add --
+1	1
+2	-2
+3	3
+4	4
+
+-- !added_summary --
+201	20483	21373
+

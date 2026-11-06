@@ -65,6 +65,7 @@ public abstract class AbstractCdcSourceReader implements SourceReader {
 
     protected SourceRecordDeserializer<SourceRecord, DeserializeResult> serializer;
     protected Map<TableId, TableChanges.TableChange> tableSchemas;
+    protected boolean schemaReportRequired;
 
     private final Map<String, Class<?>> splitKeyClassCache = new ConcurrentHashMap<>();
 
@@ -243,5 +244,7 @@ public abstract class AbstractCdcSourceReader implements SourceReader {
      */
     protected void tryLoadTableSchemasFromRequest(JobBaseRecordRequest baseReq) throws IOException {
         loadTableSchemasFromJson(baseReq.getTableSchemas());
+        // Reset per request: a retry must use the FE baseline, not a previous task's discovery.
+        schemaReportRequired = baseReq.getTableSchemas() == null;
     }
 }
