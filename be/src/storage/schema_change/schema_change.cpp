@@ -1429,12 +1429,6 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
         }
 
         if (column_mapping->ref_column_idx >= 0) {
-            const auto& source = base_tablet_schema->column(column_mapping->ref_column_idx);
-            // Linked conversion copies physical paths unchanged; a mapped root cannot change codecs.
-            if (source.variant_escape_dots_in_keys() != new_column.variant_escape_dots_in_keys()) {
-                return Status::NotSupported(
-                        "Can not change variant_escape_dots_in_keys for column {}", source.name());
-            }
             continue;
         }
 

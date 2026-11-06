@@ -209,33 +209,4 @@ TEST_F(IndexStorageVariantCompactionSchemaTest,
     EXPECT_TRUE(schema_has_extracted_variant_path(*compaction_schema, 2, "cold"));
 }
 
-TEST_F(IndexStorageVariantCompactionSchemaTest, EncodingGateRejectsMismatchedPhysicalRoot) {
-    VariantColumnSpec variant;
-    variant.unique_id = 2;
-    variant.name = "v";
-    IndexTabletOptions options;
-    options.tablet_id = 110159;
-    options.variant_columns = {variant};
-    ASSERT_TRUE(create_tablet(options).ok());
-    IndexRowsetSpec input;
-    input.version = 0;
-    input.batches.push_back(IndexBatch::single_variant({R"({"a.b":1})"}, 0));
-    auto result = write_rowset(input);
-    ASSERT_TRUE(result.has_value()) << result.error();
-    auto target = std::make_shared<TabletSchema>(*tablet_schema());
-    ASSERT_TRUE(variant_util::VariantCompactionUtil::check_path_encoding({*result}, *target).ok());
-    target->mutable_column_by_uid(2).set_variant_escape_dots_in_keys(true);
-    auto status = variant_util::VariantCompactionUtil::check_path_encoding({*result}, *target);
-    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
-    EXPECT_NE(status.to_string().find("variant_escape_dots_in_keys"), std::string::npos);
-    target->mutable_column_by_uid(2).set_variant_escape_dots_in_keys(false);
-    TabletColumn added;
-    added.set_unique_id(42);
-    added.set_name("new_variant");
-    added.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
-    added.set_variant_escape_dots_in_keys(true);
-    target->append_column(added);
-    EXPECT_TRUE(variant_util::VariantCompactionUtil::check_path_encoding({*result}, *target).ok());
-}
-
 } // namespace doris::index_storage_test

@@ -1365,8 +1365,9 @@ public class TypeCoercionUtils {
     }
 
     private static Optional<DataType> findCommonVariantType() {
-        // All Variant values have the same execution representation. CTAS and MV creation choose
-        // their target's storage format separately, so compute types need no layout properties.
+        // Variant properties control the storage layout, but all Variant values use the same
+        // runtime representation. Use the property-neutral compute type so that the common type
+        // does not depend on which input happens to be visited first.
         return Optional.of(VariantType.INSTANCE);
     }
 

@@ -20,7 +20,9 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -36,12 +38,14 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.CollectOneLevelRelation;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -49,6 +53,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
@@ -70,8 +75,12 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections4.map.CaseInsensitiveMap;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.Deque;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -229,6 +238,69 @@ public class PlanUtils {
         return tableSet.stream()
                 .map(LogicalCatalogRelation::getTable)
                 .collect(ImmutableSet.<TableIf>toImmutableSet());
+    }
+
+    /** Choose a derived table's storage policy once from bound query relations, before pruning. */
+    public static Map<String, String> inheritVariantEscapeDotsInKeys(Map<String, String> properties,
+            Plan analyzedQuery, StatementContext statementContext) {
+        Map<String, String> result = properties == null ? Maps.newHashMap() : Maps.newHashMap(properties);
+        boolean escaped;
+        if (result.containsKey(PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS)) {
+            try {
+                escaped = PropertyAnalyzer.analyzeVariantEscapeDotsInKeys(Maps.newHashMap(result));
+            } catch (org.apache.doris.common.AnalysisException e) {
+                throw new AnalysisException(e.getMessage(), e);
+            }
+        } else {
+            escaped = hasEscapedVariantScan(analyzedQuery, statementContext);
+        }
+        if (escaped) {
+            result.put(PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS, "true");
+        } else {
+            result.remove(PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS);
+        }
+        return result;
+    }
+
+    private static boolean hasEscapedVariantScan(Plan query, StatementContext statementContext) {
+        Set<Plan> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+        Deque<Plan> plans = new ArrayDeque<>();
+        Map<CTEId, Plan> producers = Maps.newHashMap();
+        plans.add(query);
+        while (!plans.isEmpty()) {
+            Plan plan = plans.removeFirst();
+            if (!visited.add(plan)) {
+                continue;
+            }
+            if (plan instanceof LogicalCatalogRelation) {
+                TableIf table = ((LogicalCatalogRelation) plan).getTable();
+                if (table instanceof OlapTable && ((OlapTable) table).getVariantEscapeDotsInKeys()) {
+                    return true;
+                }
+            }
+            if (plan instanceof LogicalCTEAnchor) {
+                // Only consumers make a producer reachable; an unused escaped CTE is not a source.
+                LogicalCTEAnchor<?, ?> anchor = (LogicalCTEAnchor<?, ?>) plan;
+                producers.put(anchor.getCteId(), anchor.left());
+                plans.add(anchor.right());
+            } else if (plan instanceof LogicalCTEConsumer) {
+                CTEId cteId = ((LogicalCTEConsumer) plan).getCteId();
+                // Rewrite can prune or replace the statement's producer; prefer the bound snapshot.
+                Plan producer = producers.getOrDefault(cteId, statementContext.getCteProducerByCteId(cteId));
+                if (producer != null) {
+                    plans.add(producer);
+                }
+            } else {
+                plans.addAll(plan.children());
+                plans.addAll(plan.extraPlans());
+            }
+            for (Expression expression : plan.getExpressions()) {
+                for (SubqueryExpr subquery : expression.<SubqueryExpr>collect(SubqueryExpr.class::isInstance)) {
+                    plans.add(subquery.getQueryPlan());
+                }
+            }
+        }
+        return false;
     }
 
     /** fastGetChildrenOutput */

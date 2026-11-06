@@ -754,65 +754,6 @@ uint32_t variant_binary_shard_of(const StringRef& path, uint32_t bucket_num) {
     return static_cast<uint32_t>(h % bucket_num);
 }
 
-Status check_variant_schema_compatibility(const TabletSchema& ori_schema,
-                                          const TabletSchema& new_schema) {
-    for (const auto& column : ori_schema.columns()) {
-        if (!column->is_variant_type() || column->is_extracted_column()) {
-            continue;
-        }
-        const auto position = new_schema.field_index(column->unique_id());
-        // Dropping a root and adding another UID does not reinterpret its existing rowsets.
-        if (position < 0) {
-            continue;
-        }
-        const auto& new_column = new_schema.column(position);
-        // An old FE omits the flag; accepting its request would flip an escaped root back to legacy.
-        if (column->variant_escape_dots_in_keys() != new_column.variant_escape_dots_in_keys()) {
-            return Status::NotSupported("Can not change variant_escape_dots_in_keys for column {}",
-                                        column->name());
-        }
-    }
-    return Status::OK();
-}
-
-Status VariantCompactionUtil::check_path_encoding(const std::vector<RowsetSharedPtr>& inputs,
-                                                  const TabletSchema& schema) {
-    std::vector<const TabletColumn*> escaped_columns;
-    for (const auto& column : schema.columns()) {
-        if (column->is_variant_type() && !column->is_extracted_column() &&
-            column->variant_escape_dots_in_keys()) {
-            escaped_columns.push_back(column.get());
-        }
-    }
-    if (escaped_columns.empty()) {
-        return Status::OK();
-    }
-    for (const auto& rowset : inputs) {
-        SegmentCacheHandle handle;
-        RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
-                std::static_pointer_cast<BetaRowset>(rowset), &handle));
-        for (const auto* column : escaped_columns) {
-            for (const auto& segment : handle.get_segments()) {
-                std::shared_ptr<segment_v2::VariantColumnReader> reader;
-                OlapReaderStatistics stats;
-                StorageReadOptions options(stats);
-                auto status = segment->get_variant_root_reader(*column, options, &reader);
-                if (status.is<ErrorCode::NOT_FOUND>()) {
-                    continue;
-                }
-                RETURN_IF_ERROR(status);
-                if (reader->path_encoding() != 1) {
-                    return Status::NotSupported(
-                            "Variant path encoding {} does not match "
-                            "variant_escape_dots_in_keys=true for column {}",
-                            reader->path_encoding(), column->unique_id());
-                }
-            }
-        }
-    }
-    return Status::OK();
-}
-
 Status VariantCompactionUtil::aggregate_path_to_stats(
         const RowsetSharedPtr& rs,
         std::unordered_map<int32_t, PathToNoneNullValues>* uid_to_path_stats) {

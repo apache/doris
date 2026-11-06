@@ -17,6 +17,6 @@
 
 -- !complex_schema --
 id	int	Yes	true	\N	
-v	variant<PROPERTIES ("variant_max_subcolumns_count" = "1","variant_enable_typed_paths_to_sparse" = "false","variant_max_sparse_column_statistics_size" = "10000","variant_sparse_hash_shard_count" = "1","variant_enable_nested_group" = "false","variant_escape_dots_in_keys" = "true")>	Yes	false	\N	NONE
+v	variant<PROPERTIES ("variant_max_subcolumns_count" = "1","variant_enable_typed_paths_to_sparse" = "false","variant_max_sparse_column_statistics_size" = "10000","variant_sparse_hash_shard_count" = "1")>	Yes	false	\N	NONE
 v.hot	bigint	Yes	false	\N	NONE
 

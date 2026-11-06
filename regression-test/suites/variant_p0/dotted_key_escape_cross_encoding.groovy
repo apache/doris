@@ -52,11 +52,10 @@ suite("dotted_key_escape_cross_encoding", "p0") {
                 [[source, sourceEscape], [target, !sourceEscape]].each { pair ->
                     sql "DROP TABLE IF EXISTS ${pair[0]}"
                     sql """CREATE TABLE ${pair[0]} (id INT, v VARIANT<PROPERTIES(
-                        "variant_escape_dots_in_keys"="${pair[1]}",
                         ${layout},
                         "variant_enable_nested_group"="false")>)
                         DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
-                        PROPERTIES("replication_num"="1", "disable_auto_compaction"="true",
+                        PROPERTIES("variant_escape_dots_in_keys"="${pair[1]}", "replication_num"="1", "disable_auto_compaction"="true",
                                    "storage_format"="${format}")"""
                 }
                 documents.eachWithIndex { value, id ->

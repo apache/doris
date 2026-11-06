@@ -2345,7 +2345,7 @@ TEST_F(CollectionStatisticsTest, CollectMatchUsesEncodedVariantPath) {
     root.set_unique_id(kRootUid);
     root.set_name("v");
     root.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
-    root.set_variant_escape_dots_in_keys(true);
+    schema->set_variant_escape_dots_in_keys(true);
     schema->append_column(root);
 
     const std::vector<std::vector<std::string>> paths {{"a.b"}, {"a", "b"}, {"a%2Eb"}, {"50%"}};

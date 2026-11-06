@@ -107,8 +107,6 @@ TabletColumn get_column_by_type(const DataTypePtr& data_type, const std::string&
                                 const ExtraInfo& ext_info);
 
 // A retained Variant UID cannot change storage path encoding. New column identities are allowed.
-Status check_variant_schema_compatibility(const TabletSchema& ori_schema,
-                                          const TabletSchema& new_schema);
 
 // check if the tuple_paths has ambiguous paths
 // situation:
@@ -187,8 +185,6 @@ bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
 
 class VariantCompactionUtil {
 public:
-    static Status check_path_encoding(const std::vector<RowsetSharedPtr>& inputs,
-                                      const TabletSchema& schema);
     // get the subpaths and sparse paths for the variant column
     static void get_subpaths(int32_t max_subcolumns_count, const PathToNoneNullValues& path_stats,
                              VariantCompactionPaths& paths_set_info);

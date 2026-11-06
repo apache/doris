@@ -19,11 +19,11 @@ suite("dotted_key_escape_doc_threshold", "p0,nonConcurrent") {
     sql "set describe_extend_variant_column=true"
     sql "drop table if exists dotted_key_escape_doc_threshold"
     sql """create table dotted_key_escape_doc_threshold(id int, v variant<properties(
-        "variant_escape_dots_in_keys"="true", "variant_enable_nested_group"="false",
+        "variant_enable_nested_group"="false",
         "variant_enable_doc_mode"="true", "variant_doc_materialization_min_rows"="4",
         "variant_doc_hash_shard_count"="3")>)
         duplicate key(id) distributed by hash(id) buckets 1
-        properties("replication_num"="1", "disable_auto_compaction"="true")"""
+        properties("variant_escape_dots_in_keys"="true", "replication_num"="1", "disable_auto_compaction"="true")"""
     sql """insert into dotted_key_escape_doc_threshold values
         (1,parse_to_variant('{"a.b":101,"a":{"b":201},"a%2Eb":301,"50%":401}')),
         (3,parse_to_variant('{"a.b":103,"a":{"b":203},"a%2Eb":303}')),

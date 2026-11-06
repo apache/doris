@@ -172,7 +172,7 @@ public class ElementAt extends ScalarFunction
         DataType expressionType = arguments.get(0).getDataType();
         DataType sigType = signature.argumentsTypes.get(0);
         if (expressionType instanceof VariantType && sigType instanceof VariantType) {
-            // A sub-object is an execution value, not a storage column with the root's properties.
+            // only keep the variant max subcolumns count
             VariantType variantType = new VariantType(((VariantType) expressionType).getVariantMaxSubcolumnsCount());
             signature = signature.withArgumentType(0, variantType);
             signature = signature.withReturnType(variantType);

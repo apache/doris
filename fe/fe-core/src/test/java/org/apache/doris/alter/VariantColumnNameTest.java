@@ -68,22 +68,4 @@ public class VariantColumnNameTest extends TestWithFeService {
         alterTableSync("ALTER TABLE t RENAME COLUMN `other.x` `other.y`");
         Assertions.assertNotNull(table.getColumn("other.y"));
     }
-
-    @Test
-    public void testEscapedVariantCreationAndAddColumn() throws Exception {
-        String escaped = "VARIANT<PROPERTIES('variant_escape_dots_in_keys'='true',"
-                + "'variant_enable_nested_group'='false')>";
-        String suffix = " DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 "
-                + "PROPERTIES ('replication_num'='1')";
-        createTable("CREATE TABLE escaped_add(k INT, v VARIANT)" + suffix);
-        createTable("CREATE TABLE escaped_create(k INT, v " + escaped + ")" + suffix);
-        alterTableSync("ALTER TABLE escaped_add ADD COLUMN e " + escaped);
-        OlapTable table = (OlapTable) Env.getCurrentInternalCatalog()
-                .getDbOrMetaException("variant_column_name").getTableOrMetaException("escaped_add");
-        Assertions.assertTrue(table.getColumn("e").getVariantEscapeDotsInKeys());
-        OlapTable created = (OlapTable) Env.getCurrentInternalCatalog()
-                .getDbOrMetaException("variant_column_name").getTableOrMetaException("escaped_create");
-        Assertions.assertTrue(created.getColumn("v").getVariantEscapeDotsInKeys());
-    }
-
 }

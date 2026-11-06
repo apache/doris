@@ -29,6 +29,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <string>
 #include <unordered_map>
@@ -1000,10 +1001,6 @@ Status RowIdStorageReader::read_doris_format_row(
         io_ctx.reader_type = ReaderType::READER_QUERY;
         io_ctx.file_cache_stats = &stats.file_cache_stats;
         io_ctx.file_cache_miss_policy = file_cache_miss_policy;
-        // Row-store fetch bypasses column iterators; validate the request's column descriptors here.
-        for (const auto& column : fetch_columns) {
-            RETURN_IF_ERROR(segment->check_variant_path_encoding(column, &stats, &io_ctx));
-        }
         for (auto row_id : row_ids) {
             RowLocation loc(rowset_id, segment->id(), cast_set<uint32_t>(row_id));
             row_store_read_struct.row_store_buffer.clear();
@@ -1047,7 +1044,14 @@ Status RowIdStorageReader::read_doris_format_row(
                         "fetch request carries {} column descs for {} slots, slot {} has none",
                         fetch_columns.size(), slots.size(), slots[x].col_name());
             }
-            const TabletColumn& read_column = fetch_columns[x];
+            std::optional<TabletColumn> escaped_column;
+            if (tablet->tablet_schema()->variant_escape_dots_in_keys()) {
+                // Standalone request columns carry no encoding. Bind escaped paths such as
+                // v['a.b'] on a local copy; legacy tablets can use the request column directly.
+                escaped_column.emplace(fetch_columns[x]);
+                tablet->tablet_schema()->inherit_variant_path_encoding(*escaped_column);
+            }
+            const TabletColumn& read_column = escaped_column ? *escaped_column : fetch_columns[x];
             set_slot_access_paths(slots[x], read_column, iterator_item.storage_read_options);
             RETURN_IF_ERROR(segment->seek_and_read_by_rowid(read_column, &slots[x], row_ids, column,
                                                             iterator_item.storage_read_options,

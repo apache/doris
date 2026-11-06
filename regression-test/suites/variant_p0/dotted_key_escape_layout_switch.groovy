@@ -21,11 +21,11 @@ suite("dotted_key_escape_layout_switch", "p0,nonConcurrent") {
     [1, 2].each { width ->
         sql "drop table if exists dotted_key_escape_switch"
         sql """create table dotted_key_escape_switch(id int, v variant<properties(
-            "variant_escape_dots_in_keys"="true", "variant_enable_nested_group"="false",
+            "variant_enable_nested_group"="false",
             "variant_max_subcolumns_count"="1", "variant_sparse_hash_shard_count"="3",
             "variant_max_sparse_column_statistics_size"="10000")>)
             duplicate key(id) distributed by hash(id) buckets 1
-            properties("replication_num"="1", "disable_auto_compaction"="true")"""
+            properties("variant_escape_dots_in_keys"="true", "replication_num"="1", "disable_auto_compaction"="true")"""
         // Unequal frequencies select dot, then percent, then dot again. Overlapping key
         // ranges force rewriting, and the second merge consumes the first merge's output.
         sql """insert into dotted_key_escape_switch values
@@ -63,11 +63,11 @@ suite("dotted_key_escape_layout_switch", "p0,nonConcurrent") {
         [1, 2].each { width ->
             sql "drop table if exists dotted_key_escape_cap"
             sql """create table dotted_key_escape_cap(id int, v variant<properties(
-                "variant_escape_dots_in_keys"="true", "variant_enable_nested_group"="false",
+                "variant_enable_nested_group"="false",
                 "variant_max_subcolumns_count"="${cap}", "variant_sparse_hash_shard_count"="3",
                 "variant_max_sparse_column_statistics_size"="10000")>)
                 duplicate key(id) distributed by hash(id) buckets 1
-                properties("replication_num"="1", "disable_auto_compaction"="true")"""
+                properties("variant_escape_dots_in_keys"="true", "replication_num"="1", "disable_auto_compaction"="true")"""
             sql """insert into dotted_key_escape_cap values
                 (1,parse_to_variant('{"a.b":101,"a":{"b":201},"a%2Eb":301}')),
                 (3,parse_to_variant('{"a.b":103,"a":{"b":203}}'))"""

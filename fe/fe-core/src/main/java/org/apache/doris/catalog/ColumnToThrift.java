@@ -94,7 +94,6 @@ public class ColumnToThrift {
         tColumn.setVariantDocMaterializationMinRows(column.getvariantDocMaterializationMinRows());
         tColumn.setVariantDocHashShardCount(column.getVariantDocShardCount());
         tColumn.setVariantEnableNestedGroup(column.getVariantEnableNestedGroup());
-        tColumn.setVariantEscapeDotsInKeys(column.getVariantEscapeDotsInKeys());
         // ATTN:
         // Currently, this `toThrift()` method is only used from CreateReplicaTask.
         // And CreateReplicaTask does not need `defineExpr` field.

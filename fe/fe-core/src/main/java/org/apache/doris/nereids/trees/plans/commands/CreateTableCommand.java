@@ -18,12 +18,9 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
@@ -54,8 +51,8 @@ import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
-import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -71,7 +68,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * create table command
@@ -172,7 +168,9 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
         // must disable constant folding by be, because be constant folding may return wrong type
         ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_FOLD_CONSTANT_BY_BE, "false");
-        Plan plan = planner.planWithLock(new UnboundResultSink<>(query), PhysicalProperties.ANY, ExplainLevel.NONE);
+        Plan plan = planner.planWithLock(new UnboundResultSink<>(query), PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
+        createTableInfo.setProperties(PlanUtils.inheritVariantEscapeDotsInKeys(createTableInfo.getProperties(),
+                planner.getAnalyzedPlan(), ctx.getStatementContext()));
         if (ctasCols == null) {
             // we should analyze the plan firstly to get the columns' name.
             ctasCols = plan.getOutput().stream().map(NamedExpression::getName).collect(Collectors.toList());
@@ -182,17 +180,10 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
             throw new AnalysisException("ctas column size is not equal to the query's");
         }
         String autoRangePartitionName = getAutoRangePartitionNameOrNull();
-        // CollectRelation includes CTEs, views and subqueries. Decide once from persisted source
-        // schemas, rather than propagating a storage property through every expression's type.
-        boolean escapeDerived = slots.stream().anyMatch(slot -> slot.getDataType() instanceof VariantType)
-                && (ctx.getSessionVariable().isEnableVariantEscapeDotsInKeysForDerivedColumns()
-                || Stream.concat(ctx.getStatementContext().getTables().values().stream(),
-                        ctx.getStatementContext().getMtmvRelatedTables().values().stream())
-                        .distinct().anyMatch(CreateTableCommand::hasEscapedVariantSource));
         ImmutableList.Builder<ColumnDefinition> columnsOfQuery = ImmutableList.builder();
         for (int i = 0; i < slots.size(); i++) {
             Slot s = slots.get(i);
-            DataType dataType = ctasColumnType(s, escapeDerived);
+            DataType dataType = s.getDataType().conversion();
             if (dataType.isVarBinaryType()) {
                 throw new AnalysisException("doris do not support varbinary create table, could use it by catalog");
             }
@@ -248,37 +239,6 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
         }
         List<String> qualifierTableName = RelationUtil.getQualifierName(ctx, createTableInfo.getTableNameParts());
         createTableInfo.validateCreateTableAsSelect(qualifierTableName, columnsOfQuery.build(), ctx);
-    }
-
-    static boolean hasEscapedVariantSource(TableIf table) {
-        if (!(table instanceof OlapTable)) {
-            return false;
-        }
-        // planWithLock has released its locks. Include MV schemas and tables without physical
-        // partitions by reading index metadata, taking one table lock at a time.
-        table.readLock();
-        try {
-            return ((OlapTable) table).getIndexIdToSchema(false).values().stream()
-                    .flatMap(List::stream).anyMatch(Column::getVariantEscapeDotsInKeys);
-        } finally {
-            table.readUnlock();
-        }
-    }
-
-    static DataType ctasColumnType(Slot slot, boolean escapeDerived) {
-        DataType type = slot.getDataType().conversion();
-        if (!(type instanceof VariantType)) {
-            return type;
-        }
-        if (slot instanceof SlotReference) {
-            SlotReference reference = (SlotReference) slot;
-            // Extracted subpaths also retain originalColumn, but their relative keys/templates
-            // differ from the root. Only a whole-column copy inherits the persisted layout.
-            if (!reference.hasSubColPath() && reference.getOriginalColumn().isPresent()) {
-                return DataType.fromCatalogType(reference.getOriginalColumn().get().getType()).conversion();
-            }
-        }
-        return escapeDerived ? new VariantType(((VariantType) type).getVariantMaxSubcolumnsCount(), true) : type;
     }
 
     void handleFallbackFailedCtas(ConnectContext ctx) {

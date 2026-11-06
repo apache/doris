@@ -16,6 +16,7 @@
 // under the License.
 
 suite("dotted_key_escape_common_type", "p0") {
+    sql "set default_variant_enable_doc_mode=false"
     sql "set group_commit='off_mode'"
     sql "set enable_sql_cache=false"
     sql "set enable_query_cache=false"
@@ -23,23 +24,19 @@ suite("dotted_key_escape_common_type", "p0") {
     sql "DROP TABLE IF EXISTS dotted_key_escape_common_type"
     sql """CREATE TABLE dotted_key_escape_common_type (
         k INT,
-        v1 VARIANT<PROPERTIES("variant_escape_dots_in_keys"="true",
-            "variant_max_subcolumns_count"="1", "variant_enable_nested_group"="false")>,
-        v2 VARIANT<PROPERTIES("variant_escape_dots_in_keys"="true",
-            "variant_max_subcolumns_count"="2", "variant_enable_nested_group"="false")>,
-        legacy VARIANT<PROPERTIES("variant_escape_dots_in_keys"="false",
-            "variant_enable_nested_group"="false")>)
+        v1 VARIANT<PROPERTIES("variant_max_subcolumns_count"="1", "variant_enable_nested_group"="false")>,
+        v2 VARIANT<PROPERTIES("variant_max_subcolumns_count"="2", "variant_enable_nested_group"="false")>,
+        legacy VARIANT<PROPERTIES("variant_enable_nested_group"="false")>)
         DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
-        PROPERTIES("replication_num"="1", "disable_auto_compaction"="true")"""
-    // Both escaped inputs have different layouts. The legacy input also participates in the
-    // common type, but must not make literal dotted keys from the escaped inputs become paths.
+        PROPERTIES("variant_escape_dots_in_keys"="true", "replication_num"="1", "disable_auto_compaction"="true")"""
+    // Different Variant layouts share one table policy; coalesce must preserve literal keys.
     sql """INSERT INTO dotted_key_escape_common_type VALUES
         (1,CAST(CAST('{"a.b":101,"a":{"b":102},"a%2Eb":103,"50%":104,"":105}' AS JSON) AS VARIANT),NULL,NULL),
         (2,NULL,CAST(CAST('{"a.b":201,"a":{"b":202},"a%2Eb":203,"50%":204,"":205}' AS JSON) AS VARIANT),NULL)"""
     def db = context.config.getDbNameByFile(context.file)
     create_sync_mv(db, 'dotted_key_escape_common_type', 'dotted_escape_common_mv',
             "SELECT k AS kk, coalesce(v1,v2,legacy) AS v FROM dotted_key_escape_common_type")
-    // Exercise materialization after historical backfill, including a legacy branch.
+    // Exercise materialization after historical backfill, including the third input.
     sql """INSERT INTO dotted_key_escape_common_type VALUES
         (3,NULL,NULL,CAST(CAST('{"a":{"b":302},"a%2Eb":303,"50%":304,"":305}' AS JSON) AS VARIANT)),
         (4,CAST(CAST('{"a.b":401,"a":{"b":402},"a%2Eb":403,"50%":404,"":405}' AS JSON) AS VARIANT),NULL,NULL)"""

@@ -71,14 +71,17 @@ public class OlapTableTest {
             indexes.add(new Index(i + 1, "idx_" + i, List.of("v"), IndexType.INVERTED,
                     Map.of("field_pattern", storagePaths.get(i), "parser", "english"), ""));
         }
-        Column column = new Column("v", new VariantType(fields, Map.of("variant_escape_dots_in_keys", "true")));
+        Column column = new Column("v", new VariantType(fields));
         OlapTable table = new OlapTable();
         table.setIndexes(indexes);
+        table.setVariantEscapeDotsInKeys(true);
         for (int i = 0; i < paths.size(); ++i) {
             Assertions.assertSame(indexes.get(i), table.getInvertedIndex(column, paths.get(i)));
             Assertions.assertSame(indexes.get(i), table.getInvertedIndex(column, paths.get(i), "english"));
         }
 
+        table = new OlapTable();
+        table.setIndexes(indexes);
         Column legacy = new Column("v", new VariantType(fields));
         Assertions.assertSame(indexes.get(1), table.getInvertedIndex(legacy, List.of("a", "b")));
         Assertions.assertSame(indexes.get(1), table.getInvertedIndex(legacy, List.of("a.b")));

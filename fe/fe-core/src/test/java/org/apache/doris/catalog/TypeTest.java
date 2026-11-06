@@ -17,16 +17,12 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.DdlException;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
-import java.util.Collections;
 
 public class TypeTest {
 
@@ -371,87 +367,5 @@ public class TypeTest {
                 structType.hideVersionForVersionColumn(true, false));
         Assertions.assertEquals("struct<b:text comment \"field doc\">",
                 structType.hideVersionForVersionColumn(true, true));
-    }
-
-    @Test
-    public void testVariantEscapedPropertyRoundTrip() {
-        VariantType type = new VariantType(new ArrayList<>(), 1, false, 10000, 3,
-                false, 0, 0, false, true);
-        Assertions.assertTrue(type.toSql().contains("\"variant_escape_dots_in_keys\" = \"true\""));
-        Assertions.assertFalse(new VariantType().toSql().contains("variant_escape_dots_in_keys"));
-        DataType converted = DataType.fromCatalogType(type);
-        Assertions.assertTrue(converted.toSql().contains("variant_escape_dots_in_keys"));
-        Assertions.assertEquals(type, converted.toCatalogDataType());
-        Assertions.assertTrue(ColumnToThrift.toThrift(new Column("v", type)).isVariantEscapeDotsInKeys());
-    }
-
-    @Test
-    public void testVariantEscapedPropertyIsImmutable() {
-        VariantType escaped = new VariantType(new ArrayList<>(), 0, false, 10000, 0,
-                false, 0, 64, false, true);
-        VariantType legacy = new VariantType(new ArrayList<>(), 0, false, 10000, 0,
-                false, 0, 64, false, false);
-        Column on = new Column("v", escaped);
-        Column off = new Column("v", legacy);
-        Assertions.assertThrows(DdlException.class,
-                () -> on.checkSchemaChangeAllowed(off));
-        Assertions.assertThrows(DdlException.class,
-                () -> off.checkSchemaChangeAllowed(on));
-        Assertions.assertDoesNotThrow(() -> on.checkSchemaChangeAllowed(new Column("v", escaped)));
-    }
-
-    @Test
-    public void testEscapedVariantSqlPreservesNestedGroupOff() {
-        ConnectContext previous = ConnectContext.get();
-        try {
-            VariantType escaped = new VariantType(new ArrayList<>(), 1, false, 10000, 3, false, 0, 64, false, true);
-            VariantType legacy = new VariantType(new ArrayList<>(), 1, false, 10000, 3, false, 0, 64, false, false);
-            String legacySql = "variant<PROPERTIES (\"variant_max_subcolumns_count\" = \"1\","
-                    + "\"variant_enable_typed_paths_to_sparse\" = \"false\","
-                    + "\"variant_max_sparse_column_statistics_size\" = \"10000\","
-                    + "\"variant_sparse_hash_shard_count\" = \"3\")>";
-            for (boolean withContext : new boolean[] {true, false}) {
-                if (withContext) {
-                    ConnectContext context = new ConnectContext();
-                    context.getSessionVariable().defaultVariantEnableNestedGroup = true;
-                    context.setThreadLocalInfo();
-                } else {
-                    ConnectContext.remove();
-                }
-                Assertions.assertEquals(legacySql, legacy.toSql());
-                org.apache.doris.nereids.types.VariantType parsed =
-                        (org.apache.doris.nereids.types.VariantType) new NereidsParser().parseDataType(escaped.toSql());
-                Assertions.assertTrue(parsed.getEscapeDotsInKeys());
-                Assertions.assertFalse(parsed.getEnableNestedGroup());
-            }
-        } finally {
-            if (previous == null) {
-                ConnectContext.remove();
-            } else {
-                previous.setThreadLocalInfo();
-            }
-        }
-    }
-
-    @Test
-    public void testEscapedVariantPropertyIsPersistedInColumnProtobuf() throws Exception {
-        for (boolean escaped : new boolean[] {false, true}) {
-            VariantType type = new VariantType(new ArrayList<>(), 0, false, 10000, 1,
-                    false, 0, 64, false, escaped);
-            Assertions.assertEquals(escaped, ColumnToProtobuf.toPb(new Column("v", type),
-                    Collections.emptySet(), Collections.emptyList()).getVariantEscapeDotsInKeys());
-        }
-    }
-
-    @Test
-    public void testEscapedVariantPropertyConstructors() {
-        for (boolean escaped : new boolean[] {false, true}) {
-            Assertions.assertEquals(escaped, new VariantType(Collections.singletonMap(
-                    "variant_escape_dots_in_keys", Boolean.toString(escaped))).getVariantEscapeDotsInKeys());
-            Assertions.assertEquals(escaped, new VariantType(new ArrayList<>(), Collections.singletonMap(
-                    "variant_escape_dots_in_keys", Boolean.toString(escaped))).getVariantEscapeDotsInKeys());
-        }
-        Assertions.assertFalse(new VariantType(Collections.emptyMap()).getVariantEscapeDotsInKeys());
-        Assertions.assertFalse(new VariantType(new ArrayList<>(), Collections.emptyMap()).getVariantEscapeDotsInKeys());
     }
 }

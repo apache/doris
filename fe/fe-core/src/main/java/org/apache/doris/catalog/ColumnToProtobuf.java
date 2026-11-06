@@ -129,7 +129,6 @@ public class ColumnToProtobuf {
             builder.setVariantDocMaterializationMinRows(column.getvariantDocMaterializationMinRows());
             builder.setVariantDocHashShardCount(column.getVariantDocShardCount());
             builder.setVariantEnableNestedGroup(column.getVariantEnableNestedGroup());
-            builder.setVariantEscapeDotsInKeys(column.getVariantEscapeDotsInKeys());
             // variant may contain predefined structured fields
             addChildren(column, builder);
         }

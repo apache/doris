@@ -19,15 +19,17 @@ suite("dotted_key_escape_stream_load", "p0,nonConcurrent") {
     sql "set default_variant_enable_doc_mode=false"
     sql "drop table if exists dotted_key_escape_stream_load"
     sql """create table dotted_key_escape_stream_load(id int,v variant<properties(
-        "variant_escape_dots_in_keys"="true", "variant_enable_nested_group"="false",
+        "variant_enable_nested_group"="false",
         "variant_max_subcolumns_count"="1", "variant_sparse_hash_shard_count"="1",
         "variant_max_sparse_column_statistics_size"="10000")>)
         duplicate key(id) distributed by hash(id) buckets 1
-        properties("replication_num"="1", "disable_auto_compaction"="true")"""
+        properties("variant_escape_dots_in_keys"="true", "replication_num"="1", "disable_auto_compaction"="true")"""
     streamLoad {
         table "dotted_key_escape_stream_load"
         set 'read_json_by_line', 'true'
         set 'format', 'json'
+        set 'columns', 'id,raw,v=parse_to_variant(raw)'
+        set 'jsonpaths', '["$.id","$.v"]'
         file 'dotted_key_escape_ingest.json'
         time 10000
         check { result, exception, startTime, endTime ->

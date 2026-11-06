@@ -24,11 +24,11 @@ suite("dotted_key_escape_document_examples", "p0,nonConcurrent") {
             sql "drop table if exists dotted_key_escape_document"
             sql """create table dotted_key_escape_document(id int, v variant<
                 MATCH_NAME 'a%2Eb':string, MATCH_NAME 'a.b':string, properties(
-                "variant_escape_dots_in_keys"="true", "variant_enable_nested_group"="false")>,
+                "variant_enable_nested_group"="false")>,
                 index idx_dot(v) using inverted properties("field_pattern"="a%2Eb","parser"="english"),
                 index idx_nested(v) using inverted properties("field_pattern"="a.b","parser"="english"))
                 duplicate key(id) distributed by hash(id) buckets 1
-                properties("replication_num"="1", "inverted_index_storage_format"="V2")"""
+                properties("variant_escape_dots_in_keys"="true", "replication_num"="1", "inverted_index_storage_format"="V2")"""
             sql """insert into dotted_key_escape_document values
                 (1,parse_to_variant('{"a.b":"dotted","a":{"b":"nested"},"a%2Eb":"percent"}')),
                 (2,'{"a.b":"dotted","a":{"b":"nested"},"a%2Eb":"percent"}')"""
@@ -43,10 +43,10 @@ suite("dotted_key_escape_document_examples", "p0,nonConcurrent") {
         sql "drop table if exists dotted_key_escape_single_index"
         sql """create table dotted_key_escape_single_index(id int, v variant<
                 MATCH_NAME 'a%2Eb':string, MATCH_NAME 'a.b':string, properties(
-            "variant_escape_dots_in_keys"="true", "variant_enable_nested_group"="false")>,
+            "variant_enable_nested_group"="false")>,
             index idx_dot(v) using inverted properties("field_pattern"="a%2Eb","parser"="english"))
             duplicate key(id) distributed by hash(id) buckets 1
-            properties("replication_num"="1", "inverted_index_storage_format"="V2")"""
+            properties("variant_escape_dots_in_keys"="true", "replication_num"="1", "inverted_index_storage_format"="V2")"""
         sql """insert into dotted_key_escape_single_index values
             (1,parse_to_variant('{"a.b":"dotted","a":{"b":"nested"}}'))"""
         order_qt_single_index_dot "select id from dotted_key_escape_single_index where search('v.a%2Eb:dotted')"
@@ -57,10 +57,10 @@ suite("dotted_key_escape_document_examples", "p0,nonConcurrent") {
         sql "drop table if exists dotted_key_escape_glob"
         sql """create table dotted_key_escape_glob(id int, v variant<
             MATCH_NAME_GLOB 'a%2Eb.*':bigint, MATCH_NAME_GLOB 'a.b.*':string,
-            properties("variant_escape_dots_in_keys"="true", "variant_enable_nested_group"="false",
+            properties("variant_enable_nested_group"="false",
                 "variant_max_subcolumns_count"="2048", "variant_sparse_hash_shard_count"="1")>)
             duplicate key(id) distributed by hash(id) buckets 1
-            properties("replication_num"="1")"""
+            properties("variant_escape_dots_in_keys"="true", "replication_num"="1")"""
         sql """insert into dotted_key_escape_glob values
             (1,parse_to_variant('{"a.b":{"c.d":"11"},"a":{"b":{"c.d":"nested"}}}'))"""
         order_qt_glob "select id,v,v['a.b']['c.d'],v['a']['b']['c.d'] from dotted_key_escape_glob"

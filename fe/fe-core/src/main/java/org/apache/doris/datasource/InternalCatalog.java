@@ -2354,7 +2354,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.storeRowColumn(), binlogConfig,
                             tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                             objectPool, tbl.rowStorePageSize(),
-                            tbl.variantEnableFlattenNested(),
+                            tbl.variantEnableFlattenNested(), tbl.getVariantEscapeDotsInKeys(),
                             tbl.storagePageSize(), tbl.getTDEAlgorithm(),
                             tbl.storageDictPageSize(),
                             tbl.getColumnSeqMapping(),
@@ -2777,6 +2777,15 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw new DdlException(e.getMessage());
         }
         olapTable.setVerticalCompactionNumColumnsPerGroup(verticalCompactionNumColumnsPerGroup);
+
+        try {
+            olapTable.setVariantEscapeDotsInKeys(PropertyAnalyzer.analyzeVariantEscapeDotsInKeys(properties));
+            for (Column column : baseSchema) {
+                PropertyAnalyzer.validateVariantTableColumn(column, olapTable.getVariantEscapeDotsInKeys());
+            }
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
 
         boolean variantEnableFlattenNested  = false;
         try {

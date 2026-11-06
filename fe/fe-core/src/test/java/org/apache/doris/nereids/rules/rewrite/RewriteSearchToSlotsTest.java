@@ -26,7 +26,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.TableIndexes;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.catalog.VariantType;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
@@ -48,7 +47,6 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
@@ -379,8 +377,7 @@ public class RewriteSearchToSlotsTest {
     @Test
     public void testEscapedStorageFieldsBecomeLogicalElementAtChains() throws Exception {
         OlapTable table = buildVariantTableWithInvertedIndex(190L);
-        table.getFullSchema().get(1).setType(new VariantType(
-                new ArrayList<>(), 0, false, 10000, 0, false, 0, 64, false, true));
+        table.setVariantEscapeDotsInKeys(true);
         LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(), table, ImmutableList.of("db"));
         Method method = RewriteSearchToSlots.class.getDeclaredMethod("rewriteSearch", Search.class, LogicalOlapScan.class);
         method.setAccessible(true);

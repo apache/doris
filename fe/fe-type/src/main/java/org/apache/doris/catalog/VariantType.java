@@ -62,9 +62,6 @@ public class VariantType extends ScalarType {
     @SerializedName(value = "variantDocShardCount")
     private final int variantDocShardCount;
 
-    @SerializedName(value = "escapeDotsInKeys")
-    private final boolean escapeDotsInKeys;
-
     @SerializedName(value = "enableNestedGroup")
     private final boolean enableNestedGroup;
 
@@ -81,7 +78,6 @@ public class VariantType extends ScalarType {
         this.variantDocMaterializationMinRows = 0L;
         this.variantDocShardCount = 64;
         this.enableNestedGroup = false;
-        this.escapeDotsInKeys = false;
     }
 
     public VariantType(ArrayList<VariantField> fields) {
@@ -99,13 +95,6 @@ public class VariantType extends ScalarType {
         this.variantDocMaterializationMinRows = 0L;
         this.variantDocShardCount = 64;
         this.enableNestedGroup = false;
-        this.escapeDotsInKeys = false;
-    }
-
-    /** Creates a default storage layout for a newly materialized Variant column. */
-    public VariantType(int maxSubcolumnsCount, boolean escapeDotsInKeys) {
-        this(Lists.newArrayList(), maxSubcolumnsCount, false, 10000, 0,
-                false, 0L, 64, false, escapeDotsInKeys);
     }
 
     public VariantType(Map<String, String> properties) {
@@ -120,7 +109,6 @@ public class VariantType extends ScalarType {
         this.variantDocMaterializationMinRows = 0L;
         this.variantDocShardCount = 64;
         this.enableNestedGroup = false;
-        this.escapeDotsInKeys = Boolean.parseBoolean(properties.getOrDefault("variant_escape_dots_in_keys", "false"));
     }
 
     public VariantType(ArrayList<VariantField> fields, Map<String, String> properties) {
@@ -139,7 +127,6 @@ public class VariantType extends ScalarType {
         this.variantDocMaterializationMinRows = 0L;
         this.variantDocShardCount = 64;
         this.enableNestedGroup = false;
-        this.escapeDotsInKeys = Boolean.parseBoolean(properties.getOrDefault("variant_escape_dots_in_keys", "false"));
     }
 
     public VariantType(ArrayList<VariantField> fields, int variantMaxSubcolumnsCount,
@@ -150,20 +137,6 @@ public class VariantType extends ScalarType {
                                                         long variantDocMaterializationMinRows,
                                                         int variantDocShardCount,
                                                         boolean enableNestedGroup) {
-        this(fields, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
-                variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount,
-                enableVariantDocMode, variantDocMaterializationMinRows, variantDocShardCount,
-                enableNestedGroup, false);
-    }
-
-    public VariantType(ArrayList<VariantField> fields, int variantMaxSubcolumnsCount,
-                                                        boolean enableTypedPathsToSparse,
-                                                        int variantMaxSparseColumnStatisticsSize,
-                                                        int variantSparseHashShardCount,
-                                                        boolean enableVariantDocMode,
-                                                        long variantDocMaterializationMinRows,
-                                                        int variantDocShardCount,
-                                                        boolean enableNestedGroup, boolean escapeDotsInKeys) {
         super(PrimitiveType.VARIANT);
         Preconditions.checkNotNull(fields);
         this.predefinedFields = fields;
@@ -178,7 +151,6 @@ public class VariantType extends ScalarType {
         this.variantDocMaterializationMinRows = variantDocMaterializationMinRows;
         this.variantDocShardCount = variantDocShardCount;
         this.enableNestedGroup = enableNestedGroup;
-        this.escapeDotsInKeys = escapeDotsInKeys;
     }
 
     @Override
@@ -216,13 +188,10 @@ public class VariantType extends ScalarType {
             sb.append("\"variant_sparse_hash_shard_count\" = \"")
                                         .append(String.valueOf(Math.max(1, variantSparseHashShardCount))).append("\"");
         }
-        if (enableNestedGroup || escapeDotsInKeys) {
+        if (enableNestedGroup) {
             sb.append(",");
             sb.append("\"variant_enable_nested_group\" = \"")
                     .append(String.valueOf(enableNestedGroup)).append("\"");
-        }
-        if (escapeDotsInKeys) {
-            sb.append(",\"variant_escape_dots_in_keys\" = \"true\"");
         }
         sb.append(")>");
         return sb.toString();
@@ -268,8 +237,7 @@ public class VariantType extends ScalarType {
                 && enableTypedPathsToSparse == otherVariantType.enableTypedPathsToSparse
                 && enableVariantDocMode == otherVariantType.enableVariantDocMode
                 && variantDocMaterializationMinRows == otherVariantType.variantDocMaterializationMinRows
-                && enableNestedGroup == otherVariantType.enableNestedGroup
-                && escapeDotsInKeys == otherVariantType.escapeDotsInKeys;
+                && enableNestedGroup == otherVariantType.enableNestedGroup;
     }
 
     @Override
@@ -307,10 +275,6 @@ public class VariantType extends ScalarType {
 
     public int getVariantDocShardCount() {
         return variantDocShardCount;
-    }
-
-    public boolean getEscapeDotsInKeys() {
-        return escapeDotsInKeys;
     }
 
     public boolean getEnableNestedGroup() {

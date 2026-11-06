@@ -19,11 +19,10 @@ suite("dotted_key_escape_score", "p0") {
     sql "set group_commit='off_mode'"
     sql "DROP TABLE IF EXISTS dotted_key_escape_score"
     sql """CREATE TABLE dotted_key_escape_score (
-        id INT, v VARIANT<PROPERTIES("variant_escape_dots_in_keys"="true",
-            "variant_enable_nested_group"="false")>,
+        id INT, v VARIANT<PROPERTIES("variant_enable_nested_group"="false")>,
         INDEX idx_v(v) USING INVERTED PROPERTIES("parser"="english","support_phrase"="true"))
         DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
-        PROPERTIES("replication_num"="1", "disable_auto_compaction"="true")"""
+        PROPERTIES("variant_escape_dots_in_keys"="true", "replication_num"="1", "disable_auto_compaction"="true")"""
     sql """INSERT INTO dotted_key_escape_score VALUES
         (1,CAST(CAST('{"a.b":"apple pie","a":{"b":"pear jam"},"a%2Eb":"pear jam","50%":"pear jam"}' AS JSON) AS VARIANT)),
         (2,CAST(CAST('{"a.b":"pear jam","a":{"b":"apple pie"},"a%2Eb":"pear jam","50%":"pear jam"}' AS JSON) AS VARIANT)),

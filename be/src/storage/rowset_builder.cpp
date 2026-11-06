@@ -473,9 +473,6 @@ Status BaseRowsetBuilder::_build_current_tablet_schema(
         _tablet_schema = inserted_schema.second;
         TabletSchemaCache::instance()->release(inserted_schema.first);
     }
-    // Check cache hits too, before publishing a higher-version schema or writing mixed encodings.
-    RETURN_IF_ERROR(
-            variant_util::check_variant_schema_compatibility(ori_tablet_schema, *_tablet_schema));
     if (_tablet_schema->schema_version() > ori_tablet_schema.schema_version()) {
         // After schema change, should include extracted column
         // For example: a table has two columns, k and v

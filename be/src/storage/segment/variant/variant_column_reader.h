@@ -184,8 +184,6 @@ class VariantColumnReader : public ColumnReader {
 public:
     uint32_t path_encoding() const { return _path_encoding; }
 
-    Status check_path_encoding(const TabletColumn& read_column) const;
-
     VariantColumnReader() = default;
 
     Status init(const ColumnReaderOptions& opts, ColumnMetaAccessor* accessor,

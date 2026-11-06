@@ -34,7 +34,6 @@ import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.UuidType;
-import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.thrift.TColumn;
 
@@ -213,24 +212,5 @@ public class ColumnDefinitionTest {
         ColumnDefinition literal = new ColumnDefinition("u", UuidType.INSTANCE, false, null, false,
                 Optional.of(new DefaultValue("00112233-4455-6677-8899-aabbccddeeff")), "");
         Assertions.assertFalse(literal.hasUuidDefaultValue());
-    }
-
-    @Test
-    public void testEscapedVariantRejectsNestedGroupOnlyWhenBothEnabled() {
-        for (boolean nested : new boolean[] {false, true}) {
-            for (boolean escaped : new boolean[] {false, true}) {
-                VariantType type = new VariantType(ImmutableList.of(), 0, false, 10000, 1,
-                        false, 0, 64, nested, escaped);
-                ColumnDefinition column = new ColumnDefinition("v", type, false, null, true,
-                        Optional.empty(), "");
-                if (nested && escaped) {
-                    AnalysisException error = Assertions.assertThrows(AnalysisException.class,
-                            () -> validateColumn(column, KeysType.DUP_KEYS));
-                    Assertions.assertTrue(error.getMessage().contains("NestedGroup and variant_escape_dots_in_keys"));
-                } else {
-                    Assertions.assertDoesNotThrow(() -> validateColumn(column, KeysType.DUP_KEYS));
-                }
-            }
-        }
     }
 }

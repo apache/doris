@@ -282,7 +282,7 @@ public:
     }
 
     bool variant_escape_dots_in_keys() const { return _variant.escape_dots_in_keys; }
-    void set_variant_escape_dots_in_keys(bool value) { _variant.escape_dots_in_keys = value; }
+    void set_variant_escape_dots_in_keys(bool value);
 
     bool variant_enable_nested_group() const { return _variant.enable_nested_group; }
 
@@ -439,6 +439,10 @@ public:
     }
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb) const;
     void append_column(TabletColumn column, ColumnType col_type = ColumnType::NORMAL);
+
+    bool variant_escape_dots_in_keys() const { return _variant_escape_dots_in_keys; }
+    void set_variant_escape_dots_in_keys(bool value);
+    void inherit_variant_path_encoding(TabletColumn& column) const;
     void append_index(TabletIndex&& index);
     void remove_index(int64_t index_id);
     void clear_index();
@@ -829,6 +833,7 @@ private:
     // Contains column ids of which columns should be encoded into row store.
     // ATTN: For compability reason empty cids means all columns of tablet schema are encoded to row column
     std::vector<int32_t> _row_store_column_unique_ids;
+    bool _variant_escape_dots_in_keys = false;
     bool _deprecated_enable_variant_flatten_nested = false;
 
     std::map<size_t, int32_t> _vir_col_idx_to_unique_id;

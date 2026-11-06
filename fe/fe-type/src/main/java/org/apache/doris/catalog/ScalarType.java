@@ -1029,10 +1029,6 @@ public class ScalarType extends Type {
         return result;
     }
 
-    public boolean getVariantEscapeDotsInKeys() {
-        return this instanceof VariantType && ((VariantType) this).getEscapeDotsInKeys();
-    }
-
     public int getVariantMaxSubcolumnsCount() {
         // In the past, variant metadata used the ScalarType type.
         // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.

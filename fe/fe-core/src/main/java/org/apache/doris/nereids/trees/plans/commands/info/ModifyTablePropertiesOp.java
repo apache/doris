@@ -91,6 +91,10 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
 
     @Override
     public void validate(ConnectContext ctx) throws UserException {
+        if (properties != null && properties.keySet().stream().anyMatch(
+                PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS::equalsIgnoreCase)) {
+            throw new AnalysisException("variant_escape_dots_in_keys can only be specified when creating a table");
+        }
         if (properties == null || properties.isEmpty()) {
             throw new AnalysisException("Properties is not set");
         }

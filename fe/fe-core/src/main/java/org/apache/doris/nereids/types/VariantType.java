@@ -58,8 +58,6 @@ public class VariantType extends PrimitiveType {
     private final boolean enableVariantDocMode;
     private final long variantDocMaterializationMinRows;
     private final int variantDocShardCount;
-    private final boolean escapeDotsInKeys;
-
     private final boolean enableNestedGroup;
 
     /**
@@ -68,11 +66,6 @@ public class VariantType extends PrimitiveType {
      * @param variantMaxSubcolumnsCount max number of subcolumns allowed (0 means unlimited)
      */
     public VariantType(int variantMaxSubcolumnsCount) {
-        this(variantMaxSubcolumnsCount, false);
-    }
-
-    /** Creates a default storage layout for a newly materialized Variant column. */
-    public VariantType(int variantMaxSubcolumnsCount, boolean escapeDotsInKeys) {
         this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
         this.predefinedFields = Lists.newArrayList();
         this.enableTypedPathsToSparse = false;
@@ -82,7 +75,6 @@ public class VariantType extends PrimitiveType {
         this.variantDocMaterializationMinRows = 0L;
         this.variantDocShardCount = 64;
         this.enableNestedGroup = false;
-        this.escapeDotsInKeys = escapeDotsInKeys;
     }
 
     /**
@@ -98,7 +90,6 @@ public class VariantType extends PrimitiveType {
         this.variantDocMaterializationMinRows = 0L;
         this.variantDocShardCount = 64;
         this.enableNestedGroup = false;
-        this.escapeDotsInKeys = false;
     }
 
     /**
@@ -117,18 +108,6 @@ public class VariantType extends PrimitiveType {
             int variantSparseHashShardCount, boolean enableVariantDocMode,
             long variantDocMaterializationMinRows, int variantDocShardCount,
             boolean enableNestedGroup) {
-        this(fields, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
-                variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount,
-                enableVariantDocMode, variantDocMaterializationMinRows, variantDocShardCount,
-                enableNestedGroup, false);
-    }
-
-    /** Build a Variant type with its storage column properties. */
-    public VariantType(List<VariantField> fields, int variantMaxSubcolumnsCount,
-            boolean enableTypedPathsToSparse, int variantMaxSparseColumnStatisticsSize,
-            int variantSparseHashShardCount, boolean enableVariantDocMode,
-            long variantDocMaterializationMinRows, int variantDocShardCount,
-            boolean enableNestedGroup, boolean escapeDotsInKeys) {
         this.predefinedFields = ImmutableList.copyOf(Objects.requireNonNull(fields, "fields should not be null"));
         this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
         this.enableTypedPathsToSparse = enableTypedPathsToSparse;
@@ -138,7 +117,6 @@ public class VariantType extends PrimitiveType {
         this.variantDocMaterializationMinRows = variantDocMaterializationMinRows;
         this.variantDocShardCount = variantDocShardCount;
         this.enableNestedGroup = enableNestedGroup;
-        this.escapeDotsInKeys = escapeDotsInKeys;
     }
 
     @Override
@@ -152,7 +130,7 @@ public class VariantType extends PrimitiveType {
                                 .collect(Collectors.toList()), variantMaxSubcolumnsCount, enableTypedPathsToSparse,
                                     variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount,
                                     enableVariantDocMode, variantDocMaterializationMinRows,
-                                    variantDocShardCount, enableNestedGroup, escapeDotsInKeys);
+                                    variantDocShardCount, enableNestedGroup);
     }
 
     @Override
@@ -161,7 +139,7 @@ public class VariantType extends PrimitiveType {
                 .map(VariantField::toCatalogDataType)
                 .collect(Collectors.toCollection(ArrayList::new)), variantMaxSubcolumnsCount, enableTypedPathsToSparse,
                      variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount, enableVariantDocMode,
-                     variantDocMaterializationMinRows, variantDocShardCount, enableNestedGroup, escapeDotsInKeys);
+                     variantDocMaterializationMinRows, variantDocShardCount, enableNestedGroup);
         return type;
     }
 
@@ -216,13 +194,10 @@ public class VariantType extends PrimitiveType {
                                     .append(String.valueOf(Math.max(1, variantSparseHashShardCount)))
                                     .append("\"");
         }
-        if (enableNestedGroup || escapeDotsInKeys) {
+        if (enableNestedGroup) {
             sb.append(",");
             sb.append("\"variant_enable_nested_group\" = \"")
                     .append(String.valueOf(enableNestedGroup)).append("\"");
-        }
-        if (escapeDotsInKeys) {
-            sb.append(",\"variant_escape_dots_in_keys\" = \"true\"");
         }
         sb.append(")>");
         return sb.toString();
@@ -241,7 +216,6 @@ public class VariantType extends PrimitiveType {
                     && this.enableTypedPathsToSparse == other.enableTypedPathsToSparse
                     && this.enableVariantDocMode == other.enableVariantDocMode
                     && this.variantDocMaterializationMinRows == other.variantDocMaterializationMinRows
-                    && escapeDotsInKeys == other.escapeDotsInKeys
                     && Objects.equals(predefinedFields, other.predefinedFields);
     }
 
@@ -271,7 +245,7 @@ public class VariantType extends PrimitiveType {
         return Objects.hash(super.hashCode(), variantMaxSubcolumnsCount, enableTypedPathsToSparse,
                             variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount,
                             enableVariantDocMode, variantDocMaterializationMinRows, variantDocShardCount,
-                            predefinedFields, escapeDotsInKeys);
+                            predefinedFields);
     }
 
     @Override
@@ -310,10 +284,6 @@ public class VariantType extends PrimitiveType {
 
     public int getVariantDocShardCount() {
         return variantDocShardCount;
-    }
-
-    public boolean getEscapeDotsInKeys() {
-        return escapeDotsInKeys;
     }
 
     public boolean getEnableNestedGroup() {

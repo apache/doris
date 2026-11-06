@@ -422,44 +422,12 @@ Status Segment::_open_index_file_reader() {
     return Status::OK();
 }
 
-Status Segment::check_variant_path_encoding(const TabletColumn& read_column,
-                                            OlapReaderStatistics* stats,
-                                            const io::IOContext* io_ctx) {
-    if (!read_column.is_variant_type() && !read_column.is_extracted_column()) {
-        return Status::OK();
-    }
-    const int32_t uid = read_column.is_extracted_column() ? read_column.parent_unique_id()
-                                                          : read_column.unique_id();
-    const auto source_pos = _tablet_schema->field_index(uid);
-    // Ordinary legacy reads need neither another footer lookup nor a root column reader.
-    if (!read_column.variant_escape_dots_in_keys() && source_pos >= 0 &&
-        !_tablet_schema->column(source_pos).variant_escape_dots_in_keys()) {
-        return Status::OK();
-    }
-    RETURN_IF_ERROR(_create_column_meta_once(stats, io_ctx));
-    // A root added after this segment was written has no encoding to validate.
-    if (!_column_meta_accessor->has_column_uid(uid)) {
-        return Status::OK();
-    }
-    // Reader initialization owns metadata access: its cache serializes footer loads, and a
-    // cached reader already holds the immutable encoding marker. Do not reload the footer here.
-    std::shared_ptr<ColumnReader> reader;
-    RETURN_IF_ERROR(_column_reader_cache->get_column_reader(uid, &reader, stats, io_ctx));
-    return assert_cast<VariantColumnReader*>(reader.get())->check_path_encoding(read_column);
-}
-
 Status Segment::new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& read_options,
                              std::unique_ptr<RowwiseIterator>* iter) {
     if (read_options.runtime_state != nullptr) {
         _be_exec_version = read_options.runtime_state->be_exec_version();
     }
     RETURN_IF_ERROR(_create_column_meta_once(read_options.stats, &read_options.io_ctx));
-
-    // Validate before pruning: a mismatched path can otherwise eliminate this segment entirely.
-    for (const auto& column : schema->columns()) {
-        RETURN_IF_ERROR(
-                check_variant_path_encoding(*column, read_options.stats, &read_options.io_ctx));
-    }
 
     read_options.stats->total_segment_number++;
     // trying to prune the current segment by segment-level zone map
@@ -979,7 +947,6 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
     if (opt->runtime_state != nullptr) {
         _be_exec_version = opt->runtime_state->be_exec_version();
     }
-    RETURN_IF_ERROR(check_variant_path_encoding(tablet_column, opt->stats, &opt->io_ctx));
     RETURN_IF_ERROR(_create_column_meta_once(opt->stats, &opt->io_ctx));
 
     // A persisted column, including a VARIANT root, uses its own uid. Only BE-generated VARIANT
@@ -1446,7 +1413,6 @@ Status Segment::seek_and_read_by_rowid(const TabletColumn& read_column, SlotDesc
     io_ctx.reader_type = ReaderType::READER_QUERY;
     io_ctx.file_cache_stats = &storage_read_options.stats->file_cache_stats;
     // Rowid reads may reuse an iterator and bypass both scan and column-iterator construction.
-    RETURN_IF_ERROR(check_variant_path_encoding(read_column, storage_read_options.stats, &io_ctx));
     segment_v2::ColumnIteratorOptions opt {
             .use_page_cache = !config::disable_storage_page_cache,
             .file_reader = file_reader().get(),

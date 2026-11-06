@@ -2514,6 +2514,22 @@ public class PropertyAnalyzer {
         return Boolean.parseBoolean(value);
     }
 
+    public static void validateVariantTableColumn(Column column, boolean escaped)
+            throws AnalysisException {
+        if (!escaped || !column.getType().isVariantType()) {
+            return;
+        }
+        if (column.getVariantEnableNestedGroup()) {
+            throw new AnalysisException("Escaped tables do not support NestedGroup; set "
+                    + "variant_enable_nested_group=false or turn off default_variant_enable_nested_group");
+        }
+        if (column.getChildren() != null) {
+            for (Column child : column.getChildren()) {
+                validateVariantStoragePath(child.getName());
+            }
+        }
+    }
+
     public static String encodeVariantPathComponent(String key) {
         return key.replace("%", "%25").replace(".", "%2E");
     }

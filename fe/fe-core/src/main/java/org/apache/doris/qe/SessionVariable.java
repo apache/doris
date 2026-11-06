@@ -1049,9 +1049,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DEFAULT_VARIANT_ENABLE_NESTED_GROUP = "default_variant_enable_nested_group";
 
-    public static final String ENABLE_VARIANT_ESCAPE_DOTS_IN_KEYS_FOR_DERIVED_COLUMNS =
-            "enable_variant_escape_dots_in_keys_for_derived_columns";
-
     public static final String MULTI_DISTINCT_STRATEGY = "multi_distinct_strategy";
     public static final String AGG_PHASE = "agg_phase";
     public static final String ENABLE_BUCKETED_HASH_AGG = "enable_bucketed_hash_agg";
@@ -3768,15 +3765,6 @@ public class SessionVariable implements Serializable, Writable {
             fuzzy = true
     )
     public boolean defaultVariantEnableNestedGroup = false;
-
-    @VarAttrDef.VarAttr(
-            name = ENABLE_VARIANT_ESCAPE_DOTS_IN_KEYS_FOR_DERIVED_COLUMNS,
-            needForward = true,
-            description = "Use escaped keys for expression-derived VARIANT columns in CTAS and synchronous MVs. "
-                    + "Does not affect explicit column definitions or copies of base columns. "
-                    + "Enable only after all FE and BE nodes support escaped Variant keys."
-    )
-    public boolean enableVariantEscapeDotsInKeysForDerivedColumns = false;
 
     @VarAttrDef.VarAttr(
             name = "use_v3_storage_format",
@@ -6943,10 +6931,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getDefaultVariantEnableNestedGroup() {
         return defaultVariantEnableNestedGroup;
-    }
-
-    public boolean isEnableVariantEscapeDotsInKeysForDerivedColumns() {
-        return enableVariantEscapeDotsInKeysForDerivedColumns;
     }
 
     public void readAffectQueryResultVariables(BiConsumer<String, Object> variablesReader) {

@@ -22,13 +22,13 @@ suite("dotted_key_escape_index_rewrite", "p0,nonConcurrent") {
         sql """create table dotted_key_escape_index_rewrite(id int, v variant<
             MATCH_NAME 'a%2Eb':string, MATCH_NAME 'a.b':string, MATCH_NAME 'a%252Eb':string,
             properties(
-            "variant_escape_dots_in_keys"="true", "variant_enable_nested_group"="false",
+            "variant_enable_nested_group"="false",
             "variant_max_subcolumns_count"="0")>,
             index idx_dot(v) using inverted properties("field_pattern"="a%2Eb","parser"="english"),
             index idx_nested(v) using inverted properties("field_pattern"="a.b","parser"="english"),
             index idx_percent(v) using inverted properties("field_pattern"="a%252Eb","parser"="english"))
             duplicate key(id) distributed by hash(id) buckets 1
-            properties("replication_num"="1", "disable_auto_compaction"="true",
+            properties("variant_escape_dots_in_keys"="true", "replication_num"="1", "disable_auto_compaction"="true",
             "inverted_index_storage_format"="${format}")"""
         sql """insert into dotted_key_escape_index_rewrite values
             (1,parse_to_variant('{"a.b":"hit","a":{"b":"miss"},"a%2Eb":"miss"}')),

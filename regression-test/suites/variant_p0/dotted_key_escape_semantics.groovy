@@ -21,13 +21,12 @@ suite("dotted_key_escape_semantics", "p0") {
     sql "drop table if exists dotted_key_escape_gate"
     sql "drop table if exists dotted_key_escape_values"
     sql """create table dotted_key_escape_values (
-        id int, v variant<properties("variant_escape_dots_in_keys"="true",
-            "variant_max_subcolumns_count"="0", "variant_enable_typed_paths_to_sparse"="false",
+        id int, v variant<properties("variant_max_subcolumns_count"="0", "variant_enable_typed_paths_to_sparse"="false",
             "variant_max_sparse_column_statistics_size"="10000",
             "variant_sparse_hash_shard_count"="3", "variant_enable_nested_group"="false")>,
         index idx_v(v) using inverted properties("parser"="english")
     ) duplicate key(id) distributed by hash(id) buckets 1
-    properties("replication_num"="1", "disable_auto_compaction"="true",
+    properties("variant_escape_dots_in_keys"="true", "replication_num"="1", "disable_auto_compaction"="true",
                "inverted_index_storage_format"="V2")"""
     // A single INSERT writes all collision shapes into one segment with a parent index.
     sql """insert into dotted_key_escape_values values
@@ -69,10 +68,10 @@ suite("dotted_key_escape_semantics", "p0") {
     order_qt_search_nested "select id from dotted_key_escape_values where search('v.s.t:nested')"
     order_qt_search_percent "select id from dotted_key_escape_values where search('v.pct%25:percent')"
 
-    // Re-parsing escaped type SQL must not inherit NestedGroup from the session.
+    // LIKE and SHOW CREATE carry the table policy; final NestedGroup must remain disabled.
     def oldNestedGroup = sql("show variables like 'default_variant_enable_nested_group'")[0][1]
     try {
-        sql "set default_variant_enable_nested_group=true"
+        sql "set default_variant_enable_nested_group=false"
         sql "drop table if exists dotted_key_escape_like"
         sql "drop table if exists dotted_key_escape_show_create"
         sql "create table dotted_key_escape_like like dotted_key_escape_values"
@@ -82,7 +81,6 @@ suite("dotted_key_escape_semantics", "p0") {
         ["dotted_key_escape_like", "dotted_key_escape_show_create"].each { name ->
             def copiedDdl = sql("show create table ${name}")[0][1]
             assertTrue(copiedDdl.contains('"variant_escape_dots_in_keys" = "true"'))
-            assertTrue(copiedDdl.contains('"variant_enable_nested_group" = "false"'))
             sql """insert into ${name} values
                 (1,parse_to_variant('{"a.b":1,"a":{"b":2},"a%2Eb":3}'))"""
         }
@@ -100,11 +98,10 @@ suite("dotted_key_escape_semantics", "p0") {
             "variant_max_subcolumns_count"="0", "variant_enable_typed_paths_to_sparse"="false",
             "variant_max_sparse_column_statistics_size"="10000",
             "variant_sparse_hash_shard_count"="3", "variant_enable_nested_group"="false")>"""
-        exception "Can not change variant_escape_dots_in_keys"
+        exception "variant_escape_dots_in_keys is a table property"
     }
     sql "drop table if exists dotted_key_escape_legacy"
-    sql """create table dotted_key_escape_legacy(id int,v variant<properties("variant_escape_dots_in_keys"="false",
-            "variant_max_subcolumns_count"="0", "variant_enable_typed_paths_to_sparse"="false",
+    sql """create table dotted_key_escape_legacy(id int,v variant<properties("variant_max_subcolumns_count"="0", "variant_enable_typed_paths_to_sparse"="false",
             "variant_max_sparse_column_statistics_size"="10000",
             "variant_sparse_hash_shard_count"="3", "variant_enable_nested_group"="false")>)
         duplicate key(id) distributed by hash(id) buckets 1 properties("replication_num"="1")"""
@@ -113,7 +110,7 @@ suite("dotted_key_escape_semantics", "p0") {
             "variant_max_subcolumns_count"="0", "variant_enable_typed_paths_to_sparse"="false",
             "variant_max_sparse_column_statistics_size"="10000",
             "variant_sparse_hash_shard_count"="3", "variant_enable_nested_group"="false")>"""
-        exception "Can not change variant_escape_dots_in_keys"
+        exception "variant_escape_dots_in_keys is a table property"
     }
     // Only a non-conflicting row is copied: a legacy sink intentionally flattens the key.
     sql "insert into dotted_key_escape_legacy select id,v from dotted_key_escape_values where id=1"
@@ -121,20 +118,19 @@ suite("dotted_key_escape_semantics", "p0") {
 
     test {
         sql """create table dotted_key_escape_gate(id int,
-            v variant<properties("variant_escape_dots_in_keys"="true", "variant_enable_nested_group"="true")>)
-            duplicate key(id) distributed by hash(id) buckets 1 properties("replication_num"="1")"""
-        exception "NestedGroup and variant_escape_dots_in_keys cannot both be true"
+            v variant<properties("variant_enable_nested_group"="true")>)
+            duplicate key(id) distributed by hash(id) buckets 1 properties("variant_escape_dots_in_keys"="true", "replication_num"="1")"""
+        exception "Escaped tables do not support NestedGroup"
     }
     sql "drop table if exists dotted_key_escape_template"
     sql """create table dotted_key_escape_template(id int,
-        v variant<MATCH_NAME 'a%2Eb':string, MATCH_NAME 'a.b':string, properties("variant_escape_dots_in_keys"="true",
-            "variant_max_subcolumns_count"="0", "variant_enable_typed_paths_to_sparse"="false",
+        v variant<MATCH_NAME 'a%2Eb':string, MATCH_NAME 'a.b':string, properties("variant_max_subcolumns_count"="0", "variant_enable_typed_paths_to_sparse"="false",
             "variant_max_sparse_column_statistics_size"="10000",
             "variant_sparse_hash_shard_count"="3", "variant_enable_nested_group"="false")>,
         index idx_dotted(v) using inverted properties("field_pattern"="a%2Eb","parser"="english"),
         index idx_nested(v) using inverted properties("field_pattern"="a.b","parser"="english")
     ) duplicate key(id) distributed by hash(id) buckets 1
-    properties("replication_num"="1", "inverted_index_storage_format"="V2")"""
+    properties("variant_escape_dots_in_keys"="true", "replication_num"="1", "inverted_index_storage_format"="V2")"""
     sql """insert into dotted_key_escape_template values
         (1,parse_to_variant('{"a.b":"dotted","a":{"b":"nested"}}'))"""
     order_qt_template "select id,v,v['a.b'],v['a']['b'] from dotted_key_escape_template"
@@ -151,16 +147,14 @@ suite("dotted_key_escape_semantics", "p0") {
     }
     test {
         sql """create table dotted_key_escape_gate(id int,
-            v variant<MATCH_NAME 'bad%':int,properties("variant_escape_dots_in_keys"="true",
-            "variant_max_subcolumns_count"="0", "variant_enable_typed_paths_to_sparse"="false",
+            v variant<MATCH_NAME 'bad%':int,properties("variant_max_subcolumns_count"="0", "variant_enable_typed_paths_to_sparse"="false",
             "variant_max_sparse_column_statistics_size"="10000",
             "variant_sparse_hash_shard_count"="3", "variant_enable_nested_group"="false")>) duplicate key(id)
-            distributed by hash(id) buckets 1 properties("replication_num"="1")"""
+            distributed by hash(id) buckets 1 properties("variant_escape_dots_in_keys"="true", "replication_num"="1")"""
         exception "Invalid escaped Variant path component"
     }
     // A new escaped column is legal when old segments have no physical root for it.
-    sql """alter table dotted_key_escape_legacy add column e variant<properties("variant_escape_dots_in_keys"="true",
-            "variant_max_subcolumns_count"="0", "variant_enable_typed_paths_to_sparse"="false",
+    sql """alter table dotted_key_escape_legacy add column e variant<properties("variant_max_subcolumns_count"="0", "variant_enable_typed_paths_to_sparse"="false",
             "variant_max_sparse_column_statistics_size"="10000",
             "variant_sparse_hash_shard_count"="3", "variant_enable_nested_group"="false")>"""
     order_qt_absent_root "select id,e from dotted_key_escape_legacy"

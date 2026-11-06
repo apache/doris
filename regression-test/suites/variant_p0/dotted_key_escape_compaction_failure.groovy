@@ -24,10 +24,9 @@ suite("dotted_key_escape_compaction_failure", "p0,nonConcurrent") {
     sql "set enable_query_cache=false"
     sql "DROP TABLE IF EXISTS dotted_key_escape_compaction_failure"
     sql """CREATE TABLE dotted_key_escape_compaction_failure (
-        id INT, v VARIANT<PROPERTIES("variant_escape_dots_in_keys"="true",
-                                    "variant_enable_nested_group"="false")>)
+        id INT, v VARIANT<PROPERTIES("variant_enable_nested_group"="false")>)
         DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
-        PROPERTIES("replication_num"="1", "disable_auto_compaction"="true",
+        PROPERTIES("variant_escape_dots_in_keys"="true", "replication_num"="1", "disable_auto_compaction"="true",
                    "compaction_policy"="time_series")"""
     sql """INSERT INTO dotted_key_escape_compaction_failure VALUES
         (1,CAST(CAST('{"a.b":1,"a":{"b":2}}' AS JSON) AS VARIANT))"""

@@ -21,10 +21,9 @@ suite("dotted_key_escape_condition_cache", "p0") {
     sql "DROP TABLE IF EXISTS dotted_key_escape_condition_cache"
     // One tablet keeps the literal and nested predicates on the same segment/cache entries.
     sql """CREATE TABLE dotted_key_escape_condition_cache (
-        id BIGINT, v VARIANT<PROPERTIES("variant_escape_dots_in_keys"="true",
-                                       "variant_enable_nested_group"="false")>)
+        id BIGINT, v VARIANT<PROPERTIES("variant_enable_nested_group"="false")>)
         DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
-        PROPERTIES("replication_num"="1", "disable_auto_compaction"="true")"""
+        PROPERTIES("variant_escape_dots_in_keys"="true", "replication_num"="1", "disable_auto_compaction"="true")"""
     sql """INSERT INTO dotted_key_escape_condition_cache
         SELECT number, CAST(CAST('{"a.b":0,"a":{"b":1},"a%2Eb":2,"":3}' AS JSON) AS VARIANT)
         FROM numbers("number"="65537")"""

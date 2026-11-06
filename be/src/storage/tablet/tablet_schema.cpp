@@ -569,7 +569,6 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     if (column.has_variant_doc_hash_shard_count()) {
         _variant.doc_hash_shard_count = column.variant_doc_hash_shard_count();
     }
-    _variant.escape_dots_in_keys = column.variant_escape_dots_in_keys();
     if (column.has_variant_enable_nested_group()) {
         _variant.enable_nested_group = column.variant_enable_nested_group();
     }
@@ -665,7 +664,6 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     column->set_variant_doc_materialization_min_rows(_variant.doc_materialization_min_rows);
     column->set_variant_doc_hash_shard_count(_variant.doc_hash_shard_count);
     column->set_variant_enable_nested_group(_variant.enable_nested_group);
-    column->set_variant_escape_dots_in_keys(_variant.escape_dots_in_keys);
 }
 
 void TabletColumn::add_sub_column(TabletColumn& sub_column) {
@@ -890,7 +888,48 @@ int64_t TabletSchema::get_metadata_size() const {
     return sizeof(TabletSchema);
 }
 
+void TabletColumn::set_variant_escape_dots_in_keys(bool value) {
+    _variant.escape_dots_in_keys = value;
+    for (auto& child : _sub_columns) {
+        // Column copies can share children with cached schemas, so detach before setting encoding.
+        child = std::make_shared<TabletColumn>(*child);
+        child->set_variant_escape_dots_in_keys(value);
+    }
+}
+
+void TabletSchema::inherit_variant_path_encoding(TabletColumn& column) const {
+    if ((column.is_variant_type() || column.is_extracted_column()) &&
+        (_variant_escape_dots_in_keys || column.variant_escape_dots_in_keys())) {
+        // Legacy columns already default to false; avoid detaching their unchanged children.
+        column.set_variant_escape_dots_in_keys(_variant_escape_dots_in_keys);
+    }
+}
+
+void TabletSchema::set_variant_escape_dots_in_keys(bool value) {
+    _variant_escape_dots_in_keys = value;
+    // Keep the old columns alive until both StringRef names and PathInDataRef paths
+    // have been rebound to the replacement columns.
+    auto old_columns = _cols;
+    for (auto& column : _cols) {
+        if (column->is_variant_type() || column->is_extracted_column()) {
+            column = std::make_shared<TabletColumn>(*column);
+            inherit_variant_path_encoding(*column);
+        }
+    }
+    auto old_names = std::move(_field_name_to_index);
+    _field_name_to_index.clear();
+    for (const auto& [name, ordinal] : old_names) {
+        _field_name_to_index.emplace(StringRef(_cols[ordinal]->name()), ordinal);
+    }
+    auto old_paths = std::move(_field_path_to_index);
+    _field_path_to_index.clear();
+    for (const auto& [path, ordinal] : old_paths) {
+        _field_path_to_index[_cols[ordinal]->path_info_ptr().get()] = ordinal;
+    }
+}
+
 void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
+    inherit_variant_path_encoding(column);
     if (column.is_key()) {
         _num_key_columns++;
     }
@@ -1034,6 +1073,7 @@ void TabletSchema::clear_columns() {
 void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extracted_columns,
                                 bool reuse_cache_column) {
     _keys_type = schema.keys_type();
+    _variant_escape_dots_in_keys = schema.variant_escape_dots_in_keys();
     _num_columns = 0;
     _num_variant_columns = 0;
     _num_key_columns = 0;
@@ -1050,7 +1090,12 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     }
     for (auto& column_pb : schema.column()) {
         TabletColumnPtr column;
-        if (reuse_cache_column) {
+        // Encoding is in TabletSchemaPB, not in the ColumnPB cache key. Escaped Variant
+        // roots/extracted columns must own their in-memory encoding independently of the pool.
+        const bool escaped_column =
+                _variant_escape_dots_in_keys &&
+                (column_pb.type() == "VARIANT" || column_pb.has_column_path_info());
+        if (reuse_cache_column && !escaped_column) {
             auto pair = TabletColumnObjectPool::instance()->insert(
                     deterministic_string_serialize(column_pb));
             column = pair.second;
@@ -1061,6 +1106,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
         } else {
             column = std::make_shared<TabletColumn>();
             column->init_from_pb(column_pb);
+            inherit_variant_path_encoding(*column);
         }
         if (ignore_extracted_columns && column->is_extracted_column()) {
             continue;
@@ -1274,6 +1320,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
                                                const TabletSchema& ori_tablet_schema) {
     // copy from ori_tablet_schema
     _keys_type = ori_tablet_schema.keys_type();
+    _variant_escape_dots_in_keys = ori_tablet_schema.variant_escape_dots_in_keys();
     _num_short_key_columns = ori_tablet_schema.num_short_key_columns();
     _num_rows_per_row_block = ori_tablet_schema.num_rows_per_row_block();
     _compress_kind = ori_tablet_schema.compress_kind();
@@ -1358,11 +1405,17 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
         TabletColumnPtr new_column;
         ColumnPB column_pb;
         column->to_schema_pb(&column_pb);
-        auto pair = TabletColumnObjectPool::instance()->insert(
-                deterministic_string_serialize(column_pb));
-        new_column = pair.second;
-        // Release the handle quickly, because we use shared ptr to manage column
-        TabletColumnObjectPool::instance()->release(pair.first);
+        if (_variant_escape_dots_in_keys &&
+            (column->is_variant_type() || column->is_extracted_column())) {
+            // The pool key contains no table encoding; keep this copy private to the schema.
+            new_column = std::make_shared<TabletColumn>(column_pb);
+            inherit_variant_path_encoding(*new_column);
+        } else {
+            auto pair = TabletColumnObjectPool::instance()->insert(
+                    deterministic_string_serialize(column_pb));
+            new_column = pair.second;
+            TabletColumnObjectPool::instance()->release(pair.first);
+        }
         _cols.emplace_back(std::move(new_column));
         _field_name_to_index.emplace(StringRef(_cols.back()->name()), _num_columns);
         _field_uniqueid_to_index[_cols.back()->unique_id()] = _num_columns;
@@ -1442,6 +1495,7 @@ void TabletSchema::reserve_extracted_columns() {
 }
 
 void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
+    tablet_schema_pb->set_variant_escape_dots_in_keys(_variant_escape_dots_in_keys);
     for (const auto& i : _cluster_key_uids) {
         tablet_schema_pb->add_cluster_key_uids(i);
     }

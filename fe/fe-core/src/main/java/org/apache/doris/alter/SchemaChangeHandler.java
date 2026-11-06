@@ -3360,6 +3360,7 @@ public class SchemaChangeHandler extends AlterHandler {
         for (String col : indexDef.getColumnNames()) {
             Column column = olapTable.getColumn(col);
             if (column != null) {
+                indexDef.validateVariantTable(olapTable.getVariantEscapeDotsInKeys());
                 indexDef.checkColumn(column, olapTable.getKeysType(),
                         olapTable.getEnableUniqueKeyMergeOnWrite(),
                         olapTable.getInvertedIndexFileStorageFormat());

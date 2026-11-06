@@ -40,7 +40,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
 import java.util.List;
 
 public class ColumnGsonSerializationTest {
@@ -67,25 +66,6 @@ public class ColumnGsonSerializationTest {
             String json = Text.readString(in);
             return GsonUtils.GSON.fromJson(json, ColumnList.class);
         }
-    }
-
-    @Test
-    public void testVariantPathEncodingSurvivesMetadataRestore() {
-        VariantType escaped = new VariantType(new ArrayList<>(), 1, false, 10000, 3,
-                false, 0, 0, false, true);
-        Column original = new Column("v", escaped);
-        JsonObject json = JsonParser.parseString(GsonUtils.GSON.toJson(original)).getAsJsonObject();
-        // The type adapter removes "clazz" while reading a JsonObject. Preserve the legacy copy.
-        Column restored = GsonUtils.GSON.fromJson(json.deepCopy(), Column.class);
-        Assertions.assertEquals(original, restored);
-        Assertions.assertTrue(restored.getVariantEscapeDotsInKeys());
-        Assertions.assertTrue(restored.getType().toSql().contains("variant_escape_dots_in_keys"));
-
-        // Pre-feature metadata has no encoding property. Keep every other field identical.
-        json.getAsJsonObject("type").remove("escapeDotsInKeys");
-        Column legacy = GsonUtils.GSON.fromJson(json, Column.class);
-        Assertions.assertFalse(legacy.getVariantEscapeDotsInKeys());
-        Assertions.assertFalse(legacy.getType().toSql().contains("variant_escape_dots_in_keys"));
     }
 
     @Test

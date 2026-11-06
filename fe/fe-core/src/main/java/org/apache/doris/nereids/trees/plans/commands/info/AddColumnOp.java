@@ -239,6 +239,9 @@ public class AddColumnOp extends AlterTableOp {
         } else {
             columnDef.validate(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType);
         }
+        if (olapTable != null) {
+            columnDef.validateVariantTable(olapTable.getVariantEscapeDotsInKeys());
+        }
         if (!columnDef.isNullable() && !columnDef.hasDefaultValue()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DEFAULT_FOR_FIELD, columnDef.getName());
         }

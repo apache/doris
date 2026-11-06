@@ -42,13 +42,13 @@ suite("dotted_key_escape_schema_change", "p0") {
 
             String name = "dotted_key_escape_schema_change_${storageFormat}_${docMode}"
             sql "drop table if exists ${name}"
-            sql """create table ${name}(id int, v variant<properties("variant_escape_dots_in_keys"="true", ${layout}, "variant_enable_nested_group"="false")>, padding int default '0')
+            sql """create table ${name}(id int, v variant<properties(${layout}, "variant_enable_nested_group"="false")>, padding int default '0')
                 duplicate key(id) distributed by hash(id) buckets 1
-                properties("replication_num"="1", "storage_format"="${storageFormat}", "disable_auto_compaction"="true", "light_schema_change"="true")"""
+                properties("variant_escape_dots_in_keys"="true", "replication_num"="1", "storage_format"="${storageFormat}", "disable_auto_compaction"="true", "light_schema_change"="true")"""
             test {
                 sql """ALTER TABLE ${name} MODIFY COLUMN v VARIANT<PROPERTIES(
                     "variant_escape_dots_in_keys"="false", ${layout}, "variant_enable_nested_group"="false")>"""
-                exception "Can not change variant_escape_dots_in_keys"
+                exception "variant_escape_dots_in_keys is a table property"
             }
             def docs = ['{"a.b":1,"a":{"b":2},"a%2Eb":3,"50%":4,"":5}',
                         '{"hot":7,"a.b":8,"50%":9}', '{"hot":10,"":11}']
@@ -62,8 +62,7 @@ suite("dotted_key_escape_schema_change", "p0") {
                         new groovy.json.JsonSlurper().parseText(row[1])) }
             }
             checkRows()
-            sql """alter table ${name} add column e variant<properties("variant_escape_dots_in_keys"="true",
-                ${docMode ? layout : layout.replace('"1"', '"2"')}, 
+            sql """alter table ${name} add column e variant<properties(${docMode ? layout : layout.replace('"1"', '"2"')},
                 "variant_enable_nested_group"="false")>"""
             sql("select e from ${name}").each { assertEquals(null, it[0]) }
             def addedDoc = '{"e.f":12,"e":{"f":13},"e%2Ef":14,"":15}'

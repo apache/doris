@@ -28,7 +28,7 @@
 
 -- !storage_schema --
 id	int	Yes	true	\N	
-v	variant<PROPERTIES ("variant_max_subcolumns_count" = "0","variant_enable_typed_paths_to_sparse" = "false","variant_max_sparse_column_statistics_size" = "10000","variant_sparse_hash_shard_count" = "3","variant_enable_nested_group" = "false","variant_escape_dots_in_keys" = "true")>	Yes	false	\N	NONE
+v	variant<PROPERTIES ("variant_max_subcolumns_count" = "0","variant_enable_typed_paths_to_sparse" = "false","variant_max_sparse_column_statistics_size" = "10000","variant_sparse_hash_shard_count" = "3")>	Yes	false	\N	NONE
 v.50%25	bigint	Yes	false	\N	NONE
 v.a	bigint	Yes	false	\N	NONE
 v.a%252Eb	bigint	Yes	false	\N	NONE
@@ -90,7 +90,7 @@ v.x%2Ey	bigint	Yes	false	\N	NONE
 
 -- !template_schema --
 id	int	Yes	true	\N	
-v	variant<MATCH_NAME 'a%2Eb':text,MATCH_NAME 'a.b':text,PROPERTIES ("variant_max_subcolumns_count" = "0","variant_enable_typed_paths_to_sparse" = "false","variant_max_sparse_column_statistics_size" = "10000","variant_sparse_hash_shard_count" = "3","variant_enable_nested_group" = "false","variant_escape_dots_in_keys" = "true")>	Yes	false	\N	NONE
+v	variant<MATCH_NAME 'a%2Eb':text,MATCH_NAME 'a.b':text,PROPERTIES ("variant_max_subcolumns_count" = "0","variant_enable_typed_paths_to_sparse" = "false","variant_max_sparse_column_statistics_size" = "10000","variant_sparse_hash_shard_count" = "3")>	Yes	false	\N	NONE
 v.a%2Eb	text	Yes	false	\N	NONE
 v.a.b	text	Yes	false	\N	NONE
 

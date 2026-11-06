@@ -49,10 +49,10 @@ suite("dotted_key_escape_compaction", "p0,nonConcurrent") {
             String name = "dotted_key_escape_compaction_${storageFormat}_${docMode}"
             sql "drop table if exists ${name}"
             sql """create table ${name}(id int, v variant<properties(
-                "variant_escape_dots_in_keys"="true", ${layout}, "variant_enable_nested_group"="false")>,
+                ${layout}, "variant_enable_nested_group"="false")>,
                 index idx_v(v) using inverted properties("parser"="english"))
                 duplicate key(id) distributed by hash(id) buckets 1
-                properties("replication_num"="1", "storage_format"="${storageFormat}", "disable_auto_compaction"="true",
+                properties("variant_escape_dots_in_keys"="true", "replication_num"="1", "storage_format"="${storageFormat}", "disable_auto_compaction"="true",
                            "inverted_index_storage_format"="V2")"""
             def expected = [:]
             def checkRows = {

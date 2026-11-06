@@ -376,7 +376,7 @@ public class CloudInternalCatalogTest {
                 "", false, false,
                 "table", 0L, new RowTtlConfig(-1, 0), 0, false, false, 17, null, "size_based",
                 0L, 0L, 0L, 0L, 0L, false, Collections.emptyList(),
-                TInvertedIndexFileStorageFormat.SNII, 0L, false, Collections.emptyList(), 0L,
+                TInvertedIndexFileStorageFormat.SNII, 0L, false, false, Collections.emptyList(), 0L,
                 OlapFile.EncryptionAlgorithmPB.PLAINTEXT, 0L, true, Collections.emptyMap(), 0,
                 OlapFile.TabletRolePB.TABLET_ROLE_DATA).build();
     }

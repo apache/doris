@@ -43,7 +43,7 @@
 
 -- !glob_schema --
 id	int	Yes	true	\N	
-v	variant<'a%2Eb.*':bigint,'a.b.*':text,PROPERTIES ("variant_max_subcolumns_count" = "2048","variant_enable_typed_paths_to_sparse" = "false","variant_max_sparse_column_statistics_size" = "10000","variant_sparse_hash_shard_count" = "1","variant_enable_nested_group" = "false","variant_escape_dots_in_keys" = "true")>	Yes	false	\N	NONE
+v	variant<'a%2Eb.*':bigint,'a.b.*':text,PROPERTIES ("variant_max_subcolumns_count" = "2048","variant_enable_typed_paths_to_sparse" = "false","variant_max_sparse_column_statistics_size" = "10000","variant_sparse_hash_shard_count" = "1")>	Yes	false	\N	NONE
 v.a%2Eb.c%2Ed	bigint	Yes	false	\N	NONE
 v.a.b.c%2Ed	text	Yes	false	\N	NONE
 

@@ -39,10 +39,10 @@ suite("dotted_key_escape_element_at_mv", "p0") {
     sql "set enable_materialized_view_rewrite=true"
     sql "DROP TABLE IF EXISTS dotted_key_escape_element_at_mv"
     sql """CREATE TABLE dotted_key_escape_element_at_mv(k INT, v VARIANT<PROPERTIES(
-        "variant_escape_dots_in_keys"="true", "variant_enable_nested_group"="false",
+        "variant_enable_nested_group"="false",
         "variant_max_subcolumns_count"="2", "variant_sparse_hash_shard_count"="3")>)
         DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
-        PROPERTIES("replication_num"="1", "disable_auto_compaction"="true")"""
+        PROPERTIES("variant_escape_dots_in_keys"="true", "replication_num"="1", "disable_auto_compaction"="true")"""
     sql """INSERT INTO dotted_key_escape_element_at_mv VALUES
         (1,CAST(CAST('{"obj":{"a.b":1,"a":{"b":2},"a%2Eb":3}}' AS JSON) AS VARIANT))"""
     def db = context.config.getDbNameByFile(context.file)

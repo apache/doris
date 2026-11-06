@@ -507,38 +507,4 @@ public class IndexDefinitionTest {
                                                      "comment"),
                                 KeysType.DUP_KEYS, false, null));
     }
-
-    @Test
-    void testEscapedVariantFieldPatternsForCreateAndAlterIndex() {
-        for (boolean escaped : new boolean[] {false, true}) {
-            VariantType type = new VariantType(Lists.newArrayList(), 0, false, 10000, 1,
-                    false, 0, 64, false, escaped);
-            ColumnDefinition definition = new ColumnDefinition("col1", type, false, AggregateType.NONE,
-                    true, null, "");
-            Column column = new Column("col1", type.toCatalogDataType());
-            for (String pattern : new String[] {null, "a%2Eb.50%25", "a%2e"}) {
-                Map<String, String> properties = new HashMap<>();
-                if (pattern != null) {
-                    properties.put("field_pattern", pattern);
-                }
-                IndexDefinition index = new IndexDefinition("idx", false, Lists.newArrayList("col1"),
-                        "INVERTED", properties, "");
-                if (escaped && "a%2e".equals(pattern)) {
-                    AnalysisException createError = Assertions.assertThrows(AnalysisException.class,
-                            () -> index.checkColumn(definition, KeysType.DUP_KEYS, false,
-                                    TInvertedIndexFileStorageFormat.V2));
-                    Assertions.assertTrue(createError.getMessage().contains("Invalid escaped Variant path"));
-                    AnalysisException alterError = Assertions.assertThrows(AnalysisException.class,
-                            () -> index.checkColumn(column, KeysType.DUP_KEYS, false,
-                                    TInvertedIndexFileStorageFormat.V2));
-                    Assertions.assertTrue(alterError.getMessage().contains("Invalid escaped Variant path"));
-                } else {
-                    Assertions.assertDoesNotThrow(() -> index.checkColumn(definition, KeysType.DUP_KEYS, false,
-                            TInvertedIndexFileStorageFormat.V2));
-                    Assertions.assertDoesNotThrow(() -> index.checkColumn(column, KeysType.DUP_KEYS, false,
-                            TInvertedIndexFileStorageFormat.V2));
-                }
-            }
-        }
-    }
 }

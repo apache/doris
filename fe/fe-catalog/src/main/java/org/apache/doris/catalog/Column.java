@@ -831,9 +831,6 @@ public class Column implements GsonPostProcessable {
             if (this.getVariantDocShardCount() != other.getVariantDocShardCount()) {
                 throw new DdlException("Can not change variant doc snapshot shard count");
             }
-            if (getVariantEscapeDotsInKeys() != other.getVariantEscapeDotsInKeys()) {
-                throw new DdlException("Can not change variant_escape_dots_in_keys");
-            }
             if (this.getVariantEnableNestedGroup() != other.getVariantEnableNestedGroup()) {
                 throw new DdlException("Can not change variant enable nested group");
             }
@@ -1204,10 +1201,6 @@ public class Column implements GsonPostProcessable {
 
     public int getVariantDocShardCount() {
         return type.isVariantType() ? ((ScalarType) type).getVariantDocShardCount() : 128;
-    }
-
-    public boolean getVariantEscapeDotsInKeys() {
-        return type.isVariantType() && ((ScalarType) type).getVariantEscapeDotsInKeys();
     }
 
     public boolean getVariantEnableNestedGroup() {

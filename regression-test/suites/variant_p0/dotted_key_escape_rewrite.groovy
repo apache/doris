@@ -23,13 +23,12 @@ suite("dotted_key_escape_rewrite", "p0,nonConcurrent") {
         [1, 2].each { width ->
             String name = "dotted_key_escape_${model}_${width}"
             sql "drop table if exists ${name}"
-            sql """create table ${name}(id int, v variant<properties("variant_escape_dots_in_keys"="true",
-            "variant_max_subcolumns_count"="1", "variant_enable_typed_paths_to_sparse"="false",
+            sql """create table ${name}(id int, v variant<properties("variant_max_subcolumns_count"="1", "variant_enable_typed_paths_to_sparse"="false",
             "variant_max_sparse_column_statistics_size"="10000",
             "variant_sparse_hash_shard_count"="3", "variant_enable_nested_group"="false")>, padding int default '0',
                 index idx_v(v) using inverted)
                 ${model == 'mow' ? 'unique' : 'duplicate'} key(id)
-                distributed by hash(id) buckets 1 properties("replication_num"="1",
+                distributed by hash(id) buckets 1 properties("variant_escape_dots_in_keys"="true", "replication_num"="1",
                 "disable_auto_compaction"="true", "light_schema_change"="true",
                 "inverted_index_storage_format"="V2"
                 ${model == 'mow' ? ', "enable_unique_key_merge_on_write"="true"' : ''})"""
@@ -73,12 +72,11 @@ suite("dotted_key_escape_rewrite", "p0,nonConcurrent") {
         }
     }
     sql "drop table if exists dotted_key_escape_source"
-    sql """create table dotted_key_escape_source(id int,v variant<properties("variant_escape_dots_in_keys"="true",
-            "variant_max_subcolumns_count"="0", "variant_enable_typed_paths_to_sparse"="false",
+    sql """create table dotted_key_escape_source(id int,v variant<properties("variant_max_subcolumns_count"="0", "variant_enable_typed_paths_to_sparse"="false",
             "variant_max_sparse_column_statistics_size"="10000",
             "variant_sparse_hash_shard_count"="3", "variant_enable_nested_group"="false")>,padding int default '0')
         duplicate key(id) distributed by hash(id) buckets 1
-        properties("replication_num"="1", "disable_auto_compaction"="true", "light_schema_change"="true")"""
+        properties("variant_escape_dots_in_keys"="true", "replication_num"="1", "disable_auto_compaction"="true", "light_schema_change"="true")"""
     sql """insert into dotted_key_escape_source values
         (1,parse_to_variant('{"a.b":1}'),0),
         (2,parse_to_variant('{"a":5,"a.b":6}'),0),
@@ -92,19 +90,17 @@ suite("dotted_key_escape_rewrite", "p0,nonConcurrent") {
     order_qt_ctas_schema "desc dotted_key_escape_ctas"
     order_qt_ctas_values "select id,v from dotted_key_escape_ctas"
     sql "drop table if exists dotted_key_escape_copy"
-    sql """create table dotted_key_escape_copy(id int,v variant<properties("variant_escape_dots_in_keys"="true",
-            "variant_max_subcolumns_count"="0", "variant_enable_typed_paths_to_sparse"="false",
+    sql """create table dotted_key_escape_copy(id int,v variant<properties("variant_max_subcolumns_count"="0", "variant_enable_typed_paths_to_sparse"="false",
             "variant_max_sparse_column_statistics_size"="10000",
             "variant_sparse_hash_shard_count"="3", "variant_enable_nested_group"="false")>,padding int default '0')
         duplicate key(id) distributed by hash(id) buckets 1
-        properties("replication_num"="1", "disable_auto_compaction"="true", "light_schema_change"="true")"""
+        properties("variant_escape_dots_in_keys"="true", "replication_num"="1", "disable_auto_compaction"="true", "light_schema_change"="true")"""
     sql "drop table if exists dotted_key_escape_heavy"
-    sql """create table dotted_key_escape_heavy(id int,v variant<properties("variant_escape_dots_in_keys"="true",
-            "variant_max_subcolumns_count"="0", "variant_enable_typed_paths_to_sparse"="false",
+    sql """create table dotted_key_escape_heavy(id int,v variant<properties("variant_max_subcolumns_count"="0", "variant_enable_typed_paths_to_sparse"="false",
             "variant_max_sparse_column_statistics_size"="10000",
             "variant_sparse_hash_shard_count"="3", "variant_enable_nested_group"="false")>,padding int default '0')
         duplicate key(id) distributed by hash(id) buckets 1
-        properties("replication_num"="1", "disable_auto_compaction"="true", "light_schema_change"="true")"""
+        properties("variant_escape_dots_in_keys"="true", "replication_num"="1", "disable_auto_compaction"="true", "light_schema_change"="true")"""
     sql """insert into dotted_key_escape_heavy values
         (1,parse_to_variant('{"a.b":1}'),0),
         (2,parse_to_variant('{"a":5,"a.b":6}'),0),
@@ -112,12 +108,11 @@ suite("dotted_key_escape_rewrite", "p0,nonConcurrent") {
         (4,parse_to_variant('{"a%2Eb":1,"x.y":2}'),0),
         (5,parse_to_variant('{"50%":1}'),0)"""
     sql "drop table if exists dotted_key_escape_whole"
-    sql """create table dotted_key_escape_whole(id int,v variant<properties("variant_escape_dots_in_keys"="true",
-            "variant_max_subcolumns_count"="0", "variant_enable_typed_paths_to_sparse"="false",
+    sql """create table dotted_key_escape_whole(id int,v variant<properties("variant_max_subcolumns_count"="0", "variant_enable_typed_paths_to_sparse"="false",
             "variant_max_sparse_column_statistics_size"="10000",
             "variant_sparse_hash_shard_count"="3", "variant_enable_nested_group"="false")>,padding int default '0')
         duplicate key(id) distributed by hash(id) buckets 1
-        properties("replication_num"="1", "disable_auto_compaction"="true", "light_schema_change"="true")"""
+        properties("variant_escape_dots_in_keys"="true", "replication_num"="1", "disable_auto_compaction"="true", "light_schema_change"="true")"""
     sql """insert into dotted_key_escape_whole values
         (1,parse_to_variant('{"a.b":1}'),0),
         (2,parse_to_variant('{"a":5,"a.b":6}'),0),
@@ -126,11 +121,11 @@ suite("dotted_key_escape_rewrite", "p0,nonConcurrent") {
         (5,parse_to_variant('{"50%":1}'),0)"""
     sql """insert into dotted_key_escape_whole values (1,parse_to_variant('{"a.b":1}'),0)"""
     sql "drop table if exists dotted_key_escape_doc"
-    sql """create table dotted_key_escape_doc(id int,v variant<properties("variant_escape_dots_in_keys"="true", "variant_enable_nested_group"="false",
+    sql """create table dotted_key_escape_doc(id int,v variant<properties("variant_enable_nested_group"="false",
             "variant_enable_doc_mode"="true", "variant_doc_materialization_min_rows"="100",
             "variant_doc_hash_shard_count"="3")>,padding int default '0')
         duplicate key(id) distributed by hash(id) buckets 1
-        properties("replication_num"="1", "disable_auto_compaction"="true", "light_schema_change"="true")"""
+        properties("variant_escape_dots_in_keys"="true", "replication_num"="1", "disable_auto_compaction"="true", "light_schema_change"="true")"""
     sql """insert into dotted_key_escape_doc values
         (1,parse_to_variant('{"a.b":1}'),0),
         (2,parse_to_variant('{"a":5,"a.b":6}'),0),

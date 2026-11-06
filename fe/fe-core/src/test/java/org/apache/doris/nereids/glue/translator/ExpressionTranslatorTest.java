@@ -146,9 +146,10 @@ public class ExpressionTranslatorTest {
     public void testVariantIndexLookupUsesLogicalKeysForMatchAndSearch() {
         for (boolean escaped : new boolean[] {false, true}) {
             VariantType type = new VariantType(ImmutableList.of(), 0, false, 10000, 1,
-                    false, 0, 64, false, escaped);
+                    false, 0, 64, false);
             Column column = new Column("v", type.toCatalogDataType());
             OlapTable table = Mockito.mock(OlapTable.class);
+            Mockito.when(table.getVariantEscapeDotsInKeys()).thenReturn(escaped);
             List<String> logical = ImmutableList.of("a.b", "50%");
             SlotReference seed = new SlotReference("v", StringType.INSTANCE, true);
             SlotReference slot = new SlotReference(seed.getExprId(), "v", StringType.INSTANCE, true,
@@ -177,10 +178,10 @@ public class ExpressionTranslatorTest {
             indexes.add(new Index(i + 1, "idx_" + i, List.of("v"), IndexType.INVERTED,
                     Map.of("field_pattern", storagePaths.get(i), "parser", "english"), ""));
         }
-        Column column = new Column("v", new org.apache.doris.catalog.VariantType(fields,
-                Map.of("variant_escape_dots_in_keys", "true")));
+        Column column = new Column("v", new org.apache.doris.catalog.VariantType(fields));
         OlapTable table = Mockito.spy(new OlapTable());
         table.setIndexes(indexes);
+        table.setVariantEscapeDotsInKeys(true);
         for (int i = 0; i < paths.size(); ++i) {
             PlanTranslatorContext context = new PlanTranslatorContext();
             TupleDescriptor tuple = context.generateTupleDesc();

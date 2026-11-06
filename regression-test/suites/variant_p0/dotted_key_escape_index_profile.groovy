@@ -21,10 +21,10 @@ suite("dotted_key_escape_index_profile", "p0") {
     sql "set default_variant_enable_doc_mode=false"
     sql "drop table if exists dotted_key_escape_index_profile"
     sql """create table dotted_key_escape_index_profile(id int,v variant<properties(
-        "variant_escape_dots_in_keys"="true", "variant_enable_nested_group"="false",
+        "variant_enable_nested_group"="false",
         "variant_max_subcolumns_count"="0")>,index idx_v(v) using inverted)
         duplicate key(id) distributed by hash(id) buckets 1
-        properties("replication_num"="1", "inverted_index_storage_format"="V2")"""
+        properties("variant_escape_dots_in_keys"="true", "replication_num"="1", "inverted_index_storage_format"="V2")"""
     // Keep matching and nonmatching values in one segment so zone maps cannot
     // eliminate the filler segment before the inverted index sees its rows.
     def fillers = (2..65).collect { id ->

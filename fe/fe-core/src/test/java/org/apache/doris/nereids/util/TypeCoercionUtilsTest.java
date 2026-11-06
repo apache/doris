@@ -902,37 +902,6 @@ public class TypeCoercionUtilsTest {
     }
 
     @Test
-    public void testVariantCommonTypeIgnoresPathStorageEncoding() {
-        VariantType escaped = new VariantType(ImmutableList.of(), 100, false, 10000,
-                1, false, 0L, 64, false, true);
-        VariantType otherEscaped = new VariantType(ImmutableList.of(), 200, false, 10000,
-                1, false, 0L, 64, false, true);
-        for (VariantType other : ImmutableList.of(otherEscaped, VariantType.INSTANCE)) {
-            for (List<VariantType> inputs : ImmutableList.of(
-                    ImmutableList.of(escaped, other), ImmutableList.of(other, escaped))) {
-                VariantType common = (VariantType) TypeCoercionUtils.findWiderTypeForTwo(
-                        inputs.get(0), inputs.get(1), false, true).get();
-                Assertions.assertFalse(common.getEscapeDotsInKeys());
-                Assertions.assertEquals(0, common.getVariantMaxSubcolumnsCount());
-                Assertions.assertFalse(((VariantType) common.conversion()).getEscapeDotsInKeys());
-                VariantType caseType = (VariantType) TypeCoercionUtils.findCommonPrimitiveTypeForCaseWhen(
-                        inputs.get(0), inputs.get(1)).get();
-                Assertions.assertFalse(caseType.getEscapeDotsInKeys());
-                ArrayType arrayType = (ArrayType) TypeCoercionUtils.findWiderTypeForTwo(
-                        ArrayType.of(inputs.get(0)), ArrayType.of(inputs.get(1)), false, true).get();
-                Assertions.assertFalse(((VariantType) arrayType.getItemType()).getEscapeDotsInKeys());
-            }
-        }
-    }
-
-    @Test
-    public void testVariantRecursiveComputeTypeIgnoresStorageEncoding() {
-        VariantType escaped = new VariantType(0, true);
-        Assertions.assertTrue(escaped.equalsForRecursiveCte(VariantType.INSTANCE));
-        Assertions.assertTrue(VariantType.INSTANCE.equalsForRecursiveCte(escaped));
-    }
-
-    @Test
     public void testCoalesceCastsRequiredStructFieldsToNullableLayout() {
         StructType nullableStruct = new StructType(ImmutableList.of(
                 new StructField("name", VarcharType.createVarcharType(10), true, ""),

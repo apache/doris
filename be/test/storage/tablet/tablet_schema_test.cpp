@@ -1149,7 +1149,7 @@ TEST_F(TabletSchemaTest, EscapedVariantPropertyAndIndexSuffixRoundTrip) {
     ColumnPB pb;
     column.to_schema_pb(&pb);
     TabletColumn restored(pb);
-    EXPECT_TRUE(restored.variant_escape_dots_in_keys());
+    EXPECT_FALSE(restored.variant_escape_dots_in_keys());
     TabletIndex index;
     index.set_escaped_escaped_index_suffix_path("v.a%2Eb_x");
     EXPECT_EQ(index.get_index_suffix(), "v%2Ea%2Eb%5Fx");
@@ -1158,6 +1158,7 @@ TEST_F(TabletSchemaTest, EscapedVariantPropertyAndIndexSuffixRoundTrip) {
     index.set_escaped_escaped_index_suffix_path("v.a.b_x", true);
     EXPECT_EQ(index.get_index_suffix(), "v%2Ea%2Eb%5Fx");
     TabletSchema schema;
+    schema.set_variant_escape_dots_in_keys(true);
     schema.append_column(restored);
     for (auto kind : {IndexType::INVERTED, IndexType::ANN}) {
         TabletIndexPB index_pb;
@@ -1186,56 +1187,131 @@ TEST_F(TabletSchemaTest, EscapedVariantPropertyAndIndexSuffixRoundTrip) {
 }
 
 TEST_F(TabletSchemaTest, MasterPersistedEncodingGoldenBytes) {
-    // ColumnPB 36 is a0 02 01; compare the shared identity/property wire
-    // projection after a TabletColumn round trip (master has additional layouts).
-    const auto golden = std::string("\x08\x07\x12\x01v\x1a\x07VARIANT\xa0\x02\x01", 17);
-    ColumnPB pb;
+    // Physical segment expectations remain in the writer/reader golden test. The table
+    // policy now lives in TabletSchemaPB 47 (f8 02 01), never in ColumnPB 36.
+    const auto golden = std::string("\xf8\x02\x01", 3);
+    TabletSchemaPB pb;
     ASSERT_TRUE(pb.ParseFromString(golden));
-    TabletColumn column(pb);
-    EXPECT_TRUE(column.variant_escape_dots_in_keys());
-    ColumnPB restored;
-    column.to_schema_pb(&restored);
-    EXPECT_TRUE(TabletColumn(restored).variant_escape_dots_in_keys());
+    TabletSchema schema;
+    schema.init_from_pb(pb);
+    EXPECT_TRUE(schema.variant_escape_dots_in_keys());
+    TabletSchemaPB restored;
+    schema.to_schema_pb(&restored);
     auto projection = restored;
     for (int i = 0; i < projection.GetDescriptor()->field_count(); ++i) {
         const auto* field = projection.GetDescriptor()->field(i);
-        if (field->number() != 1 && field->number() != 2 && field->number() != 3 &&
-            field->number() != 36) {
-            projection.GetReflection()->ClearField(&projection, field);
-        }
+        if (field->number() != 47) projection.GetReflection()->ClearField(&projection, field);
     }
     EXPECT_EQ(projection.SerializeAsString(), golden);
+    EXPECT_EQ(ColumnPB::descriptor()->FindFieldByNumber(36), nullptr);
+}
 
-    // Simulate an old meta-service descriptor: field 36 is unknown but protobuf
-    // retains it through parse/copy/serialize, so dictionary dedup keys differ.
-    google::protobuf::FileDescriptorProto file;
-    file.set_name("compat_old_column.proto");
-    file.set_syntax("proto2");
-    auto* message = file.add_message_type();
-    message->set_name("OldColumn");
-    for (const auto& [number, name, type] :
-         std::vector<std::tuple<int, const char*, google::protobuf::FieldDescriptorProto::Type>> {
-                 {1, "unique_id", google::protobuf::FieldDescriptorProto::TYPE_INT32},
-                 {2, "name", google::protobuf::FieldDescriptorProto::TYPE_STRING},
-                 {3, "type", google::protobuf::FieldDescriptorProto::TYPE_STRING}}) {
-        auto* field = message->add_field();
-        field->set_number(number);
-        field->set_name(name);
-        field->set_type(type);
-        field->set_label(google::protobuf::FieldDescriptorProto::LABEL_OPTIONAL);
+TEST_F(TabletSchemaTest, EscapedSchemaColumnsBypassPoolAndSurviveCopies) {
+    TabletSchemaPB pb;
+    pb.set_keys_type(KeysType::DUP_KEYS);
+    auto* root = pb.add_column();
+    root->set_unique_id(7);
+    root->set_name("v");
+    root->set_type("VARIANT");
+    auto* child = pb.add_column();
+    child->set_unique_id(-1);
+    child->set_name("v.a%2Eb");
+    child->set_type("STRING");
+    PathInData("v.a%2Eb").to_protobuf(child->mutable_column_path_info(), 7);
+    TabletSchema legacy;
+    legacy.init_from_pb(pb, false, true);
+    pb.set_variant_escape_dots_in_keys(true);
+    TabletSchema escaped;
+    escaped.init_from_pb(pb, false, true);
+    EXPECT_FALSE(legacy.column(0).variant_escape_dots_in_keys());
+    EXPECT_FALSE(legacy.column(1).variant_escape_dots_in_keys());
+    EXPECT_TRUE(escaped.column(0).variant_escape_dots_in_keys());
+    EXPECT_TRUE(escaped.column(1).variant_escape_dots_in_keys());
+    EXPECT_NE(legacy.columns()[0], escaped.columns()[0]);
+    TabletSchema copied;
+    copied.copy_from(escaped);
+    copied.clear_columns();
+    TabletColumn added;
+    added.set_name("added");
+    added.set_unique_id(8);
+    added.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    copied.append_column(added);
+    EXPECT_TRUE(copied.column(0).variant_escape_dots_in_keys());
+    const PathInData added_path("added");
+    EXPECT_EQ(copied.field_index(added_path), 0);
+    copied.set_variant_escape_dots_in_keys(false);
+    EXPECT_FALSE(copied.column(0).variant_escape_dots_in_keys());
+    EXPECT_EQ(copied.field_index(added_path), 0);
+    EXPECT_EQ(copied.field_index("added"), 0);
+    copied.set_variant_escape_dots_in_keys(true);
+    EXPECT_EQ(copied.field_index(added_path), 0);
+    TabletSchemaPB persisted;
+    copied.to_schema_pb(&persisted);
+    TabletSchema reloaded;
+    reloaded.init_from_pb(persisted, false, true);
+    EXPECT_TRUE(reloaded.column(0).variant_escape_dots_in_keys());
+    EXPECT_FALSE(legacy.column(0).variant_escape_dots_in_keys());
+}
+
+TEST_F(TabletSchemaTest, EscapePolicySetterRebindsExtractedPaths) {
+    TabletSchemaPB pb;
+    pb.set_keys_type(KeysType::DUP_KEYS);
+    auto* root = pb.add_column();
+    root->set_unique_id(7);
+    root->set_name("v");
+    root->set_type("VARIANT");
+    auto* child = pb.add_column();
+    child->set_unique_id(-1);
+    child->set_name("v.a%2Eb");
+    child->set_type("STRING");
+    const PathInData extracted_path("v.a%2Eb");
+    extracted_path.to_protobuf(child->mutable_column_path_info(), 7);
+    TabletSchema schema;
+    for (const auto& column_pb : pb.column()) {
+        schema.append_column(TabletColumn(column_pb));
     }
-    google::protobuf::DescriptorPool pool;
-    auto* descriptor = pool.BuildFile(file);
-    ASSERT_NE(descriptor, nullptr);
-    google::protobuf::DynamicMessageFactory factory;
-    auto old = std::unique_ptr<google::protobuf::Message>(
-            factory.GetPrototype(descriptor->message_type(0))->New());
-    ASSERT_TRUE(old->ParseFromString(golden));
-    auto copied = std::unique_ptr<google::protobuf::Message>(old->New());
-    copied->CopyFrom(*old);
-    EXPECT_EQ(copied->SerializeAsString(), golden);
-    pb.clear_variant_escape_dots_in_keys();
-    EXPECT_NE(copied->SerializeAsString(), pb.SerializeAsString());
+    ASSERT_EQ(schema.field_index(extracted_path), 1);
+    const auto* old_column = &schema.column(1);
+
+    schema.set_variant_escape_dots_in_keys(true);
+    // No shared_ptr retains the old column: this lookup must not read its freed path.
+    const auto ordinal = schema.field_index(extracted_path);
+    ASSERT_EQ(ordinal, 1);
+    EXPECT_NE(&schema.column(ordinal), old_column);
+    EXPECT_TRUE(schema.column(ordinal).variant_escape_dots_in_keys());
+    EXPECT_EQ(schema.field_index("v.a%2Eb"), ordinal);
+
+    schema.set_variant_escape_dots_in_keys(false);
+    ASSERT_EQ(schema.field_index(extracted_path), ordinal);
+    EXPECT_FALSE(schema.column(ordinal).variant_escape_dots_in_keys());
+}
+
+TEST_F(TabletSchemaTest, CurrentAndAddedVariantColumnsInheritPersistedTablePolicy) {
+    TabletSchemaPB pb;
+    pb.set_keys_type(KeysType::DUP_KEYS);
+    pb.set_variant_escape_dots_in_keys(true);
+    auto* root = pb.add_column();
+    root->set_name("v");
+    root->set_unique_id(7);
+    root->set_type("VARIANT");
+    TabletSchema persisted;
+    persisted.init_from_pb(pb, false, true);
+    TabletColumn incoming(*root);
+    ColumnPB added_pb = *root;
+    added_pb.set_name("added");
+    added_pb.set_unique_id(8);
+    TabletColumn added(added_pb);
+    EXPECT_FALSE(incoming.variant_escape_dots_in_keys());
+    EXPECT_FALSE(added.variant_escape_dots_in_keys());
+    OlapTableIndexSchema index;
+    index.columns = {&incoming, &added};
+    TabletSchema current;
+    current.build_current_tablet_schema(1, 2, &index, persisted);
+    EXPECT_TRUE(current.variant_escape_dots_in_keys());
+    EXPECT_TRUE(current.column_by_uid(7).variant_escape_dots_in_keys());
+    EXPECT_TRUE(current.column_by_uid(8).variant_escape_dots_in_keys());
+    EXPECT_FALSE(incoming.variant_escape_dots_in_keys());
+    EXPECT_FALSE(added.variant_escape_dots_in_keys());
 }
 
 } // namespace doris

@@ -20,7 +20,6 @@ package org.apache.doris.nereids.types;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
@@ -29,13 +28,11 @@ import org.apache.doris.nereids.types.coercion.FractionalType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.NumericType;
 import org.apache.doris.nereids.types.coercion.ScaleTimeType;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.Collections;
 import java.util.Random;
 
 public class DataTypeTest {
@@ -892,52 +889,5 @@ public class DataTypeTest {
     private void assertUnsafeCast(DataType source, DataType target) {
         Assertions.assertFalse(source.isInjectiveCastTo(target), source.toSql() + " should not safely cast to "
                 + target.toSql());
-    }
-
-    @Test
-    public void testEscapedVariantSqlPreservesNestedGroupOff() {
-        ConnectContext previous = ConnectContext.get();
-        try {
-            VariantType escaped = new VariantType(Collections.emptyList(), 1, false, 10000, 3, false, 0, 64, false, true);
-            VariantType legacy = new VariantType(Collections.emptyList(), 1, false, 10000, 3, false, 0, 64, false, false);
-            VariantType converted = (VariantType) escaped.conversion();
-            Assertions.assertTrue(converted.getEscapeDotsInKeys());
-            Assertions.assertEquals(escaped, converted);
-            Assertions.assertEquals(escaped.hashCode(), converted.hashCode());
-            Assertions.assertNotEquals(legacy, escaped);
-            Assertions.assertEquals(escaped, DataType.fromCatalogType(escaped.toCatalogDataType()));
-            String legacySql = "variant<PROPERTIES (\"variant_max_subcolumns_count\" = \"1\","
-                    + "\"variant_enable_typed_paths_to_sparse\" = \"false\","
-                    + "\"variant_max_sparse_column_statistics_size\" = \"10000\","
-                    + "\"variant_sparse_hash_shard_count\" = \"3\")>";
-            for (boolean withContext : new boolean[] {true, false}) {
-                if (withContext) {
-                    ConnectContext context = new ConnectContext();
-                    context.getSessionVariable().defaultVariantEnableNestedGroup = true;
-                    context.setThreadLocalInfo();
-                } else {
-                    ConnectContext.remove();
-                }
-                Assertions.assertEquals(legacySql, legacy.toSql());
-                VariantType parsed = (VariantType) new NereidsParser().parseDataType(escaped.toSql());
-                Assertions.assertTrue(parsed.getEscapeDotsInKeys());
-                Assertions.assertFalse(parsed.getEnableNestedGroup());
-            }
-        } finally {
-            if (previous == null) {
-                ConnectContext.remove();
-            } else {
-                previous.setThreadLocalInfo();
-            }
-        }
-    }
-
-    @Test
-    public void testLegacyVariantConstructorsKeepEscapingOff() {
-        Assertions.assertFalse(new VariantType(Collections.emptyList()).getEscapeDotsInKeys());
-        VariantType legacy = new VariantType(Collections.emptyList(), 1, false, 10000, 3,
-                false, 0, 64, false);
-        Assertions.assertFalse(legacy.getEscapeDotsInKeys());
-        Assertions.assertFalse(legacy.getEnableNestedGroup());
     }
 }

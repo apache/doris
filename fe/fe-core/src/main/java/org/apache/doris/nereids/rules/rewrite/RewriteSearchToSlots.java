@@ -142,7 +142,7 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
                     // Create ElementAt expression for variant subcolumn
                     // This will be converted to an extracted column slot by VariantSubPathPruning rule
                     // If the subcolumn doesn't exist, ElementAt will remain and BE will handle it gracefully
-                    if (scan.getTable().getColumn(normalizedParentFieldName).getVariantEscapeDotsInKeys()) {
+                    if (scan.getTable().getVariantEscapeDotsInKeys()) {
                         childExpr = parentSlot;
                         for (String part : subcolumnPath.split("\\.", -1)) {
                             String key = PropertyAnalyzer.decodeVariantPathComponent(part);

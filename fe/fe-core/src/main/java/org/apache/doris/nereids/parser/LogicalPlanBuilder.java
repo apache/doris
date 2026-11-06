@@ -5432,6 +5432,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ? visitVariantSubColTypeList(variantCtx.variantSubColTypeList()) : Lists.newArrayList();
         Map<String, String> properties = variantCtx.properties != null
                 ? Maps.newHashMap(visitPropertyClause(variantCtx.properties)) : Maps.newHashMap();
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS)) {
+            throw new NotSupportedException("variant_escape_dots_in_keys is a table property; "
+                    + "use CREATE TABLE PROPERTIES(\"variant_escape_dots_in_keys\"=\"true\")");
+        }
 
         int variantMaxSubcolumnsCount = ConnectContext.get() == null ? 0 :
                 ConnectContext.get().getSessionVariable().getDefaultVariantMaxSubcolumnsCount();
@@ -5477,20 +5481,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             throw new NotSupportedException(e.getMessage());
         }
 
-        boolean escapeDotsInKeys;
-        try {
-            escapeDotsInKeys = PropertyAnalyzer.analyzeVariantEscapeDotsInKeys(properties);
-            if (escapeDotsInKeys && enableNestedGroup) {
-                throw new NotSupportedException("NestedGroup and variant_escape_dots_in_keys cannot both be true");
-            }
-            if (escapeDotsInKeys) {
-                for (VariantField field : fields) {
-                    PropertyAnalyzer.validateVariantStoragePath(field.getPattern());
-                }
-            }
-        } catch (org.apache.doris.common.AnalysisException e) {
-            throw new NotSupportedException(e.getMessage());
-        }
         if (enableNestedGroup) {
             enableVariantDocMode = false;
             variantMaxSubcolumnsCount = 0;
@@ -5543,7 +5533,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new VariantType(fields, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
                     variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount,
                     enableVariantDocMode, variantDocMaterializationMinRows, variantDocHashShardCount,
-                    enableNestedGroup, escapeDotsInKeys);
+                    enableNestedGroup);
     }
 
     private static boolean isSupportedVariantDocModeType(DataType type) {

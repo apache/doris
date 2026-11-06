@@ -22,11 +22,11 @@ suite("dotted_key_escape_complex_rewrite", "p0,nonConcurrent") {
     // One shard deliberately puts all special paths in the same sorted sparse map.
     // The frequent 'hot' field occupies the sole materialized-column slot.
     sql """create table dotted_key_escape_complex(id int, v variant<properties(
-        "variant_escape_dots_in_keys"="true", "variant_enable_nested_group"="false",
+        "variant_enable_nested_group"="false",
         "variant_max_subcolumns_count"="1", "variant_sparse_hash_shard_count"="1",
         "variant_max_sparse_column_statistics_size"="10000")>)
         duplicate key(id) distributed by hash(id) buckets 1
-        properties("replication_num"="1", "disable_auto_compaction"="true")"""
+        properties("variant_escape_dots_in_keys"="true", "replication_num"="1", "disable_auto_compaction"="true")"""
     sql """insert into dotted_key_escape_complex values
         (1,parse_to_variant('{"hot":1,"a.b":{"c.d":11,"c%2Ed":12},"a":{"b":{"c.d":21,"c%2Ed":22}},"a%2Eb":{"c.d":51},"a%2e":61,"a%20":62,"a%":63}')),
         (3,parse_to_variant('{"hot":3}')),(5,parse_to_variant('{"hot":5}'))"""
