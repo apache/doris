@@ -140,19 +140,28 @@ suite("dotted_key_escape_sparse_promotion", "p0,nonConcurrent") {
             assert code == 0 : err
             parseJson(out)
         }
+        // Cloud keeps the empty initial [0-1] rowset outside full compaction.
+        // Compare IDs of every other input, including zero-segment delete rowsets.
+        def rowsetIds = { status ->
+            status.rowsets.collect { it.split(/\s+/) }
+                    .findAll { !(it[0] == "[0-1]" && it[1] == "0") }
+                    .collect { it[4] }.toSet()
+        }
         def compact = { String tableName ->
             def tablet = sql_return_maparray("SHOW TABLETS FROM ${tableName}")[0]
             def before = statusOf(tablet)
-            assert before.rowsets.size() > 1 : before
+            def inputs = rowsetIds(before)
+            assert inputs.size() > 1 : before
             trigger_and_wait_compaction(tableName, "full", 300)
             def after = statusOf(tablet)
             assert after.containsKey("last full status")
             // Query equality alone also passes when compaction fails and leaves inputs intact.
             assertEquals("[OK]", after["last full status"].toString())
             qt_compaction_status "SELECT '[OK]'"
-            assert after.rowsets.size() == 1 : after
-            assert after.rowsets.intersect(before.rowsets).isEmpty() : after
-            logger.info("${tableName}: replaced ${before.rowsets} with ${after.rowsets}")
+            def outputs = rowsetIds(after)
+            assert outputs.size() == 1 : after
+            assert outputs.intersect(inputs).isEmpty() : after
+            logger.info("${tableName}: replaced ${inputs} with ${outputs}")
         }
         // The matrix above covers both storage formats and shard counts with DUP/MOW.
         // Add a deep-path case with heterogeneous values and three generations
