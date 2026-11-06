@@ -34,62 +34,73 @@ suite("hbo_skew_shuffle_to_bc_test", "nonConcurrent") {
 
     // increase the parallel to make enough skew between different instances
     sql "set parallel_pipeline_task_num=100;"
+    // Replan the second EXPLAIN with the collected HBO statistics instead of a cached plan.
+    sql "set enable_sql_cache=false;"
+    sql "set enable_profile=true;"
     sql "set hbo_rfsafe_threshold=1.0;"
-    sql """ ADMIN SET ALL FRONTENDS CONFIG ("hbo_slow_query_threshold_ms" = "10"); """
-    sql "set enable_hbo_optimization=false;"
-    sql "set global enable_hbo_info_collection=true;"
-    /**
-     +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-     | Explain String(Nereids Planner)                                                                                                                                                                                                                                                 |
-     +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-     | cost = 8.8669105036E7                                                                                                                                                                                                                                                           |
-     | PhysicalResultSink[348] ( outputExprs=[__count_0#4] )                                                                                                                                                                                                                           |
-     | +--PhysicalHashAggregate[343]@6 ( stats=1, aggPhase=GLOBAL, aggMode=BUFFER_TO_RESULT, maybeUseStreaming=false, groupByExpr=[], outputExpr=[count(partial_count(*)#9) AS `count(*)`#4], partitionExpr=Optional[[]], topnFilter=false, topnPushDown=false )                       |
-     |    +--PhysicalDistribute[338]@8 ( stats=1, distributionSpec=DistributionSpecGather )                                                                                                                                                                                            |
-     |       +--PhysicalHashAggregate[333]@8 ( stats=1, aggPhase=LOCAL, aggMode=INPUT_TO_BUFFER, maybeUseStreaming=false, groupByExpr=[], outputExpr=[partial_count(*) AS `partial_count(*)`#9], partitionExpr=Optional[[]], topnFilter=false, topnPushDown=false )                    |
-     |          +--PhysicalProject[328]@5 ( stats=10,000,000, projects=[1 AS `1`#8] )                                                                                                                                                                                                  |
-     |             +--PhysicalHashJoin[323]@4 ( stats=10,000,000, type=INNER_JOIN, hashCondition=[(b#1 = b#3)], otherCondition=[], markCondition=[], runtimeFilters=[RF0[b#3->[b#1](ndv/size = 6028862/8388608) , RF1[b#3->[b#1](ndv/size = 6028862/8388608) ] )                       |
-     |                |--PhysicalDistribute[307]@1 ( stats=10,001,000, distributionSpec=DistributionSpecHash ( orderedShuffledColumns=[1], shuffleType=EXECUTION_BUCKETED, tableId=-1, selectedIndexId=-1, partitionIds=[], equivalenceExprIds=[[1]], exprIdToEquivalenceSet={1=0} ) ) |
-     |                |  +--PhysicalProject[302]@1 ( stats=10,001,000, projects=[b#1] )                                                                                                                                                                                                |
-     |                |     +--PhysicalOlapScan[hbo_skew_shuffle_to_bc_test1]@0 ( stats=10,001,000, RFs= RF0 RF1 )                                                                                                                                                                     |
-     |                +--PhysicalDistribute[318]@3 ( stats=10,000,000, distributionSpec=DistributionSpecHash ( orderedShuffledColumns=[3], shuffleType=EXECUTION_BUCKETED, tableId=-1, selectedIndexId=-1, partitionIds=[], equivalenceExprIds=[[3]], exprIdToEquivalenceSet={3=0} ) ) |
-     |                   +--PhysicalProject[313]@3 ( stats=10,000,000, projects=[b#3] )                                                                                                                                                                                                |
-     |                      +--PhysicalOlapScan[hbo_skew_shuffle_to_bc_test2]@2 ( stats=10,000,000 )
-     +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-     */
-    explain {
-        sql "physical plan select count(1) from hbo_skew_shuffle_to_bc_test1 t1, hbo_skew_shuffle_to_bc_test2 t2 where t1.b = t2.b;"
-        contains("stats=1,000,100, distributionSpec=DistributionSpecHash")
-        contains("stats=1,000,000, distributionSpec=DistributionSpecHash")
-    }
+    // HBO collection uses the slow-query threshold shared with the audit log.
+    setFeConfigTemporary([qe_slow_log_ms: 10]) {
+        setGlobalVarTemporary([enable_hbo_info_collection: true]) {
+            sql "set enable_hbo_optimization=false;"
+            /**
+             +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+             | Explain String(Nereids Planner)                                                                                                                                                                                                                                                 |
+             +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+             | cost = 8.8669105036E7                                                                                                                                                                                                                                                           |
+             | PhysicalResultSink[348] ( outputExprs=[__count_0#4] )                                                                                                                                                                                                                           |
+             | +--PhysicalHashAggregate[343]@6 ( stats=1, aggPhase=GLOBAL, aggMode=BUFFER_TO_RESULT, maybeUseStreaming=false, groupByExpr=[], outputExpr=[count(partial_count(*)#9) AS `count(*)`#4], partitionExpr=Optional[[]], topnFilter=false, topnPushDown=false )                       |
+             |    +--PhysicalDistribute[338]@8 ( stats=1, distributionSpec=DistributionSpecGather )                                                                                                                                                                                            |
+             |       +--PhysicalHashAggregate[333]@8 ( stats=1, aggPhase=LOCAL, aggMode=INPUT_TO_BUFFER, maybeUseStreaming=false, groupByExpr=[], outputExpr=[partial_count(*) AS `partial_count(*)`#9], partitionExpr=Optional[[]], topnFilter=false, topnPushDown=false )                    |
+             |          +--PhysicalProject[328]@5 ( stats=10,000,000, projects=[1 AS `1`#8] )                                                                                                                                                                                                  |
+             |             +--PhysicalHashJoin[323]@4 ( stats=10,000,000, type=INNER_JOIN, hashCondition=[(b#1 = b#3)], otherCondition=[], markCondition=[], runtimeFilters=[RF0[b#3->[b#1](ndv/size = 6028862/8388608) , RF1[b#3->[b#1](ndv/size = 6028862/8388608) ] )                       |
+             |                |--PhysicalDistribute[307]@1 ( stats=10,001,000, distributionSpec=DistributionSpecHash ( orderedShuffledColumns=[1], shuffleType=EXECUTION_BUCKETED, tableId=-1, selectedIndexId=-1, partitionIds=[], equivalenceExprIds=[[1]], exprIdToEquivalenceSet={1=0} ) ) |
+             |                |  +--PhysicalProject[302]@1 ( stats=10,001,000, projects=[b#1] )                                                                                                                                                                                                |
+             |                |     +--PhysicalOlapScan[hbo_skew_shuffle_to_bc_test1]@0 ( stats=10,001,000, RFs= RF0 RF1 )                                                                                                                                                                     |
+             |                +--PhysicalDistribute[318]@3 ( stats=10,000,000, distributionSpec=DistributionSpecHash ( orderedShuffledColumns=[3], shuffleType=EXECUTION_BUCKETED, tableId=-1, selectedIndexId=-1, partitionIds=[], equivalenceExprIds=[[3]], exprIdToEquivalenceSet={3=0} ) ) |
+             |                   +--PhysicalProject[313]@3 ( stats=10,000,000, projects=[b#3] )                                                                                                                                                                                                |
+             |                      +--PhysicalOlapScan[hbo_skew_shuffle_to_bc_test2]@2 ( stats=10,000,000 )
+             +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+             */
+            // ANALYZE completion does not make asynchronous tablet row counts visible immediately.
+            retry(90, 1000) {
+                explain {
+                    sql "physical plan select count(1) from hbo_skew_shuffle_to_bc_test1 t1, hbo_skew_shuffle_to_bc_test2 t2 where t1.b = t2.b;"
+                    contains("stats=1,000,100, distributionSpec=DistributionSpecHash")
+                    contains("stats=1,000,000, distributionSpec=DistributionSpecHash")
+                }
+            }
 
-    sql "select count(1) from hbo_skew_shuffle_to_bc_test1 t1, hbo_skew_shuffle_to_bc_test2 t2 where t1.b = t2.b;"
-    sleep(3000);
-    sql "set enable_hbo_optimization=true;"
-    /**
-     +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-     | Explain String(Nereids Planner)                                                                                                                                                                                                                                    |
-     +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-     | cost = 6.081327812596689E9                                                                                                                                                                                                                                          |
-     | PhysicalResultSink[340] ( outputExprs=[__count_0#4] )                                                                                                                                                                                                               |
-     | +--PhysicalHashAggregate[335]@6 ( stats=(hbo)1, aggPhase=GLOBAL, aggMode=BUFFER_TO_RESULT, maybeUseStreaming=false, groupByExpr=[], outputExpr=[count(partial_count(*)#9) AS `count(*)`#4], partitionExpr=Optional[[]], topnFilter=false, topnPushDown=false )      |
-     |    +--PhysicalDistribute[330]@8 ( stats=(hbo)100, distributionSpec=DistributionSpecGather )                                                                                                                                                                         |
-     |       +--PhysicalHashAggregate[325]@8 ( stats=(hbo)100, aggPhase=LOCAL, aggMode=INPUT_TO_BUFFER, maybeUseStreaming=false, groupByExpr=[], outputExpr=[partial_count(*) AS `partial_count(*)`#9], partitionExpr=Optional[[]], topnFilter=false, topnPushDown=false ) |
-     |          +--PhysicalProject[320]@5 ( stats=2,010,002,000, projects=[1 AS `1`#8] )                                                                                                                                                                                   |
-     |             +--PhysicalHashJoin[315]@4 ( stats=(hbo)2,010,002,000, type=INNER_JOIN, hashCondition=[(b#1 = b#3)], otherCondition=[], markCondition=[], runtimeFilters=[RF0[b#3->[b#1](ndv/size = 6028862/8388608) , RF1[b#3->[b#1](ndv/size = 6028862/8388608) ] )   |
-     |                |--PhysicalProject[299]@1 ( stats=10,001,000, projects=[b#1] )                                                                                                                                                                                       |
-     |                |  +--PhysicalOlapScan[hbo_skew_shuffle_to_bc_test1]@0 ( stats=10,001,000, RFs= RF0 RF1 )                                                                                                                                                            |
-     |                +--PhysicalDistribute[310]@3 ( stats=10,000,000, distributionSpec=DistributionSpecReplicated )                                                                                                                                                       |
-     |                   +--PhysicalProject[305]@3 ( stats=10,000,000, projects=[b#3] )                                                                                                                                                                                    |
-     |                      +--PhysicalOlapScan[hbo_skew_shuffle_to_bc_test2]@2 ( stats=10,000,000 )                                                                                                                                                                     |
-     +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-     */
-    explain {
-        sql "physical plan select count(1) from hbo_skew_shuffle_to_bc_test1 t1, hbo_skew_shuffle_to_bc_test2 t2 where t1.b = t2.b;"
-        contains("stats=1,000,100, projects=[b#1]")
-        contains("stats=1,000,000, distributionSpec=DistributionSpecReplicated")
-        contains("stats=(hbo)21,000,200, type=INNER_JOIN")
-        contains("stats=(hbo)1, aggPhase=GLOBAL")
+            order_qt_count_before_hbo "select count(1) from hbo_skew_shuffle_to_bc_test1 t1, hbo_skew_shuffle_to_bc_test2 t2 where t1.b = t2.b;"
+            sql "set enable_hbo_optimization=true;"
+            /**
+             +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+             | Explain String(Nereids Planner)                                                                                                                                                                                                                                    |
+             +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+             | cost = 6.081327812596689E9                                                                                                                                                                                                                                          |
+             | PhysicalResultSink[340] ( outputExprs=[__count_0#4] )                                                                                                                                                                                                               |
+             | +--PhysicalHashAggregate[335]@6 ( stats=(hbo)1, aggPhase=GLOBAL, aggMode=BUFFER_TO_RESULT, maybeUseStreaming=false, groupByExpr=[], outputExpr=[count(partial_count(*)#9) AS `count(*)`#4], partitionExpr=Optional[[]], topnFilter=false, topnPushDown=false )      |
+             |    +--PhysicalDistribute[330]@8 ( stats=(hbo)100, distributionSpec=DistributionSpecGather )                                                                                                                                                                         |
+             |       +--PhysicalHashAggregate[325]@8 ( stats=(hbo)100, aggPhase=LOCAL, aggMode=INPUT_TO_BUFFER, maybeUseStreaming=false, groupByExpr=[], outputExpr=[partial_count(*) AS `partial_count(*)`#9], partitionExpr=Optional[[]], topnFilter=false, topnPushDown=false ) |
+             |          +--PhysicalProject[320]@5 ( stats=2,010,002,000, projects=[1 AS `1`#8] )                                                                                                                                                                                   |
+             |             +--PhysicalHashJoin[315]@4 ( stats=(hbo)2,010,002,000, type=INNER_JOIN, hashCondition=[(b#1 = b#3)], otherCondition=[], markCondition=[], runtimeFilters=[RF0[b#3->[b#1](ndv/size = 6028862/8388608) , RF1[b#3->[b#1](ndv/size = 6028862/8388608) ] )   |
+             |                |--PhysicalProject[299]@1 ( stats=10,001,000, projects=[b#1] )                                                                                                                                                                                       |
+             |                |  +--PhysicalOlapScan[hbo_skew_shuffle_to_bc_test1]@0 ( stats=10,001,000, RFs= RF0 RF1 )                                                                                                                                                            |
+             |                +--PhysicalDistribute[310]@3 ( stats=10,000,000, distributionSpec=DistributionSpecReplicated )                                                                                                                                                       |
+             |                   +--PhysicalProject[305]@3 ( stats=10,000,000, projects=[b#3] )                                                                                                                                                                                    |
+             |                      +--PhysicalOlapScan[hbo_skew_shuffle_to_bc_test2]@2 ( stats=10,000,000 )                                                                                                                                                                     |
+             +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+             */
+            // Profiles arrive asynchronously and HBO is published when they are materialized.
+            retry(60, 1000) {
+                explain {
+                    sql "physical plan select count(1) from hbo_skew_shuffle_to_bc_test1 t1, hbo_skew_shuffle_to_bc_test2 t2 where t1.b = t2.b;"
+                    contains("stats=1,000,100, projects=[b#1]")
+                    contains("stats=1,000,000, distributionSpec=DistributionSpecReplicated")
+                    contains("stats=(hbo)21,000,200, type=INNER_JOIN")
+                    contains("stats=(hbo)1, aggPhase=GLOBAL")
+                }
+            }
+            order_qt_count_after_hbo "select count(1) from hbo_skew_shuffle_to_bc_test1 t1, hbo_skew_shuffle_to_bc_test2 t2 where t1.b = t2.b;"
+        }
     }
-
 }
