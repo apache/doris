@@ -5,6 +5,8 @@
 > (Doris committer morningman). All technical `(inferred)` tags from
 > v0.1 have been resolved or consciously deferred. Amended 2026-07-29
 > with wave 5 (M19, FE `enable_all_http_auth` / HTTP auth posture).
+> Amended 2026-09-30 with wave 6 (M20, FE HTTP settings required in
+> production).
 
 This document is the **security contract** for Apache Doris: what the
 project assumes, what it guarantees given those assumptions, what it
@@ -281,10 +283,20 @@ Operational assumptions:
 | `enable_python_udf_support` (BE) | **off** *(maintainer, M10)* | Intentional. Operator must opt in to actually run Python UDFs | Default deployment cannot execute Python UDFs even if FE accepts them |
 | `numFailedLogin` (per-user, `CREATE USER ... FAILED_LOGIN_ATTEMPTS N`) | **0 / DISABLED** *(maintainer, M11)* | (A) Off IS supported production posture; operator must enable per user | §4.10 (NEW) requires per-user enable for any account on a network-reachable client port |
 | `passwordLockSeconds` (per-user, `... PASSWORD_LOCK_TIME T`) | **0 / DISABLED** *(maintainer, M11)* | Same | Same |
-| `enable_all_http_auth` (FE, HTTP 8030) | **on**, **not runtime-mutable** *(maintainer, M19)* | On **IS** the supported production posture. Turning it off requires editing `fe.conf` and restarting — deliberately not an `ADMIN SET` command, so disabling authentication is a recorded on-disk decision. A migration aid for clusters upgrading from a release where it defaulted off, not a supported steady state | On: §4.8 (11) (**authentication**) applies unconditionally and a bypass is `VALID`; authorization is the separate, narrower §4.8 (12) with recorded gaps. Off: knob flipped toward the less-secure side → `OUT-OF-MODEL: non-default-build`. Note the effective value may come from `fe_custom.conf`, not `fe.conf` |
+| `enable_all_http_auth` (FE, HTTP 8030) | **on**, **not runtime-mutable** *(maintainer, M19)* | On **IS** the supported production posture, and production deployments **must** run with it on *(maintainer, M20)*. Turning it off requires editing `fe.conf` and restarting — deliberately not an `ADMIN SET` command, so disabling authentication is a recorded on-disk decision. A migration aid for clusters upgrading from a release where it defaulted off, not a supported steady state | On: §4.8 (11) (**authentication**) applies unconditionally and a bypass is `VALID`; authorization is the separate, narrower §4.8 (12) with recorded gaps. Off: knob flipped toward the less-secure side → `OUT-OF-MODEL: non-default-build`. Note the effective value may come from `fe_custom.conf`, not `fe.conf` |
 | `enable_all_http_auth` (BE, webserver 8040) | **off**, **not runtime-mutable** *(maintainer, M19)* | Unchanged in this release — only the FE default was flipped. BE 8040 is a Zone-2 port (§4.4) that operators are already required to keep off end-user networks, so the compatibility cost of flipping it was judged to outweigh the gain. Changing it requires editing `be.conf` and restarting (`DEFINE_Bool`, not `DEFINE_mBool`) | Off: BE 8040 handlers declared with the `NONE` privilege type answer without credentials → `BY-DESIGN: property-disclaimed` (§4.9), not `VALID` |
+| `fe_meta_auth_token` (FE, meta-service endpoints on 8030) | **empty**, **not runtime-mutable** *(maintainer, M20)* | Empty is a compatibility default, **not** a supported production posture: production deployments **must** set it to the same secret on every FE (§4.10 (13)). Unrelated to the cluster token in `doris-meta/image/VERSION` (§4.6) | Set: meta-service endpoints covered by §4.8 (11). Empty: `OUT-OF-MODEL: non-default-build` (baseline below) |
 | `auth_type` | native | LDAP / Kerberos / OIDC are non-default backends | Out of this row's scope (handled in family row 4) |
 | Cluster shape: `on-prem` vs `cloud/` | on-prem | Both shapes supported *(maintainer, Q2)* | Cloud adds Meta Service component (family row 3); cloud has additional tenant-boundary claim per §4.8 |
+
+**Baseline for every security claim** *(maintainer, M20)*. This model
+is stated for a cluster whose FEs run with `enable_all_http_auth =
+true` and with `fe_meta_auth_token` set to the same secret on every
+FE; production deployments must run that way. Security issues are
+discussed only under this baseline: a finding that manifests only
+when either setting is off or empty is `OUT-OF-MODEL:
+non-default-build` — for `fe_meta_auth_token` too, although it ships
+empty.
 
 A vulnerability report of "I sniffed plaintext credentials on port
 9030 in default config" is closed `BY-DESIGN: property-disclaimed`
@@ -488,13 +500,18 @@ provenance.
     **security-critical** when the configured behavior is broken
     (NOT when default is unconfigured — see §4.9).
 11. **HTTP *authentication* on the FE HTTP surface** *(maintainer,
-    M19)*. *Condition*: default config — `enable_all_http_auth` ships
-    **on** for FE (8030) (§4.5a). Scope:
+    M19)*. *Condition*: the §4.5a baseline — `enable_all_http_auth`
+    **on** for FE (8030) and `fe_meta_auth_token` set. Scope:
     - **FE 8030 — every endpoint that routes through the FE auth
       path** (the `/api/**` and `/rest/v2/**` REST actions), which
       must establish a caller identity — valid user credentials, or
       one of the credential forms listed under *Excluded* below —
       before returning data or performing an action.
+    - **FE 8030 meta-service endpoints** (`/image`, `/info`,
+      `/version`, `/put`, `/journal_id`, `/role`, `/check`) — FE↔FE
+      endpoints outside the auth path above, whose credential is the
+      `token` header matching `fe_meta_auth_token` *(code-verified,
+      M20)*. Each must reject a request without it.
 
     **Read the property title literally: this is a claim about
     authentication, not a blanket claim about authorization.** The
@@ -527,9 +544,9 @@ provenance.
       plus total/online backend counts. A report that `/api/health`
       answers an unauthenticated request is
       `BY-DESIGN: property-disclaimed`, not a violation.
-    - (c) Clusters where the operator has set
-      `enable_all_http_auth = false` — a §4.5a knob flipped toward the
-      less-secure side, closed `OUT-OF-MODEL: non-default-build`.
+    - (c) Clusters outside the §4.5a baseline — the operator has set
+      `enable_all_http_auth = false`, or `fe_meta_auth_token` is
+      empty *(M20)* — closed `OUT-OF-MODEL: non-default-build`.
       Note that the effective value can come from `fe_custom.conf`,
       which is read after and overwrites `fe.conf`; see §4.5a.
     - (d) The **cluster-token authenticated** endpoints, where the
@@ -775,8 +792,9 @@ The operator MUST:
     via Iceberg REST catalog. If you must grant it more broadly,
     apply network egress controls at the FE host level.
 12. **Keep `enable_all_http_auth` on, and migrate HTTP callers onto
-    credentials** *(maintainer, M19)*. It ships on; do not turn it
-    off. When upgrading from a release where it defaulted off, the
+    credentials** *(maintainer, M19)*. It ships on, and production
+    must run with it on *(maintainer, M20)*; do not turn it off. When
+    upgrading from a release where it defaulted off, the
     migration the operator owes:
     (a) enumerate everything that calls the FE 8030 `/api/**` and
     `/rest/v2/**` surface — monitoring and alerting agents, load
@@ -806,6 +824,11 @@ The operator MUST:
     config file and treat it as a temporary migration aid, not a
     resting state — it re-opens the §4.9 exposure and puts the
     cluster outside §4.8 (11).
+13. **Set `fe_meta_auth_token` in production** *(maintainer, M20)*:
+    the same secret in every FE's `fe.conf`, then restart — it is not
+    runtime-mutable, and an FE with it set rejects meta-service
+    requests from peers that do not send the same value. `ADMIN SHOW
+    FRONTEND CONFIG` shows `********` once it is set.
 
 ---
 
@@ -994,7 +1017,7 @@ Closed set. Cite the section.
 | `OUT-OF-MODEL: trusted-input` | Requires attacker control of a §4.6 input marked trusted. | §4.6 |
 | `OUT-OF-MODEL: adversary-not-in-scope` | Requires a §4.7 capability that is excluded. | §4.7 |
 | `OUT-OF-MODEL: unsupported-component` | Lands in §4.2 rows 9–12. | §4.3 |
-| `OUT-OF-MODEL: non-default-build` | Only manifests when a §4.5a knob is flipped from its default toward the less-secure side. | §4.5a |
+| `OUT-OF-MODEL: non-default-build` | Only manifests when a §4.5a knob is flipped from its default toward the less-secure side, or when the §4.5a baseline (M20) is not in place. | §4.5a |
 | `BY-DESIGN: property-disclaimed` | Concerns a property §4.9 explicitly disclaims. | §4.9 |
 | `KNOWN-NON-FINDING` | Matches a §4.11a entry verbatim or closely. | §4.11a |
 | `MODEL-GAP` | Cannot be cleanly routed to any of the above. **Triggers §4.12 — model gets revised before the report is closed.** | (§4.12) |
@@ -1038,6 +1061,12 @@ the body. Summary table:
 | ID | Topic | Outcome |
 |---|---|---|
 | M19 | `enable_all_http_auth` (FE) | **FE default flipped to `true` on 2026-07-29, and the flag is not runtime-mutable** — it can only be changed on disk (`fe.conf`, or `fe_custom.conf` which overwrites it) with a restart, so the running posture is auditable from disk and cannot be silently dropped at runtime — but auditing it means reading **both** files, since a pre-flip release could have persisted `false` into `fe_custom.conf` (§4.5a). FE HTTP **authentication** is now a default-config property (§4.8 (11)); unauthenticated access to the FE 8030 `/api/**` and `/rest/v2/**` surface is `VALID`, not disclaimed. **Authorization is a separate, narrower property** (§4.8 (12)): the flip did not add a centralized privilege check, and `AddStoragePolicyAction`, `ESCatalogAction` and `ImportAction` remain password-only — a recorded open gap tracked in §4.14, not a claim this release makes. **Carve-outs**: FE `/metrics` and FE `/api/health` stay public by design and are not gated by the flag (§4.9, §4.8 (11) (b), code-verified); the cluster-token endpoints (including `/api/streaming/*`) authenticate by token, not password (§4.8 (11) (d)); and the **BE default is unchanged (off)** — BE 8040 stays governed by Zone-2 network isolation and its `NONE`-privilege handlers stay disclaimed (§4.9, §4.11a). Extending the flip to BE is tracked as a §4.12 trigger. Turning the FE flag off is a migration aid for upgrades (§4.10 (12)), lands findings in `OUT-OF-MODEL: non-default-build` (§4.5a), and is a misuse pattern as a resting state (§4.11) |
+
+**Wave 6 — RESOLVED 2026-09-30.**
+
+| ID | Topic | Outcome |
+|---|---|---|
+| M20 | FE HTTP settings required in production | Security claims are stated for FEs running with `enable_all_http_auth` on **and** `fe_meta_auth_token` set on every FE; production must run that way (§4.5a baseline, §4.10 (12)/(13)). Under the baseline the FE meta-service endpoints are in §4.8 (11). A finding that needs either setting off or empty is `OUT-OF-MODEL: non-default-build`, even though the token ships empty |
 
 **Open follow-up items (not blocking v1.0 acceptance):**
 
