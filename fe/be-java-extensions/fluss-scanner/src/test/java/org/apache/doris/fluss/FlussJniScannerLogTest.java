@@ -43,15 +43,20 @@ import org.apache.fluss.row.TimestampLtz;
 import org.apache.fluss.row.TimestampNtz;
 import org.apache.fluss.server.testutils.FlussClusterExtension;
 import org.apache.fluss.types.DataTypes;
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -593,23 +598,26 @@ public class FlussJniScannerLogTest {
 
     /**
      * Table infos are kept from one range to the next ({@link FlussTableInfoCache}), so a range can find
-     * the info an earlier range kept from before a column was added. One that does not read the new column
-     * reads newer rows through it; one planned with the new column loads a new info rather than failing.
+     * the info an earlier range kept from before a column was added. Newly planned ranges reload that info,
+     * including those projecting only the existing column, and can read the added column as well.
      */
     @Test
     public void columnAddedAfterAnEarlierRangeIsFound() throws Exception {
         TablePath tablePath = TablePath.of(db, "added_column");
         createIntTable(tablePath);
         appendInts(tablePath, 0, 1);
-        Assertions.assertEquals(1, scanAll(tablePath, columns("id", "int"), 0, 1, 1024).length);
+        Map<String, String> planned = plannedMetadataParams(tablePath, admin.getTableInfo(tablePath).get());
+        Assertions.assertEquals(1, scanAll(tablePath, planned, 0, 1, 1024).length);
 
         admin.alterTable(tablePath, Collections.singletonList(TableChange.addColumn(
                 "extra", DataTypes.INT(), null, TableChange.ColumnPosition.last())), false).get();
         appendRows(tablePath, GenericRow.of(1, 7));
 
-        Object[][] kept = scanAll(tablePath, columns("id", "int"), 0, 2, 1024);
+        planned = plannedMetadataParams(tablePath, admin.getTableInfo(tablePath).get());
+        Object[][] kept = scanAll(tablePath, planned, 0, 2, 1024);
         Assertions.assertArrayEquals(new Object[][] {{0}, {1}}, kept);
-        Object[][] reloaded = scanAll(tablePath, columns("id", "int", "extra", "int"), 1, 2, 1024);
+        planned.putAll(columns("id", "int", "extra", "int"));
+        Object[][] reloaded = scanAll(tablePath, planned, 1, 2, 1024);
         Assertions.assertArrayEquals(new Object[][] {{1, 7}}, reloaded);
     }
 
@@ -633,7 +641,7 @@ public class FlussJniScannerLogTest {
         TableInfo info = admin.getTableInfo(tablePath).get();
         for (String ttl : Arrays.asList("0", "-1")) {
             Map<String, String> planned = columns("id", "int");
-            planned.put(FlussTableInfoCache.TTL_PROPERTY, ttl);
+            planned.put("fluss.metadata.cache.ttl.sec", ttl);
             planned.put("fluss.table_id", String.valueOf(info.getTableId()));
             planned.put("fluss.schema_id", String.valueOf(info.getSchemaId()));
             Assertions.assertArrayEquals(new Object[][] {{0}}, scanAll(tablePath, planned, 0, 1, 1024));
@@ -648,7 +656,91 @@ public class FlussJniScannerLogTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"0", "-1"})
+    public void feMetadataTtlCanDisableReuseOfAnAlreadyCachedTable(String ttl) throws Exception {
+        TablePath tablePath = TablePath.of(db, "disabled_metadata_cache");
+        createIntTable(tablePath);
+        TableInfo info = admin.getTableInfo(tablePath).get();
+        Map<String, String> planned = plannedMetadataParams(tablePath, info);
+        TableInfo cached = openTableInfo(planned);
+        Assertions.assertSame(cached, openTableInfo(planned));
+
+        // Use FE's wire key independently of the scanner constant to catch parameter-name drift.
+        planned.put("fluss.metadata.cache.ttl.sec", ttl);
+        TableInfo live = openTableInfo(planned);
+        Assertions.assertNotSame(cached, live, "disabled TTL must bypass an existing cache entry");
+        Assertions.assertEquals(info.getTableId(), live.getTableId());
+        Assertions.assertEquals(info.getSchemaId(), live.getSchemaId());
+    }
+
+    @Test
+    public void feMetadataTtlControlsWhenScannerMetadataExpires() throws Exception {
+        TablePath tablePath = TablePath.of(db, "short_metadata_cache");
+        createIntTable(tablePath);
+        Map<String, String> planned = plannedMetadataParams(tablePath, admin.getTableInfo(tablePath).get());
+        planned.put("fluss.metadata.cache.ttl.sec", "1");
+        TableInfo cached = openTableInfo(planned);
+
+        Awaitility.await().pollInterval(Duration.ofMillis(250)).atMost(Duration.ofSeconds(5))
+                .until(() -> openTableInfo(planned) != cached);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"fluss.table_id", "fluss.schema_id", "both"})
+    public void missingPlannedIdentityDoesNotReuseMetadataFromAnotherScan(String omitted) throws Exception {
+        TablePath tablePath = TablePath.of(db, "legacy_metadata_cache");
+        createIntTable(tablePath);
+        TableInfo original = admin.getTableInfo(tablePath).get();
+        Map<String, String> planned = plannedMetadataParams(tablePath, original);
+        TableInfo cached = openTableInfo(planned);
+        Assertions.assertSame(cached, openTableInfo(planned));
+
+        if ("fluss.schema_id".equals(omitted)) {
+            admin.alterTable(tablePath, Collections.singletonList(TableChange.addColumn(
+                    "extra", DataTypes.INT(), null, TableChange.ColumnPosition.last())), false).get();
+        } else {
+            admin.dropTable(tablePath, false).get();
+            createIntTable(tablePath);
+        }
+        TableInfo current = admin.getTableInfo(tablePath).get();
+        planned = plannedMetadataParams(tablePath, current);
+        if ("both".equals(omitted)) {
+            planned.remove("fluss.table_id");
+            planned.remove("fluss.schema_id");
+        } else {
+            planned.remove(omitted);
+        }
+
+        TableInfo opened = openTableInfo(planned);
+        Assertions.assertEquals(current.getTableId(), opened.getTableId());
+        Assertions.assertEquals(current.getSchemaId(), opened.getSchemaId());
+        Assertions.assertEquals(current.getRowType(), opened.getRowType());
+    }
+
     // ---------------------------------------------------------------- helpers
+
+    private static Map<String, String> plannedMetadataParams(TablePath tablePath, TableInfo info) {
+        Map<String, String> planned = params(tablePath, columns("id", "int"), 0, 0);
+        planned.put("fluss.table_id", String.valueOf(info.getTableId()));
+        planned.put("fluss.schema_id", String.valueOf(info.getSchemaId()));
+        planned.put("fluss.metadata.cache.ttl.sec", "600");
+        return planned;
+    }
+
+    private static TableInfo openTableInfo(Map<String, String> planned) throws Exception {
+        FlussJniScanner scanner = new FlussJniScanner(1024, planned);
+        try {
+            scanner.open();
+            // Inspect metadata before fetching so a stale table ID fails here instead of waiting on its log.
+            Field tableField = FlussJniScanner.class.getDeclaredField("table");
+            tableField.setAccessible(true);
+            return ((Table) tableField.get(scanner)).getTableInfo();
+        } finally {
+            scanner.releaseTable();
+            scanner.close();
+        }
+    }
 
     private static String rootMessage(Throwable e) {
         StringBuilder message = new StringBuilder();
