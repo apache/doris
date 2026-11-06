@@ -169,12 +169,6 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
         // must disable constant folding by be, because be constant folding may return wrong type
         ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_FOLD_CONSTANT_BY_BE, "false");
         Plan plan = planner.planWithLock(new UnboundResultSink<>(query), PhysicalProperties.ANY, ExplainLevel.NONE);
-        try {
-            createTableInfo.setProperties(PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
-                    createTableInfo.getProperties(), ctx.getStatementContext().getTables().values(), false));
-        } catch (org.apache.doris.common.AnalysisException e) {
-            throw new AnalysisException(e.getMessage(), e);
-        }
         if (ctasCols == null) {
             // we should analyze the plan firstly to get the columns' name.
             ctasCols = plan.getOutput().stream().map(NamedExpression::getName).collect(Collectors.toList());
@@ -243,6 +237,15 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
         }
         List<String> qualifierTableName = RelationUtil.getQualifierName(ctx, createTableInfo.getTableNameParts());
         createTableInfo.validateCreateTableAsSelect(qualifierTableName, columnsOfQuery.build(), ctx);
+        if (!createTableInfo.isExternal()
+                && CreateTableInfo.ENGINE_OLAP.equalsIgnoreCase(createTableInfo.getEngineName())) {
+            try {
+                createTableInfo.setProperties(PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                        createTableInfo.getProperties(), ctx.getStatementContext().getTables().values(), false));
+            } catch (org.apache.doris.common.AnalysisException e) {
+                throw new AnalysisException(e.getMessage(), e);
+            }
+        }
     }
 
     void handleFallbackFailedCtas(ConnectContext ctx) {

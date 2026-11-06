@@ -78,4 +78,26 @@ suite("dotted_key_escape_async_mv", "p0,nonConcurrent") {
     sql "REFRESH MATERIALIZED VIEW dotted_key_escape_async_inherited COMPLETE"
     waitingMTMVTaskFinished(getJobName(db,'dotted_key_escape_async_inherited'))
     qt_refreshed """SELECT k,v,v['a.b'],v['a']['b'],v['a%2Eb'] FROM dotted_key_escape_async_inherited ORDER BY k"""
+
+    sql "DROP MATERIALIZED VIEW IF EXISTS dotted_key_escape_async_view_mv"
+    sql "DROP VIEW IF EXISTS dotted_key_escape_async_view"
+    sql """INSERT INTO dotted_key_escape_async_legacy_variant VALUES
+        (1,parse_to_variant('{"a":{"b":701}}'))"""
+    sql """CREATE VIEW dotted_key_escape_async_view AS
+        SELECT k,v FROM dotted_key_escape_async_legacy_variant"""
+    sql """CREATE MATERIALIZED VIEW dotted_key_escape_async_view_mv
+        BUILD DEFERRED REFRESH COMPLETE ON MANUAL DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES("replication_num"="1") AS SELECT k,v FROM dotted_key_escape_async_view"""
+    sql "REFRESH MATERIALIZED VIEW dotted_key_escape_async_view_mv COMPLETE"
+    waitingMTMVTaskFinished(getJobName(db,'dotted_key_escape_async_view_mv'))
+    qt_view_before "SELECT k,v['a']['b'] FROM dotted_key_escape_async_view_mv ORDER BY k"
+    sql """ALTER VIEW dotted_key_escape_async_view AS SELECT k,v FROM dotted_key_escape_async_source"""
+    sql "REFRESH MATERIALIZED VIEW dotted_key_escape_async_view_mv COMPLETE"
+    waitingMTMVTaskFinishedNotNeedSuccess(getJobName(db,'dotted_key_escape_async_view_mv'))
+    qt_view_refresh_failed """SELECT Status,ErrorMsg LIKE '%async MV must use the same value of variant_escape_dots_in_keys%'
+        FROM tasks('type'='mv') WHERE MvDatabaseName='${db}' AND MvName='dotted_key_escape_async_view_mv'
+        ORDER BY CreateTime DESC LIMIT 1"""
+    qt_view_not_rewrite_candidate """SELECT State,RefreshState FROM mv_infos('database'='${db}')
+        WHERE Name='dotted_key_escape_async_view_mv'"""
+    qt_view_after "SELECT k,v['a']['b'] FROM dotted_key_escape_async_view_mv ORDER BY k"
 }

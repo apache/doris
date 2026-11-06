@@ -18,3 +18,15 @@ true
 1	{"a":{"b":102},"a%2Eb":103,"a.b":101}	101	102	103
 2	{"a":{"b":302},"a%2Eb":303,"a.b":301}	301	302	303
 
+-- !view_before --
+1	701
+
+-- !view_refresh_failed --
+FAILED	true
+
+-- !view_not_rewrite_candidate --
+SCHEMA_CHANGE	FAIL
+
+-- !view_after --
+1	701
+
