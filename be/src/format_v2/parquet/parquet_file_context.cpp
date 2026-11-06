@@ -562,15 +562,21 @@ Status ParquetFileContext::load_native_page_indexes(
                   [](const auto& lhs, const auto& rhs) { return lhs.offset < rhs.offset; });
         size_t range_begin = 0;
         while (range_begin < ranges->size()) {
+            const int64_t span_offset = (*ranges)[range_begin].offset;
             size_t range_end = range_begin + 1;
             int64_t span_end = (*ranges)[range_begin].offset + (*ranges)[range_begin].length;
             while (range_end < ranges->size() && (*ranges)[range_end].offset <= span_end) {
-                span_end = std::max(span_end,
-                                    (*ranges)[range_end].offset + (*ranges)[range_end].length);
+                const int64_t next_span_end = std::max(
+                        span_end, (*ranges)[range_end].offset + (*ranges)[range_end].length);
+                // A wide row group can have valid adjacent modules totaling more than one read's
+                // budget. Split the I/O block before that limit instead of rejecting the file.
+                if (!detail::is_serialized_index_span_safe(span_offset, next_span_end)) {
+                    break;
+                }
+                span_end = next_span_end;
                 ++range_end;
             }
 
-            const int64_t span_offset = (*ranges)[range_begin].offset;
             if (!detail::is_serialized_index_span_safe(span_offset, span_end)) {
                 // Optional indexes share one allocation per contiguous footer block. Bound the
                 // whole block so adjacent small descriptors cannot bypass the allocation budget.

@@ -33,6 +33,7 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -127,6 +128,7 @@ public:
     bool closed() const override { return _closed; }
     int64_t mtime() const override { return 1; }
     [[maybe_unused]] size_t read_count() const { return _read_count; }
+    [[maybe_unused]] size_t max_read_size() const { return _max_read_size; }
 
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
@@ -135,6 +137,7 @@ protected:
             return Status::IOError("Synthetic encryption fixture read exceeds file");
         }
         ++_read_count;
+        _max_read_size = std::max(_max_read_size, result.size);
         memcpy(result.data, _bytes.data() + offset, result.size);
         *bytes_read = result.size;
         return Status::OK();
@@ -145,6 +148,7 @@ private:
     io::Path _path {"synthetic-encrypted.parquet"};
     bool _closed = false;
     size_t _read_count = 0;
+    size_t _max_read_size = 0;
 };
 
 std::vector<uint8_t> java_fixture(const std::string& name = "iceberg_java.parquet") {
@@ -1189,6 +1193,101 @@ TEST(ParquetEncryptionTest, EncryptedIndexAuthenticationFailureIsNotOptional) {
         ASSERT_TRUE(context.close().ok());
     }
     ASSERT_TRUE(original_context.close().ok());
+}
+
+std::vector<uint8_t> wide_index_file(bool encrypted) {
+    auto sink = ::arrow::io::BufferOutputStream::Create().ValueOrDie();
+    ::parquet::schema::NodeVector fields;
+    for (int column = 0; column < 65; ++column) {
+        fields.push_back(::parquet::schema::PrimitiveNode::Make("value_" + std::to_string(column),
+                                                                ::parquet::Repetition::REQUIRED,
+                                                                ::parquet::Type::BYTE_ARRAY));
+    }
+    auto schema =
+            ::parquet::schema::GroupNode::Make("schema", ::parquet::Repetition::REQUIRED, fields);
+    ::parquet::WriterProperties::Builder properties;
+    properties.compression(::parquet::Compression::SNAPPY)
+            ->disable_dictionary()
+            ->enable_write_page_index()
+            ->data_pagesize(256)
+            ->write_batch_size(1);
+    if (encrypted) {
+        ::parquet::FileEncryptionProperties::Builder encryption {
+                ::arrow::util::SecureString(std::string(KEY))};
+        encryption.aad_prefix(AAD)->disable_aad_prefix_storage();
+        properties.encryption(encryption.build());
+    }
+    auto writer = ::parquet::ParquetFileWriter::Open(
+            sink, std::static_pointer_cast<::parquet::schema::GroupNode>(schema),
+            properties.build());
+    auto* group = writer->AppendRowGroup();
+    for (int column = 0; column < 65; ++column) {
+        auto* values = static_cast<::parquet::ByteArrayWriter*>(group->NextColumn());
+        for (int row = 0; row < 1024; ++row) {
+            std::string value(512, 'x');
+            value.replace(0, 4, std::to_string(1000 + row));
+            const ::parquet::ByteArray bytes(value.size(),
+                                             reinterpret_cast<const uint8_t*>(value.data()));
+            values->WriteBatch(1, nullptr, nullptr, &bytes);
+        }
+    }
+    group->Close();
+    writer->Close();
+    auto bytes = sink->Finish().ValueOrDie();
+    return {bytes->data(), bytes->data() + bytes->size()};
+}
+
+// GTest assertions expand into branches; keep the complete bounded-I/O scenario together.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+void verify_large_index_block(bool encrypted) {
+    auto file = std::make_shared<EncryptionMemoryReader>(wide_index_file(encrypted));
+    auto info = parameters();
+    ParquetFileContext context;
+    io::FileDescription description;
+    ASSERT_TRUE(context.open(file, nullptr, false, description, false, false, false,
+                             encrypted ? &info : nullptr)
+                        .ok());
+    const auto& chunks = context.native_metadata->to_thrift().row_groups[0].columns;
+    std::unordered_set<int> leaves;
+    int64_t span_end = chunks.front().column_index_offset;
+    for (int column = 0; column < 65; ++column) {
+        ASSERT_EQ(chunks[column].column_index_offset, span_end);
+        ASSERT_LT(chunks[column].column_index_length, detail::MAX_SERIALIZED_PARQUET_INDEX_BYTES);
+        span_end += chunks[column].column_index_length;
+        leaves.insert(column);
+    }
+    // Each module fits the budget; only the writer's contiguous block exceeds it.
+    ASSERT_GT(span_end - chunks.front().column_index_offset,
+              detail::MAX_SERIALIZED_PARQUET_INDEX_BYTES);
+    const auto reads = file->read_count();
+    std::unordered_map<int, NativeParquetPageIndex> pages;
+    const auto status = context.load_native_page_indexes(0, leaves, &pages);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(pages.size(), 65);
+    for (const auto& [column, indexes] : pages) {
+        EXPECT_EQ(indexes.column_index.null_pages.size(), 1024);
+        EXPECT_EQ(indexes.offset_index.page_locations.size(), 1024);
+    }
+    // Two bounded ColumnIndex reads and one coalesced OffsetIndex read retain all leaves.
+    EXPECT_EQ(file->read_count() - reads, 3);
+    EXPECT_LE(file->max_read_size(), detail::MAX_SERIALIZED_PARQUET_INDEX_BYTES);
+    if (encrypted) {
+        // A tag failure in the last module must still fail after the earlier I/O block succeeded.
+        file->_bytes.at(span_end - 1) ^= 1;
+        const auto corrupt = context.load_native_page_indexes(0, leaves, &pages);
+        EXPECT_FALSE(corrupt.ok());
+        EXPECT_NE(corrupt.to_string().find("DECRYPTION_FAILED"), std::string::npos);
+        EXPECT_TRUE(pages.empty());
+    }
+    ASSERT_TRUE(context.close().ok());
+}
+
+TEST(ParquetEncryptionTest, LargePlaintextIndexBlocksStayBounded) {
+    verify_large_index_block(false);
+}
+
+TEST(ParquetEncryptionTest, LargeEncryptedIndexBlocksStayBounded) {
+    verify_large_index_block(true);
 }
 
 void verify_loaded_indexes(ParquetFileContext& context, int group,
