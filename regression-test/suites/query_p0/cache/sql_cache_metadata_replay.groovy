@@ -40,7 +40,7 @@ suite("sql_cache_metadata_replay") {
                     PROPERTIES ('replication_num'='1', 'light_schema_change'='false')"""
                 sql "INSERT INTO sql_cache_replay_table VALUES (1,11,99)"
                 order_qt_before_drop "SELECT * FROM sql_cache_replay_table ORDER BY id"
-                waitForSqlCache("SELECT * FROM sql_cache_replay_table ORDER BY id")
+                retryUntilHasSqlCache("SELECT * FROM sql_cache_replay_table ORDER BY id")
                 explain {
                     sql "PHYSICAL PLAN SELECT * FROM sql_cache_replay_table ORDER BY id"
                     contains "PhysicalSqlCache"
@@ -55,7 +55,7 @@ suite("sql_cache_metadata_replay") {
                 sql "ALTER TABLE sql_cache_replay_table SET ('light_schema_change'='true')"
                 sql "SYNC"
                 order_qt_before_rename "SELECT value FROM sql_cache_replay_table ORDER BY id"
-                waitForSqlCache("SELECT value FROM sql_cache_replay_table ORDER BY id")
+                retryUntilHasSqlCache("SELECT value FROM sql_cache_replay_table ORDER BY id")
                 explain {
                     sql "PHYSICAL PLAN SELECT value FROM sql_cache_replay_table ORDER BY id"
                     contains "PhysicalSqlCache"
