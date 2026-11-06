@@ -145,7 +145,9 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
      * cannot statically reference their typed properties classes the way the static block does for the
      * legacy {@code *Properties}. Instead, {@code FileSystemPluginManager} aggregates each loaded
      * provider's {@code sensitivePropertyKeys()} and registers them here at FE startup, before any
-     * SHOW CREATE / error-log printing occurs.
+     * SHOW CREATE / error-log printing occurs. {@code ConnectorPluginManager} does the same with each
+     * admitted connector provider's {@code securitySurface().sensitiveKeys()}, so fe-core needs no
+     * connector's secret property names.
      */
     public static void registerSensitiveKeys(Collection<String> keys) {
         if (keys == null) {

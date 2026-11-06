@@ -17,10 +17,12 @@
 
 package org.apache.doris.connector;
 
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorProvider;
+import org.apache.doris.connector.spi.ConnectorSecuritySurface;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.datasource.CatalogFactory;
 
@@ -39,6 +41,7 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
@@ -223,6 +226,53 @@ public class ConnectorPluginManagerTest {
         Assertions.assertFalse(manager.registerDiscovered(createProvider("  ", true, "x"), false),
                 "a blank type name must be refused");
         Assertions.assertTrue(manager.getRegisteredTypes().isEmpty());
+    }
+
+    @Test
+    void admittedProviderSecretKeysAreMaskedInShownCatalogProperties() {
+        // SHOW CREATE CATALOG masks only the keys on DatasourcePrintableMap's list. A connector's own secret
+        // keys must reach that list through its security surface, so fe-core never has to name them. The
+        // list is process-wide, hence key names no other test uses.
+        String token = "test.connector.admitted.bearer-token";
+        Assertions.assertFalse(DatasourcePrintableMap.isSensitiveKey(token));
+
+        Assertions.assertTrue(manager.registerDiscovered(
+                createProvider("secret_type", ConnectorSecuritySurface.ofSensitiveKeys(token)), false));
+
+        Assertions.assertTrue(DatasourcePrintableMap.isSensitiveKey(token.toUpperCase()),
+                "declared keys must match case-insensitively, like the engine's own list");
+        Map<String, String> properties = new LinkedHashMap<>();
+        properties.put("type", "secret_type");
+        properties.put(token, "token-value");
+        // The rendering SHOW CREATE CATALOG uses (CatalogMgr#showCreateCatalog).
+        String shown = new DatasourcePrintableMap<>(properties, "=", true, true, true, true).toString();
+        Assertions.assertFalse(shown.contains("token-value"), shown);
+        Assertions.assertTrue(shown.contains("\"" + token + "\" = \"" + DatasourcePrintableMap.PASSWORD_MASK + "\""),
+                shown);
+        Assertions.assertTrue(shown.contains("\"type\" = \"secret_type\""), "undeclared keys stay visible: " + shown);
+    }
+
+    @Test
+    void refusedProviderDoesNotExtendTheMaskingList() {
+        // Only a provider that will serve catalogs contributes keys; a refused claimant leaves no trace.
+        String token = "test.connector.refused.bearer-token";
+        Assertions.assertTrue(manager.registerDiscovered(createProvider("dup", true, "first"), false));
+        Assertions.assertFalse(manager.registerDiscovered(
+                createProvider("dup", ConnectorSecuritySurface.ofSensitiveKeys(token)), false));
+
+        Assertions.assertFalse(DatasourcePrintableMap.isSensitiveKey(token));
+    }
+
+    @Test
+    void registerProviderMasksDeclaredSecretKeysToo() {
+        // Tests stand in for a real plugin through registerProvider, so it must mask like the admission path.
+        String token = "test.connector.override.api-key";
+        manager.registerProvider(createProvider("override_type",
+                ConnectorSecuritySurface.ofSsrfEndpoints("override.uri").withSensitiveKeys(token)));
+
+        Assertions.assertTrue(DatasourcePrintableMap.isSensitiveKey(token));
+        Assertions.assertFalse(DatasourcePrintableMap.isSensitiveKey("override.uri"),
+                "an endpoint key is policed, not masked");
     }
 
     @Test
@@ -418,6 +468,25 @@ public class ConnectorPluginManagerTest {
 
     private static ConnectorProvider createProvider(String type) {
         return createProvider(type, true, "");
+    }
+
+    private static ConnectorProvider createProvider(String type, ConnectorSecuritySurface surface) {
+        return new ConnectorProvider() {
+            @Override
+            public String getType() {
+                return type;
+            }
+
+            @Override
+            public Connector create(Map<String, String> properties, ConnectorContext context) {
+                return new TaggedConnector("");
+            }
+
+            @Override
+            public ConnectorSecuritySurface securitySurface() {
+                return surface;
+            }
+        };
     }
 
     private static ConnectorProvider createProvider(String type, boolean standalone, String tag) {

@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector;
 
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorConfFile;
 import org.apache.doris.connector.spi.ConnectorContext;
@@ -212,7 +213,8 @@ public class ConnectorPluginManager {
      * {@link ConnectorProvider#supports} matches case-insensitively and catalog types are lower-cased before
      * routing). Refusing a reserved name here is what makes it impossible for a plugin to shadow a catalog type
      * the engine implements itself — routing order then cannot matter. The engine names it claims for
-     * {@code CREATE TABLE ... ENGINE=} go through the same two checks.
+     * {@code CREATE TABLE ... ENGINE=} go through the same two checks. An admitted provider's declared secret
+     * keys ({@code securitySurface().sensitiveKeys()}) join the engine's masking list.
      *
      * @param failFast {@code true} for the classpath batch: two providers claiming one type name there is a
      *                 build error and must fail loud. {@code false} for the plugin-directory batch: that is a
@@ -223,6 +225,7 @@ public class ConnectorPluginManager {
     boolean registerDiscovered(ConnectorProvider provider, boolean failFast) {
         String type = provider.getType();
         Set<String> engineNames = provider.acceptedCreateTableEngineNames();
+        List<String> sensitiveKeys = provider.securitySurface().sensitiveKeys();
         String problem = typeNameProblem(type);
         if (problem == null) {
             problem = createTableEngineNameProblem(engineNames);
@@ -242,6 +245,7 @@ public class ConnectorPluginManager {
         for (String engineName : engineNames) {
             claimedEngineNames.add(engineName.toLowerCase());
         }
+        DatasourcePrintableMap.registerSensitiveKeys(sensitiveKeys);
         providers.add(provider);
         return true;
     }
@@ -548,6 +552,7 @@ public class ConnectorPluginManager {
      */
     public void registerProvider(ConnectorProvider provider) {
         providers.add(0, provider);
+        DatasourcePrintableMap.registerSensitiveKeys(provider.securitySurface().sensitiveKeys());
     }
 
     private List<String> providerNames() {
