@@ -20,7 +20,17 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.LessThan;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
+import org.apache.doris.nereids.types.TimeStampTzType;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
@@ -28,6 +38,38 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 class SimplifyArithmeticComparisonRuleTest extends ExpressionRewriteTestHelper {
+
+    @Test
+    void testTimestampTzCalendarDaysCannotRearrangeAcrossDst() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.setThreadLocalInfo();
+        try {
+            SlotReference timestamp = new SlotReference("ts", TimeStampTzType.of(6));
+            TimestampTzLiteral bound = new TimestampTzLiteral(TimeStampTzType.of(6),
+                    "2024-11-04 01:30:00-05:00");
+            IntegerLiteral one = new IntegerLiteral(1);
+            connectContext.getSessionVariable().setTimeZone("America/New_York");
+            for (Expression arithmetic : new Expression[] {new DaysAdd(timestamp, one),
+                    new DaysSub(timestamp, one)}) {
+                ComparisonPredicate predicate = new LessThan(arithmetic, bound);
+                Assertions.assertEquals(predicate, SimplifyArithmeticComparisonRule.simplify(predicate, context));
+                for (String zone : new String[] {"UTC", "+08:00"}) {
+                    connectContext.getSessionVariable().setTimeZone(zone);
+                    Assertions.assertNotEquals(predicate,
+                            SimplifyArithmeticComparisonRule.simplify(predicate, context));
+                }
+                connectContext.getSessionVariable().setTimeZone("America/New_York");
+            }
+            ComparisonPredicate hours = new LessThan(new HoursAdd(timestamp, one), bound);
+            Assertions.assertNotEquals(hours, SimplifyArithmeticComparisonRule.simplify(hours, context));
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
 
     @Test
     public void testNumeric() {

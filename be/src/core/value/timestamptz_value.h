@@ -134,6 +134,9 @@ public:
         return _utc_dt.date_add_interval<unit, need_check>(interval);
     }
 
+    // Add session-local calendar days, preserving the input offset in a DST overlap.
+    bool date_add_days(int64_t days, const cctz::time_zone& local_time_zone);
+
     // truncate datetime to specified unit
     template <TimeUnit unit>
     bool datetime_trunc() {

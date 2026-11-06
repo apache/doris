@@ -38,6 +38,101 @@ TEST(TimeStampTzValueTest, make_time) {
     EXPECT_EQ(tz.to_date_int_val(), MIN_DATETIME_V2);
 }
 
+TEST(TimeStampTzValueTest, AddLocalCalendarDays) {
+    TimezoneUtils::load_offsets_to_cache();
+    cctz::time_zone new_york;
+    ASSERT_TRUE(cctz::load_time_zone("America/New_York", &new_york));
+    struct TestCase {
+        const char* input;
+        const char* expected;
+        int days;
+        int elapsed_seconds;
+    };
+    const TestCase cases[] = {
+            {.input = "2024-03-09 12:00:00.123456-05:00",
+             .expected = "2024-03-10 12:00:00.123456-04:00",
+             .days = 1,
+             .elapsed_seconds = 82800},
+            {.input = "2024-11-02 12:00:00.123456-04:00",
+             .expected = "2024-11-03 12:00:00.123456-05:00",
+             .days = 1,
+             .elapsed_seconds = 90000},
+            {.input = "2024-03-10 12:00:00.123456-04:00",
+             .expected = "2024-03-09 12:00:00.123456-05:00",
+             .days = -1,
+             .elapsed_seconds = -82800},
+            {.input = "2024-11-03 12:00:00.123456-05:00",
+             .expected = "2024-11-02 12:00:00.123456-04:00",
+             .days = -1,
+             .elapsed_seconds = -90000},
+            {.input = "2024-02-01 12:00:00.123456-05:00",
+             .expected = "2024-02-02 12:00:00.123456-05:00",
+             .days = 1,
+             .elapsed_seconds = 86400},
+            {.input = "2024-11-03 01:30:00.123456-05:00",
+             .expected = "2024-11-03 01:30:00.123456-05:00",
+             .days = 0,
+             .elapsed_seconds = 0},
+            {.input = "2024-11-02 01:30:00.123456-04:00",
+             .expected = "2024-11-03 01:30:00.123456-04:00",
+             .days = 1,
+             .elapsed_seconds = 86400},
+            {.input = "2024-11-04 01:30:00.123456-05:00",
+             .expected = "2024-11-03 01:30:00.123456-05:00",
+             .days = -1,
+             .elapsed_seconds = -86400},
+            // Use the existing cctz gap policy and preserve the fractional second.
+            {.input = "2024-03-09 02:30:00.123456-05:00",
+             .expected = "2024-03-10 03:00:00.123456-04:00",
+             .days = 1,
+             .elapsed_seconds = 84600},
+    };
+    for (const auto& test : cases) {
+        SCOPED_TRACE(test.input);
+        CastParameters params;
+        TimestampTzValue input;
+        ASSERT_TRUE(input.from_string(StringRef(test.input), &new_york, params, 6));
+        auto result = input;
+        ASSERT_TRUE(result.date_add_days(test.days, new_york));
+        EXPECT_EQ(result.to_string(new_york, 6), test.expected);
+        EXPECT_EQ(result.datetime_diff_in_seconds(input), test.elapsed_seconds);
+    }
+
+    auto utc = make_timestamptz(2024, 3, 9, 12, 0, 0, 123456);
+    ASSERT_TRUE(utc.date_add_days(1, cctz::utc_time_zone()));
+    EXPECT_EQ(utc, make_timestamptz(2024, 3, 10, 12, 0, 0, 123456));
+    auto minimum = make_timestamptz(0, 1, 1, 0, 0, 0, 0);
+    EXPECT_FALSE(minimum.date_add_days(-1, cctz::utc_time_zone()));
+    auto maximum = make_timestamptz(9999, 12, 31, 12, 0, 0, 0);
+    EXPECT_FALSE(maximum.date_add_days(1, cctz::utc_time_zone()));
+    // The local result is valid but its UTC representation would overflow year 9999.
+    maximum = make_timestamptz(9999, 12, 31, 1, 0, 0, 0);
+    EXPECT_FALSE(maximum.date_add_days(1, cctz::fixed_time_zone(std::chrono::hours(-8))));
+}
+
+TEST(TimeStampTzValueTest, AddLocalCalendarDaysAtUtcBoundaries) {
+    cctz::time_zone new_york;
+    ASSERT_TRUE(cctz::load_time_zone("America/New_York", &new_york));
+    const auto east = cctz::fixed_time_zone(std::chrono::hours(8));
+    const auto west = cctz::fixed_time_zone(std::chrono::hours(-8));
+    const auto minimum = make_timestamptz(0, 1, 1, 0, 0, 0, 123456);
+    const auto maximum = make_timestamptz(9999, 12, 31, 23, 0, 0, 123456);
+    auto result = minimum;
+    ASSERT_TRUE(result.date_add_days(0, new_york));
+    EXPECT_EQ(result, minimum);
+    result = maximum;
+    ASSERT_TRUE(result.date_add_days(0, east));
+    EXPECT_EQ(result, maximum);
+
+    // Both conversions pass through local February 29, year 0, and finish in valid UTC.
+    result = make_timestamptz(0, 2, 28, 20, 0, 0, 123456);
+    ASSERT_TRUE(result.date_add_days(-1, east));
+    EXPECT_EQ(result, make_timestamptz(0, 2, 27, 20, 0, 0, 123456));
+    result = make_timestamptz(0, 3, 1, 1, 0, 0, 123456);
+    ASSERT_TRUE(result.date_add_days(1, west));
+    EXPECT_EQ(result, make_timestamptz(0, 3, 2, 1, 0, 0, 123456));
+}
+
 TEST(TimeStampTzValueTest, ToStringPreservesHistoricalOffsetSeconds) {
     TimezoneUtils::load_offsets_to_cache();
     const auto utc = cctz::utc_time_zone();

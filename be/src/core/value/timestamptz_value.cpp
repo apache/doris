@@ -88,6 +88,35 @@ int TimestampTzValue::to_buffer(char* buffer, const cctz::time_zone& tz, int sca
     return len;
 }
 
+bool TimestampTzValue::date_add_days(int64_t days, const cctz::time_zone& local_time_zone) {
+    // Predicate movement treats a zero interval as an infallible identity, including
+    // UTC year 0000/9999 whose local display year can be outside [0, 9999].
+    if (days == 0) {
+        return true;
+    }
+    const cctz::civil_second utc_cs(year(), month(), day(), hour(), minute(), second());
+    const auto local = local_time_zone.lookup(cctz::convert(utc_cs, cctz::utc_time_zone()));
+    const auto target = cctz::civil_day(local.cs) + days;
+    // UTC boundaries and a day delta can produce an unrepresentable local year.
+    if (local.cs.year() < 0 || local.cs.year() > 9999 || target.year() < 0 ||
+        target.year() > 9999) {
+        return false;
+    }
+    // Match Java's civil calendar, which permits February 29 in year 0. For example,
+    // UTC 0000-02-28 20:00 at +08:00 passes through that local date before subtracting
+    // a day. Validate the final UTC value rather than this local intermediate as DateV2.
+    DateV2Value<DateTimeV2ValueType> local_dt;
+    local_dt.unchecked_set_time(
+            static_cast<uint16_t>(target.year()), static_cast<uint8_t>(target.month()),
+            static_cast<uint8_t>(target.day()), static_cast<uint8_t>(local.cs.hour()),
+            static_cast<uint8_t>(local.cs.minute()), static_cast<uint8_t>(local.cs.second()),
+            microsecond());
+    // Preserve the input offset when the target repeats, e.g. the second autumn 01:30.
+    convert_local_to_utc(local_time_zone, local_dt, local.offset);
+    // A valid local result can still fall outside the supported UTC year range.
+    return is_valid_date();
+}
+
 bool TimestampTzValue::from_datetime(const DateV2Value<DateTimeV2ValueType>& origin_dt,
                                      const cctz::time_zone& local_time_zone, int dt_scale,
                                      int tz_scale) {
