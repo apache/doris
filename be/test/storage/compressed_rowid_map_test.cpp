@@ -168,10 +168,10 @@ TEST(CompressedRowIdMapTest, LinearBitmapAndRawFallback) {
     std::sort(raw.begin(), raw.end());
     for (uint32_t row = 0; row < raw.size(); ++row) ASSERT_TRUE(map.append(1, row, raw[row]).ok());
     ASSERT_TRUE(map.finish().ok());
-    EXPECT_EQ(map.block_meta(0, 0).kind, Map::LINEAR);
-    EXPECT_NE(map.block_meta(0, 0).flags & Map::BITMAP, 0);
-    EXPECT_NE(map.block_meta(0, 0).flags & Map::ZSTD, 0);
-    EXPECT_EQ(map.block_meta(1, 0).kind, Map::RAW64);
+    EXPECT_EQ(map.block_meta(0, 0).kind, Map::Kind::LINEAR);
+    EXPECT_NE(map.block_meta(0, 0).flags & Map::flag_bits(Map::Flag::BITMAP), 0);
+    EXPECT_NE(map.block_meta(0, 0).flags & Map::flag_bits(Map::Flag::ZSTD), 0);
+    EXPECT_EQ(map.block_meta(1, 0).kind, Map::Kind::RAW64);
     Map::Cursor cursor;
     Map::DecodeWorkspace workspace;
     check_rows(map, 1, raw, cursor, workspace);
@@ -203,7 +203,7 @@ TEST(CompressedRowIdMapTest, CorruptDirectoryBitmapVarintAndZstdReturnErrors) {
     meta = good;
     std::span<const uint8_t> payload;
     ASSERT_TRUE(map.block_payload(meta, &payload).ok());
-    ASSERT_NE(meta.flags & Map::ZSTD, 0);
+    ASSERT_NE(meta.flags & Map::flag_bits(Map::Flag::ZSTD), 0);
     const_cast<uint8_t*>(payload.data())[0] ^= 0xff;
     EXPECT_FALSE(map.get(0, 0, cursor, workspace, &target).ok());
     const_cast<uint8_t*>(payload.data())[0] ^= 0xff;
@@ -211,7 +211,7 @@ TEST(CompressedRowIdMapTest, CorruptDirectoryBitmapVarintAndZstdReturnErrors) {
     EXPECT_EQ(target, 0);
 
     Map::BlockMeta malformed;
-    malformed.kind = Map::DELTA;
+    malformed.kind = Map::Kind::DELTA;
     malformed.rows = 2;
     malformed.live = 2;
     malformed.payload_bytes = malformed.plain_bytes = 1;
@@ -224,9 +224,9 @@ TEST(CompressedRowIdMapTest, CorruptDirectoryBitmapVarintAndZstdReturnErrors) {
     malformed.payload_bytes = malformed.plain_bytes = 10;
     std::array<uint8_t, 10> too_wide {0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 2};
     EXPECT_FALSE(Map::decode(malformed, too_wide, cursor, workspace).ok());
-    malformed.kind = Map::LINEAR;
+    malformed.kind = Map::Kind::LINEAR;
     malformed.live = 1;
-    malformed.flags = Map::BITMAP;
+    malformed.flags = Map::flag_bits(Map::Flag::BITMAP);
     malformed.payload_bytes = malformed.plain_bytes = 1;
     std::array<uint8_t, 1> wrong_count {3};
     EXPECT_FALSE(Map::decode(malformed, wrong_count, cursor, workspace).ok());
