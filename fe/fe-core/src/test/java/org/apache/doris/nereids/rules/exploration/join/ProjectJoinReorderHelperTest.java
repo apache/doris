@@ -181,6 +181,30 @@ class ProjectJoinReorderHelperTest {
         Assertions.assertEquals(outputSignature(project), outputSignature(normalized));
     }
 
+    @Test
+    void rejectProjectThatMaterializesJoinConditionColumnAsConstant() {
+        // `14 AS id` reads no input and reuses the exprId of left.id, which the join condition refers to:
+        // moving the project below the join would make both children of the join output left.id
+        LogicalJoin<LogicalPlan, LogicalPlan> join = join(JoinType.INNER_JOIN);
+        Alias constantItem = new Alias(left.getOutput().get(0).getExprId(),
+                new IntegerLiteral(14), left.getOutput().get(0).getName());
+        LogicalProject<LogicalJoin<LogicalPlan, LogicalPlan>> project
+                = new LogicalProject<>(ImmutableList.of(constantItem, left.getOutput().get(1)), join);
+
+        Assertions.assertTrue(ProjectJoinReorderHelper.normalize(project).isEmpty());
+    }
+
+    @Test
+    void rejectSemiJoinProjectThatMaterializesJoinConditionColumnAsConstant() {
+        LogicalJoin<LogicalPlan, LogicalPlan> semiJoin = join(JoinType.LEFT_SEMI_JOIN);
+        Alias constantItem = new Alias(left.getOutput().get(0).getExprId(),
+                new IntegerLiteral(14), left.getOutput().get(0).getName());
+        LogicalProject<LogicalJoin<LogicalPlan, LogicalPlan>> project
+                = new LogicalProject<>(ImmutableList.of(constantItem, left.getOutput().get(1)), semiJoin);
+
+        Assertions.assertTrue(ProjectJoinReorderHelper.normalize(project).isEmpty());
+    }
+
     private LogicalJoin<LogicalPlan, LogicalPlan> join(JoinType joinType) {
         return (LogicalJoin<LogicalPlan, LogicalPlan>) new LogicalPlanBuilder(left)
                 .join(right, joinType, Pair.of(0, 0))
