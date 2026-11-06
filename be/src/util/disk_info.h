@@ -69,6 +69,16 @@ public:
     static Status get_disk_devices(const std::vector<std::string>& paths,
                                    std::set<std::string>* devices);
 
+    // Turns a resolved /sys/dev/block/<major>:<minor> path into the disk name
+    // it should be grouped under. Partition directories sit one level below
+    // their whole-device directory in sysfs (e.g. .../block/sda/sda1,
+    // .../block/nvme0n1/nvme0n1p1), so the partition flag alone tells us
+    // whether to take the leaf name or its parent. This keeps the logic
+    // testable without touching real sysfs state.
+    // Exposed for testing.
+    static std::string disk_name_from_sysfs_path(const std::string& resolved_path,
+                                                  bool is_partition);
+
 private:
     static bool _s_initialized;
 
