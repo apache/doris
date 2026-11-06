@@ -80,10 +80,7 @@ public class AlterMTMVPropertyInfo extends AlterMTMVInfo {
                         + "' cannot be altered. It is fixed at creation time.");
             }
         }
-        if (properties.keySet().stream().anyMatch(
-                PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS::equalsIgnoreCase)) {
-            throw new AnalysisException("variant_escape_dots_in_keys can only be specified when creating a table");
-        }
+        PropertyAnalyzer.rejectVariantEscapeDotsInKeysAlter(properties);
         for (String key : properties.keySet()) {
             MTMVPropertyUtil.analyzeProperty(key, properties.get(key));
         }

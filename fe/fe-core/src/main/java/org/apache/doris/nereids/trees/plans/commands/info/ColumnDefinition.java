@@ -26,7 +26,6 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
@@ -176,18 +175,6 @@ public class ColumnDefinition {
 
     public String getName() {
         return name;
-    }
-
-    /** Validate the final Variant layout against its owning table's storage policy. */
-    public void validateVariantTable(boolean escaped) {
-        if (!escaped || !type.isVariantType()) {
-            return;
-        }
-        try {
-            PropertyAnalyzer.validateVariantTableColumn(translateToCatalogStyle(), escaped);
-        } catch (org.apache.doris.common.AnalysisException e) {
-            throw new AnalysisException(e.getMessage(), e);
-        }
     }
 
     public DataType getType() {
@@ -446,7 +433,6 @@ public class ColumnDefinition {
                     "Cannot use `VARIANT` type column named with a `.` character: " + name);
         }
         type.validateDataType();
-
         type = updateCharacterTypeLength(type);
         if (!isSystemGeneratedTable && isOlap && keysType != KeysType.AGG_KEYS && isAggregateTableOnlyType()
                 && !Config.enable_non_aggregate_table_state_types) {

@@ -16,6 +16,9 @@
 // under the License.
 
 suite("dotted_key_escape_score", "p0") {
+    // Positive scores require a materialized path index; sparse/doc fallback scores are zero.
+    sql "set default_variant_enable_doc_mode=false"
+    sql "set default_variant_max_subcolumns_count=0"
     sql "set group_commit='off_mode'"
     sql "DROP TABLE IF EXISTS dotted_key_escape_score"
     sql """CREATE TABLE dotted_key_escape_score (

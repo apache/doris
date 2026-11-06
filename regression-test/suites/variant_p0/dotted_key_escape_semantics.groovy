@@ -139,7 +139,7 @@ suite("dotted_key_escape_semantics", "p0") {
     test {
         sql """create index idx_bad on dotted_key_escape_template(v) using inverted
             properties("field_pattern"="a%2e")"""
-        exception "Invalid escaped Variant path component"
+        exception "Can not create index with field pattern"
     }
     test {
         sql "select id from dotted_key_escape_values where search('v.bad%20:value')"

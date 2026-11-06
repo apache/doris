@@ -2780,9 +2780,8 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         try {
             olapTable.setVariantEscapeDotsInKeys(PropertyAnalyzer.analyzeVariantEscapeDotsInKeys(properties));
-            for (Column column : baseSchema) {
-                PropertyAnalyzer.validateVariantTableColumn(column, olapTable.getVariantEscapeDotsInKeys());
-            }
+            PropertyAnalyzer.validateVariantTable(olapTable.getVariantEscapeDotsInKeys(),
+                    baseSchema, createTableInfo.getIndexes());
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }

@@ -28,7 +28,6 @@
 #include <algorithm>
 #include <cctype>
 
-#include "exec/common/variant_util.h"
 // IWYU pragma: no_include <bits/std_abs.h>
 #include <charconv>
 #include <cmath> // IWYU pragma: keep
@@ -46,6 +45,7 @@
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "exec/common/hex.h"
+#include "exec/common/variant_util.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/aggregate_function_state_union.h"
 #include "storage/index/index_writer.h" // IndexColumnWriter::check_support_*_index

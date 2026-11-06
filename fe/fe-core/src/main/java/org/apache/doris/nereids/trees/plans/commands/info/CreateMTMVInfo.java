@@ -375,7 +375,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
         for (BaseTableInfo baseTable : relation.getBaseTables()) {
             sourceTables.add(MTMVUtil.getTable(baseTable));
         }
-        this.properties = PropertyAnalyzer.inheritVariantEscapeDotsInKeys(this.properties, sourceTables);
+        this.properties = PropertyAnalyzer.inheritVariantEscapeDotsInKeys(this.properties, sourceTables, true);
         ivmAppendOnlyDupModel = isEnableIvm()
                 && mtmvAnalyzeQueryInfo.getIvmRewriteResult().isAppendOnlyDupTable();
         if (isEnableIvm() && !ivmAppendOnlyDupModel) {

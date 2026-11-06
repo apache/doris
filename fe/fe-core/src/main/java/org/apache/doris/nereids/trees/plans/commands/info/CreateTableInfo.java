@@ -792,15 +792,6 @@ public class CreateTableInfo {
         orderKeySet.addAll(sortOrderFields.stream().map(SortFieldInfo::getColumnName).collect(Collectors.toSet()));
         // Internal statistics tables need state columns. The internal-query flag can also be set by user SHOWs.
         boolean isSystemGeneratedTable = targetIsInternalCatalog && FeConstants.INTERNAL_DB_NAME.equals(dbName);
-        boolean escaped;
-        try {
-            escaped = PropertyAnalyzer.analyzeVariantEscapeDotsInKeys(new HashMap<>(properties));
-        } catch (org.apache.doris.common.AnalysisException e) {
-            throw new AnalysisException(e.getMessage(), e);
-        }
-        if (escaped && !targetIsInternalCatalog) {
-            throw new AnalysisException("variant_escape_dots_in_keys requires an OLAP table");
-        }
         columns.forEach(c -> c.validate(targetIsInternalCatalog, keysSet, orderKeySet, finalEnableMergeOnWrite,
                 keysType, isSystemGeneratedTable));
 
@@ -825,7 +816,6 @@ public class CreateTableInfo {
 
             for (IndexDefinition indexDef : indexes) {
                 indexDef.validate();
-                indexDef.validateVariantTable(escaped);
                 if (!targetIsInternalCatalog) {
                     throw new AnalysisException(
                             "index only support in olap engine at current version.");

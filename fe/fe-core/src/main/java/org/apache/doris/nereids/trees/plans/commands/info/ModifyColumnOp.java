@@ -146,9 +146,6 @@ public class ModifyColumnOp extends AlterTableOp {
             columnDef.validateNestedColumn(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType);
         } else {
             columnDef.validate(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType);
-            if (olapTable != null) {
-                columnDef.validateVariantTable(olapTable.getVariantEscapeDotsInKeys());
-            }
         }
         if (colPos != null) {
             colPos.analyze();

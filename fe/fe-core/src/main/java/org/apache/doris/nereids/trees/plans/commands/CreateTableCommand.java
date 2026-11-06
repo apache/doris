@@ -171,7 +171,7 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
         Plan plan = planner.planWithLock(new UnboundResultSink<>(query), PhysicalProperties.ANY, ExplainLevel.NONE);
         try {
             createTableInfo.setProperties(PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
-                    createTableInfo.getProperties(), ctx.getStatementContext().getTables().values()));
+                    createTableInfo.getProperties(), ctx.getStatementContext().getTables().values(), false));
         } catch (org.apache.doris.common.AnalysisException e) {
             throw new AnalysisException(e.getMessage(), e);
         }

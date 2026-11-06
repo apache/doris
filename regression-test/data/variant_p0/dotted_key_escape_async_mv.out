@@ -2,8 +2,8 @@
 -- !inherited_property --
 true
 
--- !false_property --
-false
+-- !int_join_property --
+true
 
 -- !inherited --
 1	{"a":{"b":102},"a%2Eb":103,"a.b":101}	101	102	103
@@ -11,8 +11,8 @@ false
 -- !true --
 1	{"a":{"b":202},"a.b":201}	201	202
 
--- !false --
-1	{"legacy":{"key":401}}
+-- !int_join --
+1	{"a":{"b":102},"a%2Eb":103,"a.b":101}	101	102
 
 -- !refreshed --
 1	{"a":{"b":102},"a%2Eb":103,"a.b":101}	101	102	103

@@ -173,17 +173,6 @@ public class IndexDefinition {
     /**
      * checkColumn
      */
-    public void validateVariantTable(boolean escaped) {
-        if (escaped && properties != null && properties.containsKey("field_pattern")) {
-            try {
-                PropertyAnalyzer.validateVariantStoragePath(properties.get("field_pattern"));
-            } catch (org.apache.doris.common.AnalysisException e) {
-                throw new AnalysisException(e.getMessage(), e);
-            }
-        }
-    }
-
-    /** Validate a column against this index definition. */
     public void checkColumn(ColumnDefinition column, KeysType keysType,
             boolean enableUniqueKeyMergeOnWrite,
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {

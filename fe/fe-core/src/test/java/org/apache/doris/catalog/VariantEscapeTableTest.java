@@ -84,6 +84,11 @@ public class VariantEscapeTableTest extends TestWithFeService {
 
     @Test
     public void testNestedGroupFinalTypeIsForbidden() throws Exception {
+        Exception explicit = Assertions.assertThrows(Exception.class, () -> createTable(
+                "CREATE TABLE nested_explicit(k INT, v VARIANT<PROPERTIES('variant_enable_nested_group'='true')>) "
+                + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                + "PROPERTIES('replication_num'='1','variant_escape_dots_in_keys'='true')"));
+        Assertions.assertTrue(explicit.getMessage().contains("Escaped tables do not support NestedGroup"));
         connectContext.getSessionVariable().defaultVariantEnableNestedGroup = true;
         try {
             Exception error = Assertions.assertThrows(Exception.class, () -> createTable(
@@ -120,7 +125,7 @@ public class VariantEscapeTableTest extends TestWithFeService {
         createTable("CREATE TABLE async_source(k INT, v VARIANT) DUPLICATE KEY(k) "
                 + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1',"
                 + "'variant_escape_dots_in_keys'='true')");
-        for (String policy : new String[] {"inherited", "true", "false"}) {
+        for (String policy : new String[] {"inherited", "true"}) {
             String explicit = policy.equals("inherited") ? ""
                     : ",'variant_escape_dots_in_keys'='" + policy + "'";
             createMvByNereids("CREATE MATERIALIZED VIEW async_" + policy
@@ -129,6 +134,11 @@ public class VariantEscapeTableTest extends TestWithFeService {
                     + "AS WITH c AS (SELECT k,v FROM async_source) SELECT k,v FROM c");
             Assertions.assertEquals(!policy.equals("false"), table("async_" + policy).getVariantEscapeDotsInKeys());
         }
+        Exception mismatch = Assertions.assertThrows(Exception.class, () -> createMvByNereids(
+                "CREATE MATERIALIZED VIEW async_false BUILD DEFERRED REFRESH COMPLETE ON MANUAL "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1',"
+                + "'variant_escape_dots_in_keys'='false') AS SELECT k,v FROM async_source"));
+        Assertions.assertTrue(mismatch.getMessage().contains("async MV must use the same value"));
     }
 
 }

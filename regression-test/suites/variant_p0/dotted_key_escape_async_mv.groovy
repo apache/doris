@@ -38,22 +38,41 @@ suite("dotted_key_escape_async_mv", "p0,nonConcurrent") {
         BUILD DEFERRED REFRESH COMPLETE ON MANUAL DISTRIBUTED BY HASH(k) BUCKETS 1
         PROPERTIES("replication_num"="1","variant_escape_dots_in_keys"="true")
         AS SELECT k,parse_to_variant('{"a.b":201,"a":{"b":202}}') v FROM dotted_key_escape_async_legacy"""
-    sql """CREATE MATERIALIZED VIEW dotted_key_escape_async_false
+    test {
+        sql """CREATE MATERIALIZED VIEW dotted_key_escape_async_false
+            BUILD DEFERRED REFRESH COMPLETE ON MANUAL DISTRIBUTED BY HASH(k) BUCKETS 1
+            PROPERTIES("replication_num"="1","variant_escape_dots_in_keys"="false")
+            AS SELECT k,v FROM dotted_key_escape_async_source"""
+        exception "async MV must use the same value of variant_escape_dots_in_keys"
+    }
+    sql "DROP TABLE IF EXISTS dotted_key_escape_async_legacy_variant"
+    sql """CREATE TABLE dotted_key_escape_async_legacy_variant(k INT,v VARIANT)
+        DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES("replication_num"="1")"""
+    sql "DROP MATERIALIZED VIEW IF EXISTS dotted_key_escape_async_mixed"
+    test {
+        sql """CREATE MATERIALIZED VIEW dotted_key_escape_async_mixed
+            BUILD DEFERRED REFRESH COMPLETE ON MANUAL DISTRIBUTED BY HASH(k) BUCKETS 1
+            PROPERTIES("replication_num"="1") AS SELECT s.k,s.v FROM dotted_key_escape_async_source s
+            JOIN dotted_key_escape_async_legacy_variant l ON s.k=l.k"""
+        exception "async MV must use the same value of variant_escape_dots_in_keys"
+    }
+    sql "DROP MATERIALIZED VIEW IF EXISTS dotted_key_escape_async_int_join"
+    sql """CREATE MATERIALIZED VIEW dotted_key_escape_async_int_join
         BUILD DEFERRED REFRESH COMPLETE ON MANUAL DISTRIBUTED BY HASH(k) BUCKETS 1
-        PROPERTIES("replication_num"="1","variant_escape_dots_in_keys"="false")
-        AS SELECT k,parse_to_variant('{"legacy.key":401}') v FROM dotted_key_escape_async_source"""
+        PROPERTIES("replication_num"="1") AS SELECT s.k,s.v FROM dotted_key_escape_async_source s
+        JOIN dotted_key_escape_async_legacy l ON s.k=l.k"""
     def db = context.config.getDbNameByFile(context.file)
-    ['dotted_key_escape_async_inherited','dotted_key_escape_async_true','dotted_key_escape_async_false'].each { name ->
+    ['dotted_key_escape_async_inherited','dotted_key_escape_async_true','dotted_key_escape_async_int_join'].each { name ->
         sql "REFRESH MATERIALIZED VIEW ${name} COMPLETE"
         waitingMTMVTaskFinished(getJobName(db,name))
     }
     quickRunTest("inherited_property", "SHOW CREATE MATERIALIZED VIEW dotted_key_escape_async_inherited", false,
             { row -> [row[1].contains('variant_escape_dots_in_keys').toString()] })
-    quickRunTest("false_property", "SHOW CREATE MATERIALIZED VIEW dotted_key_escape_async_false", false,
+    quickRunTest("int_join_property", "SHOW CREATE MATERIALIZED VIEW dotted_key_escape_async_int_join", false,
             { row -> [row[1].contains('variant_escape_dots_in_keys').toString()] })
     qt_inherited """SELECT k,v,v['a.b'],v['a']['b'],v['a%2Eb'] FROM dotted_key_escape_async_inherited ORDER BY k"""
     qt_true """SELECT k,v,v['a.b'],v['a']['b'] FROM dotted_key_escape_async_true ORDER BY k"""
-    qt_false "SELECT k,v FROM dotted_key_escape_async_false ORDER BY k"
+    qt_int_join """SELECT k,v,v['a.b'],v['a']['b'] FROM dotted_key_escape_async_int_join ORDER BY k"""
     sql """INSERT INTO dotted_key_escape_async_source VALUES
         (2,parse_to_variant('{"a.b":301,"a":{"b":302},"a%2Eb":303}'))"""
     sql "REFRESH MATERIALIZED VIEW dotted_key_escape_async_inherited COMPLETE"

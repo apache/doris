@@ -2684,6 +2684,10 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             } // end for alter clauses
 
+            PropertyAnalyzer.validateVariantTable(olapTable.getVariantEscapeDotsInKeys(),
+                    indexSchemaMap.values().stream().flatMap(Collection::stream).collect(Collectors.toList()),
+                    newIndexes);
+
             if (LOG.isDebugEnabled()) {
                 LOG.debug("table: {}({}), lightSchemaChange: {}, lightIndexChange: {},"
                         + " buildIndexChange: {}, indexSchemaMap:{}",
@@ -3360,7 +3364,6 @@ public class SchemaChangeHandler extends AlterHandler {
         for (String col : indexDef.getColumnNames()) {
             Column column = olapTable.getColumn(col);
             if (column != null) {
-                indexDef.validateVariantTable(olapTable.getVariantEscapeDotsInKeys());
                 indexDef.checkColumn(column, olapTable.getKeysType(),
                         olapTable.getEnableUniqueKeyMergeOnWrite(),
                         olapTable.getInvertedIndexFileStorageFormat());
