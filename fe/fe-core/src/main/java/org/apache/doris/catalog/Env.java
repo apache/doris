@@ -7823,20 +7823,6 @@ public class Env {
 
     /** Invalidate derived query caches after applying an existing table metadata journal. */
     public void onTableChanged(TableIf table) {
-        onTableChanged(table, TableChangeType.METADATA);
-    }
-
-    public enum TableChangeType {
-        METADATA,
-        DATA
-    }
-
-    public void onTableChanged(TableIf table, TableChangeType changeType) {
-        if (changeType == TableChangeType.DATA) {
-            Preconditions.checkArgument(table instanceof OlapTable);
-            invalidateCache("SQL", () -> getSqlCacheManager().invalidateAboutTableData((OlapTable) table));
-            return;
-        }
         onTableChanged(table, table.getName());
     }
 

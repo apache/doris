@@ -2682,7 +2682,6 @@ public class DatabaseTransactionMgr {
             long versionTime = entry.getValue().getMiddle();
             OlapTable table = entry.getValue().getRight();
             table.updateVisibleVersionAndTime(version, versionTime);
-            env.onTableChanged(table, Env.TableChangeType.DATA);
         }
         analysisManager.setNewPartitionLoaded(newPartitionLoadedTableIds);
         analysisManager.updateUpdatedRows(transactionState.getTableIdToTabletDeltaRows(),

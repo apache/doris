@@ -181,31 +181,6 @@ public class NereidsSqlCacheManager {
         sqlCaches.invalidateAll(invalidateKeys);
     }
 
-    /** Keep entries whose recorded partition dependencies are unaffected by this visible transaction. */
-    public void invalidateAboutTableData(OlapTable table) {
-        Set<String> invalidateKeys = new LinkedHashSet<>();
-        for (Entry<String, SqlCacheContext> entry : sqlCaches.asMap().entrySet()) {
-            for (TableVersion dependency : entry.getValue().getUsedTables().values()) {
-                if (dependency.id != table.getId()) {
-                    continue;
-                }
-                boolean changed = true;
-                if (dependency.olapVersion != null && dependency.olapVersion.isUsable()) {
-                    try {
-                        changed = !dependency.olapVersion.matches(table, table.getVisibleVersion());
-                    } catch (RpcException e) {
-                        LOG.warn("Failed to validate SQL cache after data became visible for table {}",
-                                table.getId(), e);
-                    }
-                }
-                if (changed) {
-                    invalidateKeys.add(entry.getKey());
-                }
-            }
-        }
-        sqlCaches.invalidateAll(invalidateKeys);
-    }
-
     public static synchronized void updateConfig() {
         Env currentEnv = Env.getCurrentEnv();
         if (currentEnv == null) {
@@ -492,6 +467,9 @@ public class NereidsSqlCacheManager {
         }
     }
 
+    // DML publishes table/partition versions; validate them here on admission and lookup instead of scanning
+    // cached queries while transaction publication or replay holds table write locks. Metadata journals also
+    // advance the independent revision fence because their mutations need not change data versions.
     private IsChanged dependenciesChanged(Env env, SqlCacheContext context, StatementContext statement) {
         if (!context.metadataVersionsMatch()) {
             return IsChanged.CHANGED_AND_INVALIDATE_CACHE;

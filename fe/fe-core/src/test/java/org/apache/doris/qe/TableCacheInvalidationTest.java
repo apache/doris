@@ -215,62 +215,90 @@ class TableCacheInvalidationTest extends TestWithFeService {
     }
 
     @Test
-    void visibleDataInvalidatesOnlyChangedPartitionDependencies() throws Exception {
-        Partition p1 = target.getPartition("p1");
-        Partition p2 = target.getPartition("p2");
-        SqlCacheContext first = warmSql("p1", target);
-        first.addOlapScan(target, ImmutableMap.of(p1.getId(), p1.getVisibleVersion()));
-        SqlCacheContext second = warmSql("p2", target);
-        second.addOlapScan(target, ImmutableMap.of(p2.getId(), p2.getVisibleVersion()));
-        warmSql("whole_table", target);
-        warmSql("control", control);
-        target.writeLock();
-        try {
-            p2.updateVisibleVersionAndTime(p2.getVisibleVersion() + 1, 123456L);
-            target.updateVisibleVersionAndTime(target.getVisibleVersion() + 1, 123456L);
-            Env.getCurrentEnv().onTableChanged(target, Env.TableChangeType.DATA);
-        } finally {
-            target.writeUnlock();
-        }
+    void visibleReplayDoesNotScanCachesAndValidatesDependenciesOnLookup() throws Exception {
         NereidsSqlCacheManager manager = Env.getCurrentEnv().getSqlCacheManager();
-        Assertions.assertNotNull(manager.getSqlCaches().getIfPresent("p1"));
-        Assertions.assertNull(manager.getSqlCaches().getIfPresent("p2"));
-        Assertions.assertNull(manager.getSqlCaches().getIfPresent("whole_table"));
-        Assertions.assertNotNull(manager.getSqlCaches().getIfPresent("control"));
+        String first = "SELECT id FROM target PARTITION(p1)";
+        String second = "SELECT id FROM target PARTITION(p2)";
+        String whole = "SELECT id FROM target";
+        String other = "SELECT id FROM control PARTITION(p1)";
+        prepareCachedQuery(first, target);
+        publishCachedQuery(false, first);
+        prepareCachedQuery(second, target, "p2");
+        publishCachedQuery(false, second);
+        prepareCachedQuery(whole, target, null);
+        publishCachedQuery(false, whole);
+        prepareCachedQuery(other, control);
+        publishCachedQuery(false, other);
+        Assertions.assertEquals(4, manager.getSqlCaches().estimatedSize());
+        manager.getSqlCaches().asMap().replaceAll((key, cached) -> Mockito.spy(cached));
+        List<SqlCacheContext> cachedContexts = new ArrayList<>(manager.getSqlCaches().asMap().values());
+
+        TransactionState transaction = committedTransaction(target, "p2");
+        transaction.setTransactionStatus(TransactionStatus.VISIBLE);
+        replay(OperationType.OP_UPSERT_TRANSACTION_STATE, transaction);
+
+        for (SqlCacheContext cached : cachedContexts) {
+            Mockito.verify(cached, Mockito.never()).getUsedTables();
+        }
+        Assertions.assertEquals(4, manager.getSqlCaches().estimatedSize(),
+                "VISIBLE must publish versions without walking or evicting cached queries under table write locks");
+        assertCacheHit(first, true);
+        assertCacheHit(second, false);
+        assertCacheHit(whole, false);
+        assertCacheHit(other, true);
+        Assertions.assertEquals(2, manager.getSqlCaches().estimatedSize());
         Assertions.assertTrue(aggregates.invalidated.isEmpty());
     }
 
-    @Test
-    void transactionReplayInvalidatesWhenVisibleButNotWhenCommitted() throws Exception {
-        warmBothTables();
-        long oldVersion = target.getVisibleVersion();
+    @ParameterizedTest
+    @CsvSource({"false", "true"})
+    void transactionReplayChecksDataWhenVisibleButNotWhenCommitted(boolean partitioned) throws Exception {
+        OlapTable table = partitioned ? target : (OlapTable) database.getTableOrMetaException("plain");
+        String partitionName = partitioned ? "p1" : table.getName();
+        String query = "SELECT id FROM " + table.getName();
+        prepareCachedQuery(query, table);
+        publishCachedQuery(false, query);
+        long oldVersion = table.getVisibleVersion();
+        TransactionState transaction = committedTransaction(table, partitionName);
+        replay(OperationType.OP_UPSERT_TRANSACTION_STATE, transaction);
+        Assertions.assertEquals(oldVersion, table.getVisibleVersion());
+        assertCacheHit(query, true);
+
+        transaction.setTransactionStatus(TransactionStatus.VISIBLE);
+        replay(OperationType.OP_UPSERT_TRANSACTION_STATE, transaction);
+        Assertions.assertEquals(oldVersion + 1, table.getVisibleVersion());
+        Assertions.assertEquals(1, Env.getCurrentEnv().getSqlCacheManager().getSqlCaches().estimatedSize());
+        assertCacheHit(query, false);
+        Assertions.assertEquals(0, Env.getCurrentEnv().getSqlCacheManager().getSqlCaches().estimatedSize());
+        Assertions.assertTrue(aggregates.invalidated.isEmpty());
+    }
+
+    private TransactionState committedTransaction(OlapTable table, String partitionName) throws Exception {
         long now = System.currentTimeMillis();
-        TransactionState transaction = new TransactionState(database.getId(), ImmutableList.of(target.getId()),
+        TransactionState transaction = new TransactionState(database.getId(), ImmutableList.of(table.getId()),
                 Env.getCurrentEnv().getNextId(), "cache_replay_visible", null,
                 TransactionState.LoadJobSourceType.FRONTEND,
                 new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE, 0, "127.0.0.1", now),
                 -1, 10000);
-        TableCommitInfo table = new TableCommitInfo(target.getId());
-        table.setVersion(oldVersion + 1);
-        table.setVersionTime(now);
-        Partition partition = target.getPartition("p1");
-        table.addPartitionCommitInfo(new PartitionCommitInfo(partition.getId(), "",
+        TableCommitInfo commit = new TableCommitInfo(table.getId());
+        commit.setVersion(table.getVisibleVersion() + 1);
+        commit.setVersionTime(now);
+        Partition partition = table.getPartition(partitionName);
+        commit.addPartitionCommitInfo(new PartitionCommitInfo(partition.getId(), "",
                 partition.getVisibleVersion() + 1, now, false));
-        transaction.putIdToTableCommitInfo(target.getId(), table);
+        transaction.putIdToTableCommitInfo(table.getId(), commit);
         transaction.setCommitTime(now);
-        transaction.setTransactionStatus(TransactionStatus.COMMITTED);
-        replay(OperationType.OP_UPSERT_TRANSACTION_STATE, transaction);
-        Assertions.assertEquals(oldVersion, target.getVisibleVersion());
-        Assertions.assertNotNull(Env.getCurrentEnv().getSqlCacheManager().getSqlCaches().getIfPresent("target"));
         transaction.setFinishTime(now);
-        transaction.setTransactionStatus(TransactionStatus.VISIBLE);
-        replay(OperationType.OP_UPSERT_TRANSACTION_STATE, transaction);
-        Assertions.assertEquals(oldVersion + 1, target.getVisibleVersion());
-        Assertions.assertNull(Env.getCurrentEnv().getSqlCacheManager().getSqlCaches().getIfPresent("target"));
-        Assertions.assertNotNull(Env.getCurrentEnv().getSqlCacheManager().getSqlCaches().getIfPresent("control"));
-        Assertions.assertEquals(2, Env.getCurrentEnv().getSortedPartitionsCacheManager()
-                .getPartitionCaches().estimatedSize());
-        Assertions.assertTrue(aggregates.invalidated.isEmpty());
+        transaction.setTransactionStatus(TransactionStatus.COMMITTED);
+        return transaction;
+    }
+
+    private void assertCacheHit(String query, boolean expected) {
+        try (StatementContext lookup = new StatementContext(connectContext, new OriginStatement(query, 0))) {
+            connectContext.setStatementContext(lookup);
+            Assertions.assertEquals(expected,
+                    Env.getCurrentEnv().getSqlCacheManager().tryParseSql(connectContext, query).isPresent(), query);
+        }
     }
 
     @Test
@@ -373,7 +401,6 @@ class TableCacheInvalidationTest extends TestWithFeService {
                 Partition p2 = target.getPartition("p2");
                 p2.updateVisibleVersionAndTime(p2.getVisibleVersion() + 1, 123457L);
                 target.updateVisibleVersionAndTime(target.getVisibleVersion() + 1, 123457L);
-                Env.getCurrentEnv().onTableChanged(target, Env.TableChangeType.DATA);
             } finally {
                 target.writeUnlock();
             }
@@ -438,12 +465,16 @@ class TableCacheInvalidationTest extends TestWithFeService {
     }
 
     private SqlCacheContext prepareCachedQuery(String query, OlapTable table) {
+        return prepareCachedQuery(query, table, "p1");
+    }
+
+    private SqlCacheContext prepareCachedQuery(String query, OlapTable table, String partitionName) {
         StatementContext statement = new StatementContext(connectContext, new OriginStatement(query, 0));
         connectContext.setStatementContext(statement);
         SqlCacheContext cached = statement.getSqlCacheContext().get();
         cached.addUsedTable(table);
-        if (table.isPartitionedTable()) {
-            Partition partition = table.getPartition("p1");
+        if (table.isPartitionedTable() && partitionName != null) {
+            Partition partition = table.getPartition(partitionName);
             cached.addOlapScan(table, ImmutableMap.of(partition.getId(), partition.getCachedVisibleVersion()));
             ScanTable scan = new ScanTable(new FullTableName(
                     InternalCatalog.INTERNAL_CATALOG_NAME, database.getFullName(), table.getName()));
