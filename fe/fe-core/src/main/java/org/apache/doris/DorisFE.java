@@ -38,6 +38,7 @@ import org.apache.doris.httpv2.HttpServer;
 import org.apache.doris.journal.bdbje.BDBDebugger;
 import org.apache.doris.journal.bdbje.BDBTool;
 import org.apache.doris.journal.bdbje.BDBToolOptions;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.meta.MetaReader;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
@@ -50,6 +51,7 @@ import org.apache.doris.tls.server.FeServerStarterFactory;
 import org.apache.doris.tls.server.ServerStarter;
 import org.apache.doris.tls.server.TlsProtocolSet;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Strings;
 import io.netty.util.internal.logging.InternalLoggerFactory;
@@ -725,12 +727,17 @@ public class DorisFE {
         return serverReady.get();
     }
 
-    private static void gracefulShutdown() {
-        // wait for all queries to finish
+    @VisibleForTesting
+    static void gracefulShutdown() {
+        // wait for all queries to finish, unless the edit log can not be written, which may also happen while
+        // waiting. Nothing done from then on can be persisted, and every thread that writes the edit log is
+        // blocked while holding its locks. Waiting for running queries would keep this frontend serving metadata
+        // that may never become durable.
         try {
             long now = System.currentTimeMillis();
             List<Coordinator> allCoordinators = QeProcessorImpl.INSTANCE.getAllCoordinators();
-            while (!allCoordinators.isEmpty() && System.currentTimeMillis() - now < 300 * 1000L) {
+            while (!allCoordinators.isEmpty() && !EditLog.isWriteFailed()
+                    && System.currentTimeMillis() - now < 300 * 1000L) {
                 Thread.sleep(1000);
                 allCoordinators = QeProcessorImpl.INSTANCE.getAllCoordinators();
                 LOG.info("waiting {} queries to finish before shutdown", allCoordinators.size());
@@ -739,6 +746,9 @@ public class DorisFE {
             LOG.error("", t);
         }
 
+        if (EditLog.isWriteFailed()) {
+            LOG.warn("stop waiting for running queries because the edit log can not be written");
+        }
         LOG.info("graceful shutdown finished");
     }
 }

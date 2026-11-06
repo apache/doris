@@ -132,20 +132,26 @@ import java.util.concurrent.atomic.AtomicLong;
 public class EditLog {
     public static final Logger LOG = LogManager.getLogger(EditLog.class);
 
+    // Set when this frontend exits because the edit log can not be written. The in-memory metadata may
+    // already be ahead of the journal by then, so the shutdown hook must not keep serving requests.
+    private static volatile boolean writeFailed = false;
+
     // Helper class to hold log edit requests.
     // Public so that callers can enqueue inside a lock and await outside it.
     public static class EditLogItem {
         static AtomicLong nextUid = new AtomicLong(0);
         final short op;
-        final Writable writable;
+        // Serialized by the thread that submits the edit, while it still holds the lock that guards the
+        // data object. The flusher writes these bytes and never reads an object that may still change.
+        final JournalBatch.Entity entity;
         final Object lock = new Object();
         volatile boolean finished = false;
         long logId = -1;
         long uid = -1;
 
-        EditLogItem(short op, Writable writable) {
+        EditLogItem(short op, JournalBatch.Entity entity) {
             this.op = op;
-            this.writable = writable;
+            this.entity = entity;
             uid = nextUid.getAndIncrement();
         }
 
@@ -159,13 +165,26 @@ public class EditLog {
                     try {
                         lock.wait();
                     } catch (InterruptedException e) {
-                        LOG.error("Fatal Error : write stream Exception");
-                        System.exit(-1);
+                        exitOnWriteFailure(e);
                     }
                 }
             }
             return logId;
         }
+    }
+
+    public static boolean isWriteFailed() {
+        return writeFailed;
+    }
+
+    // The in-memory metadata has already changed when an edit can not be written, and it can not be
+    // rolled back, so this frontend must stop. Every exit caused by a failed journal write goes through
+    // here, including the ones the journal decides on by itself (see BDBJEJournal), so that the shutdown
+    // hook does not wait for running queries.
+    public static void exitOnWriteFailure(Throwable t) {
+        writeFailed = true;
+        LOG.error("Fatal Error : write stream Exception", t);
+        System.exit(-1);
     }
 
     private final BlockingQueue<EditLogItem> logEditQueue = new LinkedBlockingQueue<>();
@@ -228,7 +247,7 @@ public class EditLog {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("try to flush editLog request: uid={}, op={}", req.uid, req.op);
                 }
-                journalBatch.addJournal(req.op, req.writable);
+                journalBatch.addEntity(req.entity);
                 if (journalBatch.shouldFlush()) {
                     long logId = journal.write(journalBatch);
                     logIdNumPairs.add(new long[]{logId, journalBatch.getJournalEntities().size()});
@@ -265,8 +284,7 @@ public class EditLog {
             if (journal instanceof BDBJEJournal) {
                 LOG.error("BDBJE stats : {}", ((BDBJEJournal) journal).getBDBStats());
             }
-            LOG.error("Fatal Error : write stream Exception", t);
-            System.exit(-1);
+            exitOnWriteFailure(t);
         }
 
         txId += batch.size();
@@ -1595,7 +1613,7 @@ public class EditLog {
      * This method blocks until the log is written and returns the logId.
      */
     public long logEditWithQueue(short op, Writable writable) {
-        EditLogItem req = new EditLogItem(op, writable);
+        EditLogItem req = new EditLogItem(op, serializeEdit(op, writable));
         if (LOG.isDebugEnabled()) {
             LOG.debug("logEditWithQueue: op = {}, uid = {}", op, req.uid);
         }
@@ -1617,8 +1635,7 @@ public class EditLog {
                 try {
                     req.lock.wait();
                 } catch (InterruptedException e) {
-                    LOG.error("Fatal Error : write stream Exception");
-                    System.exit(-1);
+                    exitOnWriteFailure(e);
                 }
             }
         }
@@ -1645,8 +1662,9 @@ public class EditLog {
             throw new Error("Fatal Error : no editLog stream");
         }
 
-        EditLogItem req = new EditLogItem(op, writable);
+        EditLogItem req;
         if (Config.enable_batch_editlog && op != OperationType.OP_TIMESTAMP) {
+            req = new EditLogItem(op, serializeEdit(op, writable));
             while (true) {
                 try {
                     logEditQueue.put(req);
@@ -1662,11 +1680,25 @@ public class EditLog {
             }
         } else {
             // Non-batch mode: write directly (synchronous)
+            req = new EditLogItem(op, null);
             long logId = logEditDirectly(op, writable);
             req.logId = logId;
             req.finished = true;
         }
         return req;
+    }
+
+    // Serialize an edit in the caller's thread before it is queued. The caller still holds the lock
+    // that guards the data object here; once the edit is in the queue the caller releases that lock
+    // and other threads may change the object while the edit waits for the flusher.
+    private static JournalBatch.Entity serializeEdit(short op, Writable writable) {
+        JournalBatch.Entity entity = null;
+        try {
+            entity = JournalBatch.serialize(op, writable);
+        } catch (Throwable t) {
+            exitOnWriteFailure(t);
+        }
+        return entity;
     }
 
     private synchronized long logEditDirectly(short op, Writable writable) {
@@ -1679,8 +1711,7 @@ public class EditLog {
             if (journal instanceof BDBJEJournal) {
                 LOG.error("BDBJE stats : {}", ((BDBJEJournal) journal).getBDBStats());
             }
-            LOG.error("Fatal Error : write stream Exception", t);
-            System.exit(-1);
+            exitOnWriteFailure(t);
         }
 
         // get a new transactionId

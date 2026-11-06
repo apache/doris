@@ -790,7 +790,9 @@ public class TransactionState implements Writable {
         return tableIdToTabletDeltaRows;
     }
 
-    public void setTableIdToTabletDeltaRows(Map<Long, Map<Long, Long>> tableIdToTabletDeltaRows) {
+    // PublishVersionDaemon calls this without any other lock. The monitor keeps it from changing the map
+    // while a commit or finish is serializing this state for the edit log under the same monitor.
+    public synchronized void setTableIdToTabletDeltaRows(Map<Long, Map<Long, Long>> tableIdToTabletDeltaRows) {
         this.tableIdToTabletDeltaRows.putAll(tableIdToTabletDeltaRows);
     }
 
@@ -807,7 +809,7 @@ public class TransactionState implements Writable {
     }
 
     // reduce memory
-    public void pruneAfterVisible() {
+    public synchronized void pruneAfterVisible() {
         publishVersionTasks.clear();
         tableIdToTabletDeltaRows.clear();
         involvedBackends.clear();
