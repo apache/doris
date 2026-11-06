@@ -1631,6 +1631,7 @@ DEFINE_mBool(enable_mow_compaction_correctness_check_core, "false");
 DEFINE_mBool(enable_mow_compaction_correctness_check_fail, "false");
 // rowid conversion correctness check when compaction for mow table
 DEFINE_mBool(enable_rowid_conversion_correctness_check, "false");
+DEFINE_mBool(enable_compressed_rowid_conversion, "false");
 // missing rows correctness check when compaction for mow table
 DEFINE_mBool(enable_missing_rows_correctness_check, "false");
 // When the number of missing versions is more than this value, do not directly

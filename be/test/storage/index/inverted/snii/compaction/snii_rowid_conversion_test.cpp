@@ -69,7 +69,8 @@ TEST(SniiRowIdConversionTest, CreatesValidatedTokenWithStableShapeAndMappings) {
     EXPECT_EQ(validated->source_segment_doc_counts(), source_rows);
     EXPECT_EQ(validated->destination_segment_doc_counts(), destination_rows);
     ASSERT_EQ(validated->source_mapping(1).size(), 2U);
-    EXPECT_EQ(validated->source_mapping(1)[0], (std::pair<uint32_t, uint32_t> {0, 1}));
+    EXPECT_EQ(validated->source_mapping(1).dense_values()[0],
+              (std::pair<uint32_t, uint32_t> {0, 1}));
     EXPECT_TRUE(validated->source_has_deletions(0));
     EXPECT_FALSE(validated->source_has_deletions(1));
 }

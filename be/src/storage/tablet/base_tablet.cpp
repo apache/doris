@@ -2094,7 +2094,7 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
     return Status::OK();
 }
 
-void BaseTablet::calc_compaction_output_rowset_delete_bitmap(
+Status BaseTablet::calc_compaction_output_rowset_delete_bitmap(
         const std::vector<RowsetSharedPtr>& input_rowsets, const RowsetSharedPtr& output_rowset,
         const RowIdConversion& rowid_conversion, uint64_t start_version, uint64_t end_version,
         std::set<RowLocation>* missed_rows,
@@ -2102,12 +2102,15 @@ void BaseTablet::calc_compaction_output_rowset_delete_bitmap(
         const DeleteBitmap& input_delete_bitmap, DeleteBitmap* output_rowset_delete_bitmap) {
     DORIS_CHECK_EQ(output_rowset->rowset_id(), rowid_conversion.get_dst_rowset_id());
     RowLocation src;
-    RowIdConversion::DestinationRowId converted_dst;
+    RowIdConversionSource::Pair converted_dst;
+    CompressedRowIdMap::DecodeWorkspace workspace;
+    CompressedRowIdMap::Cursor cursor;
     for (auto& rowset : input_rowsets) {
         src.rowset_id = rowset->rowset_id();
         for (auto seg : rowset->segments()) {
             auto seg_id = cast_set<uint32_t>(seg.id());
             src.segment_id = seg_id;
+            auto source = rowid_conversion.find_source(src.rowset_id, seg_id);
             DeleteBitmap subset_map(tablet_id());
             input_delete_bitmap.subset({rowset->rowset_id(), seg_id, start_version},
                                        {rowset->rowset_id(), seg_id, end_version}, &subset_map);
@@ -2117,7 +2120,8 @@ void BaseTablet::calc_compaction_output_rowset_delete_bitmap(
                 auto cur_version = std::get<2>(iter->first);
                 for (auto index = iter->second.begin(); index != iter->second.end(); ++index) {
                     src.row_id = *index;
-                    if (rowid_conversion.get(src, &converted_dst) != 0) {
+                    RETURN_IF_ERROR(source.get(src.row_id, cursor, workspace, &converted_dst));
+                    if (converted_dst.first == UINT32_MAX && converted_dst.second == UINT32_MAX) {
                         VLOG_CRITICAL << "Can't find rowid, may be deleted by the delete_handler, "
                                       << " src loaction: |" << src.rowset_id << "|"
                                       << src.segment_id << "|" << src.row_id
@@ -2127,8 +2131,8 @@ void BaseTablet::calc_compaction_output_rowset_delete_bitmap(
                         }
                         continue;
                     }
-                    RowLocation dst = output_rowset->segment(converted_dst.segment_pos)
-                                              .row_location(converted_dst.row_id);
+                    RowLocation dst = output_rowset->segment(converted_dst.first)
+                                              .row_location(converted_dst.second);
                     VLOG_DEBUG << "calc_compaction_output_rowset_delete_bitmap dst location: |"
                                << dst.rowset_id << "|" << dst.segment_id << "|" << dst.row_id
                                << " src location: |" << src.rowset_id << "|" << src.segment_id
@@ -2143,6 +2147,7 @@ void BaseTablet::calc_compaction_output_rowset_delete_bitmap(
             }
         }
     }
+    return Status::OK();
 }
 
 Status BaseTablet::check_rowid_conversion(
