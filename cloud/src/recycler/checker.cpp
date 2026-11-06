@@ -1053,12 +1053,6 @@ int InstanceChecker::get_bucket_lifecycle(int64_t* lifecycle_days) {
 }
 
 int InstanceChecker::do_inverted_check() {
-    if (accessor_map_.size() > 1) {
-        LOG(INFO) << "currently not support inverted check for multi accessor. instance_id="
-                  << instance_id_;
-        return 0;
-    }
-
     LOG(INFO) << "begin to inverted check objects instance_id=" << instance_id_;
     int check_ret = 0;
     long num_scanned = 0;
@@ -1076,15 +1070,23 @@ int InstanceChecker::do_inverted_check() {
 
     struct TabletRowsets {
         int64_t tablet_id {0};
-        std::unordered_set<std::string> rowset_ids;
+        std::unordered_map<std::string /* rowset_id */, std::string /* resource_id */> rowsets;
     };
     TabletRowsets tablet_rowsets_cache;
 
     RowsetIndexesFormatV1 rowset_index_cache_v1;
     RowsetIndexesFormatV2 rowset_index_cache_v2;
 
-    // Return 0 if check success, return 1 if file is garbage data, negative if error occurred
-    auto check_segment_file = [&](const std::string& obj_key) {
+    // A rowset only covers segments under the root of its own vault, a copy in another vault is a
+    // leak. A resource without accessor (an HDFS vault in a build without HDFS) is trusted.
+    auto stored_under = [&](const std::string& resource_id, const StorageRoot& root) {
+        auto it = accessor_map_.find(resource_id);
+        return it == accessor_map_.end() || it->second->root() == root;
+    };
+
+    // Return 0 if check success, return 1 if file is garbage data, negative if error occurred.
+    // `root` is the storage root the object was listed from.
+    auto check_segment_file = [&](const std::string& obj_key, const StorageRoot& root) {
         std::vector<std::string> str;
         butil::SplitString(obj_key, '/', &str);
         // data/{tablet_id}/{rowset_id}_{seg_num}.dat
@@ -1116,16 +1118,16 @@ int InstanceChecker::do_inverted_check() {
         }
 
         if (tablet_rowsets_cache.tablet_id == tablet_id) {
-            if (tablet_rowsets_cache.rowset_ids.contains(rowset_id)) {
+            auto it = tablet_rowsets_cache.rowsets.find(rowset_id);
+            if (it != tablet_rowsets_cache.rowsets.end() && stored_under(it->second, root)) {
                 return 0;
-            } else {
-                LOG(WARNING) << "rowset not exists, key=" << obj_key;
-                return -1;
             }
         }
-        // Get all rowset id of this tablet
-        tablet_rowsets_cache.tablet_id = tablet_id;
-        tablet_rowsets_cache.rowset_ids.clear();
+        // A cache miss is read again, a rowset may have committed after the cache was loaded. The
+        // cache claims the tablet only after a complete read, a failed read must not leave a
+        // partial rowset set that reports the next objects of the tablet as leaks.
+        tablet_rowsets_cache.tablet_id = 0;
+        tablet_rowsets_cache.rowsets.clear();
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
@@ -1137,6 +1139,7 @@ int InstanceChecker::do_inverted_check() {
         auto end = meta_rowset_key({instance_id_, tablet_id, INT64_MAX});
         while (it == nullptr /* may be not init */ || (it->more() && !stopped())) {
             TxnErrorCode err = txn->get(begin, end, &it);
+            TEST_SYNC_POINT_CALLBACK("InstanceChecker::do_inverted_check.get_rowsets_err", &err);
             if (err != TxnErrorCode::TXN_OK) {
                 LOG(WARNING) << "failed to get rowset kv, err=" << err;
                 return -1;
@@ -1152,7 +1155,7 @@ int InstanceChecker::do_inverted_check() {
                     LOG(WARNING) << "malformed rowset meta value, key=" << hex(k);
                     return -1;
                 }
-                tablet_rowsets_cache.rowset_ids.insert(rowset.rowset_id_v2());
+                tablet_rowsets_cache.rowsets.emplace(rowset.rowset_id_v2(), rowset.resource_id());
                 if (!it->has_next()) {
                     begin = k;
                     begin.push_back('\x00'); // Update to next smallest key for iteration
@@ -1160,10 +1163,21 @@ int InstanceChecker::do_inverted_check() {
                 }
             }
         }
+        if (stopped()) {
+            // The loop above stops early when the checker is stopped, the rowsets are incomplete
+            return -1;
+        }
+        tablet_rowsets_cache.tablet_id = tablet_id;
 
-        if (!tablet_rowsets_cache.rowset_ids.contains(rowset_id)) {
+        auto owner = tablet_rowsets_cache.rowsets.find(rowset_id);
+        if (owner == tablet_rowsets_cache.rowsets.end()) {
             // Garbage data leak
             LOG(WARNING) << "rowset should be recycled, key=" << obj_key;
+            return 1;
+        }
+        if (!stored_under(owner->second, root)) {
+            LOG(WARNING) << "segment is not in the storage vault of its rowset, key=" << obj_key
+                         << " resource_id=" << owner->second;
             return 1;
         }
 
@@ -1218,20 +1232,54 @@ int InstanceChecker::do_inverted_check() {
     // so we choose to skip here.
     TEST_SYNC_POINT_RETURN_WITH_VALUE("InstanceChecker::do_inverted_check", (int)0);
 
-    for (auto& [_, accessor] : accessor_map_) {
+    // List each storage location once, resources sharing one would count its leaks repeatedly.
+    // Compare `location()`, not the normalized `uri()` ("a/b" and "a//b" hold different objects).
+    std::unordered_set<std::string> checked_locations;
+    for (auto& [resource_id, accessor] : accessor_map_) {
+        if (!checked_locations.insert(accessor->location()).second) {
+            LOG(INFO) << "skip inverted check of a storage location already checked, instance_id="
+                      << instance_id_ << " resource_id=" << resource_id
+                      << " uri=" << accessor->uri();
+            continue;
+        }
+        const StorageRoot& root = accessor->root();
+        // Another vault root may be nested in the listed data, e.g. prefix "root/data" in "root"
+        // is listed here as data/data/...: skip it, it is checked when its own vault is listed
+        std::string listed_dir = root.prefix.empty() ? "data/" : root.prefix + "/data/";
+        std::vector<std::string> nested_dirs;
+        for (auto& [_, other] : accessor_map_) {
+            const StorageRoot& other_root = other->root();
+            std::string other_dir = other_root.prefix + "/data/";
+            if (other_root.container == root.container && other_root.prefix != root.prefix &&
+                other_dir.starts_with(listed_dir)) {
+                nested_dirs.push_back("data/" + other_dir.substr(listed_dir.size()));
+            }
+        }
         std::unique_ptr<ListIterator> list_iter;
+        // A vault that fails to list does not stop the check of the others
         int ret = accessor->list_directory("data", &list_iter);
         if (ret != 0) {
-            return -1;
+            LOG(WARNING) << "failed to list data directory. uri=" << accessor->uri();
+            check_ret = -1;
+            continue;
         }
 
         for (auto file = list_iter->next(); file.has_value(); file = list_iter->next()) {
+            if (stopped()) {
+                // Otherwise each remaining object would start a rowset read cut short by the stop
+                LOG(INFO) << "inverted check stopped, instance_id=" << instance_id_;
+                return -1;
+            }
             const auto& path = file->path;
             if (path == "data/packed_file" || path.starts_with("data/packed_file/")) {
                 continue; // packed_file has dedicated check logic
             }
+            if (std::ranges::any_of(nested_dirs,
+                                    [&](const auto& dir) { return path.starts_with(dir); })) {
+                continue; // checked when the vault of the nested root is listed
+            }
             ++num_scanned;
-            int ret = check_segment_file(path);
+            int ret = check_segment_file(path, root);
             if (ret != 0) {
                 LOG(WARNING) << "failed to check segment file, uri=" << accessor->uri()
                              << " path=" << path;
@@ -1255,7 +1303,7 @@ int InstanceChecker::do_inverted_check() {
 
         if (!list_iter->is_valid()) {
             LOG(WARNING) << "failed to list data directory. uri=" << accessor->uri();
-            return -1;
+            check_ret = -1;
         }
     }
     return num_file_leak > 0 ? 1 : check_ret;
