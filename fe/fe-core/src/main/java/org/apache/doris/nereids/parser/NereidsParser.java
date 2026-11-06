@@ -63,6 +63,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.function.Function;
 import javax.annotation.Nullable;
 
@@ -362,15 +363,36 @@ public class NereidsParser {
         return (LogicalPlan) realLogicalPlanBuilder.visit(tree);
     }
 
-    /** Parse SQL for masking without applying execution hints to the session. */
+    /** Parse SQL for masking without applying execution hints; output ranges use inclusive UTF-16 offsets. */
     public LogicalPlan parseForEncryption(String sql, Map<Pair<Integer, Integer>, String> indexInSqlToString) {
+        return parseForEncryption(sql, indexInSqlToString, false);
+    }
+
+    /** Parse SQL for masking with inclusive UTF-16 output ranges, optionally preserving property-list layout. */
+    public LogicalPlan parseForEncryption(String sql, Map<Pair<Integer, Integer>, String> indexInSqlToString,
+            boolean preserveFormatting) {
         CommonTokenStream tokenStream = parseLeanTokens(sql);
         ParserRuleContext tree = toAst(tokenStream, DorisParser::singleStatement);
         // SQL masking must not apply SET_VAR hints to the current session.
         // The original SQL, including its hints, is preserved by the property replacements.
+        TreeMap<Pair<Integer, Integer>, String> codePointRanges = new TreeMap<>(new Pair.PairComparator<>());
         LogicalPlanBuilder realLogicalPlanBuilder = new LogicalPlanBuilderForEncryption(
-                ImmutableMap.of(), indexInSqlToString);
-        return (LogicalPlan) realLogicalPlanBuilder.visit(tree);
+                ImmutableMap.of(), codePointRanges, preserveFormatting);
+        LogicalPlan plan = (LogicalPlan) realLogicalPlanBuilder.visit(tree);
+        // ANTLR indexes code points, while SQL rewriting uses Java UTF-16 offsets. Normalize both
+        // masking modes here so audit, FE logs and direct parser callers share the same contract.
+        // Walk sorted ranges once rather than rescanning the prefix for every replacement.
+        int codePointOffset = 0;
+        int charOffset = 0;
+        for (Map.Entry<Pair<Integer, Integer>, String> entry : codePointRanges.entrySet()) {
+            Pair<Integer, Integer> range = entry.getKey();
+            int start = sql.offsetByCodePoints(charOffset, range.first - codePointOffset);
+            int end = sql.offsetByCodePoints(start, range.second - range.first + 1);
+            indexInSqlToString.put(Pair.of(start, end - 1), entry.getValue());
+            codePointOffset = range.second + 1;
+            charOffset = end;
+        }
+        return plan;
     }
 
     /** parseForSyncMv */

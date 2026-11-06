@@ -21,11 +21,14 @@ import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.profile.Profile;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
+import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MysqlConnectProcessor;
@@ -34,10 +37,13 @@ import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedConstruction;
 import org.mockito.Mockito;
 
 import java.util.List;
+import java.util.TreeMap;
 
 public class EncryptSQLTest extends ParserTestBase {
 
@@ -509,5 +515,98 @@ public class EncryptSQLTest extends ParserTestBase {
         processor.executeQuery(sql);
         AuditEvent event = auditEvents.get(auditEvents.size() - 1);
         Assertions.assertEquals(expected, event.stmt);
+    }
+
+    @Test
+    public void testLogMaskingPreservesPropertyFormatting() {
+        String sql = "/* 😀 catalog */\r\nCREATE CATALOG log_format PROPERTIES (\r\n"
+                + "\t'type' = 'jdbc', -- keep this comment\r\n"
+                + "\t' JDBC.PASSWORD ' /* value */ = 'synthetic\\'password',\r\n"
+                + "\t\"jdbc.user\" = \"reader\",\r\n"
+                + "\t\"s3.access_key\" = \"synthetic-access-key\",\r\n"
+                + "\t\"s3.secret_key\" = \"synthetic-secret-key\"\r\n);";
+        String expected = sql.replace("'synthetic\\'password'", "'*XXX'")
+                .replace("synthetic-access-key", "*XXX").replace("synthetic-secret-key", "*XXX");
+        assertLogMasking(sql, expected);
+    }
+
+    @Test
+    public void testLogMaskingPreservesHiddenPropertyLayout() {
+        String sql = "CREATE CATALOG log_hidden PROPERTIES (\n"
+                + "  'type' = 'hms',\n"
+                + "  'AWS_ENDPOINT' /* keep */ = 'synthetic-endpoint',\n"
+                + "  'AWS_TOKEN' = 'synthetic-token',\n"
+                + "  'fluss.lake.paimon.fs.password' = 'synthetic-password'\n)";
+        String expected = sql.replace("synthetic-endpoint", "*XXX").replace("synthetic-token", "*XXX")
+                .replace("synthetic-password", "*XXX");
+        assertLogMasking(sql, expected);
+    }
+
+    @Test
+    public void testLogPasswordMaskingWithSupplementaryCharacters() {
+        String sql = "/* 😀 */\nCREATE USER 'log_user'@'%'\nIDENTIFIED BY 'synthetic-😀-password';";
+        assertLogMasking(sql, sql.replace("synthetic-😀-password", "*XXX"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"ASCII", "中文", "😀😀😀😀😀😀😀😀"})
+    public void testPasswordMaskingUsesUtf16OffsetsInBothModes(String prefix) {
+        for (String password : new String[] {"demo42", "synthetic-😀-password"}) {
+            String sql = "/* " + prefix + " */ CREATE USER 'unicode_log_user' IDENTIFIED BY '" + password + "'";
+            String expected = sql.replace("'" + password + "'", "'*XXX'");
+            NeedAuditEncryption plan = (NeedAuditEncryption) new NereidsParser().parseSingle(sql);
+            Assertions.assertEquals(expected, plan.geneEncryptionSQL(sql));
+            Assertions.assertEquals(expected, NeedAuditEncryption.maskSql(sql, false));
+            Assertions.assertEquals(expected, NeedAuditEncryption.maskSql(sql, true));
+        }
+    }
+
+    @Test
+    public void testAuditPropertyMaskingKeepsExistingFormattingWithUnicode() {
+        String sql = "/* 😀😀 */ CREATE CATALOG unicode_catalog PROPERTIES (\n"
+                + "  'type' = 'hms',\n"
+                + "  'AWS_ENDPOINT' = 'synthetic-endpoint',\n"
+                + "  's3.secret_key' = 'synthetic-😀-secret',\n"
+                + "  'comment' = 'keep-😀'\n)";
+        String expectedAudit = "/* 😀😀 */ CREATE CATALOG unicode_catalog PROPERTIES (\n"
+                + "  \"type\" = \"hms\", \"s3.secret_key\" = \"*XXX\", \"comment\" = \"keep-😀\"\n)";
+        NeedAuditEncryption plan = (NeedAuditEncryption) new NereidsParser().parseSingle(sql);
+        Assertions.assertEquals(expectedAudit, plan.geneEncryptionSQL(sql));
+        Assertions.assertEquals(expectedAudit, NeedAuditEncryption.maskSql(sql, false));
+        String expectedLog = sql.replace("'synthetic-endpoint'", "'*XXX'")
+                .replace("'synthetic-😀-secret'", "'*XXX'");
+        Assertions.assertEquals(expectedLog, NeedAuditEncryption.maskSql(sql, true));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testEncryptionParserReturnsUtf16Ranges(boolean preserveFormatting) {
+        String first = "'uri' = 's3://bucket/😀.csv', 'format' = 'csv', 's3.secret_key' = 'first-😀-secret'";
+        String second = "'uri' = 's3://bucket/other.csv', 'format' = 'csv', 's3.secret_key' = 'second-secret'";
+        String sql = "/* 😀😀 */ SELECT * FROM S3(" + first + ")\nUNION ALL /* 😀 */ SELECT * FROM S3("
+                + second + ") /* keep-😀 */";
+        TreeMap<Pair<Integer, Integer>, String> replacements = new TreeMap<>(new Pair.PairComparator<>());
+        new NereidsParser().parseForEncryption(sql, replacements, preserveFormatting);
+        Assertions.assertEquals(2, replacements.size());
+        Pair<Integer, Integer> firstRange = replacements.firstKey();
+        Pair<Integer, Integer> secondRange = replacements.lastKey();
+        Assertions.assertEquals(preserveFormatting ? "'first-😀-secret'" : first,
+                sql.substring(firstRange.first, firstRange.second + 1));
+        Assertions.assertEquals(preserveFormatting ? "'second-secret'" : second,
+                sql.substring(secondRange.first, secondRange.second + 1));
+        String expected;
+        if (preserveFormatting) {
+            expected = sql.replace("'first-😀-secret'", "'*XXX'").replace("'second-secret'", "'*XXX'");
+        } else {
+            expected = sql.replace(first,
+                    "\"uri\" = \"s3://bucket/😀.csv\", \"format\" = \"csv\", \"s3.secret_key\" = \"*XXX\"")
+                    .replace(second,
+                            "\"uri\" = \"s3://bucket/other.csv\", \"format\" = \"csv\", \"s3.secret_key\" = \"*XXX\"");
+        }
+        Assertions.assertEquals(expected, BaseViewInfo.rewriteSql(replacements, sql));
+    }
+
+    private void assertLogMasking(String sql, String expected) {
+        Assertions.assertEquals(expected, NeedAuditEncryption.maskSql(sql, true));
     }
 }
