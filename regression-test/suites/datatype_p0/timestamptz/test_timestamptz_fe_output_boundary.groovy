@@ -47,6 +47,27 @@ suite("test_timestamptz_fe_output_boundary") {
             }
         }
 
+        sql "set enable_fold_constant_by_be = false"
+        for (def entry : [["+08:00", "9999-12-31 23:59:59.999999+00:00"],
+                          ["-08:00", "0000-01-01 00:00:00+00:00"]]) {
+            sql "set time_zone = '${entry[0]}'"
+            def timestamp = "cast('${entry[1]}' as timestamptz(6))"
+            for (def value : [timestamp, "array(${timestamp}, null)",
+                              "map(1, ${timestamp})", "named_struct('ts', ${timestamp})"]) {
+                // Planning must not apply the local display range checks required by SELECT.
+                for (def level : ["plan", "all plan"]) {
+                    explain {
+                        sql "${level} select ${value}"
+                        contains "PhysicalOneRowRelation"
+                    }
+                }
+                explain {
+                    sql "distributed plan select ${value}"
+                    contains "UNION"
+                }
+            }
+        }
+
         sql "set time_zone = '-08:00'"
         sql "drop table if exists test_timestamptz_negative_default"
         test {
