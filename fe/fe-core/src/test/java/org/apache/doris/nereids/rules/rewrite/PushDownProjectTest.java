@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.PreferPushDownProject;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayConcat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFirst;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
@@ -351,6 +352,24 @@ public class PushDownProjectTest implements MemoPatternMatchSupported {
         Assertions.assertTrue(PushDownProject.hasFreeLambdaArgument(wrappedButMissingOuterP));
         Assertions.assertFalse(PushDownProject.hasFreeLambdaArgument(
                 new ArrayMap(new Lambda(ImmutableList.of("p"), wrappedButMissingOuterP, ImmutableList.of(outerRef)))));
+
+        // 8. Multi-argument Lambda: (x, y) -> element_at(x, 1) + element_at(y, 1)
+        ArrayItemReference secondArgRef = new ArrayItemReference(new ExprId(34), "y", otherArrSlot);
+        ArrayItemSlot secondArgSlot = (ArrayItemSlot) secondArgRef.toSlot();
+        Expression twoArgBody = new Add(
+                new ElementAt(innerSlot, Literal.of(1)),
+                new ElementAt(secondArgSlot, Literal.of(1)));
+        ArrayMap selfContainedTwoArgMap = new ArrayMap(new Lambda(
+                ImmutableList.of("x", "y"), twoArgBody, ImmutableList.of(innerRef, secondArgRef)));
+        Assertions.assertFalse(PushDownProject.hasFreeLambdaArgument(selfContainedTwoArgMap));
+
+        ArrayMap capturingTwoArgMap = new ArrayMap(new Lambda(
+                ImmutableList.of("x", "y"),
+                new Add(twoArgBody, freeElementAt),
+                ImmutableList.of(innerRef, secondArgRef)));
+        Assertions.assertTrue(PushDownProject.hasFreeLambdaArgument(capturingTwoArgMap));
+        Assertions.assertFalse(PushDownProject.hasFreeLambdaArgument(
+                new ArrayMap(new Lambda(ImmutableList.of("p"), capturingTwoArgMap, ImmutableList.of(outerRef)))));
     }
 
     @Test
@@ -457,9 +476,13 @@ public class PushDownProjectTest implements MemoPatternMatchSupported {
                 new ExprId(1), "left_arr", ArrayType.of(pairStructType), true, ImmutableList.of());
         SlotReference rightArrSlot = new SlotReference(
                 new ExprId(2), "right_arr", ArrayType.of(pairStructType), true, ImmutableList.of());
+        SlotReference rightNestedArrSlot = new SlotReference(
+                new ExprId(9), "right_nested_arr", ArrayType.of(ArrayType.of(pairStructType)),
+                true, ImmutableList.of());
 
         LogicalOneRowRelation leftRel = new LogicalOneRowRelation(new RelationId(1), ImmutableList.of(leftArrSlot));
-        LogicalOneRowRelation rightRel = new LogicalOneRowRelation(new RelationId(2), ImmutableList.of(rightArrSlot));
+        LogicalOneRowRelation rightRel = new LogicalOneRowRelation(
+                new RelationId(2), ImmutableList.of(rightArrSlot, rightNestedArrSlot));
 
         // Outer lambda iterates right_arr (from right child); inner lambda iterates left_arr (from left child)
         // and captures outer parameter 'p'. Neither the inner ArrayMap nor element_at(p, 1) may be pushed down.
@@ -490,11 +513,30 @@ public class PushDownProjectTest implements MemoPatternMatchSupported {
                 new Add(new ElementAt(outerRef2.toSlot(), Literal.of(1)), independentLeftElementAt),
                 ImmutableList.of(outerRef2)));
 
+        // A third expression with a deep nested chain F_i = array_map(x_i -> x_i, F_(i+1)) over outer 'r'
+        // combined via array_concat(F_1, left_arr): every F_i has empty getInputSlots() and must be rejected
+        // in a single linear pass without pushing any F_i into leftRel or rightRel.
+        ArrayItemReference chainOuterRef = new ArrayItemReference(new ExprId(10), "r", rightNestedArrSlot);
+        Expression nestedChain = chainOuterRef.toSlot();
+        for (int i = 0; i < 64; i++) {
+            ArrayItemReference stepRef = new ArrayItemReference(
+                    new ExprId(200 + i), "x" + i, nestedChain);
+            nestedChain = new ArrayMap(new Lambda(
+                    ImmutableList.of("x" + i),
+                    stepRef.toSlot(),
+                    ImmutableList.of(stepRef)));
+        }
+        ArrayMap outerChainArrayMap = new ArrayMap(new Lambda(
+                ImmutableList.of("r"),
+                new ArrayConcat(nestedChain, leftArrSlot),
+                ImmutableList.of(chainOuterRef)));
+
         LogicalPlan plan = new LogicalPlanBuilder(leftRel)
                 .joinEmptyOn(rightRel, JoinType.INNER_JOIN)
                 .projectExprs(ImmutableList.<NamedExpression>of(
                         new Alias(new ExprId(7), outerArrayMap, "captured"),
-                        new Alias(new ExprId(8), outerArrayMapWithIndependentInner, "independent_inner")))
+                        new Alias(new ExprId(8), outerArrayMapWithIndependentInner, "independent_inner"),
+                        new Alias(new ExprId(11), outerChainArrayMap, "deep_chain")))
                 .build();
 
         PlanChecker.from(connectContext, plan)
@@ -511,7 +553,8 @@ public class PushDownProjectTest implements MemoPatternMatchSupported {
                         ).when(topProj -> topProj.getProjects().get(0).child(0).equals(outerArrayMap)
                                 && topProj.getProjects().get(1).anyMatch(
                                         e -> e instanceof ElementAt
-                                                && ((ElementAt) e).child(0).equals(outerRef2.toSlot())))
+                                                && ((ElementAt) e).child(0).equals(outerRef2.toSlot()))
+                                && topProj.getProjects().get(2).child(0).equals(outerChainArrayMap))
                 );
     }
 
@@ -579,5 +622,20 @@ public class PushDownProjectTest implements MemoPatternMatchSupported {
                 ImmutableList.of(freeLambdaAliasOnUnion), union);
         Plan resUnionPlan = PushDownProject.pushThroughUnion(unionProject, new StatementContext());
         Assertions.assertSame(unionProject, resUnionPlan);
+
+        // 4. Union with both regular children and constantExprsList: pushable ElementAt is pushed into
+        //    both regular children and constant one-row branches while freeLambdaAliasOnUnion stays in place.
+        LogicalUnion unionWithConstants = new LogicalUnion(
+                Qualifier.ALL, unionOutput,
+                Lists.newArrayList(regulatorRel1Output),
+                Lists.newArrayList(regulatorRel2Output),
+                true, Lists.newArrayList(rel1));
+        LogicalProject<LogicalUnion> mixedUnionProject = new LogicalProject<>(
+                ImmutableList.of(freeLambdaAliasOnUnion, pushDownProjections.get(0)), unionWithConstants);
+        LogicalProject<LogicalUnion> resMixedUnion = (LogicalProject<LogicalUnion>) PushDownProject.pushThroughUnion(
+                mixedUnionProject, new StatementContext());
+        Assertions.assertEquals(freeLambdaAliasOnUnion, resMixedUnion.getProjects().get(0));
+        Assertions.assertFalse(resMixedUnion.getProjects().get(1).containsType(ElementAt.class));
+        Assertions.assertEquals(2, resMixedUnion.child().arity());
     }
 }
