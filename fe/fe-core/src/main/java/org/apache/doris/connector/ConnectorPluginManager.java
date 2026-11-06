@@ -22,6 +22,8 @@ import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorConfFile;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
+import org.apache.doris.connector.spi.ConnectorSecuritySurface;
+import org.apache.doris.connector.spi.ConnectorSecuritySurface.SensitiveKeyPrefix;
 import org.apache.doris.datasource.CatalogFactory;
 import org.apache.doris.extension.loader.ApiVersionGate;
 import org.apache.doris.extension.loader.ClassLoadingPolicy;
@@ -189,10 +191,12 @@ public class ConnectorPluginManager {
                         providerClass.getName(), e);
                 continue;
             }
+            ConnectorSecuritySurface securitySurface;
             try {
-                // Snapshot self-reported metadata before publishing the provider
-                // so one throwing implementation is rejected cleanly instead of
+                // Snapshot self-reported metadata (the security surface included) before publishing the
+                // provider so one throwing implementation is rejected cleanly instead of
                 // aborting startup or being active without an inventory row.
+                securitySurface = provider.securitySurface();
                 PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, provider);
             } catch (RuntimeException e) {
                 LOG.warn("Skip built-in connector provider {}: self-reported metadata failed",
@@ -201,7 +205,7 @@ public class ConnectorPluginManager {
             }
             // Deliberately outside that catch: registerDiscovered's fail-loud
             // IllegalStateException reports a build error, not a "skip this one" condition.
-            if (registerDiscovered(provider, true)) {
+            if (registerDiscovered(provider, securitySurface, true)) {
                 LOG.info("Registered built-in connector provider: {}", provider.getType());
             }
         }
@@ -213,19 +217,21 @@ public class ConnectorPluginManager {
      * {@link ConnectorProvider#supports} matches case-insensitively and catalog types are lower-cased before
      * routing). Refusing a reserved name here is what makes it impossible for a plugin to shadow a catalog type
      * the engine implements itself — routing order then cannot matter. The engine names it claims for
-     * {@code CREATE TABLE ... ENGINE=} go through the same two checks. An admitted provider's declared secret
-     * keys ({@code securitySurface().sensitiveKeys()}) join the engine's masking list.
+     * {@code CREATE TABLE ... ENGINE=} go through the same two checks. An admitted provider's declared secrets
+     * (the keys and key namespaces on its {@code securitySurface()}) join the engine's masking list.
      *
+     * @param securitySurface the provider's {@code securitySurface()}, which the caller reads before it
+     *                 publishes anything: it is plugin code that may throw
      * @param failFast {@code true} for the classpath batch: two providers claiming one type name there is a
      *                 build error and must fail loud. {@code false} for the plugin-directory batch: that is a
      *                 deployment accident, so the offender is skipped and logged, preserving
      *                 {@link #loadPlugins}'s partial-success contract (one bad plugin dir must not stop FE).
      * @return true if the provider was admitted
      */
-    boolean registerDiscovered(ConnectorProvider provider, boolean failFast) {
+    boolean registerDiscovered(ConnectorProvider provider, ConnectorSecuritySurface securitySurface,
+            boolean failFast) {
         String type = provider.getType();
         Set<String> engineNames = provider.acceptedCreateTableEngineNames();
-        List<String> sensitiveKeys = provider.securitySurface().sensitiveKeys();
         String problem = typeNameProblem(type);
         if (problem == null) {
             problem = createTableEngineNameProblem(engineNames);
@@ -245,9 +251,17 @@ public class ConnectorPluginManager {
         for (String engineName : engineNames) {
             claimedEngineNames.add(engineName.toLowerCase());
         }
-        DatasourcePrintableMap.registerSensitiveKeys(sensitiveKeys);
+        registerSecrets(securitySurface);
         providers.add(provider);
         return true;
+    }
+
+    /** Adds the secret keys and key namespaces a provider declares to the engine's masking list. */
+    private static void registerSecrets(ConnectorSecuritySurface securitySurface) {
+        DatasourcePrintableMap.registerSensitiveKeys(securitySurface.sensitiveKeys());
+        for (SensitiveKeyPrefix keyPrefix : securitySurface.sensitiveKeyPrefixes()) {
+            DatasourcePrintableMap.registerSensitiveKeyPrefix(keyPrefix);
+        }
     }
 
     private static String typeNameProblem(String type) {
@@ -318,9 +332,21 @@ public class ConnectorPluginManager {
                 runtimeManager.discard(handle.getPluginName());
                 continue;
             }
+            ConnectorProvider provider = handle.getFactory();
+            // Snapshot the security surface before publishing anything: it is plugin code, a connector may
+            // build it through its own ServiceLoader, and one bad plugin dir must not stop FE.
+            ConnectorSecuritySurface securitySurface;
+            try {
+                securitySurface = provider.securitySurface();
+            } catch (RuntimeException | LinkageError e) {
+                runtimeManager.discard(handle.getPluginName());
+                LOG.warn("Skip connector plugin '{}' from {}: securitySurface() failed",
+                        handle.getPluginName(), handle.getPluginDir(), e);
+                continue;
+            }
             // The inventory row is written only for a provider that was actually admitted, so
             // information_schema.extensions never lists a connector the routing table cannot reach.
-            if (registerDiscovered(handle.getFactory(), false)) {
+            if (registerDiscovered(provider, securitySurface, false)) {
                 PluginRegistry.getInstance().registerExternal(PLUGIN_FAMILY, handle);
                 loadConnectorConfig(handle);
                 LOG.info("Loaded connector plugin: name={}, pluginDir={}, jarCount={}",
@@ -552,7 +578,7 @@ public class ConnectorPluginManager {
      */
     public void registerProvider(ConnectorProvider provider) {
         providers.add(0, provider);
-        DatasourcePrintableMap.registerSensitiveKeys(provider.securitySurface().sensitiveKeys());
+        registerSecrets(provider.securitySurface());
     }
 
     private List<String> providerNames() {

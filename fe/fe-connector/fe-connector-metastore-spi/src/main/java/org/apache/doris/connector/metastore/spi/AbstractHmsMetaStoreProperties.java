@@ -63,7 +63,9 @@ public abstract class AbstractHmsMetaStoreProperties extends AbstractMetaStorePr
             description = "The client principal of the hive metastore.")
     private String clientPrincipal = "";
 
-    @ConnectorProperty(names = {"hive.metastore.client.keytab"}, required = false, sensitive = true,
+    // A keytab is named by its path, which is not a secret (the HDFS storage properties do not mark it either);
+    // marked sensitive, hadoop.kerberos.keytab would be masked for every catalog, resource and storage vault.
+    @ConnectorProperty(names = {"hive.metastore.client.keytab"}, required = false,
             description = "The client keytab of the hive metastore.")
     private String clientKeytab = "";
 
@@ -75,7 +77,7 @@ public abstract class AbstractHmsMetaStoreProperties extends AbstractMetaStorePr
             description = "The HDFS kerberos principal (kerberos fallback).")
     private String hdfsKerberosPrincipal = "";
 
-    @ConnectorProperty(names = {"hadoop.kerberos.keytab"}, required = false, sensitive = true,
+    @ConnectorProperty(names = {"hadoop.kerberos.keytab"}, required = false,
             description = "The HDFS kerberos keytab (kerberos fallback).")
     private String hdfsKerberosKeytab = "";
 
