@@ -15,35 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import groovy.json.JsonSlurper
-
-def getProfileList = { masterHTTPAddr ->
-    def dst = 'http://' + masterHTTPAddr
-    def conn = new URL(dst + "/rest/v1/query_profile").openConnection()
-    conn.setRequestMethod("GET")
-    def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
-            (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
-    conn.setRequestProperty("Authorization", "Basic ${encoding}")
-    return conn.getInputStream().getText()
-}
-
-
-def getProfile = { masterHTTPAddr, id ->
-    def dst = 'http://' + masterHTTPAddr
-    def conn = new URL(dst + "/api/profile/text/?query_id=$id").openConnection()
-    conn.setRequestMethod("GET")
-    def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
-            (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
-    conn.setRequestProperty("Authorization", "Basic ${encoding}")
-    return conn.getInputStream().getText()
-}
+import org.apache.doris.regression.action.ProfileAction
 
 suite('test_writer_profile', "nonConcurrent") {
     //cloud-mode
     if (isCloudMode()) {
         return
     }
-    
+
     sql "set enable_profile=true;"
     sql "set profile_level=1;"
 
@@ -59,13 +38,23 @@ suite('test_writer_profile', "nonConcurrent") {
             a INT,
             b INT
         )
-        DUPLICATE KEY(a) 
+        DUPLICATE KEY(a)
         PROPERTIES("replication_num" = "1");
     """
 
-    try {
-        def sql_str = """
-            INSERT INTO t
+    // The INSERTs below run on the master FE, which keeps their profiles. ProfileAction reads them
+    // with HttpCliAction, which uses HTTPS when the regression config sets enableTLS.
+    def master = sql_return_maparray("SHOW FRONTENDS").find { it.IsMaster.toString() == "true" }
+    assertNotNull(master, "Cannot locate the master FE")
+    def profileAction = new ProfileAction(context,
+            new InetSocketAddress(master.Host.toString(), master.HttpPort.toString().toInteger()))
+
+    // BE reports the writer profiles after the INSERT returns, so wait until the profile of this
+    // INSERT, found by its marker, is COMPLETE before checking which writer details it has.
+    def insertAndGetProfile = {
+        def marker = "test_writer_profile_${UUID.randomUUID().toString().replace('-', '')}"
+        sql """
+            /* ${marker} */ INSERT INTO t
             SELECT * FROM S3(
                 "uri" = "$s3Uri",
                 "s3.access_key" = "$ak",
@@ -76,116 +65,24 @@ suite('test_writer_profile', "nonConcurrent") {
                 "read_json_by_line" = "true"
             );
         """
-        sql """${sql_str}"""
-
-        Thread.sleep(500)
-
-        def allFrontends = sql """show frontends;"""
-        logger.info("allFrontends: " + allFrontends)
-        /*
-        - allFrontends: [[fe_2457d42b_68ad_43c4_a888_b3558a365be2, 127.0.0.1, 6917, 5937, 6937, 5927, -1, FOLLOWER, true, 1523277282, true, true, 13436, 2025-01-22 16:39:05, 2025-01-22 21:43:49, true, , doris-0.0.0--03faad7da5, Yes]]
-        */
-        def frontendCounts = allFrontends.size()
-        def masterIP = ""
-        def masterHTTPPort = ""
-
-        for (def i = 0; i < frontendCounts; i++) {
-            def currentFrontend = allFrontends[i]
-            def isMaster = currentFrontend[8]
-            if (isMaster == "true") {
-                masterIP = allFrontends[i][1]
-                masterHTTPPort = allFrontends[i][3]
-                break
-            }
-        }
-        def masterAddress = masterIP + ":" + masterHTTPPort
-        logger.info("masterIP:masterHTTPPort is:${masterAddress}")
-
-        def profileListString = getProfileList(masterAddress)
-        def jsonSlurper = new JsonSlurper()
-        def profileList = jsonSlurper.parseText(profileListString)
-        
-        def queryId = ""
-        if (profileList.data && profileList.data.rows && profileList.data.rows.size() > 0) {
-            for (def row : profileList.data.rows) {
-                def taskType = row."Task Type" ?: row['Task Type']
-                def sqlStatement = row."Sql Statement" ?: row['Sql Statement']
-                if (taskType == "LOAD" && sqlStatement && sqlStatement.toString().toUpperCase().contains("INSERT")) {
-                    queryId = row."Profile ID" ?: row['Profile ID']
-                    break
-                }
-            }
-        }
-
-        assertTrue(queryId != null && queryId != "", "No INSERT query found in profile list")
-        def profileString = getProfile(masterAddress, queryId)
+        def profileString = profileAction.getProfileBySql(marker, [], 60000L, 500L)
         logger.info(profileString)
+        return profileString
+    }
+
+    try {
+        def profileString = insertAndGetProfile()
         assertFalse(profileString.contains("DeltaWriterV2"), "should not contain DeltaWriterV2")
         assertFalse(profileString.contains("MemTableWriter"), "should not contain MemTableWriter")
     } finally {
-        sql "set enable_profile=false;"   
+        sql "set enable_profile=false;"
     }
 
-
-    sql "set enable_profile=true;"   
+    sql "set enable_profile=true;"
     sql "set profile_level=2;"
 
     try {
-        def sql_str = """
-            INSERT INTO t
-            SELECT * FROM S3(
-                "uri" = "$s3Uri",
-                "s3.access_key" = "$ak",
-                "s3.secret_key" = "$sk",
-                "s3.endpoint" = "${s3Endpoint}",
-                "s3.region" = "${s3Region}",
-                "format" = "json",
-                "read_json_by_line" = "true"
-            );
-        """
-        sql """${sql_str}"""
-
-        Thread.sleep(500)
-
-        def allFrontends = sql """show frontends;"""
-        logger.info("allFrontends: " + allFrontends)
-        /*
-        - allFrontends: [[fe_2457d42b_68ad_43c4_a888_b3558a365be2, 127.0.0.1, 6917, 5937, 6937, 5927, -1, FOLLOWER, true, 1523277282, true, true, 13436, 2025-01-22 16:39:05, 2025-01-22 21:43:49, true, , doris-0.0.0--03faad7da5, Yes]]
-        */
-        def frontendCounts = allFrontends.size()
-        def masterIP = ""
-        def masterHTTPPort = ""
-
-        for (def i = 0; i < frontendCounts; i++) {
-            def currentFrontend = allFrontends[i]
-            def isMaster = currentFrontend[8]
-            if (isMaster == "true") {
-                masterIP = allFrontends[i][1]
-                masterHTTPPort = allFrontends[i][3]
-                break
-            }
-        }
-        def masterAddress = masterIP + ":" + masterHTTPPort
-        logger.info("masterIP:masterHTTPPort is:${masterAddress}")
-
-        def profileListString = getProfileList(masterAddress)
-        def jsonSlurper = new JsonSlurper()
-        def profileList = jsonSlurper.parseText(profileListString)
-        
-        def queryId = ""
-        if (profileList.data && profileList.data.rows && profileList.data.rows.size() > 0) {
-            for (def row : profileList.data.rows) {
-                def taskType = row."Task Type" ?: row['Task Type']
-                def sqlStatement = row."Sql Statement" ?: row['Sql Statement']
-                if (taskType == "LOAD" && sqlStatement && sqlStatement.toString().toUpperCase().contains("INSERT")) {
-                    queryId = row."Profile ID" ?: row['Profile ID']
-                    break
-                }
-            }
-        }
-        assertTrue(queryId != null && queryId != "", "No INSERT query found in profile list")
-        def profileString = getProfile(masterAddress, queryId)
-        logger.info(profileString)
+        def profileString = insertAndGetProfile()
         assertTrue(profileString.contains("DeltaWriterV2"), "should contain DeltaWriterV2")
         assertTrue(profileString.contains("MemTableWriter"), "should contain MemTableWriter")
     } finally {
