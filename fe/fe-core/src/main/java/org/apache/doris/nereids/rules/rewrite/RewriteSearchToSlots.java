@@ -21,11 +21,14 @@ import org.apache.doris.analysis.SearchDslParser;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Search;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -52,15 +55,17 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalFilter()
                 .when(filter -> ExpressionUtils.containsTypes(filter.getExpressions(), Search.class))
-                .then(this::rewriteSearchExpressions)
+                .thenApply(ctx -> rewriteSearchExpressions(ctx.root,
+                        new ExpressionRewriteContext(ctx.root, ctx.cascadesContext)))
                 .toRule(RuleType.REWRITE_SEARCH_TO_SLOTS);
     }
 
-    private Plan rewriteSearchExpressions(LogicalFilter<? extends Plan> filter) {
+    private Plan rewriteSearchExpressions(LogicalFilter<? extends Plan> filter,
+            ExpressionRewriteContext context) {
         List<Expression> newExpressions = new ArrayList<>();
 
         for (Expression expr : filter.getExpressions()) {
-            Expression rewritten = rewriteExpression(expr, filter.child());
+            Expression rewritten = rewriteExpression(expr, filter.child(), context);
             newExpressions.add(rewritten);
         }
 
@@ -71,14 +76,26 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
         return filter;
     }
 
-    private Expression rewriteExpression(Expression expr, Plan input) {
+    private Expression rewriteExpression(Expression expr, Plan input, ExpressionRewriteContext context) {
         if (expr instanceof Search) {
-            return rewriteSearch((Search) expr, input);
+            // Binding runs before normalization, so fold DSL/options before parsing them.
+            List<Expression> arguments = expr.children().stream()
+                    .map(child -> FoldConstantRule.evaluate(child, context)).collect(Collectors.toList());
+            for (Expression argument : arguments) {
+                if (!(argument instanceof StringLikeLiteral)) {
+                    throw new AnalysisException("search() arguments must be constant strings");
+                }
+            }
+            Search search = ((Search) expr).withChildren(arguments);
+            if (search.getDslString().trim().isEmpty()) {
+                throw new AnalysisException("Invalid search expression: empty search DSL");
+            }
+            return rewriteSearch(search, input);
         }
 
         // Recursively process children
         List<Expression> newChildren = expr.children().stream()
-                .map(child -> rewriteExpression(child, input))
+                .map(child -> rewriteExpression(child, input, context))
                 .collect(Collectors.toList());
 
         if (!newChildren.equals(expr.children())) {

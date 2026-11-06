@@ -651,26 +651,34 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
             String fieldPath = binding.getFieldName();
             thriftBinding.setFieldName(fieldPath);
 
-            if (fieldPath.contains(".")) {
-                int firstDotPos = fieldPath.indexOf('.');
-                String parentField = fieldPath.substring(0, firstDotPos);
-                String subcolumnPath = fieldPath.substring(firstDotPos + 1);
-
-                thriftBinding.setIsVariantSubcolumn(true);
-                thriftBinding.setParentFieldName(parentField);
-                thriftBinding.setSubcolumnPath(subcolumnPath);
-            } else {
-                thriftBinding.setIsVariantSubcolumn(false);
-            }
-
+            // The logical name may be a projected alias. Read the physical Variant path
+            // from the final scan descriptor, e.g. label -> v.city after project pushdown.
+            thriftBinding.setIsVariantSubcolumn(false);
             thriftBinding.setSlotIndex(i);
-
             if (i < expr.getChildren().size() && expr.getChildren().get(i) instanceof SlotRef) {
                 SlotRef slotRef = (SlotRef) expr.getChildren().get(i);
-                int actualSlotId = slotRef.getSlotId().asInt();
-                thriftBinding.setSlotIndex(actualSlotId);
-            } else {
-                thriftBinding.setSlotIndex(i);
+                thriftBinding.setSlotIndex(slotRef.getSlotId().asInt());
+                SlotDescriptor descriptor = slotRef.getDesc();
+                List<String> subPath = descriptor.getSubColPath();
+                if (subPath != null && !subPath.isEmpty()) {
+                    thriftBinding.setIsVariantSubcolumn(true);
+                    thriftBinding.setParentFieldName(descriptor.getColumn().getName());
+                    thriftBinding.setSubcolumnPath(String.join(".", subPath));
+                }
+            } else if (i < expr.getChildren().size() && expr.getChild(i) instanceof FunctionCallExpr) {
+                // Unmaterialized Variant paths can retain element_at(root, path).
+                FunctionCallExpr child = (FunctionCallExpr) expr.getChild(i);
+                if (child.getFnName().getFunction().equalsIgnoreCase("element_at")) {
+                    SlotRef root = (SlotRef) child.getChild(0);
+                    List<String> subPath = new ArrayList<>();
+                    if (root.getDesc().getSubColPath() != null) {
+                        subPath.addAll(root.getDesc().getSubColPath());
+                    }
+                    subPath.add(((StringLiteral) child.getChild(1)).getStringValue());
+                    thriftBinding.setIsVariantSubcolumn(true);
+                    thriftBinding.setParentFieldName(root.getDesc().getColumn().getName());
+                    thriftBinding.setSubcolumnPath(String.join(".", subPath));
+                }
             }
 
             List<org.apache.doris.catalog.Index> fieldIndexes = expr.getFieldIndexes();

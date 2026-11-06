@@ -63,6 +63,37 @@ public class SearchCteRewriteTest extends TestWithFeService {
                 + "PROPERTIES ('replication_num' = '1');");
     }
 
+    @Test
+    public void testSearchWithConstantEquality() {
+        assertSearchRewritten(PlanChecker.from(connectContext)
+                .analyze("SELECT id FROM t_search WHERE title = 'hello' AND search('title:hello')")
+                .rewrite().getPlan());
+    }
+
+    @Test
+    public void testSearchWithComputedArguments() {
+        assertSearchRewritten(PlanChecker.from(connectContext)
+                .analyze("SELECT id FROM t_search WHERE search(concat('title:', 'hello'))")
+                .rewrite().getPlan());
+        assertSearchRewritten(PlanChecker.from(connectContext)
+                .analyze("SELECT id FROM t_search WHERE search('hello', "
+                        + "concat('{\"default_field\":', '\"title\"}'))")
+                .rewrite().getPlan());
+    }
+
+    @Test
+    public void testSearchNotInferredAcrossSetOperation() throws Exception {
+        createTable("CREATE TABLE t_search_plain (id INT, body VARCHAR(255)) "
+                + "DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
+                + "PROPERTIES ('replication_num' = '1')");
+        for (String operator : new String[] {"INTERSECT", "EXCEPT"}) {
+            assertSearchRewritten(PlanChecker.from(connectContext)
+                    .analyze("SELECT title FROM t_search WHERE search('title:hello') "
+                            + operator + " SELECT body FROM t_search_plain")
+                    .rewrite().getPlan());
+        }
+    }
+
     private static List<Expression> allExpressions(Plan plan) {
         List<Expression> result = new ArrayList<>(plan.getExpressions());
         for (Plan child : plan.children()) {

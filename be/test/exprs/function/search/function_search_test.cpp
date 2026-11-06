@@ -584,9 +584,10 @@ static TSearchClause make_leaf_clause(const std::string& clause_type, const std:
 static Status insert_search_dsl_cache(
         segment_v2::InvertedIndexQueryCache* cache,
         const std::shared_ptr<segment_v2::IndexFileReader>& index_file_reader,
-        const TSearchParam& search_param, roaring::Roaring bitmap,
-        const std::string& cache_namespace = "__search_dsl_2vl__") {
-    std::string signature = FunctionSearch::dsl_cache_signature(search_param, nullptr);
+        const TSearchParam& search_param,
+        const std::unordered_map<std::string, IndexFieldNameAndTypePair>& fields,
+        roaring::Roaring bitmap, const std::string& cache_namespace = "__search_dsl_2vl__") {
+    std::string signature = FunctionSearch::dsl_cache_signature(search_param, nullptr, fields);
     if (signature.empty()) {
         return Status::InternalError("the search param cannot be serialized");
     }
@@ -3073,6 +3074,40 @@ TEST_F(FunctionSearchTest, TestUnscoredCompileHidesTheSimilarityFromSniiLeaves) 
     expect_bitmap_eq(collect_docs(scorer), {1, 2});
 }
 
+TEST_F(FunctionSearchTest, TestSearchDslCacheSeparatesStorageBindings) {
+    ScopedInvertedIndexQueryCache cache_guard;
+    auto file_reader = std::make_shared<RejectingCluceneIndexFileReader>();
+    TSearchParam param;
+    param.original_dsl = "label:hello";
+    param.root = make_leaf_clause("TERM", "hello");
+    param.root.field_name = "label";
+    auto type = std::make_shared<DataTypeString>();
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> city {{"label", {"1.city", type}},
+                                                                     {"other", {"2", type}}};
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> country {
+            {"label", {"1.country", type}}, {"other", {"2", type}}};
+    ASSERT_TRUE(
+            insert_search_dsl_cache(cache_guard.get(), file_reader, param, city, make_bitmap({0}))
+                    .ok());
+    auto lookup = [&](const auto& fields) {
+        segment_v2::InvertedIndexQueryCacheHandle handle;
+        return cache_guard.get()->lookup(
+                {file_reader->get_index_path_prefix(), "__search_dsl_2vl__",
+                 segment_v2::InvertedIndexQueryType::SEARCH_DSL_QUERY,
+                 FunctionSearch::dsl_cache_signature(param, nullptr, fields)},
+                &handle);
+    };
+    EXPECT_TRUE(lookup(city));
+    EXPECT_FALSE(lookup(country));
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> reordered {
+            {"other", {"2", type}}, {"label", {"1.city", type}}};
+    EXPECT_TRUE(lookup(reordered));
+    // Swapping the physical bindings must not reuse a bitmap for the same set of fields.
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> swapped {
+            {"label", {"2", type}}, {"other", {"1.city", type}}};
+    EXPECT_FALSE(lookup(swapped));
+}
+
 // The DSL cache answers a SEARCH whose fields SNII serves, as it does for CLucene fields.
 TEST_F(FunctionSearchTest, TestSearchDslCacheServesSniiNativeExecution) {
     ScopedInvertedIndexQueryCache cache_guard;
@@ -3100,7 +3135,7 @@ TEST_F(FunctionSearchTest, TestSearchDslCacheServesSniiNativeExecution) {
     search_param.root = make_leaf_clause("WILDCARD", "*lpha");
     search_param.field_bindings = {field_binding};
     ASSERT_TRUE(insert_search_dsl_cache(cache_guard.get(), index_file_reader, search_param,
-                                        make_bitmap({3}))
+                                        data_type_with_names, make_bitmap({3}))
                         .ok());
 
     InvertedIndexResultBitmap result;
@@ -3138,7 +3173,7 @@ TEST_F(FunctionSearchTest, TestSearchDslCacheIsDisabledWhenScoring) {
     search_param.root = make_leaf_clause("TERM", "alpha");
     search_param.field_bindings = {field_binding};
     ASSERT_TRUE(insert_search_dsl_cache(cache_guard.get(), index_file_reader, search_param,
-                                        make_bitmap({3}))
+                                        data_type_with_names, make_bitmap({3}))
                         .ok());
 
     auto scoring_context = std::make_shared<IndexQueryContext>();
@@ -3195,7 +3230,7 @@ TEST_F(FunctionSearchTest, TestSearchDslCacheRemainsEnabledForUnreferencedSniiFi
     search_param.original_dsl = "age:42";
     search_param.root = age_clause;
     ASSERT_TRUE(insert_search_dsl_cache(cache_guard.get(), number_file_reader, search_param,
-                                        make_bitmap({1}))
+                                        data_type_with_names, make_bitmap({1}))
                         .ok());
 
     InvertedIndexResultBitmap result;
@@ -4278,8 +4313,8 @@ TEST_F(FunctionSearchTest, SearchCacheVersionsAndOwnsTheCompleteMatchSet) {
     param.root.field_name = "age";
     // Seed the old namespace with a deliberately wrong result. It cannot be
     // reused under the document Boolean contract, with or without its NULL key.
-    ASSERT_TRUE(insert_search_dsl_cache(cache_guard.get(), file_reader, param, make_bitmap({1}),
-                                        "__search_dsl__")
+    ASSERT_TRUE(insert_search_dsl_cache(cache_guard.get(), file_reader, param, types,
+                                        make_bitmap({1}), "__search_dsl__")
                         .ok());
     OlapReaderStatistics stats;
     auto context = std::make_shared<IndexQueryContext>();

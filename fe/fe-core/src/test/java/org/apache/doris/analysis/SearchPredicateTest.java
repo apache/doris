@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.IndexType;
@@ -70,6 +71,41 @@ public class SearchPredicateTest {
             System.out.println("Warning: Could not set SlotRef properties: " + e.getMessage());
         }
         return slotRef;
+    }
+
+    private SlotRef createVariantSlot(String root, String... path) {
+        SlotRef slot = createTestSlotRef(root);
+        slot.getDesc().setColumn(new Column(root, Type.VARIANT));
+        slot.getDesc().setSubColLables(Arrays.asList(path));
+        return slot;
+    }
+
+    @Test
+    public void testAliasUsesFinalVariantPath() {
+        String dsl = "label:hello";
+        SearchDslParser.QsPlan plan = SearchDslParser.parseDsl(dsl);
+        for (String path : Arrays.asList("city", "country")) {
+            SearchPredicate predicate = new SearchPredicate(dsl, plan,
+                    Arrays.asList(createVariantSlot("data", path)), false);
+            TSearchFieldBinding binding = ExprToThriftVisitor.buildSearchThriftParam(predicate).field_bindings.get(0);
+            Assertions.assertEquals("label", binding.field_name);
+            Assertions.assertTrue(binding.is_variant_subcolumn);
+            Assertions.assertEquals("data", binding.parent_field_name);
+            Assertions.assertEquals(path, binding.subcolumn_path);
+        }
+    }
+
+    @Test
+    public void testAliasUsesUnmaterializedVariantPath() {
+        Expr path = new FunctionCallExpr("element_at",
+                Arrays.asList(createVariantSlot("data"), new StringLiteral("city")), true);
+        SearchPredicate predicate = new SearchPredicate("label:hello",
+                SearchDslParser.parseDsl("label:hello"), Arrays.asList(path), false);
+        TSearchFieldBinding binding = ExprToThriftVisitor.buildSearchThriftParam(predicate).field_bindings.get(0);
+        Assertions.assertEquals("label", binding.field_name);
+        Assertions.assertTrue(binding.is_variant_subcolumn);
+        Assertions.assertEquals("data", binding.parent_field_name);
+        Assertions.assertEquals("city", binding.subcolumn_path);
     }
 
     @Test
@@ -157,7 +193,8 @@ public class SearchPredicateTest {
     public void testNestedRelativeFieldsAreNormalizedBeforeThrift() {
         String dsl = "NESTED(data.items, msg:hello AND meta.channel:action)";
         SearchDslParser.QsPlan plan = SearchDslParser.parseDsl(dsl, "{\"mode\":\"standard\"}");
-        List<Expr> children = Arrays.asList(createTestSlotRef("data"), createTestSlotRef("data"));
+        List<Expr> children = Arrays.asList(createVariantSlot("data", "items", "msg"),
+                createVariantSlot("data", "items", "meta", "channel"));
 
         SearchPredicate predicate = new SearchPredicate(dsl, plan, children, true);
 
@@ -297,7 +334,7 @@ public class SearchPredicateTest {
                 new SearchDslParser.QsFieldBinding("data.string_8", 0));
         SearchDslParser.QsPlan plan = new SearchDslParser.QsPlan(root, bindings);
 
-        SlotRef dataSlot = createTestSlotRef("data");
+        SlotRef dataSlot = createVariantSlot("data", "string_8");
         List<Expr> children = Arrays.asList(dataSlot);
 
         // Create an Index with analyzer properties (simulates field_pattern matched index)

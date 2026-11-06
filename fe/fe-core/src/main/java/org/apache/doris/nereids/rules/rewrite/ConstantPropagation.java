@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
@@ -553,7 +554,8 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
 
         // "https://doris.apache.org/docs/sql-manual/basic-element/operators/conditional-operators
         // /full-text-search-operators", the match function require left is a slot, not a literal.
-        if (expression instanceof Match) {
+        // SEARCH also needs its scan dependencies, even when an equality fixes their values.
+        if (expression instanceof Match || expression instanceof SearchExpression) {
             return false;
         }
 
