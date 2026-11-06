@@ -26,9 +26,11 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.WorkloadGroupPattern;
 import org.apache.doris.authentication.AuthenticationIntegrationMeta;
 import org.apache.doris.authentication.AuthenticationIntegrationMgr;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.catalog.MysqlDBTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud;
@@ -2315,6 +2317,19 @@ public class Auth implements Writable {
         boolean canSeeAll = currentUser != null
                 && Env.getCurrentEnv().getAccessManager().checkGlobalPriv(currentUser, PrivPredicate.GRANT);
         List<List<String>> userInfos = Lists.newArrayList();
+        // A row is as wide as mysql.user, and the password-policy columns are the table's last ones in
+        // the order PasswordPolicy.MYSQL_USER_COLUMNS lists them (the BE's SchemaUserScanner carries the
+        // same list and copies a row by position). A column added in one place and not the others
+        // fails here, on the frontend, rather than as a misaligned or refused scan on a backend.
+        List<String> mysqlUserColumns = MysqlDBTable.TABLE_MAP.get("user").getFullSchema().stream()
+                .map(Column::getName).collect(Collectors.toList());
+        int policyOffset = mysqlUserColumns.size() - PasswordPolicy.MYSQL_USER_COLUMNS.size();
+        Preconditions.checkState(policyOffset > 0
+                && mysqlUserColumns.subList(policyOffset, mysqlUserColumns.size())
+                        .equals(PasswordPolicy.MYSQL_USER_COLUMNS),
+                "mysql.user does not end with the password-policy columns %s: %s",
+                PasswordPolicy.MYSQL_USER_COLUMNS, mysqlUserColumns);
+        int historyPasswordsColumn = mysqlUserColumns.indexOf(PasswordPolicy.HISTORY_PASSWORDS);
         readLock();
         try {
             Map<String, List<User>> nameToUsers = userManager.getNameToUsers();
@@ -2332,7 +2347,7 @@ public class Auth implements Writable {
                         if (!canSeeAll && (currentUser == null || !userIdent.equals(currentUser))) {
                             continue;
                         }
-                        List<String> userInfo = Lists.newArrayList(Collections.nCopies(33, ""));
+                        List<String> userInfo = Lists.newArrayList(Collections.nCopies(mysqlUserColumns.size(), ""));
                         userInfo.set(0, userIdent.getHost());
                         userInfo.set(1, userIdent.getQualifiedUser());
                         for (int i = 2; i <= 13; i++) {
@@ -2399,15 +2414,15 @@ public class Auth implements Writable {
 
                         // Set password policy info
                         userInfo.set(21, String.valueOf(getMaxConn(userIdent.getQualifiedUser())));
-                        // By row name, in the column order of MysqlDBTable: the former "copy if exactly
-                        // 8 rows" guard left every policy column empty once the administrative lock
-                        // added a ninth row (#67792).
+                        // By row name: the former "copy if exactly 8 rows" guard left every policy
+                        // column empty once the administrative lock added a ninth row (#67792).
                         Map<String, String> policy = Maps.newHashMap();
                         for (List<String> row : getPasswdPolicyInfo(userIdent)) {
                             policy.put(row.get(0), row.get(1));
                         }
                         for (int i = 0; i < PasswordPolicy.MYSQL_USER_COLUMNS.size(); i++) {
-                            userInfo.set(24 + i, policy.getOrDefault(PasswordPolicy.MYSQL_USER_COLUMNS.get(i), ""));
+                            userInfo.set(policyOffset + i,
+                                    policy.getOrDefault(PasswordPolicy.MYSQL_USER_COLUMNS.get(i), ""));
                         }
                         // Never expose password-derived material through mysql.user. The
                         // authentication_string hash and the password_policy.history_passwords
@@ -2416,7 +2431,7 @@ public class Auth implements Writable {
                         userInfo.set(22, Strings.nullToEmpty(user.getAuthIntegration()));
                         userInfo.set(23, user.isAuthenticationBound()
                                 ? Strings.nullToEmpty(user.getAuthIdentity()) : PASSWORD_MASK);
-                        userInfo.set(27, PASSWORD_MASK);
+                        userInfo.set(historyPasswordsColumn, PASSWORD_MASK);
                         userInfos.add(userInfo);
                     }
                 }

@@ -21,6 +21,7 @@ import org.apache.doris.alter.AlterUserOpType;
 import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MysqlDBTable;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.Command;
@@ -35,6 +36,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * MySQL-compatible administrative account lock: {@code CREATE USER ... ACCOUNT_LOCK},
@@ -85,9 +87,20 @@ public class AccountLockTest extends TestWithFeService {
         return Boolean.parseBoolean(info.get(8).get(1));
     }
 
+    private static final List<String> MYSQL_USER_COLUMNS = MysqlDBTable.TABLE_MAP.get("user").getFullSchema()
+            .stream().map(c -> c.getName()).collect(Collectors.toList());
+
     private List<String> mysqlUserRow(String name) {
         return auth().getAllUserInfo(UserIdentity.ROOT).stream()
-                .filter(row -> name.equals(row.get(1))).findFirst().orElseThrow(AssertionError::new);
+                .filter(row -> name.equals(row.get(MYSQL_USER_COLUMNS.indexOf("User"))))
+                .findFirst().orElseThrow(AssertionError::new);
+    }
+
+    /** The value of the mysql.user column {@code column} in the row of {@code name}, resolved by name. */
+    private String mysqlUserColumn(String name, String column) {
+        int index = MYSQL_USER_COLUMNS.indexOf(column);
+        Assertions.assertTrue(index >= 0, "mysql.user has no column " + column);
+        return mysqlUserRow(name).get(index);
     }
 
     // mysql.user is filled from the policy rows by name. The former "copy if exactly 8 rows" guard
@@ -95,19 +108,30 @@ public class AccountLockTest extends TestWithFeService {
     // ninth row (#67792); the lock itself is now a column of its own.
     @Test
     public void testMysqlUserCarriesThePolicyColumnsAndTheLock() throws Exception {
-        run("CREATE USER 'mu1'@'%' IDENTIFIED BY 'p1' FAILED_LOGIN_ATTEMPTS 3 PASSWORD_LOCK_TIME 1 DAY");
-        List<String> row = mysqlUserRow("mu1");
-        Assertions.assertEquals(33, row.size());
-        Assertions.assertEquals("3", row.get(28), row.toString());      // password_policy.num_failed_login
-        Assertions.assertEquals("86400", row.get(29), row.toString());  // password_policy.password_lock_seconds
-        Assertions.assertEquals("0", row.get(30), row.toString());      // password_policy.failed_login_counter
-        Assertions.assertEquals("false", row.get(32), row.toString());  // password_policy.account_locked
-        Assertions.assertEquals("***", row.get(27));                     // history_passwords stays masked
+        run("CREATE USER 'mu1'@'%' IDENTIFIED BY 'p1' PASSWORD_HISTORY 5 PASSWORD_EXPIRE INTERVAL 30 DAY"
+                + " FAILED_LOGIN_ATTEMPTS 3 PASSWORD_LOCK_TIME 1 DAY");
+        // The policy reports its rows under exactly the names mysql.user's trailing columns carry.
+        List<String> policyRowNames = auth().getPasswdPolicyManager().getPolicyInfo(ident("mu1")).stream()
+                .map(r -> r.get(0)).collect(Collectors.toList());
+        Assertions.assertEquals(PasswordPolicy.MYSQL_USER_COLUMNS, policyRowNames);
+        Assertions.assertEquals(MYSQL_USER_COLUMNS.subList(MYSQL_USER_COLUMNS.size() - policyRowNames.size(),
+                MYSQL_USER_COLUMNS.size()), policyRowNames);
+        Assertions.assertEquals(MYSQL_USER_COLUMNS.size(), mysqlUserRow("mu1").size());
+
+        Assertions.assertEquals("2592000", mysqlUserColumn("mu1", "password_policy.expiration_seconds"));
+        Assertions.assertFalse(mysqlUserColumn("mu1", "password_policy.password_creation_time").isEmpty());
+        Assertions.assertEquals("5", mysqlUserColumn("mu1", "password_policy.history_num"));
+        Assertions.assertEquals("***", mysqlUserColumn("mu1", "password_policy.history_passwords"));
+        Assertions.assertEquals("3", mysqlUserColumn("mu1", "password_policy.num_failed_login"));
+        Assertions.assertEquals("86400", mysqlUserColumn("mu1", "password_policy.password_lock_seconds"));
+        Assertions.assertEquals("0", mysqlUserColumn("mu1", "password_policy.failed_login_counter"));
+        Assertions.assertEquals("", mysqlUserColumn("mu1", "password_policy.lock_time"));
+        Assertions.assertEquals("false", mysqlUserColumn("mu1", "password_policy.account_locked"));
 
         run("ALTER USER 'mu1'@'%' ACCOUNT_LOCK");
-        Assertions.assertEquals("true", mysqlUserRow("mu1").get(32));
+        Assertions.assertEquals("true", mysqlUserColumn("mu1", "password_policy.account_locked"));
         run("ALTER USER 'mu1'@'%' ACCOUNT_UNLOCK");
-        Assertions.assertEquals("false", mysqlUserRow("mu1").get(32));
+        Assertions.assertEquals("false", mysqlUserColumn("mu1", "password_policy.account_locked"));
     }
 
     @Test
