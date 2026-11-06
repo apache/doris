@@ -30,6 +30,7 @@ import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.load.routineload.RoutineLoadJob.JobState;
+import org.apache.doris.resource.computegroup.ComputeGroupBindingUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -135,9 +136,23 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
         }
 
         try {
-            if (routineLoadManager.getJob(routineLoadTaskInfo.getJobId()).isFinal()) {
+            RoutineLoadJob job = routineLoadManager.getJob(routineLoadTaskInfo.getJobId());
+            if (job.isFinal()) {
                 return;
             }
+
+            // The compute group the job declared can be dropped and the owner's USAGE on it revoked
+            // while the job keeps running, so it is re-checked before every task.
+            //
+            // This has to happen here rather than while the task is being built. Backend allocation
+            // below resolves the backends through that same compute group, so a missing group would
+            // otherwise pause the job with a generic "no available BE found" before this check was
+            // ever reached, which is exactly the misleading message it exists to replace. Running it
+            // first also keeps a failing check from leaving a transaction behind, because beginTxn
+            // has not happened yet.
+            ComputeGroupBindingUtil.checkComputeGroupBeforeTask(job.getUserIdentity(),
+                    job.getDeclaredComputeGroup());
+
             // check if topic has more data to consume
             if (!routineLoadTaskInfo.hasMoreDataToConsume()) {
                 needScheduleTasksQueue.addLast(routineLoadTaskInfo);

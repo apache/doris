@@ -35,6 +35,13 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_varbinary.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/data_type/primitive_type.h"
 #include "core/data_type_serde/data_type_array_serde.h"
 #include "core/data_type_serde/data_type_datev2_serde.h"
@@ -512,6 +519,144 @@ TEST(DataTypeSerDeArrowValidationTest, RejectsMapOffsetsBeyondKeysLength) {
                                                                cctz::utc_time_zone()));
             },
             "map offsets beyond keys length should be rejected");
+}
+
+// These arrays are well formed: the failure is their pairing with the destination type,
+// not a malformed buffer. Empty/all-NULL input must also reject the incompatible schema.
+TEST(DataTypeSerDeArrowValidationTest, RejectsIncompatibleArrayTypes) {
+    const DataTypes types = {
+            std::make_shared<DataTypeUInt8>(),
+            std::make_shared<DataTypeDecimalV2>(27, 9),
+            std::make_shared<DataTypeDecimal32>(9, 2),
+            std::make_shared<DataTypeDecimal64>(18, 2),
+            std::make_shared<DataTypeDecimal128>(38, 2),
+            std::make_shared<DataTypeDecimal256>(76, 2),
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeUInt8>())),
+            std::make_shared<DataTypeMap>(make_nullable(std::make_shared<DataTypeString>()),
+                                          make_nullable(std::make_shared<DataTypeUInt8>())),
+            std::make_shared<DataTypeStruct>(
+                    DataTypes {make_nullable(std::make_shared<DataTypeUInt8>())}, Strings {"b"})};
+    arrow::Int32Builder builder;
+    ASSERT_TRUE(builder.Append(1).ok());
+    std::shared_ptr<arrow::Array> non_null;
+    ASSERT_TRUE(builder.Finish(&non_null).ok());
+    for (const bool validation : {false, true}) {
+        ScopedArrowInputValidation scoped_validation(validation);
+        for (const auto& type : types) {
+            for (const bool nullable : {false, true}) {
+                const auto target = nullable ? make_nullable(type) : type;
+                for (const auto length : {0, 1}) {
+                    const auto nulls = arrow::MakeArrayOfNull(arrow::int32(), length);
+                    ASSERT_TRUE(nulls.ok());
+                    for (const auto& input : {non_null, *nulls}) {
+                        SCOPED_TRACE(target->get_name() + ": " + input->ToString());
+                        auto column = target->create_column();
+                        const auto status = target->get_serde()->read_column_from_arrow(
+                                *column, input.get(), 0, input->length(), cctz::utc_time_zone());
+                        EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT) << status;
+                    }
+                }
+            }
+        }
+    }
+}
+
+TEST(DataTypeSerDeArrowValidationTest, RejectsStringAndWrongWidthDecimalArrays) {
+    const DataTypes types = {
+            std::make_shared<DataTypeDecimalV2>(27, 9), std::make_shared<DataTypeDecimal32>(9, 2),
+            std::make_shared<DataTypeDecimal64>(18, 2), std::make_shared<DataTypeDecimal128>(38, 2),
+            std::make_shared<DataTypeDecimal256>(76, 2)};
+    arrow::StringBuilder builder;
+    ASSERT_TRUE(builder.Append("1.50").ok());
+    std::shared_ptr<arrow::Array> strings;
+    ASSERT_TRUE(builder.Finish(&strings).ok());
+    for (const bool validation : {false, true}) {
+        ScopedArrowInputValidation scoped_validation(validation);
+        for (const auto& type : types) {
+            const auto wrong_width = type->get_primitive_type() == TYPE_DECIMAL256
+                                             ? arrow::decimal128(10, 2)
+                                             : arrow::decimal256(76, 2);
+            auto decimal = arrow::MakeArrayOfNull(wrong_width, 1);
+            ASSERT_TRUE(decimal.ok());
+            for (const bool nullable : {false, true}) {
+                const auto target = nullable ? make_nullable(type) : type;
+                for (const auto& input : {strings, *decimal}) {
+                    auto column = target->create_column();
+                    const auto status = target->get_serde()->read_column_from_arrow(
+                            *column, input.get(), 0, input->length(), cctz::utc_time_zone());
+                    EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT) << status;
+                }
+            }
+        }
+    }
+}
+
+TEST(DataTypeSerDeArrowValidationTest, RejectsStructFieldCountMismatch) {
+    const auto boolean = make_nullable(std::make_shared<DataTypeUInt8>());
+    const auto type = std::make_shared<DataTypeStruct>(DataTypes {boolean}, Strings {"b"});
+    for (const bool validation : {false, true}) {
+        ScopedArrowInputValidation scoped_validation(validation);
+        for (const auto& arrow_type :
+             {arrow::struct_({}), arrow::struct_({arrow::field("b", arrow::boolean()),
+                                                  arrow::field("extra", arrow::boolean())})}) {
+            auto input = arrow::MakeArrayOfNull(arrow_type, 1);
+            ASSERT_TRUE(input.ok());
+            auto column = type->create_column();
+            const auto status = type->get_serde()->read_column_from_arrow(*column, input->get(), 0,
+                                                                          1, cctz::utc_time_zone());
+            EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT) << status;
+        }
+    }
+}
+
+TEST(DataTypeSerDeArrowValidationTest, RejectsIncompatibleNestedArrayTypes) {
+    const auto boolean = make_nullable(std::make_shared<DataTypeUInt8>());
+    const DataTypes targets = {
+            std::make_shared<DataTypeArray>(boolean),
+            std::make_shared<DataTypeMap>(make_nullable(std::make_shared<DataTypeString>()),
+                                          boolean),
+            std::make_shared<DataTypeStruct>(DataTypes {boolean}, Strings {"b"})};
+    const std::vector<std::shared_ptr<arrow::DataType>> inputs = {
+            arrow::list(arrow::int32()), arrow::map(arrow::utf8(), arrow::int32()),
+            arrow::struct_({arrow::field("b", arrow::int32())})};
+    for (const bool validation : {false, true}) {
+        ScopedArrowInputValidation scoped_validation(validation);
+        for (size_t i = 0; i < targets.size(); ++i) {
+            auto input = arrow::MakeArrayOfNull(inputs[i], 1);
+            ASSERT_TRUE(input.ok());
+            auto column = targets[i]->create_column();
+            const auto status = targets[i]->get_serde()->read_column_from_arrow(
+                    *column, input->get(), 0, 1, cctz::utc_time_zone());
+            EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT) << status;
+        }
+    }
+}
+
+TEST(DataTypeSerDeArrowValidationTest, AcceptsMatchingArrayTypesWithValidationOnAndOff) {
+    const DataTypes targets = {std::make_shared<DataTypeUInt8>(),
+                               std::make_shared<DataTypeDecimalV2>(27, 9),
+                               std::make_shared<DataTypeDecimal32>(9, 2),
+                               std::make_shared<DataTypeDecimal64>(18, 2),
+                               std::make_shared<DataTypeDecimal128>(38, 2),
+                               std::make_shared<DataTypeDecimal256>(76, 2)};
+    const std::vector<std::shared_ptr<arrow::DataType>> inputs = {
+            arrow::boolean(),         arrow::decimal128(27, 9), arrow::decimal128(9, 2),
+            arrow::decimal128(18, 2), arrow::decimal128(38, 2), arrow::decimal256(76, 2)};
+    for (const bool validation : {false, true}) {
+        ScopedArrowInputValidation scoped_validation(validation);
+        for (size_t i = 0; i < targets.size(); ++i) {
+            const auto target = make_nullable(targets[i]);
+            for (const auto length : {0, 2}) {
+                auto input = arrow::MakeArrayOfNull(inputs[i], length);
+                ASSERT_TRUE(input.ok());
+                auto column = target->create_column();
+                const auto status = target->get_serde()->read_column_from_arrow(
+                        *column, input->get(), 0, length, cctz::utc_time_zone());
+                EXPECT_TRUE(status.ok()) << status;
+                EXPECT_EQ(column->size(), length);
+            }
+        }
+    }
 }
 
 } // namespace doris

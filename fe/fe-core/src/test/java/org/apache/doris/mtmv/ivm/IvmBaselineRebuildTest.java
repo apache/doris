@@ -1546,6 +1546,9 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
     private AlterMTMV taskResult(MTMV mtmv, TaskStatus status, long schemaChangeVersion) {
         MTMVTask task = new MTMVTask();
         task.setStatus(status);
+        // A task that has ended has run, and has the times to say so.
+        task.setStartTimeMs(1000L);
+        task.setFinishTimeMs(2000L);
         Deencapsulation.setField(task, "mtmvSchemaChangeVersion", schemaChangeVersion);
         AlterMTMV result = new AlterMTMV(
                 new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName()), MTMVAlterOpType.ADD_TASK);

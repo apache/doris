@@ -838,6 +838,8 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
         fi
     done
     unset _conn_mod
+    # Build the dependency bundle before the native connector provider is implemented.
+    modules+=("fe-connector/fe-connector-mongodb")
     # Authorization plugin modules (loaded at runtime from plugins/authorization/). Keep this list
     # identical to the deploy loop's (search AUTHZ_PLUGIN_DIR), for the same reason as the connectors:
     # the deploy step unzips whatever archive is left in the module's target/, so a module built here
@@ -1189,6 +1191,24 @@ function build_fe_modules() {
     return 1
 }
 
+function stamp_fe_build_version() {
+    local version_java="${DORIS_HOME}/fe/fe-common/target/generated-sources/build/org/apache/doris/common/Version.java"
+    local version_classes="${DORIS_HOME}/fe/fe-common/target/build-version"
+    local common_jar
+
+    # A Maven cache hit can restore fe-common with another commit's Version.class.
+    # Stamp only the deployed jar so volatile build metadata does not invalidate the FE cache.
+    # Cached outputs can restore Version.java too, so regenerate after restoration.
+    rm -f "${version_java}"
+    bash "${DORIS_HOME}/gensrc/script/gen_build_version.sh"
+    mkdir -p "${version_classes}"
+    # env.sh also accepts Java 17 from PATH with JAVA_HOME unset; use the same selection here.
+    "${JAVA_HOME:+${JAVA_HOME}/bin/}javac" --release 17 -encoding UTF-8 -d "${version_classes}" "${version_java}"
+    for common_jar in "$1"/fe-common-*.jar; do
+        "${JAVA_HOME:+${JAVA_HOME}/bin/}jar" uf "${common_jar}" -C "${version_classes}" org/apache/doris/common/Version.class
+    done
+}
+
 # FE UI must be built before building FE
 if [[ "${BUILD_FE}" -eq 1 ]]; then
     if [[ "${BUILD_UI}" -eq 1 ]]; then
@@ -1202,6 +1222,11 @@ if [[ "${FE_MODULES}" != '' ]]; then
     cd "${DORIS_HOME}/fe"
     if [[ "${CLEAN}" -eq 1 ]]; then
         clean_fe
+    fi
+    if [[ "${BUILD_FE}" -eq 1 ]]; then
+        # Consumers must compile against nonconstant fields before their bytecode is cached.
+        rm -f "${DORIS_HOME}/fe/fe-common/target/generated-sources/build/org/apache/doris/common/Version.java"
+        bash "${DORIS_HOME}/gensrc/script/gen_build_version.sh"
     fi
     build_fe_modules
     cd "${DORIS_HOME}"
@@ -1255,6 +1280,8 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
         done
         shopt -u nullglob
     done
+
+    stamp_fe_build_version "${DORIS_OUTPUT}/fe/lib"
 
     #cp -r -p "${DORIS_HOME}/docs/build/help-resource.zip" "${DORIS_OUTPUT}/fe/lib"/
 
@@ -1323,6 +1350,10 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     # Deploy connector provider plugins as independent plugin directories.
     # Each sub-directory is one connector backend loaded at runtime by ConnectorPluginManager.
     CONN_PLUGIN_DIR="${DORIS_OUTPUT}/fe/plugins/connector"
+    # Keep this dependency-only archive out of auto-discovery, which requires a provider class.
+    mkdir -p "${CONN_PLUGIN_DIR}"
+    cp -p "${DORIS_HOME}/fe/fe-connector/fe-connector-mongodb/target/doris-fe-connector-mongodb.zip" \
+        "${CONN_PLUGIN_DIR}/mongodb.zip"
     for conn_module in es jdbc maxcompute trino hms hive paimon hudi iceberg adbc fluss; do
         conn_plugin_target="${CONN_PLUGIN_DIR}/${conn_module}"
         conn_module_dir="${DORIS_HOME}/fe/fe-connector/fe-connector-${conn_module}"

@@ -110,7 +110,7 @@ TabletMetaSharedPtr TabletMeta::create(
     // Decide storage format for this tablet. DEFAULT / not-set fall back to V2 on BE side.
     TStorageFormat::type storage_format =
             request.__isset.storage_format ? request.storage_format : TStorageFormat::V2;
-    return std::make_shared<TabletMeta>(
+    auto meta = std::make_shared<TabletMeta>(
             request.table_id, request.partition_id, request.tablet_id, request.replica_id,
             request.tablet_schema.schema_hash, shard_id, request.tablet_schema, next_unique_id,
             col_ordinal_to_unique_id, tablet_uid,
@@ -131,6 +131,26 @@ TabletMetaSharedPtr TabletMeta::create(
                     ? request.vertical_compaction_num_columns_per_group
                     : 5,
             request.__isset.tablet_role ? request.tablet_role : TTabletRole::TABLET_ROLE_DATA);
+    if (request.__isset.row_ttl_config) {
+        meta->_row_ttl_config.set_duration_us(request.row_ttl_config.duration_us);
+        meta->_row_ttl_config.set_config_version(request.row_ttl_config.config_version);
+    }
+    return meta;
+}
+
+Status TabletMeta::update_row_ttl_config(const RowTtlConfigPB& config) {
+    if (!_schema->has_ttl_col() ||
+        _schema->column(_schema->ttl_col_idx()).type() == FieldType::OLAP_FIELD_TYPE_BIGINT ||
+        config.duration_us() < 0 || config.config_version() < _row_ttl_config.config_version()) {
+        return Status::InvalidArgument("Invalid or outdated row TTL configuration, tablet={}",
+                                       tablet_id());
+    }
+    if (config.config_version() == _row_ttl_config.config_version() &&
+        config.duration_us() != _row_ttl_config.duration_us()) {
+        return Status::InvalidArgument("Conflicting row TTL configuration, tablet={}", tablet_id());
+    }
+    _row_ttl_config = config;
+    return Status::OK();
 }
 
 TabletMeta::~TabletMeta() {
@@ -270,6 +290,7 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _enable_unique_key_merge_on_write(b._enable_unique_key_merge_on_write),
           _delete_bitmap(b._delete_bitmap),
           _binlog_config(b._binlog_config),
+          _row_ttl_config(b._row_ttl_config),
           _tablet_role(b._tablet_role),
           _changelog_tablet_id(b._changelog_tablet_id),
           _compaction_policy(b._compaction_policy),
@@ -446,6 +467,9 @@ void TabletMeta::init_schema_from_thrift(const TTabletSchema& tablet_schema,
     case TCompressionType::LZ4F:
         tablet_schema_pb->set_compression_type(segment_v2::LZ4F);
         break;
+    case TCompressionType::LZ4HC:
+        tablet_schema_pb->set_compression_type(segment_v2::LZ4HC);
+        break;
     case TCompressionType::ZLIB:
         tablet_schema_pb->set_compression_type(segment_v2::ZLIB);
         break;
@@ -590,6 +614,10 @@ void TabletMeta::init_schema_from_thrift(const TTabletSchema& tablet_schema,
     if (tablet_schema.__isset.row_lsn_col_idx) {
         tablet_schema_pb->set_row_lsn_col_idx(tablet_schema.row_lsn_col_idx);
     }
+    tablet_schema_pb->set_ttl_col_idx(tablet_schema.ttl_col_idx);
+    tablet_schema_pb->set_row_ttl_duration_us(tablet_schema.row_ttl_duration_us);
+    tablet_schema_pb->set_row_ttl_time_zone_offset_seconds(
+            tablet_schema.row_ttl_time_zone_offset_seconds);
     if (tablet_schema.__isset.store_row_column) {
         tablet_schema_pb->set_store_row_column(tablet_schema.store_row_column);
     }
@@ -920,6 +948,11 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     if (tablet_meta_pb.has_binlog_config()) {
         _binlog_config = tablet_meta_pb.binlog_config();
     }
+    _row_ttl_config = tablet_meta_pb.row_ttl_config();
+    if (!tablet_meta_pb.has_row_ttl_config()) {
+        // Pre-ALTER metadata stored the policy in the immutable tablet schema.
+        _row_ttl_config.set_duration_us(_schema->row_ttl_duration_us());
+    }
     _tablet_role = tablet_meta_pb.tablet_role();
     _changelog_tablet_id = tablet_meta_pb.changelog_tablet_id();
     // The policy of a changelog tablet is chosen by its role, which is persisted as a number,
@@ -1033,6 +1066,9 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb, bool cloud_get_rowset_
         }
     }
     _binlog_config.to_pb(tablet_meta_pb->mutable_binlog_config());
+    if (_row_ttl_config.duration_us() >= 0) {
+        *tablet_meta_pb->mutable_row_ttl_config() = _row_ttl_config;
+    }
     tablet_meta_pb->set_tablet_role(_tablet_role);
     if (_changelog_tablet_id > 0) {
         tablet_meta_pb->set_changelog_tablet_id(_changelog_tablet_id);

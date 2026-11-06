@@ -23,6 +23,7 @@
 #include <fmt/format.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/Types_types.h>
+#include <gen_cpp/segment_v2.pb.h>
 #include <glog/logging.h>
 
 #include <fstream>
@@ -57,6 +58,19 @@
 #include "util/uid_util.h"
 
 namespace doris {
+
+segment_v2::CompressionTypePB RuntimeState::fragement_transmission_compression_type() const {
+    if (_query_options.__isset.fragment_transmission_compression_codec) {
+        if (_query_options.fragment_transmission_compression_codec == "lz4") {
+            return segment_v2::CompressionTypePB::LZ4;
+        } else if (_query_options.fragment_transmission_compression_codec == "snappy") {
+            return segment_v2::CompressionTypePB::SNAPPY;
+        } else {
+            return segment_v2::CompressionTypePB::NO_COMPRESSION;
+        }
+    }
+    return segment_v2::CompressionTypePB::NO_COMPRESSION;
+}
 
 ExternalFileReportReservation::~ExternalFileReportReservation() {
     if (_state != nullptr) {
@@ -599,6 +613,11 @@ std::string RuntimeState::get_error_log_file_path() {
     auto presigned_url =
             s3_error_fs->generate_presigned_url(remote_error_log_file_path, EXPIRATION_SECONDS,
                                                 config::use_public_endpoint_for_error_log);
+    if (presigned_url.empty()) {
+        LOG(WARNING) << "Fail to generate presigned URL for S3 error log; retain local path "
+                     << local_error_log_file_path;
+        return local_error_log_file_path;
+    }
     std::lock_guard<std::mutex> load_lock(_load_error_log_lock);
     _error_log_file_path = std::move(presigned_url);
     return _error_log_file_path;

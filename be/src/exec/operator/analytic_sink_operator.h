@@ -18,10 +18,11 @@
 
 #pragma once
 
-#include <stdint.h>
-
 #include <algorithm>
+#include <cstdint>
 
+#include "core/custom_allocator.h"
+#include "exec/operator/analytic_spill.h"
 #include "exec/operator/operator.h"
 #include "exec/pipeline/dependency.h"
 
@@ -62,16 +63,19 @@ public:
 // those function cacluate need partition info, so can't be used in streaming mode
 static const std::set<std::string> PARTITION_FUNCTION_SET {"ntile", "cume_dist", "percent_rank"};
 
-class AnalyticSinkLocalState : public PipelineXSinkLocalState<AnalyticSharedState> {
+class AnalyticSinkLocalState : public PipelineXSpillSinkLocalState<AnalyticSharedState> {
     ENABLE_FACTORY_CREATOR(AnalyticSinkLocalState);
 
 public:
+    using Base = PipelineXSpillSinkLocalState<AnalyticSharedState>;
+
     AnalyticSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : PipelineXSinkLocalState<AnalyticSharedState>(parent, state) {}
+            : Base(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
+    bool is_blockable() const override;
 
 private:
     enum class RowsWindowType { NONE, UNBOUNDED_START, SLIDING };
@@ -106,6 +110,38 @@ private:
     void _reset_agg_status();
     void _destroy_agg_status();
     void _remove_unused_rows();
+
+    void _init_spill_mode(const AnalyticSinkOperatorX& parent);
+    Status _sink_spill(RuntimeState* state, Block* input_block, bool eos);
+    Status _process_spill_block(RuntimeState* state, Block* input_block);
+    Status _finish_spill_sink_call(RuntimeState* state, bool eos);
+    Status _materialize_spill_columns(Block* input_block,
+                                      std::vector<std::vector<ColumnPtr>>* agg_columns,
+                                      std::vector<ColumnPtr>* partition_columns,
+                                      std::vector<ColumnPtr>* order_columns);
+    Status _append_spill_rows(RuntimeState* state, Block* input_block, size_t start, size_t length);
+    Status _accumulate_spill_range(RuntimeState* state,
+                                   const std::vector<std::vector<ColumnPtr>>& agg_columns,
+                                   const std::vector<ColumnPtr>& order_columns, size_t start,
+                                   size_t length, int64_t batch_row);
+    void _update_spill_aggregate_states(size_t start, size_t length,
+                                        const std::vector<std::vector<ColumnPtr>>& agg_columns);
+    Status _record_peer_groups(RuntimeState* state, const std::vector<ColumnPtr>& order_columns,
+                               size_t start, size_t length, int64_t batch_row);
+    Status _finish_spill_partition(RuntimeState* state);
+    Status _seal_spill_batch(RuntimeState* state);
+    Status _spill_batch_store(RuntimeState* state);
+    void _ensure_spill_batch_store();
+    static void _save_last_keys(const std::vector<ColumnPtr>& columns, size_t row,
+                                std::vector<ColumnPtr>& last_keys);
+    bool _keys_equal(const std::vector<ColumnPtr>& lhs, size_t lhs_row,
+                     const std::vector<ColumnPtr>& rhs, size_t rhs_row) const;
+    Status _find_spill_boundary(RuntimeState* state, const std::vector<ColumnPtr>& columns,
+                                size_t start, size_t end, const PartitionStatistics& statistics,
+                                size_t* boundary) const;
+    Status _find_spill_partition_starts(RuntimeState* state, const std::vector<ColumnPtr>& columns,
+                                        size_t rows, std::vector<size_t>* partition_starts);
+    void _update_spill_memory_usage();
 
     void _get_partition_by_end();
     void _find_next_partition_ends();
@@ -175,8 +211,34 @@ private:
     RuntimeProfile::Counter* _remove_count = nullptr;
     RuntimeProfile::Counter* _remove_rows = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage = nullptr;
+    RuntimeProfile::Counter* _spilled_partitions = nullptr;
+    RuntimeProfile::Counter* _in_memory_partitions = nullptr;
+    RuntimeProfile::Counter* _max_partition_rows = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _peak_partition_buffered_bytes = nullptr;
+    RuntimeProfile::Counter* _peer_group_metadata_bytes = nullptr;
 
     int64_t _reserve_mem_size = 0;
+
+    bool _spill_enabled = false;
+    bool _has_peer_group_functions = false;
+    std::vector<WindowSpillStrategy> _spill_strategies;
+    // NTILE bucket counts, indexed by function index. Initialized from the first nonempty input
+    // and copied into each sealed batch; other strategies leave their entries at zero.
+    DorisVector<int64_t> _spill_ntile_bucket_counts;
+    // Rows of the batch that has not been handed to the source yet. Finished partitions are only
+    // kept here while one input Block is processed; afterwards it holds at most the open partition.
+    std::unique_ptr<AnalyticSpillBatchStore> _batch_store;
+    // Rows and exclusive batch-relative end row of the partition that is still receiving rows.
+    int64_t _open_partition_rows = 0;
+    int64_t _open_partition_end = 0;
+    // Batch-relative start of the open peer group, including rows from preceding input Blocks.
+    int64_t _open_peer_group_start = 0;
+    // Metadata of the finished partitions in _batch_store, moved into AnalyticSpillBatch on seal.
+    std::vector<int64_t> _batch_partition_ends;
+    MutableColumns _batch_partition_results;
+    std::vector<ColumnPtr> _last_partition_keys;
+    std::vector<ColumnPtr> _last_order_keys;
+    size_t _batch_buffered_bytes = 0;
 };
 
 class AnalyticSinkOperatorX final : public DataSinkOperatorX<AnalyticSinkLocalState> {
@@ -229,11 +291,17 @@ public:
 
     bool is_colocated_operator() const override { return _is_colocate; }
     bool is_shuffled_operator() const override { return !_partition_by_eq_expr_ctxs.empty(); }
+    bool is_blockable(RuntimeState* state) const override;
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos, const Block* block) override;
+    size_t revocable_mem_size(RuntimeState* state) const override;
+    Status revoke_memory(RuntimeState* state) override;
 
 private:
     friend class AnalyticSinkLocalState;
+
+    void _prepare_spill(RuntimeState* state);
     Status _insert_range_column(Block* block, const VExprContextSPtr& expr, IColumn* dst_column,
                                 size_t length);
     Status _add_input_block(doris::RuntimeState* state, Block* input_block);
@@ -262,6 +330,10 @@ private:
     bool _has_range_window;
     bool _has_window_start;
     bool _has_window_end;
+    bool _enable_spill_analytic = false;
+    std::string _window_spill_unsupported_reason;
+    std::vector<WindowSpillStrategy> _window_spill_strategies;
+    std::vector<WindowSpillPeerFunction> _window_spill_peer_functions;
 
     /// The offset of the n-th functions.
     std::vector<size_t> _offsets_of_aggregate_states;

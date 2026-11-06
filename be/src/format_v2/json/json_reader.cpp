@@ -18,6 +18,7 @@
 #include "format_v2/json/json_reader.h"
 
 #include <rapidjson/document.h>
+#include <rapidjson/error/en.h>
 
 #include <algorithm>
 #include <cstring>
@@ -43,6 +44,7 @@
 #include "format_v2/column_mapper.h"
 #include "format_v2/materialized_reader_util.h"
 #include "io/file_factory.h"
+#include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/stream_load_pipe.h"
 #include "io/fs/tracing_file_reader.h"
@@ -249,6 +251,83 @@ Status JsonReader::init(RuntimeState* state) {
     return Status::OK();
 }
 
+Status JsonReader::infer_schema(RuntimeState* state, std::vector<ColumnDefinition>* schema) {
+    RETURN_IF_ERROR(init(state));
+    _reader_range = _json_range();
+    RETURN_IF_ERROR(_open_file_reader(/*need_schema=*/true));
+    RETURN_IF_ERROR(_create_decompressor());
+    if (_read_json_by_line) {
+        RETURN_IF_ERROR(_create_line_reader());
+    }
+    RETURN_IF_ERROR(_parse_jsonpath_and_json_root());
+    if (_reader_range.size <= 0 && _scan_params->file_type != TFileType::FILE_STREAM) {
+        _reader_range.size = cast_set<int64_t>(_physical_file_reader->size()) - _current_offset;
+    }
+    size_t size = 0;
+    bool eof = false;
+    RETURN_IF_ERROR(_read_one_document(&size, &eof));
+    if (eof || size == 0) {
+        return Status::EndOfFile("Empty file");
+    }
+    // Schema probing retains the RPC's DOM semantics (including json_root before outer-array
+    // selection); normal scans continue to use the streaming v2 materializer.
+    rapidjson::Document document;
+    const bool parse_error = _num_as_string
+                                     ? document.Parse<rapidjson::kParseNumbersAsStringsFlag>(
+                                                       _document_view.data(), size)
+                                               .HasParseError()
+                                     : document.Parse(_document_view.data(), size).HasParseError();
+    if (parse_error) {
+        return Status::DataQualityError(
+                "Parse json data for JsonDoc failed. code: {}, error info: {}",
+                document.GetParseError(), rapidjson::GetParseError_En(document.GetParseError()));
+    }
+    rapidjson::Value* value = &document;
+    if (!_parsed_json_root.empty()) {
+        value = JsonFunctions::get_json_object_from_parsed_json(_parsed_json_root, &document,
+                                                                document.GetAllocator());
+        if (value == nullptr) {
+            return Status::DataQualityError("JSON Root not found");
+        }
+    }
+    if (value->IsArray() && !_strip_outer_array) {
+        return Status::DataQualityError(
+                "JSON data is array-object, `strip_outer_array` must be TRUE.");
+    }
+    if (!value->IsArray() && _strip_outer_array) {
+        return Status::DataQualityError(
+                "JSON data is not an array-object, `strip_outer_array` must be FALSE.");
+    }
+    if (value->IsArray()) {
+        if (value->Empty()) {
+            return Status::InternalError("Empty first json line");
+        }
+        value = &(*value)[0];
+    }
+    if (!value->IsObject()) {
+        return Status::DataQualityError("JSON data is not an object");
+    }
+    schema->clear();
+    const auto append = [&](const std::string& name) {
+        schema->push_back(synthetic_file_child(name,
+                                               make_nullable(std::make_shared<DataTypeString>()),
+                                               cast_set<int32_t>(schema->size())));
+    };
+    if (!_parsed_jsonpaths.empty()) {
+        for (const auto& path : _parsed_jsonpaths) {
+            if (path.empty()) {
+                return Status::InvalidArgument("Invalid jsonpaths");
+            }
+            append(path.back().key);
+        }
+    } else {
+        for (const auto& member : value->GetObject()) {
+            append(std::string(member.name.GetString(), member.name.GetStringLength()));
+        }
+    }
+    return Status::OK();
+}
+
 Status JsonReader::get_schema(std::vector<ColumnDefinition>* file_schema) const {
     SCOPED_TIMER(_total_time);
     if (file_schema == nullptr) {
@@ -306,14 +385,14 @@ Status JsonReader::get_block(Block* file_block, size_t* rows, bool* eof) {
         return Status::InternalError("JSON v2 reader is not open");
     }
 
-    const auto batch_size = _runtime_state->batch_size();
+    const auto batch_size = cast_set<size_t>(_runtime_state->batch_size());
     const auto max_block_bytes = _runtime_state->preferred_block_size_bytes();
     *rows = 0;
     *eof = false;
+    _logical_rows = 0;
     _missing_fields.clear();
 
-    while (file_block->rows() < batch_size && !_reader_eof &&
-           file_block->bytes() < max_block_bytes) {
+    while (_logical_rows < batch_size && !_reader_eof && file_block->bytes() < max_block_bytes) {
         if (_read_json_by_line && _skip_first_line) {
             RETURN_IF_ERROR(_line_reader->skip_split_prefix(
                     _reader_range.start_offset, _line_delimiter, &_reader_eof, _io_ctx.get()));
@@ -321,7 +400,7 @@ Status JsonReader::get_block(Block* file_block, size_t* rows, bool* eof) {
             continue;
         }
 
-        const size_t original_rows = file_block->rows();
+        const size_t original_rows = _logical_rows;
         size_t size = 0;
         bool is_empty_row = false;
         Status st = Status::OK();
@@ -350,12 +429,13 @@ Status JsonReader::get_block(Block* file_block, size_t* rows, bool* eof) {
         }
         // An ignored or empty JSON object can produce no row. Avoid spinning forever on a document
         // that was consumed but produced no materialized value.
-        if (!is_empty_row && file_block->rows() == original_rows) {
+        if (!is_empty_row && _logical_rows == original_rows) {
             break;
         }
     }
 
-    *rows = file_block->rows();
+    *rows = _logical_rows;
+    DCHECK(file_block->columns() == 0 || file_block->rows() == *rows);
     for (auto& [_, mask] : _missing_fields) {
         mask.resize(*rows, 0);
     }
@@ -377,6 +457,12 @@ Status JsonReader::close() {
     }
     _json_parser.reset();
     _decompressor.reset();
+    // S3 prefetch counters are published only after workers drain; resetting the aliases alone
+    // loses them. Stream pipes remain owned by the load context and must not be closed here.
+    if (_physical_file_reader != nullptr && _scan_params->file_type != TFileType::FILE_STREAM) {
+        RETURN_IF_ERROR(_physical_file_reader->close());
+        _physical_file_reader->collect_profile_before_close();
+    }
     _physical_file_reader.reset();
     _tracing_file_reader.reset();
     _file_reader.reset();
@@ -444,7 +530,7 @@ TFileRangeDesc JsonReader::_json_range() const {
     return range;
 }
 
-Status JsonReader::_open_file_reader() {
+Status JsonReader::_open_file_reader(bool need_schema) {
     _current_offset = _reader_range.start_offset;
     if (_current_offset != 0) {
         // Include the whole delimiter when the split starts inside it, so skipping the first
@@ -456,14 +542,23 @@ Status JsonReader::_open_file_reader() {
             return Status::InvalidArgument("JSON v2 stream reader requires load id");
         }
         RETURN_IF_ERROR(FileFactory::create_pipe_reader(*_stream_load_id, &_physical_file_reader,
-                                                        _runtime_state, /*need_schema=*/false));
+                                                        _runtime_state, need_schema));
     } else {
         _file_description->mtime =
                 _reader_range.__isset.modification_time ? _reader_range.modification_time : 0;
         auto reader_options = FileFactory::get_reader_options(_runtime_state->query_options(),
                                                               *_file_description);
-        auto file_reader = DORIS_TRY(FileFactory::create_file_reader(
-                *_system_properties, *_file_description, reader_options, _profile));
+        // The aligned prefix belongs to this scan, while the original split end bounds
+        // asynchronous read-ahead. Shared ownership keeps cancellation state alive for workers.
+        const auto range_end =
+                _reader_range.size > 0
+                        ? static_cast<size_t>(_reader_range.start_offset + _reader_range.size)
+                        : std::numeric_limits<size_t>::max();
+        auto file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
+                _profile, *_system_properties, *_file_description, reader_options,
+                io::DelegateReader::AccessMode::SEQUENTIAL,
+                std::static_pointer_cast<const io::IOContext>(_io_ctx),
+                io::PrefetchRange(_current_offset, range_end)));
         _physical_file_reader =
                 _io_ctx && _io_ctx->file_reader_stats
                         ? std::make_shared<io::TracingFileReader>(std::move(file_reader),
@@ -683,10 +778,8 @@ Status JsonReader::_extract_json_value(size_t size, bool* eof, bool* is_empty_ro
         return Status::DataQualityError(
                 "JSON data is not an array-object, `strip_outer_array` must be FALSE.");
     }
-    if (!_parsed_jsonpaths.empty() && _strip_outer_array &&
-        _json_value.count_elements().value() == 0) {
-        *is_empty_row = true;
-    }
+    // A rooted ondemand array has a single cursor. Pre-counting {"rows":[...]} here
+    // consumes it before jsonpaths materialization; the append path detects empty arrays.
     return Status::OK();
 }
 
@@ -718,7 +811,7 @@ Status JsonReader::_append_simple_json_rows(Block* block, bool* is_empty_row, bo
         _array_iter = _array.begin();
         while (_array_iter != _array.end()) {
             simdjson::ondemand::object object_value = (*_array_iter).get_object();
-            const size_t row_start = block->rows();
+            const size_t row_start = _logical_rows;
             const auto status = _set_column_values_from_object(&object_value, block, &valid);
             if (!status.ok()) {
                 if (!_request->reject_invalid_rows) {
@@ -749,12 +842,12 @@ Status JsonReader::_append_flat_array_jsonpath_rows(Block* block, bool* is_empty
     DORIS_CHECK(block != nullptr);
     DORIS_CHECK(is_empty_row != nullptr);
     DORIS_CHECK(eof != nullptr);
-    const size_t original_rows = block->rows();
+    const size_t original_rows = _logical_rows;
     bool valid = true;
     _array = _json_value.get_array();
     _array_iter = _array.begin();
     while (_array_iter != _array.end()) {
-        const size_t row_start = block->rows();
+        const size_t row_start = _logical_rows;
         simdjson::ondemand::object object_value = (*_array_iter).get_object();
         if (!_parsed_from_json_root && !_parsed_json_root.empty()) {
             // Reject roots per element for loads, preserving earlier siblings and their presence
@@ -793,7 +886,7 @@ Status JsonReader::_append_flat_array_jsonpath_rows(Block* block, bool* is_empty
         }
         ++_array_iter;
     }
-    *is_empty_row = block->rows() == original_rows;
+    *is_empty_row = _logical_rows == original_rows;
     return Status::OK();
 }
 
@@ -817,7 +910,7 @@ Status JsonReader::_set_column_values_from_object(simdjson::ondemand::object* ob
     DORIS_CHECK(block != nullptr);
     DORIS_CHECK(valid != nullptr);
     std::vector<bool> seen_columns(block->columns(), false);
-    const size_t cur_row_count = block->rows();
+    const size_t cur_row_count = _logical_rows;
     bool has_valid_value = false;
     size_t key_index = 0;
 
@@ -868,8 +961,28 @@ Status JsonReader::_set_column_values_from_object(simdjson::ondemand::object* ob
         }
     }
     *valid = true;
+    ++_logical_rows;
     if (!has_valid_value) {
         return Status::OK();
+    }
+    return Status::OK();
+}
+
+Status JsonReader::_has_matching_jsonpath(simdjson::ondemand::object* object_value,
+                                          bool* matches) const {
+    *matches = false;
+    for (const auto& path : _parsed_jsonpaths) {
+        // A root path selects the current document without a field lookup.
+        if (JsonFunctions::is_root_path(path)) {
+            *matches = true;
+            continue;
+        }
+        simdjson::ondemand::value value;
+        const auto status = JsonFunctions::extract_from_object(*object_value, path, &value);
+        if (!status.ok() && !status.is<ErrorCode::NOT_FOUND>()) {
+            return status;
+        }
+        *matches = *matches || status.ok();
     }
     return Status::OK();
 }
@@ -880,8 +993,13 @@ Status JsonReader::_write_columns_by_jsonpath(simdjson::ondemand::object* object
     DORIS_CHECK(block != nullptr);
     DORIS_CHECK(valid != nullptr);
     bool has_valid_value = false;
-    const size_t cur_row_count = block->rows();
+    const size_t cur_row_count = _logical_rows;
     _cached_string_values.clear();
+
+    // Even without projected fields, jsonpaths still decides whether the object contributes a row.
+    if (_requested_columns.empty()) {
+        RETURN_IF_ERROR(_has_matching_jsonpath(object_value, &has_valid_value));
+    }
 
     for (size_t i = 0; i < _requested_columns.size(); ++i) {
         const auto& requested = _requested_columns[i];
@@ -939,6 +1057,7 @@ Status JsonReader::_write_columns_by_jsonpath(simdjson::ondemand::object* object
         return Status::OK();
     }
     *valid = true;
+    ++_logical_rows;
     return Status::OK();
 }
 
@@ -1141,6 +1260,7 @@ Status JsonReader::_append_null_for_malformed_json(Block* block) {
         assert_cast<ColumnNullable*>(column.get())->insert_default();
         column_with_type.column = std::move(column);
     }
+    ++_logical_rows;
     return Status::OK();
 }
 
@@ -1152,6 +1272,7 @@ Status JsonReader::_handle_json_error(const Status& status, Block* block, size_t
     // block to the row count before this document before either surfacing the error or appending
     // the ignore-malformed null row.
     _truncate_block_to_rows(block, original_rows);
+    _logical_rows = original_rows;
     for (auto& [_, mask] : _missing_fields) {
         mask.resize(original_rows, 0);
     }

@@ -57,6 +57,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.computegroup.ComputeGroupBindingUtil;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TFileCompressType;
@@ -446,12 +447,32 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             if (customKafkaPartitions != null && !customKafkaPartitions.isEmpty()) {
                 return true;
             }
-            return updateKafkaPartitions();
+            return updateKafkaPartitions(needAutoResume);
         }
         return true;
     }
 
-    private boolean updateKafkaPartitions() throws UserException {
+    private boolean updateKafkaPartitions(boolean needAutoResume) throws UserException {
+        // The metadata request goes to the backends of the declared compute group, and after RESUME it runs
+        // before any task, so check the group here as RoutineLoadTaskScheduler does before each task. A
+        // dropped group would otherwise pause the job with "no alive backends" and the Kafka advice below.
+        //
+        // Not for an auto resume attempt, which is left to that check before the first task. The job is still
+        // PAUSED during the attempt and can not be paused again with another reason, so a failure here would
+        // keep its old, retryable one: a revoked USAGE would never become CANNOT_RESUME_ERR, and auto resume
+        // would retry for good. Once the metadata request below succeeds, the attempt moves the job to
+        // NEED_SCHEDULE, and the check before its first task records the failure.
+        if (!needAutoResume) {
+            try {
+                ComputeGroupBindingUtil.checkComputeGroupBeforeTask(getUserIdentity(), getDeclaredComputeGroup());
+            } catch (UserException e) {
+                LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                        .add("error_msg", e.getMessage())
+                        .build());
+                pauseIfNeedSchedule(new ErrorReason(e.getErrorCode(), e.getMessage()));
+                return false;
+            }
+        }
         try {
             this.newCurrentKafkaPartition = getAllKafkaPartitions();
         } catch (Exception e) {
@@ -461,11 +482,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
                     .add("error_msg", msg)
                     .build(), e);
-            if (this.state == JobState.NEED_SCHEDULE) {
-                unprotectUpdateState(JobState.PAUSED,
-                        new ErrorReason(InternalErrorCode.PARTITIONS_ERR, msg),
-                        false /* not replay */);
-            }
+            pauseIfNeedSchedule(new ErrorReason(InternalErrorCode.PARTITIONS_ERR, msg));
             return false;
         }
         return true;
@@ -779,13 +796,20 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     public void modifyProperties(AlterRoutineLoadCommand command) throws UserException {
         Map<String, String> jobProperties = command.getAnalyzedJobProperties();
         KafkaDataSourceProperties dataSourceProperties = (KafkaDataSourceProperties) command.getDataSourceProperties();
+        String declaredComputeGroup = jobProperties.get(CreateRoutineLoadInfo.COMPUTE_GROUP);
         if (null != dataSourceProperties) {
+            // The offsets are converted before modifyPropertiesInternal installs the new properties,
+            // so a compute group this ALTER declares has to be used already: for
+            // ALTER ... PROPERTIES("compute_group" = "cg_b") FROM KAFKA("kafka_offsets" = "OFFSET_END")
+            // the job's current group may be gone, which is why it is being moved to cg_b.
             // if the partition offset is set by timestamp, convert it to real offset
-            convertOffset(dataSourceProperties);
+            convertOffset(dataSourceProperties, Strings.isNullOrEmpty(declaredComputeGroup)
+                    ? getComputeGroupName() : declaredComputeGroup);
         }
 
         writeLock();
         try {
+            checkAlteredWorkloadGroup(jobProperties);
             if (getState() != JobState.PAUSED) {
                 throw new DdlException("Only supports modification of PAUSED jobs");
             }
@@ -800,12 +824,12 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
     }
 
-    private void convertOffset(KafkaDataSourceProperties dataSourceProperties) throws UserException {
+    private void convertOffset(KafkaDataSourceProperties dataSourceProperties, String computeGroupName)
+            throws UserException {
         List<Pair<Integer, Long>> partitionOffsets = dataSourceProperties.getKafkaPartitionOffsets();
         if (partitionOffsets.isEmpty()) {
             return;
         }
-        String computeGroupName = getComputeGroupName();
         List<Pair<Integer, Long>> newOffsets;
         if (dataSourceProperties.isOffsetsForTimes()) {
             newOffsets = KafkaUtil.getOffsetsForTimes(

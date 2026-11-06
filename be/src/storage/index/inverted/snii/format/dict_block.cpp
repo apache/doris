@@ -19,6 +19,10 @@
 
 #include <algorithm>
 #include <atomic>
+#include <limits>
+#include <string>
+#include <string_view>
+#include <utility>
 
 #include "storage/index/inverted/snii/encoding/byte_source.h"
 #include "storage/index/inverted/snii/encoding/crc32c.h"
@@ -308,6 +312,107 @@ Status check_flags(uint8_t flags, bool has_positions) {
     return Status::OK();
 }
 
+// A LEB128 varint of at most five bytes and at most `max`, on the raw cursor. Within five bytes
+// nothing is shifted out, so whatever this accepts the checked decoders accept with the same value;
+// anything else, longer encodings included, returns false and is left to them.
+bool read_short_varint(const uint8_t** p, const uint8_t* end, uint64_t max, uint64_t* v) {
+    uint64_t value = 0;
+    for (uint32_t shift = 0; shift < 35; shift += 7) {
+        if (*p == end) {
+            return false;
+        }
+        const uint8_t byte = *(*p)++;
+        value |= static_cast<uint64_t>(byte & 0x7F) << shift;
+        if (byte < 0x80) {
+            *v = value;
+            return value <= max;
+        }
+    }
+    return false;
+}
+
+// Where an entry lies in its ByteSource.
+struct EntryExtent {
+    size_t body_start = 0;
+    uint64_t total = 0; // entry_len
+    const uint8_t* end = nullptr;
+};
+
+// Reads one entry's length and front-coded key on the raw cursor, rebuilding `key` from its
+// previous value in place: no DictEntry, no allocation once `key` has grown, no Status per field. A
+// walk over a whole dictionary does this for every entry, and opening a block for every anchor. On
+// anything it does not read cleanly it returns false and changes nothing, and the caller decodes
+// that entry with the checked decoders, which report what is wrong with it.
+bool read_entry_key_fast(ByteSource* src, std::string* key, EntryExtent* extent) {
+    const uint8_t* p = src->cursor();
+    const uint8_t* const end = src->end();
+    uint64_t total = 0;
+    if (!read_short_varint(&p, end, std::numeric_limits<uint64_t>::max(), &total) ||
+        std::cmp_greater(total, end - p)) {
+        return false;
+    }
+    const uint8_t* const body = p;
+    const uint8_t* const entry_end = p + total;
+    uint64_t prefix = 0;
+    uint64_t suffix_len = 0;
+    if (!read_short_varint(&p, entry_end, std::numeric_limits<uint32_t>::max(), &prefix) ||
+        !read_short_varint(&p, entry_end, std::numeric_limits<uint32_t>::max(), &suffix_len) ||
+        prefix > key->size() || std::cmp_greater(suffix_len, entry_end - p)) {
+        return false;
+    }
+    key->resize(prefix);
+    key->append(reinterpret_cast<const char*>(p), suffix_len);
+    *extent = {.body_start = src->position() + static_cast<size_t>(body - src->cursor()),
+               .total = total,
+               .end = entry_end};
+    src->set_cursor(p + suffix_len);
+    return true;
+}
+
+enum class WalkStep { kSkip, kStop, kVisit };
+
+// Walks the entries of `src` in key order. `classify(key)` skips an entry, stops before it (the
+// range is exhausted: *exhausted = true) or hands it to `on_hit`; only handed entries have their
+// bodies decoded. The key is rebuilt in one reused buffer, which also carries the front-coding base
+// from entry to entry (an anchor segment starts from an empty one).
+template <typename Classify>
+Status walk_entries(ByteSource* src, IndexTier tier, const Classify& classify,
+                    const std::function<Status(DictEntry&&, bool*)>& on_hit, bool* exhausted) {
+    std::string key;
+    while (!src->eof()) {
+        EntryExtent extent;
+        const bool fast = read_entry_key_fast(src, &key, &extent);
+        if (!fast) {
+            DictEntry checked;
+            RETURN_IF_ERROR(
+                    decode_dict_entry_key(src, key, &checked, &extent.body_start, &extent.total));
+            key = std::move(checked.term);
+        }
+        const WalkStep step = classify(std::string_view(key));
+        if (step == WalkStep::kStop) {
+            *exhausted = true;
+            return Status::OK();
+        }
+        if (step == WalkStep::kSkip) {
+            if (fast) {
+                src->set_cursor(extent.end);
+            } else {
+                RETURN_IF_ERROR(skip_dict_entry_body(src, extent.body_start, extent.total));
+            }
+            continue;
+        }
+        DictEntry entry;
+        RETURN_IF_ERROR(decode_dict_entry_rest(src, tier, extent.body_start, extent.total, &entry));
+        entry.term = key;
+        bool stop = false;
+        RETURN_IF_ERROR(on_hit(std::move(entry), &stop));
+        if (stop) {
+            return Status::OK();
+        }
+    }
+    return Status::OK();
+}
+
 } // namespace
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size) -- Keep invariant-sensitive state transitions together.
@@ -391,10 +496,15 @@ Status DictBlockReader::open(Slice block, IndexTier tier, bool has_positions,
         }
         out->anchor_offsets_[i] = off;
         // Anchor entries are encoded with prev_term="" and can be decoded independently to retrieve their term.
+        // Only the key is needed here: the crc above covers the body, which is checked when it is
+        // decoded, as for any other entry.
         ByteSource e_src(covered.subslice(off, anchor_table_begin - off));
-        DictEntry probe;
-        RETURN_IF_ERROR(decode_dict_entry(&e_src, std::string_view {}, tier, &probe));
-        out->anchor_terms_[i] = std::move(probe.term);
+        EntryExtent extent;
+        if (!read_entry_key_fast(&e_src, &out->anchor_terms_[i], &extent)) {
+            DictEntry probe;
+            RETURN_IF_ERROR(decode_dict_entry(&e_src, std::string_view {}, tier, &probe));
+            out->anchor_terms_[i] = std::move(probe.term);
+        }
     }
     return Status::OK();
 }
@@ -542,7 +652,7 @@ Status DictBlockReader::visit_prefix_range(std::string_view prefix,
 
     // Scan from the chosen anchor to the end of the entries region: the prefix
     // range may span several anchor segments. Anchor entries are encoded with
-    // prefix_len=0, so a single running `prev` reconstructs every term correctly
+    // prefix_len=0, so a single running key reconstructs every term correctly
     // even as the scan crosses segment boundaries.
     const size_t seg_begin = anchor_offsets_[anchor_idx];
     const size_t entries_end =
@@ -553,42 +663,21 @@ Status DictBlockReader::visit_prefix_range(std::string_view prefix,
     }
 
     ByteSource src(block_.subslice(seg_begin, entries_end - seg_begin));
-    std::string prev; // the chosen anchor segment starts at an anchor (prev="")
-    while (!src.eof()) {
-        DictEntry e;
-        size_t body_start = 0;
-        uint64_t entry_total = 0;
-        RETURN_IF_ERROR(
-                decode_dict_entry_key(&src, std::string_view(prev), &e, &body_start, &entry_total));
-        const std::string_view t(e.term);
-        if (t < prefix) {
-            // Still before the range (only reachable inside the anchor segment
-            // that straddles prefix): skip the body, keep the front-coding base.
-            RETURN_IF_ERROR(skip_dict_entry_body(&src, body_start, entry_total));
-            prev = std::move(e.term);
-            continue;
-        }
-        const bool has_prefix = t.size() >= prefix.size() && t.starts_with(prefix);
-        if (!has_prefix) {
-            *prefix_exhausted = true; // sorted: no further matches here or later
-            return Status::OK();
-        }
-        if (accept_key && !accept_key(t)) {
-            // Key-only rejection: never pay for this entry's body.
-            RETURN_IF_ERROR(skip_dict_entry_body(&src, body_start, entry_total));
-            prev = std::move(e.term);
-            continue;
-        }
-        // Accepted: materialize the body and hand the entry to the visitor.
-        RETURN_IF_ERROR(decode_dict_entry_rest(&src, tier_, body_start, entry_total, &e));
-        prev = e.term; // copy the key before the entry is moved into on_hit
-        bool stop = false;
-        RETURN_IF_ERROR(on_hit(std::move(e), &stop));
-        if (stop) {
-            return Status::OK();
-        }
-    }
-    return Status::OK();
+    return walk_entries(
+            &src, tier_,
+            [&](std::string_view term) {
+                // Still before the range: only inside the anchor segment that straddles prefix.
+                if (term < prefix) {
+                    return WalkStep::kSkip;
+                }
+                // Sorted: no further matches here or later.
+                if (!term.starts_with(prefix)) {
+                    return WalkStep::kStop;
+                }
+                // Key-only rejection: never pay for this entry's body.
+                return accept_key && !accept_key(term) ? WalkStep::kSkip : WalkStep::kVisit;
+            },
+            on_hit, prefix_exhausted);
 }
 
 Status DictBlockReader::visit_term_range(std::string_view lower_inclusive,
@@ -622,37 +711,18 @@ Status DictBlockReader::visit_term_range(std::string_view lower_inclusive,
     }
 
     ByteSource src(block_.subslice(seg_begin, entries_end - seg_begin));
-    std::string prev;
-    while (!src.eof()) {
-        DictEntry entry;
-        size_t body_start = 0;
-        uint64_t entry_total = 0;
-        RETURN_IF_ERROR(decode_dict_entry_key(&src, std::string_view(prev), &entry, &body_start,
-                                              &entry_total));
-        const std::string_view term(entry.term);
-        if (term < lower_inclusive) {
-            RETURN_IF_ERROR(skip_dict_entry_body(&src, body_start, entry_total));
-            prev = std::move(entry.term);
-            continue;
-        }
-        if (upper_exclusive.has_value() && term >= *upper_exclusive) {
-            *range_exhausted = true;
-            return Status::OK();
-        }
-        if (accept_key && !accept_key(term)) {
-            RETURN_IF_ERROR(skip_dict_entry_body(&src, body_start, entry_total));
-            prev = std::move(entry.term);
-            continue;
-        }
-        RETURN_IF_ERROR(decode_dict_entry_rest(&src, tier_, body_start, entry_total, &entry));
-        prev = entry.term;
-        bool stop = false;
-        RETURN_IF_ERROR(on_hit(std::move(entry), &stop));
-        if (stop) {
-            return Status::OK();
-        }
-    }
-    return Status::OK();
+    return walk_entries(
+            &src, tier_,
+            [&](std::string_view term) {
+                if (term < lower_inclusive) {
+                    return WalkStep::kSkip;
+                }
+                if (upper_exclusive.has_value() && term >= *upper_exclusive) {
+                    return WalkStep::kStop;
+                }
+                return accept_key && !accept_key(term) ? WalkStep::kSkip : WalkStep::kVisit;
+            },
+            on_hit, range_exhausted);
 }
 
 } // namespace doris::snii::format

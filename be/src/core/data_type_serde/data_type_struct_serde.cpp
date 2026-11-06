@@ -29,6 +29,7 @@
 #include "core/column/column_const.h"
 #include "core/column/column_struct.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type_serde/arrow_parent_nulls.h"
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/complex_type_deserialize_util.h"
 #include "core/data_type_serde/data_type_serde.h"
@@ -551,10 +552,24 @@ Status DataTypeStructSerDe::read_column_from_arrow(IColumn& column, const arrow:
     }
     auto& struct_column = static_cast<ColumnStruct&>(column);
     const auto* concrete_struct = dynamic_cast<const arrow::StructArray*>(arrow_array);
-    DCHECK_EQ(struct_column.tuple_size(), concrete_struct->num_fields());
+    // Reject non-STRUCT input before reading its fields, even with buffer validation disabled.
+    if (concrete_struct == nullptr) {
+        return Status::InvalidArgument("Expected Arrow StructArray, got {}",
+                                       arrow_array->type()->ToString());
+    }
+    // A shorter input struct would otherwise index past its children; extra fields lose data.
+    if (struct_column.tuple_size() != concrete_struct->num_fields()) {
+        return Status::InvalidArgument("Expected Arrow StructArray with {} fields, got {}",
+                                       struct_column.tuple_size(), concrete_struct->num_fields());
+    }
     for (auto i = 0; i < struct_column.tuple_size(); ++i) {
-        RETURN_IF_ERROR(elem_serdes_ptrs[i]->read_column_from_arrow(
-                struct_column.get_column(i), concrete_struct->field(i).get(), start, end, ctz));
+        // The fields of a NULL struct row are unspecified and are not decoded.
+        std::shared_ptr<arrow::Array> field;
+        RETURN_IF_ERROR(mask_arrow_children_hidden_by_null_parents(
+                *concrete_struct, start, end, concrete_struct->field(i),
+                [](int64_t row) { return std::pair<int64_t, int64_t>(row, row + 1); }, &field));
+        RETURN_IF_ERROR(elem_serdes_ptrs[i]->read_column_from_arrow(struct_column.get_column(i),
+                                                                    field.get(), start, end, ctz));
     }
     return Status::OK();
 }

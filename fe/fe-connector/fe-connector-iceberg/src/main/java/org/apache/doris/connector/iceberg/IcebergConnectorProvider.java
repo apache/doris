@@ -20,6 +20,7 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
+import org.apache.doris.connector.spi.ConnectorSecuritySurface;
 import org.apache.doris.connector.spi.DorisConnectorException;
 
 import java.util.Collections;
@@ -83,5 +84,12 @@ public class IcebergConnectorProvider implements ConnectorProvider {
         if (IcebergCatalogProperties.TYPE_DLF.equals(IcebergCatalogProperties.of(properties).getFlavor())) {
             throw new DorisConnectorException("CREATE TABLE is not supported for Iceberg DLF catalogs");
         }
+    }
+
+    @Override
+    public ConnectorSecuritySurface securitySurface() {
+        // iceberg.jdbc.driver_url is a jar the connector loads, but only live on a jdbc-flavored catalog
+        // (iceberg.catalog.type = jdbc); on a REST/HMS/... catalog it is dead config the gate must not touch.
+        return ConnectorSecuritySurface.ofJdbcDriverUrls("iceberg.catalog.type", "iceberg.jdbc.driver_url");
     }
 }

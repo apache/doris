@@ -141,13 +141,19 @@ public:
                     } else {
                         if (auto col = check_and_get_column<ColumnVector<DataType::PType>>(
                                     block.get_by_position(arguments[0]).column.get())) {
-                            auto col_res =
-                                    PrimitiveTypeTraits<Op::ResultType>::ColumnType::create();
-                            auto& vec_res = col_res->get_data();
-                            vec_res.resize(col->get_data().size());
-                            UnaryOperationImpl<DataType::PType, Op>::vector(col->get_data(),
-                                                                            vec_res);
-                            block.replace_by_position(result, std::move(col_res));
+                            if constexpr (std::string_view(Name::name) == "positive") {
+                                // Positive preserves the type, so its immutable input can be shared.
+                                block.replace_by_position(
+                                        result, block.get_by_position(arguments[0]).column);
+                            } else {
+                                auto col_res =
+                                        PrimitiveTypeTraits<Op::ResultType>::ColumnType::create();
+                                auto& vec_res = col_res->get_data();
+                                vec_res.resize(col->get_data().size());
+                                UnaryOperationImpl<DataType::PType, Op>::vector(col->get_data(),
+                                                                                vec_res);
+                                block.replace_by_position(result, std::move(col_res));
+                            }
                             return true;
                         }
                     }

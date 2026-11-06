@@ -97,6 +97,7 @@ public:
 
     // Initializes scan attributes and builds the synthetic schema from FE slots.
     Status init(RuntimeState* state) override;
+    Status infer_schema(RuntimeState* state, std::vector<ColumnDefinition>* schema);
     Status get_schema(std::vector<ColumnDefinition>* file_schema) const override;
     std::unique_ptr<TableColumnMapper> create_column_mapper(
             TableColumnMapperOptions options) const override;
@@ -129,7 +130,7 @@ private:
                                     std::vector<RequestedColumn>* columns) const;
     // Reconciles TableReader's split/range descriptor with FileReader's concrete file description.
     TFileRangeDesc _json_range() const;
-    Status _open_file_reader();
+    Status _open_file_reader(bool need_schema = false);
     Status _create_decompressor();
     Status _create_line_reader();
     Status _parse_jsonpath_and_json_root();
@@ -147,6 +148,7 @@ private:
     Status _append_nested_jsonpath_row(Block* block, bool* is_empty_row, bool* eof);
     Status _set_column_values_from_object(simdjson::ondemand::object* object_value, Block* block,
                                           bool* valid);
+    Status _has_matching_jsonpath(simdjson::ondemand::object* object_value, bool* matches) const;
     Status _write_columns_by_jsonpath(simdjson::ondemand::object* object_value, Block* block,
                                       bool* valid);
     template <bool use_string_cache>
@@ -190,6 +192,8 @@ private:
     std::unique_ptr<Decompressor> _decompressor;
     std::unique_ptr<NewPlainTextLineReader> _line_reader;
     int64_t _current_offset = 0;
+    // Partition-only scans have no file columns, so Block::rows() cannot count their records.
+    size_t _logical_rows = 0;
     bool _reader_eof = false;
     bool _skip_first_line = false;
     bool _single_document_read = false;

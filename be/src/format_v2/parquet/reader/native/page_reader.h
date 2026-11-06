@@ -26,6 +26,7 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/status.h"
+#include "format_v2/parquet/parquet_crypto.h"
 #include "storage/cache/page_cache.h"
 #include "util/block_compression.h"
 namespace doris {
@@ -57,13 +58,16 @@ struct ParquetPageReadContext {
     bool enable_parquet_file_page_cache = false;
     std::string page_cache_file_key;
     bool data_page_v2_always_compressed = false;
+    std::shared_ptr<ParquetColumnCrypto> encryption;
     ParquetPageReadContext() = default;
     ParquetPageReadContext(bool enable_parquet_file_page_cache, std::string page_cache_file_key,
-                           bool data_page_v2_always_compressed = false)
+                           bool data_page_v2_always_compressed = false,
+                           std::shared_ptr<ParquetColumnCrypto> encryption = nullptr)
             : enable_parquet_file_page_cache(enable_parquet_file_page_cache &&
-                                             !page_cache_file_key.empty()),
+                                             !page_cache_file_key.empty() && encryption == nullptr),
               page_cache_file_key(std::move(page_cache_file_key)),
-              data_page_v2_always_compressed(data_page_v2_always_compressed) {}
+              data_page_v2_always_compressed(data_page_v2_always_compressed),
+              encryption(std::move(encryption)) {}
 };
 
 inline bool should_cache_decompressed(const tparquet::PageHeader* header,
@@ -148,7 +152,7 @@ public:
                 int64_t next_page_offset = _offset_index->page_locations[_page_index].offset;
                 _offset = next_page_offset;
                 _next_header_offset = next_page_offset;
-                _state = INITIALIZED;
+                _reset_page();
                 return Status::OK();
             }
         }
@@ -162,7 +166,7 @@ public:
             _start_row += _cur_page_header.data_page_header.num_values;
         }
         _offset = _next_header_offset;
-        _state = INITIALIZED;
+        _reset_page();
 
         return Status::OK();
     }
@@ -172,7 +176,7 @@ public:
             // OffsetIndex enumerates data pages only, so an auxiliary physical page must not
             // consume a logical page-location entry while advancing to its payload end.
             skip_page_data();
-            _state = INITIALIZED;
+            _reset_page();
             return Status::OK();
         } else {
             return next_page();
@@ -181,7 +185,7 @@ public:
 
     Status dict_next_page() {
         if constexpr (OFFSET_INDEX) {
-            _state = INITIALIZED;
+            _reset_page();
             return Status::OK();
         } else {
             return next_page();
@@ -198,10 +202,28 @@ public:
 
     Status get_page_data(Slice& slice);
 
+    void release_scratch(size_t max_retained_bytes) {
+        if (_decrypted_page.capacity() <= max_retained_bytes) {
+            return;
+        }
+        if (_decrypted_page_active) {
+            // Values and V2 levels can borrow the decrypted body across batches, even after
+            // value decompression. Keep a release request until all page views expire.
+            _decrypted_release_pending = true;
+        } else {
+            DorisVector<uint8_t>().swap(_decrypted_page);
+        }
+    }
+
+    size_t retained_scratch_bytes() const { return _decrypted_page.capacity(); }
+    size_t active_scratch_bytes() const {
+        return _decrypted_page_active ? _decrypted_page.size() : 0;
+    }
+
     // Skip page data and update offset (used when data is loaded from cache)
     void skip_page_data() {
         if (_state == HEADER_PARSED) {
-            _offset += _cur_page_header.compressed_page_size;
+            _offset = _next_header_offset;
             _state = DATA_LOADED;
         }
     }
@@ -210,7 +232,7 @@ public:
     // header start offset for current page
     int64_t header_start_offset() const {
         return static_cast<int64_t>(_next_header_offset) - static_cast<int64_t>(_last_header_size) -
-               static_cast<int64_t>(_cur_page_header.compressed_page_size);
+               static_cast<int64_t>(_serialized_page_size);
     }
     uint64_t file_end_offset() const { return _end_offset; }
     bool cached_decompressed() const {
@@ -250,6 +272,20 @@ public:
     }
 
 private:
+    void _reset_page() {
+        // Page advancement ends payload/level borrows; dictionary data has already been copied.
+        _state = INITIALIZED;
+        // Keep initialized bytes for reuse: clearing size would make the next resize zero them.
+        _decrypted_page_active = false;
+        if (_decrypted_release_pending) {
+            DorisVector<uint8_t>().swap(_decrypted_page);
+            _decrypted_release_pending = false;
+        }
+    }
+
+    Status _try_cached_header(bool* loaded);
+    Status _parse_encrypted_header(uint32_t* header_size);
+    Status _parse_plaintext_header(const uint8_t** bytes, uint32_t* real_size);
     Status _validate_page_header(uint32_t header_size) const;
     void _reconcile_offset_index_location(uint64_t header_offset, uint32_t header_size);
     void _update_sequential_row_range();
@@ -275,6 +311,17 @@ private:
     const tparquet::ColumnMetaData& _metadata;
     // Session-level parquet page cache options
     ParquetPageReadContext _page_read_ctx;
+    // AAD ordinals count data pages only; dictionary pages do not consume ordinal zero.
+    int32_t _next_crypto_page = 0;
+    int32_t _crypto_page = 0;
+    bool _crypto_dictionary = false;
+    // A four-byte uncompressed value occupies 36 encrypted bytes. Offsets use 36 while the
+    // existing decoder validates header.compressed_page_size=4 against the uncompressed size.
+    int32_t _serialized_page_size = 0;
+    DorisVector<uint8_t> _decrypted_page;
+    bool _decrypted_page_active = false;
+    bool _decrypted_release_pending = false;
+
     // for page index
     size_t _page_index = 0;
     const tparquet::OffsetIndex* _offset_index;

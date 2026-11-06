@@ -137,7 +137,8 @@ public class StatisticDeriveTest extends TestWithFeService {
         stmtExecutor.execute();
         Assertions.assertNotNull(stmtExecutor.planner());
         Assertions.assertNotNull(stmtExecutor.planner().getFragments());
-        Assertions.assertNotEquals(0, stmtExecutor.planner().getFragments().size());
+        Assertions.assertNotEquals(0, stmtExecutor.planner().getFragments().size(),
+                connectContext.getState().getErrorMessage());
         System.out.println(getSQLPlanOrErrorMsg("explain " + sql));
         assertSQLPlanOrErrorMsgContains(sql, "EMPTYSET");
     }

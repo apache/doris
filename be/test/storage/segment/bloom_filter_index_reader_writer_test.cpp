@@ -67,7 +67,7 @@ Status write_bloom_filter_index_file(const std::string& file_name, const void* v
                                      size_t value_count, size_t null_count,
                                      ColumnIndexMetaPB* index_meta,
                                      bool use_primary_key_bloom_filter = false, double fpp = 0.05) {
-    using CppType = typename CppTypeTraits<type>::CppType;
+    using CppType = typename StorageTypeTraits<type>::StorageType;
     std::string fname = dname + "/" + file_name;
     auto fs = io::global_local_filesystem();
     {

@@ -63,7 +63,7 @@ struct BloomFilterTraits<int128_t> {
 template <FieldType field_type>
 class BloomFilterIndexWriterImpl : public BloomFilterIndexWriter {
 public:
-    using CppType = typename CppTypeTraits<field_type>::CppType;
+    using CppType = typename StorageTypeTraits<field_type>::StorageType;
     using ValueDict = typename BloomFilterTraits<CppType>::ValueDict;
 
     explicit BloomFilterIndexWriterImpl(const BloomFilterOptions& bf_options)

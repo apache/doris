@@ -18,10 +18,12 @@
 #include "format_v2/delimited_text/csv_reader.h"
 
 #include <cstring>
+#include <limits>
 #include <utility>
 
 #include "core/assert_cast.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type_serde/data_type_string_serde.h"
 #include "format/file_reader/new_plain_binary_line_reader.h"
@@ -120,7 +122,9 @@ Status CsvReader::_init_format_state() {
         _empty_field_as_null = text_params.empty_field_as_null;
     }
     if (_scan_params->file_attributes.hive_open_csv) {
-        size_t fields = _source_file_slot_descs.size();
+        // A probe precedes slot planning; a zero OpenCSV field limit would hide every column.
+        size_t fields =
+                _schema_only ? std::numeric_limits<size_t>::max() : _source_file_slot_descs.size();
         for (int index : _scan_params->column_idxs) {
             fields = std::max(fields, static_cast<size_t>(index) + 1);
         }
@@ -218,6 +222,14 @@ void CsvReader::_split_line(const Slice& line) {
             append_value(value_start, separator_position - value_start);
             value_start = separator_position + _value_separator.size();
         }
+    } else if (_value_separator.size() == 1) {
+        const char separator = _value_separator[0];
+        for (size_t i = 0; i < line.size; ++i) {
+            if (line.data[i] == separator) {
+                append_value(value_start, i - value_start);
+                value_start = i + 1;
+            }
+        }
     } else {
         for (size_t i = 0; i < line.size;) {
             if (starts_with_at(line, i, _value_separator)) {
@@ -233,6 +245,18 @@ void CsvReader::_split_line(const Slice& line) {
     append_value(value_start, line.size - value_start);
 }
 
+void CsvReader::_prepare_columns(std::vector<MutableColumnPtr>& columns, size_t batch_size) {
+    for (const auto& column : _requested_columns) {
+        if (!column.nullable_string_fast_path) {
+            continue;
+        }
+        auto& nullable = assert_cast<ColumnNullable&>(*columns[column.block_position.value()]);
+        auto& strings = assert_cast<ColumnString&>(nullable.get_nested_column());
+        strings.get_offsets().reserve(strings.size() + batch_size);
+        nullable.get_null_map_data().reserve(nullable.size() + batch_size);
+    }
+}
+
 Status CsvReader::_deserialize_one_cell(const RequestedColumn& column, IColumn* output,
                                         Slice value) {
     DORIS_CHECK(output != nullptr);
@@ -240,18 +264,20 @@ Status CsvReader::_deserialize_one_cell(const RequestedColumn& column, IColumn* 
         return _append_null(output);
     }
     if (column.nullable_string_fast_path) {
-        auto& null_column = assert_cast<ColumnNullable&>(*output);
-        // String is the hottest CSV type. Avoid the generic nullable serde wrapper here:
-        // deserialize directly into the nested string column and append the null map bit ourselves.
+        // _prepare_columns validates the concrete types once per batch, after copy-on-write.
+        auto& null_column = assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(*output);
+        auto& string_column = assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(
+                null_column.get_nested_column());
         if (_hive_csv_parser) {
             // Splitting and decoding are one operation for OpenCSV; a second CSV serde pass
             // would unescape literal data and confuse empty strings with missing fields.
-            null_column.get_nested_column().insert_data(value.data, value.size);
+            string_column.insert_data(value.data, value.size);
             null_column.get_null_map_data().push_back(0);
             return Status::OK();
         }
         if (_empty_field_as_null && value.size == 0) {
-            null_column.insert_data(nullptr, 0);
+            string_column.insert_default();
+            null_column.get_null_map_data().push_back(1);
             return Status::OK();
         }
         // CSV keeps empty-field handling separate from null_format matching. An empty
@@ -260,16 +286,16 @@ Status CsvReader::_deserialize_one_cell(const RequestedColumn& column, IColumn* 
         const bool quoted = _options.converted_from_string && value.trim_double_quotes();
         if (!quoted && _options.null_len > 0 && value.size == _options.null_len &&
             std::memcmp(value.data, _options.null_format, value.size) == 0) {
-            null_column.insert_data(nullptr, 0);
+            string_column.insert_default();
+            null_column.get_null_map_data().push_back(1);
             return Status::OK();
         }
-        static DataTypeStringSerDe string_serde(TYPE_STRING);
-        auto status = string_serde.deserialize_one_cell_from_csv(null_column.get_nested_column(),
-                                                                 value, _options);
-        if (!status.ok()) {
-            null_column.insert_data(nullptr, 0);
-            return Status::OK();
+        // Keep the same unescaping as StringSerDe, which always succeeds for CSV strings.
+        if (_options.escape_char != 0) {
+            escape_string_for_csv(value.data, &value.size, _options.escape_char,
+                                  _options.quote_char);
         }
+        string_column.insert_data(value.data, value.size);
         null_column.get_null_map_data().push_back(0);
         return Status::OK();
     }

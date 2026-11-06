@@ -138,9 +138,10 @@ public class NereidsLoadingTaskPlanner {
             for (Column col : table.getFullSchema()) {
                 boolean existInExpr = NereidsLoadUtils.hasImportColumn(importColumnDescs, col);
                 if (existInExpr) {
-                    if (!col.isVisible() && !Column.DELETE_SIGN.equals(col.getName())) {
+                    if (!col.isVisible() && !Column.DELETE_SIGN.equals(col.getName())
+                            && !(col.isTtlColumn() && table.isDirectRowTtl())) {
                         throw new UserException("Partial update should not include invisible column except"
-                                + " delete sign column: " + col.getName());
+                                + " delete sign or direct TTL column: " + col.getName());
                     }
                     partialUpdateInputColumns.add(col.getName());
                 }

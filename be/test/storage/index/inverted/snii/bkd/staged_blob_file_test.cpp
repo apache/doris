@@ -98,8 +98,7 @@ TEST(BkdStagedBlobFileTest, ReadingPastTheEndFails) {
     EXPECT_TRUE(file->read_at(100, 0, out.data()).ok());
 }
 
-// An empty blob sub-file is legal (design 5.3: an empty index writes a
-// zero-length bkd_data) and must stage and read as such rather than error.
+// An empty BKD index stages a zero-length bkd_data file.
 TEST(BkdStagedBlobFileTest, EmptyFileIsLegal) {
     std::unique_ptr<StagedBlobFile> file;
     ASSERT_TRUE(StagedBlobFile::create("empty", &file).ok());

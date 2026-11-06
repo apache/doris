@@ -157,6 +157,12 @@ public:
     virtual char* serialize(const IColumn& column, char* buf, int be_exec_version) const = 0;
     virtual const char* deserialize(const char* buf, MutableColumnPtr* column,
                                     int be_exec_version) const = 0;
+    // Variable-length types can override this overload to validate embedded lengths
+    // against end. Fixed-size types can use the default forwarding.
+    virtual const char* deserialize(const char* buf, const char* end, MutableColumnPtr* column,
+                                    int be_exec_version) const {
+        return deserialize(buf, column, be_exec_version);
+    }
 
     virtual void to_pb_column_meta(PColumnMeta* col_meta) const;
 

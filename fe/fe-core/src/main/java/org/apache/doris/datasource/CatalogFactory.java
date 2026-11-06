@@ -112,10 +112,10 @@ public class CatalogFactory {
         // sibling-only connector, whose type must never become a catalog (see ConnectorProvider
         // .isStandaloneCatalogType).
         Connector spiConnector;
+        DefaultConnectorContext creationContext =
+                DefaultConnectorContext.forCatalogCreationValidation(name, catalogId, props);
         try {
-            spiConnector = ConnectorFactory.createStandaloneCatalogConnector(
-                    catalogType, props,
-                    DefaultConnectorContext.forCatalogCreationValidation(name, catalogId, props));
+            spiConnector = creationContext.createCatalogConnector(catalogType, props);
         } catch (RuntimeException | Error e) {
             if (!isReplay) {
                 // Creating a catalog interactively must still fail loud: the user is waiting for the error.
@@ -136,7 +136,7 @@ public class CatalogFactory {
             LOG.info("Created plugin-driven catalog '{}' via SPI connector for type '{}'",
                     name, catalogType);
             catalog = new PluginDrivenExternalCatalog(
-                    catalogId, name, resource, props, comment, spiConnector);
+                    catalogId, name, resource, props, comment, spiConnector, creationContext);
         } else {
             // No plugin claimed it: try the catalog types the engine implements itself. Keep the set of names
             // in BUILTIN_CATALOG_TYPES above in sync with the cases here.

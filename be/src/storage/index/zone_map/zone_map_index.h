@@ -29,10 +29,12 @@
 #include "common/status.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/define_primitive_type.h"
+#include "core/data_type/storage_field_type.h"
 #include "core/string_ref.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "storage/metadata_adder.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/types.h"
 #include "util/once.h"
 
 namespace doris {
@@ -118,8 +120,9 @@ public:
 template <PrimitiveType Type>
 class TypedZoneMapIndexWriter final : public ZoneMapIndexWriter {
 public:
-    using ValType = std::conditional_t<is_string_type(Type), StringRef,
-                                       typename PrimitiveTypeTraits<Type>::StorageFieldType>;
+    using ValType = std::conditional_t<
+            is_string_type(Type), StringRef,
+            typename StorageTypeTraits<primitive_type_to_storage_field_type(Type)>::StorageType>;
     explicit TypedZoneMapIndexWriter(DataTypePtr&& data_type);
 
     void add_values(const uint8_t* values, size_t count) override;

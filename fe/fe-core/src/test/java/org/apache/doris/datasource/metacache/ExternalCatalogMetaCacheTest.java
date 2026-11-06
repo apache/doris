@@ -45,8 +45,47 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 public class ExternalCatalogMetaCacheTest {
+
+    @Test
+    public void contextualEntriesPreserveTheirSizeEstimatorAcrossCatalogRuntimes() {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        AtomicInteger estimates = new AtomicInteger();
+        ExternalCatalogMetaCache cache = new ExternalCatalogMetaCache("weighted_test", refreshExecutor) {
+            {
+                registerEntry(MetaCacheEntryDef.contextualOnly("large", String.class, LargeValue.class,
+                        CacheSpec.ofWeight(true, CacheSpec.CACHE_NO_TTL, 10, 2_000_000))
+                        .withSizeEstimator((key, value) -> {
+                            estimates.incrementAndGet();
+                            return MetaCacheSizeEstimate.complete(800_000);
+                        }));
+            }
+        };
+        try {
+            LargeValue value = new LargeValue();
+            Assertions.assertEquals(20_000, value.values.size());
+            for (long catalogId : new long[] {1L, 2L}) {
+                cache.initCatalog(catalogId, Map.of("meta.cache.weighted_test.large.max-weight", "2000000"));
+                MetaCache<String, LargeValue> entry = cache.entry(catalogId, "large", String.class, LargeValue.class);
+                Assertions.assertSame(value, entry.get("key", key -> value));
+                Assertions.assertSame(value, entry.get("key", key -> {
+                    throw new AssertionError("contextual entry must use its own complete size estimate");
+                }));
+                cache.invalidateCatalog(catalogId);
+            }
+            Assertions.assertEquals(2, estimates.get());
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    private static final class LargeValue {
+        private final List<String> values = IntStream.range(0, 20_000)
+                .mapToObj(Integer::toString).collect(Collectors.toList());
+    }
 
     @Test
     public void testEntryRequiresExplicitInit() {
@@ -191,7 +230,7 @@ public class ExternalCatalogMetaCacheTest {
     @Test
     public void testSchemaEstimateIsCompleteLinearAndCountsReusedDisplayColumnsOnce() {
         MetaCacheSizeEstimator<SchemaCacheKey, SchemaCacheValue> estimator =
-                ExternalCatalogMetaCache.sizeEstimator(SchemaCacheValue.class);
+                MetaCacheEntryDef.defaultSizeEstimator(SchemaCacheValue.class);
         SchemaCacheKey key = new SchemaCacheKey(NameMapping.createForTest(3L, "db1", "wide"));
         MetaCacheSizeEstimate half = estimator.estimate(key, new SchemaCacheValue(wideColumns(2_000, 500)));
         List<Column> columns = wideColumns(4_000, 1_000);
@@ -210,7 +249,7 @@ public class ExternalCatalogMetaCacheTest {
         // A plugin table's display columns reuse its column objects; they must not be weighed twice. MUTATION:
         // estimating every element of every column list -> about twice the weight -> red.
         MetaCacheSizeEstimator<SchemaCacheKey, PluginDrivenSchemaCacheValue> pluginEstimator =
-                ExternalCatalogMetaCache.sizeEstimator(PluginDrivenSchemaCacheValue.class);
+                MetaCacheEntryDef.defaultSizeEstimator(PluginDrivenSchemaCacheValue.class);
         long sameList = pluginEstimator.estimate(key, new PluginDrivenSchemaCacheValue(columns,
                 Collections.emptyList(), Collections.emptyList(), null, null, null, columns)).getBytes();
         long copiedList = pluginEstimator.estimate(key, new PluginDrivenSchemaCacheValue(columns,

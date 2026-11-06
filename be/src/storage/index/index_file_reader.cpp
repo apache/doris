@@ -178,7 +178,8 @@ Status IndexFileReader::_init_snii(const io::IOContext* io_ctx) {
     const bool direct_remote_io = opts.cache_type == io::FileCachePolicy::NO_CACHE &&
                                   _fs->type() != io::FileSystemType::LOCAL;
     _snii_file_reader = std::make_shared<snii_doris::DorisSniiFileReader>(
-            std::move(reader), /*io_ctx=*/nullptr, direct_remote_io);
+            std::move(reader), /*io_ctx=*/nullptr, direct_remote_io,
+            /*local_fs=*/_fs->type() == io::FileSystemType::LOCAL);
     _snii_segment_reader = std::make_unique<doris::snii::reader::SniiSegmentReader>();
     io::IOContext meta_io_ctx;
     if (io_ctx != nullptr) {
@@ -399,6 +400,22 @@ IndexFileReader::snii_logical_indexes() const {
                 InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix)));
     }
     return _snii_segment_reader->logical_indexes();
+}
+
+Result<std::optional<doris::snii::format::LogicalIndexKind>>
+IndexFileReader::snii_logical_index_kind(uint64_t index_id, std::string_view suffix) const {
+    DCHECK(_storage_format == InvertedIndexStorageFormatPB::SNII);
+    std::shared_lock<std::shared_mutex> lock(_mutex);
+    if (_snii_segment_reader == nullptr) {
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
+                "SNII index file {} is not opened",
+                InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix)));
+    }
+    const auto* entry = _snii_segment_reader->find_logical_index(index_id, suffix);
+    if (entry == nullptr) {
+        return std::nullopt;
+    }
+    return entry->kind;
 }
 
 Status IndexFileReader::snii_core_metadata(uint64_t index_id, std::string_view suffix,

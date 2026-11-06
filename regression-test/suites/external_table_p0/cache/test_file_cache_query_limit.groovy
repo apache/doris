@@ -48,14 +48,6 @@ suite("test_file_cache_query_limit", "p0,external,nonConcurrent") {
         return
     }
 
-    sql """set enable_file_cache=true"""
-    sql """set disable_file_cache=false"""
-    // The per-query file cache limit is best-effort: once a query reaches it, BlockFileCache::try_reserve()
-    // evicts only the query's own blocks that no reader holds, and admits the new block anyway when the rest
-    // are still being read. The bound asserted below holds only while few blocks are held at once, so the
-    // scans run with one scanner per instance; with up to 16 the limited query caches well over its limit.
-    sql """set max_file_scanners_concurrency=1"""
-
     // Note: This test case assumes a single backend scenario. Testing with single backend is logically equivalent
     // to testing with multiple backends having identical configurations, but simpler in logic.
     // The assumption is load-bearing rather than cosmetic: the HTTP calls below clear and inspect one backend's
@@ -72,318 +64,326 @@ suite("test_file_cache_query_limit", "p0,external,nonConcurrent") {
     // third-party docker host (hive/es/...), which in a multi-host deployment runs no backend at all.
     String beHost = aliveBackends[0].Host
 
-    // Check backend configuration prerequisites
-    def enableFileCacheResult = sql """show backend config like 'enable_file_cache';"""
-    logger.info("enable_file_cache configuration: " + enableFileCacheResult)
-    assertFalse(enableFileCacheResult.size() == 0 || !enableFileCacheResult[0][3].equalsIgnoreCase("true"),
-            ENABLE_FILE_CACHE_CHECK_FAILED_MSG)
+    withStableFileCache {
+        // The per-query file cache limit is best-effort: once a query reaches it, BlockFileCache::try_reserve()
+        // evicts only the query's own blocks that no reader holds, and admits the new block anyway when the rest
+        // are still being read. The bound asserted below holds only while few blocks are held at once, so the
+        // scans run with one scanner per instance; with up to 16 the limited query caches well over its limit.
+        sql """set max_file_scanners_concurrency=1"""
 
-    def fileCacheBackgroundMonitorIntervalMsResult = sql """show backend config like 'file_cache_background_monitor_interval_ms';"""
-    logger.info("file_cache_background_monitor_interval_ms configuration: " + fileCacheBackgroundMonitorIntervalMsResult)
-    assertFalse(fileCacheBackgroundMonitorIntervalMsResult.size() == 0 || fileCacheBackgroundMonitorIntervalMsResult[0][3] == null ||
-            fileCacheBackgroundMonitorIntervalMsResult[0][3].trim().isEmpty(), FILE_CACHE_BACKGROUND_MONITOR_INTERVAL_CHECK_FAILED_MSG)
+        // Check backend configuration prerequisites
+        def enableFileCacheResult = sql """show backend config like 'enable_file_cache';"""
+        logger.info("enable_file_cache configuration: " + enableFileCacheResult)
+        assertFalse(enableFileCacheResult.size() == 0 || !enableFileCacheResult[0][3].equalsIgnoreCase("true"),
+                ENABLE_FILE_CACHE_CHECK_FAILED_MSG)
 
-    String catalog_name = "test_file_cache_query_limit"
-    String ex_db_name = "tpch1_parquet"
-    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-    String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
-    long queryCacheCapacity
-    long queryLimitBytes
+        def fileCacheBackgroundMonitorIntervalMsResult = sql """show backend config like 'file_cache_background_monitor_interval_ms';"""
+        logger.info("file_cache_background_monitor_interval_ms configuration: " + fileCacheBackgroundMonitorIntervalMsResult)
+        assertFalse(fileCacheBackgroundMonitorIntervalMsResult.size() == 0 || fileCacheBackgroundMonitorIntervalMsResult[0][3] == null ||
+                fileCacheBackgroundMonitorIntervalMsResult[0][3].trim().isEmpty(), FILE_CACHE_BACKGROUND_MONITOR_INTERVAL_CHECK_FAILED_MSG)
 
-    // Sum a file_cache_statistics metric across all cache paths. file_cache_statistics reports
-    // one row per (cache_path, metric_name), so "limit 1" can observe an arbitrary path instead
-    // of the whole file cache state.
-    def cacheMetricSum = { String metricName ->
-        def r = sql """select sum(cast(METRIC_VALUE as double)) from information_schema.file_cache_statistics
-                where METRIC_NAME = '${metricName}';"""
-        return (r.size() == 0 || r[0][0] == null) ? null : Double.valueOf(r[0][0].toString())
-    }
+        String catalog_name = "test_file_cache_query_limit"
+        String ex_db_name = "tpch1_parquet"
+        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+        String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+        long queryCacheCapacity
+        long queryLimitBytes
 
-    // Poll a file_cache_statistics metric until predicate holds, or until timeout.
-    // file_cache_statistics is refreshed by the background monitor on its own cadence,
-    // so waiting a single fixed interval (the previous behavior) races the refresh and
-    // makes assertions flaky. On timeout we swallow the exception so the caller's
-    // assertFalse below can surface its own metric-specific message.
-    def pollFileCacheMetric = { String metricName, Closure predicate, long timeoutSeconds ->
-        try {
+        // Sum a file_cache_statistics metric across all cache paths. file_cache_statistics reports
+        // one row per (cache_path, metric_name), so "limit 1" can observe an arbitrary path instead
+        // of the whole file cache state.
+        def cacheMetricSum = { String metricName ->
+            def r = sql """select sum(cast(METRIC_VALUE as double)) from information_schema.file_cache_statistics
+                    where METRIC_NAME = '${metricName}';"""
+            return (r.size() == 0 || r[0][0] == null) ? null : Double.valueOf(r[0][0].toString())
+        }
+
+        // Poll a file_cache_statistics metric until predicate holds, or until timeout.
+        // file_cache_statistics is refreshed by the background monitor on its own cadence,
+        // so waiting a single fixed interval (the previous behavior) races the refresh and
+        // makes assertions flaky. On timeout we swallow the exception so the caller's
+        // assertFalse below can surface its own metric-specific message.
+        def pollFileCacheMetric = { String metricName, Closure predicate, long timeoutSeconds ->
+            try {
+                Awaitility.await()
+                        .atMost(timeoutSeconds, TimeUnit.SECONDS)
+                        .pollInterval(1, TimeUnit.SECONDS)
+                        .until {
+                            Double metricValue = cacheMetricSum(metricName)
+                            return metricValue != null && predicate(metricValue)
+                        }
+            } catch (org.awaitility.core.ConditionTimeoutException ignored) {
+                // fall through; the caller's assert will surface the precise failure
+            }
+        }
+
+        sql """drop catalog if exists ${catalog_name} """
+
+        sql """CREATE CATALOG ${catalog_name} PROPERTIES (
+            'type'='hms',
+            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
+            'hadoop.username' = 'hive'
+        );"""
+
+        String query_sql =
+                """select sum(l_quantity) as sum_qty,
+                sum(l_extendedprice) as sum_base_price,
+                sum(l_extendedprice * (1 - l_discount)) as sum_disc_price,
+                sum(l_extendedprice * (1 - l_discount) * (1 + l_tax)) as sum_charge,
+                avg(l_quantity) as avg_qty,
+                avg(l_extendedprice) as avg_price,
+                avg(l_discount) as avg_disc,
+                count(*) as count_order
+                from ${catalog_name}.${ex_db_name}.lineitem
+                where l_shipdate <= date '1998-12-01' - interval '90' day
+                group by l_returnflag, l_linestatus
+                order by l_returnflag, l_linestatus;"""
+
+        def webserverPortResult = sql """SHOW BACKEND CONFIG LIKE 'webserver_port';"""
+        logger.info("webserver_port configuration: " + webserverPortResult)
+        assertFalse(webserverPortResult.size() == 0 || webserverPortResult[0][3] == null || webserverPortResult[0][3].trim().isEmpty(),
+                WEB_SERVER_PORT_CHECK_FAILED_MSG)
+
+        String webserver_port = webserverPortResult[0][3]
+
+        def brpcPortResult = sql """SHOW BACKEND CONFIG LIKE 'brpc_port';"""
+        logger.info("brpcPortResult configuration: " + brpcPortResult)
+        assertFalse(brpcPortResult.size() == 0 || brpcPortResult[0][3] == null || brpcPortResult[0][3].trim().isEmpty(),
+                BRPC_PORT_CHECK_FAILED_MSG)
+
+        String brpc_port = brpcPortResult[0][3]
+
+        // Search file cache capacity
+        def command = ["curl", "-X", "POST", "${beHost}:${brpc_port}/vars"]
+        def stringCommand = command.collect{it.toString()}
+        def process = new ProcessBuilder(stringCommand as String[]).redirectErrorStream(true).start()
+
+        def output = new StringBuilder()
+        def errorOutput = new StringBuilder()
+        process.inputStream.eachLine{line -> output.append(line).append("\n")}
+        process.errorStream.eachLine{line -> errorOutput.append(line).append("\n")}
+
+        // Wait for process completion and check exit status
+        def exitCode = process.waitFor()
+        def fileCacheCapacityResults = output.toString().split("\n")
+                .findAll { it.contains("file_cache_capacity") }
+                .collect { it.split(":")?.last()?.trim() }
+                .findAll { it != null && !it.isEmpty() }
+                .collect { Long.valueOf(it) }
+
+        logger.info("File cache capacities: ${fileCacheCapacityResults}")
+        assertTrue(!fileCacheCapacityResults.isEmpty(), "Failed to find file_cache_capacity in brpc metrics")
+        long fileCacheCapacity = fileCacheCapacityResults.sum() as Long
+
+        // Run file cache base test for setting the parameter file_cache_query_limit_bytes
+        logger.info("========================= Start running file cache base test ========================")
+
+        // Clear file cache
+        command = ["curl", "-X", "POST", "${beHost}:${webserver_port}/api/file_cache?op=clear&sync=true"]
+        stringCommand = command.collect{it.toString()}
+        process = new ProcessBuilder(stringCommand as String[]).redirectErrorStream(true).start()
+
+        output = new StringBuilder()
+        errorOutput = new StringBuilder()
+        process.inputStream.eachLine{line -> output.append(line).append("\n")}
+        process.errorStream.eachLine{line -> errorOutput.append(line).append("\n")}
+
+        // Wait for process completion and check exit status
+        exitCode = process.waitFor()
+        logger.info("File cache clear command output: ${output.toString()}")
+        assertTrue(exitCode == 0, "File cache clear failed with exit code ${exitCode}. Error: ${errorOutput.toString()}")
+
+        // brpc metrics will be updated at most 5 seconds
+        def totalWaitTime = (fileCacheBackgroundMonitorIntervalMsResult[0][3].toLong() / 1000) as int
+        long pollTimeoutSeconds = Math.max(30L, (long) totalWaitTime * 6L)
+
+        def waitBackendConfig = { String configName, String expectedValue ->
             Awaitility.await()
-                    .atMost(timeoutSeconds, TimeUnit.SECONDS)
+                    .atMost(pollTimeoutSeconds, TimeUnit.SECONDS)
                     .pollInterval(1, TimeUnit.SECONDS)
                     .until {
-                        Double metricValue = cacheMetricSum(metricName)
-                        return metricValue != null && predicate(metricValue)
+                        def r = sql """SHOW BACKEND CONFIG LIKE '${configName}';"""
+                        return r.size() > 0 && r[0][3] != null && r[0][3].toString().equalsIgnoreCase(expectedValue)
                     }
-        } catch (org.awaitility.core.ConditionTimeoutException ignored) {
-            // fall through; the caller's assert will surface the precise failure
         }
-    }
 
-    sql """drop catalog if exists ${catalog_name} """
+        // Poll until the cache clear has drained the LRU queue. The HTTP clear endpoint with sync=true
+        // deletes blocks synchronously, but the queue counters are republished by the background monitor
+        // thread on its own cadence — so a single fixed-time wait can race the refresh.
+        pollFileCacheMetric('normal_queue_curr_size', { it == 0.0 }, pollTimeoutSeconds)
+        pollFileCacheMetric('normal_queue_curr_elements', { it == 0.0 }, pollTimeoutSeconds)
 
-    sql """CREATE CATALOG ${catalog_name} PROPERTIES (
-        'type'='hms',
-        'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
-        'hadoop.username' = 'hive'
-    );"""
+        Double initialNormalQueueCurrSize = cacheMetricSum('normal_queue_curr_size')
+        logger.info("normal_queue_curr_size sum result: " + initialNormalQueueCurrSize)
+        assertFalse(initialNormalQueueCurrSize == null || initialNormalQueueCurrSize != 0.0,
+                INITIAL_NORMAL_QUEUE_CURR_SIZE_NOT_ZERO_MSG)
 
-    String query_sql =
-            """select sum(l_quantity) as sum_qty,
-            sum(l_extendedprice) as sum_base_price,
-            sum(l_extendedprice * (1 - l_discount)) as sum_disc_price,
-            sum(l_extendedprice * (1 - l_discount) * (1 + l_tax)) as sum_charge,
-            avg(l_quantity) as avg_qty,
-            avg(l_extendedprice) as avg_price,
-            avg(l_discount) as avg_disc,
-            count(*) as count_order
-            from ${catalog_name}.${ex_db_name}.lineitem
-            where l_shipdate <= date '1998-12-01' - interval '90' day
-            group by l_returnflag, l_linestatus
-            order by l_returnflag, l_linestatus;"""
+        Double initialNormalQueueCurrElements = cacheMetricSum('normal_queue_curr_elements')
+        logger.info("normal_queue_curr_elements sum result: " + initialNormalQueueCurrElements)
+        assertFalse(initialNormalQueueCurrElements == null || initialNormalQueueCurrElements != 0.0,
+                INITIAL_NORMAL_QUEUE_CURR_ELEMENTS_NOT_ZERO_MSG)
 
-    def webserverPortResult = sql """SHOW BACKEND CONFIG LIKE 'webserver_port';"""
-    logger.info("webserver_port configuration: " + webserverPortResult)
-    assertFalse(webserverPortResult.size() == 0 || webserverPortResult[0][3] == null || webserverPortResult[0][3].trim().isEmpty(),
-            WEB_SERVER_PORT_CHECK_FAILED_MSG)
-
-    String webserver_port = webserverPortResult[0][3]
-
-    def brpcPortResult = sql """SHOW BACKEND CONFIG LIKE 'brpc_port';"""
-    logger.info("brpcPortResult configuration: " + brpcPortResult)
-    assertFalse(brpcPortResult.size() == 0 || brpcPortResult[0][3] == null || brpcPortResult[0][3].trim().isEmpty(),
-            BRPC_PORT_CHECK_FAILED_MSG)
-
-    String brpc_port = brpcPortResult[0][3]
-
-    // Search file cache capacity
-    def command = ["curl", "-X", "POST", "${beHost}:${brpc_port}/vars"]
-    def stringCommand = command.collect{it.toString()}
-    def process = new ProcessBuilder(stringCommand as String[]).redirectErrorStream(true).start()
-
-    def output = new StringBuilder()
-    def errorOutput = new StringBuilder()
-    process.inputStream.eachLine{line -> output.append(line).append("\n")}
-    process.errorStream.eachLine{line -> errorOutput.append(line).append("\n")}
-
-    // Wait for process completion and check exit status
-    def exitCode = process.waitFor()
-    def fileCacheCapacityResults = output.toString().split("\n")
-            .findAll { it.contains("file_cache_capacity") }
-            .collect { it.split(":")?.last()?.trim() }
-            .findAll { it != null && !it.isEmpty() }
-            .collect { Long.valueOf(it) }
-
-    logger.info("File cache capacities: ${fileCacheCapacityResults}")
-    assertTrue(!fileCacheCapacityResults.isEmpty(), "Failed to find file_cache_capacity in brpc metrics")
-    long fileCacheCapacity = fileCacheCapacityResults.sum() as Long
-
-    // Run file cache base test for setting the parameter file_cache_query_limit_bytes
-    logger.info("========================= Start running file cache base test ========================")
-
-    // Clear file cache
-    command = ["curl", "-X", "POST", "${beHost}:${webserver_port}/api/file_cache?op=clear&sync=true"]
-    stringCommand = command.collect{it.toString()}
-    process = new ProcessBuilder(stringCommand as String[]).redirectErrorStream(true).start()
-
-    output = new StringBuilder()
-    errorOutput = new StringBuilder()
-    process.inputStream.eachLine{line -> output.append(line).append("\n")}
-    process.errorStream.eachLine{line -> errorOutput.append(line).append("\n")}
-
-    // Wait for process completion and check exit status
-    exitCode = process.waitFor()
-    logger.info("File cache clear command output: ${output.toString()}")
-    assertTrue(exitCode == 0, "File cache clear failed with exit code ${exitCode}. Error: ${errorOutput.toString()}")
-
-    // brpc metrics will be updated at most 5 seconds
-    def totalWaitTime = (fileCacheBackgroundMonitorIntervalMsResult[0][3].toLong() / 1000) as int
-    long pollTimeoutSeconds = Math.max(30L, (long) totalWaitTime * 6L)
-
-    def waitBackendConfig = { String configName, String expectedValue ->
-        Awaitility.await()
-                .atMost(pollTimeoutSeconds, TimeUnit.SECONDS)
-                .pollInterval(1, TimeUnit.SECONDS)
-                .until {
-                    def r = sql """SHOW BACKEND CONFIG LIKE '${configName}';"""
-                    return r.size() > 0 && r[0][3] != null && r[0][3].toString().equalsIgnoreCase(expectedValue)
-                }
-    }
-
-    // Poll until the cache clear has drained the LRU queue. The HTTP clear endpoint with sync=true
-    // deletes blocks synchronously, but the queue counters are republished by the background monitor
-    // thread on its own cadence — so a single fixed-time wait can race the refresh.
-    pollFileCacheMetric('normal_queue_curr_size', { it == 0.0 }, pollTimeoutSeconds)
-    pollFileCacheMetric('normal_queue_curr_elements', { it == 0.0 }, pollTimeoutSeconds)
-
-    Double initialNormalQueueCurrSize = cacheMetricSum('normal_queue_curr_size')
-    logger.info("normal_queue_curr_size sum result: " + initialNormalQueueCurrSize)
-    assertFalse(initialNormalQueueCurrSize == null || initialNormalQueueCurrSize != 0.0,
-            INITIAL_NORMAL_QUEUE_CURR_SIZE_NOT_ZERO_MSG)
-
-    Double initialNormalQueueCurrElements = cacheMetricSum('normal_queue_curr_elements')
-    logger.info("normal_queue_curr_elements sum result: " + initialNormalQueueCurrElements)
-    assertFalse(initialNormalQueueCurrElements == null || initialNormalQueueCurrElements != 0.0,
-            INITIAL_NORMAL_QUEUE_CURR_ELEMENTS_NOT_ZERO_MSG)
-
-    logger.info("Initial normal queue curr size and elements - size: ${initialNormalQueueCurrSize} , " +
-            "elements: ${initialNormalQueueCurrElements}")
-
-    setBeConfigTemporary([
-            "enable_file_cache_query_limit": "false"
-    ]) {
-        // Execute test logic with modified configuration for file_cache_query_limit
-        logger.info("Backend configuration set - enable_file_cache_query_limit: false")
-
-        waitBackendConfig("enable_file_cache_query_limit", "false")
-
-        // Check if the configuration is modified
-        def enableFileCacheQueryLimitResult = sql """SHOW BACKEND CONFIG LIKE 'enable_file_cache_query_limit';"""
-        logger.info("enable_file_cache_query_limit configuration: " + enableFileCacheQueryLimitResult)
-        assertFalse(enableFileCacheQueryLimitResult.size() == 0 || enableFileCacheQueryLimitResult[0][3] == null || enableFileCacheQueryLimitResult[0][3] != "false",
-                ENABLE_FILE_CACHE_QUERY_LIMIT_CHECK_FALSE_FAILED_MSG)
-
-        sql """switch ${catalog_name}"""
-        // load the table into file cache
-        sql query_sql
-
-        // Poll until the query has populated the cache.
-        pollFileCacheMetric('normal_queue_curr_elements', { it > 0.0 }, pollTimeoutSeconds)
-        pollFileCacheMetric('normal_queue_curr_size', { it > 0.0 }, pollTimeoutSeconds)
-
-        Double baseNormalQueueCurrElements = cacheMetricSum('normal_queue_curr_elements')
-        logger.info("normal_queue_curr_elements sum result: " + baseNormalQueueCurrElements)
-        assertFalse(baseNormalQueueCurrElements == null || baseNormalQueueCurrElements == 0.0,
-                BASE_NORMAL_QUEUE_CURR_ELEMENTS_IS_ZERO_MSG)
-
-        Double baseNormalQueueCurrSize = cacheMetricSum('normal_queue_curr_size')
-        logger.info("normal_queue_curr_size sum result: " + baseNormalQueueCurrSize)
-        assertFalse(baseNormalQueueCurrSize == null || baseNormalQueueCurrSize == 0.0,
-                BASE_NORMAL_QUEUE_CURR_SIZE_IS_ZERO_MSG)
-
-        queryCacheCapacity = baseNormalQueueCurrSize as Long
-    }
-
-    // The parameter file_cache_query_limit_percent must be set smaller than the cache capacity required by the query
-    def fileCacheQueryLimitPercent = (queryCacheCapacity / fileCacheCapacity) * 100
-    logger.info("file_cache_query_limit_percent: " + fileCacheQueryLimitPercent)
-
-    logger.info("========================== End running file cache base test =========================")
-
-    logger.info("==================== Start running file cache query limit test 1 ====================")
-
-    long fileCacheQueryLimitPercentTest1 = Math.max(1L, (fileCacheQueryLimitPercent / 2) as Long)
-    queryLimitBytes = (fileCacheCapacity * fileCacheQueryLimitPercentTest1 / 100) as Long
-    logger.info("file_cache_query_limit_percent_test1: " + fileCacheQueryLimitPercentTest1)
-    logger.info("query_limit_bytes: ${queryLimitBytes}, query_cache_capacity: ${queryCacheCapacity}")
-    assertTrue(queryLimitBytes > 0 && queryLimitBytes < queryCacheCapacity,
-            FILE_CACHE_QUERY_LIMIT_BYTES_CHECK_FAILED_MSG)
-
-    // Clear file cache
-    process = new ProcessBuilder(stringCommand as String[]).redirectErrorStream(true).start()
-
-    output = new StringBuilder()
-    errorOutput = new StringBuilder()
-    process.inputStream.eachLine{line -> output.append(line).append("\n")}
-    process.errorStream.eachLine{line -> errorOutput.append(line).append("\n")}
-
-    // Wait for process completion and check exit status
-    exitCode = process.waitFor()
-    logger.info("File cache clear command output: ${output.toString()}")
-    assertTrue(exitCode == 0, "File cache clear failed with exit code ${exitCode}. Error: ${errorOutput.toString()}")
-
-    // Poll until the file cache is fully cleared again.
-    pollFileCacheMetric('normal_queue_curr_size', { it == 0.0 }, pollTimeoutSeconds)
-    pollFileCacheMetric('normal_queue_curr_elements', { it == 0.0 }, pollTimeoutSeconds)
-
-    // ===== Normal Queue Metrics Check =====
-    // Check normal queue current size
-    initialNormalQueueCurrSize = cacheMetricSum('normal_queue_curr_size')
-    logger.info("normal_queue_curr_size sum result: " + initialNormalQueueCurrSize)
-    assertFalse(initialNormalQueueCurrSize == null || initialNormalQueueCurrSize != 0.0,
-            INITIAL_NORMAL_QUEUE_CURR_SIZE_NOT_ZERO_MSG)
-
-    // Check normal queue current elements
-    initialNormalQueueCurrElements = cacheMetricSum('normal_queue_curr_elements')
-    logger.info("normal_queue_curr_elements sum result: " + initialNormalQueueCurrElements)
-    assertFalse(initialNormalQueueCurrElements == null || initialNormalQueueCurrElements != 0.0,
-            INITIAL_NORMAL_QUEUE_CURR_ELEMENTS_NOT_ZERO_MSG)
-
-    // Check normal queue max size
-    Double initialNormalQueueMaxSize = cacheMetricSum('normal_queue_max_size')
-    logger.info("normal_queue_max_size sum result: " + initialNormalQueueMaxSize)
-    assertFalse(initialNormalQueueMaxSize == null || initialNormalQueueMaxSize == 0.0,
-            INITIAL_NORMAL_QUEUE_MAX_SIZE_IS_ZERO_MSG)
-
-    // Check normal queue max elements
-    Double initialNormalQueueMaxElements = cacheMetricSum('normal_queue_max_elements')
-    logger.info("normal_queue_max_elements sum result: " + initialNormalQueueMaxElements)
-    assertFalse(initialNormalQueueMaxElements == null || initialNormalQueueMaxElements == 0.0,
-            INITIAL_NORMAL_QUEUE_MAX_ELEMENTS_IS_ZERO_MSG)
-
-    logger.info("Initial normal queue curr size and elements - size: ${initialNormalQueueCurrSize} , " +
+        logger.info("Initial normal queue curr size and elements - size: ${initialNormalQueueCurrSize} , " +
                 "elements: ${initialNormalQueueCurrElements}")
 
-    logger.info("Initial normal queue max size and elements - size: ${initialNormalQueueMaxSize} , " +
-                "elements: ${initialNormalQueueMaxElements}")
+        setBeConfigTemporary([
+                "enable_file_cache_query_limit": "false"
+        ]) {
+            // Execute test logic with modified configuration for file_cache_query_limit
+            logger.info("Backend configuration set - enable_file_cache_query_limit: false")
 
-    // ===== Hit And Read Counts Metrics Check =====
-    // total_hit_counts / total_read_counts are also reported per cache path.
-    Double initialTotalHitCounts = cacheMetricSum('total_hit_counts')
-    Double initialTotalReadCounts = cacheMetricSum('total_read_counts')
-    logger.info("Initial total_hit_counts (sum): ${initialTotalHitCounts}, total_read_counts (sum): ${initialTotalReadCounts}")
+            waitBackendConfig("enable_file_cache_query_limit", "false")
 
-    // Set backend configuration parameters for file_cache_query_limit test 1
-    setBeConfigTemporary([
-            "enable_file_cache_query_limit": "true"
-    ]) {
-        // Execute test logic with modified configuration for file_cache_query_limit
-        logger.info("Backend configuration set - enable_file_cache_query_limit: true")
+            // Check if the configuration is modified
+            def enableFileCacheQueryLimitResult = sql """SHOW BACKEND CONFIG LIKE 'enable_file_cache_query_limit';"""
+            logger.info("enable_file_cache_query_limit configuration: " + enableFileCacheQueryLimitResult)
+            assertFalse(enableFileCacheQueryLimitResult.size() == 0 || enableFileCacheQueryLimitResult[0][3] == null || enableFileCacheQueryLimitResult[0][3] != "false",
+                    ENABLE_FILE_CACHE_QUERY_LIMIT_CHECK_FALSE_FAILED_MSG)
 
-        sql """set file_cache_query_limit_percent =  ${fileCacheQueryLimitPercentTest1}"""
+            sql """switch ${catalog_name}"""
+            // load the table into file cache
+            sql query_sql
 
-        waitBackendConfig("enable_file_cache_query_limit", "true")
+            // Poll until the query has populated the cache.
+            pollFileCacheMetric('normal_queue_curr_elements', { it > 0.0 }, pollTimeoutSeconds)
+            pollFileCacheMetric('normal_queue_curr_size', { it > 0.0 }, pollTimeoutSeconds)
 
-        // Check if the configuration is modified
-        def enableFileCacheQueryLimitResult = sql """SHOW BACKEND CONFIG LIKE 'enable_file_cache_query_limit';"""
-        logger.info("enable_file_cache_query_limit configuration: " + enableFileCacheQueryLimitResult)
-        assertFalse(enableFileCacheQueryLimitResult.size() == 0 || enableFileCacheQueryLimitResult[0][3] == null || enableFileCacheQueryLimitResult[0][3] != "true",
-                ENABLE_FILE_CACHE_QUERY_LIMIT_CHECK_TRUE_FAILED_MSG)
+            Double baseNormalQueueCurrElements = cacheMetricSum('normal_queue_curr_elements')
+            logger.info("normal_queue_curr_elements sum result: " + baseNormalQueueCurrElements)
+            assertFalse(baseNormalQueueCurrElements == null || baseNormalQueueCurrElements == 0.0,
+                    BASE_NORMAL_QUEUE_CURR_ELEMENTS_IS_ZERO_MSG)
 
-        sql """switch ${catalog_name}"""
+            Double baseNormalQueueCurrSize = cacheMetricSum('normal_queue_curr_size')
+            logger.info("normal_queue_curr_size sum result: " + baseNormalQueueCurrSize)
+            assertFalse(baseNormalQueueCurrSize == null || baseNormalQueueCurrSize == 0.0,
+                    BASE_NORMAL_QUEUE_CURR_SIZE_IS_ZERO_MSG)
 
-        // load the table into file cache
-        sql query_sql
+            queryCacheCapacity = baseNormalQueueCurrSize as Long
+        }
 
-        // Poll until the query has populated the cache under the new file_cache_query_limit.
-        pollFileCacheMetric('normal_queue_curr_size', { it > 0.0 }, pollTimeoutSeconds)
-        pollFileCacheMetric('normal_queue_curr_elements', { it > 0.0 }, pollTimeoutSeconds)
+        // The parameter file_cache_query_limit_percent must be set smaller than the cache capacity required by the query
+        def fileCacheQueryLimitPercent = (queryCacheCapacity / fileCacheCapacity) * 100
+        logger.info("file_cache_query_limit_percent: " + fileCacheQueryLimitPercent)
 
-        // Get updated value of normal queue current elements and max elements after cache operations
-        // Check if updated values are greater than initial values
-        Double updatedNormalQueueCurrSize = cacheMetricSum('normal_queue_curr_size')
-        Double updatedNormalQueueCurrElements = cacheMetricSum('normal_queue_curr_elements')
+        logger.info("========================== End running file cache base test =========================")
 
-        logger.info("Updated normal queue curr size and elements sum - size: ${updatedNormalQueueCurrSize} , " +
-                "elements: ${updatedNormalQueueCurrElements}")
+        logger.info("==================== Start running file cache query limit test 1 ====================")
 
-        assertTrue(updatedNormalQueueCurrSize > 0.0, NORMAL_QUEUE_CURR_SIZE_NOT_GREATER_THAN_ZERO_MSG)
-        assertTrue(updatedNormalQueueCurrElements > 0.0, NORMAL_QUEUE_CURR_ELEMENTS_NOT_GREATER_THAN_ZERO_MSG)
+        long fileCacheQueryLimitPercentTest1 = Math.max(1L, (fileCacheQueryLimitPercent / 2) as Long)
+        queryLimitBytes = (fileCacheCapacity * fileCacheQueryLimitPercentTest1 / 100) as Long
+        logger.info("file_cache_query_limit_percent_test1: " + fileCacheQueryLimitPercentTest1)
+        logger.info("query_limit_bytes: ${queryLimitBytes}, query_cache_capacity: ${queryCacheCapacity}")
+        assertTrue(queryLimitBytes > 0 && queryLimitBytes < queryCacheCapacity,
+                FILE_CACHE_QUERY_LIMIT_BYTES_CHECK_FAILED_MSG)
 
-        logger.info("Normal queue curr size and query cache limit comparison - normal queue curr size: ${updatedNormalQueueCurrSize as Long} , " +
-                "query cache limit: ${queryLimitBytes}, baseline query cache capacity: ${queryCacheCapacity}")
+        // Clear file cache
+        process = new ProcessBuilder(stringCommand as String[]).redirectErrorStream(true).start()
 
-        assertTrue((updatedNormalQueueCurrSize as Long) <= queryLimitBytes,
-                NORMAL_QUEUE_CURR_SIZE_GREATER_THAN_QUERY_CACHE_LIMIT_MSG)
+        output = new StringBuilder()
+        errorOutput = new StringBuilder()
+        process.inputStream.eachLine{line -> output.append(line).append("\n")}
+        process.errorStream.eachLine{line -> errorOutput.append(line).append("\n")}
 
-        Double updatedTotalHitCounts = cacheMetricSum('total_hit_counts')
-        Double updatedTotalReadCounts = cacheMetricSum('total_read_counts')
+        // Wait for process completion and check exit status
+        exitCode = process.waitFor()
+        logger.info("File cache clear command output: ${output.toString()}")
+        assertTrue(exitCode == 0, "File cache clear failed with exit code ${exitCode}. Error: ${errorOutput.toString()}")
 
-        logger.info("Total hit and read counts comparison - hit counts: ${initialTotalHitCounts} -> " +
-                "${updatedTotalHitCounts} , read counts: ${initialTotalReadCounts} -> ${updatedTotalReadCounts}")
+        // Poll until the file cache is fully cleared again.
+        pollFileCacheMetric('normal_queue_curr_size', { it == 0.0 }, pollTimeoutSeconds)
+        pollFileCacheMetric('normal_queue_curr_elements', { it == 0.0 }, pollTimeoutSeconds)
 
-        assertTrue(updatedTotalReadCounts > initialTotalReadCounts, TOTAL_READ_COUNTS_DID_NOT_INCREASE_MSG)
+        // ===== Normal Queue Metrics Check =====
+        // Check normal queue current size
+        initialNormalQueueCurrSize = cacheMetricSum('normal_queue_curr_size')
+        logger.info("normal_queue_curr_size sum result: " + initialNormalQueueCurrSize)
+        assertFalse(initialNormalQueueCurrSize == null || initialNormalQueueCurrSize != 0.0,
+                INITIAL_NORMAL_QUEUE_CURR_SIZE_NOT_ZERO_MSG)
+
+        // Check normal queue current elements
+        initialNormalQueueCurrElements = cacheMetricSum('normal_queue_curr_elements')
+        logger.info("normal_queue_curr_elements sum result: " + initialNormalQueueCurrElements)
+        assertFalse(initialNormalQueueCurrElements == null || initialNormalQueueCurrElements != 0.0,
+                INITIAL_NORMAL_QUEUE_CURR_ELEMENTS_NOT_ZERO_MSG)
+
+        // Check normal queue max size
+        Double initialNormalQueueMaxSize = cacheMetricSum('normal_queue_max_size')
+        logger.info("normal_queue_max_size sum result: " + initialNormalQueueMaxSize)
+        assertFalse(initialNormalQueueMaxSize == null || initialNormalQueueMaxSize == 0.0,
+                INITIAL_NORMAL_QUEUE_MAX_SIZE_IS_ZERO_MSG)
+
+        // Check normal queue max elements
+        Double initialNormalQueueMaxElements = cacheMetricSum('normal_queue_max_elements')
+        logger.info("normal_queue_max_elements sum result: " + initialNormalQueueMaxElements)
+        assertFalse(initialNormalQueueMaxElements == null || initialNormalQueueMaxElements == 0.0,
+                INITIAL_NORMAL_QUEUE_MAX_ELEMENTS_IS_ZERO_MSG)
+
+        logger.info("Initial normal queue curr size and elements - size: ${initialNormalQueueCurrSize} , " +
+                    "elements: ${initialNormalQueueCurrElements}")
+
+        logger.info("Initial normal queue max size and elements - size: ${initialNormalQueueMaxSize} , " +
+                    "elements: ${initialNormalQueueMaxElements}")
+
+        // ===== Hit And Read Counts Metrics Check =====
+        // total_hit_counts / total_read_counts are also reported per cache path.
+        Double initialTotalHitCounts = cacheMetricSum('total_hit_counts')
+        Double initialTotalReadCounts = cacheMetricSum('total_read_counts')
+        logger.info("Initial total_hit_counts (sum): ${initialTotalHitCounts}, total_read_counts (sum): ${initialTotalReadCounts}")
+
+        // Set backend configuration parameters for file_cache_query_limit test 1
+        setBeConfigTemporary([
+                "enable_file_cache_query_limit": "true"
+        ]) {
+            // Execute test logic with modified configuration for file_cache_query_limit
+            logger.info("Backend configuration set - enable_file_cache_query_limit: true")
+
+            sql """set file_cache_query_limit_percent =  ${fileCacheQueryLimitPercentTest1}"""
+
+            waitBackendConfig("enable_file_cache_query_limit", "true")
+
+            // Check if the configuration is modified
+            def enableFileCacheQueryLimitResult = sql """SHOW BACKEND CONFIG LIKE 'enable_file_cache_query_limit';"""
+            logger.info("enable_file_cache_query_limit configuration: " + enableFileCacheQueryLimitResult)
+            assertFalse(enableFileCacheQueryLimitResult.size() == 0 || enableFileCacheQueryLimitResult[0][3] == null || enableFileCacheQueryLimitResult[0][3] != "true",
+                    ENABLE_FILE_CACHE_QUERY_LIMIT_CHECK_TRUE_FAILED_MSG)
+
+            sql """switch ${catalog_name}"""
+
+            // load the table into file cache
+            sql query_sql
+
+            // Poll until the query has populated the cache under the new file_cache_query_limit.
+            pollFileCacheMetric('normal_queue_curr_size', { it > 0.0 }, pollTimeoutSeconds)
+            pollFileCacheMetric('normal_queue_curr_elements', { it > 0.0 }, pollTimeoutSeconds)
+
+            // Get updated value of normal queue current elements and max elements after cache operations
+            // Check if updated values are greater than initial values
+            Double updatedNormalQueueCurrSize = cacheMetricSum('normal_queue_curr_size')
+            Double updatedNormalQueueCurrElements = cacheMetricSum('normal_queue_curr_elements')
+
+            logger.info("Updated normal queue curr size and elements sum - size: ${updatedNormalQueueCurrSize} , " +
+                    "elements: ${updatedNormalQueueCurrElements}")
+
+            assertTrue(updatedNormalQueueCurrSize > 0.0, NORMAL_QUEUE_CURR_SIZE_NOT_GREATER_THAN_ZERO_MSG)
+            assertTrue(updatedNormalQueueCurrElements > 0.0, NORMAL_QUEUE_CURR_ELEMENTS_NOT_GREATER_THAN_ZERO_MSG)
+
+            logger.info("Normal queue curr size and query cache limit comparison - normal queue curr size: ${updatedNormalQueueCurrSize as Long} , " +
+                    "query cache limit: ${queryLimitBytes}, baseline query cache capacity: ${queryCacheCapacity}")
+
+            assertTrue((updatedNormalQueueCurrSize as Long) <= queryLimitBytes,
+                    NORMAL_QUEUE_CURR_SIZE_GREATER_THAN_QUERY_CACHE_LIMIT_MSG)
+
+            Double updatedTotalHitCounts = cacheMetricSum('total_hit_counts')
+            Double updatedTotalReadCounts = cacheMetricSum('total_read_counts')
+
+            logger.info("Total hit and read counts comparison - hit counts: ${initialTotalHitCounts} -> " +
+                    "${updatedTotalHitCounts} , read counts: ${initialTotalReadCounts} -> ${updatedTotalReadCounts}")
+
+            assertTrue(updatedTotalReadCounts > initialTotalReadCounts, TOTAL_READ_COUNTS_DID_NOT_INCREASE_MSG)
+        }
+
+        logger.info("===================== End running file cache query limit test 1 =====================")
+
+        return true;
     }
-
-    logger.info("===================== End running file cache query limit test 1 =====================")
-
-    return true;
 }

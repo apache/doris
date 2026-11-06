@@ -35,13 +35,9 @@ target_include_directories(Format PRIVATE
 
 pch_reuse(Format)
 
-# Unity build scoped to format_v2/: the v2 readers are the maintained line and
-# share one reader/expr header closure. The format/ (v1) tree is slated for
-# removal in a future version, so it is not worth the v1/v2 twin-symbol
-# deduplication a joint unity would require: every v1 file stays individual
-# until the tree is deleted. Within v2, adbc_reader.cpp stays individual
-# because its file-scope RETURN_IF_ADBC_ERROR macro must not leak into unity
-# siblings. Batch 8 bounds jumbo-TU size and memory.
+# Shared format utilities and writers remain individual translation units. Reader implementations
+# under format_v2/ share one reader/expr header closure and use bounded unity batches. Keep the
+# ADBC source individual so its file-scope status macro cannot leak into sibling sources.
 set(FORMAT_UNITY_SKIP ${SRC_FILES})
 list(FILTER FORMAT_UNITY_SKIP EXCLUDE REGEX ".*/format_v2/.*")
 list(APPEND FORMAT_UNITY_SKIP

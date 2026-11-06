@@ -27,6 +27,15 @@ import java.util.Optional;
  */
 public interface ConnectorSession {
 
+    /**
+     * Query-owned scheduling captured with this session, shared by all scans/catalogs of the statement.
+     * SPLIT tasks may wait for METADATA tasks, never the reverse. Closing the query rejects outstanding
+     * work and prevents this captured handle from creating a new queue. The default is for offline use.
+     */
+    default ConnectorTaskScheduler getTaskScheduler(ConnectorTaskScheduler.Stage stage) {
+        return ConnectorTaskScheduler.DIRECT;
+    }
+
     /** Returns the unique query identifier. */
     String getQueryId();
 

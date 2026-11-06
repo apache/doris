@@ -40,10 +40,12 @@
 #include "core/data_type/primitive_type.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
+// Adding a format source changes unity groups; cache calls cannot depend on a neighbor's includes.
+#include "format/format_common.h"
 #include "format/table/deletion_vector_reader.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
 #include "format/table/iceberg_scan_semantics.h"
-#include "format/table/paimon_reader.h"
+#include "format/table/paimon_deletion_vector.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/delimited_text/csv_reader.h"
 #include "format_v2/delimited_text/text_reader.h"
@@ -109,8 +111,12 @@ std::string file_format_to_string(FileFormat format) {
         return "JNI";
     case FileFormat::ARROW:
         return "ARROW";
+    case FileFormat::ES_HTTP:
+        return "ES_HTTP";
     case FileFormat::WAL:
         return "WAL";
+    case FileFormat::LANCE:
+        return "LANCE";
     }
     return "UNKNOWN";
 }
@@ -261,51 +267,6 @@ bool find_column_identity_path_by_id(const std::vector<ColumnDefinition>& fields
         path->pop_back();
     }
     return false;
-}
-
-ColumnDefinition build_schema_identity_from_external_field(const schema::external::TField& field) {
-    ColumnDefinition identity;
-    if (field.__isset.id) {
-        identity.identifier = Field::create_field<TYPE_INT>(field.id);
-    }
-    identity.name = field.__isset.name ? field.name : "";
-    identity.name_mapping =
-            field.__isset.name_mapping ? field.name_mapping : std::vector<std::string> {};
-    identity.has_name_mapping =
-            field.__isset.name_mapping_is_authoritative && field.name_mapping_is_authoritative;
-    if (!field.__isset.nestedField) {
-        return identity;
-    }
-    if (field.nestedField.__isset.struct_field && field.nestedField.struct_field.__isset.fields) {
-        for (const auto& child_ptr : field.nestedField.struct_field.fields) {
-            if (const auto* child = get_field_ptr(child_ptr); child != nullptr) {
-                identity.children.push_back(build_schema_identity_from_external_field(*child));
-            }
-        }
-    } else if (field.nestedField.__isset.array_field &&
-               field.nestedField.array_field.__isset.item_field) {
-        if (const auto* child = get_field_ptr(field.nestedField.array_field.item_field);
-            child != nullptr) {
-            identity.children.push_back(build_schema_identity_from_external_field(*child));
-            identity.children.back().name = "element";
-        }
-    } else if (field.nestedField.__isset.map_field) {
-        if (field.nestedField.map_field.__isset.key_field) {
-            if (const auto* child = get_field_ptr(field.nestedField.map_field.key_field);
-                child != nullptr) {
-                identity.children.push_back(build_schema_identity_from_external_field(*child));
-                identity.children.back().name = "key";
-            }
-        }
-        if (field.nestedField.map_field.__isset.value_field) {
-            if (const auto* child = get_field_ptr(field.nestedField.map_field.value_field);
-                child != nullptr) {
-                identity.children.push_back(build_schema_identity_from_external_field(*child));
-                identity.children.back().name = "value";
-            }
-        }
-    }
-    return identity;
 }
 
 const ColumnDefinition* find_identity_child(const ColumnDefinition& projected_child,
@@ -515,21 +476,8 @@ ColumnDefinition build_schema_column_from_external_field(const schema::external:
 
 const schema::external::TField* find_external_root_field(const TFileScanRangeParams* params,
                                                          const ColumnDefinition& column) {
-    if (params == nullptr || !params->__isset.history_schema_info ||
-        params->history_schema_info.empty()) {
-        return nullptr;
-    }
-    const auto* schema = &params->history_schema_info.front();
-    if (params->__isset.current_schema_id) {
-        for (const auto& candidate_schema : params->history_schema_info) {
-            if (candidate_schema.__isset.schema_id &&
-                candidate_schema.schema_id == params->current_schema_id) {
-                schema = &candidate_schema;
-                break;
-            }
-        }
-    }
-    if (!schema->__isset.root_field || !schema->root_field.__isset.fields) {
+    const auto* schema = find_current_schema(params);
+    if (schema == nullptr || !schema->__isset.root_field || !schema->root_field.__isset.fields) {
         return nullptr;
     }
     if (!supports_iceberg_scan_semantics_v1(params)) {
@@ -769,16 +717,7 @@ std::optional<ColumnDefinition> TableReader::_find_table_column_by_field_id(
                                          : nullptr;
     };
 
-    const auto* current_schema = &_scan_params->history_schema_info.front();
-    if (_scan_params->__isset.current_schema_id) {
-        for (const auto& candidate_schema : _scan_params->history_schema_info) {
-            if (candidate_schema.__isset.schema_id &&
-                candidate_schema.schema_id == _scan_params->current_schema_id) {
-                current_schema = &candidate_schema;
-                break;
-            }
-        }
-    }
+    const auto* current_schema = find_current_schema(_scan_params);
     if (const auto* field = find_field(*current_schema); field != nullptr) {
         return build_schema_column_from_external_field(
                 *field, std::move(type), supports_iceberg_scan_semantics_v1(_scan_params));
@@ -856,16 +795,7 @@ std::optional<std::vector<ColumnDefinition>> TableReader::_find_table_column_pat
         return result;
     };
 
-    const auto* current_schema = &_scan_params->history_schema_info.front();
-    if (_scan_params->__isset.current_schema_id) {
-        for (const auto& candidate_schema : _scan_params->history_schema_info) {
-            if (candidate_schema.__isset.schema_id &&
-                candidate_schema.schema_id == _scan_params->current_schema_id) {
-                current_schema = &candidate_schema;
-                break;
-            }
-        }
-    }
+    const auto* current_schema = find_current_schema(_scan_params);
     if (auto path = build_path(*current_schema); path.has_value()) {
         return path;
     }
@@ -920,16 +850,7 @@ TableReader::_find_table_column_identity_path_by_field_id(int32_t field_id,
         return std::nullopt;
     };
 
-    const auto* current_schema = &_scan_params->history_schema_info.front();
-    if (_scan_params->__isset.current_schema_id) {
-        for (const auto& candidate_schema : _scan_params->history_schema_info) {
-            if (candidate_schema.__isset.schema_id &&
-                candidate_schema.schema_id == _scan_params->current_schema_id) {
-                current_schema = &candidate_schema;
-                break;
-            }
-        }
-    }
+    const auto* current_schema = find_current_schema(_scan_params);
     if (auto path = find_path(*current_schema); path.has_value()) {
         return path;
     }

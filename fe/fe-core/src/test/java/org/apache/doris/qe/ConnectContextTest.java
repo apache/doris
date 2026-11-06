@@ -336,7 +336,7 @@ public class ConnectContextTest {
 
             ConnectContext ctx = new ConnectContext();
             ctx.cloudCluster = "test";
-            ctx.setCloudCluster("test1");
+            ctx.getSessionVariable().setCloudCluster("test1");
 
             List<String> row = ctx.toThreadInfo(false).toRow(-1, 0, Optional.empty());
             Assertions.assertEquals("test1", row.get(14));

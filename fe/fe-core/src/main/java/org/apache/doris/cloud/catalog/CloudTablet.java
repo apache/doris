@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet;
-import org.apache.doris.catalog.TabletSlidingWindowAccessStats;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
@@ -85,14 +84,12 @@ public class CloudTablet extends Tablet implements GsonPostProcessable {
     // Cluster id is supplied by the caller (resolved lazily once per request),
     // bypassing the per-replica ConnectContext/priv/status/autoStart/existence pipeline.
     public Multimap<Long, Long> getNormalReplicaBackendPathMapByClusterId(String clusterId) throws UserException {
-        TabletSlidingWindowAccessStats.recordTablet(getId());
         Multimap<Long, Long> pathMap = super.getNormalReplicaBackendPathMapImpl(null,
                 (rep, be) -> ((CloudReplica) rep).getBackendIdWithClusterId(clusterId));
         return backendPathMapReprocess(pathMap);
     }
 
     public Multimap<Long, Long> getNormalReplicaBackendPathMap(String beEndpoint) throws UserException {
-        TabletSlidingWindowAccessStats.recordTablet(getId());
         Multimap<Long, Long> pathMap = super.getNormalReplicaBackendPathMapImpl(beEndpoint,
                 (rep, be) -> ((CloudReplica) rep).getBackendId(be));
         return backendPathMapReprocess(pathMap);

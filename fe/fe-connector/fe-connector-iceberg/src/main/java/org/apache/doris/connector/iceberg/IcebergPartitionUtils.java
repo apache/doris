@@ -876,10 +876,15 @@ final class IcebergPartitionUtils {
     /** Cache-aware overload (PERF-02): see {@link #buildMvccPartitionView(Table, long, TableIdentifier,
      * IcebergPartitionCache)}. Keyed by the table's CURRENT snapshot id. */
     static List<ConnectorPartitionInfo> listPartitions(Table table, TableIdentifier id, IcebergPartitionCache cache) {
+        return listPartitions(table, -1L, id, cache);
+    }
+
+    static List<ConnectorPartitionInfo> listPartitions(Table table, long pinnedSnapshotId,
+            TableIdentifier id, IcebergPartitionCache cache) {
         if (table.spec().isUnpartitioned()) {
             return Collections.emptyList();
         }
-        Snapshot current = table.currentSnapshot();
+        Snapshot current = pinnedSnapshotId >= 0 ? table.snapshot(pinnedSnapshotId) : table.currentSnapshot();
         if (current == null) {
             return Collections.emptyList();
         }
@@ -918,7 +923,7 @@ final class IcebergPartitionUtils {
             // Ordered values, one per DISTINCT source column in first-occurrence order; supplied so fe-core
             // skips the name parse. Derived from the deduped map rather than from raw.columnNames so the
             // tuple arity always equals the deduped partition-column count fe-core declares — fe-core zips
-            // the two positionally (PluginDrivenMvccExternalTable.toListPartitionItem's load-bearing
+            // the two positionally (PluginDrivenExternalTable.toListPartitionItem's load-bearing
             // checkState), so emitting one value per spec FIELD against one column per DISTINCT source
             // column would skip every partition and silently disable pruning.
             // Typed NULLs must not be parsed as bytes (or confused with a STRING value "null").

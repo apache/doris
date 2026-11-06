@@ -23,8 +23,8 @@
 #include <string>
 #include <vector>
 
+#include "common/factory_creator.h"
 #include "common/status.h"
-#include "format/generic_reader.h"
 #include "format/table/deletion_vector.h"
 #include "io/file_factory.h"
 #include "io/fs/buffered_reader.h"

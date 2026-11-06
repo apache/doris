@@ -332,7 +332,7 @@ public class MaterializedViewUtils {
                 ImmutableList.of(),
                 Optional.empty(),
                 ImmutableList.of());
-        return BindRelation.checkAndAddDeleteSignFilter(olapScan, cascadesContext.getConnectContext(),
+        return BindRelation.addRowVisibilityFilters(olapScan, cascadesContext.getConnectContext(),
                 olapScan.getTable());
     }
 
@@ -456,27 +456,222 @@ public class MaterializedViewUtils {
                 if (rewrittenPlan.getOutput().size() != originPlan.getOutput().size()) {
                     return null;
                 }
-                if (rewrittenPlan.getLogicalProperties().equals(originPlan.getLogicalProperties())) {
-                    return rewrittenPlan;
-                }
                 List<NamedExpression> rewrittenPlanOutputExprList = rewrittenPlan.getOutputExprs();
                 List<? extends NamedExpression> originPlanOutputExprList = originPlan.getOutput();
                 if (rewrittenPlanOutputExprList.size() != originPlanOutputExprList.size()) {
                     return null;
                 }
+                List<Slot> childOutputs = rewrittenPlan.child().getOutput();
+                Map<ExprId, Slot> childOutputByExprId = Maps.newHashMap();
+                for (Slot childOutput : childOutputs) {
+                    childOutputByExprId.putIfAbsent(childOutput.getExprId(), childOutput);
+                }
+                boolean childOutputsPositional = childOutputs.size() == rewrittenPlanOutputExprList.size();
+                // a rule can change the exprIds of the child outputs without updating the sink outputs,
+                // e.g. when a group by key is eliminated by a uniform predicate. The stale sink outputs
+                // have to be replaced by the output which the child produces at the same position.
+                boolean outputsResolvable = true;
+                for (NamedExpression rewrittenExpression : rewrittenPlanOutputExprList) {
+                    if (!isExpressionResolvable(rewrittenExpression, childOutputByExprId)) {
+                        outputsResolvable = false;
+                        break;
+                    }
+                }
+                if (outputsResolvable
+                        && rewrittenPlan.getLogicalProperties().equals(originPlan.getLogicalProperties())) {
+                    return rewrittenPlan;
+                }
+                if (!outputsResolvable && !childOutputsPositional) {
+                    // the sink outputs reference slots which the child does not produce and they can not
+                    // be mapped to the child outputs by position, the rewritten plan is not usable
+                    return null;
+                }
                 List<NamedExpression> normalizedOutputExprList = new ArrayList<>();
                 for (int i = 0; i < rewrittenPlanOutputExprList.size(); i++) {
                     NamedExpression rewrittenExpression = rewrittenPlanOutputExprList.get(i);
+                    if (childOutputsPositional && !isExpressionResolvable(rewrittenExpression, childOutputByExprId)) {
+                        rewrittenExpression = childOutputs.get(i);
+                    }
                     NamedExpression originalExpression = originPlanOutputExprList.get(i);
                     normalizedOutputExprList.add(normalizeExpression(originalExpression,
                             rewrittenExpression, true));
                 }
-                LogicalProject<Plan> project = new LogicalProject<>(normalizedOutputExprList,
-                        rewrittenPlan.child());
-                return rewrittenPlan.withChildren(project);
+                // Set the outputs on the sink. An output exprId which the child does not produce yet is
+                // materialized by a project between the sink and the child, see withSinkOutputs.
+                return withSinkOutputs(rewrittenPlan, normalizedOutputExprList);
             }
         }, null);
 
+    }
+
+    /**
+     * Set the outputs on the sink and keep the output exprIds resolvable for the physical translation.
+     *
+     * <p>A sink output whose exprId the child does not produce yet, e.g. the origin exprId of a constant
+     * which the view rewrite materialized with a fresh exprId, is materialized by a project between the
+     * sink and its child. The outputs which the child already produces are passed through with the
+     * nullable property of the child, so a rule which merges the project with the project of the child,
+     * e.g. MergeProjectsCBO, derives the same nullable property and the plan keeps the logical properties
+     * of the group it is inserted into.
+     */
+    private static Plan withSinkOutputs(LogicalSink<? extends Plan> sink, List<NamedExpression> sinkOutputs) {
+        Plan child = sink.child();
+        Map<ExprId, Slot> childOutputs = Maps.newHashMap();
+        for (Slot childOutput : child.getOutput()) {
+            childOutputs.putIfAbsent(childOutput.getExprId(), childOutput);
+        }
+        boolean needProject = false;
+        List<NamedExpression> projectOutputs = new ArrayList<>(sinkOutputs.size());
+        for (NamedExpression sinkOutput : sinkOutputs) {
+            Slot childOutput = childOutputs.get(sinkOutput.getExprId());
+            if (childOutput == null) {
+                // the child does not produce the exprId, materialize it by the output expression
+                projectOutputs.add(sinkOutput);
+                needProject = true;
+            } else {
+                // the child already produces the exprId, pass it through with the nullable property of
+                // the child, the changed nullable property of the sink output is only applied on the sink
+                projectOutputs.add(childOutput);
+            }
+        }
+        if (!needProject) {
+            return sink.withOutputExprs(sinkOutputs);
+        }
+        // The sink outputs reference the outputs of the project, not the expressions below the project,
+        // otherwise a sink which validates its output expressions, e.g. a result sink, would still see a
+        // slot which the sink child does not produce.
+        List<NamedExpression> projectSinkOutputs = sinkOutputs.stream()
+                .map(output -> (NamedExpression) output.toSlot())
+                .collect(ImmutableList.toImmutableList());
+        return sink.withOutputExprs(projectSinkOutputs)
+                .withChildren(new LogicalProject<>(projectOutputs, child));
+    }
+
+    private static boolean isExpressionResolvable(Expression expression, Map<ExprId, Slot> childOutputs) {
+        for (Slot inputSlot : expression.getInputSlots()) {
+            if (!childOutputs.containsKey(inputSlot.getExprId())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Align the outputs of a plan rewritten by a materialized view with the origin query plan, so that both plans
+     * can be alternatives of one memo group.
+     *
+     * <p>An output keeps its exprId. The exprId of the origin output may only be substituted
+     * <ul>
+     *     <li>when both plans define that output as the same constant: a column which a predicate pins to a
+     *     literal can be materialized with a fresh exprId, and the two plans then still compute the same value,
+     *     or</li>
+     *     <li>when the rewritten output describes the same column as the origin one: the name and the type have
+     *     to match and the qualifier has to be kept by both sides and be equal, so that a same named column of
+     *     another relation (e.g. the two relations of a self join) is not accepted.</li>
+     * </ul>
+     * Otherwise the two plans are not known to produce the same columns (e.g. a self join can expose two same
+     * named columns of two relations) and the rewritten plan must not be used.
+     */
+    public static Plan alignPlanOutputWithOrigin(Plan rewrittenPlan, Plan originPlan) {
+        List<Slot> originOutputs = originPlan.getOutput();
+        List<Slot> rewrittenOutputs = rewrittenPlan instanceof LogicalSink
+                ? ((LogicalSink<?>) rewrittenPlan).child().getOutput()
+                : rewrittenPlan.getOutput();
+        if (originOutputs.size() != rewrittenOutputs.size()) {
+            return null;
+        }
+        Map<ExprId, Expression> originOutputDefinitions = collectNamedExpressionDefinitions(originPlan);
+        Map<ExprId, Expression> rewrittenOutputDefinitions = collectNamedExpressionDefinitions(rewrittenPlan);
+        List<NamedExpression> alignedOutputs = new ArrayList<>(originOutputs.size());
+        for (int i = 0; i < originOutputs.size(); i++) {
+            Slot originSlot = originOutputs.get(i);
+            Slot rewrittenSlot = rewrittenOutputs.get(i);
+            if (rewrittenSlot.getExprId().equals(originSlot.getExprId())) {
+                if (rewrittenSlot instanceof SlotReference && rewrittenSlot.nullable() != originSlot.nullable()) {
+                    alignedOutputs.add(((SlotReference) rewrittenSlot).withNullable(originSlot.nullable()));
+                } else {
+                    alignedOutputs.add(rewrittenSlot);
+                }
+                continue;
+            }
+            // the slot itself is not a constant, the definition of its exprId is
+            Expression originDefinition = originOutputDefinitions.get(originSlot.getExprId());
+            Expression rewrittenDefinition = rewrittenOutputDefinitions.get(rewrittenSlot.getExprId());
+            if (!isSameConstant(rewrittenDefinition, originDefinition)
+                    && !isSameColumn(rewrittenSlot, originSlot)) {
+                return null;
+            }
+            Expression inner = rewrittenSlot.nullable() == originSlot.nullable()
+                    ? rewrittenSlot
+                    : (originSlot.nullable() ? new Nullable(rewrittenSlot) : new NonNullable(rewrittenSlot));
+            alignedOutputs.add(new Alias(originSlot.getExprId(), inner, originSlot.getName()));
+        }
+        if (rewrittenPlan instanceof LogicalSink) {
+            // Only the outputs of the sink have to be aligned. If an aligned exprId is not produced by the
+            // child yet, withSinkOutputs materializes it, otherwise a sink which translates its outputs by
+            // exprId, e.g. a file sink, can not resolve the slot.
+            return withSinkOutputs((LogicalSink<?>) rewrittenPlan, alignedOutputs);
+        }
+        return new LogicalProject<>(alignedOutputs, rewrittenPlan);
+    }
+
+    /**
+     * Whether the rewritten output describes the same column as the origin one. The rewritten plan is built by the
+     * materialized view rewrite which keeps the position of the query outputs, so the name, the type, the qualifier
+     * and the sub column path have to match. The qualifier has to be kept by both sides: a missing qualifier can not
+     * rule out that the slot is the same named column of another relation, e.g. the two relations of a self join, so
+     * an output without a qualifier is rejected and the rewritten plan is not used. This also rejects an output which
+     * is added or removed and shifts the columns.
+     */
+    private static boolean isSameColumn(Slot rewrittenSlot, Slot originSlot) {
+        if (!rewrittenSlot.getName().equalsIgnoreCase(originSlot.getName())
+                || !rewrittenSlot.getDataType().equals(originSlot.getDataType())) {
+            return false;
+        }
+        List<String> rewrittenQualifier = rewrittenSlot.getQualifier();
+        List<String> originQualifier = originSlot.getQualifier();
+        if (rewrittenQualifier.isEmpty() || !rewrittenQualifier.equals(originQualifier)) {
+            return false;
+        }
+        // the sub column path is part of the column identity, e.g. variant['a'] and variant['b'] are
+        // different columns although they have the same name, type and qualifier
+        List<String> rewrittenSubPath = rewrittenSlot instanceof SlotReference
+                ? ((SlotReference) rewrittenSlot).getSubPath() : ImmutableList.of();
+        List<String> originSubPath = originSlot instanceof SlotReference
+                ? ((SlotReference) originSlot).getSubPath() : ImmutableList.of();
+        return rewrittenSubPath.equals(originSubPath);
+    }
+
+    private static Map<ExprId, Expression> collectNamedExpressionDefinitions(Plan plan) {
+        Map<ExprId, Expression> definitions = Maps.newHashMap();
+        plan.foreach(node -> {
+            for (Expression expression : ((Plan) node).getExpressions()) {
+                if (!(expression instanceof NamedExpression)) {
+                    continue;
+                }
+                NamedExpression namedExpression = (NamedExpression) expression;
+                Expression existing = definitions.get(namedExpression.getExprId());
+                // prefer the definition which materializes the value, a plain slot reference only consumes it
+                if (existing == null || (!existing.isConstant() && namedExpression.isConstant())) {
+                    definitions.put(namedExpression.getExprId(), namedExpression);
+                }
+            }
+            return false;
+        });
+        return definitions;
+    }
+
+    private static boolean isSameConstant(Expression rewrittenDefinition, Expression originDefinition) {
+        if (rewrittenDefinition == null || originDefinition == null
+                || !rewrittenDefinition.isConstant() || !originDefinition.isConstant()) {
+            return false;
+        }
+        Expression rewrittenConstant = rewrittenDefinition instanceof Alias
+                ? rewrittenDefinition.child(0) : rewrittenDefinition;
+        Expression originConstant = originDefinition instanceof Alias
+                ? originDefinition.child(0) : originDefinition;
+        return rewrittenConstant.getDataType().equals(originConstant.getDataType())
+                && rewrittenConstant.equals(originConstant);
     }
 
     /**

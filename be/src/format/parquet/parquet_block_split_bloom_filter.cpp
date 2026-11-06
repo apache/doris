@@ -15,11 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "format/parquet/parquet_block_split_bloom_filter.h"
+
 #include <glog/logging.h>
 
 #include <cstring>
 
-#include "format/parquet/vparquet_column_reader.h"
+#include "util/hash_util.hpp"
 
 namespace doris {
 
@@ -28,13 +30,13 @@ ParquetBlockSplitBloomFilter::~ParquetBlockSplitBloomFilter() {
         return;
     }
     if (_is_write) {
-        g_write_bloom_filter_total_bytes << -static_cast<int64_t>(_size);
-        g_write_bloom_filter_num << -1;
+        segment_v2::g_write_bloom_filter_total_bytes << -static_cast<int64_t>(_size);
+        segment_v2::g_write_bloom_filter_num << -1;
     } else {
-        g_read_bloom_filter_total_bytes << -static_cast<int64_t>(_size);
-        g_read_bloom_filter_num << -1;
+        segment_v2::g_read_bloom_filter_total_bytes << -static_cast<int64_t>(_size);
+        segment_v2::g_read_bloom_filter_num << -1;
     }
-    g_total_bloom_filter_total_bytes << -static_cast<int64_t>(_size);
+    segment_v2::g_total_bloom_filter_total_bytes << -static_cast<int64_t>(_size);
     // The derived owner uses Doris's tracked allocator, so the base must not delete this view.
     _data = nullptr;
 }
@@ -42,7 +44,7 @@ ParquetBlockSplitBloomFilter::~ParquetBlockSplitBloomFilter() {
 // for write
 Status ParquetBlockSplitBloomFilter::init(uint64_t filter_size,
                                           segment_v2::HashStrategyPB strategy) {
-    if (strategy == XX_HASH_64) {
+    if (strategy == segment_v2::XX_HASH_64) {
         _hash_func = [](const void* buf, const int64_t len, const uint64_t seed, void* out) {
             auto h =
                     HashUtil::xxhash64_compat_with_seed(reinterpret_cast<const char*>(buf), len, 0);
@@ -58,9 +60,9 @@ Status ParquetBlockSplitBloomFilter::init(uint64_t filter_size,
     memset(_data, 0, _size);
     _has_null = nullptr;
     _is_write = true;
-    g_write_bloom_filter_num << 1;
-    g_write_bloom_filter_total_bytes << _size;
-    g_total_bloom_filter_total_bytes << _size;
+    segment_v2::g_write_bloom_filter_num << 1;
+    segment_v2::g_write_bloom_filter_total_bytes << _size;
+    segment_v2::g_total_bloom_filter_total_bytes << _size;
     return Status::OK();
 }
 
@@ -82,7 +84,7 @@ Status ParquetBlockSplitBloomFilter::init_for_read(size_t size,
     if (size <= 1) {
         return Status::InvalidArgument("invalid size:{}", size);
     }
-    if (strategy == XX_HASH_64) {
+    if (strategy == segment_v2::XX_HASH_64) {
         _hash_func = [](const void* buf, const int64_t len, const uint64_t seed, void* out) {
             auto h =
                     HashUtil::xxhash64_compat_with_seed(reinterpret_cast<const char*>(buf), len, 0);
@@ -96,9 +98,9 @@ Status ParquetBlockSplitBloomFilter::init_for_read(size_t size,
     _size = size;
     _num_bytes = _size;
     _has_null = nullptr;
-    g_read_bloom_filter_num << 1;
-    g_read_bloom_filter_total_bytes << _size;
-    g_total_bloom_filter_total_bytes << _size;
+    segment_v2::g_read_bloom_filter_num << 1;
+    segment_v2::g_read_bloom_filter_total_bytes << _size;
+    segment_v2::g_total_bloom_filter_total_bytes << _size;
     return Status::OK();
 }
 

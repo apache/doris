@@ -528,6 +528,10 @@ public:
     }
     int32_t commit_tso_col_idx() const { return _commit_tso_col_idx; }
     int32_t row_lsn_col_idx() const { return _row_lsn_col_idx; }
+    bool has_ttl_col() const { return _ttl_col_idx != -1; }
+    int32_t ttl_col_idx() const { return _ttl_col_idx; }
+    int64_t row_ttl_duration_us() const { return _row_ttl_duration_us; }
+    int32_t row_ttl_time_zone_offset_seconds() const { return _row_ttl_time_zone_offset_seconds; }
     int32_t changelog_tso_col_idx() const { return _changelog_tso_col_idx; }
     int32_t changelog_lsn_col_idx() const { return _changelog_lsn_col_idx; }
     int32_t changelog_op_col_idx() const { return _changelog_op_col_idx; }
@@ -803,6 +807,9 @@ private:
     int32_t _skip_bitmap_col_idx = -1;
     int32_t _commit_tso_col_idx = -1;
     int32_t _row_lsn_col_idx = -1;
+    int32_t _ttl_col_idx = -1;
+    int64_t _row_ttl_duration_us = -1;
+    int32_t _row_ttl_time_zone_offset_seconds {0};
     int32_t _changelog_tso_col_idx = -1;
     int32_t _changelog_lsn_col_idx = -1;
     int32_t _changelog_op_col_idx = -1;

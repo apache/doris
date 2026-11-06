@@ -526,7 +526,6 @@ struct TQueryOptions {
   231: optional bool enable_segment_limit_pushdown = true
 
   232: optional bool enable_runtime_filter_bucket_prune = true;
-
   233: optional bool enable_ann_index_result_cache = true
 
   234: optional bool new_version_bitmap_op_count = false;
@@ -536,12 +535,18 @@ struct TQueryOptions {
 
   // FE can explicitly and idempotently acknowledge external-file commit reports.
   236: optional bool supports_external_file_report_ack = false;
+  // Memory limit for one non-streaming analytic partition before it proactively spills.
+  237: optional i64 spill_analytic_sink_mem_limit_bytes = 67108864;
+  // Optional Parquet output indexes; absent fields retain the existing writer defaults.
+  238: optional bool enable_parquet_write_page_index = true;
+  239: optional i32 parquet_write_data_page_size = 1048576;
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
   1000: optional bool disable_file_cache = false
   1001: optional i32 file_cache_query_limit_percent = -1
-  1002: optional bool enable_file_scanner_v2 = false
+  // Deprecated: file scans always use V2. Retain the field id for wire compatibility.
+  1002: optional bool enable_file_scanner_v2 = true
   1003: optional bool enable_topn_lazy_mat_phase2_no_write_file_cache = false
   1004: optional i64 file_cache_query_limit_bytes = -1
   // SNII inverted index query reads take the REMOTE_ONLY_ON_MISS file-cache
@@ -719,6 +724,7 @@ struct TAIResource {
   17: optional string embed_mm_provider_type
   18: optional string embed_mm_model_name
   19: optional string embed_mm_api_key
+  20: optional bool enable_structured_output = true
 }
 
 struct TCondition {

@@ -18,6 +18,7 @@
 package org.apache.doris.filesystem.s3;
 
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.gcs.auth.GcsAuthResolver;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
@@ -115,6 +116,15 @@ public class S3FileSystemProvider implements FileSystemProvider<S3FileSystemProp
 
     @Override
     public boolean supportsGuess(Map<String, String> properties) {
+        // Keep an explicit S3 request on the S3 credential path even at a GCS/MinIO endpoint.
+        // This is local to the S3 family; other providers retain their existing match order.
+        if (S3CompatSignals.hasExplicitS3Request(properties)) {
+            return true;
+        }
+        // A GCS selection must not also bind the generic S3-compatible filesystem.
+        if (GcsAuthResolver.guessIsGcs(properties)) {
+            return false;
+        }
         // Port of fe-core S3Properties.guessIsMe on raw props.
         String endpoint = null;
         for (String name : GUESS_ENDPOINT_NAMES) {

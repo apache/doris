@@ -23,6 +23,7 @@ import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.storage.S3ResourceCompat;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.filesystem.UploadPartResult;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
 import org.apache.doris.filesystem.spi.ObjStorage;
@@ -45,6 +46,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -93,7 +95,7 @@ public class S3Resource extends Resource {
     @Override
     protected void setProperties(ImmutableMap<String, String> newProperties) throws DdlException {
         Preconditions.checkState(newProperties != null);
-        this.properties = Maps.newHashMap(newProperties);
+        this.properties = StorageAdapter.normalizeProperties(newProperties, newProperties);
 
         // check properties
         S3ResourceCompat.requiredS3PingProperties(properties);
@@ -219,71 +221,89 @@ public class S3Resource extends Resource {
     }
 
     @Override
-    public void modifyProperties(Map<String, String> properties) throws DdlException {
+    public synchronized void modifyProperties(Map<String, String> newProperties) throws DdlException {
+        // Serialize the snapshot, validation and publication. A lock only around publication
+        // would allow a concurrent ALTER to replace a successful update with an older snapshot.
+        Map<String, String> properties = new HashMap<>(newProperties);
+        Map<String, String> selectionProperties = new HashMap<>(this.properties);
+        selectionProperties.putAll(properties);
+        if (Strings.isNullOrEmpty(properties.get("provider"))) {
+            // Empty ALTER values retain the persisted provider, like other resource properties.
+            selectionProperties.put("provider", this.properties.get("provider"));
+        }
+        // Normalize the patch independently so its aliases win over persisted canonical values.
+        S3ResourceCompat.convertToStdProperties(properties);
+        Map<String, String> normalizedUpdates = StorageAdapter.normalizeProperties(properties, selectionProperties);
+        // Interpret persisted aliases using their original provider before applying a provider change.
+        Map<String, String> effectiveProperties =
+                StorageAdapter.normalizeProperties(this.properties, this.properties);
+        S3ResourceCompat.convertToStdProperties(effectiveProperties);
+        for (Map.Entry<String, String> update : normalizedUpdates.entrySet()) {
+            // Empty updates are ignored, except when clearing a session token or impersonation account.
+            replaceIfEffectiveValue(effectiveProperties, update.getKey(), update.getValue());
+            if (S3ResourceCompat.SESSION_TOKEN.equals(update.getKey())
+                    || S3ResourceCompat.Env.TOKEN.equals(update.getKey())
+                    || StorageAdapter.isClearableProperty(update.getKey())) {
+                effectiveProperties.put(update.getKey(), update.getValue());
+            }
+        }
         if (references.containsValue(ReferenceType.POLICY)) {
             // can't change, because remote fs use it info to find data.
             List<String> cantChangeProperties = Arrays.asList(S3ResourceCompat.ENDPOINT, S3ResourceCompat.REGION,
                     S3ResourceCompat.ROOT_PATH, S3ResourceCompat.BUCKET, S3ResourceCompat.Env.ENDPOINT,
                     S3ResourceCompat.Env.REGION,
                     S3ResourceCompat.Env.ROOT_PATH, S3ResourceCompat.Env.BUCKET);
-            Optional<String> any = cantChangeProperties.stream().filter(properties::containsKey).findAny();
+            Optional<String> any = cantChangeProperties.stream()
+                    .filter(key -> normalizedUpdates.containsKey(key)
+                            || !Objects.equals(this.properties.get(key), effectiveProperties.get(key)))
+                    .findAny();
             if (any.isPresent()) {
                 throw new DdlException("current not support modify property : " + any.get());
             }
         }
-        // compatible with old version, Need convert if modified properties map uses old properties.
-        S3ResourceCompat.convertToStdProperties(properties);
-        if (!Strings.isNullOrEmpty(properties.get(S3ResourceCompat.ENDPOINT))) {
-            properties.put(S3ResourceCompat.Env.ENDPOINT, properties.get(S3ResourceCompat.ENDPOINT));
+        if (!Strings.isNullOrEmpty(effectiveProperties.get(S3ResourceCompat.ENDPOINT))) {
+            effectiveProperties.put(S3ResourceCompat.Env.ENDPOINT, effectiveProperties.get(S3ResourceCompat.ENDPOINT));
         }
-        boolean needCheck = isNeedCheck(properties);
+        for (Map.Entry<String, String> kv : normalizedUpdates.entrySet()) {
+            if (kv.getKey().equalsIgnoreCase(S3ResourceCompat.ROLE_ARN)
+                    && !Strings.isNullOrEmpty(kv.getValue())) {
+                effectiveProperties.remove(S3ResourceCompat.ACCESS_KEY);
+                effectiveProperties.remove(S3ResourceCompat.Env.ACCESS_KEY);
+                effectiveProperties.remove(S3ResourceCompat.SECRET_KEY);
+                effectiveProperties.remove(S3ResourceCompat.Env.SECRET_KEY);
+            }
+            if (kv.getKey().equalsIgnoreCase(S3ResourceCompat.ACCESS_KEY)
+                    && !Strings.isNullOrEmpty(kv.getValue())) {
+                effectiveProperties.remove(S3ResourceCompat.ROLE_ARN);
+                effectiveProperties.remove(S3ResourceCompat.Env.ROLE_ARN);
+                effectiveProperties.remove(S3ResourceCompat.EXTERNAL_ID);
+                effectiveProperties.remove(S3ResourceCompat.Env.EXTERNAL_ID);
+            }
+        }
+        StorageAdapter.resolveAuthentication(effectiveProperties);
+        boolean needCheck = isNeedCheck(effectiveProperties);
         if (LOG.isDebugEnabled()) {
             LOG.debug("s3 info need check validity : {}", needCheck);
         }
         if (needCheck) {
-            S3ResourceCompat.requiredS3PingProperties(this.properties);
-            Map<String, String> changedProperties = new HashMap<>(this.properties);
-            changedProperties.putAll(properties);
+            S3ResourceCompat.requiredS3PingProperties(effectiveProperties);
+            Map<String, String> changedProperties = new HashMap<>(effectiveProperties);
             String endpoint = S3Util.buildEndpointUrl(changedProperties.get(S3ResourceCompat.ENDPOINT));
             changedProperties.put(S3ResourceCompat.ENDPOINT, endpoint);
             changedProperties.put(S3ResourceCompat.Env.ENDPOINT, endpoint);
-            String bucketName = properties.getOrDefault(S3ResourceCompat.BUCKET,
-                    this.properties.get(S3ResourceCompat.BUCKET));
-            String rootPath = properties.getOrDefault(S3ResourceCompat.ROOT_PATH,
-                    this.properties.get(S3ResourceCompat.ROOT_PATH));
-
-            pingS3(bucketName, rootPath, changedProperties);
+            pingS3(effectiveProperties.get(S3ResourceCompat.BUCKET),
+                    effectiveProperties.get(S3ResourceCompat.ROOT_PATH),
+                    changedProperties);
         }
 
-        // modify properties
         writeLock();
-
-        for (Map.Entry<String, String> kv : properties.entrySet()) {
-            replaceIfEffectiveValue(this.properties, kv.getKey(), kv.getValue());
-            if (kv.getKey().equals(S3ResourceCompat.Env.TOKEN)
-                    || kv.getKey().equals(S3ResourceCompat.SESSION_TOKEN)) {
-                this.properties.put(kv.getKey(), kv.getValue());
-            }
-
-            if (kv.getKey().equalsIgnoreCase(S3ResourceCompat.ROLE_ARN)
-                    && !Strings.isNullOrEmpty(kv.getValue())) {
-                this.properties.remove(S3ResourceCompat.ACCESS_KEY);
-                this.properties.remove(S3ResourceCompat.Env.ACCESS_KEY);
-                this.properties.remove(S3ResourceCompat.SECRET_KEY);
-                this.properties.remove(S3ResourceCompat.Env.SECRET_KEY);
-            }
-
-            if (kv.getKey().equalsIgnoreCase(S3ResourceCompat.ACCESS_KEY)
-                    && !Strings.isNullOrEmpty(kv.getValue())) {
-                this.properties.remove(S3ResourceCompat.ROLE_ARN);
-                this.properties.remove(S3ResourceCompat.Env.ROLE_ARN);
-                this.properties.remove(S3ResourceCompat.EXTERNAL_ID);
-                this.properties.remove(S3ResourceCompat.Env.EXTERNAL_ID);
-            }
+        try {
+            this.properties = effectiveProperties;
+            ++version;
+        } finally {
+            writeUnlock();
         }
-        ++version;
-        writeUnlock();
-        super.modifyProperties(properties);
+        super.modifyProperties(effectiveProperties);
     }
 
     private CloudCredentialWithEndpoint getS3PingCredentials(Map<String, String> properties) {

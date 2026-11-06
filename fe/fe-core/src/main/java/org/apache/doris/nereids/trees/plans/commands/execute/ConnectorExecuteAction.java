@@ -128,7 +128,7 @@ public class ConnectorExecuteAction implements ExecuteAction {
         ConnectorSession session = catalog.buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         ConnectorTableHandle tableHandle = metadata
-                .getTableHandle(session, table.getRemoteDbName(), table.getRemoteName())
+                .getTableHandleForDdl(session, table.getRemoteDbName(), table.getRemoteName())
                 .orElseThrow(() -> new AnalysisException("Table not found: " + table.getRemoteDbName()
                         + "." + table.getRemoteName() + " in catalog " + catalog.getName()));
 
@@ -156,6 +156,10 @@ public class ConnectorExecuteAction implements ExecuteAction {
         // here (engine half, no iceberg types); the converter is fail-loud, so an unrepresentable WHERE throws
         // rather than silently widening the rewrite scope.
         if (mode == ProcedureExecutionMode.DISTRIBUTED) {
+            // Distributed rewriting plans file scans; acquire the scan-capable read handle only for this mode.
+            tableHandle = metadata.getTableHandle(session, table.getRemoteDbName(), table.getRemoteName())
+                    .orElseThrow(() -> new AnalysisException("Table not found: " + table.getRemoteDbName()
+                            + "." + table.getRemoteName() + " in catalog " + catalog.getName()));
             ConnectorPredicate loweredWhere = whereCondition.isPresent()
                     ? UnboundExpressionToConnectorPredicateConverter.convert(whereCondition.get(), table)
                     : null;
