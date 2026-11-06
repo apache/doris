@@ -17,8 +17,11 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.common.Config;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
@@ -39,11 +42,14 @@ import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.plugin.AuditEvent;
+import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
 import org.apache.doris.thrift.TUniqueId;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -226,9 +232,11 @@ public class MysqlConnectProcessorLongDataTest {
         withAlwaysOn(true, () -> {
             Harness h = new Harness(MysqlColType.MYSQL_TYPE_LONG);
             Assertions.assertFalse(h.context.getSessionVariable().isEnablePreparedStmtAuditLog());
+            h.context.setSqlHash("previous-query-hash");
             h.execute(new byte[] {0, 1, 3, 0, 42, 0, 0, 0}, audit -> audit.verify(() -> AuditLogHelper.logAuditLog(
                     Mockito.same(h.context), Mockito.eq("EXECUTE `7` USING 42 /*originalSql = select ?*/"),
                     Mockito.isNull(), Mockito.isNull(), Mockito.eq(true))));
+            Assertions.assertEquals("1fe1379fe2a31b8d16219655761820a2", h.context.getSqlHash());
         });
     }
 
@@ -280,6 +288,61 @@ public class MysqlConnectProcessorLongDataTest {
             h.executeError(new byte[] {0, 0}, "Invalid MySQL type for long data", audit -> audit.verify(
                     () -> AuditLogHelper.logAuditLog(Mockito.same(h.context), Mockito.eq("select ?"),
                             Mockito.isNull(), Mockito.isNull(), Mockito.eq(true))));
+        });
+    }
+
+    @Test
+    public void testAlwaysOnEarlyFailuresDoNotReusePreviousStatementIdentity() throws Throwable {
+        withAlwaysOn(true, () -> {
+            for (MysqlColType type : new MysqlColType[] {MysqlColType.MYSQL_TYPE_LONG,
+                    MysqlColType.MYSQL_TYPE_VARSTRING}) {
+                Harness h = new Harness(type);
+                h.context.getSessionVariable().maxAllowedPacket = 1;
+                h.upload(7, 0, new byte[] {65});
+                if (type == MysqlColType.MYSQL_TYPE_VARSTRING) {
+                    h.upload(7, 0, new byte[] {66});
+                }
+                // An unrelated COM_QUERY left this identity on the same connection.
+                h.context.setStmtId(42);
+                h.context.setSqlHash("previous-query-hash");
+                h.context.setCurrentUserIdentity(UserIdentity.ROOT);
+                h.context.setStartTime();
+                h.context.getState().reset();
+
+                Env env = Mockito.mock(Env.class);
+                Mockito.when(env.getCatalogMgr()).thenReturn(Mockito.mock(CatalogMgr.class));
+                WorkloadRuntimeStatusMgr statusMgr = Mockito.mock(WorkloadRuntimeStatusMgr.class);
+                Mockito.when(env.getWorkloadRuntimeStatusMgr()).thenReturn(statusMgr);
+                try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+                    mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+                    h.processor.handleExecute(h.prepared.command, 7, h.prepared,
+                            ByteBuffer.wrap(new byte[] {0, 0}).order(ByteOrder.LITTLE_ENDIAN), null);
+
+                    ArgumentCaptor<AuditEvent> event = ArgumentCaptor.forClass(AuditEvent.class);
+                    Mockito.verify(statusMgr).submitFinishQueryToAudit(event.capture());
+                    Assertions.assertEquals("ERR", event.getValue().state);
+                    Assertions.assertEquals("select ?", event.getValue().stmt);
+                    Assertions.assertEquals("NaN", event.getValue().queryId);
+                    Assertions.assertEquals(0, event.getValue().stmtId);
+                    Assertions.assertEquals("1fe1379fe2a31b8d16219655761820a2", event.getValue().sqlHash);
+                }
+                h.context.setQueryId(new TUniqueId(8L, 8L));
+                h.execute(new byte[] {0, 1, 3, 0, 42, 0, 0, 0});
+                Assertions.assertEquals("1fe1379fe2a31b8d16219655761820a2", h.context.getSqlHash());
+            }
+        });
+    }
+
+    @Test
+    public void testAlwaysOnExecutePreservesEffectivePreparationHash() throws Throwable {
+        withAlwaysOn(true, () -> {
+            ConnectContext context = new ConnectContext();
+            context.setSqlHash("effective-sql-conversion-fallback-hash");
+            Harness h = new Harness(context, List.of(
+                    new Placeholder(new PlaceholderId(0), MysqlColType.MYSQL_TYPE_LONG.getCode())));
+            context.setSqlHash("another-command-hash");
+            h.execute(new byte[] {0, 1, 3, 0, 42, 0, 0, 0});
+            Assertions.assertEquals("effective-sql-conversion-fallback-hash", context.getSqlHash());
         });
     }
 

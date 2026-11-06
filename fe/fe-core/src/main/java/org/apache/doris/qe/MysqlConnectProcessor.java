@@ -57,6 +57,7 @@ import org.apache.doris.thrift.TUniqueId;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -161,6 +162,11 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         // With query_audit_always_on, an execution that fails before its EXECUTE text is built below is audited with
         // the statement it was prepared from.
         String stmtStr = QueryAuditPolicy.isAlwaysOn() ? prepareCommand.getOriginalStmt().originStmt : "";
+        if (QueryAuditPolicy.isAlwaysOn()) {
+            String sqlHash = prepCtx.getSqlHash();
+            // Proxy contexts can prepare without a COM_QUERY having assigned a hash.
+            ctx.setSqlHash(sqlHash == null ? DigestUtils.md5Hex(stmtStr) : sqlHash);
+        }
         try {
             if (prepCtx.getLongDataError() != null) {
                 ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, prepCtx.getLongDataError());
@@ -318,9 +324,9 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         if (audit && executor != null) {
             auditAfterExec(stmtStr, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
         } else if (audit && QueryAuditPolicy.isAlwaysOn()) {
-            // The execution failed before its executor was created, so the connection still holds the query id of
-            // its previous statement, which this record must not carry.
+            // No executor assigned query/statement IDs, so do not retain the previous statement's IDs.
             ctx.resetQueryId();
+            ctx.setStmtId(0);
             auditAfterExec(stmtStr, null, null, true);
         } else {
             // When audit log is disabled for prepared statements, still update QPS metrics.

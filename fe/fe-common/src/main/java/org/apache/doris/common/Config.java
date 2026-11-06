@@ -121,7 +121,8 @@ public class Config extends ConfigBase {
 
     @ConfField(description = "When true, query audit cannot be disabled or hollowed out at runtime: every statement "
             + "this FE receives is audited to both fe.audit.log and __internal_schema.audit_log. "
-            + "enable_audit_plugin and enable_prepared_stmt_audit_log stay on, the other audit_plugin_* variables "
+            + "enable_audit_plugin and enable_prepared_stmt_audit_log stay on, audit_plugin_load_timeout stays within "
+            + "the Stream Load timeout range, and the other audit_plugin_* variables "
             + "and the configs audit_event_log_queue_size, query_audit_log_timeout_ms, "
             + "be_report_query_statistics_timeout_ms and workload_runtime_status_thread_interval_ms cannot be set "
             + "weaker than their defaults, skip_audit_user_list is ignored, and audit_log_modules always includes "

@@ -40,7 +40,9 @@ import java.util.function.IntSupplier;
  * runtime may disable query auditing or hollow it out: the audit switches stay on, and no audit limit is weaker than
  * its factory default. A limit whose smaller values drop events or cut statements short has its default as the
  * minimum, one whose larger values hold events back has it as the maximum, and a batching knob, harmful in both
- * directions, is fixed at it. The config itself changes only on disk, with a restart.
+ * directions, is fixed at it. The master also fits built-in audit load timeouts to its transaction and load sink
+ * limits before beginning the transaction and planning the load. The config itself changes only on disk,
+ * with a restart.
  *
  * <p>The rules are defined here only, for three sides:
  * <ul>
