@@ -20,6 +20,7 @@ package org.apache.doris.connector.es;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
+import org.apache.doris.connector.spi.ConnectorSecuritySurface;
 
 import java.util.Map;
 import java.util.Optional;
@@ -55,5 +56,11 @@ public class EsConnectorProvider implements ConnectorProvider {
     @Override
     public Connector create(Map<String, String> properties, ConnectorContext context) {
         return new EsConnector(properties, context);
+    }
+
+    /** The engine masks the sensitive properties (the password) wherever it shows catalog properties. */
+    @Override
+    public ConnectorSecuritySurface securitySurface() {
+        return ConnectorSecuritySurface.EMPTY.withSensitiveKeys(EsCatalogProperties.sensitiveKeys());
     }
 }

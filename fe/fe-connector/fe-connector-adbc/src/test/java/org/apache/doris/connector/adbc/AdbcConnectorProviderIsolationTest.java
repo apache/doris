@@ -75,6 +75,10 @@ class AdbcConnectorProviderIsolationTest {
                 "getType() must be answerable without any ADBC class");
         Assertions.assertTrue(((ConnectorProvider) provider).isStandaloneCatalogType(),
                 "adbc is a catalog type a user writes in CREATE CATALOG");
+        // The engine reads the security surface when it registers the provider, before it can tell that a
+        // directory copy duplicates the built-in one, so it must be answerable without any ADBC class too.
+        Assertions.assertFalse(((ConnectorProvider) provider).securitySurface().sensitiveKeys().isEmpty(),
+                "securitySurface() must be answerable without any ADBC class");
 
         Assertions.assertEquals(List.of(), loader.blockedNames(),
                 "Provider discovery must not load any org.apache.arrow.adbc class");

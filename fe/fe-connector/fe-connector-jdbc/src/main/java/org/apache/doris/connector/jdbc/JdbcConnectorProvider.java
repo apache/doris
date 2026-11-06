@@ -54,6 +54,8 @@ public class JdbcConnectorProvider implements ConnectorProvider {
     public ConnectorSecuritySurface securitySurface() {
         // driver_url (documented alias: jdbc.driver_url) is the jar the connector loads into the FE JVM;
         // the engine's operator gate applies jdbc_driver_secure_path / the mandatory rule on CREATE + ALTER.
-        return ConnectorSecuritySurface.ofJdbcDriverUrls(null, "driver_url", "jdbc.driver_url");
+        // The engine masks the sensitive properties (the password) wherever it shows catalog properties.
+        return ConnectorSecuritySurface.ofJdbcDriverUrls(null, "driver_url", "jdbc.driver_url")
+                .withSensitiveKeys(JdbcCatalogProperties.sensitiveKeys());
     }
 }

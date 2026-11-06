@@ -115,6 +115,15 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
         return super.visitCreateCatalog(ctx);
     }
 
+    // alter catalog clause (ALTER CATALOG ... SET PROPERTIES(...))
+    @Override
+    public LogicalPlan visitAlterCatalogProperties(DorisParser.AlterCatalogPropertiesContext ctx) {
+        DorisParser.PropertyItemListContext properties = ctx.propertyItemList();
+        encryptProperty(visitPropertyItemList(properties), properties.start.getStartIndex(),
+                properties.stop.getStopIndex());
+        return super.visitAlterCatalogProperties(ctx);
+    }
+
     // create repository clause (CREATE [READ ONLY] REPOSITORY ... WITH <backend> ... PROPERTIES(...))
     @Override
     public LogicalPlan visitCreateRepository(DorisParser.CreateRepositoryContext ctx) {
