@@ -188,7 +188,7 @@ size_t PathInData::Hash::operator()(const PathInData& value) const {
 
 bool PathInData::need_record_stats() const {
     return !empty() && !is_typed && !has_nested &&
-           path.find(DOC_VALUE_COLUMN_PATH) == std::string::npos;
+           !variant_util::variant_binary_column_bucket(get_relative_path(), DOC_VALUE_COLUMN_PATH);
 }
 
 PathInData PathInData::copy_pop_front() const {

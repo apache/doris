@@ -67,6 +67,7 @@
 #include "storage/segment/column_meta_accessor.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/column_reader_cache.h"
+#include "storage/segment/external_col_meta_util.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/variant/binary_column_extract_iterator.h"
 #include "storage/segment/variant/hierarchical_data_iterator.h"
@@ -1736,6 +1737,35 @@ protected:
                 0 /* seg_id */, _tablet_schema->get_inverted_index_storage_format(),
                 std::move(index_v2_file_writer), true /* can_use_ram_dir */, _tablet->tablet_id());
         return Status::OK();
+    }
+
+    // Recreate the old classifier's embedded-user layout over existing data pages.
+    Status embed_legacy_v3_marker_metadata(SegmentFooterPB* footer, std::string* path) {
+        for (int i = footer->columns_size() - 1; i > 0; --i) {
+            const auto& meta = footer->columns(i);
+            if (meta.column_path_info().path().find("x__DORIS_VARIANT_") != std::string::npos) {
+                *footer->mutable_columns(0)->add_children_columns() = meta;
+                footer->mutable_columns()->DeleteSubrange(i, 1);
+            }
+        }
+        DORIS_CHECK_EQ(footer->columns(0).children_columns_size(), 2);
+        io::FileReaderSPtr original;
+        RETURN_IF_ERROR(io::global_local_filesystem()->open_file(*path, &original));
+        std::string bytes(original->size(), '\0');
+        size_t read = 0;
+        RETURN_IF_ERROR(original->read_at(0, Slice(bytes), &read));
+        DORIS_CHECK_EQ(read, bytes.size());
+        footer->set_version(SEGMENT_FOOTER_VERSION_V3_EXT_COL_META);
+        *path += ".v3";
+        io::FileWriterPtr writer;
+        RETURN_IF_ERROR(io::global_local_filesystem()->create_file(*path, &writer));
+        RETURN_IF_ERROR(writer->append(Slice(bytes)));
+        RETURN_IF_ERROR(ExternalColMetaUtil::write_external_column_meta(
+                writer.get(), footer, CompressionTypePB::LZ4,
+                [&](const std::vector<Slice>& slices) {
+                    return writer->appendv(slices.data(), slices.size());
+                }));
+        return writer->close();
     }
 
     Status write_variant_segment(
@@ -9461,6 +9491,112 @@ TEST_F(VariantColumnWriterReaderTest, test_variant_subcolumn_writer_chunks_decim
         ASSERT_TRUE(read_extracted_variant_rows(chunked_footer, chunked_path, &chunked_rows).ok());
         EXPECT_EQ(chunked_rows, ref_rows);
         EXPECT_EQ(chunked_footer.columns(0).children_columns(0).frac(), 4);
+    }
+}
+
+// Reproduce the old V3 classifier's layout using real scalar data pages: put the
+// user's ColumnMeta in the root children, with no external path-index entry.
+TEST_F(VariantColumnWriterReaderTest, RecoverLegacyV3EmbeddedMarkerSubcolumns) {
+    init_variant_tablet(19991, 10);
+    const std::vector<std::string> jsons {
+            R"({"x__DORIS_VARIANT_DOC_VALUE__y":801,"x__DORIS_VARIANT_SPARSE__y":701})",
+            R"({"x__DORIS_VARIANT_DOC_VALUE__y":802,"x__DORIS_VARIANT_SPARSE__y":702})",
+            R"({"other":9})"};
+    ColumnPtr source;
+    DataTypePtr type;
+    ASSERT_TRUE(create_variant_writer_source(VariantWriterInput::V2, jsons, 10, false, {}, &source,
+                                             &type)
+                        .ok());
+    SegmentFooterPB footer;
+    std::string path;
+    ASSERT_TRUE(write_variant_segment(source, type, "legacy_reserved", &footer, &path).ok());
+    ASSERT_TRUE(embed_legacy_v3_marker_metadata(&footer, &path).ok());
+    auto footer_ptr = std::make_shared<SegmentFooterPB>(footer);
+    io::FileReaderSPtr file;
+    ASSERT_TRUE(io::global_local_filesystem()->open_file(path, &file).ok());
+    ColumnMetaAccessor accessor;
+    ASSERT_TRUE(accessor.init(footer, file).ok());
+    ColumnReaderCache cache(&accessor, _tablet_schema, file, jsons.size(),
+                            [&](std::shared_ptr<SegmentFooterPB>& out, OlapReaderStatistics*,
+                                const io::IOContext*) {
+                                out = footer_ptr;
+                                return Status::OK();
+                            });
+    OlapReaderStatistics stats;
+    std::shared_ptr<ColumnReader> root_reader;
+    auto status = cache.get_column_reader(1, &root_reader, &stats);
+    ASSERT_TRUE(status.ok()) << status;
+    auto* reader = assert_cast<VariantColumnReader*>(root_reader.get());
+    for (const std::string key : {"x__DORIS_VARIANT_SPARSE__y", "x__DORIS_VARIANT_DOC_VALUE__y"}) {
+        ASSERT_NE(reader->get_subcolumn_meta_by_path(PathInData(key)), nullptr) << key;
+        std::shared_ptr<ColumnReader> leaf;
+        ASSERT_TRUE(cache.get_path_column_reader(1, PathInData(key), &leaf, &stats).ok());
+        ASSERT_NE(leaf, nullptr);
+        ColumnIteratorUPtr iter;
+        const auto full_path = _tablet_schema->column(0).name_lower_case() + "." + key;
+        auto target = variant_util::get_column_by_type(
+                leaf->get_vec_data_type(), full_path,
+                variant_util::ExtraInfo {.unique_id = -1,
+                                         .parent_unique_id = 1,
+                                         .path_info = PathInData(full_path)});
+        StorageReadOptions compact_opts(stats);
+        compact_opts.io_ctx.reader_type = ReaderType::READER_CUMULATIVE_COMPACTION;
+        compact_opts.tablet_has_extracted_variant_columns = true;
+        ASSERT_TRUE(reader->new_iterator(&iter, &target, &compact_opts, &cache).ok());
+        ColumnIteratorOptions opts;
+        opts.file_reader = file.get();
+        opts.stats = &stats;
+        ASSERT_TRUE(iter->init(opts).ok());
+        ASSERT_TRUE(iter->seek_to_ordinal(0).ok());
+        auto result = leaf->get_vec_data_type()->create_column();
+        size_t rows = jsons.size();
+        ASSERT_TRUE(iter->next_batch(&rows, result).ok());
+        ASSERT_EQ(rows, 3);
+        EXPECT_EQ(leaf->get_vec_data_type()->to_string(*result, 0),
+                  key.find("SPARSE") != std::string::npos ? "701" : "801");
+        EXPECT_EQ(leaf->get_vec_data_type()->to_string(*result, 1),
+                  key.find("SPARSE") != std::string::npos ? "702" : "802");
+        EXPECT_TRUE(result->is_null_at(2));
+    }
+    StorageReadOptions read_opts(stats);
+    read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
+    ColumnIteratorUPtr iter;
+    const auto& parent = _tablet_schema->column(0);
+    ASSERT_TRUE(reader->new_iterator(&iter, &parent, &read_opts, &cache).ok());
+    ColumnIteratorOptions opts;
+    opts.file_reader = file.get();
+    opts.stats = &stats;
+    ASSERT_TRUE(iter->init(opts).ok());
+    ASSERT_TRUE(iter->seek_to_ordinal(0).ok());
+    auto result = DataTypeFactory::instance().create_data_type(parent, false)->create_column();
+    size_t rows = jsons.size();
+    ASSERT_TRUE(iter->next_batch(&rows, result).ok());
+    ASSERT_EQ(rows, jsons.size());
+    for (size_t row = 0; row < rows; ++row) {
+        EXPECT_EQ(variant_json_at(*result, row), jsons[row]);
+    }
+}
+
+TEST_F(VariantColumnWriterReaderTest, MarkerSubstringsRoundTripWithInlineMetadata) {
+    init_variant_tablet(19992, 20);
+    const std::vector<std::string> jsons {
+            R"({"__DORIS_VARIANT_DOC_VALUE__tail":801,"__DORIS_VARIANT_SPARSE__tail":701,"head__DORIS_VARIANT_DOC_VALUE__":802,"head__DORIS_VARIANT_SPARSE__":702,"x__DORIS_VARIANT_DOC_VALUE__y":803,"x__DORIS_VARIANT_SPARSE__y":703})",
+            R"({"other":9})"};
+    ColumnPtr source;
+    DataTypePtr type;
+    ASSERT_TRUE(create_variant_writer_source(VariantWriterInput::V2, jsons, 20, false, {}, &source,
+                                             &type)
+                        .ok());
+    SegmentFooterPB footer;
+    std::string path;
+    ASSERT_TRUE(write_variant_segment(source, type, "inline_reserved", &footer, &path).ok());
+    std::vector<std::optional<std::string>> result;
+    const auto status = read_variant_root_rows(footer, path, &result);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(result.size(), jsons.size());
+    for (size_t row = 0; row < jsons.size(); ++row) {
+        ASSERT_TRUE(result[row]);
+        EXPECT_EQ(*result[row], jsons[row]);
     }
 }
 
