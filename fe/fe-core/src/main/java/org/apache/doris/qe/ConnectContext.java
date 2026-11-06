@@ -1053,11 +1053,13 @@ public class ConnectContext {
     }
 
     // A request that failed after deferring its query: the query is cancelled on the backends, then
-    // its executor finalized (see FlightProtocolAdapter.cancelDeferredExecutors).
-    public void cancelFlightSqlDeferredExecutors(Status cancelReason) {
+    // its executor finalized (see FlightProtocolAdapter.cancelDeferredExecutors). Returns the ids of the
+    // queries it cancelled.
+    public List<TUniqueId> cancelFlightSqlDeferredExecutors(Status cancelReason) {
         if (protocolAdapter instanceof FlightProtocolAdapter) {
-            ((FlightProtocolAdapter) protocolAdapter).cancelDeferredExecutors(cancelReason);
+            return ((FlightProtocolAdapter) protocolAdapter).cancelDeferredExecutors(cancelReason);
         }
+        return Collections.emptyList();
     }
 
     /**

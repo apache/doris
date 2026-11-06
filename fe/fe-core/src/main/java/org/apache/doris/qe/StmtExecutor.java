@@ -29,6 +29,7 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.analysis.StringValueContext;
 import org.apache.doris.analysis.ToSqlParams;
+import org.apache.doris.arrowflight.FlightSqlQueryCancellation;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
@@ -1920,6 +1921,12 @@ public class StmtExecutor {
 
             if (!context.isReturnResultFromLocal()) {
                 profile.getSummaryProfile().setTempStartTime();
+                if (coordBase == coord) {
+                    // A BE whose DoGet stream the client aborts reports it through cancelFlightQuery;
+                    // keep the query's backends so that call can cancel the query on every one of
+                    // them after the coordinator below is closed.
+                    FlightSqlQueryCancellation.INSTANCE.register(context, coord);
+                }
                 // The client pulls the results from the BE later (Arrow Flight SQL's DoGet). Only a
                 // scan the BE keeps depending on the FE for still needs the coordinator after this
                 // point: an external-table scan in batch mode fetches its splits lazily from the

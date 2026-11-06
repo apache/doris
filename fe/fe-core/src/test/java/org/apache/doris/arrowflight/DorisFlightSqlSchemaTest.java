@@ -45,10 +45,13 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableList;
 import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
 import org.apache.arrow.flight.FlightDescriptor;
@@ -878,36 +881,53 @@ public class DorisFlightSqlSchemaTest extends TestWithFeService {
         Schema changed = new Schema(Arrays.asList(Field.nullable("id", new ArrowType.Int(64, true)),
                 Field.nullable("new_column", new ArrowType.Utf8())));
         StmtExecutor previous = flightContext.getExecutor();
+        TUniqueId queryId = new TUniqueId(73L, 1L);
+        TUniqueId resultId = new TUniqueId(73L, 2L);
         try {
             for (boolean remote : Arrays.asList(true, false)) {
                 ActionCreatePreparedStatementResult result = prepare("SELECT id FROM schema_input");
                 CommandPreparedStatementQuery command = command(result);
                 StmtExecutor executor = executorWithLabels("id", "new_column");
                 FlightSqlConnectProcessor cleanup = new FlightSqlConnectProcessor(flightContext);
-                try (MockedConstruction<FlightSqlConnectProcessor> processors = Mockito.mockConstruction(
-                        FlightSqlConnectProcessor.class, (processor, context) -> {
-                            // Simulate replanning after another session changes the table, after schema reanalysis.
-                            Mockito.doAnswer(invocation -> {
-                                FlightProtocolAdapter adapter = FlightProtocolAdapter.of(flightContext);
-                                flightContext.getState().reset();
-                                adapter.beforeStatement(flightContext);
-                                if (remote) {
-                                    adapter.beforeQuery(flightContext);
-                                }
-                                flightContext.setExecutor(executor);
-                                flightContext.addFlightSqlDeferredExecutor(executor);
-                                return null;
-                            }).when(processor).handleQuery(Mockito.anyString());
-                            Mockito.when(processor.getArrowSchema()).thenReturn(changed);
-                            Mockito.doAnswer(invocation -> {
-                                cleanup.close();
-                                return null;
-                            }).when(processor).close();
-                        })) {
+                BackendServiceProxy cancelling = FlightSqlQueryCancellationTest.cancellingProxy(queryId);
+                try (MockedStatic<BackendServiceProxy> proxy = Mockito.mockStatic(BackendServiceProxy.class);
+                        MockedConstruction<FlightSqlConnectProcessor> processors = Mockito.mockConstruction(
+                                FlightSqlConnectProcessor.class, (processor, context) -> {
+                                    // Simulate replanning after another session changes the table, after schema
+                                    // reanalysis.
+                                    Mockito.doAnswer(invocation -> {
+                                        FlightProtocolAdapter adapter = FlightProtocolAdapter.of(flightContext);
+                                        flightContext.getState().reset();
+                                        adapter.beforeStatement(flightContext);
+                                        if (remote) {
+                                            adapter.beforeQuery(flightContext);
+                                            // Its result stays on the BEs, so the query registers its route.
+                                            flightContext.addFlightSqlEndpointsLocation(
+                                                    FlightSqlQueryCancellationTest.endpoint(resultId));
+                                            FlightSqlQueryCancellation.INSTANCE.register(queryId,
+                                                    ImmutableList.of(resultId),
+                                                    ImmutableList.of(new TNetworkAddress("127.0.0.1", 8001)), 120);
+                                        }
+                                        flightContext.setExecutor(executor);
+                                        flightContext.addFlightSqlDeferredExecutor(executor);
+                                        return null;
+                                    }).when(processor).handleQuery(Mockito.anyString());
+                                    Mockito.when(processor.getArrowSchema()).thenReturn(changed);
+                                    Mockito.doAnswer(invocation -> {
+                                        cleanup.close();
+                                        return null;
+                                    }).when(processor).close();
+                                })) {
+                    proxy.when(BackendServiceProxy::getInstance).thenReturn(cancelling);
                     FlightRuntimeException error = Assertions.assertThrows(FlightRuntimeException.class,
                             () -> producer.getFlightInfoPreparedStatement(command, callContext,
                                     FlightDescriptor.command(new byte[0])));
                     Assertions.assertEquals(FlightStatusCode.NOT_FOUND, error.status().code());
+                    // No ticket names the result, so its route goes too; the executor cancelled the query already.
+                    Assertions.assertEquals(TStatusCode.NOT_FOUND,
+                            FlightSqlQueryCancellation.INSTANCE.cancel(resultId).getStatusCode());
+                    Mockito.verify(cancelling, Mockito.never())
+                            .cancelPipelineXPlanFragmentAsync(Mockito.any(), Mockito.any(), Mockito.any());
                     Assertions.assertNull(flightContext.getExecutor());
                     Mockito.verify(processors.constructed().get(0)).close();
                     InOrder cleanupOrder = Mockito.inOrder(executor);
