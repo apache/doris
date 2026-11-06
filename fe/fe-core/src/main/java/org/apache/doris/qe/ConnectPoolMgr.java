@@ -156,15 +156,16 @@ public class ConnectPoolMgr {
             Preconditions.checkState(connectionMap.get(ctx.getConnectionId()) == ctx,
                     "Changing user requires a registered connection");
             String oldUser = ctx.getQualifiedUser();
-            if (oldUser.equals(newUser)) {
-                return true;
-            }
+            // MySQL admits the authenticated user before releasing the previous user's slot,
+            // including when both names are equal. Only the final counter transfer is a no-op.
             AtomicInteger newConnections = connByUser.computeIfAbsent(newUser, u -> new AtomicInteger(0));
             if (newConnections.get() >= userLimit) {
                 return false;
             }
-            connByUser.get(oldUser).decrementAndGet();
-            newConnections.incrementAndGet();
+            if (!oldUser.equals(newUser)) {
+                connByUser.get(oldUser).decrementAndGet();
+                newConnections.incrementAndGet();
+            }
             return true;
         }
     }

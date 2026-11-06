@@ -29,6 +29,7 @@ import org.apache.doris.common.ConnectionException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.CachingSha2PasswordExchange;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
@@ -499,6 +500,23 @@ public class MysqlConnectProcessor extends ConnectProcessor {
     }
 
     private void handleChangeUser() throws IOException {
+        try {
+            // MySQL resets the previous session even when the requested user is unchanged or
+            // authentication fails. Keep the command owner until its response has been sent.
+            ctx.resetConnection();
+            ctx.clearLastDBOfCatalog();
+            authenticateAndChangeUser();
+        } catch (UserException e) {
+            ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+        } finally {
+            if (ctx.getState().getStateType() == QueryState.MysqlStateType.ERR) {
+                // A rejected change-user ends the connection after its ERR packet is sent.
+                ctx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+            }
+        }
+    }
+
+    private void authenticateAndChangeUser() throws IOException {
         // Random bytes generated when creating connection.
         byte[] authPluginData = getConnectContext().getAuthPluginData();
         Preconditions.checkNotNull(authPluginData, "Auth plugin data is null.");

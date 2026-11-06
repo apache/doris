@@ -25,6 +25,8 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.ExceptionDiagnosticUtils;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.StatementContext;
 
 import java.util.Map;
@@ -48,6 +50,22 @@ public class ConnectContextUtil {
         ctx.getState().reset();
         ctx.setThreadLocalInfo();
         return ctx;
+    }
+
+    public static Optional<Pair<ErrorCode, String>> initDefaultCatalog(ConnectContext ctx) {
+        // Match login semantics: a missing configured catalog leaves the initial internal catalog.
+        try {
+            String userInitCatalog = ctx.getEnv().getAuth().getInitCatalog(ctx.getQualifiedUser());
+            if (userInitCatalog != null && !userInitCatalog.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+                CatalogIf catalog = ctx.getEnv().getCatalogMgr().getCatalog(userInitCatalog);
+                if (catalog != null) {
+                    ctx.getEnv().changeCatalog(ctx, userInitCatalog);
+                }
+            }
+        } catch (DdlException e) {
+            return Optional.of(Pair.of(e.getMysqlErrorCode(), e.getMessage()));
+        }
+        return Optional.empty();
     }
 
     public static Optional<Pair<ErrorCode, String>> initCatalogAndDb(ConnectContext ctx, String fullDbName) {
