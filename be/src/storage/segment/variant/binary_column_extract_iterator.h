@@ -89,7 +89,7 @@ public:
 class BinaryColumnExtractIterator : public BaseBinaryColumnProcessor {
 public:
     BinaryColumnExtractIterator(std::string_view path, BinaryColumnCacheSPtr sparse_column_cache,
-                                const StorageReadOptions* opts, uint32_t path_encoding = 0);
+                                const StorageReadOptions* opts);
 
     Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override;
 
@@ -98,7 +98,6 @@ public:
 
 private:
     std::string _path;
-    uint32_t _path_encoding;
     Status _validate_destination(IColumn& dst) const;
     Status _finish_variant_v2_batch(size_t num_rows, MutableColumnPtr& dst, bool* has_null);
     Status _fill_variant_v2_path(MutableColumnPtr& dst, size_t num_rows, bool* has_null);

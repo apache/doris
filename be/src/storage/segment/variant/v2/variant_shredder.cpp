@@ -342,12 +342,6 @@ struct VariantShredder::Impl {
                                    .path = &path,
                                    .track_statistics = false});
         }
-        if (options.escape_dots_in_keys) {
-            // Sparse lookup uses byte order; '%' sorts before the path separator '.'.
-            std::ranges::sort(sparse_plan, [](const SparsePlan& left, const SparsePlan& right) {
-                return *left.path < *right.path;
-            });
-        }
         return sparse_plan;
     }
 
@@ -520,6 +514,11 @@ struct VariantShredder::Impl {
 
         DorisVector<SparsePlan> sparse_plan = build_sparse_plan(selection, candidate_builders);
         select_sparse_statistics(&sparse_plan);
+        // Readers search full path bytes: a-b must precede a.c, unlike component order.
+        // Select statistics first to retain the existing encounter-order budget tie-break.
+        std::ranges::sort(sparse_plan, [](const SparsePlan& left, const SparsePlan& right) {
+            return *left.path < *right.path;
+        });
         RETURN_IF_ERROR(append_binary_rows(sparse_plan, sparse_maps));
         DorisVector<VariantStatistics> bucket_statistics(options.sparse_bucket_count);
         publish_sparse_statistics(sparse_plan, &bucket_statistics, result);

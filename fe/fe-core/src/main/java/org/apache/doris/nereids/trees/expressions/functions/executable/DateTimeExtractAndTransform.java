@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.executable;
 
-import org.apache.doris.common.util.TimeZoneParser;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.rules.SupportJavaDateFormatter;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
@@ -164,7 +163,6 @@ public class DateTimeExtractAndTransform {
     public static Expression century(TimeStampNsLiteral date) {
         return new SmallIntLiteral((short) ((date.getYear() - 1) / 100 + 1));
     }
-
 
     /**
      * Executable datetime extract quarter
@@ -1095,24 +1093,15 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "convert_tz")
     public static Expression convertTz(DateTimeV2Literal datetime, StringLikeLiteral fromTz, StringLikeLiteral toTz) {
-        return DateTimeV2Literal.fromJavaDateType(
-                convertTz(datetime.toJavaDateType(), fromTz, toTz), datetime.getDataType().getScale());
+        return datetime.inTimeZone(fromTz.getStringValue(), toTz.getStringValue());
     }
 
     @ExecFunction(name = "convert_tz")
     public static Expression convertTz(TimeStampNsLiteral datetime, StringLikeLiteral fromTz,
             StringLikeLiteral toTz) {
         return TimeStampNsLiteral.fromJavaDateType(
-                convertTz(datetime.toJavaDateType(), fromTz, toTz));
-    }
-
-    private static LocalDateTime convertTz(LocalDateTime datetime, StringLikeLiteral fromTz,
-            StringLikeLiteral toTz) {
-        ZoneId fromZone = TimeZoneParser.parse(fromTz.getStringValue(), TimeZoneParser.Usage.SESSION);
-        ZoneId toZone = TimeZoneParser.parse(toTz.getStringValue(), TimeZoneParser.Usage.SESSION);
-
-        Instant instant = DateTimeLiteral.convertLocalToInstant(datetime, fromZone);
-        return LocalDateTime.ofInstant(instant, toZone);
+                DateUtils.convertTimeZone(
+                        datetime.toJavaDateType(), fromTz.getStringValue(), toTz.getStringValue()));
     }
 
     @ExecFunction(name = "weekday")
@@ -1652,82 +1641,99 @@ public class DateTimeExtractAndTransform {
 
     @ExecFunction(name = "months_diff")
     public static Expression monthsDiff(DateTimeV2Literal t1, DateTimeV2Literal t2) {
-        return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()));
+        return new BigIntLiteral(dateDiffInCalendarUnits(t1, t2, ChronoUnit.MONTHS));
     }
 
     @ExecFunction(name = "months_diff")
     public static Expression monthsDiff(TimestampTzLiteral t1, TimestampTzLiteral t2) {
-        return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()));
+        return new BigIntLiteral(dateDiffInCalendarUnits(t1, t2, ChronoUnit.MONTHS));
     }
 
     @ExecFunction(name = "months_diff")
     public static Expression monthsDiff(TimeStampNsLiteral t1, TimeStampNsLiteral t2) {
-        return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()));
+        return new BigIntLiteral(dateDiffInCalendarUnits(t1, t2, ChronoUnit.MONTHS));
     }
 
     @ExecFunction(name = "months_diff")
     public static Expression monthsDiff(DateTimeV2Literal t1, DateV2Literal t2) {
-        return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()));
+        return new BigIntLiteral(dateDiffInCalendarUnits(t1, t2, ChronoUnit.MONTHS));
     }
 
     @ExecFunction(name = "months_diff")
     public static Expression monthsDiff(DateV2Literal t1, DateTimeV2Literal t2) {
-        return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()));
+        return new BigIntLiteral(dateDiffInCalendarUnits(t1, t2, ChronoUnit.MONTHS));
     }
 
     @ExecFunction(name = "months_diff")
     public static Expression monthsDiff(DateV2Literal t1, DateV2Literal t2) {
-        return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()));
+        return new BigIntLiteral(dateDiffInCalendarUnits(t1, t2, ChronoUnit.MONTHS));
     }
 
     @ExecFunction(name = "quarters_diff")
     public static Expression quartersDiff(DateTimeV2Literal t1, DateTimeV2Literal t2) {
-        return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()) / 3);
+        return new BigIntLiteral(dateDiffInCalendarUnits(t1, t2, ChronoUnit.MONTHS) / 3);
     }
 
     @ExecFunction(name = "quarters_diff")
     public static Expression quartersDiff(TimestampTzLiteral t1, TimestampTzLiteral t2) {
-        return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()) / 3);
+        return new BigIntLiteral(dateDiffInCalendarUnits(t1, t2, ChronoUnit.MONTHS) / 3);
     }
 
     @ExecFunction(name = "quarters_diff")
     public static Expression quartersDiff(TimeStampNsLiteral t1, TimeStampNsLiteral t2) {
-        return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()) / 3);
+        return new BigIntLiteral(dateDiffInCalendarUnits(t1, t2, ChronoUnit.MONTHS) / 3);
     }
 
     @ExecFunction(name = "quarters_diff")
     public static Expression quartersDiff(DateV2Literal t1, DateV2Literal t2) {
-        return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()) / 3);
+        return new BigIntLiteral(dateDiffInCalendarUnits(t1, t2, ChronoUnit.MONTHS) / 3);
     }
 
     @ExecFunction(name = "years_diff")
     public static Expression yearsDiff(DateTimeV2Literal t1, DateTimeV2Literal t2) {
-        return new BigIntLiteral(ChronoUnit.YEARS.between(t2.toJavaDateType(), t1.toJavaDateType()));
+        return new BigIntLiteral(dateDiffInCalendarUnits(t1, t2, ChronoUnit.YEARS));
     }
 
     @ExecFunction(name = "years_diff")
     public static Expression yearsDiff(TimestampTzLiteral t1, TimestampTzLiteral t2) {
-        return new BigIntLiteral(ChronoUnit.YEARS.between(t2.toJavaDateType(), t1.toJavaDateType()));
+        return new BigIntLiteral(dateDiffInCalendarUnits(t1, t2, ChronoUnit.YEARS));
     }
 
     @ExecFunction(name = "years_diff")
     public static Expression yearsDiff(TimeStampNsLiteral t1, TimeStampNsLiteral t2) {
-        return new BigIntLiteral(ChronoUnit.YEARS.between(t2.toJavaDateType(), t1.toJavaDateType()));
+        return new BigIntLiteral(dateDiffInCalendarUnits(t1, t2, ChronoUnit.YEARS));
     }
 
     @ExecFunction(name = "years_diff")
     public static Expression yearsDiff(DateTimeV2Literal t1, DateV2Literal t2) {
-        return new BigIntLiteral(ChronoUnit.YEARS.between(t2.toJavaDateType(), t1.toJavaDateType()));
+        return new BigIntLiteral(dateDiffInCalendarUnits(t1, t2, ChronoUnit.YEARS));
     }
 
     @ExecFunction(name = "years_diff")
     public static Expression yearsDiff(DateV2Literal t1, DateTimeV2Literal t2) {
-        return new BigIntLiteral(ChronoUnit.YEARS.between(t2.toJavaDateType(), t1.toJavaDateType()));
+        return new BigIntLiteral(dateDiffInCalendarUnits(t1, t2, ChronoUnit.YEARS));
     }
 
     @ExecFunction(name = "years_diff")
     public static Expression yearsDiff(DateV2Literal t1, DateV2Literal t2) {
-        return new BigIntLiteral(ChronoUnit.YEARS.between(t2.toJavaDateType(), t1.toJavaDateType()));
+        return new BigIntLiteral(dateDiffInCalendarUnits(t1, t2, ChronoUnit.YEARS));
+    }
+
+    private static long dateDiffInCalendarUnits(DateLiteral t1, DateLiteral t2, ChronoUnit unit) {
+        // LocalDateTime.until adjusts the end date by one day before counting months or years.
+        // At a month end that can remove an extra calendar unit, unlike BE's remainder comparison.
+        long diff = unit.between(t2.toJavaDateType().toLocalDate(), t1.toJavaDateType().toLocalDate());
+        boolean sameRemainderDate = t1.getDay() == t2.getDay()
+                && (unit == ChronoUnit.MONTHS || t1.getMonth() == t2.getMonth());
+        if (sameRemainderDate) {
+            long timeDiff = t1.getTimePartInNanoseconds() - t2.getTimePartInNanoseconds();
+            if (diff > 0 && timeDiff < 0) {
+                diff--;
+            } else if (diff < 0 && timeDiff > 0) {
+                diff++;
+            }
+        }
+        return diff;
     }
 
     /**

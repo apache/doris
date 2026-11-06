@@ -1052,7 +1052,7 @@ Status VariantColumnReader::_create_iterator_from_plan(
         BinaryColumnCacheSPtr binary_column_cache = DORIS_TRY(_get_binary_column_cache(
                 binary_column_cache_ptr, plan.binary_cache_key, plan.binary_column_reader));
         *iterator = std::make_unique<BinaryColumnExtractIterator>(
-                plan.relative_path.get_path(), std::move(binary_column_cache), opt, _path_encoding);
+                plan.relative_path.get_path(), std::move(binary_column_cache), opt);
         if (opt && opt->stats) {
             opt->stats->variant_subtree_sparse_iter_count++;
         }

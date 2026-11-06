@@ -19,6 +19,7 @@
 #include <gtest/gtest-test-part.h>
 
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "core/column/column_nullable.h"
@@ -91,6 +92,42 @@ public:
         AggregateDataPtr place = memory.get();
         agg_function->create(place);
         EXPECT_THROW(agg_function->add(place, columns.data(), 0, arena), Exception);
+        agg_function->destroy(place);
+    }
+
+    void assert_time_condition_result(const AggregateFunctionPtr& agg_function,
+                                      const IColumn* columns[], int event1_count) {
+        std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
+        AggregateDataPtr place = memory.get();
+        agg_function->create(place);
+        for (int i = 0; i < event1_count; ++i) {
+            agg_function->add(place, columns, 0, arena);
+        }
+        agg_function->add(place, columns, 1, arena);
+
+        bool limit_exceeded = false;
+        try {
+            if (agg_function == agg_function_sequence_match) {
+                ColumnUInt8 result;
+                agg_function->insert_result_into(place, result);
+                if (event1_count < 999998) {
+                    EXPECT_EQ(result.get_data()[0], event1_count == 0 ? 0 : 1)
+                            << "event1_count=" << event1_count;
+                }
+            } else {
+                ColumnInt64 result;
+                agg_function->insert_result_into(place, result);
+                if (event1_count < 999998) {
+                    EXPECT_EQ(result.get_data()[0], event1_count == 0 ? 0 : 1)
+                            << "event1_count=" << event1_count;
+                }
+            }
+        } catch (const Exception& e) {
+            limit_exceeded = true;
+            EXPECT_EQ(e.code(), ErrorCode::INVALID_ARGUMENT);
+            EXPECT_NE(e.message().find("exceeded max iterations (1000000)"), std::string::npos);
+        }
+        EXPECT_EQ(limit_exceeded, event1_count >= 999998) << "event1_count=" << event1_count;
         agg_function->destroy(place);
     }
 
@@ -660,6 +697,37 @@ TEST_F(VSequenceMatchTest, testMatchRejectsInvalidPatternRegardlessOfNullTimesta
         std::vector<const IColumn*> columns = {column_pattern.get(), column_timestamp.get(),
                                                column_event1.get(), column_event2.get()};
         EXPECT_THROW(agg_function->check_input_columns_type(columns.data()), Exception);
+    }
+}
+
+TEST_F(VSequenceMatchTest, testTimeConditionIterationLimitReportsError) {
+    auto column_pattern = ColumnString::create();
+    column_pattern->insert(Field::create_field<TYPE_STRING>("(?1)(?t>=1)(?2)"));
+
+    auto column_timestamp = ColumnDateTimeV2::create();
+    for (int second = 0; second < 2; ++second) {
+        DateV2Value<DateTimeV2ValueType> time_value;
+        time_value.unchecked_set_time(2026, 1, 1, 0, 0, second);
+        column_timestamp->insert_data((char*)&time_value, 0);
+    }
+
+    auto column_event1 = ColumnUInt8::create();
+    column_event1->insert_value(1);
+    column_event1->insert_value(0);
+    auto column_event2 = ColumnUInt8::create();
+    column_event2->insert_value(0);
+    column_event2->insert_value(1);
+    auto column_event3 = ColumnUInt8::create();
+    column_event3->insert_value(0);
+    column_event3->insert_value(0);
+
+    const IColumn* columns[] = {column_pattern.get(), column_timestamp.get(), column_event1.get(),
+                                column_event2.get(), column_event3.get()};
+    for (int event1_count : {0, 1000, 999997, 999998, 1000001}) {
+        for (const auto& agg_function :
+             {agg_function_sequence_match, agg_function_sequence_count}) {
+            assert_time_condition_result(agg_function, columns, event1_count);
+        }
     }
 }
 

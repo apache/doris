@@ -20,6 +20,7 @@ package org.apache.doris.qe.runtime;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.datasource.scan.FileScanEncryptionGuard;
 import org.apache.doris.nereids.trees.plans.distribute.worker.BackendWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
 import org.apache.doris.qe.CoordinatorContext;
@@ -118,6 +119,7 @@ public class PipelineExecutionTaskBuilder {
                 .parallelStream()
                 .map(kv -> {
                     try {
+                        FileScanEncryptionGuard.checkFragments(kv.getValue());
                         ByteString serializeString =
                                 new TFastSerializer(1024, new Factory()).serialize(kv.getValue());
                         return Pair.of(kv.getKey(), serializeString);

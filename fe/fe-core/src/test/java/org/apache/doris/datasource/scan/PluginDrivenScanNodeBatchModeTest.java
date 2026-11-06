@@ -761,6 +761,7 @@ public class PluginDrivenScanNodeBatchModeTest {
         // null in this partial node, hence the null-tolerant any() matcher).
         Mockito.when(connector.getScanPlanProvider(Mockito.any())).thenReturn(provider);
         Deencapsulation.setField(node, "connector", connector);
+        Deencapsulation.setField(node, "metadataRead", java.util.Optional.empty());
         // hasSlots = true (the streaming gate requires output slots). getSlots() returns ArrayList (concrete).
         TupleDescriptor desc = Mockito.mock(TupleDescriptor.class);
         ArrayList<SlotDescriptor> slots = new ArrayList<>();

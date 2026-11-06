@@ -36,6 +36,8 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.cloud.qe.ComputeGroupException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
@@ -151,6 +153,27 @@ public class MTMVPlanUtil {
         // After 1, this logic is no longer needed. This is to be compatible with older versions
         setCatalogAndDb(ctx, mtmv);
         return ctx;
+    }
+
+    /**
+     * The compute group of the current session, which a manual refresh of an MV that declares none
+     * borrows. Null outside cloud mode, without a session, or when the session resolves none.
+     */
+    @Nullable
+    public static String getSessionComputeGroup() {
+        if (!Config.isCloudMode()) {
+            return null;
+        }
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx == null) {
+            return null;
+        }
+        try {
+            return ctx.getCloudCluster(false);
+        } catch (ComputeGroupException e) {
+            LOG.warn("failed to resolve compute group for refresh mtmv", e);
+            return null;
+        }
     }
 
     /**
