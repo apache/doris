@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.util.DebugPoint
+import org.apache.doris.regression.util.NodeType
+
 suite("test_mow_ingest_binlog") {
 
     def syncer = getSyncer()
@@ -123,5 +126,44 @@ suite("test_mow_ingest_binlog") {
 
 
     // End Test 2
+    syncer.closeBackendClients()
+
+    logger.info("=== Test 3: Delete bitmap calculation failure case ===")
+    sql """
+            INSERT INTO ${tableName} VALUES (1, 0)
+        """
+    assertTrue(syncer.getBinlog("${tableName}"))
+    assertTrue(syncer.beginTxn("${tableName}"))
+    assertTrue(syncer.getBackendClients())
+
+    def debugPointName = "BaseTablet::calc_segment_delete_bitmap.inject_err"
+    def targetTablets = target_sql "SHOW TABLETS FROM ${tableName}"
+    assertEquals(targetTablets.size(), 1)
+    def targetTabletId = targetTablets[0][0] as String
+    def targetBackends = target_sql "SHOW PROC '/backends'"
+    try {
+        // Only inject into the target tablet so that concurrent MoW loads are not affected.
+        targetBackends.each { backend ->
+            DebugPoint.enableDebugPoint(backend[1] as String, backend[4] as int, NodeType.BE,
+                    debugPointName, [percent: "1.0", tablet_id: targetTabletId])
+        }
+        assertFalse(syncer.ingestBinlog())
+        assertFalse(syncer.checkTargetVersion())
+        target_sql " sync "
+        res = target_sql """SELECT * FROM ${tableName} WHERE test=1"""
+        assertEquals(res.size(), insert_num)
+    } finally {
+        targetBackends.each { backend ->
+            DebugPoint.disableDebugPoint(backend[1] as String, backend[4] as int, NodeType.BE,
+                    debugPointName)
+        }
+    }
+
+    assertTrue(syncer.ingestBinlog())
+    assertTrue(syncer.commitTxn())
+    assertTrue(syncer.checkTargetVersion())
+    target_sql " sync "
+    res = target_sql """SELECT * FROM ${tableName} WHERE test=1"""
+    assertEquals(res.size(), insert_num)
     syncer.closeBackendClients()
 }
