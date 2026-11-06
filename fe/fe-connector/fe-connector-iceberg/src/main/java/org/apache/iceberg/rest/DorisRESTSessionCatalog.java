@@ -93,8 +93,8 @@ public final class DorisRESTSessionCatalog extends RESTSessionCatalog {
 
         @Override
         public TableOperations temp(TableMetadata uncommittedMetadata) {
-            // SDK transaction operations otherwise expose the original raw FileIO, bypassing this read-only
-            // adapter before commit. Reject at transaction creation, before any data can be written.
+            // Enforce read-only semantics at transaction creation, before a caller can stage
+            // mutable metadata or initialize the table's KMS client for a write.
             throw new UnsupportedOperationException("Encrypted Iceberg REST tables are read-only in Doris");
         }
 
