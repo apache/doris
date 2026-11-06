@@ -28,6 +28,58 @@ suite("test_python_arrow_time_types") {
            (3, '2023-04-20 00:00:00.123456'),
            (4, '2026-10-10 10:00:00.123456'), (5, NULL)"""
     try {
+        sql "DROP TABLE IF EXISTS python_arrow_ns_values"
+        sql """CREATE TABLE python_arrow_ns_values (id INT, ts TIMESTAMP_NS)
+            DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES("replication_num"="1")"""
+        sql """INSERT INTO python_arrow_ns_values VALUES
+            (0, '1677-09-21 00:12:43.145224192'),
+            (1, '1677-09-21 00:12:43.145224193'),
+            (2, '1969-12-31 23:59:59.999999999'),
+            (3, '1970-01-01 00:00:00.000000000'),
+            (4, '2026-10-10 10:00:00.123456789'),
+            (5, '2262-04-11 23:47:16.854775807'), (6, NULL), (7, NULL), (8, NULL)"""
+        def nsTypes = [value: "TIMESTAMP_NS", array: "ARRAY<TIMESTAMP_NS>",
+                       map: "MAP<STRING, TIMESTAMP_NS>", record: "STRUCT<ts:TIMESTAMP_NS>"]
+        def nsExpressions = [value: "ts",
+            array: """CASE WHEN id = 7 THEN CAST(NULL AS ARRAY<TIMESTAMP_NS>)
+                WHEN id = 8 THEN CAST(array() AS ARRAY<TIMESTAMP_NS>) ELSE array(ts, NULL) END""",
+            map: """CASE WHEN id = 7 THEN CAST(NULL AS MAP<STRING, TIMESTAMP_NS>)
+                WHEN id = 8 THEN CAST(map() AS MAP<STRING, TIMESTAMP_NS>)
+                ELSE map('value', ts, 'null', CAST(NULL AS TIMESTAMP_NS)) END""",
+            record: """CASE WHEN id = 7 THEN CAST(NULL AS STRUCT<ts:TIMESTAMP_NS>)
+                ELSE named_struct('ts', ts) END"""]
+        ["scalar", "list", "series"].each { mode ->
+            def annotation = mode == "list" ? ": list" : (mode == "series" ? ": pd.Series" : "")
+            nsTypes.each { kind, type ->
+                def name = "python_arrow_ns_${mode}_${kind}"
+                sql "DROP FUNCTION IF EXISTS ${name}(${type})"
+                sql """CREATE FUNCTION ${name}(${type}) RETURNS ${type}
+                    PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+                               "runtime_version"="${runtimeVersion}") AS \$\$
+import pandas as pd
+
+def evaluate(value${annotation}):
+    return value
+\$\$"""
+                def expression = nsExpressions[kind]
+                quickTest("timestamp_ns_${mode}_${kind}", """SELECT id,
+                    ${name}(${expression})
+                    FROM python_arrow_ns_values ORDER BY id""",
+                    "SELECT id, ${expression} FROM python_arrow_ns_values ORDER BY id")
+            }
+        }
+        sql "DROP FUNCTION IF EXISTS python_arrow_ns_series_hour(TIMESTAMP_NS)"
+        sql """CREATE FUNCTION python_arrow_ns_series_hour(TIMESTAMP_NS) RETURNS INT
+            PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+                       "runtime_version"="${runtimeVersion}") AS \$\$
+import pandas as pd
+
+def evaluate(value: pd.Series):
+    return value.dt.hour
+\$\$"""
+        quickTest("timestamp_ns_series_datetime_operations", """SELECT id,
+            python_arrow_ns_series_hour(ts) FROM python_arrow_ns_values WHERE id > 0 ORDER BY id""",
+            "SELECT id, hour(ts) FROM python_arrow_ns_values WHERE id > 0 ORDER BY id")
         sql "DROP FUNCTION IF EXISTS python_arrow_timestamptz_format(TIMESTAMPTZ(6))"
         sql """CREATE FUNCTION python_arrow_timestamptz_format(TIMESTAMPTZ(6)) RETURNS STRING
             PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
