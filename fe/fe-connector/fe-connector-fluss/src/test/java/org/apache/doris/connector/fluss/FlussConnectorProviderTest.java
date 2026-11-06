@@ -21,11 +21,14 @@ import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorCapability;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
+import org.apache.doris.connector.spi.ConnectorSecuritySurface;
+import org.apache.doris.connector.spi.ConnectorSecuritySurface.SensitiveKeyPrefix;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.ServiceLoader;
@@ -110,5 +113,21 @@ public class FlussConnectorProviderTest {
         } finally {
             connector.close();
         }
+    }
+
+    @Test
+    public void declaresTheSaslCredentialsAndTheCredentialLikeLakeOptions() {
+        ConnectorSecuritySurface surface = new FlussConnectorProvider().securitySurface();
+        Assertions.assertEquals(Arrays.asList("fluss.client.security.sasl.username",
+                "fluss.client.security.sasl.password", "fluss.client.security.sasl.jaas.config"),
+                surface.sensitiveKeys());
+        Assertions.assertEquals(1, surface.sensitiveKeyPrefixes().size());
+        SensitiveKeyPrefix lake = surface.sensitiveKeyPrefixes().get(0);
+        Assertions.assertTrue(lake.covers("fluss.lake.paimon.s3.secret-key"));
+        Assertions.assertTrue(lake.covers("fluss.lake.paimon.rest.token"));
+        Assertions.assertTrue(lake.covers("fluss.lake.paimon.azure.oauth2_client_secret"));
+        Assertions.assertFalse(lake.covers("fluss.lake.paimon.s3.endpoint"));
+        Assertions.assertFalse(lake.covers("fluss.lake.paimon.warehouse"));
+        Assertions.assertFalse(lake.covers("fluss.bootstrap.servers"));
     }
 }

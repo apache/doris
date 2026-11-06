@@ -21,8 +21,10 @@ import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.foundation.property.ParamRules;
 
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Everything a user writes in {@code CREATE CATALOG} for an Elasticsearch catalog, bound and checked.
@@ -170,6 +172,19 @@ public final class EsCatalogProperties {
         p.seeds = p.hosts.split(",");
         p.hostUrls = fillUrlsWithSchema(p.hosts.trim().split(","), p.httpSslEnabled);
         return p;
+    }
+
+    /**
+     * The names of the properties marked {@code sensitive}, each in both spellings a catalog may use: as
+     * declared and with {@link #ES_PROPERTIES_PREFIX}.
+     */
+    public static Set<String> sensitiveKeys() {
+        Set<String> keys = new HashSet<>();
+        for (String key : ConnectorPropertiesUtils.getSensitiveKeys(EsCatalogProperties.class)) {
+            keys.add(key);
+            keys.add(ES_PROPERTIES_PREFIX + key);
+        }
+        return keys;
     }
 
     /**

@@ -20,6 +20,7 @@ package org.apache.doris.connector.fluss;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
+import org.apache.doris.connector.spi.ConnectorSecuritySurface;
 
 import java.util.Map;
 
@@ -47,5 +48,19 @@ public class FlussConnectorProvider implements ConnectorProvider {
     @Override
     public Connector create(Map<String, String> properties, ConnectorContext context) {
         return new FlussConnector(FlussCatalogProperties.of(properties), context);
+    }
+
+    /**
+     * The fluss client's SASL credentials, a small and stable set of keys, and the lake options under
+     * {@link FlussCatalogProperties#LAKE_OPTION_PREFIX}: those are open-ended (new paimon / filesystem
+     * credential names may arrive without a Doris release), so a lake option is a secret when its name
+     * carries a credential-like word, and endpoints and other operational settings stay visible.
+     */
+    @Override
+    public ConnectorSecuritySurface securitySurface() {
+        return ConnectorSecuritySurface.ofSensitiveKeys("fluss.client.security.sasl.username",
+                        "fluss.client.security.sasl.password", "fluss.client.security.sasl.jaas.config")
+                .withSensitiveKeyPrefix(FlussCatalogProperties.LAKE_OPTION_PREFIX,
+                        "key", "secret", "password", "token", "credential");
     }
 }

@@ -39,4 +39,19 @@ public class PaimonConnectorProviderSecuritySurfaceTest {
         Assertions.assertEquals("paimon.catalog.type", surface.jdbcDriverUrlFlavorKey());
         Assertions.assertTrue(surface.ssrfEndpointKeys().isEmpty());
     }
+
+    @Test
+    public void declaresTheSecretsOfEveryMetastoreFlavor() {
+        // Before these were declared, SHOW CREATE CATALOG printed the paimon jdbc password and the REST DLF
+        // key pair in clear: fe-core's own list knows neither spelling.
+        ConnectorSecuritySurface surface = new PaimonConnectorProvider().securitySurface();
+        for (String key : new String[] {"paimon.jdbc.password", "jdbc.password", "paimon.rest.dlf.access-key-id",
+                "paimon.rest.dlf.access-key-secret", "dlf.secret_key", "dlf.catalog.securityToken"}) {
+            Assertions.assertTrue(surface.sensitiveKeys().contains(key), key + " missing from "
+                    + surface.sensitiveKeys());
+        }
+        Assertions.assertFalse(surface.sensitiveKeys().contains("hive.metastore.client.keytab"),
+                "a keytab is a path, not a secret");
+        Assertions.assertFalse(surface.sensitiveKeys().contains("paimon.rest.token.provider"));
+    }
 }

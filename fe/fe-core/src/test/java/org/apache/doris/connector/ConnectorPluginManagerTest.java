@@ -177,10 +177,10 @@ public class ConnectorPluginManagerTest {
         // Type names are the identity CREATE CATALOG routes on and the anchor of source-prefixed namespaces.
         // Two providers claiming one name on the classpath is a build error, and the winner would be decided by
         // ServiceLoader order — silently, differently per build.
-        Assertions.assertTrue(manager.registerDiscovered(createProvider("dup", true, "first"), true));
+        Assertions.assertTrue(admit(createProvider("dup", true, "first"), true));
 
         IllegalStateException e = Assertions.assertThrows(IllegalStateException.class,
-                () -> manager.registerDiscovered(createProvider("DUP", true, "second"), true),
+                () -> admit(createProvider("DUP", true, "second"), true),
                 "a classpath duplicate must fail loud, and case must not be a way around it");
         Assertions.assertTrue(e.getMessage().contains("already claimed"), e.getMessage());
     }
@@ -190,8 +190,8 @@ public class ConnectorPluginManagerTest {
         // Same conflict, different blame: two plugin directories shipping one type name is a deployment
         // accident. loadPlugins promises partial success — one bad plugin dir must not keep FE from starting —
         // so the offender is skipped and the incumbent keeps serving.
-        Assertions.assertTrue(manager.registerDiscovered(createProvider("dup", true, "first"), false));
-        Assertions.assertFalse(manager.registerDiscovered(createProvider("dup", true, "second"), false),
+        Assertions.assertTrue(admit(createProvider("dup", true, "first"), false));
+        Assertions.assertFalse(admit(createProvider("dup", true, "second"), false),
                 "the second claimant must be refused, not silently appended");
 
         Assertions.assertEquals(Collections.singletonList("dup"), manager.getRegisteredTypes(),
@@ -208,10 +208,10 @@ public class ConnectorPluginManagerTest {
         // creates. Refusing it at registration means the shadowing case cannot arise at all.
         for (String builtin : new String[] {"doris", "test", "lakesoul"}) {
             Assertions.assertTrue(CatalogFactory.isBuiltinCatalogType(builtin), builtin);
-            Assertions.assertFalse(manager.registerDiscovered(createProvider(builtin, true, "x"), false),
+            Assertions.assertFalse(admit(createProvider(builtin, true, "x"), false),
                     "a plugin must not be allowed to claim engine built-in type '" + builtin + "'");
             Assertions.assertThrows(IllegalStateException.class,
-                    () -> manager.registerDiscovered(createProvider(builtin.toUpperCase(), true, "x"),
+                    () -> admit(createProvider(builtin.toUpperCase(), true, "x"),
                             true),
                     "on the classpath the same violation must fail loud, case-insensitively");
         }
@@ -223,7 +223,7 @@ public class ConnectorPluginManagerTest {
     void blankTypeNameIsRefused() {
         // getType() is now the sole admission ticket for third-party code; a blank name would otherwise sit in
         // the registry and match nothing, or match everything the moment someone compares loosely.
-        Assertions.assertFalse(manager.registerDiscovered(createProvider("  ", true, "x"), false),
+        Assertions.assertFalse(admit(createProvider("  ", true, "x"), false),
                 "a blank type name must be refused");
         Assertions.assertTrue(manager.getRegisteredTypes().isEmpty());
     }
@@ -234,19 +234,29 @@ public class ConnectorPluginManagerTest {
         // keys must reach that list through its security surface, so fe-core never has to name them. The
         // list is process-wide, hence key names no other test uses.
         String token = "test.connector.admitted.bearer-token";
+        String passThroughSecret = "test.connector.admitted.passthrough.client-secret";
         Assertions.assertFalse(DatasourcePrintableMap.isSensitiveKey(token));
+        Assertions.assertFalse(DatasourcePrintableMap.isSensitiveKey(passThroughSecret));
 
-        Assertions.assertTrue(manager.registerDiscovered(
-                createProvider("secret_type", ConnectorSecuritySurface.ofSensitiveKeys(token)), false));
+        Assertions.assertTrue(admit(createProvider("secret_type",
+                ConnectorSecuritySurface.ofSensitiveKeys(token)
+                        .withSensitiveKeyPrefix("test.connector.admitted.passthrough.", "secret")), false));
 
         Assertions.assertTrue(DatasourcePrintableMap.isSensitiveKey(token.toUpperCase()),
                 "declared keys must match case-insensitively, like the engine's own list");
+        Assertions.assertTrue(DatasourcePrintableMap.isSensitiveKey(passThroughSecret.toUpperCase()),
+                "a declared namespace covers the credential-like keys under it, case-insensitively");
         Map<String, String> properties = new LinkedHashMap<>();
         properties.put("type", "secret_type");
         properties.put(token, "token-value");
+        properties.put(passThroughSecret, "client-secret-value");
+        properties.put("test.connector.admitted.passthrough.endpoint", "http://host:1");
         // The rendering SHOW CREATE CATALOG uses (CatalogMgr#showCreateCatalog).
         String shown = new DatasourcePrintableMap<>(properties, "=", true, true, true, true).toString();
         Assertions.assertFalse(shown.contains("token-value"), shown);
+        Assertions.assertFalse(shown.contains("client-secret-value"), shown);
+        Assertions.assertTrue(shown.contains("\"test.connector.admitted.passthrough.endpoint\" = \"http://host:1\""),
+                "a key under the namespace without a marker stays visible: " + shown);
         Assertions.assertTrue(shown.contains("\"" + token + "\" = \"" + DatasourcePrintableMap.PASSWORD_MASK + "\""),
                 shown);
         Assertions.assertTrue(shown.contains("\"type\" = \"secret_type\""), "undeclared keys stay visible: " + shown);
@@ -256,11 +266,13 @@ public class ConnectorPluginManagerTest {
     void refusedProviderDoesNotExtendTheMaskingList() {
         // Only a provider that will serve catalogs contributes keys; a refused claimant leaves no trace.
         String token = "test.connector.refused.bearer-token";
-        Assertions.assertTrue(manager.registerDiscovered(createProvider("dup", true, "first"), false));
-        Assertions.assertFalse(manager.registerDiscovered(
-                createProvider("dup", ConnectorSecuritySurface.ofSensitiveKeys(token)), false));
+        Assertions.assertTrue(admit(createProvider("dup", true, "first"), false));
+        Assertions.assertFalse(admit(createProvider("dup",
+                ConnectorSecuritySurface.ofSensitiveKeys(token)
+                        .withSensitiveKeyPrefix("test.connector.refused.passthrough.")), false));
 
         Assertions.assertFalse(DatasourcePrintableMap.isSensitiveKey(token));
+        Assertions.assertFalse(DatasourcePrintableMap.isSensitiveKey("test.connector.refused.passthrough.x"));
     }
 
     @Test
@@ -268,9 +280,11 @@ public class ConnectorPluginManagerTest {
         // Tests stand in for a real plugin through registerProvider, so it must mask like the admission path.
         String token = "test.connector.override.api-key";
         manager.registerProvider(createProvider("override_type",
-                ConnectorSecuritySurface.ofSsrfEndpoints("override.uri").withSensitiveKeys(token)));
+                ConnectorSecuritySurface.ofSsrfEndpoints("override.uri").withSensitiveKeys(token)
+                        .withSensitiveKeyPrefix("test.connector.override.passthrough.", "password")));
 
         Assertions.assertTrue(DatasourcePrintableMap.isSensitiveKey(token));
+        Assertions.assertTrue(DatasourcePrintableMap.isSensitiveKey("test.connector.override.passthrough.password"));
         Assertions.assertFalse(DatasourcePrintableMap.isSensitiveKey("override.uri"),
                 "an endpoint key is policed, not masked");
     }
@@ -279,7 +293,7 @@ public class ConnectorPluginManagerTest {
     void registerProviderStillShadowsADiscoveredType() {
         // registerProvider exists to stand in for a real plugin in tests (several rely on shadowing a real
         // type name). The uniqueness check must not reach it, or those tests lose their only seam.
-        Assertions.assertTrue(manager.registerDiscovered(createProvider("iceberg", true, "real"), false));
+        Assertions.assertTrue(admit(createProvider("iceberg", true, "real"), false));
         manager.registerProvider(createProvider("iceberg", true, "override"));
 
         Connector connector = manager.createConnector("iceberg", Collections.emptyMap(), testContext);
@@ -325,6 +339,19 @@ public class ConnectorPluginManagerTest {
     }
 
     @Test
+    void classpathProviderWhoseSecuritySurfaceThrowsIsSkippedNotFatal(@TempDir Path tempDir) throws Exception {
+        // A connector may build its security surface through its own ServiceLoader. When that throws, FE skips
+        // the provider, as it does a filesystem provider whose sensitivePropertyKeys() throws, and starts.
+        Path jar = createClasspathProviderJar(tempDir.resolve("throwing-surface.jar"), kernelApiMajor() + ".0",
+                ThrowingSurfaceClasspathProvider.class);
+        ConnectorPluginManager loading = new ConnectorPluginManager();
+        try (URLClassLoader loader = providerClassLoader(jar, ThrowingSurfaceClasspathProvider.class)) {
+            Assertions.assertDoesNotThrow(() -> loading.loadBuiltins(loader));
+        }
+        Assertions.assertFalse(loading.getRegisteredTypes().contains("throwing-surface-test"));
+    }
+
+    @Test
     void incompatibleClasspathProviderIsRejectedBeforeConstruction(@TempDir Path tempDir) throws Exception {
         System.clearProperty(CLASSPATH_PROVIDER_CONSTRUCTED);
         try {
@@ -344,9 +371,9 @@ public class ConnectorPluginManagerTest {
         // Engine names route CREATE TABLE ... ENGINE= the same way type names route CREATE CATALOG. Two
         // plugins answering to one engine name would make the statement mean whichever registered first, so
         // the conflict is refused where it can still be refused: at registration.
-        Assertions.assertTrue(manager.registerDiscovered(
+        Assertions.assertTrue(admit(
                 createProviderWithEngines("first_type", "shared_engine"), false));
-        Assertions.assertFalse(manager.registerDiscovered(
+        Assertions.assertFalse(admit(
                         createProviderWithEngines("second_type", "SHARED_ENGINE"), false),
                 "a second claimant of the same engine name must be refused, case-insensitively");
 
@@ -354,7 +381,7 @@ public class ConnectorPluginManagerTest {
                 "the refused provider must not end up in the registry");
 
         IllegalStateException e = Assertions.assertThrows(IllegalStateException.class,
-                () -> manager.registerDiscovered(createProviderWithEngines("third_type", "shared_engine"), true),
+                () -> admit(createProviderWithEngines("third_type", "shared_engine"), true),
                 "on the classpath the same conflict must fail loud");
         Assertions.assertTrue(e.getMessage().contains("already claimed"), e.getMessage());
     }
@@ -365,7 +392,7 @@ public class ConnectorPluginManagerTest {
         // owe the user a specific "use X instead" message from InternalCatalog. A plugin claiming one would
         // silently take over a statement the engine answers for.
         for (String reserved : new String[] {"olap", "mysql", "odbc", "broker"}) {
-            Assertions.assertFalse(manager.registerDiscovered(
+            Assertions.assertFalse(admit(
                             createProviderWithEngines("t_" + reserved, reserved.toUpperCase()), false),
                     "a plugin must not be allowed to claim reserved engine name '" + reserved + "'");
         }
@@ -377,10 +404,10 @@ public class ConnectorPluginManagerTest {
     void refusedProviderDoesNotLeaveItsTypeOrEngineNameClaimed() {
         // The checks run before anything is claimed, so a provider rejected for one reason must not poison the
         // name it never got. Otherwise a bad plugin directory could permanently disable a good one.
-        Assertions.assertFalse(manager.registerDiscovered(createProviderWithEngines("good_type", "olap"), false),
+        Assertions.assertFalse(admit(createProviderWithEngines("good_type", "olap"), false),
                 "rejected for the reserved engine name");
 
-        Assertions.assertTrue(manager.registerDiscovered(createProviderWithEngines("good_type", "good_engine"),
+        Assertions.assertTrue(admit(createProviderWithEngines("good_type", "good_engine"),
                         false),
                 "the type name must still be free after the earlier provider was refused");
         Assertions.assertEquals(Collections.singletonList("good_type"), manager.getRegisteredTypes());
@@ -422,14 +449,36 @@ public class ConnectorPluginManagerTest {
         }
     }
 
+    public static class ThrowingSurfaceClasspathProvider implements ConnectorProvider {
+        @Override
+        public String getType() {
+            return "throwing-surface-test";
+        }
+
+        @Override
+        public Connector create(Map<String, String> properties, ConnectorContext context) {
+            return null;
+        }
+
+        @Override
+        public ConnectorSecuritySurface securitySurface() {
+            throw new IllegalStateException("the connector's metastore providers failed to load");
+        }
+    }
+
     private static Path createClasspathProviderJar(Path jarPath, String apiVersion) throws IOException {
+        return createClasspathProviderJar(jarPath, apiVersion, ClasspathProvider.class);
+    }
+
+    private static Path createClasspathProviderJar(Path jarPath, String apiVersion,
+            Class<? extends ConnectorProvider> providerClass) throws IOException {
         Manifest manifest = new Manifest();
         manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
         manifest.getMainAttributes().putValue("Doris-Connector-Plugin-Api-Version", apiVersion);
-        String classEntry = ClasspathProvider.class.getName().replace('.', '/') + ".class";
+        String classEntry = providerClass.getName().replace('.', '/') + ".class";
         try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(jarPath), manifest)) {
             jar.putNextEntry(new JarEntry(classEntry));
-            try (InputStream bytes = ClasspathProvider.class.getClassLoader().getResourceAsStream(classEntry)) {
+            try (InputStream bytes = providerClass.getClassLoader().getResourceAsStream(classEntry)) {
                 Assertions.assertNotNull(bytes, "provider class bytes");
                 byte[] buffer = new byte[8192];
                 int read;
@@ -439,17 +488,22 @@ public class ConnectorPluginManagerTest {
             }
             jar.closeEntry();
             jar.putNextEntry(new JarEntry("META-INF/services/" + ConnectorProvider.class.getName()));
-            jar.write((ClasspathProvider.class.getName() + "\n").getBytes(StandardCharsets.UTF_8));
+            jar.write((providerClass.getName() + "\n").getBytes(StandardCharsets.UTF_8));
             jar.closeEntry();
         }
         return jarPath;
     }
 
     private static URLClassLoader providerClassLoader(Path jarPath) throws IOException {
+        return providerClassLoader(jarPath, ClasspathProvider.class);
+    }
+
+    private static URLClassLoader providerClassLoader(Path jarPath, Class<? extends ConnectorProvider> providerClass)
+            throws IOException {
         return new URLClassLoader(new URL[] {jarPath.toUri().toURL()}, ConnectorProvider.class.getClassLoader()) {
             @Override
             protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
-                if (name.equals(ClasspathProvider.class.getName())) {
+                if (name.equals(providerClass.getName())) {
                     synchronized (getClassLoadingLock(name)) {
                         Class<?> loaded = findLoadedClass(name);
                         if (loaded == null) {
@@ -464,6 +518,11 @@ public class ConnectorPluginManagerTest {
                 return super.loadClass(name, resolve);
             }
         };
+    }
+
+    /** Admits {@code provider} as both loading paths do: with its security surface read up front. */
+    private boolean admit(ConnectorProvider provider, boolean failFast) {
+        return manager.registerDiscovered(provider, provider.securitySurface(), failFast);
     }
 
     private static ConnectorProvider createProvider(String type) {
