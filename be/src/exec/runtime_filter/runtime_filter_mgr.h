@@ -97,6 +97,19 @@ struct GlobalMergeContext {
         std::atomic<bool> size_dispatch_finished {true};
         std::atomic<bool> failed {false};
         std::atomic<int> pending_callbacks {0};
+        bool ignore_runtime_filter_error = false;
+
+        // Stores failed on non-ignored errors, so this method cannot be const.
+        // NOLINTNEXTLINE(readability-make-member-function-const)
+        void finish_dispatch(std::atomic<bool>& finished, bool succeeded) {
+            // A missing RPC stub is terminal even when the query intentionally ignores RF
+            // errors; other in-flight callbacks still have to drain before cleanup.
+            if (succeeded || ignore_runtime_filter_error) {
+                finished.store(true, std::memory_order_release);
+            } else {
+                failed.store(true, std::memory_order_release);
+            }
+        }
     };
 
     std::mutex mtx;

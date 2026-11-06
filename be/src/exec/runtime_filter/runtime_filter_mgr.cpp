@@ -79,9 +79,9 @@ public:
             failed |= !status.ok() && !status.is<ErrorCode::END_OF_FILE>();
         }
         HandleErrorBrpcCallback<Response>::call();
-        // Publish the failure before the last pending callback disappears. The cleaner
-        // cannot mistake an unsuccessful dispatch for an acknowledged RF.
-        if (failed) {
+        // An ignored RPC error acknowledges this dispatch for cleanup, but a non-ignored
+        // error must block release before the last pending callback disappears.
+        if (failed && !_completion->ignore_runtime_filter_error) {
             _completion->failed.store(true, std::memory_order_release);
         }
         _completion->pending_callbacks.fetch_sub(1, std::memory_order_acq_rel);
@@ -444,6 +444,7 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     cnt_val->runtime_filter_desc = *runtime_filter_desc;
     cnt_val->targetv2_info = targetv2_info;
     cnt_val->completion = std::make_shared<GlobalMergeContext::Completion>();
+    cnt_val->completion->ignore_runtime_filter_error = query_ctx->ignore_runtime_filter_error();
     cnt_val->completion->size_dispatch_finished.store(!needs_global_size_sync(*runtime_filter_desc),
                                                       std::memory_order_relaxed);
     RETURN_IF_ERROR(
@@ -574,11 +575,7 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(std::shared_ptr<Quer
         }
         // A disabled producer may send its size before its disabled RF payload arrives.
         // Thus the publish completion alone cannot prove the size phase is finished.
-        if (st.ok()) {
-            cnt_val.completion->size_dispatch_finished.store(true, std::memory_order_release);
-        } else {
-            cnt_val.completion->failed.store(true, std::memory_order_release);
-        }
+        cnt_val.completion->finish_dispatch(cnt_val.completion->size_dispatch_finished, st.ok());
     }
     return st;
 }
@@ -788,11 +785,7 @@ Status RuntimeFilterMergeControllerEntity::_send_rf_to_target(
                                  closure->response_.get(), closure.get());
             closure.release();
         }
-        if (st.ok()) {
-            completion->publish_dispatch_finished.store(true, std::memory_order_release);
-        } else {
-            completion->failed.store(true, std::memory_order_release);
-        }
+        completion->finish_dispatch(completion->publish_dispatch_finished, st.ok());
         return st;
     }
 
@@ -835,11 +828,7 @@ Status RuntimeFilterMergeControllerEntity::_send_rf_to_target(
                              closure->response_.get(), closure.get());
         closure.release();
     }
-    if (st.ok()) {
-        completion->publish_dispatch_finished.store(true, std::memory_order_release);
-    } else {
-        completion->failed.store(true, std::memory_order_release);
-    }
+    completion->finish_dispatch(completion->publish_dispatch_finished, st.ok());
     return st;
 }
 
@@ -859,6 +848,7 @@ Status GlobalMergeContext::reset(QueryContext* query_ctx) {
     publish_callbacks.clear();
     done = false;
     completion = std::make_shared<Completion>();
+    completion->ignore_runtime_filter_error = query_ctx->ignore_runtime_filter_error();
     completion->size_dispatch_finished.store(!needs_global_size_sync(runtime_filter_desc),
                                              std::memory_order_relaxed);
     stage++;

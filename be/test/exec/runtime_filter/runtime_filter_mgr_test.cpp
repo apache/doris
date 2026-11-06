@@ -243,6 +243,34 @@ TEST_F(RuntimeFilterMgrTest, MergeSizeDispatchCallbackAcceptsEofButRejectsOtherF
     }
 }
 
+TEST_F(RuntimeFilterMgrTest, IgnoredMergeDispatchFailureIsTerminalAfterCallbacksDrain) {
+    for (bool ignore_error : {false, true}) {
+        for (bool transport_failure : {false, true}) {
+            auto completion = std::make_shared<GlobalMergeContext::Completion>();
+            completion->ignore_runtime_filter_error = ignore_error;
+            completion->size_dispatch_finished.store(false);
+            completion->pending_callbacks.store(1);
+            auto callback = make_merge_size_dispatch_callback({}, completion);
+            if (transport_failure) {
+                callback->cntl_->SetFailed("injected transport failure");
+            } else {
+                callback->response_->mutable_status()->set_status_code(TStatusCode::INTERNAL_ERROR);
+            }
+
+            // A synchronous stub failure can coexist with an already-sent, pending RPC.
+            completion->finish_dispatch(completion->publish_dispatch_finished, false);
+            completion->finish_dispatch(completion->size_dispatch_finished, false);
+            EXPECT_EQ(completion->publish_dispatch_finished.load(), ignore_error);
+            EXPECT_EQ(completion->size_dispatch_finished.load(), ignore_error);
+            EXPECT_EQ(completion->pending_callbacks.load(), 1);
+
+            callback->call();
+            EXPECT_EQ(completion->failed.load(), !ignore_error);
+            EXPECT_EQ(completion->pending_callbacks.load(), 0);
+        }
+    }
+}
+
 TEST_F(RuntimeFilterMgrTest, SplitRuntimeFilterPublishTargets) {
     std::vector<RuntimeFilterPublishTarget> targets;
     for (int i = 0; i < 10; ++i) {

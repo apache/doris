@@ -347,6 +347,71 @@ TEST_F(FragmentMgrCrossClusterCancelTest, RemoteRfRequiresSizeDispatchAndCallbac
     EXPECT_TRUE(weak_query_ctx.expired());
 }
 
+TEST_F(FragmentMgrCrossClusterCancelTest, IgnoredRfDispatchFailureReleasesQueryContext) {
+    stop_fragment_mgr_background();
+    auto* fragment_mgr = _exec_env.fragment_mgr();
+    TUniqueId query_id;
+    query_id.__set_hi(713);
+    query_id.__set_lo(814);
+    TNetworkAddress coord;
+    coord.hostname = "fe-ignored-rf-error";
+    coord.port = 9030;
+    TPipelineFragmentParams params;
+    params.__set_query_id(query_id);
+    params.__set_is_simplified_param(false);
+    params.__set_coord(coord);
+    params.__set_is_nereids(true);
+    params.__set_current_connect_fe(coord);
+    params.__set_fragment_num_on_host(1);
+    auto query_options = _make_min_query_options(/*fe_process_uuid*/ 0);
+    query_options.__set_ignore_runtime_filter_error(true);
+    params.__set_query_options(query_options);
+    params.__set_desc_tbl(_make_min_desc_tbl());
+    TRuntimeFilterParams rf_params =
+            TRuntimeFilterParamsBuilder()
+                    .add_rid_to_runtime_filter(1, TRuntimeFilterDescBuilder(1)
+                                                          .add_planId_to_target_expr(0)
+                                                          .set_mode(false)
+                                                          .set_build_bf_by_runtime_size(true)
+                                                          .build())
+                    .add_runtime_filter_builder_num(1, 1)
+                    .build();
+    rf_params.__set_rf_merge_context_single_use(true);
+    TRuntimeFilterInfo rf_info;
+    rf_info.__set_runtime_filter_params(rf_params);
+    TPipelineFragmentParamsList parent;
+    parent.__set_runtime_filter_info(rf_info);
+    std::shared_ptr<QueryContext> query_ctx;
+    ASSERT_TRUE(fragment_mgr
+                        ->_get_or_create_query_ctx(params, parent, QuerySource::INTERNAL_FRONTEND,
+                                                   query_ctx)
+                        .ok());
+    auto controller = query_ctx->get_merge_controller_handler();
+    controller->mark_initial_fragments_prepared();
+    std::shared_ptr<GlobalMergeContext::Completion> completion;
+    {
+        SharedLockGuard guard(controller->_filter_map_mutex);
+        completion = controller->_filter_map.at(1).completion;
+    }
+    ASSERT_TRUE(completion->ignore_runtime_filter_error);
+    completion->finish_dispatch(completion->publish_dispatch_finished, false);
+    completion->pending_callbacks.store(1);
+    auto callback = make_merge_size_dispatch_callback({}, completion);
+    callback->cntl_->SetFailed("injected ignored size RPC failure");
+    completion->finish_dispatch(completion->size_dispatch_finished, false);
+    std::weak_ptr<QueryContext> weak_query_ctx = query_ctx;
+    query_ctx.reset();
+    fragment_mgr->_release_finished_rf_query_contexts();
+    EXPECT_FALSE(weak_query_ctx.expired());
+
+    callback->call();
+    EXPECT_FALSE(completion->failed.load());
+    EXPECT_EQ(completion->pending_callbacks.load(), 0);
+    controller.reset();
+    fragment_mgr->_release_finished_rf_query_contexts();
+    EXPECT_TRUE(weak_query_ctx.expired());
+}
+
 TEST(FragmentMgrDelayDeleteMapTest, ClearShouldNotAbortWhenReleasingLastQueryContextRef) {
     auto* exec_env = ExecEnv::GetInstance();
     auto* previous_fragment_mgr = exec_env->_fragment_mgr;
