@@ -19,12 +19,14 @@
 
 #include <cstring>
 #include <limits>
+#include <utility>
 
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "core/column/column_varbinary.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "core/data_type_serde/arrow_validation.h"
+#include "core/data_type_serde/bson_value_view.h"
 #include "core/data_type_serde/orc_serde_utils.h"
 #include "core/data_type_serde/parquet_decode_source.h"
 #include "exprs/function/string_hex_util.h"
@@ -439,6 +441,43 @@ void DataTypeVarbinarySerDe::to_string(const IColumn& column, size_t row_num, Bu
     } else { // mysql protocol will be handle as hex binary data directly
         bw.write(value.data(), value.size());
     }
+}
+
+Status DataTypeVarbinarySerDe::decode_bson_value(IColumn& column, const BsonValueView& value,
+                                                 const BsonDecodeContext& context) const {
+    RETURN_IF_ERROR(context.validate(value));
+    if (value.missing) {
+        return Status::InvalidArgument("Missing BSON binary value");
+    }
+    const auto& v = value.value;
+    size_t length = 0;
+    if (v.value_type == BSON_TYPE_OID) {
+        length = 12;
+    } else if (v.value_type == BSON_TYPE_BINARY) {
+        length = v.value.v_binary.data_len;
+    } else if (v.value_type == BSON_TYPE_DOCUMENT) {
+        length = v.value.v_doc.data_len;
+    }
+    if (_max_length >= 0 && std::cmp_greater(length, _max_length)) {
+        return Status::InvalidArgument("BSON binary exceeds the target VARBINARY length");
+    }
+    auto& target = assert_cast<ColumnVarbinary&>(column);
+    if (context.binding && context.binding->special == "bson" &&
+        v.value_type == BSON_TYPE_DOCUMENT) {
+        target.insert_data(reinterpret_cast<const char*>(v.value.v_doc.data),
+                           v.value.v_doc.data_len);
+    } else if (v.value_type == BSON_TYPE_OID) {
+        target.insert_data(reinterpret_cast<const char*>(v.value.v_oid.bytes), 12);
+    } else if (v.value_type == BSON_TYPE_BINARY && context.binding &&
+               context.binding->subtype >= 0 &&
+               context.binding->subtype == static_cast<int>(v.value.v_binary.subtype)) {
+        target.insert_data(reinterpret_cast<const char*>(v.value.v_binary.data),
+                           v.value.v_binary.data_len);
+    } else {
+        return Status::InvalidArgument(
+                "BSON binary type or subtype differs from the pinned schema");
+    }
+    return Status::OK();
 }
 
 } // namespace doris

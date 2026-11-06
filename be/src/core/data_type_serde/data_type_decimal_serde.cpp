@@ -36,6 +36,7 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/storage_field_type.h"
 #include "core/data_type_serde/arrow_validation.h"
+#include "core/data_type_serde/bson_value_view.h"
 #include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type_serde/orc_serde_utils.h"
 #include "core/data_type_serde/parquet_decode_source.h"
@@ -1503,6 +1504,21 @@ Status DataTypeDecimalSerDe<T>::read_column_from_orc(IColumn& column,
         return Status::OK();
     }
     return decode_decimal_orc_values(*this, column, view, cast_set<int32_t>(scale));
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::decode_bson_value(IColumn& column, const BsonValueView& value,
+                                                  const BsonDecodeContext& context) const {
+    RETURN_IF_ERROR(context.validate(value));
+    if (value.missing || value.value.value_type != BSON_TYPE_DECIMAL128) {
+        return Status::InvalidArgument("BSON DECIMAL requires a Decimal128 source");
+    }
+    std::string normalized;
+    RETURN_IF_ERROR(
+            bson_decimal_exact(value.value.value.v_decimal128, precision, scale, &normalized));
+    StringRef input(normalized);
+    Status status = from_string_strict_mode(input, column, FormatOptions());
+    return status.ok() ? status : Status::InvalidArgument("BSON Decimal128 conversion failed");
 }
 
 template class DataTypeDecimalSerDe<TYPE_DECIMAL32>;

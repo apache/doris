@@ -79,7 +79,7 @@ public:
     bool equals(const IDataType& rhs) const override;
 
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeVarbinarySerDe>(nesting_level);
+        return std::make_shared<DataTypeVarbinarySerDe>(nesting_level, _len);
     };
 
     void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override;

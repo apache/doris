@@ -23,6 +23,7 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/core")
 
 file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS *.cpp)
 add_library(Core STATIC ${SRC_FILES})
+target_link_libraries(Core PUBLIC bson2)
 
 pch_reuse(Core)
 

@@ -132,7 +132,8 @@ enum TFileFormatType {
     FORMAT_TEXT = 17,
     FORMAT_NATIVE = 18,
     FORMAT_LANCE = 19,
-    FORMAT_ES_HTTP = 20
+    FORMAT_ES_HTTP = 20,
+    FORMAT_MONGODB = 21
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,
@@ -660,6 +661,33 @@ struct TLanceFileDesc {
     6: optional bool use_scalar_index
 }
 
+// Stable single-cursor read contract. Driver objects and active sessions remain local to FE/BE.
+// All fields are optional for wire evolution; the reader validates the required version-1 subset.
+struct TMongoScanDesc {
+    1: optional i32 version
+    2: optional i64 catalog_id
+    3: optional string configuration_version
+    4: optional string database
+    5: optional string collection
+    6: optional string object_kind
+    7: optional string collection_uuid
+    8: optional string schema_version
+    9: optional string bindings_json
+    10: optional string uri
+    11: optional string username
+    12: optional string password
+    13: optional string auth_database
+    14: optional string read_preference
+    15: optional string read_concern
+    16: optional bool type_mismatch_as_null
+    17: optional i32 batch_size
+    18: optional i64 timeout_ms
+    19: optional i32 connect_timeout_ms
+    20: optional i32 server_selection_timeout_ms
+    21: optional i32 socket_timeout_ms
+    22: optional i32 pool_max_clients
+}
+
 struct TTableFormatFileDesc {
     1: optional string table_format_type
     2: optional TIcebergFileDesc iceberg_params
@@ -694,6 +722,7 @@ struct TTableFormatFileDesc {
     // straight to the Java scanner, so a typed struct would only add a transcription step (see
     // es_params, jdbc_params).
     15: optional map<string, string> fluss_params
+    16: optional TMongoScanDesc mongodb_params
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type
