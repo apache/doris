@@ -761,12 +761,14 @@ FRAC:
         cctz::civil_second cs {res.year(), res.month(),  res.day(),
                                res.hour(), res.minute(), res.second()};
 
+        // Use the offset before the transition for every local input type.
+        // New York 2024-03-10 02:30 becomes 03:30. Keep the parsed fraction.
+        const auto given = parsed_tz.lookup(cs).pre;
         if constexpr (type == DataTimeCastEnumType::DATE_TIME) {
-            // if not timestamptz, the given time is in local_time_zone
+            // Display the instant in the session time zone.
             SET_PARAMS_RET_FALSE_IFN(
                     local_time_zone != nullptr,
                     "local time zone required for datetime string without timezone");
-            auto given = cctz::convert(cs, parsed_tz);
             auto local = cctz::convert(given, *local_time_zone);
             res.unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)local.year());
             res.unchecked_set_time_unit<TimeUnit::MONTH>((uint32_t)local.month());
@@ -775,8 +777,6 @@ FRAC:
             res.unchecked_set_time_unit<TimeUnit::MINUTE>((uint32_t)local.minute());
             res.unchecked_set_time_unit<TimeUnit::SECOND>((uint32_t)local.second());
         } else {
-            // if timestamptz, the given time is in UTC
-            auto given = cctz::convert(cs, parsed_tz);
             auto utc = cctz::convert(given, cctz::utc_time_zone());
             res.unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)utc.year());
             res.unchecked_set_time_unit<TimeUnit::MONTH>((uint32_t)utc.month());
@@ -803,7 +803,8 @@ POST_PROCESS:
         cctz::civil_second cs {res.year(), res.month(),  res.day(),
                                res.hour(), res.minute(), res.second()};
 
-        auto local = cctz::convert(cs, *local_time_zone);
+        // Apply the same gap policy as input with an explicit time zone.
+        auto local = local_time_zone->lookup(cs).pre;
         auto utc = cctz::convert(local, cctz::utc_time_zone());
         res.unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)utc.year());
         res.unchecked_set_time_unit<TimeUnit::MONTH>((uint32_t)utc.month());
@@ -1045,12 +1046,14 @@ inline bool CastToDatetimeV2::from_string_non_strict_mode_internal(
         cctz::civil_second cs {res.year(), res.month(),  res.day(),
                                res.hour(), res.minute(), res.second()};
 
+        // Use the offset before the transition for every local input type.
+        // New York 2024-03-10 02:30 becomes 03:30. Keep the parsed fraction.
+        const auto given = parsed_tz.lookup(cs).pre;
         if constexpr (type == DataTimeCastEnumType::DATE_TIME) {
-            // if not timestamptz, the given time is in local_time_zone
+            // Display the instant in the session time zone.
             SET_PARAMS_RET_FALSE_IFN(
                     local_time_zone != nullptr,
                     "local time zone required for datetime string without timezone");
-            auto given = cctz::convert(cs, parsed_tz);
             auto local = cctz::convert(given, *local_time_zone);
             res.unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)local.year());
             res.unchecked_set_time_unit<TimeUnit::MONTH>((uint32_t)local.month());
@@ -1059,8 +1062,6 @@ inline bool CastToDatetimeV2::from_string_non_strict_mode_internal(
             res.unchecked_set_time_unit<TimeUnit::MINUTE>((uint32_t)local.minute());
             res.unchecked_set_time_unit<TimeUnit::SECOND>((uint32_t)local.second());
         } else {
-            // if timestamptz, the given time is in UTC
-            auto given = cctz::convert(cs, parsed_tz);
             auto utc = cctz::convert(given, cctz::utc_time_zone());
             res.unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)utc.year());
             res.unchecked_set_time_unit<TimeUnit::MONTH>((uint32_t)utc.month());
@@ -1095,7 +1096,8 @@ POST_PROCESS:
         cctz::civil_second cs {res.year(), res.month(),  res.day(),
                                res.hour(), res.minute(), res.second()};
 
-        auto local = cctz::convert(cs, *local_time_zone);
+        // Apply the same gap policy as input with an explicit time zone.
+        auto local = local_time_zone->lookup(cs).pre;
         auto utc = cctz::convert(local, cctz::utc_time_zone());
         res.unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)utc.year());
         res.unchecked_set_time_unit<TimeUnit::MONTH>((uint32_t)utc.month());

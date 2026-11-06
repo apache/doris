@@ -100,7 +100,10 @@ bool TimestampTzValue::from_datetime(const DateV2Value<DateTimeV2ValueType>& ori
 
     cctz::civil_second local_cs(dt.year(), dt.month(), dt.day(), dt.hour(), dt.minute(),
                                 dt.second());
-    cctz::time_point<cctz::seconds> local_tp = cctz::convert(local_cs, local_time_zone);
+    // Use the offset before the transition to move input forward by the gap length.
+    // In New York on 2024-03-10, 02:30 becomes 03:30. Keep the fraction below.
+    // For repeated local times, pre keeps the first occurrence.
+    cctz::time_point<cctz::seconds> local_tp = local_time_zone.lookup(local_cs).pre;
 
     auto utc_cs = cctz::convert(local_tp, cctz::utc_time_zone());
 
@@ -146,7 +149,8 @@ void TimestampTzValue::convert_local_to_utc(const cctz::time_zone& local_time_zo
                                             const DateV2Value<DateTimeV2ValueType>& dt) {
     cctz::civil_second local_cs(dt.year(), dt.month(), dt.day(), dt.hour(), dt.minute(),
                                 dt.second());
-    cctz::time_point<cctz::seconds> local_tp = cctz::convert(local_cs, local_time_zone);
+    // Calendar operations can produce gap input. Keep its position and fraction.
+    cctz::time_point<cctz::seconds> local_tp = local_time_zone.lookup(local_cs).pre;
     auto utc_cs = cctz::convert(local_tp, cctz::utc_time_zone());
 
     _utc_dt.unchecked_set_time((uint16_t)utc_cs.year(), (uint8_t)utc_cs.month(),
@@ -168,7 +172,8 @@ void TimestampTzValue::convert_local_to_utc(const cctz::time_zone& local_time_zo
     cctz::civil_second local_cs(dt.year(), dt.month(), dt.day(), dt.hour(), dt.minute(),
                                 dt.second());
     const auto lookup = local_time_zone.lookup(local_cs);
-    cctz::time_point<cctz::seconds> local_tp = cctz::convert(local_cs, local_time_zone);
+    // A preferred offset applies only to an overlap. A gap uses the earlier offset.
+    cctz::time_point<cctz::seconds> local_tp = lookup.pre;
 
     if (lookup.kind == cctz::time_zone::civil_lookup::REPEATED) {
         const auto pre_offset = local_time_zone.lookup(lookup.pre).offset;

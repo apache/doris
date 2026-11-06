@@ -1476,6 +1476,23 @@ public class IcebergWritePlanProviderTest {
     }
 
     @Test
+    public void planWriteStaticPartitionUsesCastTimestamp() {
+        Schema schema = new Schema(Types.NestedField.optional(1, "event_time", Types.TimestampType.withZone()));
+        Table table = freshCatalog().createTable(TableIdentifier.of("db1", "t1"), schema,
+                PartitionSpec.builderFor(schema).identity("event_time", "event_partition").build());
+        WriteHandle handle = new WriteHandle(new IcebergTableHandle("db1", "t1")).overwrite(true)
+                .writeContext(Collections.singletonMap("event_time", "2021-03-14 02:59:59.9999996"));
+        // The engine rounds the local time to scale 6 before it applies the New York time zone rule.
+        String castValue = "2021-03-14 03:00:00.000000-04:00";
+        handle.castWriteContext = Collections.singletonMap("event_time", castValue);
+
+        TIcebergTableSink sink = planSink(table, contextWithStorage(), handle);
+
+        Assertions.assertEquals(Collections.singletonMap("event_partition", castValue), sink.getStaticPartitionValues());
+        Assertions.assertEquals(Collections.singletonMap("event_time", castValue), handle.castWriteContext);
+    }
+
+    @Test
     public void planWriteStaticPartitionKeysTheRenamedPartitionField() {
         // ADD PARTITION KEY id AS id_identity: the engine keys the spec by the SOURCE column (the identifier Spark
         // resolves for a static PARTITION clause, and the one an identity value can be materialized through), while
@@ -2820,6 +2837,7 @@ public class IcebergWritePlanProviderTest {
         private final ConnectorTableHandle tableHandle;
         private boolean overwrite;
         private Map<String, String> writeContext = Collections.emptyMap();
+        private Map<String, String> castWriteContext;
         private TSortInfo sortInfo;
         private WriteOperation writeOperation = WriteOperation.INSERT;
         private Optional<String> branchName = Optional.empty();
@@ -2949,6 +2967,11 @@ public class IcebergWritePlanProviderTest {
         @Override
         public Map<String, String> getStaticPartitionSpec() {
             return writeContext;
+        }
+
+        @Override
+        public Map<String, String> getCastStaticPartitionSpec() {
+            return castWriteContext == null ? ConnectorWriteHandle.super.getCastStaticPartitionSpec() : castWriteContext;
         }
 
         @Override

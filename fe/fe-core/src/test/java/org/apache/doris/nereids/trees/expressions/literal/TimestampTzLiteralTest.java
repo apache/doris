@@ -82,7 +82,7 @@ class TimestampTzLiteralTest {
         Assertions.assertEquals(3, literal.month);
         Assertions.assertEquals(10, literal.day);
         Assertions.assertEquals(7, literal.hour);
-        Assertions.assertEquals(0, literal.minute);
+        Assertions.assertEquals(30, literal.minute);
         Assertions.assertEquals(0, literal.second);
         Assertions.assertEquals(0, literal.microSecond);
 
@@ -115,6 +115,83 @@ class TimestampTzLiteralTest {
             Assertions.assertEquals(6, literal.getDataType().getScale());
         } finally {
             ConnectContext.remove();
+        }
+    }
+
+    @Test
+    void testDstGapPreservesPosition() {
+        String[][] cases = {
+                {"America/New_York", "2024-03-10 01:59:59.999999", "2024-03-10 06:59:59.999999+00:00"},
+                {"America/New_York", "2024-03-10 02:00:00", "2024-03-10 07:00:00.000000+00:00"},
+                {"America/New_York", "2024-03-10 02:30:00.123456", "2024-03-10 07:30:00.123456+00:00"},
+                {"America/New_York", "2024-03-10 02:59:59.999999", "2024-03-10 07:59:59.999999+00:00"},
+                {"America/New_York", "2024-03-10 03:00:00", "2024-03-10 07:00:00.000000+00:00"},
+                {"America/New_York", "2024-03-10 02:59:59.9999996", "2024-03-10 07:00:00.000000+00:00"},
+                {"Australia/Lord_Howe", "2024-10-06 02:15:00.123456", "2024-10-05 15:45:00.123456+00:00"},
+                {"America/New_York", "2024-11-03 01:30:00.123456", "2024-11-03 05:30:00.123456+00:00"}
+        };
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            for (String[] c : cases) {
+                context.getSessionVariable().setTimeZone(c[0]);
+                Assertions.assertEquals(c[2], new TimestampTzLiteral(
+                        TimeStampTzType.of(6), c[1] + " " + c[0]).getStringValue());
+                Assertions.assertEquals(c[2], TimestampTzLiteral.fromSessionTimeZone(
+                        TimeStampTzType.of(6), c[1]).getStringValue());
+                Assertions.assertEquals(c[2], ((Literal) new DateTimeV2Literal(c[1])
+                        .checkedCastTo(TimeStampTzType.of(6))).getStringValue());
+            }
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    void testDstGapRoundingAtLowerScales() {
+        for (int scale : new int[] {0, 3}) {
+            TimeStampTzType type = TimeStampTzType.of(scale);
+            String input = "2024-03-10 02:59:59.999999";
+            TimestampTzLiteral expected = new TimestampTzLiteral(type, "2024-03-10 07:00:00+00:00");
+            Assertions.assertEquals(expected,
+                    new TimestampTzLiteral(type, input + " America/New_York"));
+            Assertions.assertEquals(expected,
+                    TimestampTzLiteral.fromTimeZone(type, new DateTimeV2Literal(input), "America/New_York"));
+        }
+    }
+
+    @Test
+    void testDstGapStringRoundsOnce() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setTimeZone("America/New_York");
+        context.setThreadLocalInfo();
+        try {
+            for (int scale : new int[] {0, 3}) {
+                TimeStampTzType type = TimeStampTzType.of(scale);
+                String fraction = "9".repeat(scale) + "4999996";
+                String input = "2024-03-10 02:59:59." + fraction;
+                TimestampTzLiteral expected = new TimestampTzLiteral(type,
+                        2024, 3, 10, 7, 59, 59, scale == 0 ? 0 : 999000);
+                Assertions.assertEquals(expected, new StringLiteral(input).checkedCastTo(type));
+                Assertions.assertEquals(expected, TimestampTzLiteral.fromSessionTimeZone(type, input));
+                Assertions.assertEquals(expected,
+                        new TimestampTzLiteral(type, input + " America/New_York"));
+                Assertions.assertEquals(expected, new TimestampTzLiteral(type, input + "-05:00"));
+                if (scale == 0) {
+                    Assertions.assertEquals(expected, new TimestampTzLiteral(type,
+                            "20240310025959.4999996America/New_York"));
+                }
+
+                // An explicit DATETIMEV2(6) cast does round to microseconds first.
+                Assertions.assertEquals(new TimestampTzLiteral(type, 2024, 3, 10, 7, 0, 0, 0),
+                        new DateTimeV2Literal(input).checkedCastTo(type));
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
         }
     }
 
