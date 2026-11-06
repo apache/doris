@@ -34,6 +34,7 @@ import org.apache.doris.datasource.SplitProducer;
 import org.apache.doris.datasource.SplitSource;
 import org.apache.doris.datasource.SplitSourceManager;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache;
 import org.apache.doris.datasource.hive.HivePartition;
@@ -524,7 +525,15 @@ public class HiveStreamingSplitTest {
             context.setStatementContext(statement);
             context.setThreadLocalInfo();
             HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+            HMSExternalDatabase database = Mockito.mock(HMSExternalDatabase.class);
             Mockito.when(table.getCatalog()).thenReturn(catalog);
+            // Mode selection resolves the statement snapshot before loading partition metadata.
+            // Keep the mocked table's identity complete, as it is on a real analyzed scan.
+            Mockito.doReturn(database).when(table).getDatabase();
+            Mockito.doReturn(catalog).when(database).getCatalog();
+            Mockito.when(catalog.getName()).thenReturn("hms");
+            Mockito.when(database.getFullName()).thenReturn("db");
+            Mockito.when(table.getName()).thenReturn("streaming_table");
             Mockito.when(catalog.bindBrokerName()).thenReturn("");
             Mockito.when(table.getFileFormatType(Mockito.any())).thenReturn(TFileFormatType.FORMAT_PARQUET);
             org.apache.doris.catalog.Env env = Mockito.mock(org.apache.doris.catalog.Env.class);
