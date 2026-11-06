@@ -4155,6 +4155,84 @@ public class IcebergScanPlanProviderTest {
                 session, new IcebergTableHandle("db1", "t1"), Optional.empty()));
     }
 
+    @ParameterizedTest
+    @CsvSource({"0,false", "0,true", "1,false", "1,true", "2,false", "2,true", "3,false", "3,true"})
+    public void metadataOnlyCountCapabilityChecksIndependentFileEncryption(int encryptedFiles, boolean equality) {
+        Table table = createTable("count_capability", SCHEMA, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "count_capability");
+        Assertions.assertTrue(provider.canServeMetadataOnlyCount(null, handle, Optional.empty()));
+
+        byte[] metadata = new byte[22];
+        metadata[0] = 1;
+        metadata[1] = 32;
+        Arrays.fill(metadata, 2, 18, (byte) 7);
+        metadata[18] = 2;
+        metadata[19] = 2;
+        metadata[20] = 9;
+        DataFiles.Builder data = DataFiles.builder(table.spec()).withPath("s3://bucket/data.parquet")
+                .withFileSizeInBytes(512).withRecordCount(8).withFormat("parquet");
+        if ((encryptedFiles & 1) != 0) {
+            data.withEncryptionKeyMetadata(ByteBuffer.wrap(metadata));
+        }
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://bucket/plain.parquet", 512, null, null))
+                .appendFile(data.build()).commit();
+        Assertions.assertEquals((encryptedFiles & 1) == 0,
+                Assertions.assertDoesNotThrow(() -> provider.canServeMetadataOnlyCount(null, handle, Optional.empty())),
+                "manifest row counters do not establish that every live data file is plaintext");
+
+        FileMetadata.Builder delete = FileMetadata.deleteFileBuilder(table.spec())
+                .withPath("s3://bucket/delete.parquet").withFormat("parquet")
+                .withFileSizeInBytes(100).withRecordCount(1);
+        if (equality) {
+            delete.ofEqualityDeletes(1);
+        } else {
+            delete.ofPositionDeletes();
+        }
+        if ((encryptedFiles & 2) != 0) {
+            delete.withEncryptionKeyMetadata(ByteBuffer.wrap(metadata));
+        }
+        table.newRowDelta().addDeletes(delete.build()).commit();
+        for (boolean netPositionDeletes : new boolean[] {false, true}) {
+            ConnectorSession session = new FakeScanSession("UTC",
+                    Collections.singletonMap("ignore_iceberg_dangling_delete",
+                            Boolean.toString(netPositionDeletes)));
+            Assertions.assertEquals(encryptedFiles == 0 && !equality && netPositionDeletes,
+                    Assertions.assertDoesNotThrow(
+                            () -> provider.canServeMetadataOnlyCount(session, handle, Optional.empty())),
+                    "unsupported encrypted data/delete combinations must return false, not throw");
+        }
+    }
+
+    @Test
+    public void metadataOnlyCountCapabilityChecksOnlyLiveFilesInThePinnedSnapshot() {
+        Table table = createTable("count_capability_snapshots", SCHEMA, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
+        table.newAppend().appendFile(
+                dataFile(table.spec(), "s3://bucket/plain.parquet", 512, null, null)).commit();
+        long plaintextSnapshot = table.currentSnapshot().snapshotId();
+        // The probe only needs the presence of key metadata; it must not parse keys or open data files.
+        DataFile encrypted = DataFiles.builder(table.spec()).withPath("s3://bucket/encrypted.parquet")
+                .withFormat("parquet").withFileSizeInBytes(512).withRecordCount(4)
+                .withEncryptionKeyMetadata(ByteBuffer.wrap(new byte[] {1})).build();
+        table.newAppend().appendFile(encrypted).commit();
+        long encryptedSnapshot = table.currentSnapshot().snapshotId();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "count_capability_snapshots");
+        Assertions.assertTrue(provider.canServeMetadataOnlyCount(null,
+                handle.withSnapshot(plaintextSnapshot, null, 0L), Optional.empty()));
+        Assertions.assertFalse(provider.canServeMetadataOnlyCount(null, handle, Optional.empty()));
+
+        table.newDelete().deleteFile(encrypted).commit();
+        Assertions.assertTrue(provider.canServeMetadataOnlyCount(null, handle, Optional.empty()),
+                "deleted entries and historical encrypted snapshots must not block a plaintext count");
+        Assertions.assertFalse(provider.canServeMetadataOnlyCount(null,
+                handle.withSnapshot(encryptedSnapshot, null, 0L), Optional.empty()));
+    }
+
     @Test
     public void getScanNodePropertiesUnderPinEmitsFullPinnedSchemaDict() throws Exception {
         // T07 Option A: under a time-travel pin the field-id dict is built from the FULL pinned schema (covering

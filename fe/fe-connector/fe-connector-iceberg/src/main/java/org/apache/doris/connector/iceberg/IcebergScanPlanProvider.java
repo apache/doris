@@ -1573,9 +1573,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     /**
      * The capability probe behind {@link #canServeMetadataOnlyCount}: the delete gate of
      * {@link #planCountPushdown} plus the requirement that the data manifests really carry aggregate row
-     * counters. Reading only the manifest list keeps this O(manifests) with no data-file enumeration, which is
-     * what a pre-planning probe can afford; the price is answering {@code false} for the older manifest lists
-     * that {@code planCountPushdown} still serves through its bounded per-file fallback. Never derives the
+     * counters. Live data-file key metadata is streamed from the manifests without constructing file tasks
+     * or opening data files. Older manifest lists without row counters return {@code false}, even though
+     * {@code planCountPushdown} still serves them through its bounded per-file fallback. Never derives the
      * count from snapshot summary fields — those are writer-provided hints, not a query result.
      */
     private static boolean canProveCountFromManifests(Table table, TableScan scan, ConnectorSession session) {
@@ -1589,17 +1589,42 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         if (deleteState == ManifestDeleteState.PRESENT && !netPositionDeletes) {
             return false;
         }
-        OptionalLong positionDeleteRows = deleteState == ManifestDeleteState.NONE
-                ? OptionalLong.of(0)
-                : livePositionDeleteRowCount(table, snapshot);
+        OptionalLong positionDeleteRows;
+        try {
+            positionDeleteRows = deleteState == ManifestDeleteState.NONE
+                    ? OptionalLong.of(0)
+                    : livePositionDeleteRowCount(table, snapshot);
+        } catch (EncryptedCountException e) {
+            // Capability probing reports unsupported encryption as false; execution must still reject it.
+            return false;
+        }
         if (!positionDeleteRows.isPresent()
                 || (!netPositionDeletes && positionDeleteRows.getAsLong() != 0)) {
             return false;
         }
-        OptionalLong manifestCount = liveRowCountFromManifests(snapshot.dataManifests(table.io()));
-        return manifestCount.isPresent()
-                && subtractPositionDeleteRows(manifestCount.getAsLong(),
-                        netPositionDeletes ? positionDeleteRows.getAsLong() : 0).isPresent();
+        List<ManifestFile> dataManifests = snapshot.dataManifests(table.io());
+        OptionalLong manifestCount = liveRowCountFromManifests(dataManifests);
+        if (!manifestCount.isPresent()
+                || !subtractPositionDeleteRows(manifestCount.getAsLong(),
+                        netPositionDeletes ? positionDeleteRows.getAsLong() : 0).isPresent()) {
+            return false;
+        }
+        // Aggregate counters do not expose per-file encryption. Check every live entry before advertising
+        // COUNT support, including encrypted files after a plaintext representative; retain no file list.
+        for (ManifestFile manifest : dataManifests) {
+            try (ManifestReader<DataFile> reader = ManifestFiles.read(manifest, table.io(), table.specs())
+                    .select(Collections.singletonList(DataFile.KEY_METADATA.name()))) {
+                for (DataFile file : reader) {
+                    if (file.keyMetadata() != null) {
+                        return false;
+                    }
+                }
+            } catch (IOException e) {
+                throw new DorisConnectorException(
+                        "Failed to inspect iceberg data manifest " + manifest.path() + ": " + e.getMessage(), e);
+            }
+        }
+        return true;
     }
 
     private Optional<List<ConnectorScanRange>> planManifestCountRange(Table table, TableScan scan,
