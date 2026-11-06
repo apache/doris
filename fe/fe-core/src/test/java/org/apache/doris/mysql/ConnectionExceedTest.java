@@ -92,7 +92,7 @@ public class ConnectionExceedTest {
                     scheduler.getConnectPoolMgr().getMaxConnections(),
                     2, // Mocked user connection limit
                     scheduler.getConnectionNum(),
-                    2); // the user's own count, which is what refused it
+                    2); // the user's own count - also at its limit; the pool's limit refused first
             Assertions.assertEquals(expectedMsg, context3.getState().getErrorMessage());
             Assertions.assertEquals(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS, context3.getState().getErrorCode());
         }
@@ -166,7 +166,8 @@ public class ConnectionExceedTest {
                     () -> manager.openSession(authResult));
             Assertions.assertEquals(FlightStatusCode.RESOURCE_EXHAUSTED, refused.status().code());
             Assertions.assertEquals(
-                    "Reach limit of connections. Total: 1000, User: 100, Current: 3, Arrow Flight SQL: 2 (current: 2)",
+                    "Reach limit of connections. Total: 1000, User: 100, Current: 3, User current: 3,"
+                            + " Arrow Flight SQL: 2 (current: 2)",
                     refused.status().description());
             Assertions.assertEquals(3, scheduler.getConnectionNum());
             Assertions.assertEquals(2, scheduler.getConnectPoolMgr().getFlightConnectionNum());

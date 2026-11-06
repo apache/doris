@@ -49,7 +49,8 @@ suite("test_connection_quota") {
     String password = "Quota_12345"
     int limit = 1
     // What both protocols say when the user's limit is reached; only the count at the refusal varies.
-    Pattern refusal = Pattern.compile("^Reach limit of connections\\. Total: (\\d+), User: ${limit}, Current: \\d+")
+    Pattern refusal = Pattern.compile("^Reach limit of connections\\. Total: (\\d+), User: ${limit}, Current: \\d+,"
+            + " User current: ${limit}")
 
     sql "DROP USER IF EXISTS '${user}'"
     sql "CREATE USER '${user}' IDENTIFIED BY '${password}'"

@@ -211,7 +211,7 @@ suite("test_connection_governance") {
         // 4. The quota counts both: a third connection is refused over either protocol, in the
         //    words that name the user's limit (Current is the pool's count, other users included),
         //    and the two are untouched by the attempt.
-        def refusal = ~/Reach limit of connections\. Total: \d+, User: ${limit}, Current: \d+/
+        def refusal = ~/Reach limit of connections\. Total: \d+, User: ${limit}, Current: \d+, User current: ${limit}/
         try {
             def refused = client.authenticateBasicToken(user, password).get()
             openTokens << refused

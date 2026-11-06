@@ -145,9 +145,9 @@ public class ConnectPoolMgrTest {
         Env env = ConnectPoolTestSupport.envAllowing(5);
         // A sub-quota equal to the pool's limit and no Flight session in the pool: the plain sentence.
         ConnectPoolMgr pool = new ConnectPoolMgr(10, 10);
-        Assertions.assertEquals("Reach limit of connections. Total: 10, User: 5, Current: 10",
+        Assertions.assertEquals("Reach limit of connections. Total: 10, User: 5, Current: 10, User current: 0",
                 pool.limitReachedMessage(ConnectPoolTestSupport.mysqlConnection(env, ALICE), 10));
-        Assertions.assertEquals("Reach limit of connections. Total: 10, User: 5, Current: 10",
+        Assertions.assertEquals("Reach limit of connections. Total: 10, User: 5, Current: 10, User current: 0",
                 pool.limitReachedMessage(ConnectPoolTestSupport.flightSession(env, ALICE, "a"), 10));
 
         // Once Flight sessions hold part of the pool, both protocols are told the sub-quota and its
@@ -157,37 +157,43 @@ public class ConnectPoolMgrTest {
         registered(quota, ConnectPoolTestSupport.flightSession(env, BOB, "b"), 1);
         registered(quota, ConnectPoolTestSupport.mysqlConnection(env, BOB), 2);
         Assertions.assertEquals(
-                "Reach limit of connections. Total: 10, User: 5, Current: 2, Arrow Flight SQL: 2 (current: 1)",
+                "Reach limit of connections. Total: 10, User: 5, Current: 2, User current: 0,"
+                        + " Arrow Flight SQL: 2 (current: 1)",
                 quota.limitReachedMessage(ConnectPoolTestSupport.flightSession(env, ALICE, "a"), 2));
         Assertions.assertEquals(
-                "Reach limit of connections. Total: 10, User: 5, Current: 2, Arrow Flight SQL: 2 (current: 1)",
+                "Reach limit of connections. Total: 10, User: 5, Current: 2, User current: 0,"
+                        + " Arrow Flight SQL: 2 (current: 1)",
                 quota.limitReachedMessage(ConnectPoolTestSupport.mysqlConnection(env, ALICE), 2));
         ConnectPoolMgr halved = new ConnectPoolMgr(10);
         registered(halved, ConnectPoolTestSupport.flightSession(env, BOB, "b"), 1);
         registered(halved, ConnectPoolTestSupport.mysqlConnection(env, BOB), 2);
         Assertions.assertEquals(
-                "Reach limit of connections. Total: 10, User: 5, Current: 10, Arrow Flight SQL: 5 (current: 1)",
+                "Reach limit of connections. Total: 10, User: 5, Current: 10, User current: 0,"
+                        + " Arrow Flight SQL: 5 (current: 1)",
                 halved.limitReachedMessage(ConnectPoolTestSupport.mysqlConnection(env, ALICE), 10));
 
         // A sub-quota tighter than the pool's limit is named to a Flight client even while no
         // Flight session is in the pool: it is the limit that refused it.
         ConnectPoolMgr none = new ConnectPoolMgr(10, 0);
         Assertions.assertEquals(
-                "Reach limit of connections. Total: 10, User: 5, Current: 0, Arrow Flight SQL: 0 (current: 0)",
+                "Reach limit of connections. Total: 10, User: 5, Current: 0, User current: 0,"
+                        + " Arrow Flight SQL: 0 (current: 0)",
                 none.limitReachedMessage(ConnectPoolTestSupport.flightSession(env, ALICE, "a"), 0));
-        Assertions.assertEquals("Reach limit of connections. Total: 10, User: 5, Current: 0",
+        Assertions.assertEquals("Reach limit of connections. Total: 10, User: 5, Current: 0, User current: 0",
                 none.limitReachedMessage(ConnectPoolTestSupport.mysqlConnection(env, ALICE), 0));
     }
 
-    // A connection's identity can change while it lives: SU (and SU ... WITH ROLES) and COM_CHANGE_USER
-    // both swap the context's current user. The per-user counter must be released for the user it was
-    // taken for at registration; decrementing the user the connection is at close time leaked one slot
-    // of the original user per switched connection, until max_user_connections refused every login
-    // with no session of that user left (and the target user's counter went negative).
+    // A connection's identity can change while it lives: COM_CHANGE_USER swaps the context's current
+    // user. The per-user counter must be released for the user it was taken for at registration;
+    // decrementing the user the connection is at close time leaked one slot of the original user per
+    // switched connection, until max_user_connections refused every login with no session of that
+    // user left - and took the slot from the target user instead.
     @Test
     public void testAConnectionThatSwitchedUserReleasesTheCounterItTookAtRegistration() {
         Env env = ConnectPoolTestSupport.envAllowing(3);
         ConnectPoolMgr pool = new ConnectPoolMgr(100);
+        // One connection of the target user, which no switched connection's close may touch.
+        registered(pool, ConnectPoolTestSupport.mysqlConnection(env, BOB), 999);
         for (int round = 0; round < 3; round++) {
             for (int i = 0; i < 3; i++) {
                 ConnectContext ctx = registered(pool, ConnectPoolTestSupport.mysqlConnection(env, ALICE),
@@ -196,8 +202,10 @@ public class ConnectPoolMgrTest {
                 pool.unregisterConnection(ctx);
             }
             Assertions.assertEquals(0, pool.getUserConnectionMap().get(ALICE.getQualifiedUser()).get());
-            Assertions.assertNull(pool.getUserConnectionMap().get(BOB.getQualifiedUser()));
-            Assertions.assertEquals(0, pool.getConnectionNum());
+            Assertions.assertEquals(1, pool.getUserConnectionMap().get(BOB.getQualifiedUser()).get());
+            Assertions.assertEquals(1, pool.getConnectionNum());
+            // The closed connections left no counted-user entry behind.
+            Assertions.assertEquals(1, pool.countedUserSize());
         }
         // The user can still open as many connections as the limit allows - and one more is refused.
         for (int i = 0; i < 3; i++) {
@@ -208,10 +216,12 @@ public class ConnectPoolMgrTest {
         Assertions.assertEquals(3, pool.registerConnection(fourth));
     }
 
-    // The refusal names the user's own count when it is the user's limit that was reached: the
-    // frontend's total ("Current") alone reads as headroom the user does not have.
+    // The refusal names the user's own count next to the frontend's total: "Current" alone reads as
+    // headroom the user does not have. The count is the user's at the time of the message, whether
+    // it was the user's limit that refused (ALICE), a user below its limit (BOB) or one with no
+    // connection at all (CAROL).
     @Test
-    public void testTheRefusalNamesTheUsersCountWhenTheUsersLimitIsReached() {
+    public void testTheRefusalNamesTheUsersOwnCount() {
         Env env = ConnectPoolTestSupport.envAllowing(2);
         ConnectPoolMgr pool = new ConnectPoolMgr(100);
         registered(pool, ConnectPoolTestSupport.mysqlConnection(env, ALICE), 1);
@@ -223,9 +233,17 @@ public class ConnectPoolMgrTest {
         Assertions.assertEquals(3, res);
         Assertions.assertEquals("Reach limit of connections. Total: 100, User: 2, Current: 3, User current: 2",
                 pool.limitReachedMessage(third, res));
-        // A user below the limit is not told a count of its own.
-        Assertions.assertEquals("Reach limit of connections. Total: 100, User: 2, Current: 3",
+        Assertions.assertEquals("Reach limit of connections. Total: 100, User: 2, Current: 3, User current: 1",
+                pool.limitReachedMessage(ConnectPoolTestSupport.mysqlConnection(env, BOB), res));
+        Assertions.assertEquals("Reach limit of connections. Total: 100, User: 2, Current: 3, User current: 0",
                 pool.limitReachedMessage(ConnectPoolTestSupport.mysqlConnection(env, CAROL), res));
+        // Both segments at once: a user at its limit refused by a pool that Flight sessions hold part of.
+        ConnectPoolMgr shared = new ConnectPoolMgr(10, 2);
+        registered(shared, ConnectPoolTestSupport.flightSession(env, ALICE, "a"), 5);
+        registered(shared, ConnectPoolTestSupport.mysqlConnection(env, ALICE), 6);
+        Assertions.assertEquals("Reach limit of connections. Total: 10, User: 2, Current: 2, User current: 2,"
+                + " Arrow Flight SQL: 2 (current: 1)",
+                shared.limitReachedMessage(ConnectPoolTestSupport.mysqlConnection(env, ALICE), 2));
     }
 
     // Arrow Flight SQL keeps a query's coordinator alive across GetFlightInfo -> DoGet (see #62259).
@@ -261,6 +279,7 @@ public class ConnectPoolMgrTest {
         Assertions.assertEquals(0, pool.getConnectionNum());
         Assertions.assertEquals(0, pool.getFlightConnectionNum());
         Assertions.assertEquals(0, pool.getUserConnectionMap().get(ALICE.getQualifiedUser()).get());
+        Assertions.assertEquals(0, pool.countedUserSize());
         // The sub-quota slot is free again.
         registered(pool, ConnectPoolTestSupport.flightSession(env, ALICE, "token-8"), 8);
         // Unregistering twice is harmless.

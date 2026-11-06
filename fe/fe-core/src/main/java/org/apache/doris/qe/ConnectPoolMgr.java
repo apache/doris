@@ -26,6 +26,8 @@ import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectContext.ThreadInfo;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -61,7 +63,7 @@ public class ConnectPoolMgr {
     protected final Map<Integer, ConnectContext> connectionMap = Maps.newConcurrentMap();
     protected final Map<String, AtomicInteger> connByUser = Maps.newConcurrentMap();
     // connection id -> the user whose max_user_connections counter registerConnection incremented.
-    // The connection's identity can change while it lives (SU, COM_CHANGE_USER), so unregister must
+    // The connection's identity can change while it lives (COM_CHANGE_USER), so unregister must
     // release the counter it took, not the one of whoever the connection is at close time.
     private final Map<Integer, String> countedUser = Maps.newConcurrentMap();
     // Arrow Flight SQL: peer identity (bearer token) -> connection id
@@ -158,19 +160,17 @@ public class ConnectPoolMgr {
      * sub-quota and its usage are named whenever Flight sessions hold part of the pool - a MySQL
      * client refused by a pool that Flight sessions filled is told where the connections went -
      * and to a Flight client also when the sub-quota is tighter than the pool's limit, since then
-     * it can be the one that was reached. {@code Current} is the frontend's total; when it is the
-     * user's own limit that was reached, the user's count is named as well, since the total alone
-     * reads as headroom that the user does not have.
+     * it can be the one that was reached. {@code Current} is the frontend's total and
+     * {@code User current} the user's own count - both read when the message is built, as
+     * {@code Current} always was - since the total alone reads as headroom that the user does
+     * not have.
      */
     public String limitReachedMessage(ConnectContext ctx, int current) {
         long userLimit = ctx.getEnv().getAuth().getMaxConn(ctx.getQualifiedUser());
-        String message = String.format("Reach limit of connections. Total: %d, User: %d, Current: %d",
-                maxConnections, userLimit, current);
         AtomicInteger userConns = connByUser.get(ctx.getQualifiedUser());
-        int userCurrent = userConns == null ? 0 : userConns.get();
-        if (userCurrent >= userLimit) {
-            message += String.format(", User current: %d", userCurrent);
-        }
+        String message = String.format(
+                "Reach limit of connections. Total: %d, User: %d, Current: %d, User current: %d",
+                maxConnections, userLimit, current, userConns == null ? 0 : userConns.get());
         int flightCurrent = numberFlightConnection.get();
         if (flightCurrent > 0 || (isFlight(ctx) && flightMaxConnections < maxConnections)) {
             message += String.format(", Arrow Flight SQL: %d (current: %d)", flightMaxConnections, flightCurrent);
@@ -186,13 +186,13 @@ public class ConnectPoolMgr {
         ctx.releaseProtocolSession();
         ctx.closeTxn();
         if (connectionMap.remove(ctx.getConnectionId()) != null) {
-            // The user counted at registration: after SU or COM_CHANGE_USER ctx names another user,
-            // and decrementing that one leaked a slot of the original user per switched connection.
-            String user = countedUser.remove(ctx.getConnectionId());
-            AtomicInteger conns = connByUser.get(user != null ? user : ctx.getQualifiedUser());
-            if (conns != null) {
-                conns.decrementAndGet();
-            }
+            // The user counted at registration: after COM_CHANGE_USER ctx names another user, and
+            // decrementing that one leaked a slot of the original user per switched connection. Both
+            // entries were written together under admissionLock, so a missing one is a broken
+            // invariant, never a case to fall back from.
+            String user = Preconditions.checkNotNull(countedUser.remove(ctx.getConnectionId()),
+                    "connection %s is in the pool without a counted user", ctx.getConnectionId());
+            connByUser.get(user).decrementAndGet();
             if (ctx.traceId() != null) {
                 traceId2QueryId.remove(ctx.traceId());
             }
@@ -295,6 +295,12 @@ public class ConnectPoolMgr {
 
     public Map<String, AtomicInteger> getUserConnectionMap() {
         return connByUser;
+    }
+
+    /** How many connections hold a counted-user entry: equal to the pool's size, or an entry leaked. */
+    @VisibleForTesting
+    int countedUserSize() {
+        return countedUser.size();
     }
 
     public int getMaxConnections() {
