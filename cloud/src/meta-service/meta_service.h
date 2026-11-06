@@ -1056,6 +1056,10 @@ public:
     }
 
 private:
+    // Reject a request whose instance_id is not the instance its cloud_unique_id belongs to.
+    bool check_request_instance_id(const ::google::protobuf::Message& req,
+                                   MetaServiceResponseStatus* status);
+
     template <typename Request, typename Response>
     using MetaServiceMethod = void (cloud::MetaService::*)(::google::protobuf::RpcController*,
                                                            const Request*, Response*,
@@ -1075,6 +1079,13 @@ private:
             auto* status = resp->mutable_status();
             set_response_code(status, status->code(), status->msg());
         };
+
+        // Only rpc goes through the proxy, the http api (authorized by token) calls impl directly.
+        static const bool names_instance =
+                Request::descriptor()->FindFieldByName("instance_id") != nullptr;
+        if (names_instance && !check_request_instance_id(*req, resp->mutable_status())) {
+            return;
+        }
 
         // life span of this defer MUST be longer than `done`
         std::unique_ptr<int, std::function<void(int*)>> defer_injection(
