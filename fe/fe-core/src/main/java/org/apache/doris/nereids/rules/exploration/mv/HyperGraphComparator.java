@@ -89,6 +89,8 @@ public class HyperGraphComparator {
     // query join type, the second value is also a pair which left represents the slots in the left of view join that
     // should reject null, right represents the slots in the right of view join that should reject null.
     private final Map<JoinEdge, Pair<JoinType, Pair<Set<Slot>, Set<Slot>>>> inferredViewEdgeWithCond = new HashMap<>();
+    // Each nullable FK column must be non-null in the query before the MV's inner join can be removed.
+    private final Set<Slot> nullableForeignKeySlotsToReject = new HashSet<>();
     private List<JoinEdge> viewJoinEdgesAfterInferring;
     private List<FilterEdge> viewFilterEdgesAfterInferring;
     private final long shouldEliminateViewNodesMap;
@@ -187,6 +189,19 @@ public class HyperGraphComparator {
         return new LogicalProject<>(projects, basePlan);
     }
 
+    /**
+     * Check whether an MV-only primary node can be removed using its foreign-key join.
+     * The MV's inner join has already discarded rows with any null FK column. Record each
+     * nullable FK slot separately so predicate compensation requires the query to discard
+     * those same rows before the comparison can be used for an MV rewrite.
+     *
+     * @param primaryNodes bitmap of the primary-key side of the MV join
+     * @param foreignNodes bitmap of the foreign-key side of the MV join
+     * @param primarySlots primary-side slots needed to reconstruct the join proof
+     * @param foreignSlots foreign-side slots needed to reconstruct the join proof
+     * @param joinEdge MV join edge whose primary side may be removed
+     * @return true if the PK-FK proof holds; nullable FK slots still require query compensation
+     */
     private boolean canEliminatePrimaryByForeign(long primaryNodes, long foreignNodes,
             Set<Slot> primarySlots, Set<Slot> foreignSlots, JoinEdge joinEdge) {
         Plan foreign = constructViewPlan(foreignNodes, foreignSlots);
@@ -194,7 +209,12 @@ public class HyperGraphComparator {
         if (foreign == null || primary == null) {
             return false;
         }
-        return JoinUtils.canEliminateByFk(joinEdge.getJoin(), primary, foreign) != null;
+        Pair<Set<Slot>, Set<Slot>> proof = JoinUtils.canEliminateByFk(joinEdge.getJoin(), primary, foreign);
+        if (proof == null) {
+            return false;
+        }
+        proof.second.stream().filter(Slot::nullable).forEach(nullableForeignKeySlotsToReject::add);
+        return true;
     }
 
     private boolean canEliminateViewByLeft(JoinEdge joinEdge, Plan rightPlan) {
@@ -376,6 +396,9 @@ public class HyperGraphComparator {
         }
         for (Pair<JoinType, Pair<Set<Slot>, Set<Slot>>> inferredCond : inferredViewEdgeWithCond.values()) {
             builder.addViewNoNullableSlot(inferredCond.second);
+        }
+        for (Slot foreignKeySlot : nullableForeignKeySlotsToReject) {
+            builder.addRequiredNonNullViewSlot(foreignKeySlot);
         }
         builder.addQueryAllPulledUpExpressions(
                 getQueryFilterEdges().stream()
