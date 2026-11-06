@@ -3,15 +3,20 @@
 boundary_errors
 boundary_records
 deep_limit_records
+dependency_validator
 empty_records
 historical_records
 large_records
 measurements
 mismatched
+nested_pattern_validator
+pattern_validator
 record_view
 special_records
+tuple_validator
 typed_records
 unsupported_validator
+wide_records
 
 -- !validator_schema --
 _id	varbinary(12)	Yes	false	\N	
@@ -171,6 +176,34 @@ west	2	20	2	4
 -- !after_limits --
 2081
 
+-- !fallback_schema_tuple_validator --
+_mongo_bson	varbinary(2147483647)	Yes	false	\N	
+_mongo_ejson	json	Yes	false	\N	
+
+-- !fallback_values_tuple_validator --
+{"_id":{"$oid":"000000000000000000000001"},"known":{"$numberInt":"1"},"extra":"present","values":[{"$numberInt":"1"},"x"],"profile":{"known":{"$numberInt":"2"},"extra":"nested"}}
+
+-- !fallback_schema_pattern_validator --
+_mongo_bson	varbinary(2147483647)	Yes	false	\N	
+_mongo_ejson	json	Yes	false	\N	
+
+-- !fallback_values_pattern_validator --
+{"_id":{"$oid":"000000000000000000000001"},"known":{"$numberInt":"1"},"extra":"present","values":[{"$numberInt":"1"},"x"],"profile":{"known":{"$numberInt":"2"},"extra":"nested"}}
+
+-- !fallback_schema_dependency_validator --
+_mongo_bson	varbinary(2147483647)	Yes	false	\N	
+_mongo_ejson	json	Yes	false	\N	
+
+-- !fallback_values_dependency_validator --
+{"_id":{"$oid":"000000000000000000000001"},"known":{"$numberInt":"1"},"extra":"present","values":[{"$numberInt":"1"},"x"],"profile":{"known":{"$numberInt":"2"},"extra":"nested"}}
+
+-- !fallback_schema_nested_pattern_validator --
+_mongo_bson	varbinary(2147483647)	Yes	false	\N	
+_mongo_ejson	json	Yes	false	\N	
+
+-- !fallback_values_nested_pattern_validator --
+{"_id":{"$oid":"000000000000000000000001"},"known":{"$numberInt":"1"},"extra":"present","values":[{"$numberInt":"1"},"x"],"profile":{"known":{"$numberInt":"2"},"extra":"nested"}}
+
 -- !fallback_schema --
 _mongo_bson	varbinary(2147483647)	Yes	false	\N	
 _mongo_ejson	json	Yes	false	\N	
@@ -197,6 +230,12 @@ _mongo_ejson	json	Yes	false	\N
 
 -- !forced_validator --
 4	10
+
+-- !wide_scalar --
+1
+
+-- !wide_count --
+1
 
 -- !view --
 1	view-alpha
@@ -296,4 +335,16 @@ record_view
 -- !view_only_read --
 1	view-alpha
 3	view-中文-é
+
+-- !metadata_pagination --
+page_130
+page_131
+page_132
+page_133
+page_134
+page_135
+page_136
+page_137
+page_138
+page_139
 

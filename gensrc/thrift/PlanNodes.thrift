@@ -694,6 +694,7 @@ struct TMongoScanDesc {
     // Authentication database for separate credentials, normally "admin"; not the data database.
     13: optional string auth_database
     // Data-read routing: primary, primaryPreferred, secondary, secondaryPreferred, or nearest.
+    // URI tag sets and max staleness remain in uri and are preserved by the native driver.
     // Metadata/UUID checks use primary independently of this data-read preference.
     14: optional string read_preference
     // Data-read concern: local, majority, or available. Majority alone is not a shared snapshot.

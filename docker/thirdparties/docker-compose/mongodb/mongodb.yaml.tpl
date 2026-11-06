@@ -54,7 +54,13 @@ services:
           && db.getSiblingDB('doris_mongodb_native').typed_records.countDocuments() === 4
           && db.getSiblingDB('doris_mongodb_native').large_records.countDocuments() === 2081
           && db.getSiblingDB('doris_mongodb_native').record_view.countDocuments() === 2
-          && db.getSiblingDB('doris_mongodb_native').measurements.countDocuments() === 3 ? 0 : 1);
+          && db.getSiblingDB('doris_mongodb_native').measurements.countDocuments() === 3
+          && db.getSiblingDB('doris_mongodb_native').wide_records.countDocuments() === 1
+          && db.getSiblingDB('doris_mongodb_native').tuple_validator.countDocuments() === 1
+          && db.getSiblingDB('doris_mongodb_native').pattern_validator.countDocuments() === 1
+          && db.getSiblingDB('doris_mongodb_native').dependency_validator.countDocuments() === 1
+          && db.getSiblingDB('doris_mongodb_native').nested_pattern_validator.countDocuments() === 1
+          && db.getSiblingDB('doris_mongodb_pagination').getCollectionNames().length === 140 ? 0 : 1);
       interval: 5s
       timeout: 5s
       retries: 30

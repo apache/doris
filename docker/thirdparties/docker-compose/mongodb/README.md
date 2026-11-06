@@ -72,6 +72,10 @@ The suite covers auto/explicit/document schemas, exact ObjectId and int64 values
 Decimal128 scales, UTC dates, binary subtypes, nested arrays/structs, canonical
 Extended JSON, missing/null/mismatch handling, SQL filters and LIKE/REGEXP,
 aggregations, joins, windows, multi-batch reads, repeated early termination,
-views, time-series measurements and view-only authorization. Binary displays and
+views, time-series measurements and view-only authorization. Legal tuple/pattern/
+dependency validators verify complete document fallback. A 900,000-container BSON
+fixture exercises scalar projection through whole-document validation; the separate
+`doris_mongodb_pagination` database has 140 empty collections to cross the metadata
+cursor's 128-name batch boundary. Binary displays and
 analysis use `FROM_BINARY`; direct VARBINARY operations keep Doris's existing
 analysis restrictions.

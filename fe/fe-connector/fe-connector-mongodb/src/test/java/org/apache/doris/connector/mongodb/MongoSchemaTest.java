@@ -69,6 +69,45 @@ class MongoSchemaTest {
     }
 
     @Test
+    void tupleArrayValidatorFallsBackAsAWhole() {
+        Document metadata = collection("{known:{bsonType:'int'},values:{bsonType:'array',"
+                + "items:[{bsonType:'int'},{bsonType:'string'}]}}");
+        Assertions.assertEquals("DOCUMENT", resolve("auto", metadata).getSource());
+        Assertions.assertThrows(IllegalArgumentException.class, () -> resolve("validator", metadata));
+    }
+
+    @Test
+    void schemaBearingKeywordsNeverPublishPartialFields() {
+        for (String keyword : List.of(
+                "{patternProperties:{'^extra$':{bsonType:'string'}}}",
+                "{dependencies:{known:{properties:{extra:{bsonType:'string'}}}}}",
+                "{additionalProperties:{bsonType:'string'}}",
+                "{not:{properties:{extra:{bsonType:'string'}}}}")) {
+            Document extension = Document.parse(keyword.replace('\'', '"'));
+            Document root = collection("{known:{bsonType:'int'}}");
+            root.get("options", Document.class).get("validator", Document.class)
+                    .get("$jsonSchema", Document.class).putAll(extension);
+            Assertions.assertEquals("DOCUMENT", resolve("auto", root).getSource(), keyword);
+            Assertions.assertThrows(IllegalArgumentException.class, () -> resolve("validator", root), keyword);
+            Document nested = collection("{profile:{bsonType:'object',properties:{known:{bsonType:'int'}}}}");
+            nested.get("options", Document.class).get("validator", Document.class)
+                    .get("$jsonSchema", Document.class).get("properties", Document.class)
+                    .get("profile", Document.class).putAll(extension);
+            Assertions.assertEquals("DOCUMENT", resolve("auto", nested).getSource(), keyword);
+            Assertions.assertThrows(IllegalArgumentException.class, () -> resolve("validator", nested), keyword);
+        }
+    }
+
+    @Test
+    void ordinaryObjectConstraintsKeepTypedSchema() {
+        Document root = collection("{known:{bsonType:'int'}}");
+        root.get("options", Document.class).get("validator", Document.class)
+                .get("$jsonSchema", Document.class).append("additionalProperties", false)
+                .append("patternProperties", new Document()).append("dependencies", new Document("known", List.of("known")));
+        Assertions.assertEquals("MONGODB_VALIDATOR", resolve("auto", root).getSource());
+    }
+
+    @Test
     void viewsAndTimeSeriesUseTheirOutputSchema() {
         Document metadata = collection("{underlying:{bsonType:'int'}}");
         for (String kind : List.of("view", "timeseries")) {

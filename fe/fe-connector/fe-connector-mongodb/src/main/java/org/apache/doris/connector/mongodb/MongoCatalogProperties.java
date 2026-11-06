@@ -150,7 +150,10 @@ public final class MongoCatalogProperties {
                         .readTimeout(socketTimeoutMs, TimeUnit.MILLISECONDS))
                 .applyToClusterSettings(s -> s.serverSelectionTimeout(serverSelectionTimeoutMs, TimeUnit.MILLISECONDS))
                 .applyToConnectionPoolSettings(s -> s.maxSize(poolMaxClients))
-                .readPreference(ReadPreference.valueOf(readPreference))
+                // getName() is only the scan descriptor's mode; rebuilding from it drops URI
+                // tag sets, max staleness and hedge options. URI routing keeps its precedence.
+                .readPreference(connectionString.getReadPreference() != null
+                        ? connectionString.getReadPreference() : ReadPreference.valueOf(readPreference))
                 .readConcern(new ReadConcern(ReadConcernLevel.fromString(readConcern)));
         if (!username.isEmpty()) {
             builder.credential(MongoCredential.createCredential(username, authDatabase, password.toCharArray()));

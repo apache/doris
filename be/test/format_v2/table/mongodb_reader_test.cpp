@@ -19,6 +19,7 @@
 
 #include <bson/bson.h>
 #include <gtest/gtest.h>
+#include <mongoc/mongoc.h>
 
 #include "common/object_pool.h"
 #include "core/block/block.h"
@@ -332,6 +333,50 @@ TEST_F(MongoReaderTest, ReopeningAfterCloseDoesNotDuplicateProjectedColumns) {
     EXPECT_EQ(output.rows(), 2);
     ASSERT_TRUE(scan->close().ok());
     EXPECT_EQ(_responses->closes, 2);
+}
+
+TEST(MongoNativeStreamTest, ReadPreferencePreservesUriTagsAndMaxStaleness) {
+    mongoc_init();
+    std::unique_ptr<mongoc_uri_t, decltype(&mongoc_uri_destroy)> uri(
+            mongoc_uri_new("mongodb://localhost:27017/?readPreference=secondary&"
+                           "readPreferenceTags=region:analytics&readPreferenceTags=&"
+                           "maxStalenessSeconds=90"),
+            mongoc_uri_destroy);
+    ASSERT_NE(uri, nullptr);
+    std::unique_ptr<mongoc_client_t, decltype(&mongoc_client_destroy)> client(
+            mongoc_client_new_from_uri(uri.get()), mongoc_client_destroy);
+    std::unique_ptr<mongoc_collection_t, decltype(&mongoc_collection_destroy)> collection(
+            mongoc_client_get_collection(client.get(), "sample", "records"),
+            mongoc_collection_destroy);
+    ASSERT_TRUE(configure_mongodb_read_preference(collection.get(), "secondary").ok());
+    const auto* prefs = mongoc_collection_get_read_prefs(collection.get());
+    EXPECT_EQ(mongoc_read_prefs_get_mode(prefs), MONGOC_READ_SECONDARY);
+    EXPECT_EQ(mongoc_read_prefs_get_max_staleness_seconds(prefs), 90);
+    EXPECT_TRUE(bson_equal(mongoc_read_prefs_get_tags(prefs),
+                           mongoc_read_prefs_get_tags(mongoc_uri_get_read_prefs_t(uri.get()))));
+    EXPECT_FALSE(configure_mongodb_read_preference(collection.get(), "invalid").ok());
+    EXPECT_FALSE(configure_mongodb_read_preference(collection.get(), "primary").ok());
+    EXPECT_EQ(mongoc_read_prefs_get_mode(mongoc_collection_get_read_prefs(collection.get())),
+              MONGOC_READ_SECONDARY);
+}
+
+TEST(MongoNativeStreamTest, CatalogModeAppliesWhenUriHasNoRoutingCriteria) {
+    mongoc_init();
+    std::unique_ptr<mongoc_client_t, decltype(&mongoc_client_destroy)> client(
+            mongoc_client_new("mongodb://localhost:27017"), mongoc_client_destroy);
+    std::unique_ptr<mongoc_collection_t, decltype(&mongoc_collection_destroy)> collection(
+            mongoc_client_get_collection(client.get(), "sample", "records"),
+            mongoc_collection_destroy);
+    for (const auto& [name, mode] : std::vector<std::pair<std::string, mongoc_read_mode_t>> {
+                 {"primary", MONGOC_READ_PRIMARY},
+                 {"primaryPreferred", MONGOC_READ_PRIMARY_PREFERRED},
+                 {"secondary", MONGOC_READ_SECONDARY},
+                 {"secondaryPreferred", MONGOC_READ_SECONDARY_PREFERRED},
+                 {"nearest", MONGOC_READ_NEAREST}}) {
+        ASSERT_TRUE(configure_mongodb_read_preference(collection.get(), name).ok());
+        EXPECT_EQ(mongoc_read_prefs_get_mode(mongoc_collection_get_read_prefs(collection.get())),
+                  mode);
+    }
 }
 
 TEST(MongoNativeStreamTest, CancellationBeforeOpenDoesNotConnect) {

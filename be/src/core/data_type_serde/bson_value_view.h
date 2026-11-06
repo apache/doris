@@ -100,8 +100,8 @@ Status parse_bson_bindings(const std::string& json, std::vector<BsonBinding>* bi
 Status bson_decimal_exact(const bson_decimal128_t& value, int precision, int scale,
                           std::string* text);
 
-// Iteratively check document/array/code-with-scope subtrees against depth, size and element limits
-// before recursive conversion. This bounds decoding work and does not validate a target SQL type.
+// Check document/array/code-with-scope subtrees depth-first with fixed, depth-bounded scratch
+// against depth, size and element limits before conversion; this does not validate a target SQL type.
 Status validate_bson_tree(const BsonValueView& value);
 
 // Encode one present value as owned canonical Extended JSON, retaining BSON tags such as $oid and

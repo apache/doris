@@ -20,6 +20,10 @@
 #include <cmath>
 #include <limits>
 
+#ifdef ADDRESS_SANITIZER
+#include <sanitizer/allocator_interface.h>
+#endif
+
 #include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/column/column_array.h"
@@ -42,6 +46,16 @@
 
 namespace doris {
 namespace {
+#ifdef ADDRESS_SANITIZER
+thread_local bool measure_bson_allocations = false;
+thread_local size_t largest_bson_allocation = 0;
+void bson_allocation_hook(const volatile void*, size_t bytes) {
+    if (measure_bson_allocations) {
+        largest_bson_allocation = std::max(largest_bson_allocation, bytes);
+    }
+}
+void bson_free_hook(const volatile void*) {}
+#endif
 BsonBinding binding(std::string name = "v", std::vector<int> tags = {}) {
     BsonBinding result;
     result.name = name;
@@ -285,6 +299,76 @@ TEST_F(BsonSerdeTest, DecodeDepthAndDescriptorLimitsAreEnforced) {
         {"name":"v","path":[],"bson_types":[],"children":[]}]})",
                                 &fields)
                     .ok());
+}
+
+TEST_F(BsonSerdeTest, WideDocumentValidationUsesBoundedScratch) {
+    bson_t document = BSON_INITIALIZER;
+    bson_array_builder_t* array = nullptr;
+    ASSERT_TRUE(BSON_APPEND_ARRAY_BUILDER_BEGIN(&document, "wide", &array));
+    bson_t empty = BSON_INITIALIZER;
+    for (uint32_t i = 0; i < 900000; ++i) {
+        ASSERT_TRUE(bson_array_builder_append_document(array, &empty));
+    }
+    ASSERT_TRUE(bson_append_array_builder_end(&document, array));
+    ASSERT_LT(document.len, BsonDecodeContext::MAX_DOCUMENT_BYTES);
+#ifdef ADDRESS_SANITIZER
+    // Measure only validation scratch: the source BSON is already allocated. Ordinary vectors
+    // bypass MemTracker, so source/output row budgets cannot detect this allocation regression.
+    static const int installed =
+            __sanitizer_install_malloc_and_free_hooks(bson_allocation_hook, bson_free_hook);
+    ASSERT_EQ(installed, 1);
+    largest_bson_allocation = 0;
+    measure_bson_allocations = true;
+#endif
+    Status status = validate_bson_tree(BsonValueView::document(document));
+#ifdef ADDRESS_SANITIZER
+    measure_bson_allocations = false;
+    EXPECT_LT(largest_bson_allocation, 64 * 1024);
+#endif
+    EXPECT_TRUE(status.ok()) << status;
+    bson_destroy(&empty);
+    bson_destroy(&document);
+}
+
+TEST_F(BsonSerdeTest, TreeDepthLimitIncludesDocumentsArraysAndCodeScopes) {
+    for (auto kind : {BSON_TYPE_DOCUMENT, BSON_TYPE_ARRAY, BSON_TYPE_CODEWSCOPE}) {
+        bson_t nested = BSON_INITIALIZER;
+        for (int depth = 0; depth <= BsonDecodeContext::MAX_DEPTH; ++depth) {
+            if (depth == BsonDecodeContext::MAX_DEPTH) {
+                EXPECT_TRUE(validate_bson_tree(BsonValueView::document(nested)).ok());
+            }
+            bson_t parent = BSON_INITIALIZER;
+            bool appended;
+            if (kind == BSON_TYPE_DOCUMENT) {
+                appended = BSON_APPEND_DOCUMENT(&parent, "0", &nested);
+            } else if (kind == BSON_TYPE_ARRAY) {
+                appended = BSON_APPEND_ARRAY(&parent, "0", &nested);
+            } else {
+                appended = BSON_APPEND_CODE_WITH_SCOPE(&parent, "0", "", &nested);
+            }
+            ASSERT_TRUE(appended);
+            bson_destroy(&nested);
+            bson_copy_to(&parent, &nested);
+            bson_destroy(&parent);
+        }
+        EXPECT_FALSE(validate_bson_tree(BsonValueView::document(nested)).ok());
+        bson_destroy(&nested);
+    }
+}
+
+TEST_F(BsonSerdeTest, TreeElementLimitIsGlobalAndInclusive) {
+    bson_t document = BSON_INITIALIZER;
+    for (uint32_t i = 0; i < BsonDecodeContext::MAX_ELEMENTS; ++i) {
+        char key[16];
+        const char* key_ptr = nullptr;
+        bson_uint32_to_string(i, &key_ptr, key, sizeof(key));
+        ASSERT_TRUE(bson_append_int32(&document, key_ptr, -1, 1));
+    }
+    ASSERT_LT(document.len, BsonDecodeContext::MAX_DOCUMENT_BYTES);
+    EXPECT_TRUE(validate_bson_tree(BsonValueView::document(document)).ok());
+    ASSERT_TRUE(BSON_APPEND_INT32(&document, "extra", 1));
+    EXPECT_FALSE(validate_bson_tree(BsonValueView::document(document)).ok());
+    bson_destroy(&document);
 }
 
 TEST_F(BsonSerdeTest, RawDocumentBytesRoundTripWithoutJsonOrBorrowedStorage) {

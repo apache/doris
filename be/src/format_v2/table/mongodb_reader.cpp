@@ -154,27 +154,15 @@ public:
             return Status::InvalidArgument("Invalid MongoDB read concern");
         }
         mongoc_collection_set_read_concern(_collection.get(), concern.get());
-        mongoc_read_mode_t mode = MONGOC_READ_PRIMARY;
-        if (d.read_preference == "primaryPreferred") {
-            mode = MONGOC_READ_PRIMARY_PREFERRED;
-        } else if (d.read_preference == "secondary") {
-            mode = MONGOC_READ_SECONDARY;
-        } else if (d.read_preference == "secondaryPreferred") {
-            mode = MONGOC_READ_SECONDARY_PREFERRED;
-        } else if (d.read_preference == "nearest") {
-            mode = MONGOC_READ_NEAREST;
-        } else if (d.read_preference != "primary") {
-            return Status::InvalidArgument("Invalid MongoDB read preference");
-        }
-        ReadPrefsPtr prefs(mongoc_read_prefs_new(mode));
+        RETURN_IF_ERROR(configure_mongodb_read_preference(_collection.get(), d.read_preference));
         bson_t filter = BSON_INITIALIZER;
         bson_t options = BSON_INITIALIZER;
         BSON_APPEND_INT32(&options, "batchSize", d.batch_size);
         BSON_APPEND_INT64(&options, "maxTimeMS", remaining_ms());
         // Always query the public logical namespace: a view may change rows, names, and _id,
         // and time-series buckets are an internal storage representation.
-        _cursor.reset(mongoc_collection_find_with_opts(_collection.get(), &filter, &options,
-                                                       prefs.get()));
+        _cursor.reset(
+                mongoc_collection_find_with_opts(_collection.get(), &filter, &options, nullptr));
         bson_destroy(&options);
         bson_destroy(&filter);
         if (!_cursor) {
@@ -276,6 +264,32 @@ private:
 
 std::unique_ptr<MongoCursorStream> make_native_mongo_stream() {
     return std::make_unique<NativeMongoStream>();
+}
+
+Status configure_mongodb_read_preference(_mongoc_collection_t* collection,
+                                         const std::string& preference) {
+    mongoc_read_mode_t mode = MONGOC_READ_PRIMARY;
+    if (preference == "primaryPreferred") {
+        mode = MONGOC_READ_PRIMARY_PREFERRED;
+    } else if (preference == "secondary") {
+        mode = MONGOC_READ_SECONDARY;
+    } else if (preference == "secondaryPreferred") {
+        mode = MONGOC_READ_SECONDARY_PREFERRED;
+    } else if (preference == "nearest") {
+        mode = MONGOC_READ_NEAREST;
+    } else if (preference != "primary") {
+        return Status::InvalidArgument("Invalid MongoDB read preference");
+    }
+    // The collection inherited the complete URI preference. A new mode-only preference loses
+    // tag sets and max staleness; copy it before applying FE's effective mode instead.
+    ReadPrefsPtr prefs(mongoc_read_prefs_copy(mongoc_collection_get_read_prefs(collection)));
+    mongoc_read_prefs_set_mode(prefs.get(), mode);
+    // For example, a malformed descriptor must not apply primary together with secondary tags.
+    if (!mongoc_read_prefs_is_valid(prefs.get())) {
+        return Status::InvalidArgument("Incompatible MongoDB read preference criteria");
+    }
+    mongoc_collection_set_read_prefs(collection, prefs.get());
+    return Status::OK();
 }
 
 Status validate_mongodb_range(const TFileRangeDesc& range) {

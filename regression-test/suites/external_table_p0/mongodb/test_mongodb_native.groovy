@@ -86,6 +86,12 @@ suite("test_mongodb_native", "p0,external") {
         "qt_early_cursor_close_${i}" "SELECT count(*) FROM (SELECT seq FROM large_records LIMIT 1) limited_rows"
     }
     order_qt_after_limits "SELECT count(*) FROM large_records"
+    List fallbackValidators = ["tuple_validator", "pattern_validator", "dependency_validator",
+        "nested_pattern_validator"]
+    for (String name : fallbackValidators) {
+        "order_qt_fallback_schema_${name}" "DESC ${name}"
+        "order_qt_fallback_values_${name}" "SELECT cast(_mongo_ejson AS STRING) FROM ${name}"
+    }
     order_qt_fallback_schema "DESC unsupported_validator"
     order_qt_fallback "SELECT cast(_mongo_ejson AS STRING), length(_mongo_bson) > 0 FROM unsupported_validator"
     test {
@@ -116,6 +122,14 @@ suite("test_mongodb_native", "p0,external") {
         }
     }
 
+    for (String name : fallbackValidators) {
+        test {
+            sql "SELECT * FROM ${name}"
+            exception(name == "tuple_validator" ? "MongoDB array requires homogeneous items"
+                    : "MongoDB schema constructs require an explicit mapping")
+        }
+    }
+
     def column = { String name, String type, List path = null, List tags = [] ->
         [name: name, path: path == null ? [name] : path, doris_type: type, bson_types: tags]
     }
@@ -135,6 +149,7 @@ suite("test_mongodb_native", "p0,external") {
             column("refs", "ARRAY<VARBINARY(12)>", null, ["array"])
         ]]
     ]
+    manifest["doris_mongodb_native.wide_records"] = [columns: [column("seq", "INT", null, ["int"])]]
     List boundaryColumns = [column("seq", "INT", null, ["int"]),
         column("bool_v", "BOOLEAN", null, ["bool"]), column("tiny_v", "TINYINT", null, ["int"]),
         column("small_v", "SMALLINT", null, ["int"]), column("int_v", "INT", null, ["int", "long"]),
@@ -162,6 +177,8 @@ suite("test_mongodb_native", "p0,external") {
     create("mongodb_native_explicit", ["mongodb.schema.mode": "explicit", "mongodb.schema": JsonOutput.toJson(manifest)])
     sql "SWITCH mongodb_native_explicit"
     sql "USE doris_mongodb_native"
+    order_qt_wide_scalar "SELECT seq FROM wide_records"
+    order_qt_wide_count "SELECT count(*) FROM wide_records WHERE seq = 1"
     order_qt_view "SELECT seq, label FROM record_view"
     order_qt_view_analysis "SELECT count(*), min(seq), max(seq) FROM record_view WHERE label LIKE 'view-%'"
     order_qt_timeseries "SELECT observed, device, value FROM measurements"
@@ -239,5 +256,9 @@ suite("test_mongodb_native", "p0,external") {
     sql "USE doris_mongodb_native"
     order_qt_view_only_discovery "SHOW TABLES"
     order_qt_view_only_read "SELECT seq, label FROM record_view"
+    create("mongodb_native_pagination", ["mongodb.databases": "doris_mongodb_pagination"])
+    sql "SWITCH mongodb_native_pagination"
+    sql "USE doris_mongodb_pagination"
+    order_qt_metadata_pagination "SHOW TABLES LIKE 'page_13%'"
     sql "SWITCH internal"
 }

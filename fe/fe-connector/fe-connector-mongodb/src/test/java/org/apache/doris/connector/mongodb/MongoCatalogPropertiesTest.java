@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.mongodb;
 
+import com.mongodb.ConnectionString;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -34,6 +35,17 @@ class MongoCatalogPropertiesTest {
         Assertions.assertEquals("majority", properties.getReadConcern());
         Assertions.assertFalse(properties.toString().contains("fixture_secret"));
         Assertions.assertFalse(properties.toString().contains("mongodb://"));
+    }
+
+    @Test
+    void preservesUriReadPreferenceTagsAndMaxStaleness() {
+        String uri = "mongodb://localhost:27017/?readPreference=secondary"
+                + "&readPreferenceTags=region:analytics&readPreferenceTags=&maxStalenessSeconds=90";
+        MongoCatalogProperties properties = MongoCatalogProperties.of(Map.of(
+                "mongodb.uri", uri, "mongodb.read_preference", "nearest"));
+        Assertions.assertEquals("secondary", properties.getReadPreference());
+        Assertions.assertEquals(new ConnectionString(uri).getReadPreference(),
+                properties.clientSettings().getReadPreference());
     }
 
     @Test

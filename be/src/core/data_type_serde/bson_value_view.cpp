@@ -20,6 +20,7 @@
 #include <rapidjson/document.h>
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <cstring>
 #include <memory>
@@ -243,44 +244,48 @@ Status bson_decimal_exact(const bson_decimal128_t& value, int precision, int sca
 }
 
 Status validate_bson_tree(const BsonValueView& root) {
-    struct Entry {
-        BsonValueView value;
-        int depth;
+    auto is_container = [](bson_type_t type) {
+        return type == BSON_TYPE_DOCUMENT || type == BSON_TYPE_ARRAY ||
+               type == BSON_TYPE_CODEWSCOPE;
     };
-    std::vector<Entry> pending {{.value = root, .depth = 0}};
-    size_t elements = 0;
-    while (!pending.empty()) {
-        Entry current = pending.back();
-        pending.pop_back();
-        auto type = current.value.value.value_type;
-        if (type != BSON_TYPE_DOCUMENT && type != BSON_TYPE_ARRAY && type != BSON_TYPE_CODEWSCOPE) {
-            continue;
-        }
-        if (current.depth > BsonDecodeContext::MAX_DEPTH) {
+    // Scalars use another union member and expose no child-document bytes to traverse.
+    if (!is_container(root.value.value_type)) {
+        return Status::OK();
+    }
+    // A wide array of empty documents can fit in 16 MiB yet queue tens of MiB of sibling
+    // values. Retain only one iterator per ancestor: scratch is bounded by depth, not width.
+    std::array<bson_iter_t, BsonDecodeContext::MAX_DEPTH + 1> pending;
+    auto enter = [&](const bson_value_t& value, int depth) -> Status {
+        // The root occupies depth zero; reject the next nested container before indexing the stack.
+        if (depth > BsonDecodeContext::MAX_DEPTH) {
             return Status::InvalidArgument("BSON document exceeds the nesting limit");
         }
-        const uint8_t* data = type == BSON_TYPE_CODEWSCOPE
-                                      ? current.value.value.value.v_codewscope.scope_data
-                                      : current.value.value.value.v_doc.data;
-        uint32_t length = type == BSON_TYPE_CODEWSCOPE
-                                  ? current.value.value.value.v_codewscope.scope_len
-                                  : current.value.value.value.v_doc.data_len;
+        bool scope = value.value_type == BSON_TYPE_CODEWSCOPE;
+        const uint8_t* data = scope ? value.value.v_codewscope.scope_data : value.value.v_doc.data;
+        uint32_t length = scope ? value.value.v_codewscope.scope_len : value.value.v_doc.data_len;
         bson_t document;
-        bson_iter_t iter;
         if (length > BsonDecodeContext::MAX_DOCUMENT_BYTES ||
-            !bson_init_static(&document, data, length) || !bson_iter_init(&iter, &document)) {
+            !bson_init_static(&document, data, length) ||
+            !bson_iter_init(&pending[depth], &document)) {
             return Status::Corruption("Invalid nested BSON document");
         }
-        while (bson_iter_next(&iter)) {
-            if (++elements > BsonDecodeContext::MAX_ELEMENTS) {
-                return Status::InvalidArgument("BSON document exceeds the element limit");
-            }
-            auto value = BsonValueView::of(*bson_iter_value(&iter));
-            if (value.value.value_type == BSON_TYPE_DOCUMENT ||
-                value.value.value_type == BSON_TYPE_ARRAY ||
-                value.value.value_type == BSON_TYPE_CODEWSCOPE) {
-                pending.push_back({value, current.depth + 1});
-            }
+        return Status::OK();
+    };
+    int depth = 0;
+    RETURN_IF_ERROR(enter(root.value, depth));
+    size_t elements = 0;
+    while (depth >= 0) {
+        // Resume the parent after this container ends instead of queueing all its siblings.
+        if (!bson_iter_next(&pending[depth])) {
+            --depth;
+            continue;
+        }
+        if (++elements > BsonDecodeContext::MAX_ELEMENTS) {
+            return Status::InvalidArgument("BSON document exceeds the element limit");
+        }
+        const auto* value = bson_iter_value(&pending[depth]);
+        if (is_container(value->value_type)) {
+            RETURN_IF_ERROR(enter(*value, ++depth));
         }
     }
     return Status::OK();

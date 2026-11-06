@@ -25,6 +25,7 @@
 #include "format_v2/table_reader.h"
 
 struct _bson_t;
+struct _mongoc_collection_t;
 namespace doris {
 struct BsonBinding;
 class DataTypeSerDe;
@@ -51,6 +52,9 @@ std::unique_ptr<MongoCursorStream> make_native_mongo_stream();
 using MongoStreamFactory = std::function<std::unique_ptr<MongoCursorStream>()>;
 // Validate the typed single-cursor contract and resource bounds before creating driver objects.
 Status validate_mongodb_range(const TFileRangeDesc& range);
+// Apply the effective catalog mode while preserving URI tag sets and max staleness on the collection.
+Status configure_mongodb_read_preference(_mongoc_collection_t* collection,
+                                         const std::string& preference);
 
 // FileScannerV2 adapter for one MongoDB logical namespace. init parses the pinned schema without
 // network I/O; open binds a file-local request and creates its stream; get_block copies BSON values

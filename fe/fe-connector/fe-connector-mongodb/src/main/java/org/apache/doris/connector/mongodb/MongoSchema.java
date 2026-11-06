@@ -193,10 +193,21 @@ final class MongoSchema {
                         List.of(), -1, "bson")), "DOCUMENT", identity, reason);
     }
 
-    private static List<Binding> objectFields(Document schema, int depth, int[] count) {
-        if (schema.containsKey("anyOf") || schema.containsKey("oneOf") || schema.containsKey("allOf")) {
-            throw new IllegalArgumentException("MongoDB schema combinations require an explicit mapping");
+    private static void requireRepresentableValidator(Document schema) {
+        // For example, properties:{known:...} plus patternProperties:{"^extra$":...} must
+        // not publish only known. Apply this check recursively before accepting any typed fields.
+        Document patterns = schema.get("patternProperties", Document.class);
+        Document dependencies = schema.get("dependencies", Document.class);
+        if (schema.containsKey("anyOf") || schema.containsKey("oneOf") || schema.containsKey("allOf")
+                || schema.containsKey("not") || (patterns != null && !patterns.isEmpty())
+                || schema.get("additionalProperties") instanceof Document
+                || (dependencies != null && dependencies.values().stream().anyMatch(v -> v instanceof Document))) {
+            throw new IllegalArgumentException("MongoDB schema constructs require an explicit mapping");
         }
+    }
+
+    private static List<Binding> objectFields(Document schema, int depth, int[] count) {
+        requireRepresentableValidator(schema);
         Document properties = schema.get("properties", Document.class);
         if (properties == null) {
             return List.of();
@@ -214,9 +225,7 @@ final class MongoSchema {
 
     private static Binding validatorBinding(String name, Document definition, int depth, int[] count) {
         bounded(depth, count);
-        if (definition.containsKey("anyOf") || definition.containsKey("oneOf") || definition.containsKey("allOf")) {
-            throw new IllegalArgumentException("MongoDB field schema combinations require explicit mapping");
-        }
+        requireRepresentableValidator(definition);
         Object declared = definition.get("bsonType");
         List<String> names = new ArrayList<>();
         if (declared instanceof String) {
@@ -269,11 +278,13 @@ final class MongoSchema {
                     type = children.isEmpty() ? ConnectorType.of("JSONB") : structType(children);
                     break;
                 case "array":
-                    Document item = definition.get("items", Document.class);
-                    if (item == null) {
+                    // MongoDB also permits tuple items (an array of schemas). Report that grammar
+                    // as unsupported so auto takes the same whole-document fallback as other unions.
+                    Object item = definition.get("items");
+                    if (!(item instanceof Document)) {
                         throw new IllegalArgumentException("MongoDB array requires homogeneous items");
                     }
-                    Binding element = validatorBinding("element", item, depth + 1, count);
+                    Binding element = validatorBinding("element", (Document) item, depth + 1, count);
                     children = List.of(element);
                     type = ConnectorType.arrayOf(element.type);
                     break;

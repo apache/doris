@@ -23,30 +23,48 @@ import com.mongodb.MongoCommandException;
 import com.mongodb.MongoException;
 import com.mongodb.ReadConcern;
 import com.mongodb.ReadPreference;
-import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.internal.MongoClientImpl;
+import com.mongodb.internal.operation.BatchCursor;
+import com.mongodb.internal.operation.ListCollectionsOperation;
 import org.bson.Document;
+import org.bson.codecs.DocumentCodec;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 
 /** Catalog-owned thread-safe driver; every metadata cursor/session is local and deterministically closed. */
 final class MongoDriverCatalogClient implements MongoCatalogClient {
     private final MongoClient client;
     private final MongoCatalogProperties properties;
+    private final Function<ListCollectionsOperation<Document>, BatchCursor<Document>> metadataCursor;
 
     MongoDriverCatalogClient(MongoCatalogProperties properties) {
         this(MongoClients.create(properties.clientSettings()), properties);
     }
 
     MongoDriverCatalogClient(MongoClient client, MongoCatalogProperties properties) {
+        this(client, properties, operation -> {
+            // Driver 5.14 exposes authorized name-only results as strings in its public iterable.
+            // Use its pinned core operation to retain kind metadata AND the server-bound cursor.
+            MongoClientImpl driver = (MongoClientImpl) client;
+            return driver.getOperationExecutor().withTimeoutSettings(driver.getTimeoutSettings()
+                    .withMaxTimeMS(properties.getServerSelectionTimeoutMs()))
+                    .execute(operation, ReadPreference.primary(), ReadConcern.DEFAULT);
+        });
+    }
+
+    MongoDriverCatalogClient(MongoClient client, MongoCatalogProperties properties,
+            Function<ListCollectionsOperation<Document>, BatchCursor<Document>> metadataCursor) {
         this.properties = properties;
         this.client = client;
+        this.metadataCursor = metadataCursor;
     }
 
     @Override
@@ -94,47 +112,25 @@ final class MongoDriverCatalogClient implements MongoCatalogClient {
     }
 
     private List<Document> names(String database, String name) {
-        MongoDatabase db = metadataDatabase(database);
-        try (ClientSession session = client.startSession()) {
-            Document command = new Document("listCollections", 1).append("nameOnly", true)
-                    .append("authorizedCollections", true).append("cursor", new Document("batchSize", 128))
-                    .append("maxTimeMS", properties.getServerSelectionTimeoutMs());
-            if (name != null) {
-                command.append("filter", new Document("name", name));
-            }
-            long cursorId = 0;
-            try {
-                Document response = db.runCommand(session, command);
-                List<Document> result = new ArrayList<>();
-                boolean first = true;
-                do {
-                    Document cursor = response.get("cursor", Document.class);
-                    cursorId = ((Number) cursor.get("id")).longValue();
-                    for (Document object : cursor.getList(first ? "firstBatch" : "nextBatch", Document.class)) {
-                        result.add(new Document(object).append("metadata_available", false));
-                        if (result.size() > 100000) {
-                            throw new DorisConnectorException("MongoDB database exceeds metadata listing limit");
-                        }
-                    }
-                    if (cursorId != 0) {
-                        // Non-awaitData metadata cursors inherit the initial command deadline.
-                        // MongoDB rejects a separate maxTimeMS on their getMore commands.
-                        response = db.runCommand(session, new Document("getMore", cursorId)
-                                .append("collection", "$cmd.listCollections").append("batchSize", 128));
-                    }
-                    first = false;
-                } while (cursorId != 0);
-                return result;
-            } finally {
-                if (cursorId != 0) {
-                    try {
-                        db.runCommand(session, new Document("killCursors", "$cmd.listCollections")
-                                .append("cursors", List.of(cursorId)));
-                    } catch (MongoException ignored) {
-                        // Keep the original failure. Session/transport cleanup still runs below.
+        ListCollectionsOperation<Document> operation =
+                new ListCollectionsOperation<>(database, new DocumentCodec(), null)
+                        .nameOnly(true).authorizedCollections(true).batchSize(128);
+        if (name != null) {
+            operation.filter(new Document("name", name).toBsonDocument());
+        }
+        // An ordinary ClientSession does not pin a mongos. BatchCursor retains the original
+        // connection source for getMore and killCursors, including failure and early-close paths.
+        try (BatchCursor<Document> cursor = metadataCursor.apply(operation)) {
+            List<Document> result = new ArrayList<>();
+            while (cursor.hasNext()) {
+                for (Document object : cursor.next()) {
+                    result.add(new Document(object).append("metadata_available", false));
+                    if (result.size() > 100000) {
+                        throw new DorisConnectorException("MongoDB database exceeds metadata listing limit");
                     }
                 }
             }
+            return result;
         } catch (MongoException e) {
             throw failure(e);
         }

@@ -168,3 +168,28 @@ nativeFixture.boundary_errors.insertMany([
 let deepValue = NumberInt(1);
 for (let i = 0; i < 65; ++i) deepValue = [deepValue];
 nativeFixture.deep_limit_records.insertOne({_id: nativeOid(1), value: deepValue});
+
+// Legal validators outside the typed mapper's grammar must retain every value in document mode.
+const fallbackSchemas = {
+    tuple_validator: {bsonType: "object", properties: {values: {bsonType: "array",
+        items: [{bsonType: "int"}, {bsonType: "string"}]}}},
+    pattern_validator: {bsonType: "object", properties: {known: {bsonType: "int"}},
+        patternProperties: {"^extra$": {bsonType: "string"}}},
+    dependency_validator: {bsonType: "object", properties: {known: {bsonType: "int"}},
+        dependencies: {known: {properties: {extra: {bsonType: "string"}}}}},
+    nested_pattern_validator: {bsonType: "object", properties: {profile: {bsonType: "object",
+        properties: {known: {bsonType: "int"}}, patternProperties: {"^extra$": {bsonType: "string"}}}}}
+};
+Object.entries(fallbackSchemas).forEach(([name, schema]) => {
+    nativeFixture.createCollection(name, {validator: {$jsonSchema: schema}});
+    nativeFixture.getCollection(name).insertOne({_id: nativeOid(1), known: NumberInt(1), extra: "present",
+        values: [NumberInt(1), "x"], profile: {known: NumberInt(2), extra: "nested"}});
+});
+// Whole-document validation must use depth-bounded scratch even for a narrow scalar projection.
+nativeFixture.wide_records.insertOne({_id: nativeOid(1), seq: NumberInt(1),
+    wide: Array.from({length: 900000}, () => ({}))});
+// Cross the driver's 128-name metadata batch without enlarging the normal test database.
+const paginationFixture = db.getSiblingDB("doris_mongodb_pagination");
+for (let i = 0; i < 140; ++i) {
+    paginationFixture.createCollection("page_" + i.toString().padStart(3, "0"));
+}

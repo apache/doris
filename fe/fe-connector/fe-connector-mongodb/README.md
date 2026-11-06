@@ -21,7 +21,10 @@ The database allowlist is optional. It also permits discovery with accounts that
 cannot list all databases. Reads require `find` on the logical collection or view.
 Metadata discovery uses authorized, name-only listing. Validator schemas require
 full `listCollections` metadata; explicit/document schemas also work with restricted
-view-only readers. Views are queried by their own names, preserving their pipeline
+view-only readers. The pinned Java driver core operation returns a server-bound
+metadata cursor with both authorization flags and object kinds; its public names
+iterable exposes only strings. The driver owns continuation and cursor cleanup.
+Views are queried by their own names, preserving their pipeline
 and collation. Time-series collections return logical measurements, including
 measurements without a unique `_id`; `system.buckets` is never exposed or read.
 
@@ -37,7 +40,10 @@ measurements without a unique `_id`; `system.buckets` is never exposed or read.
   not ordinary JSON with automatic Doris numeric coercion.
 
 Validators constrain writes, not all historical documents. Mapped columns and
-nested fields remain nullable. Missing fields and BSON null both become SQL NULL;
+nested fields remain nullable. Tuple-array items, schema combinations, pattern-based
+properties and schema-valued dependencies/additional properties require an explicit
+mapping or whole-collection document fallback, including inside nested objects.
+Missing fields and BSON null both become SQL NULL;
 the original BSON preserves the distinction. Unsupported combinations use document
 mode or produce an explicit error. Refresh metadata after changing a validator,
 explicit mapping, view, or collection definition:
@@ -92,7 +98,10 @@ find/getMore batches. Projection is materialized locally, and every SQL filter,
 LIKE/REGEXP, join, aggregation, sort and LIMIT remains a Doris operation. Range
 splitting, predicate/LIMIT pushdown and shared snapshots are separate work.
 
-`batch_size` and `query_timeout` are session variables. Catalog connection defaults:
+`batch_size` and `query_timeout` are session variables. URI read preference settings
+take precedence over the catalog mode, retaining ordered tag sets and maximum staleness
+in both drivers. Without URI routing settings, `mongodb.read_preference` supplies the mode.
+Catalog connection defaults:
 
 | Property | Default |
 |---|---|

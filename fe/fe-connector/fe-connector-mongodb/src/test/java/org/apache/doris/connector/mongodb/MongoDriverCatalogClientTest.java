@@ -21,25 +21,29 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 
 import com.mongodb.MongoCommandException;
 import com.mongodb.ServerAddress;
-import com.mongodb.client.ClientSession;
 import com.mongodb.client.ListCollectionsIterable;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoDatabase;
+import com.mongodb.internal.operation.BatchCursor;
+import com.mongodb.internal.operation.ListCollectionsOperation;
 import org.bson.Document;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
 class MongoDriverCatalogClientTest {
     private static final class RecordingDriver {
         final List<Document> commands = new ArrayList<>();
-        int sessionCloses;
         int clientCloses;
+        int cursorCloses;
+        final List<ListCollectionsOperation<Document>> operations = new ArrayList<>();
         boolean failGetMore;
+        boolean overflow;
         long remainingCursor = 123;
 
         @SuppressWarnings("unchecked")
@@ -48,13 +52,6 @@ class MongoDriverCatalogClientTest {
         }
 
         MongoClient client() {
-            ClientSession session = proxy(ClientSession.class, (p, method, args) -> {
-                if (method.getName().equals("close")) {
-                    sessionCloses++;
-                    return null;
-                }
-                throw new UnsupportedOperationException(method.getName());
-            });
             MongoDatabase database = proxy(MongoDatabase.class, (p, method, args) -> {
                 if (method.getName().equals("listCollections")) {
                     return proxy(ListCollectionsIterable.class, (iterable, operation, parameters) -> {
@@ -69,25 +66,9 @@ class MongoDriverCatalogClientTest {
                     return p;
                 }
                 if (method.getName().equals("runCommand")) {
-                    Assertions.assertSame(session, args[0]);
-                    Document command = (Document) args[1];
-                    commands.add(new Document(command));
-                    if (command.containsKey("killCursors")) {
-                        return new Document("ok", 1);
-                    }
-                    if (command.containsKey("getMore")) {
-                        // Ordinary metadata cursors inherit the initial command deadline; MongoDB
-                        // rejects maxTimeMS on getMore for a non-awaitData cursor.
-                        Assertions.assertFalse(command.containsKey("maxTimeMS"));
-                        if (failGetMore) {
-                            throw new MongoCommandException(new Document("ok", 0).append("code", 13)
-                                    .append("errmsg", "fixture-secret").toBsonDocument(), new ServerAddress());
-                        }
-                        return new Document("cursor", new Document("id", 0L).append("nextBatch",
-                                List.of(new Document("name", "second").append("type", "view"))));
-                    }
-                    return new Document("cursor", new Document("id", remainingCursor).append("firstBatch",
-                            List.of(new Document("name", "first").append("type", "collection"))));
+                    commands.add((Document) args[args.length - 1]);
+                    throw new MongoCommandException(new Document("ok", 0).append("code", 43)
+                            .append("errmsg", "cursor belongs to another router").toBsonDocument(), new ServerAddress());
                 }
                 throw new UnsupportedOperationException(method.getName());
             });
@@ -95,8 +76,6 @@ class MongoDriverCatalogClientTest {
                 switch (method.getName()) {
                     case "getDatabase":
                         return database;
-                    case "startSession":
-                        return session;
                     case "close":
                         clientCloses++;
                         return null;
@@ -106,29 +85,60 @@ class MongoDriverCatalogClientTest {
             });
         }
 
+        @SuppressWarnings("unchecked")
+        BatchCursor<Document> execute(ListCollectionsOperation<Document> operation) {
+            operations.add(operation);
+            int[] batch = {0};
+            return proxy(BatchCursor.class, (cursor, method, args) -> {
+                switch (method.getName()) {
+                    case "hasNext":
+                        if (failGetMore && batch[0] == 1 && remainingCursor != 0) {
+                            throw new MongoCommandException(new Document("ok", 0).append("code", 13)
+                                    .append("errmsg", "fixture-secret").toBsonDocument(), new ServerAddress());
+                        }
+                        return batch[0] < (remainingCursor == 0 ? 1 : 2);
+                    case "next":
+                        if (overflow) {
+                            return Collections.nCopies(100001, new Document("name", "first"));
+                        }
+                        return List.of(new Document("name", batch[0]++ == 0 ? "first" : "second")
+                                .append("type", batch[0] == 1 ? "collection" : "view"));
+                    case "close":
+                        cursorCloses++;
+                        return null;
+                    default:
+                        throw new UnsupportedOperationException(method.getName());
+                }
+            });
+        }
+
         MongoDriverCatalogClient catalog() {
             return new MongoDriverCatalogClient(client(), MongoCatalogProperties.of(
-                    Map.of("mongodb.uri", "mongodb://localhost:27017", "mongodb.databases", "sample")));
+                    Map.of("mongodb.uri", "mongodb://localhost:27017", "mongodb.databases", "sample")),
+                    this::execute);
         }
     }
 
     @Test
-    void authorizedListingDrainsEveryBatchAndClosesSession() {
+    void authorizedListingDrainsOneServerBoundCursorAndClosesIt() {
         RecordingDriver driver = new RecordingDriver();
         try (MongoDriverCatalogClient catalog = driver.catalog()) {
             Assertions.assertEquals(List.of("sample"), catalog.databases());
             List<Document> objects = catalog.collections("sample");
             Assertions.assertEquals(2, objects.size());
             Assertions.assertEquals("view", objects.get(1).getString("type"));
-            Assertions.assertTrue(driver.commands.get(0).getBoolean("authorizedCollections"));
-            Assertions.assertTrue(driver.commands.get(0).getBoolean("nameOnly"));
-            Assertions.assertEquals(1, driver.sessionCloses);
+            Assertions.assertEquals(1, driver.operations.size());
+            Assertions.assertTrue(driver.operations.get(0).isAuthorizedCollections());
+            Assertions.assertTrue(driver.operations.get(0).isNameOnly());
+            Assertions.assertEquals(128, driver.operations.get(0).getBatchSize());
+            Assertions.assertEquals(1, driver.cursorCloses);
+            Assertions.assertTrue(driver.commands.isEmpty());
         }
         Assertions.assertEquals(1, driver.clientCloses);
     }
 
     @Test
-    void failedGetMoreKillsCursorAndRedactsSourceError() {
+    void failedGetMoreClosesOwningCursorAndRedactsSourceError() {
         RecordingDriver driver = new RecordingDriver();
         driver.failGetMore = true;
         try (MongoDriverCatalogClient catalog = driver.catalog()) {
@@ -136,20 +146,29 @@ class MongoDriverCatalogClientTest {
                     () -> catalog.collections("sample"));
             Assertions.assertFalse(error.toString().contains("fixture-secret"));
             Assertions.assertNull(error.getCause());
-            Assertions.assertEquals("$cmd.listCollections", driver.commands.get(2).getString("killCursors"));
-            Assertions.assertEquals(List.of(123L), driver.commands.get(2).getList("cursors", Long.class));
-            Assertions.assertEquals(1, driver.sessionCloses);
+            Assertions.assertEquals(1, driver.cursorCloses);
+            Assertions.assertTrue(driver.commands.isEmpty());
         }
     }
 
     @Test
-    void exhaustedCursorDoesNotSendKillCursors() {
+    void exhaustedCursorClosesWithoutReselectingAServer() {
         RecordingDriver driver = new RecordingDriver();
         driver.remainingCursor = 0;
         try (MongoDriverCatalogClient catalog = driver.catalog()) {
             Assertions.assertEquals(1, catalog.collections("sample").size());
-            Assertions.assertEquals(1, driver.commands.size());
-            Assertions.assertEquals(1, driver.sessionCloses);
+            Assertions.assertTrue(driver.commands.isEmpty());
+            Assertions.assertEquals(1, driver.cursorCloses);
+        }
+    }
+
+    @Test
+    void metadataLimitFailureClosesTheServerBoundCursor() {
+        RecordingDriver driver = new RecordingDriver();
+        driver.overflow = true;
+        try (MongoDriverCatalogClient catalog = driver.catalog()) {
+            Assertions.assertThrows(DorisConnectorException.class, () -> catalog.collections("sample"));
+            Assertions.assertEquals(1, driver.cursorCloses);
         }
     }
 
@@ -162,13 +181,15 @@ class MongoDriverCatalogClientTest {
             Assertions.assertFalse(result.getBoolean("metadata_available"));
             Assertions.assertEquals("collection", result.getString("type"));
             Assertions.assertFalse(result.containsKey("info"));
+            Assertions.assertEquals("first", driver.operations.get(0).getFilter().getString("name").getValue());
+            Assertions.assertEquals(1, driver.cursorCloses);
         }
         RecordingDriver strict = new RecordingDriver();
         try (MongoDriverCatalogClient catalog = new MongoDriverCatalogClient(strict.client(),
                 MongoCatalogProperties.of(Map.of("mongodb.uri", "mongodb://localhost:27017",
-                        "mongodb.schema.mode", "validator")))) {
+                        "mongodb.schema.mode", "validator")), strict::execute)) {
             Assertions.assertThrows(DorisConnectorException.class, () -> catalog.collection("sample", "first"));
-            Assertions.assertTrue(strict.commands.isEmpty());
+            Assertions.assertTrue(strict.operations.isEmpty());
         }
     }
 
