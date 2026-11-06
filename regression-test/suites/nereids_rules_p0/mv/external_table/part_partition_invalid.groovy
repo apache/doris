@@ -153,6 +153,8 @@ suite("part_partition_invalid", "p0,external,external_docker") {
 
     // refresh catalog cache
     sql """ REFRESH CATALOG ${hive_catalog_name} PROPERTIES("invalid_cache" = "true"); """
+    // Cost the compensation branch with collected statistics after invalidating the file-list cache.
+    sql """ANALYZE TABLE ${hive_catalog_name}.${hive_database}.${hive_table} (o_orderkey, o_orderdate) WITH SYNC"""
     mv_rewrite_success(query_sql, mv_name)
     // in 2.1 and 3.0 should not compensate union all, in 3.1 and master should compensate union all
     order_qt_after_modify_data_and_refresh_catalog """ ${query_sql}"""
@@ -181,6 +183,7 @@ suite("part_partition_invalid", "p0,external,external_docker") {
 
     // refresh catalog cache
     sql """ REFRESH CATALOG ${hive_catalog_name} PROPERTIES("invalid_cache" = "true"); """
+    sql """ANALYZE TABLE ${hive_catalog_name}.${hive_database}.${hive_table} (o_orderkey, o_orderdate) WITH SYNC"""
     mv_rewrite_success(query_sql, mv_name)
     // in 2.1 and 3.0 should not compensate union all, in 3.1 and master should compensate union all
     order_qt_after_add_data_with_refresh_catalog """ ${query_sql}"""
