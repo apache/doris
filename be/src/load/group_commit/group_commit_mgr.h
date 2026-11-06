@@ -43,7 +43,6 @@ class ExecEnv;
 class GroupCommitMgr;
 class TUniqueId;
 class RuntimeState;
-class TupleDescriptor;
 
 class Dependency;
 
@@ -59,14 +58,13 @@ public:
                    int64_t schema_version, int64_t index_size,
                    std::shared_ptr<std::atomic_size_t> all_block_queues_bytes,
                    bool wait_internal_group_commit_finish, int64_t group_commit_interval_ms,
-                   int64_t group_commit_data_bytes, const std::vector<TSlotDescriptor>& slot_descs)
+                   int64_t group_commit_data_bytes)
             : load_instance_id(load_instance_id),
               label(label),
               txn_id(txn_id),
               schema_version(schema_version),
               index_size(index_size),
               wait_internal_group_commit_finish(wait_internal_group_commit_finish),
-              _slot_descs(slot_descs),
               _group_commit_interval_ms(group_commit_interval_ms),
               _start_time(std::chrono::steady_clock::now()),
               _last_print_time(_start_time),
@@ -83,11 +81,9 @@ public:
     void cancel(const Status& st);
     bool need_commit() const { return _need_commit.load(); }
 
-    Status get_column_permutation(const TupleDescriptor& producer_tuple,
-                                  std::vector<int>& column_permutation) const;
-
     Status create_wal(int64_t db_id, int64_t tb_id, int64_t wal_id, const std::string& import_label,
-                      WalManager* wal_manager, int be_exe_version);
+                      WalManager* wal_manager, std::vector<TSlotDescriptor>& slot_desc,
+                      int be_exe_version);
     Status close_wal();
     bool has_enough_wal_disk_space(size_t estimated_wal_bytes);
     void append_dependency(std::shared_ptr<Dependency> finish_dep);
@@ -136,10 +132,6 @@ private:
     std::map<UniqueId, std::shared_ptr<Dependency>> _load_ids_to_write_dep;
     std::vector<std::shared_ptr<Dependency>> _read_deps;
     std::list<BlockData> _block_queue;
-
-    // The consumer sink layout also defines the queue payload and WAL header order.
-    // Initialized before the queue is published and shared by all producers.
-    std::vector<TSlotDescriptor> _slot_descs;
 
     // wal
     std::string _wal_base_path;

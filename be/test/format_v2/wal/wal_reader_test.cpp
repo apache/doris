@@ -111,43 +111,6 @@ void expect_wal_eof(WalReader* reader, Block* output) {
     EXPECT_EQ(output->rows(), 0);
 }
 
-void write_wal_with_repeated_mv_ids(const std::string& wal_path) {
-    const auto type = std::make_shared<DataTypeString>();
-    Block source;
-    for (const std::string name : {"base_left", "base_right", "mv_left", "mv_right"}) {
-        auto column = type->create_column();
-        const auto value = name + "0";
-        column->insert_data(value.data(), value.size());
-        source.insert({std::move(column), type, name});
-    }
-    auto pblock = serialize_block(source);
-    // Older producers could persist different MV tail orders in the same WAL.
-    // The base prefix remains stable and is sufficient to recompute every MV.
-    source.shuffle_columns({0, 1, 3, 2});
-    auto reordered_pblock = serialize_block(source);
-    WalWriter writer(wal_path);
-    ASSERT_TRUE(writer.init(io::global_local_filesystem()).ok());
-    ASSERT_TRUE(writer.append_header("17,4,17,4").ok());
-    ASSERT_TRUE(writer.append_blocks({&pblock, &reordered_pblock}).ok());
-    ASSERT_TRUE(writer.finalize().ok());
-}
-
-void expect_base_schema_with_repeated_mv_ids(WalReader* reader) {
-    EXPECT_EQ(reader->_column_ids, (std::vector<int32_t> {17, 4, 17, 4}));
-    std::vector<ColumnDefinition> schema;
-    ASSERT_TRUE(reader->get_schema(&schema).ok());
-    ASSERT_EQ(schema.size(), 4);
-    EXPECT_EQ(schema[0].local_id, 0);
-    EXPECT_EQ(schema[1].local_id, 1);
-    EXPECT_EQ(schema[0].get_identifier_field_id(), 17);
-    EXPECT_EQ(schema[1].get_identifier_field_id(), 4);
-    auto mapper = reader->create_column_mapper({});
-    ASSERT_TRUE(mapper->create_mapping({schema[1], schema[0]}, {}, schema).ok());
-    ASSERT_EQ(mapper->mappings().size(), 2);
-    EXPECT_EQ(mapper->mappings()[0].file_local_id, 1);
-    EXPECT_EQ(mapper->mappings()[1].file_local_id, 0);
-}
-
 class WalReaderV2ProjectionTest
         : public testing::TestWithParam<std::tuple<std::vector<int>, bool>> {
 protected:
@@ -232,31 +195,6 @@ TEST(WalReaderV2Test, ParseColumnIdsRejectsMalformedHeaders) {
     EXPECT_FALSE(parse_wal_column_ids("", &column_ids).ok());
     EXPECT_FALSE(parse_wal_column_ids("17,,99", &column_ids).ok());
     EXPECT_FALSE(parse_wal_column_ids("17,nope,99", &column_ids).ok());
-}
-
-TEST(WalReaderV2Test, ReplaysBaseColumnsWhenMvIdsAndLayoutsDiffer) {
-    const auto wal_path = temporary_wal_path();
-    ASSERT_NO_FATAL_FAILURE(write_wal_with_repeated_mv_ids(wal_path));
-    std::shared_ptr<io::FileSystemProperties> properties;
-    std::unique_ptr<io::FileDescription> description;
-    WalReader reader(properties, description, nullptr, nullptr, {});
-    ASSERT_NO_FATAL_FAILURE(initialize_wal_reader(&reader, wal_path, false));
-    ASSERT_NO_FATAL_FAILURE(expect_base_schema_with_repeated_mv_ids(&reader));
-
-    auto request = std::make_shared<FileScanRequest>();
-    request->local_positions.emplace(LocalColumnId(1), LocalIndex(0));
-    request->local_positions.emplace(LocalColumnId(0), LocalIndex(1));
-    ASSERT_TRUE(reader.open(std::move(request)).ok());
-    const auto type = std::make_shared<DataTypeString>();
-    Block output({{type->create_column(), type, "base_right"},
-                  {type->create_column(), type, "base_left"}});
-    for (int batch = 0; batch < 2; ++batch) {
-        ASSERT_NO_FATAL_FAILURE(expect_wal_batch(&reader, &output, 2, 1, 0));
-    }
-    ASSERT_NO_FATAL_FAILURE(expect_wal_eof(&reader, &output));
-    ASSERT_TRUE(reader.close().ok());
-    std::filesystem::remove_all(
-            std::filesystem::path(wal_path).parent_path().parent_path().parent_path());
 }
 
 TEST(WalReaderV2Test, SchemaChangeDuplicateIdsKeepBaseColumnAndPhysicalPositions) {
