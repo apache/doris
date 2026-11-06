@@ -20,6 +20,7 @@ package org.apache.doris.connector.deltalake;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
+import org.apache.doris.connector.spi.ConnectorPushdownOps;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
@@ -61,6 +62,15 @@ import java.util.stream.Collectors;
 class DeltaLakeScanPlanProviderTest {
     @TempDir
     Path warehouse;
+
+    @Test
+    void scanProviderRejectsCastPredicatePushdown() throws Exception {
+        try (Connector connector = connector()) {
+            ConnectorPushdownOps pushdown = Assertions.assertInstanceOf(
+                    ConnectorPushdownOps.class, connector.getScanPlanProvider());
+            Assertions.assertFalse(pushdown.supportsCastPredicatePushdown(new TestingConnectorSession("cast")));
+        }
+    }
 
     @Test
     void splitsByteRangesAndKeepsPartitionsAndFilesOnThePinnedVersion() throws Exception {

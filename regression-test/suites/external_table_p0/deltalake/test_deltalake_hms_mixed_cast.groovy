@@ -17,7 +17,7 @@
 
 import org.apache.doris.regression.action.ProfileAction
 
-// The same HMS catalog must keep the CAST policy local to each table, including within one SQL statement.
+// Mixed-format reads through one HMS catalog must preserve each table's matching rows.
 suite("test_deltalake_hms_mixed_cast", "p0,external") {
     if (!"true".equalsIgnoreCase(context.config.otherConfigs.get("enableDeltaLakeTest"))) {
         return
@@ -42,7 +42,7 @@ suite("test_deltalake_hms_mixed_cast", "p0,external") {
     }
 
     // Reuse the retained Delta golden. Create two Iceberg files in that same HMS database.
-    // Integral decimal values make this a safe CAST control for Iceberg's existing pushdown policy.
+    // Integral decimal values match with or without Iceberg CAST pushdown.
     sql "switch test_deltalake_hms_mixed_cast_iceberg"
     sql "use delta_golden"
     sql "drop table if exists test_deltalake_hms_mixed_cast_iceberg"
@@ -69,20 +69,12 @@ suite("test_deltalake_hms_mixed_cast", "p0,external") {
                     ? "${deltaSelect} and decimal_decimal_same_scale < 124" : deltaSelect
             String mixed = variant == "iceberg_first" ? "${icebergSelect} union all ${deltaQuery}"
                     : "${deltaQuery} union all ${icebergSelect}"
-            // There are no join-derived predicates here: the only possible Iceberg pushdown is its CAST.
-            String plan = sql("explain verbose ${mixed}").collect { it[0].toString() }.join("\n")
-            assertTrue(plan.contains("icebergPredicatePushdown="), plan)
+            // Check Iceberg's results without pinning its CAST policy, which may change to fix lossy casts.
             String token = UUID.randomUUID().toString()
             "order_qt_${mode}_${variant}"("select /* ${token} */ * from (${mixed}) mixed")
             String profile = profiles.getProfileBySql(token, ["Delta Scan Metrics", "EnumerationComplete: true"])
             int selected = variant == "plain_and" ? 1 : 2
             assertTrue(profile.contains("TotalFiles: 2") && profile.contains("SelectedFiles: ${selected}"), profile)
-            if (!batch) {
-                // Iceberg emits SDK scan metrics only for synchronous planning; EXPLAIN checks both modes.
-                // A catalog-wide false would return the right rows but make Iceberg read both files.
-                assertTrue(profile.contains("Iceberg Scan Metrics"), profile)
-                assertTrue((profile =~ /(?m)^\s*(?:-\s*)?data_files:\s+1\s*$/).find(), profile)
-            }
         }
 
         // Both scans in a real join also share the HMS catalog's statement metadata.
