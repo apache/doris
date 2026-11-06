@@ -29,6 +29,7 @@ import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryAdmissionController;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.service.arrowflight.results.FlightSqlEndpointsLocation;
@@ -147,26 +148,31 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     }
 
     private void getStreamStatementResult(String handle, ServerStreamListener listener) {
-        String[] handleParts = handle.split(":");
-        String executedPeerIdentity = handleParts[0];
-        String queryId = handleParts[1];
-        // The tokens used for authentication between getStreamStatement and getFlightInfoStatement are different.
-        ConnectContext connectContext = flightSessionsManager.getConnectContext(executedPeerIdentity);
+        QueryAdmissionController.INSTANCE.acquireContinuation();
         try {
-            final FlightSqlResultCacheEntry flightSqlResultCacheEntry = Objects.requireNonNull(
-                    connectContext.getFlightSqlChannel().getResult(queryId));
-            final VectorSchemaRoot vectorSchemaRoot = flightSqlResultCacheEntry.getVectorSchemaRoot();
-            listener.start(vectorSchemaRoot);
-            listener.putNext();
-        } catch (Throwable e) {
-            String errMsg = "get stream statement failed, " + e.getMessage() + ", " + Util.getRootCauseMessage(e)
-                    + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
-                    + connectContext.getState().getErrorMessage();
-            handleStreamException(e, errMsg, listener);
+            String[] handleParts = handle.split(":");
+            String executedPeerIdentity = handleParts[0];
+            String queryId = handleParts[1];
+            // The tokens used for authentication between getStreamStatement and getFlightInfoStatement are different.
+            ConnectContext connectContext = flightSessionsManager.getConnectContext(executedPeerIdentity);
+            try {
+                final FlightSqlResultCacheEntry flightSqlResultCacheEntry = Objects.requireNonNull(
+                        connectContext.getFlightSqlChannel().getResult(queryId));
+                final VectorSchemaRoot vectorSchemaRoot = flightSqlResultCacheEntry.getVectorSchemaRoot();
+                listener.start(vectorSchemaRoot);
+                listener.putNext();
+            } catch (Throwable e) {
+                String errMsg = "get stream statement failed, " + e.getMessage() + ", " + Util.getRootCauseMessage(e)
+                        + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
+                        + connectContext.getState().getErrorMessage();
+                handleStreamException(e, errMsg, listener);
+            } finally {
+                listener.completed();
+                // The result has been sent or sent failed, delete it.
+                connectContext.getFlightSqlChannel().invalidate(queryId);
+            }
         } finally {
-            listener.completed();
-            // The result has been sent or sent failed, delete it.
-            connectContext.getFlightSqlChannel().invalidate(queryId);
+            QueryAdmissionController.INSTANCE.release();
         }
     }
 
@@ -203,9 +209,14 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
 
     private FlightInfo executeQueryStatement(String peerIdentity, ConnectContext connectContext, String query,
             final FlightDescriptor descriptor) {
-        // Schema discovery temporarily installs session state; execution must not mutate that clone.
-        synchronized (connectContext) {
-            return executeQueryStatementLocked(peerIdentity, connectContext, query, descriptor).getLeft();
+        acquireStatement();
+        try {
+            // Count lock waiters as accepted work before another request holds the session monitor.
+            synchronized (connectContext) {
+                return executeQueryStatementLocked(peerIdentity, connectContext, query, descriptor).getLeft();
+            }
+        } finally {
+            QueryAdmissionController.INSTANCE.release();
         }
     }
 
@@ -346,6 +357,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             // or the connection is torn down. The previous query's deferred coordinator was already
             // finalized at the top of this method, so this only closes this failed query. See #62259.
             connectContext.closeFlightSqlDeferredExecutors();
+            connectContext.getFlightSqlChannel().reset();
             String errMsg = "get flight info statement failed, " + e.getMessage() + ", " + Util.getRootCauseMessage(e)
                     + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
                     + connectContext.getState().getErrorMessage();
@@ -362,6 +374,8 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         try {
             ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
             return executeQueryStatement(context.peerIdentity(), connectContext, request.getQuery(), descriptor);
+        } catch (FlightRuntimeException e) {
+            throw e;
         } catch (Throwable e) {
             String errMsg = "get flight info statement failed, " + e.getMessage();
             LOG.error(errMsg, e);
@@ -373,41 +387,46 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     public FlightInfo getFlightInfoPreparedStatement(final CommandPreparedStatementQuery command,
             final CallContext context, final FlightDescriptor descriptor) {
         ConnectContext connection = flightSessionsManager.getConnectContext(context.peerIdentity());
-        synchronized (connection) {
-            Pair<String, Schema> prepared = preparedQuery(connection, context, command);
-            String preparedId = preparedStatementId(context, command.getPreparedStatementHandle());
-            Pair<FlightInfo, StmtExecutor> result = executeQueryStatementLocked(
-                    context.peerIdentity(), connection, prepared.getLeft(), descriptor,
-                    connection.getPreparedQueryParameters(preparedId));
-            FlightInfo info = result.getLeft();
-            String id = command.getPreparedStatementHandle().toStringUtf8()
-                    .substring(context.peerIdentity().length() + 1);
-            // Another session's DDL can change the result after reanalysis but before execution
-            // acquires table locks. Reject the actual schema before publishing a DoGet ticket.
-            StmtExecutor executor = result.getRight();
-            boolean matches = !connection.isReturnResultFromLocal() && executor != null
-                    && executor.getParsedStmt() instanceof LogicalPlanAdapter
-                    ? FlightSqlQuerySchema.matchesExecutionSchema(prepared.getRight(), info.getSchema(),
-                            ((LogicalPlanAdapter) executor.getParsedStmt()).getColLabels())
-                    : prepared.getRight().equals(info.getSchema());
-            // Session teardown can invalidate the handle during execution without taking the connection monitor.
-            if (!matches || !connection.refreshPreparedQueryNamespace(id)) {
-                connection.removePreparedQuery(id);
-                try {
-                    if (executor != null) {
-                        executor.cancel(Status.CANCELLED);
+        acquireStatement();
+        try {
+            synchronized (connection) {
+                Pair<String, Schema> prepared = preparedQuery(connection, context, command);
+                String preparedId = preparedStatementId(context, command.getPreparedStatementHandle());
+                Pair<FlightInfo, StmtExecutor> result = executeQueryStatementLocked(
+                        context.peerIdentity(), connection, prepared.getLeft(), descriptor,
+                        connection.getPreparedQueryParameters(preparedId));
+                FlightInfo info = result.getLeft();
+                String id = command.getPreparedStatementHandle().toStringUtf8()
+                        .substring(context.peerIdentity().length() + 1);
+                // Another session's DDL can change the result after reanalysis but before execution
+                // acquires table locks. Reject the actual schema before publishing a DoGet ticket.
+                StmtExecutor executor = result.getRight();
+                boolean matches = !connection.isReturnResultFromLocal() && executor != null
+                        && executor.getParsedStmt() instanceof LogicalPlanAdapter
+                        ? FlightSqlQuerySchema.matchesExecutionSchema(prepared.getRight(), info.getSchema(),
+                                ((LogicalPlanAdapter) executor.getParsedStmt()).getColLabels())
+                        : prepared.getRight().equals(info.getSchema());
+                // Session teardown can invalidate the handle during execution without taking the connection monitor.
+                if (!matches || !connection.refreshPreparedQueryNamespace(id)) {
+                    connection.removePreparedQuery(id);
+                    try {
+                        if (executor != null) {
+                            executor.cancel(Status.CANCELLED);
+                        }
+                    } catch (Exception e) {
+                        LOG.warn("Failed to cancel Flight query after prepared schema changed", e);
+                    } finally {
+                        connection.closeFlightSqlDeferredExecutors();
+                        connection.getFlightSqlChannel().reset();
+                        connection.clearFlightSqlEndpointsLocations();
                     }
-                } catch (Exception e) {
-                    LOG.warn("Failed to cancel Flight query after prepared schema changed", e);
-                } finally {
-                    connection.closeFlightSqlDeferredExecutors();
-                    connection.getFlightSqlChannel().reset();
-                    connection.clearFlightSqlEndpointsLocations();
+                    throw CallStatus.NOT_FOUND.withDescription("Prepared statement schema changed; prepare again")
+                            .toRuntimeException();
                 }
-                throw CallStatus.NOT_FOUND.withDescription("Prepared statement schema changed; prepare again")
-                        .toRuntimeException();
+                return info;
             }
-            return info;
+        } finally {
+            QueryAdmissionController.INSTANCE.release();
         }
     }
 
@@ -828,15 +847,25 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         // FlightSqlClient::closeSession(), nor will it automatically call closeSession
         // when FlightSqlConnection::close(). Python flight sql Cursor.close() will call closeSession().
         // Neither C++ nor Java seem to have similar behavior.
+        QueryAdmissionController.INSTANCE.acquireContinuation();
         try {
             flightSessionsManager.closeConnectContext(context.peerIdentity());
+            listener.onNext(new CloseSessionResult(CloseSessionResult.Status.CLOSED));
+            listener.onCompleted();
         } catch (final Throwable e) {
             LOG.error("closeSession failed", e);
             listener.onError(
                     CallStatus.INTERNAL.withDescription("closeSession failed").withCause(e).toRuntimeException());
+        } finally {
+            QueryAdmissionController.INSTANCE.release();
         }
-        listener.onNext(new CloseSessionResult(CloseSessionResult.Status.CLOSED));
-        listener.onCompleted();
+    }
+
+    private static void acquireStatement() {
+        if (!QueryAdmissionController.INSTANCE.tryAcquire()) {
+            throw CallStatus.UNAVAILABLE.withDescription("FE is shutting down; retry on another FE")
+                    .toRuntimeException();
+        }
     }
 
     private <T extends Message> FlightInfo getFlightInfoForSchema(final T request, final FlightDescriptor descriptor,

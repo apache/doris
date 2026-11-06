@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <condition_variable>
 #include <memory>
 #include <mutex>
@@ -37,6 +38,20 @@ public:
     LoadStreamMgr(uint32_t segment_file_writer_thread_num);
     ~LoadStreamMgr();
 
+    class PendingOpen {
+    public:
+        explicit PendingOpen(LoadStreamMgr& mgr) : _mgr(mgr) { ++_mgr._num_load_streams; }
+        ~PendingOpen() { --_mgr._num_load_streams; }
+        PendingOpen(const PendingOpen&) = delete;
+        PendingOpen& operator=(const PendingOpen&) = delete;
+
+    private:
+        LoadStreamMgr& _mgr;
+    };
+
+    // Reserve before queuing the RPC, including time spent waiting for tablet locks.
+    std::shared_ptr<PendingOpen> reserve_open() { return std::make_shared<PendingOpen>(*this); }
+
     Status open_load_stream(const POpenLoadStreamRequest* request, LoadStream*& load_stream);
     void clear_load(UniqueId loadid);
     void create_token(std::unique_ptr<ThreadPoolToken>& token) {
@@ -53,8 +68,9 @@ public:
         return result;
     }
 
-    // only used by ut
-    size_t get_load_stream_num() { return _load_streams_map.size(); }
+    // Shutdown polling must not take _lock: an abnormal stream close can hold it
+    // while destruction waits for unfinished file writes.
+    size_t get_load_stream_num() const { return _num_load_streams.load(); }
 
     FifoThreadPool* heavy_work_pool() { return _heavy_work_pool; }
 
@@ -63,6 +79,8 @@ public:
 private:
     std::mutex _lock;
     std::unordered_map<UniqueId, LoadStreamPtr> _load_streams_map;
+    // Includes accepted opens and streams being destroyed until their flush tasks finish.
+    std::atomic<size_t> _num_load_streams {0};
     std::unique_ptr<ThreadPool> _file_writer_thread_pool;
 
     FifoThreadPool* _heavy_work_pool = nullptr;
