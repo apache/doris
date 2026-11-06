@@ -645,9 +645,9 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 safeCreateBranch.run();
             }
 
-            branchOptions.getRetain().ifPresent(n -> manageSnapshots.setMaxSnapshotAgeMs(branchName, n));
+            branchOptions.getRetain().ifPresent(n -> manageSnapshots.setMaxRefAgeMs(branchName, n));
             branchOptions.getNumSnapshots().ifPresent(n -> manageSnapshots.setMinSnapshotsToKeep(branchName, n));
-            branchOptions.getRetention().ifPresent(n -> manageSnapshots.setMaxRefAgeMs(branchName, n));
+            branchOptions.getRetention().ifPresent(n -> manageSnapshots.setMaxSnapshotAgeMs(branchName, n));
 
             try {
                 authenticator.execute(manageSnapshots::commit);
