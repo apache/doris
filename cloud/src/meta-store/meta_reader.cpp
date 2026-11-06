@@ -507,6 +507,38 @@ void MetaReader::merge_tablet_stats(const TabletStatsPB& load_stats,
     tablet_stats->set_data_size(load_stats.data_size() + compact_stats.data_size());
     tablet_stats->set_index_size(load_stats.index_size() + compact_stats.index_size());
     tablet_stats->set_segment_size(load_stats.segment_size() + compact_stats.segment_size());
+    // The owner is load metadata. CopyFrom(compact_stats) above must not discard it when callers
+    // ask for merged versioned stats.
+    tablet_stats->clear_last_active_cluster_id();
+    tablet_stats->clear_last_active_time_ms();
+    tablet_stats->clear_last_active_epoch();
+    tablet_stats->clear_last_active_cluster_status();
+    tablet_stats->clear_last_active_cluster_status_mtime_ms();
+    // The owner generation remains authoritative when the load document intentionally has no
+    // owner. This lets an owner-free aggregate clear a stale versioned identity without making
+    // the generation go backwards.
+    if (load_stats.has_last_active_epoch()) {
+        tablet_stats->set_last_active_epoch(load_stats.last_active_epoch());
+    }
+    if (load_stats.has_last_active_cluster_id() && !load_stats.last_active_cluster_id().empty()) {
+        tablet_stats->set_last_active_cluster_id(load_stats.last_active_cluster_id());
+        if (load_stats.has_last_active_time_ms()) {
+            tablet_stats->set_last_active_time_ms(load_stats.last_active_time_ms());
+        } else {
+            tablet_stats->clear_last_active_time_ms();
+        }
+        if (load_stats.has_last_active_cluster_status()) {
+            tablet_stats->set_last_active_cluster_status(load_stats.last_active_cluster_status());
+        } else {
+            tablet_stats->clear_last_active_cluster_status();
+        }
+        if (load_stats.has_last_active_cluster_status_mtime_ms()) {
+            tablet_stats->set_last_active_cluster_status_mtime_ms(
+                    load_stats.last_active_cluster_status_mtime_ms());
+        } else {
+            tablet_stats->clear_last_active_cluster_status_mtime_ms();
+        }
+    }
 }
 
 TxnErrorCode MetaReader::get_tablet_index(int64_t tablet_id, TabletIndexPB* tablet_index,
