@@ -803,7 +803,6 @@ public class CreateTableInfo {
         }
         columns.forEach(c -> c.validate(targetIsInternalCatalog, keysSet, orderKeySet, finalEnableMergeOnWrite,
                 keysType, isSystemGeneratedTable));
-        columns.forEach(c -> c.validateVariantTable(escaped));
 
         try {
             invertedIndexFileStorageFormat =

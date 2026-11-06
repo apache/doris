@@ -28,10 +28,12 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.common.AnalysisException;
@@ -68,6 +70,7 @@ import java.time.DateTimeException;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -2512,6 +2515,20 @@ public class PropertyAnalyzer {
             throw new AnalysisException("variant_escape_dots_in_keys must be true or false");
         }
         return Boolean.parseBoolean(value);
+    }
+
+    /** Explicit policy wins; otherwise any escaped OLAP source makes the target escaped. */
+    public static Map<String, String> inheritVariantEscapeDotsInKeys(Map<String, String> properties,
+            Collection<TableIf> sourceTables) throws AnalysisException {
+        Map<String, String> result = properties == null ? Maps.newHashMap() : Maps.newHashMap(properties);
+        boolean escaped = result.containsKey(PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS)
+                ? analyzeVariantEscapeDotsInKeys(result)
+                : sourceTables.stream().anyMatch(table -> table instanceof OlapTable
+                        && ((OlapTable) table).getVariantEscapeDotsInKeys());
+        if (escaped) {
+            result.put(PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS, "true");
+        }
+        return result;
     }
 
     public static void validateVariantTableColumn(Column column, boolean escaped)

@@ -19,13 +19,9 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
-import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
-import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
@@ -35,18 +31,9 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 class CreateTableCommandTest {
-
-    @Test
-    void ctasInheritanceSkipsMissingCteProducer() {
-        LogicalCTEConsumer consumer = Mockito.mock(LogicalCTEConsumer.class);
-        Mockito.when(consumer.getCteId()).thenReturn(new CTEId(7));
-        org.junit.jupiter.api.Assertions.assertTrue(PlanUtils.inheritVariantEscapeDotsInKeys(
-                Map.of(), consumer, new StatementContext()).isEmpty());
-    }
 
     @Test
     void ctasIfNotExistsReturnsBeforeUnsupportedSinkValidation() throws Exception {

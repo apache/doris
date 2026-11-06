@@ -1402,9 +1402,11 @@ protected:
                              bool variant_enable_nested_group = false, bool is_nullable = false,
                              bool variant_enable_doc_mode = false,
                              int64_t variant_doc_materialization_min_rows = 0,
-                             int variant_doc_hash_shard_count = 0) {
+                             int variant_doc_hash_shard_count = 0,
+                             bool escape_dots_in_keys = false) {
         TabletSchemaPB schema_pb;
         schema_pb.set_keys_type(KeysType::DUP_KEYS);
+        schema_pb.set_variant_escape_dots_in_keys(escape_dots_in_keys);
         construct_column(schema_pb.add_column(), 1, "VARIANT", "V1", variant_max_subcolumns_count,
                          false, is_nullable, 0, variant_enable_doc_mode,
                          variant_doc_materialization_min_rows, variant_doc_hash_shard_count,
@@ -9451,8 +9453,7 @@ TEST_F(VariantColumnWriterReaderTest, EscapedKeysSurviveWholeValueAndDocRebuilds
                                           R"({"a":{"b":2},"a.b":1})", R"({"a%2Eb":1,"x.y":2})",
                                           R"({"50%":1})"};
     for (bool doc : {false, true}) {
-        init_variant_tablet(doc ? 12342 : 12341, 1, false, false, doc, 100, 3);
-        _tablet_schema->set_variant_escape_dots_in_keys(true);
+        init_variant_tablet(doc ? 12342 : 12341, 1, false, false, doc, 100, 3, true);
         ColumnPtr source;
         DataTypePtr type;
         ASSERT_TRUE(create_variant_writer_source(VariantWriterInput::V2, jsons, 1, doc, {}, &source,
@@ -9491,8 +9492,7 @@ TEST_F(VariantColumnWriterReaderTest, EscapedKeysSurviveWholeValueAndDocCompacti
                                           R"({"50%":1})"};
     for (bool doc : {false, true}) {
         SCOPED_TRACE(doc);
-        init_variant_tablet(doc ? 12345 : 12344, 1, false, false, doc, 100, 3);
-        _tablet_schema->set_variant_escape_dots_in_keys(true);
+        init_variant_tablet(doc ? 12345 : 12344, 1, false, false, doc, 100, 3, true);
         std::vector<RowsetSharedPtr> inputs {create_variant_rowset({jsons}, 1),
                                              create_variant_rowset({jsons}, 2)};
         auto schema = std::make_shared<TabletSchema>(*_tablet_schema);
@@ -9544,8 +9544,7 @@ TEST_F(VariantColumnWriterReaderTest, EscapedKeysSurviveWholeValueAndDocCompacti
 TEST_F(VariantColumnWriterReaderTest, EscapedKeysChangeLayoutAcrossTwoRealCompactions) {
     for (int width : {1, 2}) {
         SCOPED_TRACE(width);
-        init_variant_tablet(12400 + width, 1);
-        _tablet_schema->set_variant_escape_dots_in_keys(true);
+        init_variant_tablet(12400 + width, 1, false, false, false, 0, 0, true);
         _tablet_schema->mutable_column_by_uid(1).set_variant_sparse_hash_shard_count(3);
         const std::string probe = R"({"50%":401,"a":{"b":201},"a%2Eb":301,"a.b":101})";
         std::vector<std::string> expected {probe, R"({"a.b":108})", R"({"a.b":116})"};
@@ -9592,8 +9591,7 @@ TEST_F(VariantColumnWriterReaderTest, EscapedDocMaterializationThresholdBoundari
     const std::string json = R"({"a":{"b":201},"a%2Eb":301,"a.b":101})";
     for (int rows : {3, 4, 5}) {
         SCOPED_TRACE(rows);
-        init_variant_tablet(12410 + rows, 0, false, false, true, 4, 3);
-        _tablet_schema->set_variant_escape_dots_in_keys(true);
+        init_variant_tablet(12410 + rows, 0, false, false, true, 4, 3, true);
         auto rowset = create_variant_rowset({std::vector<std::string>(rows, json)}, 1);
         SegmentFooterPB metas;
         ASSERT_TRUE(read_rowset_metas(rowset, &metas).ok());
@@ -9609,8 +9607,7 @@ TEST_F(VariantColumnWriterReaderTest, EscapedDocMaterializationThresholdBoundari
 }
 
 TEST_F(VariantColumnWriterReaderTest, EscapedDocCompactionMixesHybridAndDocOnlySegments) {
-    init_variant_tablet(12420, 0, false, false, true, 4, 3);
-    _tablet_schema->set_variant_escape_dots_in_keys(true);
+    init_variant_tablet(12420, 0, false, false, true, 4, 3, true);
     const std::string json = R"({"a":{"b":201},"a%2Eb":301,"a.b":101})";
     auto first = create_variant_rowset({std::vector<std::string>(3, json)}, 1);
     auto second = create_variant_rowset({std::vector<std::string>(3, json)}, 2);
@@ -9653,8 +9650,7 @@ TEST_F(VariantColumnWriterReaderTest, EscapedUnlimitedAndFiniteCapsUseVerticalGr
     for (int cap : {0, 2}) {
         for (int width : {1, 2}) {
             SCOPED_TRACE(testing::Message() << "cap=" << cap << ", width=" << width);
-            init_variant_tablet(12430 + cap * 2 + width, cap);
-            _tablet_schema->set_variant_escape_dots_in_keys(true);
+            init_variant_tablet(12430 + cap * 2 + width, cap, false, false, false, 0, 0, true);
             _tablet_schema->mutable_column_by_uid(1).set_variant_sparse_hash_shard_count(3);
             auto first = create_variant_rowset({{jsons[0], jsons[1]}}, 1);
             auto second = create_variant_rowset({{jsons[2]}}, 2);
@@ -9684,8 +9680,7 @@ TEST_F(VariantColumnWriterReaderTest, EscapedCompactionRejectsBadMarkersBeforePu
     Defer restore([ordered] { config::enable_ordered_data_compaction = ordered; });
     for (uint32_t marker : {2}) {
         SCOPED_TRACE(marker);
-        init_variant_tablet(12440 + marker, 0);
-        _tablet_schema->set_variant_escape_dots_in_keys(true);
+        init_variant_tablet(12440 + marker, 0, false, false, false, 0, 0, true);
         init_tablet_from_current_schema(12440 + marker,
                                         TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
         auto first = create_variant_rowset({{R"({"a.b":101})"}}, 0);
@@ -9719,8 +9714,7 @@ TEST_F(VariantColumnWriterReaderTest, EscapedCompactionRejectsBadMarkersBeforePu
 
 TEST_F(VariantColumnWriterReaderTest, EscapedRowidFetchEncodesLogicalComponentsOnce) {
     for (bool external : {false, true}) {
-        init_variant_tablet(external ? 12347 : 12346, 1);
-        _tablet_schema->set_variant_escape_dots_in_keys(true);
+        init_variant_tablet(external ? 12347 : 12346, 1, false, false, false, 0, 0, true);
         _tablet_schema->mutable_column_by_uid(1).set_variant_sparse_hash_shard_count(3);
         init_tablet_from_current_schema(external ? 12347 : 12346,
                                         external ? TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3
@@ -9774,8 +9768,7 @@ TEST_F(VariantColumnWriterReaderTest, EscapedRowidFetchEncodesLogicalComponentsO
 TEST_F(VariantColumnWriterReaderTest, MasterPersistedEncodingGoldenBytes) {
     for (bool external : {false, true}) {
         SCOPED_TRACE(external);
-        init_variant_tablet(12600 + external, 1);
-        _tablet_schema->set_variant_escape_dots_in_keys(true);
+        init_variant_tablet(12600 + external, 1, false, false, false, 0, 0, true);
         init_tablet_from_current_schema(12600 + external,
                                         external ? TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3
                                                  : TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
@@ -9854,8 +9847,8 @@ TEST_F(VariantColumnWriterReaderTest, CrossEncodingVariantSinkPreservesObjectsAn
                     SCOPED_TRACE(testing::Message()
                                  << "V3=" << external << " doc=" << doc_mode
                                  << " escaped=" << source_escape << " row=" << i);
-                    init_variant_tablet(12610, doc_mode ? 0 : 1, false, false, doc_mode);
-                    _tablet_schema->set_variant_escape_dots_in_keys(source_escape);
+                    init_variant_tablet(12610, doc_mode ? 0 : 1, false, false, doc_mode, 0, 0,
+                                        source_escape);
                     const auto format = external ? TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3
                                                  : TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
                     init_tablet_from_current_schema(12610, format);
@@ -9884,9 +9877,11 @@ TEST_F(VariantColumnWriterReaderTest, CrossEncodingVariantSinkPreservesObjectsAn
                     ASSERT_EQ(count, 1);
                     // V2 query results already hold logical keys. Feed the actual decoded
                     // column into the target sink, without a JSON text round trip.
+                    TabletSchemaPB target_pb;
+                    _tablet_schema->to_schema_pb(&target_pb);
+                    target_pb.set_variant_escape_dots_in_keys(!source_escape);
                     auto target = std::make_shared<TabletSchema>();
-                    target->copy_from(*_tablet_schema);
-                    target->set_variant_escape_dots_in_keys(!source_escape);
+                    target->init_from_pb(target_pb);
                     _tablet_schema = target;
                     init_tablet_from_current_schema(12611, format);
                     RowsetWriterContext context;
@@ -9928,8 +9923,7 @@ TEST_F(VariantColumnWriterReaderTest, CrossEncodingVariantSinkPreservesObjectsAn
 }
 
 TEST_F(VariantColumnWriterReaderTest, EscapedDynamicPathsShareParentIndexWithoutSuffixCollisions) {
-    init_variant_tablet(12348, 0);
-    _tablet_schema->set_variant_escape_dots_in_keys(true);
+    init_variant_tablet(12348, 0, false, false, false, 0, 0, true);
     TabletSchemaPB schema_pb;
     _tablet_schema->to_schema_pb(&schema_pb);
     schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
@@ -9961,8 +9955,7 @@ TEST_F(VariantColumnWriterReaderTest, EscapedDynamicPathsShareParentIndexWithout
 }
 
 TEST_F(VariantColumnWriterReaderTest, EscapedKeysRejectNestedGroupWriterLayout) {
-    init_variant_tablet(12343, 0, true);
-    _tablet_schema->set_variant_escape_dots_in_keys(true);
+    init_variant_tablet(12343, 0, true, false, false, 0, 0, true);
     const auto status = segment_v2::variant_writer_helpers::validate_variant_v2_writer_layout(
             *_tablet_schema, _tablet_schema->column_by_uid(1));
     EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>());

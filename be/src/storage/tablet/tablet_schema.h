@@ -282,7 +282,7 @@ public:
     }
 
     bool variant_escape_dots_in_keys() const { return _variant.escape_dots_in_keys; }
-    void set_variant_escape_dots_in_keys(bool value);
+    void set_variant_escape_dots_in_keys(bool value) { _variant.escape_dots_in_keys = value; }
 
     bool variant_enable_nested_group() const { return _variant.enable_nested_group; }
 
@@ -441,8 +441,6 @@ public:
     void append_column(TabletColumn column, ColumnType col_type = ColumnType::NORMAL);
 
     bool variant_escape_dots_in_keys() const { return _variant_escape_dots_in_keys; }
-    void set_variant_escape_dots_in_keys(bool value);
-    void inherit_variant_path_encoding(TabletColumn& column) const;
     void append_index(TabletIndex&& index);
     void remove_index(int64_t index_id);
     void clear_index();

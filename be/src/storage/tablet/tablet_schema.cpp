@@ -27,6 +27,8 @@
 
 #include <algorithm>
 #include <cctype>
+
+#include "exec/common/variant_util.h"
 // IWYU pragma: no_include <bits/std_abs.h>
 #include <charconv>
 #include <cmath> // IWYU pragma: keep
@@ -888,48 +890,8 @@ int64_t TabletSchema::get_metadata_size() const {
     return sizeof(TabletSchema);
 }
 
-void TabletColumn::set_variant_escape_dots_in_keys(bool value) {
-    _variant.escape_dots_in_keys = value;
-    for (auto& child : _sub_columns) {
-        // Column copies can share children with cached schemas, so detach before setting encoding.
-        child = std::make_shared<TabletColumn>(*child);
-        child->set_variant_escape_dots_in_keys(value);
-    }
-}
-
-void TabletSchema::inherit_variant_path_encoding(TabletColumn& column) const {
-    if ((column.is_variant_type() || column.is_extracted_column()) &&
-        (_variant_escape_dots_in_keys || column.variant_escape_dots_in_keys())) {
-        // Legacy columns already default to false; avoid detaching their unchanged children.
-        column.set_variant_escape_dots_in_keys(_variant_escape_dots_in_keys);
-    }
-}
-
-void TabletSchema::set_variant_escape_dots_in_keys(bool value) {
-    _variant_escape_dots_in_keys = value;
-    // Keep the old columns alive until both StringRef names and PathInDataRef paths
-    // have been rebound to the replacement columns.
-    auto old_columns = _cols;
-    for (auto& column : _cols) {
-        if (column->is_variant_type() || column->is_extracted_column()) {
-            column = std::make_shared<TabletColumn>(*column);
-            inherit_variant_path_encoding(*column);
-        }
-    }
-    auto old_names = std::move(_field_name_to_index);
-    _field_name_to_index.clear();
-    for (const auto& [name, ordinal] : old_names) {
-        _field_name_to_index.emplace(StringRef(_cols[ordinal]->name()), ordinal);
-    }
-    auto old_paths = std::move(_field_path_to_index);
-    _field_path_to_index.clear();
-    for (const auto& [path, ordinal] : old_paths) {
-        _field_path_to_index[_cols[ordinal]->path_info_ptr().get()] = ordinal;
-    }
-}
-
 void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
-    inherit_variant_path_encoding(column);
+    variant_util::inherit_variant_path_encoding(*this, column);
     if (column.is_key()) {
         _num_key_columns++;
     }
@@ -1106,7 +1068,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
         } else {
             column = std::make_shared<TabletColumn>();
             column->init_from_pb(column_pb);
-            inherit_variant_path_encoding(*column);
+            variant_util::inherit_variant_path_encoding(*this, *column);
         }
         if (ignore_extracted_columns && column->is_extracted_column()) {
             continue;
@@ -1409,7 +1371,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
             (column->is_variant_type() || column->is_extracted_column())) {
             // The pool key contains no table encoding; keep this copy private to the schema.
             new_column = std::make_shared<TabletColumn>(column_pb);
-            inherit_variant_path_encoding(*new_column);
+            variant_util::inherit_variant_path_encoding(*this, *new_column);
         } else {
             auto pair = TabletColumnObjectPool::instance()->insert(
                     deterministic_string_serialize(column_pb));

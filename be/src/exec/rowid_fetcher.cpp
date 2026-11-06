@@ -43,6 +43,7 @@
 #include "core/column/column.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "exec/common/variant_util.h"
 #include "exec/scan/file_scanner_v2.h"
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
@@ -1049,7 +1050,8 @@ Status RowIdStorageReader::read_doris_format_row(
                 // Standalone request columns carry no encoding. Bind escaped paths such as
                 // v['a.b'] on a local copy; legacy tablets can use the request column directly.
                 escaped_column.emplace(fetch_columns[x]);
-                tablet->tablet_schema()->inherit_variant_path_encoding(*escaped_column);
+                variant_util::inherit_variant_path_encoding(*tablet->tablet_schema(),
+                                                            *escaped_column);
             }
             const TabletColumn& read_column = escaped_column ? *escaped_column : fetch_columns[x];
             set_slot_access_paths(slots[x], read_column, iterator_item.storage_read_options);

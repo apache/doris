@@ -114,4 +114,21 @@ public class VariantEscapeTableTest extends TestWithFeService {
                 + "PROPERTIES('replication_num'='1') AS SELECT CAST(1 AS INT) k, (SELECT max(k) FROM source) x");
         Assertions.assertTrue(table("subquery_source").getVariantEscapeDotsInKeys());
     }
+
+    @Test
+    public void testAsyncMvInheritanceAndExplicitPolicy() throws Exception {
+        createTable("CREATE TABLE async_source(k INT, v VARIANT) DUPLICATE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1',"
+                + "'variant_escape_dots_in_keys'='true')");
+        for (String policy : new String[] {"inherited", "true", "false"}) {
+            String explicit = policy.equals("inherited") ? ""
+                    : ",'variant_escape_dots_in_keys'='" + policy + "'";
+            createMvByNereids("CREATE MATERIALIZED VIEW async_" + policy
+                    + " BUILD DEFERRED REFRESH COMPLETE ON MANUAL DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                    + "PROPERTIES('replication_num'='1'" + explicit + ") "
+                    + "AS WITH c AS (SELECT k,v FROM async_source) SELECT k,v FROM c");
+            Assertions.assertEquals(!policy.equals("false"), table("async_" + policy).getVariantEscapeDotsInKeys());
+        }
+    }
+
 }

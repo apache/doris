@@ -100,6 +100,12 @@
 
 namespace doris::variant_util {
 
+void inherit_variant_path_encoding(const TabletSchema& schema, TabletColumn& column) {
+    if (column.is_variant_type() || column.is_extracted_column()) {
+        column.set_variant_escape_dots_in_keys(schema.variant_escape_dots_in_keys());
+    }
+}
+
 namespace {
 
 PathInData make_full_subcolumn_path(const TabletColumnPtr& parent_column, std::string_view path) {

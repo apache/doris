@@ -24,6 +24,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -52,7 +53,6 @@ import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
-import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -168,9 +168,13 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
         // must disable constant folding by be, because be constant folding may return wrong type
         ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_FOLD_CONSTANT_BY_BE, "false");
-        Plan plan = planner.planWithLock(new UnboundResultSink<>(query), PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
-        createTableInfo.setProperties(PlanUtils.inheritVariantEscapeDotsInKeys(createTableInfo.getProperties(),
-                planner.getAnalyzedPlan(), ctx.getStatementContext()));
+        Plan plan = planner.planWithLock(new UnboundResultSink<>(query), PhysicalProperties.ANY, ExplainLevel.NONE);
+        try {
+            createTableInfo.setProperties(PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                    createTableInfo.getProperties(), ctx.getStatementContext().getTables().values()));
+        } catch (org.apache.doris.common.AnalysisException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
         if (ctasCols == null) {
             // we should analyze the plan firstly to get the columns' name.
             ctasCols = plan.getOutput().stream().map(NamedExpression::getName).collect(Collectors.toList());

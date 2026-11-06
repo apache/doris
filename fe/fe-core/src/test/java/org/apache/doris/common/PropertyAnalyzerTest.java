@@ -23,8 +23,10 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
@@ -41,6 +43,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.Mockito;
 
 import java.time.Instant;
 import java.time.ZoneId;
@@ -55,6 +58,28 @@ import java.util.TimeZone;
 
 
 public class PropertyAnalyzerTest {
+    @Test
+    public void testInheritVariantEscapeDotsInKeys() throws AnalysisException {
+        String key = PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS;
+        OlapTable escaped = Mockito.mock(OlapTable.class);
+        Mockito.when(escaped.getVariantEscapeDotsInKeys()).thenReturn(true);
+        OlapTable legacy = Mockito.mock(OlapTable.class);
+        TableIf external = Mockito.mock(TableIf.class);
+        Assertions.assertEquals(Map.of(key, "true"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(key, "TRUE"), List.of(legacy, external)));
+        Assertions.assertEquals(Map.of(), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(key, "FALSE"), List.of(escaped)));
+        Assertions.assertEquals(Map.of(key, "true"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(), List.of(escaped)));
+        Assertions.assertEquals(Map.of(), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(Map.of(), List.of(legacy)));
+        Assertions.assertEquals(Map.of(), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(Map.of(), List.of(external)));
+        Assertions.assertEquals(Map.of(), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(null, List.of()));
+        Assertions.assertEquals(Map.of(key, "true"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(), List.of(legacy, external, escaped)));
+        Assertions.assertThrows(AnalysisException.class, () -> PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(key, "invalid"), List.of(escaped)));
+    }
+
     @Test
     public void testBinlogTtlRejectsValuesBelowDisabledSentinel() throws AnalysisException {
         Map<String, String> properties = new HashMap<>();

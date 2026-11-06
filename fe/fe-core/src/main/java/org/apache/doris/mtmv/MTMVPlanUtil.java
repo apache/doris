@@ -87,7 +87,6 @@ import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.ConnectContext;
@@ -564,12 +563,8 @@ public class MTMVPlanUtil {
         DistributionDescriptor distribution = new DistributionDescriptor(defaultDistributionInfo.getType().equals(
                 DistributionInfoType.HASH), defaultDistributionInfo.getAutoBucket(),
                 defaultDistributionInfo.getBucketNum(), Lists.newArrayList(mtmv.getDistributionColumnNames()));
-        Map<String, String> tableProperties = Maps.newHashMap(mtmv.getTableProperty().getProperties());
-        // Revalidation/refresh keeps the target policy, including persisted legacy tables with no key.
-        tableProperties.put(PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS,
-                Boolean.toString(mtmv.getVariantEscapeDotsInKeys()));
         return analyzeQuery(ctx, mvProperties, mtmvPartitionDefinition, distribution, null,
-                tableProperties, keys, logicalPlan, ivmRewriteContext);
+                Maps.newHashMap(mtmv.getTableProperty().getProperties()), keys, logicalPlan, ivmRewriteContext);
     }
 
     public static MTMVAnalyzeQueryInfo analyzeQuery(ConnectContext ctx, Map<String, String> mvProperties,
@@ -617,7 +612,6 @@ public class MTMVPlanUtil {
                 statementContext.invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
             }
             Plan analyzedPlan = planner.getAnalyzedPlan();
-            properties = PlanUtils.inheritVariantEscapeDotsInKeys(properties, analyzedPlan, statementContext);
             Set<TableIf> baseTables = Sets.newHashSet(statementContext.getTables().values());
             Set<TableIf> oneLevelTables = Sets.newHashSet(statementContext.getOneLevelTables().values());
             MTMVRelation relation = generateMTMVRelation(baseTables, oneLevelTables);
@@ -670,10 +664,7 @@ public class MTMVPlanUtil {
             // analyze column
             Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
             keysSet.addAll(keys);
-            boolean escaped = Boolean.parseBoolean(properties.get(
-                    PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS));
             validateColumns(columns, keysSet, finalEnableMergeOnWrite);
-            columns.forEach(column -> column.validateVariantTable(escaped));
             return new MTMVAnalyzeQueryInfo(columns, keys, mvPartitionInfo, relation, properties,
                     isIvm ? ivmRewriteResult.orElse(null) : null, planner.getAnalyzedPlan());
         }

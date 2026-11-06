@@ -1158,7 +1158,9 @@ TEST_F(TabletSchemaTest, EscapedVariantPropertyAndIndexSuffixRoundTrip) {
     index.set_escaped_escaped_index_suffix_path("v.a.b_x", true);
     EXPECT_EQ(index.get_index_suffix(), "v%2Ea%2Eb%5Fx");
     TabletSchema schema;
-    schema.set_variant_escape_dots_in_keys(true);
+    TabletSchemaPB schema_pb;
+    schema_pb.set_variant_escape_dots_in_keys(true);
+    schema.init_from_pb(schema_pb);
     schema.append_column(restored);
     for (auto kind : {IndexType::INVERTED, IndexType::ANN}) {
         TabletIndexPB index_pb;
@@ -1239,51 +1241,12 @@ TEST_F(TabletSchemaTest, EscapedSchemaColumnsBypassPoolAndSurviveCopies) {
     EXPECT_TRUE(copied.column(0).variant_escape_dots_in_keys());
     const PathInData added_path("added");
     EXPECT_EQ(copied.field_index(added_path), 0);
-    copied.set_variant_escape_dots_in_keys(false);
-    EXPECT_FALSE(copied.column(0).variant_escape_dots_in_keys());
-    EXPECT_EQ(copied.field_index(added_path), 0);
-    EXPECT_EQ(copied.field_index("added"), 0);
-    copied.set_variant_escape_dots_in_keys(true);
-    EXPECT_EQ(copied.field_index(added_path), 0);
     TabletSchemaPB persisted;
     copied.to_schema_pb(&persisted);
     TabletSchema reloaded;
     reloaded.init_from_pb(persisted, false, true);
     EXPECT_TRUE(reloaded.column(0).variant_escape_dots_in_keys());
     EXPECT_FALSE(legacy.column(0).variant_escape_dots_in_keys());
-}
-
-TEST_F(TabletSchemaTest, EscapePolicySetterRebindsExtractedPaths) {
-    TabletSchemaPB pb;
-    pb.set_keys_type(KeysType::DUP_KEYS);
-    auto* root = pb.add_column();
-    root->set_unique_id(7);
-    root->set_name("v");
-    root->set_type("VARIANT");
-    auto* child = pb.add_column();
-    child->set_unique_id(-1);
-    child->set_name("v.a%2Eb");
-    child->set_type("STRING");
-    const PathInData extracted_path("v.a%2Eb");
-    extracted_path.to_protobuf(child->mutable_column_path_info(), 7);
-    TabletSchema schema;
-    for (const auto& column_pb : pb.column()) {
-        schema.append_column(TabletColumn(column_pb));
-    }
-    ASSERT_EQ(schema.field_index(extracted_path), 1);
-    const auto* old_column = &schema.column(1);
-
-    schema.set_variant_escape_dots_in_keys(true);
-    // No shared_ptr retains the old column: this lookup must not read its freed path.
-    const auto ordinal = schema.field_index(extracted_path);
-    ASSERT_EQ(ordinal, 1);
-    EXPECT_NE(&schema.column(ordinal), old_column);
-    EXPECT_TRUE(schema.column(ordinal).variant_escape_dots_in_keys());
-    EXPECT_EQ(schema.field_index("v.a%2Eb"), ordinal);
-
-    schema.set_variant_escape_dots_in_keys(false);
-    ASSERT_EQ(schema.field_index(extracted_path), ordinal);
-    EXPECT_FALSE(schema.column(ordinal).variant_escape_dots_in_keys());
 }
 
 TEST_F(TabletSchemaTest, CurrentAndAddedVariantColumnsInheritPersistedTablePolicy) {
