@@ -18,9 +18,7 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.StatementBase;
-import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.ChangelogConfig;
@@ -567,8 +565,9 @@ public class MTMVPlanUtil {
         mtmvPartitionDefinition.setPartitionType(mvPartitionInfo.getPartitionType());
         Expr expr = mvPartitionInfo.getExpr();
         if (expr != null) {
+            // The stored expression references base-table columns; reanalysis starts from MV output columns.
             mtmvPartitionDefinition.setFunctionCallExpression(new NereidsParser().parseExpression(
-                    expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)));
+                    MTMVPartitionExprFactory.getExprService(expr).toSql(mvPartitionInfo)));
         }
         List<String> keys = mtmv.getBaseSchema(false).stream()
                 .filter(Column::isKey)
