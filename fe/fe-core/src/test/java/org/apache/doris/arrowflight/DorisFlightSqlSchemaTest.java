@@ -1109,7 +1109,7 @@ public class DorisFlightSqlSchemaTest extends TestWithFeService {
                         request);
                 Mockito.verify(previous, Mockito.times(execute ? 1 : 0)).finalizeArrowFlightQuery();
             } finally {
-                FlightProtocolAdapter.of(flightContext).beginRequest();
+                FlightProtocolAdapter.of(flightContext).resetRequestState();
             }
         }
     }

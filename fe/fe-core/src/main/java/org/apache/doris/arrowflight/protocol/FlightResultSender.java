@@ -65,7 +65,7 @@ public class FlightResultSender implements ResultSender {
 
     @Override
     public void reset() {
-        // Results are cached per query id and the cache is cleared when the next request of the
-        // session starts (FlightProtocolAdapter.beginRequest); nothing is pending here.
+        // Results are cached per query id. FlightProtocolAdapter.resetRequestState clears them
+        // before the next SQL execution or after failure; nothing is buffered in this sender.
     }
 }

@@ -256,7 +256,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             // Flight keeps it alive across GetFlightInfo -> DoGet so the BE can fetch external-table
             // splits during DoGet, and by now that DoGet is done, #62259), a result no
             // getStreamStatement took away, and its endpoints.
-            FlightProtocolAdapter.of(connectContext).beginRequest();
+            FlightProtocolAdapter.of(connectContext).resetRequestState();
             try (FlightSqlConnectProcessor flightSQLConnectProcessor = new FlightSqlConnectProcessor(connectContext)) {
                 flightSQLConnectProcessor.handleQuery(query);
                 if (connectContext.getState().getStateType() == MysqlStateType.ERR) {
@@ -359,8 +359,8 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                     + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
                     + connectContext.getState().getErrorMessage();
             connectContext.cancelFlightSqlDeferredExecutors(new Status(TStatusCode.CANCELLED, errMsg));
-            // No ticket was returned for any cached result or endpoints either.
-            FlightProtocolAdapter.of(connectContext).beginRequest();
+            // Discard cached results and endpoints too: this failed request returned no ticket.
+            FlightProtocolAdapter.of(connectContext).resetRequestState();
             LOG.error(errMsg, e);
             throw queryFailure(connectContext.getState(), errMsg, e);
         } finally {
@@ -416,7 +416,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         // A prepared execution is the session's next request even when its handle fails the checks below, so
         // what the previous request left is dropped before them, as executeQueryStatement does for a statement
         // (which then finds nothing left). Prepare and GetSchema are metadata requests and leave it.
-        FlightProtocolAdapter.of(connectContext).beginRequest();
+        FlightProtocolAdapter.of(connectContext).resetRequestState();
         PreparedQuery prepared = preparedQuery(connectContext, preparedStatementId);
         if (prepared.getSchema() == null) {
             // Prepare could not tell this statement's result schema and advertised the placeholder, so
@@ -441,9 +441,9 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             } catch (Exception e) {
                 LOG.warn("Failed to cancel Flight query after prepared schema changed", e);
             } finally {
-                // No DoGet will pull this result: drop what the request left behind as the next request
-                // would -- its deferred coordinator, the result cached on the channel and its endpoints.
-                FlightProtocolAdapter.of(connectContext).beginRequest();
+                // The schema check rejected the response before publishing its ticket. Discard its
+                // deferred coordinator, cached result and endpoints; no DoGet can consume them.
+                FlightProtocolAdapter.of(connectContext).resetRequestState();
             }
             throw CallStatus.NOT_FOUND.withDescription("Prepared statement schema changed; prepare again")
                     .toRuntimeException();

@@ -79,8 +79,9 @@ import java.util.concurrent.TimeUnit;
  * nothing of the session's live state afterwards, since the session moves on without it (a session
  * option's SET, a metadata request, the next request) and since it may be finalized from a thread
  * that runs no command of the session (the timeout checker, a CloseSession). It is finalized
- * exactly once, by whoever takes it out of the list under the list's lock -- the next request
- * ({@link #beginRequest}), the timeout checker ({@link #takeExpiredDeferredExecutors}, each
+ * exactly once, by whoever takes it out of the list under the list's lock -- request reset
+ * ({@link #resetRequestState}), failure ({@link #cancelDeferredExecutors}), the timeout checker
+ * ({@link #takeExpiredDeferredExecutors}, each
  * executor by its own deadline) or session release ({@link #releaseSession}) -- deciding and taking
  * in one critical section, finalizing outside it. Requests, timeout maintenance and session release
  * all hold the context's execution ownership, so none can release buffers used by a DoGet.
@@ -422,13 +423,14 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     }
 
     /**
-     * Starts a request of the session: whatever the previous request left behind is dropped.
-     * Its query's coordinator, if its close was deferred, is finalized now -- the previous DoGet
-     * is done by the time the next request arrives (#62259); the result it may have cached and
-     * never pulled with DoGet is released; its endpoints are forgotten; and the new request's
-     * result is on this frontend until a query is run for it.
+     * Clears request resources before the next SQL execution or after a failure that returns no ticket.
+     * Finalizes deferred coordinators, releases cached Arrow results, clears endpoints and resets
+     * result routing to this frontend. Failed queries must be cancelled before this reset.
+     * The caller holds session execution ownership; this method neither admits a new command nor
+     * refreshes session activity. At the next SQL execution, the reset also stands in for completion
+     * of the previous query's backend DoGet (#62259).
      */
-    public void beginRequest() {
+    public void resetRequestState() {
         closeDeferredExecutors();
         channel.reset();
         endpointsLocations.clear();
@@ -449,7 +451,7 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
 
     /**
      * Takes every deferred executor out of the list and finalizes it: the next request of the
-     * session ({@link #beginRequest}), which stands in for the end of the previous query's DoGet, and
+     * session ({@link #resetRequestState}), which stands in for the end of the previous query's DoGet, and
      * a request that failed after deferring its query, which no DoGet will ever pull.
      */
     public void closeDeferredExecutors() {

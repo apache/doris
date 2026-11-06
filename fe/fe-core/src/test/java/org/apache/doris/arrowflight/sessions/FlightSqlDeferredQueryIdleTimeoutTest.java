@@ -201,7 +201,7 @@ public class FlightSqlDeferredQueryIdleTimeoutTest {
 
     // Timeout maintenance and requests now share execution ownership. The underlying take operation
     // must still detach exactly the queries it selected: later additions cannot enter that batch,
-    // and beginRequest cannot finalize the same detached query again.
+    // and resetRequestState cannot finalize the same detached query again.
     @Test
     public void testTheCheckerAndTheNextRequestFinalizeAnExecutorExactlyOnce() {
         Config.arrow_flight_deferred_query_idle_timeout_second = 7;
@@ -216,7 +216,7 @@ public class FlightSqlDeferredQueryIdleTimeoutTest {
         List<StmtExecutor> taken = adapter.takeExpiredDeferredExecutors(now);
         Assertions.assertEquals(Lists.newArrayList(overdue), taken);
         Assertions.assertTrue(ctx.getFlightSqlDeferredExecutors().isEmpty());
-        adapter.beginRequest();
+        adapter.resetRequestState();
         StmtExecutor next = deferredExecutor(now, 5);
         ctx.addFlightSqlDeferredExecutor(next);
         FlightProtocolAdapter.finalizeDeferredExecutors(taken);
@@ -230,10 +230,10 @@ public class FlightSqlDeferredQueryIdleTimeoutTest {
         // The other way round: the next request took the overdue executor first; the checker's
         // decision, made after, finds nothing overdue and does not finalize it again.
         StmtExecutor overdueToo = deferredExecutor(now - 100_000L, 5);
-        adapter.beginRequest();
+        adapter.resetRequestState();
         Mockito.verify(next).finalizeArrowFlightQuery();
         ctx.addFlightSqlDeferredExecutor(overdueToo);
-        adapter.beginRequest();
+        adapter.resetRequestState();
         Mockito.verify(overdueToo).finalizeArrowFlightQuery();
         Assertions.assertTrue(adapter.takeExpiredDeferredExecutors(now + 1L).isEmpty());
         ctx.checkTimeout(now + 1L);
