@@ -75,6 +75,8 @@ public class FileSystemPluginSurfaceTest {
             ObjFileSystem.class,
             org.apache.doris.filesystem.FileIterator.class,
             ObjStorage.class,
+            S3CompatibleFileSystem.class,
+            S3CompatibleFileSystem.DeterministicPathOptions.class,
             org.apache.doris.extension.spi.Plugin.class,
             org.apache.doris.extension.spi.PluginFactory.class,
             org.apache.doris.extension.spi.PluginContext.class);

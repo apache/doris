@@ -17,10 +17,13 @@
 
 package org.apache.doris.fs;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.OptionalLong;
@@ -91,6 +94,36 @@ public class FileSystemCacheTest {
         closeConcurrently(cache.getFileSystem(key("hdfs://ns1")));
 
         Assertions.assertEquals(1, fileSystem.getCloseCount());
+    }
+
+    @Test
+    public void testHeadPolicyChangesDoNotCreateNewCachedFileSystems() {
+        CountingFileSystem fileSystem = new CountingFileSystem();
+        AtomicInteger loads = new AtomicInteger();
+        FileSystemCache cache = new FileSystemCache(1L, OptionalLong.empty(), key -> {
+            loads.incrementAndGet();
+            return fileSystem;
+        });
+        StorageAdapter adapter = Mockito.mock(StorageAdapter.class);
+        Mockito.when(adapter.getSpiProperties()).thenReturn(Mockito.mock(S3CompatibleFileSystemProperties.class));
+        Mockito.when(adapter.getOrigProps()).thenReturn(Collections.emptyMap());
+        boolean oldSkipList = Config.s3_skip_list_for_deterministic_path;
+        int oldMaxPaths = Config.s3_head_request_max_paths;
+        try {
+            for (int maxPaths : new int[] {100, 200, 0, -1}) {
+                Config.s3_skip_list_for_deterministic_path = maxPaths > 0;
+                Config.s3_head_request_max_paths = maxPaths;
+                try (FileSystemCache.FileSystemLease lease = cache.getFileSystem(
+                        new FileSystemCache.FileSystemCacheKey("s3://bucket", adapter))) {
+                    Assertions.assertSame(fileSystem, lease.fileSystem());
+                }
+            }
+            Assertions.assertEquals(1, loads.get());
+            Assertions.assertEquals(0, fileSystem.getCloseCount());
+        } finally {
+            Config.s3_skip_list_for_deterministic_path = oldSkipList;
+            Config.s3_head_request_max_paths = oldMaxPaths;
+        }
     }
 
     private static void closeConcurrently(FileSystemCache.FileSystemLease lease) throws InterruptedException {
