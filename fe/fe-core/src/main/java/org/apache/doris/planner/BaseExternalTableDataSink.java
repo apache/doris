@@ -40,7 +40,7 @@ public abstract class BaseExternalTableDataSink extends DataSink {
     protected TDataSink tDataSink;
 
     @Override
-    protected TDataSink toThrift() {
+    public TDataSink toThrift() {
         return tDataSink;
     }
 
