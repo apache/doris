@@ -36,7 +36,7 @@ import java.util.stream.Collectors;
  * Everything a user writes in {@code CREATE CATALOG} for a paimon catalog that is not specific to one
  * metastore backend (the "A class" of the connector property convention; deployment-level settings
  * live in {@link PaimonConf}). The per-flavor keys — uri, credentials, warehouse — belong to the
- * bound {@code *MetaStoreProperties} instead, which is why only three keys are declared here.
+ * bound {@code *MetaStoreProperties} instead.
  *
  * <p><b>The two entry points are not interchangeable.</b> {@link #of(Map)} runs at CREATE, at ALTER
  * validation, AND on every connector build — including the lazy rebuild after an FE restart, which
@@ -75,6 +75,9 @@ public final class PaimonCatalogProperties {
      */
     public static final String ENABLE_MAPPING_TIMESTAMP_TZ = "enable.mapping.timestamp_tz";
 
+    /** Allow writes without verified snapshot publication protection. Default false. */
+    public static final String ALLOW_UNSAFE_WRITES = "paimon.allow-unsafe-writes";
+
     // ---- Flavor literals (the accepted paimon.catalog.type values) ----
     public static final String FILESYSTEM = "filesystem";
     public static final String HMS = "hms";
@@ -104,6 +107,10 @@ public final class PaimonCatalogProperties {
     @ConnectorProperty(names = {ENABLE_MAPPING_TIMESTAMP_TZ}, required = false,
             description = "Map paimon TIMESTAMP_WITH_LOCAL_TIME_ZONE to Doris TIMESTAMPTZ.")
     private boolean enableMappingTimestampTz;
+
+    @ConnectorProperty(names = {ALLOW_UNSAFE_WRITES}, required = false,
+            description = "Allow unprotected writes only when all table writers are externally serialized.")
+    private boolean allowUnsafeWrites;
 
     private final Map<String, String> raw;
     private String flavor;
@@ -141,6 +148,7 @@ public final class PaimonCatalogProperties {
     }
 
     public PaimonCatalogProperties checkCreateTimeOnlyRules(Map<String, String> submittedProperties) {
+        CacheSpec.checkBooleanProperty(raw.get(ALLOW_UNSAFE_WRITES), ALLOW_UNSAFE_WRITES);
         checkMetaCacheProperties(raw, submittedProperties);
         warnIgnoredDeadTableCacheKeys(raw);
         // #65955: an unknown or unparseable paimon.table-option.* must fail the CREATE/ALTER CATALOG.
@@ -194,6 +202,10 @@ public final class PaimonCatalogProperties {
     /** The metastore backend, lower-cased; {@code filesystem} when the catalog does not name one. */
     public String getFlavor() {
         return flavor;
+    }
+
+    public boolean isAllowUnsafeWrites() {
+        return allowUnsafeWrites;
     }
 
     public boolean isEnableMappingVarbinary() {

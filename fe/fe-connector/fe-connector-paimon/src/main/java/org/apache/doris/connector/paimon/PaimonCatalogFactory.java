@@ -168,7 +168,8 @@ public final class PaimonCatalogFactory {
         props.forEach((k, v) -> {
             if (k.toLowerCase(Locale.ROOT).startsWith(USER_PROPERTY_PREFIX)) {
                 String newKey = k.substring(USER_PROPERTY_PREFIX.length());
-                boolean excluded = isStoragePrefixed(k)
+                boolean excluded = PaimonCatalogProperties.ALLOW_UNSAFE_WRITES.equalsIgnoreCase(k)
+                        || isStoragePrefixed(k)
                         || PaimonTableOptions.isTableOptionProperty(k)
                         || PaimonTableOptions.isJniProperty(k);
                 if (StringUtils.isNotBlank(newKey) && !excluded) {
