@@ -21,9 +21,8 @@ package org.apache.doris.connector.hive;
  * The detected format type of a Hive-registered table.
  *
  * <p>Tables registered in HMS may actually be backed by different engines.
- * This enum distinguishes them. In Phase 1, the Hive connector only
- * handles {@link #HIVE} tables; other types will be handled by their
- * respective connector plugins in the future.</p>
+ * This enum distinguishes them. The Hive connector serves {@link #HIVE}
+ * tables directly and delegates the other supported formats to their sibling plugins.</p>
  */
 public enum HiveTableType {
 
@@ -35,6 +34,9 @@ public enum HiveTableType {
 
     /** Iceberg table registered in HMS (detected by table_type=ICEBERG parameter) */
     ICEBERG,
+
+    /** Delta Lake table registered in HMS (spark.sql.sources.provider=delta). */
+    DELTA,
 
     /** Cannot determine the table format */
     UNKNOWN;

@@ -1440,6 +1440,12 @@ start_hive_stack() {
 
 start_iceberg() {
     # iceberg
+    local -a delta_profile=()
+    case "${ENABLE_DELTALAKE_TEST:-0}" in
+        0) ;;
+        1) delta_profile=(--profile deltalake) ;;
+        *) echo "ENABLE_DELTALAKE_TEST must be 0 or 1" >&2; return 1 ;;
+    esac
     ICEBERG_DIR=${ROOT}/docker-compose/iceberg
     if [[ "${HOST_OS}" == "Darwin" ]]; then
         export ICEBERG_POSTGRES_IMAGE="${ICEBERG_POSTGRES_IMAGE:-postgres:14}"
@@ -1448,7 +1454,8 @@ start_iceberg() {
     render_uid_template "${ROOT}/docker-compose/iceberg/entrypoint.sh.tpl" "${ROOT}/docker-compose/iceberg/entrypoint.sh"
     cp "${ROOT}/docker-compose/iceberg/entrypoint.sh" "${ROOT}/docker-compose/iceberg/scripts/entrypoint.sh"
     register_stack_metadata "iceberg" "${ROOT}/docker-compose/iceberg/iceberg.yaml" "${ROOT}/docker-compose/iceberg/iceberg.env"
-    compose_down_stack "${ROOT}/docker-compose/iceberg/iceberg.yaml" "${ROOT}/docker-compose/iceberg/iceberg.env" --remove-orphans
+    compose_cmd "${ROOT}/docker-compose/iceberg/iceberg.yaml" "${ROOT}/docker-compose/iceberg/iceberg.env" \
+        "${delta_profile[@]}" down --remove-orphans
     if [[ "${STOP}" -ne 1 ]]; then
         # data/ is extracted from the fixture archive once and then reused. A data/ from an older archive lacks
         # jars that iceberg.yaml now mounts, and Compose would create empty directories in their place, so
@@ -1484,7 +1491,11 @@ start_iceberg() {
         fi
 
         bash "${ICEBERG_DIR}/encryption/prepare-jars.sh"
-        compose_up_stack "${ROOT}/docker-compose/iceberg/iceberg.yaml" "${ROOT}/docker-compose/iceberg/iceberg.env" -d --wait
+        if [[ "${ENABLE_DELTALAKE_TEST:-0}" -eq 1 ]]; then
+            python3 "${ICEBERG_DIR}/scripts/deltalake/prepare.py" || return
+        fi
+        compose_cmd "${ROOT}/docker-compose/iceberg/iceberg.yaml" "${ROOT}/docker-compose/iceberg/iceberg.env" \
+            "${delta_profile[@]}" up -d --wait
     fi
 }
 
