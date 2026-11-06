@@ -562,7 +562,7 @@ void MetaServiceImpl::start_tablet_job(::google::protobuf::RpcController* contro
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         SS << "cannot find instance_id with cloud_unique_id="
-           << (cloud_unique_id.empty() ? "(empty)" : cloud_unique_id);
+           << (cloud_unique_id.empty() ? "(empty)" : hide_cloud_unique_id(cloud_unique_id));
         msg = ss.str();
         return;
     }
@@ -2275,7 +2275,7 @@ void MetaServiceImpl::finish_tablet_job(::google::protobuf::RpcController* contr
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         SS << "cannot find instance_id with cloud_unique_id="
-           << (cloud_unique_id.empty() ? "(empty)" : cloud_unique_id);
+           << (cloud_unique_id.empty() ? "(empty)" : hide_cloud_unique_id(cloud_unique_id));
         msg = ss.str();
         LOG(INFO) << msg;
         return;

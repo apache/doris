@@ -36,8 +36,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <vector>
 
 #include "common/config.h"
 #include "common/configbase.h"
@@ -1612,8 +1615,176 @@ TEST(MetaServiceHttpTest, InvalidToken) {
     HttpContext ctx(true);
     auto [status_code, content] = ctx.query<std::string>("get_value", "token=invalid_token", "");
     ASSERT_EQ(status_code, 403);
-    const char* invalid_token_output = "incorrect token, token=invalid_token\n";
+    const char* invalid_token_output = "incorrect token\n";
     ASSERT_EQ(content, invalid_token_output);
+}
+
+// Captures what the service logs, skipping the logs this file writes about the requests it sends.
+class ServerLogSink : public google::LogSink {
+public:
+    ServerLogSink() { google::AddLogSink(this); }
+    ~ServerLogSink() override { google::RemoveLogSink(this); }
+
+    void send(google::LogSeverity, const char*, const char* base_filename, int,
+              const google::LogMessageTime&, const char* message,
+              std::size_t message_len) override {
+        if (std::string_view(base_filename) == "meta_service_http_test.cpp") {
+            return;
+        }
+        std::lock_guard lock(mutex_);
+        messages_.emplace_back(message, message_len);
+    }
+
+    std::vector<std::string> messages() {
+        std::lock_guard lock(mutex_);
+        return messages_;
+    }
+
+private:
+    std::mutex mutex_;
+    std::vector<std::string> messages_;
+};
+
+TEST(MetaServiceHttpTest, TokenNotLogged) {
+    std::string origin_token = config::http_token;
+    config::http_token = "ms-http-token-secret";
+    DORIS_CLOUD_DEFER {
+        config::http_token = origin_token;
+    };
+    ServerLogSink sink;
+
+    HttpContext ctx(true);
+    // Passes auth: the whole request is logged once the handler returns.
+    ctx.query<std::string>("get_value", "key_type=InstanceKey&instance_id=not_exist", "");
+    // Fails auth: the request and the rejected token are logged.
+    auto [status_code, content] =
+            ctx.query<std::string>("get_value", "token=ms-wrong-token-secret", "");
+    ASSERT_EQ(status_code, 403);
+
+    int masked_requests = 0;
+    for (const auto& message : sink.messages()) {
+        EXPECT_EQ(message.find("ms-http-token-secret"), std::string::npos) << message;
+        EXPECT_EQ(message.find("ms-wrong-token-secret"), std::string::npos) << message;
+        masked_requests += message.find("\ntoken=***") != std::string::npos;
+    }
+    EXPECT_EQ(masked_requests, 2);
+}
+
+TEST(MetaServiceHttpTest, HideCloudUniqueIds) {
+    EXPECT_EQ(hide_cloud_unique_id(""), "");
+    EXPECT_EQ(hide_cloud_unique_id("1:instance_a:secret"), "1:instance_a:***");
+    EXPECT_EQ(hide_cloud_unique_id("1:instance_a:***"), "1:instance_a:***");
+    EXPECT_EQ(hide_cloud_unique_id("1:secret"), "***");
+    EXPECT_EQ(hide_cloud_unique_id("secret"), "***");
+
+    // protobuf debug string, including repeated fields and nested messages
+    EXPECT_EQ(hide_cloud_unique_ids(R"(cloud_unique_id: "1:i:s1" nodes { cloud_unique_id: "s2" })"),
+              R"(cloud_unique_id: "1:i:***" nodes { cloud_unique_id: "***" })");
+    EXPECT_EQ(hide_cloud_unique_ids(R"(cloud_unique_ids: "1:i:s1" cloud_unique_ids: "1:i:s2")"),
+              R"(cloud_unique_ids: "1:i:***" cloud_unique_ids: "1:i:***")");
+    // JSON
+    EXPECT_EQ(hide_cloud_unique_ids(R"({"cloud_unique_id":"1:i:s1","ip": "h"})"),
+              R"({"cloud_unique_id":"1:i:***","ip": "h"})");
+    EXPECT_EQ(hide_cloud_unique_ids(R"({"cloud_unique_id": "1:i:s1"})"),
+              R"({"cloud_unique_id": "1:i:***"})");
+    // messages, also nested in a status
+    EXPECT_EQ(hide_cloud_unique_ids(R"(msg: "no instance with cloud_unique_id=1:i:s1 label=l")"),
+              R"(msg: "no instance with cloud_unique_id=1:i:*** label=l")");
+    EXPECT_EQ(hide_cloud_unique_ids("query strings:\ncloud_unique_id=1:i:s1\ncluster_id=c"),
+              "query strings:\ncloud_unique_id=1:i:***\ncluster_id=c");
+    EXPECT_EQ(hide_cloud_unique_ids("cloud_unique_id=1:i:s1"), "cloud_unique_id=1:i:***");
+    // no value
+    EXPECT_EQ(hide_cloud_unique_ids("cloud_unique_id is required, cloud_unique_id_in_cache"),
+              "cloud_unique_id is required, cloud_unique_id_in_cache");
+    EXPECT_EQ(hide_cloud_unique_ids("cloud_unique_id:"), "cloud_unique_id:");
+}
+
+TEST(MetaServiceHttpTest, CloudUniqueIdNotLogged) {
+    HttpContext ctx(true);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(mock_instance);
+    ClusterPB* cluster = instance.add_clusters();
+    cluster->set_cluster_name(mock_cluster_name);
+    cluster->set_cluster_id(mock_cluster_id);
+    cluster->add_nodes()->set_cloud_unique_id(fmt::format("1:{}:node-secret-b", mock_instance));
+    std::string key;
+    instance_key({mock_instance}, &key);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(ctx.meta_service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(key, instance.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    ServerLogSink sink;
+    GetClusterRequest req;
+    req.set_cloud_unique_id(fmt::format("1:{}:node-secret-a", mock_instance));
+    req.set_cluster_id(mock_cluster_id);
+    // The http request, the rpc request and the response with the cluster nodes are all logged.
+    auto [status_code, resp] = ctx.forward_with_result<ClusterPB>("get_cluster", req);
+    ASSERT_EQ(status_code, 200);
+    ASSERT_TRUE(resp.result.has_value());
+    ASSERT_EQ(resp.result->nodes(0).cloud_unique_id(),
+              fmt::format("1:{}:node-secret-b", mock_instance));
+
+    int masked = 0;
+    for (const auto& message : sink.messages()) {
+        EXPECT_EQ(message.find("node-secret"), std::string::npos) << message;
+        masked += message.find(fmt::format("1:{}:***", mock_instance)) != std::string::npos;
+    }
+    EXPECT_GE(masked, 3);
+}
+
+TEST(MetaServiceHttpTest, AkSkNotLogged) {
+    HttpContext ctx(true);
+    auto* ms = ctx.meta_service_.get();
+    const std::string ak = "AK_ID_VALUE_1234567";
+    const std::string sk = "SK_SECRET_VALUE_42";
+    ServerLogSink sink;
+
+    // Rejected requests put the request in the error message, which finish_rpc logs.
+    AlterObjStoreInfoRequest alter_obj_req;
+    alter_obj_req.set_cloud_unique_id("test_cloud_unique_id");
+    alter_obj_req.set_op(AlterObjStoreInfoRequest::UNKNOWN);
+    alter_obj_req.mutable_obj()->set_ak(ak);
+    alter_obj_req.mutable_obj()->set_sk(sk);
+    {
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        ms->alter_obj_store_info(&cntl, &alter_obj_req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+    {
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        ms->alter_storage_vault(&cntl, &alter_obj_req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+    {
+        AlterRamUserRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_ram_user()->set_ak(ak);
+        req.mutable_ram_user()->set_sk(sk);
+        brpc::Controller cntl;
+        AlterRamUserResponse res;
+        ms->alter_ram_user(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+    {
+        UpdateAkSkRequest req;
+        req.set_instance_id("not_exist_instance");
+        req.mutable_ram_user()->set_user_id("user");
+        req.mutable_ram_user()->set_ak(ak);
+        req.mutable_ram_user()->set_sk(sk);
+        brpc::Controller cntl;
+        UpdateAkSkResponse res;
+        ms->update_ak_sk(&cntl, &req, &res, nullptr);
+        ASSERT_NE(res.status().code(), MetaServiceCode::OK);
+    }
+
+    for (const auto& message : sink.messages()) {
+        EXPECT_EQ(message.find(sk), std::string::npos) << message;
+        EXPECT_EQ(message.find(ak), std::string::npos) << message;
+    }
 }
 
 TEST(MetaServiceHttpTest, TxnLazyCommit) {

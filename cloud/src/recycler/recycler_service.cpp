@@ -613,8 +613,8 @@ void RecyclerServiceImpl::http(::google::protobuf::RpcController* controller,
     // Auth
     const auto* token = cntl->http_request().uri().GetQuery("token");
     if (token == nullptr || *token != config::http_token) {
-        std::string msg = "incorrect token, token=" +
-                          (token == nullptr ? std::string("(not given)") : *token);
+        std::string msg =
+                token == nullptr ? "incorrect token, token=(not given)" : "incorrect token";
         cntl->http_response().set_status_code(403);
         cntl->response_attachment().append(msg);
         cntl->response_attachment().append("\n");

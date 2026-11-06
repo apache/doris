@@ -100,7 +100,7 @@ int ResourceManager::init() {
             }
 
             LOG(INFO) << "get an instance, instance_id=" << instance_id
-                      << " instance json=" << proto_to_json(inst);
+                      << " instance json=" << hide_cloud_unique_ids(proto_to_json(inst));
 
             ++num_instances;
         }
@@ -128,7 +128,8 @@ std::string ResourceManager::get_node(const std::string& cloud_unique_id,
     std::shared_lock l(mtx_);
     auto [s, e] = node_info_.equal_range(cloud_unique_id);
     if (s == node_info_.end() || s->first != cloud_unique_id) {
-        LOG(INFO) << "cloud unique id not found cloud_unique_id=" << cloud_unique_id;
+        LOG(INFO) << "cloud unique id not found cloud_unique_id="
+                  << hide_cloud_unique_id(cloud_unique_id);
         return "cloud_unique_id not found";
     }
     nodes->reserve(nodes->size() + node_info_.count(cloud_unique_id));
@@ -198,15 +199,17 @@ bool ResourceManager::validate_nodes(const ClusterPB& cluster, std::string* err,
             auto [code, msg] = get_instance(nullptr, instance_id, &instance);
             { TEST_SYNC_POINT_CALLBACK("is_instance_id_registered", &code); }
             if (code == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-                *err = "node=" + n.DebugString() +
+                *err = "node=" + hide_cloud_unique_ids(n.DebugString()) +
                        " cloud_unique_id use degrade format, but instance is not registered";
-                LOG(WARNING) << *err << ", cloud_unique_id=" << cloud_unique_id;
+                LOG(WARNING) << *err
+                             << ", cloud_unique_id=" << hide_cloud_unique_id(cloud_unique_id);
                 return false;
             }
             if (instance.has_status() && instance.status() == InstanceInfoPB::DELETED) {
                 *err = "instance status has been set delete, plz check it, recycle_state=" +
                        InstanceRecycleState_Name(instance.recycle_state());
-                LOG(WARNING) << *err << ", cloud_unique_id=" << cloud_unique_id;
+                LOG(WARNING) << *err
+                             << ", cloud_unique_id=" << hide_cloud_unique_id(cloud_unique_id);
                 return false;
             }
         }
@@ -226,7 +229,7 @@ bool ResourceManager::validate_nodes(const ClusterPB& cluster, std::string* err,
         }
         ss << "check cluster params failed, edit_log_port is required for frontends while "
               "heatbeat_port is required for banckends, node : "
-           << proto_to_json(n);
+           << hide_cloud_unique_ids(proto_to_json(n));
         *err = ss.str();
         no_err = false;
         break;
@@ -437,7 +440,8 @@ static std::pair<MetaServiceCode, std::string> check_node_has_been_registered(
     std::stringstream ss;
     std::string msg;
     if (addr == "" || port == -1) {
-        ss << "add node input args node invalid, cluster=" << proto_to_json(node);
+        ss << "add node input args node invalid, cluster="
+           << hide_cloud_unique_ids(proto_to_json(node));
         LOG(WARNING) << ss.str();
         msg = ss.str();
         return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, msg);
@@ -497,7 +501,7 @@ std::pair<MetaServiceCode, std::string> ResourceManager::add_cluster(const std::
                        << " instance_id=" << it->second.instance_id
                        << " cluster_name=" << it->second.cluster_name
                        << " cluster_id=" << it->second.cluster_id
-                       << " cloud_unique_id=" << it->first;
+                       << " cloud_unique_id=" << hide_cloud_unique_id(it->first);
                     msg = ss.str();
                     LOG(INFO) << msg;
                     return std::make_pair(MetaServiceCode::ALREADY_EXISTED, msg);
@@ -533,8 +537,8 @@ std::pair<MetaServiceCode, std::string> ResourceManager::add_cluster(const std::
     for (auto& obj_info : *instance_for_log.mutable_obj_info()) {
         obj_info.set_ak(hide_access_key(obj_info.ak()));
     }
-    LOG(INFO) << "cluster to add json=" << proto_to_json(req_cluster);
-    LOG(INFO) << "json=" << proto_to_json(instance_for_log);
+    LOG(INFO) << "cluster to add json=" << hide_cloud_unique_ids(proto_to_json(req_cluster));
+    LOG(INFO) << "json=" << hide_cloud_unique_ids(proto_to_json(instance_for_log));
 
     // Check id and name, they need to be unique
     // One cluster id per name, name is alias of cluster id
@@ -705,7 +709,7 @@ std::pair<MetaServiceCode, std::string> ResourceManager::drop_cluster(
                     if (config::enable_check_fe_drop_in_safe_time &&
                         !is_sql_node_exceeded_safe_drop_time(fe_node)) {
                         ss << "drop fe cluster not in safe time, try later, cluster="
-                           << i.DebugString();
+                           << hide_cloud_unique_ids(i.DebugString());
                         msg = ss.str();
                         LOG(WARNING) << msg;
                         return std::make_pair(MetaServiceCode::CLUSTER_NOT_FOUND, msg);
@@ -715,7 +719,8 @@ std::pair<MetaServiceCode, std::string> ResourceManager::drop_cluster(
             to_del.CopyFrom(i);
             LOG(INFO) << "found a cluster to drop,"
                       << " instance_id=" << instance_id << " cluster_id=" << i.cluster_id()
-                      << " cluster_name=" << i.cluster_name() << " cluster=" << proto_to_json(i);
+                      << " cluster_name=" << i.cluster_name()
+                      << " cluster=" << hide_cloud_unique_ids(proto_to_json(i));
             found = true;
             break;
         }
@@ -831,7 +836,8 @@ std::string ResourceManager::update_cluster(
         if (filter(i)) {
             LOG(INFO) << "found a cluster to update,"
                       << " instance_id=" << instance_id << " cluster_id=" << i.cluster_id()
-                      << " cluster_name=" << i.cluster_name() << " cluster=" << proto_to_json(i);
+                      << " cluster_name=" << i.cluster_name()
+                      << " cluster=" << hide_cloud_unique_ids(proto_to_json(i));
             found = true;
             break;
         }
@@ -888,8 +894,9 @@ std::string ResourceManager::update_cluster(
     uint64_t time =
             std::chrono::duration_cast<std::chrono::seconds>(now_time.time_since_epoch()).count();
     now.set_mtime(time);
-    LOG(INFO) << "before update cluster original: " << proto_to_json(original)
-              << " after update now: " << proto_to_json(now);
+    LOG(INFO) << "before update cluster original: "
+              << hide_cloud_unique_ids(proto_to_json(original))
+              << " after update now: " << hide_cloud_unique_ids(proto_to_json(now));
 
     InstanceKeyInfo key_info {instance_id};
     std::string key;
@@ -913,7 +920,7 @@ std::string ResourceManager::update_cluster(
     }
 
     LOG(INFO) << "update cluster instance_id=" << instance_id
-              << " instance json=" << proto_to_json(instance);
+              << " instance json=" << hide_cloud_unique_ids(proto_to_json(instance));
 
     refresh_instance(instance_id, instance);
 
@@ -937,8 +944,9 @@ void ResourceManager::add_cluster_to_index_no_lock(const std::string& instance_i
                     .cluster_id = c.cluster_id(),
                     .node_info = i};
         LOG(WARNING) << (existed ? "duplicated cloud_unique_id " : "")
-                     << "instance_id=" << instance_id << " cloud_unique_id=" << i.cloud_unique_id()
-                     << " node_info=" << proto_to_json(i);
+                     << "instance_id=" << instance_id
+                     << " cloud_unique_id=" << hide_cloud_unique_id(i.cloud_unique_id())
+                     << " node_info=" << hide_cloud_unique_ids(proto_to_json(i));
         node_info_.insert({i.cloud_unique_id(), std::move(n)});
     }
 }
@@ -1054,7 +1062,7 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
         return msg;
     }
 
-    LOG(INFO) << "instance json=" << proto_to_json(instance);
+    LOG(INFO) << "instance json=" << hide_cloud_unique_ids(proto_to_json(instance));
     if (!to_add.empty()) {
         // add nodes
         // Check duplicated nodes, one node cannot deploy on multiple clusters
@@ -1088,7 +1096,7 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
             }
         }
 
-        LOG(INFO) << "node to modify json=" << proto_to_json(node.node_info);
+        LOG(INFO) << "node to modify json=" << hide_cloud_unique_ids(proto_to_json(node.node_info));
 
         for (auto& c : instance.clusters()) {
             if ((c.has_cluster_name() && c.cluster_name() == cluster_name) ||
@@ -1123,7 +1131,7 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
                   << " instance_id=" << it->second.instance_id
                   << " cluster_name=" << it->second.cluster_name
                   << " cluster_id=" << it->second.cluster_id
-                  << " cloud_unique_id=" << n.node_info.cloud_unique_id();
+                  << " cloud_unique_id=" << hide_cloud_unique_id(n.node_info.cloud_unique_id());
                 err = s.str();
                 LOG(INFO) << err;
                 return err;
@@ -1207,7 +1215,8 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
         std::stringstream s;
         auto [start, end] = node_info_.equal_range(n.node_info.cloud_unique_id());
         if (start == node_info_.end() || start->first != n.node_info.cloud_unique_id()) {
-            s << "can not find to drop nodes by cloud_unique_id=" << n.node_info.cloud_unique_id()
+            s << "can not find to drop nodes by cloud_unique_id="
+              << hide_cloud_unique_id(n.node_info.cloud_unique_id())
               << " instance_id=" << n.instance_id << " cluster_name=" << n.cluster_name
               << " cluster_id=" << n.cluster_id << " help Msg=" << cache_err_help_msg;
             err = s.str();
@@ -1256,7 +1265,8 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
         if (!found) {
             s << "cloud_unique_id can not find to drop node,"
               << " instance_id=" << n.instance_id << " cluster_name=" << n.cluster_name
-              << " cluster_id=" << n.cluster_id << " node_info=" << n.node_info.DebugString()
+              << " cluster_id=" << n.cluster_id
+              << " node_info=" << hide_cloud_unique_ids(n.node_info.DebugString())
               << " help Msg=" << cache_err_help_msg;
             err = s.str();
             LOG(WARNING) << err;
@@ -1321,7 +1331,8 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
         if (!found) {
             s << "failed to find node to drop,"
               << " instance_id=" << instance.instance_id() << " cluster_id=" << c.cluster_id()
-              << " cluster_name=" << c.cluster_name() << " cluster=" << proto_to_json(c)
+              << " cluster_name=" << c.cluster_name()
+              << " cluster=" << hide_cloud_unique_ids(proto_to_json(c))
               << " help Msg =" << cache_err_help_msg;
             err = s.str();
             LOG(WARNING) << err;
@@ -1331,7 +1342,8 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
         // check drop fe node
         if (ClusterPB::SQL == c.type() && config::enable_check_fe_drop_in_safe_time &&
             !is_sql_node_exceeded_safe_drop_time(copy_node)) {
-            s << "drop fe node not in safe time, try later, node=" << copy_node.DebugString();
+            s << "drop fe node not in safe time, try later, node="
+              << hide_cloud_unique_ids(copy_node.DebugString());
             err = s.str();
             LOG(WARNING) << err;
             return err;
@@ -1353,7 +1365,8 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
         }
     }
 
-    LOG(INFO) << "instance " << instance_id << " info: " << instance.DebugString();
+    LOG(INFO) << "instance " << instance_id
+              << " info: " << hide_cloud_unique_ids(instance.DebugString());
     // here, instance has been changed, not save in fdb
     if ((!to_add.empty() || !to_del.empty()) && !is_instance_valid(instance)) {
         msg = "instance invalid, cant modify, plz check";

@@ -162,6 +162,61 @@ inline std::string hide_ak(std::string debug_string) {
     return debug_string;
 }
 
+// A cloud_unique_id `${version}:${instance_id}:${node_secret}` authenticates a node, so only
+// the part up to the instance id may be logged, e.g. "1:instance_a:***".
+inline void append_hidden_cloud_unique_id(std::string* out, std::string_view cloud_unique_id) {
+    if (cloud_unique_id.empty()) {
+        return;
+    }
+    size_t pos = cloud_unique_id.find(':');
+    pos = pos == std::string_view::npos ? pos : cloud_unique_id.find(':', pos + 1);
+    out->append(cloud_unique_id.substr(0, pos == std::string_view::npos ? 0 : pos + 1));
+    out->append("***");
+}
+
+inline std::string hide_cloud_unique_id(std::string_view cloud_unique_id) {
+    std::string out;
+    append_hidden_cloud_unique_id(&out, cloud_unique_id);
+    return out;
+}
+
+// Applies hide_cloud_unique_id() to every cloud_unique_id(s) value in a protobuf debug string
+// (`cloud_unique_id: "xxx"`), a JSON string (`"cloud_unique_id":"xxx"`) or a log message
+// (`cloud_unique_id=xxx`).
+inline std::string hide_cloud_unique_ids(std::string str) {
+    constexpr std::string_view key = "cloud_unique_id";
+    std::string out;
+    size_t copied = 0; // str[0, copied) has been moved to `out`
+    size_t pos = 0;
+    while ((pos = str.find(key, pos)) != std::string::npos) {
+        pos += key.size();
+        pos += pos < str.size() && str[pos] == 's'; // repeated cloud_unique_ids
+        pos += pos < str.size() && str[pos] == '"'; // JSON key
+        if (pos >= str.size() || (str[pos] != ':' && str[pos] != '=')) {
+            continue;
+        }
+        bool quoted = str[pos] == ':';
+        pos = str.find_first_not_of(' ', pos + 1);
+        if (pos == std::string::npos) {
+            break;
+        }
+        if (quoted && str[pos++] != '"') {
+            continue;
+        }
+        size_t end = str.find_first_of(quoted ? "\"" : " ,;\"\\\n", pos);
+        end = end == std::string::npos ? str.size() : end;
+        out.reserve(str.size());
+        out.append(str, copied, pos - copied);
+        append_hidden_cloud_unique_id(&out, std::string_view(str).substr(pos, end - pos));
+        copied = pos = end;
+    }
+    if (copied == 0) {
+        return str;
+    }
+    out.append(str, copied);
+    return out;
+}
+
 template <class Request, class Response>
 void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request* req,
                Response* res) {
@@ -191,7 +246,7 @@ void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request
                          std::is_same_v<Request, GetTabletRequest>) {
         VLOG_DEBUG << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
                    << " original_client_ip=" << req->request_ip()
-                   << " request=" << req->ShortDebugString();
+                   << " request=" << hide_cloud_unique_ids(req->ShortDebugString());
     } else if constexpr (std::is_same_v<Request, RemoveDeleteBitmapRequest>) {
         LOG(INFO) << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
                   << " original_client_ip=" << req->request_ip()
@@ -204,8 +259,10 @@ void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request
                   << " require_compaction_stats=" << req->require_compaction_stats();
     } else if constexpr (std::is_same_v<Request, CreateInstanceRequest> ||
                          std::is_same_v<Request, CreateStageRequest> ||
-                         std::is_same_v<Request, AlterObjStoreInfoRequest>) {
-        std::string debug_string = encryt_sk(req->ShortDebugString());
+                         std::is_same_v<Request, AlterObjStoreInfoRequest> ||
+                         std::is_same_v<Request, UpdateAkSkRequest> ||
+                         std::is_same_v<Request, AlterRamUserRequest>) {
+        std::string debug_string = encryt_sk(hide_cloud_unique_ids(req->ShortDebugString()));
         debug_string = hide_ak(debug_string);
         TEST_SYNC_POINT_CALLBACK("sk_begin_rpc", &debug_string);
         LOG(INFO) << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
@@ -213,7 +270,7 @@ void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request
     } else {
         LOG(INFO) << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
                   << " original_client_ip=" << req->request_ip()
-                  << " request=" << req->ShortDebugString();
+                  << " request=" << hide_cloud_unique_ids(req->ShortDebugString());
     }
 }
 
@@ -223,43 +280,43 @@ void finish_rpc(std::string_view func_name, brpc::Controller* ctrl, const Reques
     if constexpr (std::is_same_v<Response, CommitTxnResponse>) {
         LOG(INFO) << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
                   << " original_client_ip=" << req->request_ip()
-                  << " response=" << res->ShortDebugString();
+                  << " response=" << hide_cloud_unique_ids(res->ShortDebugString());
     } else if constexpr (std::is_same_v<Response, GetRowsetResponse>) {
         LOG_IF(INFO, res->status().code() != MetaServiceCode::OK)
                 << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
                 << " original_client_ip=" << req->request_ip()
-                << " request=" << req->ShortDebugString()
-                << " status=" << res->status().ShortDebugString();
+                << " request=" << hide_cloud_unique_ids(req->ShortDebugString())
+                << " status=" << hide_cloud_unique_ids(res->status().ShortDebugString());
     } else if constexpr (std::is_same_v<Response, GetTabletStatsResponse>) {
         LOG_IF(INFO, res->status().code() != MetaServiceCode::OK)
                 << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
                 << " original_client_ip=" << req->request_ip()
-                << " request=" << req->ShortDebugString()
-                << " status=" << res->status().ShortDebugString()
+                << " request=" << hide_cloud_unique_ids(req->ShortDebugString())
+                << " status=" << hide_cloud_unique_ids(res->status().ShortDebugString())
                 << " num_tablets: " << res->tablet_stats().size();
     } else if constexpr (std::is_same_v<Response, GetVersionResponse> ||
                          std::is_same_v<Response, GetTabletResponse>) {
         LOG_IF(INFO, res->status().code() != MetaServiceCode::OK)
                 << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
-                << " request=" << req->ShortDebugString()
+                << " request=" << hide_cloud_unique_ids(req->ShortDebugString())
                 << " original_client_ip=" << req->request_ip()
-                << " response=" << res->ShortDebugString();
+                << " response=" << hide_cloud_unique_ids(res->ShortDebugString());
     } else if constexpr (std::is_same_v<Response, GetDeleteBitmapResponse>) {
         LOG(INFO) << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
                   << " original_client_ip=" << req->request_ip()
-                  << " status=" << res->status().ShortDebugString()
+                  << " status=" << hide_cloud_unique_ids(res->status().ShortDebugString())
                   << " tablet=" << res->tablet_id()
                   << " delete_bitmap_count=" << res->segment_delete_bitmaps_size();
     } else if constexpr (std::is_same_v<Response, GetDeleteBitmapUpdateLockResponse>) {
         LOG(INFO) << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
                   << " original_client_ip=" << req->request_ip()
-                  << " status=" << res->status().ShortDebugString();
+                  << " status=" << hide_cloud_unique_ids(res->status().ShortDebugString());
     } else if constexpr (std::is_same_v<Response, GetObjStoreInfoResponse> ||
                          std::is_same_v<Response, GetStageResponse> ||
                          std::is_same_v<Response, GetInstanceResponse> ||
                          std::is_same_v<Response, BeginSnapshotResponse> ||
                          std::is_same_v<Response, CloneInstanceResponse>) {
-        std::string debug_string = encryt_sk(res->DebugString());
+        std::string debug_string = encryt_sk(hide_cloud_unique_ids(res->DebugString()));
         debug_string = hide_ak(debug_string);
         TEST_SYNC_POINT_CALLBACK("sk_finish_rpc", &debug_string);
         LOG(INFO) << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
@@ -267,7 +324,7 @@ void finish_rpc(std::string_view func_name, brpc::Controller* ctrl, const Reques
     } else {
         LOG(INFO) << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
                   << " original_client_ip=" << req->request_ip()
-                  << " response=" << res->ShortDebugString();
+                  << " response=" << hide_cloud_unique_ids(res->ShortDebugString());
     }
 }
 
