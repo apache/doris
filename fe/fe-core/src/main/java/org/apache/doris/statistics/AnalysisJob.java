@@ -182,6 +182,14 @@ public class AnalysisJob {
             updateTaskState(AnalysisState.FAILED, reason);
             cancel();
         } finally {
+            // All task threads have been marked killed by cancel(), so the guarded
+            // partitionUpdateRows writers have stopped. Clear the shared map here, after
+            // the cancels (the terminal-state clear inside updateTaskStatus runs while
+            // sibling threads may still be executing and can miss in-flight writes), so
+            // the job and all its task records release the map at once.
+            if (jobInfo.partitionUpdateRows != null) {
+                jobInfo.partitionUpdateRows.clear();
+            }
             deregisterJob();
         }
     }
