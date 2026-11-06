@@ -91,10 +91,7 @@ public class ShowWorkloadGroupsCommand extends ShowCommand {
 
     @Override
     public RedirectStatus toRedirectStatus() {
-        if (ConnectContext.get().getSessionVariable().getForwardToMaster()) {
-            return RedirectStatus.FORWARD_NO_SYNC;
-        } else {
-            return RedirectStatus.NO_FORWARD;
-        }
+        // Running and waiting query counts belong to the local FE's query queues.
+        return RedirectStatus.NO_FORWARD;
     }
 }
