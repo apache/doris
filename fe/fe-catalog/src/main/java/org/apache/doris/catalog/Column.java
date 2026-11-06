@@ -24,6 +24,7 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.thrift.TVariantSerializeType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -136,6 +137,10 @@ public class Column implements GsonPostProcessable {
         afterValueColumn.defaultValue = null;
         afterValueColumn.defaultValueExprDef = null;
         afterValueColumn.realDefaultValue = null;
+        // a changelog keeps every path of a VARIANT image in the sparse column, whatever the source layout
+        if (afterValueColumn.getType().isVariantType()) {
+            afterValueColumn.setType(((VariantType) afterValueColumn.getType()).forChangelog());
+        }
         return afterValueColumn;
     }
 
@@ -150,6 +155,9 @@ public class Column implements GsonPostProcessable {
         beforeValueColumn.defaultValue = null;
         beforeValueColumn.defaultValueExprDef = null;
         beforeValueColumn.realDefaultValue = null;
+        if (beforeValueColumn.getType().isVariantType()) {
+            beforeValueColumn.setType(((VariantType) beforeValueColumn.getType()).forChangelog());
+        }
         return beforeValueColumn;
     }
 
@@ -1205,6 +1213,10 @@ public class Column implements GsonPostProcessable {
 
     public boolean getVariantEnableNestedGroup() {
         return type.isVariantType() ? ((ScalarType) type).getVariantEnableNestedGroup() : false;
+    }
+
+    public TVariantSerializeType getVariantSerializeType() {
+        return type.isVariantType() ? ((ScalarType) type).getVariantSerializeType() : TVariantSerializeType.V1;
     }
 
     public void setFieldPatternType(PatternType type) {

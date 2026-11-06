@@ -19,6 +19,7 @@ import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility
 
 suite("test_changelog_ttl", "nonConcurrent") {
+    sql "set default_variant_enable_doc_mode = false"
     // Storage properties differ between Cloud and shared-nothing deployments.
     def showCreateTtl = { String table ->
         def ddl = sql("SHOW CREATE TABLE ${table}")[0][1]
@@ -44,7 +45,7 @@ suite("test_changelog_ttl", "nonConcurrent") {
     }
 
     sql """
-        CREATE TABLE changelog_ttl_enabled (k INT, v INT)
+        CREATE TABLE changelog_ttl_enabled (k INT, v INT, jv VARIANT NULL)
         DUPLICATE KEY(k)
         DISTRIBUTED BY HASH(k) BUCKETS 1
         PROPERTIES (
@@ -58,7 +59,7 @@ suite("test_changelog_ttl", "nonConcurrent") {
     qt_show_create_like "SELECT ${showCreateTtl('changelog_ttl_like')}"
 
     sql """
-        CREATE TABLE changelog_ttl_default (k INT, v INT)
+        CREATE TABLE changelog_ttl_default (k INT, v INT, jv VARIANT NULL)
         DUPLICATE KEY(k)
         DISTRIBUTED BY HASH(k) BUCKETS 1
         PROPERTIES (
@@ -68,8 +69,8 @@ suite("test_changelog_ttl", "nonConcurrent") {
     """
     qt_show_create_default "SELECT ${showCreateTtl('changelog_ttl_default')}"
 
-    sql "INSERT INTO changelog_ttl_enabled VALUES (1, 10)"
-    sql "INSERT INTO changelog_ttl_default VALUES (1, 10)"
+    sql "INSERT INTO changelog_ttl_enabled VALUES (1, 10, parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 10\"}}'))"
+    sql "INSERT INTO changelog_ttl_default VALUES (1, 10, parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 10\"}}'))"
     sql "SYNC"
     qt_default_visible """
         SELECT k, v FROM changelog_ttl_default@incr("incrementType" = "DETAIL")
@@ -82,7 +83,7 @@ suite("test_changelog_ttl", "nonConcurrent") {
     """
 
     sql """
-        CREATE TABLE changelog_ttl_delayed (k INT, v INT)
+        CREATE TABLE changelog_ttl_delayed (k INT, v INT, jv VARIANT NULL)
         DUPLICATE KEY(k)
         DISTRIBUTED BY HASH(k) BUCKETS 1
         PROPERTIES (
@@ -91,7 +92,7 @@ suite("test_changelog_ttl", "nonConcurrent") {
             "changelog.ttl_seconds" = "2"
         )
     """
-    sql "INSERT INTO changelog_ttl_delayed VALUES (1, 10)"
+    sql "INSERT INTO changelog_ttl_delayed VALUES (1, 10, parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 10\"}}'))"
     sql "SYNC"
     qt_delayed_visible """
         SELECT k, v FROM changelog_ttl_delayed@incr("incrementType" = "DETAIL")
@@ -153,7 +154,7 @@ suite("test_changelog_ttl", "nonConcurrent") {
     """
 
     sql """
-        CREATE TABLE changelog_ttl_alter (k INT, v INT)
+        CREATE TABLE changelog_ttl_alter (k INT, v INT, jv VARIANT NULL)
         DUPLICATE KEY(k)
         DISTRIBUTED BY HASH(k) BUCKETS 1
         PROPERTIES (
@@ -162,7 +163,7 @@ suite("test_changelog_ttl", "nonConcurrent") {
             "changelog.ttl_seconds" = "86400"
         )
     """
-    sql "INSERT INTO changelog_ttl_alter VALUES (1, 10)"
+    sql "INSERT INTO changelog_ttl_alter VALUES (1, 10, parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 10\"}}'))"
     sql "SYNC"
     qt_before_alter_visible """
         SELECT k, v FROM changelog_ttl_alter@incr("incrementType" = "DETAIL")
@@ -180,7 +181,7 @@ suite("test_changelog_ttl", "nonConcurrent") {
     """
 
     sql """
-        CREATE TABLE changelog_ttl_physical (k INT, v INT)
+        CREATE TABLE changelog_ttl_physical (k INT, v INT, jv VARIANT NULL)
         DUPLICATE KEY(k)
         DISTRIBUTED BY HASH(k) BUCKETS 1
         PROPERTIES (
@@ -190,7 +191,7 @@ suite("test_changelog_ttl", "nonConcurrent") {
             "disable_auto_compaction" = "true"
         )
     """
-    sql "INSERT INTO changelog_ttl_physical VALUES (1, 10)"
+    sql "INSERT INTO changelog_ttl_physical VALUES (1, 10, parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 10\"}}'))"
     // The raw changelog TVF does not add @incr's TTL predicate. With no further writes,
     // this singleton can disappear only when background cleanup replaces its rowset.
     qt_before_physical_cleanup "SELECT count(*) FROM changelog('table' = 'changelog_ttl_physical')"

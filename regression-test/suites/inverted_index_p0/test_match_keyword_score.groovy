@@ -109,7 +109,7 @@ suite("test_match_keyword_score", "p0") {
         sql """
             CREATE TABLE test_match_keyword_score_variant (
                 id INT NOT NULL,
-                v VARIANT NULL,
+                v VARIANT<PROPERTIES("variant_max_subcolumns_count" = "2048")> NULL,
                 INDEX idx_v(v) USING INVERTED
             ) ENGINE=OLAP
             DUPLICATE KEY(id)

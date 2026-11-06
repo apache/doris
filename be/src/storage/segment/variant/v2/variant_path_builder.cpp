@@ -1399,7 +1399,8 @@ Status VariantPathBuilder::write_sparse_cell(size_t value_index, ColumnString::C
 
 VariantPathSelection select_variant_paths(std::span<const VariantPathSelectionCandidate> candidates,
                                           size_t max_dynamic_materialized_paths,
-                                          bool typed_paths_to_sparse) {
+                                          bool typed_paths_to_sparse,
+                                          VariantSerializeTypePB serialize_type) {
     struct DynamicCandidate {
         size_t index = 0;
         uint32_t non_null_rows = 0;
@@ -1433,10 +1434,12 @@ VariantPathSelection select_variant_paths(std::span<const VariantPathSelectionCa
         return left_path.get_path() > right_path.get_path();
     });
 
-    const size_t selected_dynamic =
-            max_dynamic_materialized_paths == 0
-                    ? dynamic.size()
-                    : std::min(max_dynamic_materialized_paths, dynamic.size());
+    size_t selected_dynamic = std::min(max_dynamic_materialized_paths, dynamic.size());
+    // A count of 0 materializes every dynamic path under V1 and none under V2.
+    if (max_dynamic_materialized_paths == 0 &&
+        serialize_type == VariantSerializeTypePB::VARIANT_SERIALIZE_V1) {
+        selected_dynamic = dynamic.size();
+    }
     for (size_t index = 0; index < dynamic.size(); ++index) {
         (index < selected_dynamic ? result.materialized : result.sparse)
                 .push_back(dynamic[index].index);

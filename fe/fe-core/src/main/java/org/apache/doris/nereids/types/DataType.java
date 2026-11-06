@@ -525,7 +525,8 @@ public abstract class DataType {
                         ((org.apache.doris.catalog.VariantType) type).getEnableVariantDocMode(),
                         ((org.apache.doris.catalog.VariantType) type).getvariantDocMaterializationMinRows(),
                         ((org.apache.doris.catalog.VariantType) type).getVariantDocShardCount(),
-                        ((org.apache.doris.catalog.VariantType) type).getEnableNestedGroup());
+                        ((org.apache.doris.catalog.VariantType) type).getEnableNestedGroup(),
+                        ((org.apache.doris.catalog.VariantType) type).getVariantSerializeType());
             }
             return VariantType.INSTANCE;
         } else {
