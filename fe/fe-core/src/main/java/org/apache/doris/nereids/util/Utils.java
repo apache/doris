@@ -23,7 +23,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Not;
@@ -31,9 +30,6 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.plans.commands.info.AliasInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.repository.ResultRow;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -676,20 +672,5 @@ public class Utils {
         }
         String sql = "SELECT " + columnJoiner + " FROM " + tableName.toSql() + " " + whereClause;
         return new NereidsParser().parseSingle(sql);
-    }
-
-    /**
-     * Execute a logical plan and return the results.
-     *
-     * @param ctx the context in which to execute the plan
-     * @param executor the executor to use to execute the plan
-     * @param plan the plan to execute
-     * @return the results of executing the plan
-     */
-    public static List<List<String>> executePlan(ConnectContext ctx, StmtExecutor executor, LogicalPlan plan) {
-        LogicalPlanAdapter adapter = new LogicalPlanAdapter(plan, ctx.getStatementContext());
-        executor.setParsedStmt(adapter);
-        List<ResultRow> resultRows = executor.executeInternalQuery();
-        return resultRows.stream().map(ResultRow::getValues).collect(Collectors.toList());
     }
 }

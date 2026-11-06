@@ -183,7 +183,7 @@ public class ShowTableStatusCommand extends ShowCommand {
         // We need to use TABLE_SCHEMA as a condition to query When querying external catalogs.
         // This also applies to the internal catalog.
         LogicalPlan plan = Utils.buildLogicalPlan(selectList, fullTblName, whereClause);
-        List<List<String>> rows = Utils.executePlan(ctx, executor, plan);
+        List<List<String>> rows = executor.executeEmbeddedQuery(plan);
         return new ShowResultSet(getMetaData(), rows);
     }
 
