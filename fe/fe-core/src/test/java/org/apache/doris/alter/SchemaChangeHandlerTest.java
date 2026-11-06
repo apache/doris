@@ -979,7 +979,8 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         handler.getIndexChangeJobs().put(jobId, job);
         try {
             String[][] clauseAndError = {
-                    {"DROP INDEX idx_v1", "has an unfinished index change job"}};
+                    {"DROP INDEX idx_v1", "has an unfinished index change job"},
+                    {"DROP INDEX idx_v1 PARTITION (p1)", "has been built specified index"}};
             for (String[] ce : clauseAndError) {
                 String sql = "ALTER TABLE test." + tableName + " " + ce[0];
                 Exception e = Assertions.assertThrows(Exception.class, () -> alterTable(sql, connectContext));
@@ -1074,12 +1075,13 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 .noneMatch(column -> column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)));
         Assertions.assertTrue(tbl.getIndexes().stream().noneMatch(idx -> idx.getIndexName().equals("idx_v1")));
 
-        // Without new-data-only indexing, the BLOOMFILTER index has to be built for the existing data too.
+        // Without new-data-only indexing, the NGRAM_BF index must also cover existing data.
         boolean enableAddIndexForNewData = connectContext.getSessionVariable().isEnableAddIndexForNewData();
         connectContext.getSessionVariable().setEnableAddIndexForNewData(false);
         try {
             assertRunsHeavySchemaChange(handler, tbl,
-                    alterPrefix + "ADD INDEX bf_v2 (v2) USING BLOOMFILTER, DROP INDEX idx_v3");
+                    alterPrefix + "ADD INDEX bf_v2 (v2) USING NGRAM_BF "
+                            + "PROPERTIES('gram_size'='3', 'bf_size'='256'), DROP INDEX idx_v3");
         } finally {
             connectContext.getSessionVariable().setEnableAddIndexForNewData(enableAddIndexForNewData);
         }
