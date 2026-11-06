@@ -139,10 +139,11 @@ public class HiveScanBatchModeTest {
                 Assertions.assertTrue(source.hasNext());
                 Assertions.assertTrue(paths.add(source.next().getPath().orElseThrow()));
             }
+            // Only a read observes directory EOF; readiness must not advance a lazy file cursor.
+            Assertions.assertFalse(source.hasNext());
             CompletableFuture<Void> pending = source.isBlocked();
             Assertions.assertNotNull(pending);
             Assertions.assertFalse(pending.isDone());
-            Assertions.assertFalse(source.hasNext());
 
             // Complete after the empty read, before the caller checks whether it means EOF.
             metadata.remove().run();
@@ -1197,7 +1198,7 @@ public class HiveScanBatchModeTest {
                 Collections.singletonList("year=2024/month=03"));
 
         List<ConnectorScanProfile> profiles = provider.collectScanProfiles(session);
-        Assertions.assertEquals(1, profiles.size());
+        Assertions.assertEquals(2, profiles.size());
         ConnectorScanProfile profile = profiles.get(0);
         Assertions.assertEquals("Connector Metadata Access", profile.getGroupName());
         Assertions.assertTrue(profile.getScanLabel().contains("db.t"));
@@ -1208,6 +1209,11 @@ public class HiveScanBatchModeTest {
         Assertions.assertEquals("3", profile.getMetrics().get("TransportItems"));
         Assertions.assertEquals("2", profile.getMetrics().get("LargestBatchSize"));
         Assertions.assertEquals("1", profile.getMetrics().get("SmallestBatchSize"));
+        ConnectorScanProfile listing = profiles.get(1);
+        Assertions.assertEquals("Hive File Listing", listing.getGroupName());
+        Assertions.assertEquals("3", listing.getMetrics().get("FilesListed"));
+        Assertions.assertEquals("3", listing.getMetrics().get("ListingsPublished"));
+        Assertions.assertEquals("3", listing.getMetrics().get("SizeSummariesPublished"));
         Assertions.assertTrue(provider.collectScanProfiles(session).isEmpty());
     }
 

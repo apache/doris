@@ -24,7 +24,6 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.hive.HiveCatalogProperties;
 import org.apache.doris.connector.hive.HiveConnectorMetadata;
 import org.apache.doris.connector.hive.HiveFileListingCache;
-import org.apache.doris.connector.hive.HiveFileStatus;
 import org.apache.doris.connector.hive.HiveScanPlanProvider;
 import org.apache.doris.connector.hive.HiveTableHandle;
 import org.apache.doris.connector.hive.HiveTableType;
@@ -44,7 +43,10 @@ import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenSchemaCacheValue;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.Location;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -78,27 +80,27 @@ import java.util.Set;
 /** Exercises real Hive filtering, typed logical pruning and the physical partition-name handoff. */
 public class HiveDatePartitionPruningIntegrationTest {
     @Test
-    public void testCompactAndTwoDigitDatesReachPhysicalSelection() {
+    public void testCompactAndTwoDigitDatesReachPhysicalSelection() throws Exception {
         assertDateSelection(Type.DATE, new DateLiteral(2024, 1, 1), false);
         assertDateSelection(Type.DATEV2, new DateV2Literal(2024, 1, 1), false);
     }
 
     @Test
-    public void testUnrepresentableCompactDatePreservesScanAll() {
+    public void testUnrepresentableCompactDatePreservesScanAll() throws Exception {
         assertDateSelection(Type.DATE, new DateLiteral(2024, 1, 1), true);
     }
 
     @Test
-    public void testExcessTimestampPrecisionPreservesSynchronousScanAllForEquality() {
+    public void testExcessTimestampPrecisionPreservesSynchronousScanAllForEquality() throws Exception {
         assertTimestampSelection(false);
     }
 
     @Test
-    public void testExcessTimestampPrecisionPreservesSynchronousScanAllForIn() {
+    public void testExcessTimestampPrecisionPreservesSynchronousScanAllForIn() throws Exception {
         assertTimestampSelection(true);
     }
 
-    private static void assertTimestampSelection(boolean inPredicate) {
+    private static void assertTimestampSelection(boolean inPredicate) throws Exception {
         List<String> names = List.of("d=2024-01-01 10:00:00.1234561", "d=2024-01-01 10:00:00.12345601",
                 "d=2024-01-01 10:00:00.123456001", "d=2024-01-01 10:00:00.1234569",
                 "d=2024-01-01 10:00:00.12345699", "d=2024-01-01 10:00:00.123456999",
@@ -112,7 +114,7 @@ public class HiveDatePartitionPruningIntegrationTest {
         }
     }
 
-    private static void assertDateSelection(Type type, Expression literal, boolean unrepresentableDate) {
+    private static void assertDateSelection(Type type, Expression literal, boolean unrepresentableDate) throws Exception {
         List<String> names = new ArrayList<>(List.of("d=20240101", "d=24-01-01", "d=2024-01-01",
                 "d=20240102", "d=24-01-02"));
         if (unrepresentableDate) {
@@ -125,7 +127,7 @@ public class HiveDatePartitionPruningIntegrationTest {
 
     @SuppressWarnings("unchecked")
     private static void assertSelection(Type type, Expression literal, List<String> names,
-            boolean unrepresentable, boolean inPredicate) {
+            boolean unrepresentable, boolean inPredicate) throws Exception {
         HmsClient client = Mockito.mock(HmsClient.class);
         // Logical fallback uses -1; synchronous physical planning uses a bounded positive limit.
         Mockito.when(client.listPartitionNames(Mockito.eq("db"), Mockito.eq("t"), Mockito.anyInt()))
@@ -205,14 +207,18 @@ public class HiveDatePartitionPruningIntegrationTest {
             CascadesContext cascades = CascadesContext.initContext(statement, filter, PhysicalProperties.ANY);
             SelectedPartitions selected = Deencapsulation.invoke(new PruneFileScanPartition(),
                     "pruneExternalPartitions", table, filter, scan, cascades);
-            HiveFileListingCache files = Mockito.mock(HiveFileListingCache.class);
-            org.mockito.stubbing.Answer<List<HiveFileStatus>> listing = invocation ->
-                    List.of(new HiveFileStatus(invocation.getArgument(2) + "/data.parquet", 10L, 1L));
-            Mockito.when(files.listDataFiles(Mockito.eq("db"), Mockito.eq("t"), Mockito.anyString(),
-                    Mockito.anyList(), Mockito.nullable(FileSystem.class))).thenAnswer(listing);
-            // Scans always carry a ConnectorScanContext, so the provider uses the cancellable overload.
-            Mockito.when(files.listDataFiles(Mockito.eq("db"), Mockito.eq("t"), Mockito.anyString(),
-                    Mockito.anyList(), Mockito.nullable(FileSystem.class), Mockito.any())).thenAnswer(listing);
+            FileSystem fs = Mockito.mock(FileSystem.class);
+            Mockito.when(storage.getFileSystem(Mockito.any())).thenReturn(fs);
+            Mockito.when(fs.forLocation(Mockito.any())).thenReturn(fs);
+            Mockito.when(fs.list(Mockito.any())).thenAnswer(invocation -> {
+                Location location = invocation.getArgument(0);
+                FileIterator iterator = Mockito.mock(FileIterator.class, Mockito.CALLS_REAL_METHODS);
+                Mockito.when(iterator.hasNext()).thenReturn(true, false);
+                Mockito.when(iterator.next()).thenReturn(new FileEntry(
+                        Location.of(location.uri() + "/data.parquet"), 10L, false, 1L, Collections.emptyList()));
+                return iterator;
+            });
+            HiveFileListingCache files = new HiveFileListingCache(properties);
             HiveScanPlanProvider provider = new HiveScanPlanProvider(client, properties, connectorContext,
                     files);
             if (unrepresentable) {

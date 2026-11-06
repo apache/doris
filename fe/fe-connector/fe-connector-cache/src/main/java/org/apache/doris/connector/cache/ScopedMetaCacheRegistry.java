@@ -331,9 +331,17 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
     }
 
     ScopeLease acquire(ScopePath path) {
+        ScopeLease lease = tryAcquire(path);
+        if (lease != null) {
+            return lease;
+        }
+        throw new IllegalStateException("Scoped meta cache registry is closed");
+    }
+
+    /** An already-started bulk load may finish after retirement without retaining its result. */
+    ScopeLease tryAcquire(ScopePath path) {
         Objects.requireNonNull(path, "path can not be null");
-        while (true) {
-            checkOpen();
+        while (!closed.get()) {
             ScopeSnapshot snapshot = resolveOrCreateSnapshot(path);
             if (snapshot == null || !retain(snapshot)) {
                 continue;
@@ -343,6 +351,7 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
             }
             release(snapshot);
         }
+        return null;
     }
 
     void checkOpen() {

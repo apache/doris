@@ -216,7 +216,10 @@ public final class MetaCache<K, V> {
             this.delegate = delegate;
         }
 
-        /** Returns false when an invalidation raced the remote load and the value was intentionally not cached. */
+        /**
+         * Returns false when invalidation or owner retirement prevents retaining this already-started load.
+         * A closed handle or a handle from another cache remains a caller error.
+         */
         public boolean publish(K key, V value) {
             K nonNullKey = Objects.requireNonNull(key, "key can not be null");
             return owner.delegate.publish(delegate, nonNullKey, owner.definition.scope(nonNullKey), value);
