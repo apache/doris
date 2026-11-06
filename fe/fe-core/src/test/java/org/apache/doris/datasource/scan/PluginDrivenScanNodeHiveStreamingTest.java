@@ -286,6 +286,7 @@ class PluginDrivenScanNodeHiveStreamingTest {
             Deencapsulation.setField(node, "connectorSession", session);
             Deencapsulation.setField(node, "currentHandle", handle);
             Deencapsulation.setField(node, "cachedMetadata", Mockito.mock(ConnectorMetadata.class));
+            Deencapsulation.setField(node, "metadataRead", Optional.empty());
             Deencapsulation.setField(node, "sessionVariable", variables);
             Deencapsulation.setField(node, "desc", desc);
             Mockito.doReturn(Mockito.mock(TableIf.class)).when(node).getTargetTable();

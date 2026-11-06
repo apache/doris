@@ -501,14 +501,8 @@ TEST_F(InvertedIndexIteratorTest, MatchBindsDistinctIkModesAndLowercaseStates) {
     config::inverted_index_dict_path = std::string(doris_home) + "../../dict";
     Configuration dictionary_config;
     dictionary_config.setDictPath(config::inverted_index_dict_path + "/ik");
-    try {
-        Dictionary::initial(dictionary_config);
-    } catch (const CLuceneError&) {
-        // Another test may have initialized the shared dictionary with an invalid path.
-        Dictionary::getSingleton()->getConfiguration()->setDictPath(
-                dictionary_config.getDictPath());
-        Dictionary::reload();
-    }
+    // A test that failed to load the shared dictionary leaves nothing behind, so this loads it.
+    Dictionary::initial(dictionary_config);
     const std::vector<std::map<std::string, std::string>> properties {
             {{"parser", "ik"}, {"lower_case", "false"}},
             {{"analyzer", "ik"}, {"lower_case", "false"}},

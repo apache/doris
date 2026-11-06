@@ -114,12 +114,15 @@ class PostgresSchemaChangeDeserializeTest {
                 newDeserializer(
                         tableWith(column("id", "int4", true, null).edit().nativeType(23).create()));
         Table fresh = tableWith(column("id", "int8", true, null).edit().nativeType(20).create());
+        deserializer.targetTableMappingsCache = Map.of("t1", "mapped_t1");
 
         DeserializeResult result = deserializer.deserialize(CONTEXT, schemaRecord(fresh));
 
         assertEquals(DeserializeResult.Type.SCHEMA_CHANGE, result.getType());
         assertNotNull(result.getUnsupportedReason());
-        assertTrue(result.getUnsupportedReason().contains("int4 to int8"));
+        assertTrue(result.getUnsupportedReason().contains("int4 to int8 (OID 23 -> 20)"));
+        assertTrue(result.getUnsupportedReason().contains("Table: public.t1 -> doris_db.mapped_t1"));
+        assertFalse(result.getUnsupportedReason().contains("Source DDL:"));
         assertTrue(result.getDdls().isEmpty(), "type change must not emit DDL");
         assertEquals(fresh, result.getUpdatedSchemas().get(TABLE).getTable());
     }
@@ -276,7 +279,7 @@ class PostgresSchemaChangeDeserializeTest {
 
     @Test
     void relationSimultaneousAddAndDropRequiresConfirmationWithoutApplyingBaseline() throws Exception {
-        // stored [id,name]; Relation [id,nick] -> name dropped + nick added -> treated as RENAME.
+        // Relation reports the final columns, not the original DDL or a confirmed rename.
         Table baseline = storedTable("id", "name");
         Table fresh = storedTable("id", "nick");
         PostgresDebeziumJsonDeserializer deserializer = newDeserializer(baseline);
@@ -287,6 +290,10 @@ class PostgresSchemaChangeDeserializeTest {
         assertEquals(DeserializeResult.Type.SCHEMA_CHANGE, result.getType());
         assertNotNull(result.getUnsupportedReason());
         assertTrue(result.getUnsupportedReason().contains("rename"));
+        assertTrue(result.getUnsupportedReason().contains("Table: public.t1 -> doris_db.t1"));
+        assertTrue(result.getUnsupportedReason().contains("columns added=[nick]; removed=[name]"));
+        assertFalse(result.getUnsupportedReason().contains("Source DDL:"));
+        assertFalse(result.getUnsupportedReason().contains("name -> nick"));
         assertTrue(result.getDdls().isEmpty(), "rename must not emit DDL");
         assertEquals(fresh, result.getUpdatedSchemas().get(TABLE).getTable());
         assertEquals(baseline, deserializer.getTableSchemas().get(TABLE).getTable());

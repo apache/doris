@@ -109,6 +109,16 @@ public class ShowSnapshotCommand extends ShowCommand {
         return builder.build();
     }
 
+    /** Resolve the snapshot header without accessing the remote repository. */
+    public ShowResultSetMetaData getMetaData(ConnectContext ctx) throws UserException {
+        // Both filters must be analyzed before choosing the detail header, even during Prepare.
+        if (!validate(ctx)) {
+            throw new AnalysisException("Where clause should looks like: SNAPSHOT = 'your_snapshot_name'"
+                    + " [AND TIMESTAMP = '2018-04-18-19-19-10'] [AND SNAPSHOTTYPE = 'remote' | 'local']");
+        }
+        return getMetaData();
+    }
+
     private boolean analyzeSubExpression(Expression expr) {
         if (expr instanceof ComparisonPredicate) {
             return analyzeComparisonPredicate((ComparisonPredicate) expr);
@@ -194,18 +204,14 @@ public class ShowSnapshotCommand extends ShowCommand {
      * handle show backup
      */
     private ShowResultSet handleShowSnapshot(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        boolean valid = validate(ctx);
-        if (!valid) {
-            throw new AnalysisException("Where clause should looks like: SNAPSHOT = 'your_snapshot_name'"
-                    + " [AND TIMESTAMP = '2018-04-18-19-19-10'] [AND SNAPSHOTTYPE = 'remote' | 'local']");
-        }
+        ShowResultSetMetaData metadata = getMetaData(ctx);
 
         Repository repo = Env.getCurrentEnv().getBackupHandler().getRepoMgr().getRepo(repoName);
         if (repo == null) {
             throw new AnalysisException("Repository " + repoName + " does not exist");
         }
         List<List<String>> snapshotInfos = repo.getSnapshotInfos(snapshotName, timestamp);
-        return new ShowResultSet(getMetaData(), snapshotInfos);
+        return new ShowResultSet(metadata, snapshotInfos);
     }
 
     @Override

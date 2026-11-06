@@ -18,7 +18,6 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.SetVar;
-import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.qe.ComputeGroupException;
@@ -30,9 +29,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
@@ -564,6 +561,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PAGE_CACHE = "enable_page_cache";
     public static final String ENABLE_PARQUET_FILE_PAGE_CACHE = "enable_parquet_file_page_cache";
+    public static final String ENABLE_PARQUET_WRITE_PAGE_INDEX = "enable_parquet_write_page_index";
+    public static final String PARQUET_WRITE_DATA_PAGE_SIZE = "parquet_write_data_page_size";
 
     public static final String DUMP_NEREIDS_MEMO = "dump_nereids_memo";
 
@@ -1452,16 +1451,16 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_DISTINCT_STREAMING_AGGREGATION, needForward = true, fuzzy = true)
     public boolean enableDistinctStreamingAggregation = true;
 
-    @VarAttrDef.VarAttr(name = ENABLE_STREAMING_AGG_HASH_JOIN_FORCE_PASSTHROUGH, fuzzy = true)
+    @VarAttrDef.VarAttr(name = ENABLE_STREAMING_AGG_HASH_JOIN_FORCE_PASSTHROUGH, needForward = true, fuzzy = true)
     public boolean enableStreamingAggHashJoinForcePassthrough = true;
 
     @VarAttrDef.VarAttr(name = ENABLE_LOCAL_EXCHANGE_BEFORE_AGG, needForward = true, fuzzy = true)
     public boolean enableLocalExchangeBeforeAgg = true;
 
-    @VarAttrDef.VarAttr(name = ENABLE_LOCAL_EXCHANGE_BEFORE_STREAMING_AGG, fuzzy = true)
+    @VarAttrDef.VarAttr(name = ENABLE_LOCAL_EXCHANGE_BEFORE_STREAMING_AGG, needForward = true, fuzzy = true)
     public boolean enableLocalExchangeBeforeStreamingAgg = false;
 
-    @VarAttrDef.VarAttr(name = ENABLE_DISTINCT_STREAMING_AGG_FORCE_PASSTHROUGH, fuzzy = true)
+    @VarAttrDef.VarAttr(name = ENABLE_DISTINCT_STREAMING_AGG_FORCE_PASSTHROUGH, needForward = true, fuzzy = true)
     public boolean enableDistinctStreamingAggForcePassthrough = true;
 
     @VarAttrDef.VarAttr(name = ENABLE_BROADCAST_JOIN_FORCE_PASSTHROUGH, needForward = true, fuzzy = true)
@@ -1778,7 +1777,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(
                 name = FORCE_TO_LOCAL_SHUFFLE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
-                description = "Whether to force to local shuffle on pipelineX engine.")
+                description = "Whether to force to local shuffle on pipelineX engine.", needForward = true)
     private boolean forceToLocalShuffle = false;
 
     @VarAttrDef.VarAttr(
@@ -1884,8 +1883,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = RUNTIME_FILTER_BROADCAST_JOIN_PRODUCER_NUM, needForward = true,
             description = "Controls the number of producer BEs for each broadcast join runtime filter in "
-                    + "the Nereids distributed planner. Values less than or equal to 0 disable the limit. "
-                    + "The legacy Coordinator path keeps the existing behavior.")
+                    + "the Nereids distributed planner. Values less than or equal to 0 disable the limit.")
     private int runtimeFilterBroadcastJoinProducerNum = 3;
 
     @VarAttrDef.VarAttr(name = RUNTIME_FILTER_TREE_PUBLISH_MAX_SEND_BYTES, needForward = true, fuzzy = true,
@@ -2202,12 +2200,7 @@ public class SessionVariable implements Serializable, Writable {
     public double filterCostFactor = 0.0001;
 
     @VarAttrDef.VarAttr(name = ENABLE_NEREIDS_DISTRIBUTE_PLANNER, needForward = true,
-            fuzzy = false,
-            varType = VariableAnnotation.EXPERIMENTAL,
-            description = "The switch to use new DistributedPlanner of nereids, this planner can planning some "
-                    + "more efficient query plans, e.g. in certain situations, shuffle left side to "
-                    + "right side to do bucket shuffle join"
-    )
+            varType = VariableAnnotation.REMOVED)
     private boolean enableNereidsDistributePlanner = true;
 
     @VarAttrDef.VarAttr(name = REWRITE_OR_TO_IN_PREDICATE_THRESHOLD, fuzzy = true)
@@ -2567,6 +2560,19 @@ public class SessionVariable implements Serializable, Writable {
             description = "Controls whether to use Parquet file page cache. The default is true.",
             needForward = true)
     public boolean enableParquetFilePageCache = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_PARQUET_WRITE_PAGE_INDEX, needForward = true,
+            description = "Write ColumnIndex and OffsetIndex metadata to new Parquet files. Default is true.")
+    public boolean enableParquetWritePageIndex = true;
+
+    @VarAttrDef.VarAttr(name = PARQUET_WRITE_DATA_PAGE_SIZE, needForward = true,
+            checker = "checkParquetWriteDataPageSize",
+            description = "Target uncompressed Parquet data-page size in bytes. Must be positive; default is 1048576.")
+    public int parquetWriteDataPageSize = 1048576;
+
+    public void checkParquetWriteDataPageSize(String value) throws Exception {
+        checkFieldValue(PARQUET_WRITE_DATA_PAGE_SIZE, 1, value);
+    }
 
     @VarAttrDef.VarAttr(name = ENABLE_FOLD_NONDETERMINISTIC_FN)
     public boolean enableFoldNondeterministicFn = false;
@@ -5385,37 +5391,6 @@ public class SessionVariable implements Serializable, Writable {
         return false;
     }
 
-    /** canUseNereidsDistributePlanner */
-    public static boolean canUseNereidsDistributePlanner() {
-        ConnectContext connectContext = ConnectContext.get();
-        if (connectContext != null) {
-            return canUseNereidsDistributePlanner(connectContext);
-        } else {
-            return true;
-        }
-    }
-
-    /** canUseNereidsDistributePlanner */
-    public static boolean canUseNereidsDistributePlanner(ConnectContext connectContext) {
-        SessionVariable sessionVariable = connectContext.getSessionVariable();
-        StatementContext statementContext = connectContext.getStatementContext();
-        if (statementContext != null) {
-            StatementBase parsedStatement = statementContext.getParsedStatement();
-            if (!(parsedStatement instanceof LogicalPlanAdapter)) {
-                return false;
-            }
-        }
-        return sessionVariable.enableNereidsDistributePlanner;
-    }
-
-    public boolean isEnableNereidsDistributePlanner() {
-        return enableNereidsDistributePlanner;
-    }
-
-    public void setEnableNereidsDistributePlanner(boolean enableNereidsDistributePlanner) {
-        this.enableNereidsDistributePlanner = enableNereidsDistributePlanner;
-    }
-
     public int getNthOptimizedPlan() {
         return nthOptimizedPlan;
     }
@@ -5845,6 +5820,9 @@ public class SessionVariable implements Serializable, Writable {
         }
 
         tResult.setEnableParquetLazyMat(enableParquetLazyMat);
+        // Query options carry the same write policy to OUTFILE and catalog sinks.
+        tResult.setEnableParquetWritePageIndex(enableParquetWritePageIndex);
+        tResult.setParquetWriteDataPageSize(parquetWriteDataPageSize);
         tResult.setEnableOrcLazyMat(enableOrcLazyMat);
         tResult.setEnableParquetFilterByMinMax(enableParquetFilterByMinMax);
         tResult.setEnableParquetFilterByBloomFilter(enableParquetFilterByBloomFilter);

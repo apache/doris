@@ -72,7 +72,8 @@ suite("test_es_epoch_millis", "p2,external") {
         (9,'VALUE','1969-12-31 23:59:58'),(10,'VALUE','2023-03-04 02:08:48'),
         (11,'VALUE',null),(12,'VALUE','1970-01-01 00:00:00'),(13,'VALUE',null),(14,'VALUE',null)"""
     def expected = "internal.${context.dbName}.es_epoch_millis_expected"
-    def originalV2 = sql("show variables like 'enable_file_scanner_v2'")[0][1]
+    // SHOW prefixes deprecated variable names; scalar access keeps the compatibility name stable.
+    def originalV2 = sql("SELECT @@enable_file_scanner_v2")[0][0]
     def originalParallel = sql("show variables like 'enable_es_parallel_scroll'")[0][1]
     def originalZone = sql("show variables like 'time_zone'")[0][1]
     try {
