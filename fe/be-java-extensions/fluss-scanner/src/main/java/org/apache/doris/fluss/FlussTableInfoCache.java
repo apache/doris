@@ -43,8 +43,8 @@ import java.util.function.Supplier;
  */
 final class FlussTableInfoCache {
 
-    /** The catalog's {@code fluss.metadata.cache.ttl.sec}, which FE keeps its table infos for as well. */
-    static final String TTL_PROPERTY = "fluss.client.metadata.cache.ttl.sec";
+    /** FE sends this Doris cache option outside the {@code fluss.client.*} client configuration. */
+    static final String TTL_PROPERTY = "fluss.metadata.cache.ttl.sec";
     static final long DEFAULT_TTL_SEC = 10;
 
     static final FlussTableInfoCache INSTANCE = new FlussTableInfoCache(System::nanoTime);

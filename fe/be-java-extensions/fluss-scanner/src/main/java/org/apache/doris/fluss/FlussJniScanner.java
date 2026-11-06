@@ -249,14 +249,14 @@ public class FlussJniScanner extends JniScanner {
 
     /**
      * The table, built from the info {@link FlussTableInfoCache} keeps for it rather than asked of the
-     * cluster by every range. A TTL of zero asks the way every range used to, metadata refresh included.
+     * cluster by every range. Nonpositive TTLs or incomplete planned identities require live metadata.
      */
     private Table openTable(Map<String, String> config) throws Exception {
         TablePath tablePath = TablePath.of(required(DB_NAME), required(TABLE_NAME));
         long ttlNanos = TimeUnit.SECONDS.toNanos(Long.parseLong(params.getOrDefault(
                 FlussTableInfoCache.TTL_PROPERTY, String.valueOf(FlussTableInfoCache.DEFAULT_TTL_SEC))));
-        if (ttlNanos <= 0) {
-            // Cache policy changes reuse, never which table may consume the planned bucket/offset range.
+        if (ttlNanos <= 0 || !params.containsKey("fluss.table_id") || !params.containsKey("fluss.schema_id")) {
+            // Without both planned identities, stale metadata cannot be distinguished from a replacement table.
             return validatePlannedIdentity(connection.getTable(tablePath));
         }
         Supplier<TableInfo> load = () -> connection.getAdmin().getTableInfo(tablePath).join();
