@@ -86,7 +86,7 @@ public class PhysicalWorkTableReference extends PhysicalRelation {
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalWorkTableReference(relationId, cteId, outputs,
-                nameParts, groupExpression, getLogicalProperties(), physicalProperties, statistics));
+                nameParts, groupExpression, logicalProperties.get(), physicalProperties, statistics));
     }
 
     @Override

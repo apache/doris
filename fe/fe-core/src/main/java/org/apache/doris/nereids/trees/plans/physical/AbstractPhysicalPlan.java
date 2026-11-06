@@ -18,12 +18,14 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.util.LazyCompute;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.model.Statistics;
@@ -33,6 +35,8 @@ import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 /**
@@ -60,6 +64,20 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
                 statistics, ImmutableList.copyOf(children));
         this.physicalProperties =
                 physicalProperties == null ? PhysicalProperties.ANY : physicalProperties;
+    }
+
+    /**
+     * Copy the node for profile display, sharing expressions and metadata but detaching planner state.
+     * Capture output values: reusing LogicalProperties would retain its suppliers and their plans.
+     * Operators with plan references outside children must also copy those references.
+     */
+    public AbstractPhysicalPlan copyForProfile(Function<Plan, Plan> copyPlan) {
+        LogicalProperties properties = new LogicalProperties(LazyCompute.ofInstance(getOutput()),
+                LazyCompute.ofInstance(getAsteriskOutput()), () -> DataTrait.EMPTY_TRAIT);
+        List<Plan> copiedChildren = children.stream().map(copyPlan).collect(Collectors.toList());
+        PhysicalPlan copy = (PhysicalPlan) withGroupExprLogicalPropChildren(
+                Optional.empty(), Optional.of(properties), copiedChildren);
+        return (AbstractPhysicalPlan) copy.withPhysicalPropertiesAndStats(physicalProperties, null);
     }
 
     public PhysicalProperties getPhysicalProperties() {

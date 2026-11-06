@@ -26,6 +26,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.InternalSchemaInitializer;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.TableIf;
@@ -65,6 +66,8 @@ import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -73,6 +76,8 @@ import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.Planner;
@@ -80,6 +85,7 @@ import org.apache.doris.planner.ResultFileSink;
 import org.apache.doris.qe.protocol.ResultSender;
 import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.statistics.model.ColumnStatisticBuilder;
 import org.apache.doris.statistics.model.Statistics;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TCounter;
@@ -738,7 +744,8 @@ public class StmtExecutorTest extends TestWithFeService {
                 Assertions.assertFalse(profileText.contains("DetailProfile(" + DebugUtil.printId(firstQueryId) + ")"));
                 Assertions.assertTrue(profileText.contains("DetailProfile(" + DebugUtil.printId(retryQueryId) + ")"));
                 Assertions.assertEquals(42L, profile.rowsProducedMap.get(String.valueOf(planNodeId)));
-                Assertions.assertEquals(42L, statistics.getActualRowCount());
+                Assertions.assertEquals(42L, profile.getPhysicalPlan().getStats().getActualRowCount());
+                Assertions.assertEquals(-1L, statistics.getActualRowCount());
 
                 profile.writeToStorage(profileDirectory.toString());
                 Profile storedProfile = Profile.read(profile.getProfileStoragePath());
@@ -940,10 +947,12 @@ public class StmtExecutorTest extends TestWithFeService {
         ProfileManager manager = ProfileManager.getInstance();
         boolean fetchFailure = outcome.startsWith("FETCH_FAILURE_");
         Planner planner = fetchFailure ? Mockito.mock(NereidsPlanner.class) : Mockito.mock(Planner.class);
-        Statistics failedStatistics = Mockito.mock(Statistics.class);
-        Statistics successfulStatistics = Mockito.mock(Statistics.class);
-        Mockito.when(failedStatistics.printColumnStats()).thenReturn("abandoned-plan-column-statistics\n");
-        Mockito.when(successfulStatistics.printColumnStats()).thenReturn("successful-plan-column-statistics\n");
+        SlotReference failedColumn = new SlotReference("abandoned-plan-column-statistics", IntegerType.INSTANCE);
+        SlotReference successfulColumn = new SlotReference("successful-plan-column-statistics", IntegerType.INSTANCE);
+        Statistics failedStatistics = new Statistics(1000,
+                Map.of(failedColumn, new ColumnStatisticBuilder(1000).setNdv(10).build()));
+        Statistics successfulStatistics = new Statistics(42,
+                Map.of(successfulColumn, new ColumnStatisticBuilder(42).setNdv(10).build()));
         Field plannerField = StmtExecutor.class.getDeclaredField("planner");
         plannerField.setAccessible(true);
         Method handle = StmtExecutor.class.getDeclaredMethod("handleQueryWithRetry", TUniqueId.class);
@@ -992,8 +1001,16 @@ public class StmtExecutorTest extends TestWithFeService {
                 }
                 Mockito.when(((NereidsPlanner) planner).getDistributedPlans()).thenReturn(distributedPlans);
                 Mockito.when(((NereidsPlanner) planner).getPhysicalPlan()).thenReturn(plan);
+                PhysicalOlapScan relation = Mockito.mock(PhysicalOlapScan.class);
+                OlapTable table = Mockito.mock(OlapTable.class);
+                Mockito.when(table.getName()).thenReturn("profile_replan");
+                Mockito.when(relation.getTable()).thenReturn(table);
+                Mockito.when(relation.getQualifier()).thenReturn(List.of("test"));
+                Mockito.when(relation.getOperativeSlots()).thenReturn(List.of(
+                        attempts.get() == 1 ? failedColumn : successfulColumn));
+                Mockito.when(relation.getStats()).thenReturn(plan.getStats());
                 Mockito.when(((NereidsPlanner) planner).getPhysicalRelations())
-                        .thenReturn(Collections.singletonList(plan));
+                        .thenReturn(Collections.singletonList(relation));
             }
             plannerField.set(executor, planner);
             try {
@@ -1107,7 +1124,7 @@ public class StmtExecutorTest extends TestWithFeService {
                     Assertions.assertFalse(finalText.contains("abandoned-backend-selection"));
                     Assertions.assertFalse(profile.rowsProducedMap.containsKey(String.valueOf(plans.get(0).getId())));
                     Assertions.assertEquals(42L, profile.rowsProducedMap.get(String.valueOf(plans.get(1).getId())));
-                    Mockito.verify(failedStatistics, Mockito.times(1)).printColumnStats();
+                    Assertions.assertEquals(-1L, failedStatistics.getActualRowCount());
                 }
             } else {
                 Class<? extends Exception> errorType = "RPC".equals(outcome) ? RpcException.class : UserException.class;
@@ -1224,7 +1241,8 @@ public class StmtExecutorTest extends TestWithFeService {
                     Mockito.when(coordinator.getExecStatus()).thenReturn(Status.OK);
                     Mockito.doAnswer(dispatch -> {
                         if (!firstAttempt) {
-                            Assertions.assertSame(plan, profile.getPhysicalPlan());
+                            Assertions.assertNotSame(plan, profile.getPhysicalPlan());
+                            Assertions.assertEquals(plan.getId(), ((AbstractPlan) profile.getPhysicalPlan()).getId());
                             Assertions.assertTrue(profile.rowsProducedMap.isEmpty());
                             Assertions.assertEquals(-1L, rootStatistics.getActualRowCount());
                             Assertions.assertEquals(-1L, childStatistics.getActualRowCount());
@@ -1250,7 +1268,8 @@ public class StmtExecutorTest extends TestWithFeService {
                             String firstText = profile.getProfileByLevel();
                             Assertions.assertTrue(firstText.contains("actualRows=1000"));
                             Assertions.assertTrue(firstText.contains("actualRows=500"));
-                            Assertions.assertEquals(500L, childStatistics.getActualRowCount());
+                            Assertions.assertEquals(500L, profile.getPhysicalPlan().child(0).getStats().getActualRowCount());
+                            Assertions.assertEquals(-1L, childStatistics.getActualRowCount());
                             throw new RpcException("test-be", "fetch failed before sending results");
                         }
                         if (terminalFailure) {
@@ -1291,7 +1310,8 @@ public class StmtExecutorTest extends TestWithFeService {
             Assertions.assertTrue(finalText.contains("actualRows=42"));
             Assertions.assertFalse(finalText.contains("actualRows=1000"));
             Assertions.assertFalse(finalText.contains("actualRows=500"));
-            Assertions.assertEquals(42L, rootStatistics.getActualRowCount());
+            Assertions.assertEquals(42L, profile.getPhysicalPlan().getStats().getActualRowCount());
+            Assertions.assertEquals(-1L, rootStatistics.getActualRowCount());
             Assertions.assertEquals(-1L, childStatistics.getActualRowCount());
             Assertions.assertFalse(profile.rowsProducedMap.containsKey(String.valueOf(child.getId())));
             profile.writeToStorage(profileDirectory.toString());
