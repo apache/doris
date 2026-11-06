@@ -142,7 +142,7 @@ import javax.annotation.Nullable;
  * unregistered internal context can be used privately and closed by its creating scope without
  * activation or per-statement bookkeeping.
  *
- * <p>Only one initialization, request, expiry maintenance or finalizer owns execution at a time.
+ * <p>Only one initialization, request, expiry maintenance or cleanup owns execution at a time.
  * Queued requests acquire ownership when they actually start, not when submitted. A stale pool
  * lookup grants no admission.
  * Rejected or discarded initialization/request tasks remain their submitter's responsibility.
@@ -154,7 +154,7 @@ import javax.annotation.Nullable;
  * <pre>
  * OPEN -- AFTER_RESPONSE -----------------&gt; AFTER_RESPONSE
  * OPEN / AFTER_RESPONSE -- IMMEDIATE -----&gt; STOPPING
- * AFTER_RESPONSE -- finalizer takes turn -&gt; STOPPING
+ * AFTER_RESPONSE -- response released ----&gt; STOPPING
  * </pre>
  * STOPPING is terminal; it does not promise that resource release has completed. There is no
  * separate CLOSED state, cleanup phase or completion-wait API. Both close modes immediately reject
@@ -171,28 +171,30 @@ import javax.annotation.Nullable;
  * than being treated as delivered when FlightInfo returns. None of these boundaries promises receipt.
  *
  * <p>Before yielding, the owner checks whether the protocol still holds response resources. With no
- * such resources and AFTER_RESPONSE still in force, it publishes a ready finalizer. An idle close
- * borrows execution to make the same decision. No thread retains execution between RPCs, and no
- * finalizer waits or requeues itself for a client. The finalizer claims STOPPING and unregisters before
- * closing transport and releasing resources. An immediate upgrade invalidates graceful finalization.
+ * such resources and AFTER_RESPONSE still in force, it atomically claims STOPPING and unregisters,
+ * retaining execution to close transport and release resources directly. An idle close borrows
+ * execution to make the same decision. No thread retains execution between RPCs or waits for a client.
+ * An immediate close that wins before this claim takes responsibility for interruption and cleanup.
  *
  * <p>{@link #cleanup()} requests IMMEDIATE closure. Its unique winner closes transport and cancels
  * execution outside the handoff lock. MySQL socket closure unblocks incomplete packet reads. Flight
  * has no per-session gRPC transport to close. Cancellation can invoke synchronous callbacks, so the
- * winner publishes the finalizer only in its finally, after interruption and thread-local restoration.
+ * winner hands off cleanup only in its finally, after interruption and thread-local restoration.
  * An exiting request must not clean up just because it sees STOPPING: cancellation may still be using
  * resources. A late executor published by the current owner observes STOPPING and is cancelled too.
  *
- * <p>Finalizer publication and owner exit share lifecycleLock. With an owner, publication leaves the
- * task for that owner's exit. Without one, the publisher claims execution and runs it inline. This
- * handles either ordering without waiting for the request, counting references or submitting cleanup
- * to another executor. The finalizer releases protocol state, rolls back transactions, invokes the
+ * <p>Interruption completion and owner exit share lifecycleLock. If an owner remains, the closer sets
+ * cleanupPending; that owner consumes the flag and keeps execution to clean up on exit. Otherwise,
+ * the closer takes execution and cleans up inline. This handles either ordering without a task object,
+ * waiting for the request, counting references or submitting work to another executor. Cleanup
+ * releases protocol state, rolls back transactions, invokes the
  * existing temporary-table/session hooks and clears statement state. Each step is attempted once;
  * failures are logged and remaining steps continue. Reentrant close callbacks see STOPPING and return.
  * Cleanup binds this context for rollback helpers, then restores an unrelated caller's binding.
+ * Its finally releases execution directly, without rechecking protocol resources or entering yield again.
  *
  * <h2>Concurrency boundaries</h2>
- * Close intent, execution ownership, the pending finalizer, registration and idle-expiry decisions
+ * Close intent, execution ownership, cleanupPending, registration and idle-expiry decisions
  * share lifecycleLock. Lock order is lifecycleLock then the pool's admissionLock; pool changes only
  * update local indexes and quotas. User-property lookups run outside lifecycleLock; timeout checks
  * revalidate the observed statement after the lookup. Cancellation and resource release run outside both locks. The
@@ -247,7 +249,8 @@ public class ConnectContext {
     private volatile CloseIntent closeIntent = CloseIntent.OPEN;
     // Guarded by lifecycleLock. Ownership covers the entire request, including its finally blocks.
     private Thread owner;
-    private Runnable pendingFinalizer;
+    // Interruption has finished; the current owner must clean up when it exits. Guarded by lifecycleLock.
+    private boolean cleanupPending;
     private ConnectPoolMgr registeredPool;
     // set this id before analyze
     protected volatile long stmtId;
@@ -1407,40 +1410,48 @@ public class ConnectContext {
         }
     }
 
-    // Atomically returns execution or hands it directly to the already-ready finalizer. A close
-    // whose synchronous interruption is still running has not published a finalizer yet.
+    // The exiting owner either returns execution or keeps it to clean up. An immediate close
+    // cannot hand off cleanup until its synchronous interruption has finished.
     private void yieldExecution(Runnable onIdle) {
-        Runnable finalizer;
+        boolean cleanup;
+        boolean closeTransport;
         Throwable rearmFailure = null;
         StmtExecutor toCancel = null;
         // Still holding execution: no request or expiry maintenance can change the response here.
         boolean hasPendingResponse = protocolAdapter.hasPendingResponse();
         synchronized (lifecycleLock) {
             Preconditions.checkState(owner == Thread.currentThread(), "Execution belongs to another thread");
-            if (closeIntent == CloseIntent.AFTER_RESPONSE && !hasPendingResponse) {
-                pendingFinalizer = this::finishAfterResponse;
+            closeTransport = closeIntent == CloseIntent.AFTER_RESPONSE && !hasPendingResponse;
+            if (closeTransport) {
+                closeIntent = CloseIntent.STOPPING;
+                unregisterClientSessionLocked();
             }
-            owner = null;
-            finalizer = claimFinalizerLocked();
-            if (finalizer == null && closeIntent == CloseIntent.OPEN && onIdle != null) {
-                try {
-                    onIdle.run();
-                } catch (RuntimeException | Error failure) {
-                    rearmFailure = failure;
-                    requestCloseLocked(CloseMode.IMMEDIATE);
-                    toCancel = executor;
+            cleanup = closeTransport || cleanupPending;
+            cleanupPending = false;
+            if (!cleanup) {
+                owner = null;
+                if (closeIntent == CloseIntent.OPEN && onIdle != null) {
+                    try {
+                        onIdle.run();
+                    } catch (RuntimeException | Error failure) {
+                        rearmFailure = failure;
+                        requestCloseLocked(CloseMode.IMMEDIATE);
+                        toCancel = executor;
+                    }
                 }
             }
             lifecycleLock.notifyAll();
         }
         if (rearmFailure != null) {
-            interruptAndPublishFinalizer(toCancel);
+            interruptAndHandOffCleanup(toCancel);
             if (rearmFailure instanceof Error) {
                 throw (Error) rearmFailure;
             }
             throw (RuntimeException) rearmFailure;
         }
-        runFinalizer(finalizer);
+        if (cleanup) {
+            finishCleanup(closeTransport);
+        }
     }
 
     // Expiry and an idle graceful close borrow the same owner without renewing the session. They
@@ -1456,27 +1467,6 @@ public class ConnectContext {
             action.run();
             return null;
         }, null);
-    }
-
-    // All callers hold lifecycleLock. Pending work is consumed once, together with execution.
-    private Runnable claimFinalizerLocked() {
-        if (owner != null || pendingFinalizer == null) {
-            return null;
-        }
-        owner = Thread.currentThread();
-        Runnable finalizer = pendingFinalizer;
-        pendingFinalizer = null;
-        return finalizer;
-    }
-
-    private void runFinalizer(Runnable finalizer) {
-        if (finalizer != null) {
-            try {
-                finalizer.run();
-            } finally {
-                yieldExecution(null);
-            }
-        }
     }
 
     // A snapshot; empty for a connection of any other protocol.
@@ -1531,17 +1521,14 @@ public class ConnectContext {
     public void requestClose(CloseMode mode) {
         Preconditions.checkNotNull(mode, "close mode");
         boolean interrupt;
-        Runnable finalizer;
         StmtExecutor toCancel;
         synchronized (lifecycleLock) {
             interrupt = requestCloseLocked(mode);
             toCancel = executor;
-            finalizer = claimFinalizerLocked();
         }
         if (interrupt) {
-            interruptAndPublishFinalizer(toCancel);
+            interruptAndHandOffCleanup(toCancel);
         } else {
-            runFinalizer(finalizer);
             // With no command to yield execution, make the same response-readiness decision now.
             runIdleMaintenance(() -> { });
         }
@@ -1558,7 +1545,6 @@ public class ConnectContext {
         boolean interrupt = mode == CloseMode.IMMEDIATE;
         closeIntent = interrupt ? CloseIntent.STOPPING : CloseIntent.AFTER_RESPONSE;
         if (interrupt) {
-            pendingFinalizer = null;
             unregisterClientSessionLocked();
         }
         lifecycleLock.notifyAll();
@@ -1573,25 +1559,37 @@ public class ConnectContext {
         }
     }
 
-    private void finishAfterResponse() {
+    // Called only by the unique interruption winner, after cancellation and TLS restoration.
+    private void handOffCleanup() {
         synchronized (lifecycleLock) {
-            if (closeIntent == CloseIntent.STOPPING) {
-                // An immediate close won after this task claimed execution. Its finalizer will
-                // be published after interruption, and this task must not release resources.
+            Preconditions.checkState(!cleanupPending, "Cleanup was already handed off");
+            if (owner != null) {
+                cleanupPending = true;
                 return;
             }
-            Preconditions.checkState(closeIntent == CloseIntent.AFTER_RESPONSE);
-            closeIntent = CloseIntent.STOPPING;
-            unregisterClientSessionLocked();
-            lifecycleLock.notifyAll();
+            owner = Thread.currentThread();
         }
-        cleanupStep("close transport", this::closeChannel);
-        finishCleanup();
+        finishCleanup(false);
     }
 
-    // Reached only by the unique finalizer holding execution, after the current response and
+    private void finishCleanup(boolean closeTransport) {
+        try {
+            if (closeTransport) {
+                cleanupStep("close transport", this::closeChannel);
+            }
+            releaseResources();
+        } finally {
+            synchronized (lifecycleLock) {
+                Preconditions.checkState(owner == Thread.currentThread(), "Cleanup belongs to another thread");
+                owner = null;
+                lifecycleLock.notifyAll();
+            }
+        }
+    }
+
+    // Reached only by the unique cleanup owner, after the current response and
     // immediate interruption have both stopped using session resources.
-    private void finishCleanup() {
+    private void releaseResources() {
         // Transaction rollback/forwarding uses ConnectContext.get(). Bind the closing context,
         // even when the caller is the timeout checker or another connection's KILL command.
         ConnectContext previous = ConnectContext.get();
@@ -1617,7 +1615,7 @@ public class ConnectContext {
         }
     }
 
-    private void interruptAndPublishFinalizer(StmtExecutor toCancel) {
+    private void interruptAndHandOffCleanup(StmtExecutor toCancel) {
         ConnectContext previous = ConnectContext.get();
         try {
             setThreadLocalInfo();
@@ -1632,13 +1630,7 @@ public class ConnectContext {
             try {
                 restoreThreadContext(previous);
             } finally {
-                Runnable finalizer;
-                synchronized (lifecycleLock) {
-                    Preconditions.checkState(pendingFinalizer == null, "Cleanup was already published");
-                    pendingFinalizer = this::finishCleanup;
-                    finalizer = claimFinalizerLocked();
-                }
-                runFinalizer(finalizer);
+                handOffCleanup();
             }
         }
     }
@@ -1873,7 +1865,7 @@ public class ConnectContext {
         if (idleClose) {
             LOG.warn("kill wait timeout connection, connection type: {}, connectionId: {}, wait timeout: {}",
                     getConnectType(), connectionId, sessionVariable.getWaitTimeoutS());
-            interruptAndPublishFinalizer(timedOut);
+            interruptAndHandOffCleanup(timedOut);
         } else if (timedOut != null) {
             cancelIfQueryTimedOut(now, timedOut, queryStartTime);
         } else if (protocolAdapter instanceof FlightProtocolAdapter) {

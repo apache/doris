@@ -33,6 +33,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
@@ -201,7 +203,7 @@ public class ConnectContextLifecycleTest {
     }
 
     @Test
-    public void testImmediateUpgradeInvalidatesDeferredFinalizer() {
+    public void testImmediateCloseUpgradesDeferredCloseBeforeOwnerExit() {
         register();
         StmtExecutor running = Mockito.mock(StmtExecutor.class);
         ctx.runCommand(() -> {
@@ -225,8 +227,32 @@ public class ConnectContextLifecycleTest {
         verifyReleasedOnce();
     }
 
+    @ParameterizedTest
+    @EnumSource(CloseMode.class)
+    public void testCleanupDoesNotReadReleasedProtocolState(CloseMode mode) {
+        register();
+        AtomicBoolean released = new AtomicBoolean();
+        AtomicBoolean readAfterRelease = new AtomicBoolean();
+        Mockito.doAnswer(call -> {
+            released.set(true);
+            return null;
+        }).when(adapter).releaseSession(ctx);
+        Mockito.when(adapter.hasPendingResponse()).thenAnswer(call -> {
+            if (released.get()) {
+                readAfterRelease.set(true);
+            }
+            return false;
+        });
+
+        ctx.runCommand(() -> ctx.requestClose(mode));
+
+        verifyReleasedOnce();
+        Assertions.assertFalse(readAfterRelease.get(), "Cleanup consulted protocol state after releasing it");
+        Assertions.assertEquals(0, pool.getConnectionNum());
+    }
+
     @Test
-    public void testRequestExitsBeforeCancellationPublishesFinalizer() throws Exception {
+    public void testRequestExitsBeforeCancellationHandsOffCleanup() throws Exception {
         register();
         StmtExecutor running = Mockito.mock(StmtExecutor.class);
         CountDownLatch entered = new CountDownLatch(1);
@@ -272,6 +298,62 @@ public class ConnectContextLifecycleTest {
             verifyReleasedOnce();
         } finally {
             exitRequest.countDown();
+            finishCancellation.countDown();
+            stop(workers);
+        }
+    }
+
+    @Test
+    public void testImmediateCloseDuringResponseCheckWaitsForCancellation() throws Exception {
+        register();
+        StmtExecutor running = Mockito.mock(StmtExecutor.class);
+        CountDownLatch checkingResponse = new CountDownLatch(1);
+        CountDownLatch finishResponseCheck = new CountDownLatch(1);
+        CountDownLatch cancelling = new CountDownLatch(1);
+        CountDownLatch finishCancellation = new CountDownLatch(1);
+        AtomicBoolean responseCheckFinished = new AtomicBoolean();
+        AtomicBoolean cancellationFinished = new AtomicBoolean();
+        AtomicReference<Thread> closer = new AtomicReference<>();
+        AtomicReference<Thread> releaser = new AtomicReference<>();
+        Mockito.when(adapter.hasPendingResponse()).thenAnswer(call -> {
+            checkingResponse.countDown();
+            responseCheckFinished.set(finishResponseCheck.await(10, TimeUnit.SECONDS));
+            return false;
+        });
+        Mockito.doAnswer(call -> {
+            cancelling.countDown();
+            cancellationFinished.set(finishCancellation.await(10, TimeUnit.SECONDS));
+            return null;
+        }).when(running).cancel(Mockito.any(Status.class), Mockito.eq(false));
+        Mockito.doAnswer(call -> {
+            releaser.set(Thread.currentThread());
+            return null;
+        }).when(adapter).releaseSession(ctx);
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> request = workers.submit(() -> ctx.runCommand(() -> {
+                ctx.setExecutor(running);
+                ctx.requestClose(CloseMode.AFTER_RESPONSE);
+            }));
+            await(checkingResponse);
+            Future<?> close = workers.submit(() -> {
+                closer.set(Thread.currentThread());
+                ctx.cleanup();
+            });
+            await(cancelling);
+            finishResponseCheck.countDown();
+            request.get(10, TimeUnit.SECONDS);
+            Assertions.assertTrue(responseCheckFinished.get());
+            Assertions.assertEquals(0, pool.getConnectionNum());
+            Mockito.verify(adapter, Mockito.never()).releaseSession(ctx);
+
+            finishCancellation.countDown();
+            close.get(10, TimeUnit.SECONDS);
+            Assertions.assertTrue(cancellationFinished.get());
+            Assertions.assertSame(closer.get(), releaser.get());
+            verifyReleasedOnce();
+        } finally {
+            finishResponseCheck.countDown();
             finishCancellation.countDown();
             stop(workers);
         }
@@ -328,7 +410,7 @@ public class ConnectContextLifecycleTest {
     }
 
     @Test
-    public void testConcurrentCloseDuringGracefulFinalizerDoesNotCancelOrReleaseTwice() throws Exception {
+    public void testConcurrentCloseDuringGracefulCleanupDoesNotCancelOrReleaseTwice() throws Exception {
         register();
         CountDownLatch closing = new CountDownLatch(1);
         CountDownLatch finishClose = new CountDownLatch(1);
@@ -356,7 +438,7 @@ public class ConnectContextLifecycleTest {
     }
 
     @Test
-    public void testFailuresStillPublishFinalizerAndAttemptRemainingResources() {
+    public void testFailuresStillHandOffCleanupAndAttemptRemainingResources() {
         pool = Mockito.spy(pool);
         register();
         Mockito.doAnswer(call -> {
