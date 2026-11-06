@@ -144,28 +144,36 @@ Status IndexSource::scoring_doc_freq_among(std::string_view term, std::span<cons
     return count_listed_docs(*cursor, docs, out);
 }
 
+// The norms are decoded a batch of documents at a time, so the buffers stay a few pages whatever
+// the segment's size: a segment of 100 million rows would otherwise take 400 MB for the norms of
+// every row.
+constexpr uint32_t kNormBatch = 4096;
+
 Status IndexSource::sum_norm_lengths_of(std::span<const uint32_t> docs, uint64_t* out) {
     *out = 0;
     const std::span<const float> lengths = norm_lengths();
     std::vector<uint32_t> norms;
-    RETURN_IF_ERROR(encoded_norms(docs, &norms));
-    for (const uint32_t norm : norms) {
-        if (norm >= lengths.size()) {
-            return Status::Corruption("encoded norm {} is out of range", norm);
+    norms.reserve(std::min<size_t>(kNormBatch, docs.size()));
+    for (size_t begin = 0; begin < docs.size(); begin += kNormBatch) {
+        RETURN_IF_ERROR(encoded_norms(
+                docs.subspan(begin, std::min<size_t>(kNormBatch, docs.size() - begin)), &norms));
+        for (const uint32_t norm : norms) {
+            if (norm >= lengths.size()) {
+                return Status::Corruption("encoded norm {} is out of range", norm);
+            }
+            *out += static_cast<uint64_t>(lengths[norm]);
         }
-        *out += static_cast<uint64_t>(lengths[norm]);
     }
     return Status::OK();
 }
 
 Status IndexSource::sum_norm_lengths(uint64_t* out) {
     *out = 0;
-    constexpr uint32_t kBatch = 4096;
     std::vector<uint32_t> docs;
-    docs.reserve(kBatch);
+    docs.reserve(kNormBatch);
     const uint32_t count = doc_count();
-    for (uint32_t begin = 0; begin < count; begin += std::min(kBatch, count - begin)) {
-        docs.resize(std::min(kBatch, count - begin));
+    for (uint32_t begin = 0; begin < count; begin += std::min(kNormBatch, count - begin)) {
+        docs.resize(std::min(kNormBatch, count - begin));
         std::iota(docs.begin(), docs.end(), begin);
         uint64_t batch = 0;
         RETURN_IF_ERROR(sum_norm_lengths_of(docs, &batch));

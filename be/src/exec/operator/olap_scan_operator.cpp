@@ -31,6 +31,7 @@
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_hotspot.h"
 #include "cloud/config.h"
+#include "core/field.h"
 #include "exec/operator/scan_operator.h"
 #include "exec/runtime_filter/runtime_filter_consumer_helper.h"
 #include "exec/scan/olap_scanner.h"
@@ -43,6 +44,7 @@
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/virtual_slot_ref.h"
+#include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 #include "io/cache/block_file_cache_profile.h"
 #include "runtime/query_cache/query_cache.h"
@@ -527,8 +529,46 @@ static Status validate_residual_scan_conjuncts(RuntimeState* state,
     return Status::OK();
 }
 
+// Whether `expr` is `slot = 0` on the slot `slot_id`, the conjunct the FE adds for the delete sign.
+static bool is_delete_sign_filter(const VExprSPtr& expr, int slot_id) {
+    DORIS_CHECK(expr != nullptr);
+    if (expr->fn().name.function_name != "eq") {
+        return false;
+    }
+    DORIS_CHECK(expr->get_num_children() == 2);
+    const auto& slot = expr->children()[0];
+    const auto& value = expr->children()[1];
+    if (!slot->is_slot_ref() || assert_cast<const VSlotRef*>(slot.get())->slot_id() != slot_id ||
+        !value->is_literal()) {
+        return false;
+    }
+    Field field;
+    assert_cast<const VLiteral*>(value.get())->get_column_ptr()->get(0, field);
+    return field == Field::create_field<TYPE_TINYINT>(0);
+}
+
+bool OlapScanLocalState::_conjuncts_filter_delete_sign() const {
+    const auto& p = _parent->cast<OlapScanOperatorX>();
+    const auto& slots = p._output_tuple_desc->slots();
+    const auto delete_sign = std::ranges::find_if(
+            slots, [](const SlotDescriptor* slot) { return slot->col_name() == DELETE_SIGN; });
+    // A conjunct on the delete sign reads its slot, so the scan outputs it.
+    if (delete_sign == slots.end()) {
+        return false;
+    }
+    const int slot_id = (*delete_sign)->id();
+    auto filters_delete_sign = [slot_id](const VExprContextSPtr& conjunct) {
+        return conjunct->root() != nullptr && is_delete_sign_filter(conjunct->root(), slot_id);
+    };
+    return std::ranges::any_of(_conjuncts, filters_delete_sign) ||
+           std::ranges::any_of(_common_expr_ctxs_push_down, filters_delete_sign);
+}
+
 Status OlapScanLocalState::_process_conjuncts(RuntimeState* state) {
     SCOPED_TIMER(_process_conjunct_timer);
+    // Read before the conjuncts are normalized, which moves them into column predicates and
+    // storage expressions.
+    _filters_delete_sign = _conjuncts_filter_delete_sign();
     RETURN_IF_ERROR(ScanLocalState::_process_conjuncts(state));
     if (ScanLocalState::_eos) {
         return Status::OK();
