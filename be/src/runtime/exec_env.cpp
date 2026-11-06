@@ -62,16 +62,6 @@ void ExecEnv::set_write_cooldown_meta_executors() {
     _write_cooldown_meta_executors = std::make_unique<WriteCooldownMetaExecutors>();
 }
 
-void ExecEnv::init_fluss_union_tail_cache() {
-    DCHECK(_fluss_union_tail_cache == nullptr);
-    _fluss_union_tail_cache = format::fluss::FlussUnionLakeReader::create_tail_cache();
-}
-
-void ExecEnv::destroy_fluss_union_tail_cache() {
-    // A function-static cache would unregister after graceful exit has already deleted CacheManager.
-    SAFE_DELETE(_fluss_union_tail_cache);
-}
-
 void ExecEnv::set_memtable_memory_limiter(MemTableMemoryLimiter* limiter) {
     _memtable_memory_limiter.reset(limiter);
 }
@@ -85,6 +75,17 @@ void ExecEnv::set_s3_file_upload_thread_pool(std::unique_ptr<ThreadPool>&& pool)
     _s3_file_upload_thread_pool = std::move(pool);
 }
 #endif // BE_TEST
+
+// init_mem_env() and destroy() call these in production, where BE_TEST is not defined.
+void ExecEnv::init_fluss_union_tail_cache() {
+    DCHECK(_fluss_union_tail_cache == nullptr);
+    _fluss_union_tail_cache = format::fluss::FlussUnionLakeReader::create_tail_cache();
+}
+
+void ExecEnv::destroy_fluss_union_tail_cache() {
+    // A function-static cache would unregister after graceful exit has already deleted CacheManager.
+    SAFE_DELETE(_fluss_union_tail_cache);
+}
 
 Result<BaseTabletSPtr> ExecEnv::get_tablet(int64_t tablet_id, SyncRowsetStats* sync_stats,
                                            bool force_use_only_cached, bool cache_on_miss) {

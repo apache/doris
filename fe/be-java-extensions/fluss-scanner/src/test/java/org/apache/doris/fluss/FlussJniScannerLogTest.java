@@ -686,6 +686,19 @@ public class FlussJniScannerLogTest {
                 .until(() -> openTableInfo(planned) != cached);
     }
 
+    @Test
+    public void feMetadataTtlCanShortenAnAlreadyCachedEntry() throws Exception {
+        TablePath tablePath = TablePath.of(db, "shortened_metadata_cache");
+        createIntTable(tablePath);
+        Map<String, String> planned = plannedMetadataParams(tablePath, admin.getTableInfo(tablePath).get());
+        TableInfo cached = openTableInfo(planned);
+        Assertions.assertSame(cached, openTableInfo(planned));
+
+        planned.put("fluss.metadata.cache.ttl.sec", "1");
+        Awaitility.await().pollInterval(Duration.ofMillis(250)).atMost(Duration.ofSeconds(5))
+                .until(() -> openTableInfo(planned) != cached);
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"fluss.table_id", "fluss.schema_id", "both"})
     public void missingPlannedIdentityDoesNotReuseMetadataFromAnotherScan(String omitted) throws Exception {

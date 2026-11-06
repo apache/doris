@@ -68,6 +68,43 @@ public class FlussTableInfoCacheTest {
         Assertions.assertEquals(2, loads.get(), "loads");
     }
 
+    @Test
+    public void shorterRequestedTtlRejectsAnOlderWarmEntry() {
+        cache.get(CLUSTER_A, TABLE, TimeUnit.SECONDS.toNanos(600), load(TABLE, 1));
+        now.addAndGet(TimeUnit.SECONDS.toNanos(2));
+
+        TableInfo fresh = cache.get(CLUSTER_A, TABLE, TimeUnit.SECONDS.toNanos(1), load(TABLE, 2));
+
+        Assertions.assertEquals(2, fresh.getTableId());
+        Assertions.assertEquals(2, loads.get(), "loads");
+        Assertions.assertEquals(1, cache.size(), "entries kept");
+    }
+
+    @Test
+    public void shorterRequestedTtlReusesFreshInfoWithoutResettingItsAge() {
+        TableInfo first = cache.get(CLUSTER_A, TABLE, TimeUnit.SECONDS.toNanos(600), load(TABLE, 1));
+        long shorterTtl = TimeUnit.SECONDS.toNanos(1);
+        now.addAndGet(shorterTtl - 1);
+        Assertions.assertSame(first, cache.get(CLUSTER_A, TABLE, shorterTtl, load(TABLE, 2)));
+        Assertions.assertEquals(1, loads.get(), "loads");
+
+        now.incrementAndGet();
+        Assertions.assertEquals(2, cache.get(CLUSTER_A, TABLE, shorterTtl, load(TABLE, 2)).getTableId());
+        Assertions.assertEquals(2, loads.get(), "loads");
+    }
+
+    @Test
+    public void metadataLoadingTimeDoesNotConsumeTheTtl() {
+        long ttl = TimeUnit.SECONDS.toNanos(1);
+        TableInfo first = cache.get(CLUSTER_A, TABLE, ttl, () -> {
+            now.addAndGet(2 * ttl);
+            return load(TABLE, 1).get();
+        });
+
+        Assertions.assertSame(first, cache.get(CLUSTER_A, TABLE, ttl, load(TABLE, 2)));
+        Assertions.assertEquals(1, loads.get(), "loads");
+    }
+
     /** A table recreated under the same name on another cluster is another table. */
     @Test
     public void catalogsWithOtherSettingsDoNotShareAnInfo() {
