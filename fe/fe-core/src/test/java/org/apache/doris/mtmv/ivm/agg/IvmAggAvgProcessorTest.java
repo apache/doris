@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv.ivm.agg;
 
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -45,7 +46,7 @@ class IvmAggAvgProcessorTest extends IvmAggProcessorTestBase {
         Assertions.assertTrue(processor.supportsOriginalFunction(new Avg(value)));
         Assertions.assertEquals(IvmAggFunctionKind.AVG, processor.handledFunctionKind());
         Assertions.assertEquals(ImmutableList.of(IvmAggStateKey.SUM, IvmAggStateKey.COUNT),
-                processor.hiddenStateKeys(new Avg(value)));
+                processor.hiddenStateKeys(new Avg(value), IvmUtil.DEFAULT_MINMAX_TOP_K));
 
         IvmAggTarget target = target(1, IvmAggFunctionKind.AVG, "avg_v", DoubleType.INSTANCE,
                 ImmutableMap.of(

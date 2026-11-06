@@ -17,6 +17,10 @@
 
 import org.apache.doris.regression.suite.Suite
 
+import org.awaitility.Awaitility
+
+import static java.util.concurrent.TimeUnit.SECONDS
+
 def anlyzedPlanShowFields = [
     LogicalProject : ['projects'],
     LogicalSort : ['orderKeys'],
@@ -149,10 +153,50 @@ def maskIvmDryRunSequence = { row, meta ->
     return row
 }
 
-// Named ivm_dry_run_qt instead of order_qt_*: Suite.invokeMethod intercepts every method whose
-// name starts with qt_ / order_qt_ and derives the tag from the method name, so a metaClass
-// method could never be reached under those prefixes.
-Suite.metaClass.ivm_dry_run_qt = { String tag, String sql ->
-    delegate.quickRunTest(tag, sql, true, maskIvmDryRunSequence)
+// One entry point for IVM output that carries a hidden sequence column: REFRESH ... WITH DRY RUN
+// returns the delta rows, SELECT * on an IVM MV shows the hidden state columns (for example the
+// MIN/MAX top-K struct). The sequence value differs between cloud and shared-nothing deployments,
+// so the mask makes both modes share one .out; show_hidden_columns is harmless to a REFRESH and is
+// what makes the hidden columns reach the SELECT * result.
+// Named ivm_hidden_qt instead of order_qt_*: Suite.invokeMethod intercepts every method whose name
+// starts with qt_ / order_qt_ and derives the tag from the method name, so a metaClass method could
+// never be reached under those prefixes.
+// Latest finished MV task row for one MV, waiting for a terminal status first. Shared by the IVM
+// suites so each one does not carry its own copy; the row carries the columns those suites assert
+// on (TaskId, Status, RefreshMode, IvmFallbackReason, ErrorMsg).
+//
+// A terminal row is not enough on its own: MTMVTask.onSuccess removes the task from the running
+// list and journals the job before it publishes the MV history, so during that window the newest
+// terminal row is still the previous refresh. Requiring a TaskId the caller has not seen yet closes
+// that window, the way the per-suite copies did before they were shared.
+def latestIvmTaskIds = [:]
+
+Suite.metaClass.latestIvmTask = { String mvName ->
+    def suite = delegate
+    def key = "${suite.context.dbName}.${mvName}"
+    def previousTaskId = latestIvmTaskIds[key]
+    def taskResult
+    Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
+        taskResult = suite.sql_return_maparray("""
+            SELECT TaskId, Status, RefreshMode, IvmFallbackReason, ErrorMsg FROM tasks('type'='mv')
+            WHERE MvDatabaseName = '${suite.context.dbName}' AND MvName = '${mvName}'
+            ORDER BY CreateTime DESC, TaskId DESC LIMIT 1
+        """)
+        return !taskResult.isEmpty()
+                && taskResult[0].TaskId.toString() != previousTaskId
+                && taskResult[0].Status.toString() != 'PENDING'
+                && taskResult[0].Status.toString() != 'RUNNING'
+    })
+    latestIvmTaskIds[key] = taskResult[0].TaskId.toString()
+    return taskResult[0]
+}
+
+Suite.metaClass.ivm_hidden_qt = { String tag, String sqlText ->
+    delegate.sql("SET show_hidden_columns = true;")
+    try {
+        delegate.quickRunTest(tag, sqlText, true, maskIvmDryRunSequence)
+    } finally {
+        delegate.sql("SET show_hidden_columns = false;")
+    }
 }
 

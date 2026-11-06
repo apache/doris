@@ -119,6 +119,19 @@ class IvmLinearDeltaHandler {
             childOutputMapping.put(project.child().getOutput().get(i), child.plan.getOutput().get(i));
         }
         for (NamedExpression output : project.getProjects()) {
+            // A hidden state the child computes itself wins over a project-level derivation of it:
+            // above the aggregate, normalize derives the MIN/MAX bound from the array for a full
+            // refresh, while the apply result is the bound the merge computed. Only the states the
+            // child reports as its own are replaced; everything else (row_id, other hidden
+            // expressions) keeps the normal rewrite.
+            if (child.ownedHiddenStateNames.contains(output.getName())) {
+                Slot childState = helper.findSlotByNameOrNull(child.plan.getOutput(),
+                        output.getName());
+                if (childState != null) {
+                    newOutputs.add(childState);
+                    continue;
+                }
+            }
             for (Slot inputSlot : output.getInputSlots()) {
                 if (!childOutputMapping.containsKey(inputSlot)) {
                     childOutputMapping.put(inputSlot, helper.findSlotByName(child.plan.getOutput(),

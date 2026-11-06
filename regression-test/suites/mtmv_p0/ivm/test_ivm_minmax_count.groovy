@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.awaitility.Awaitility
-import static java.util.concurrent.TimeUnit.SECONDS
 
 suite("test_ivm_minmax_count") {
     // The base-table queries below assert the same rows as the MV, so transparent rewrite must be off.
@@ -52,7 +50,7 @@ suite("test_ivm_minmax_count") {
         BUILD DEFERRED REFRESH INCREMENTAL FALLBACK ON MANUAL
         KEY(category)
         DISTRIBUTED BY HASH(category) BUCKETS 1
-        PROPERTIES ("replication_num" = "1")
+        PROPERTIES ("replication_num" = "1", "ivm_minmax_top_k" = "1")
         AS SELECT category, MIN(score) AS min_score, MAX(score) AS max_score, COUNT(*) AS row_count
         FROM ivm_mm_count_t
         GROUP BY category
@@ -68,25 +66,6 @@ suite("test_ivm_minmax_count") {
     // running list before the MV history publishes it, so the newest row can temporarily be
     // the previous refresh. Require a different TaskId before trusting a terminal row.
     String lastTaskId = null
-    def latestTask = {
-        def taskResult
-        Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
-            taskResult = sql_return_maparray("""
-                SELECT TaskId, Status, RefreshMode, IvmFallbackReason, ErrorMsg
-                FROM tasks('type'='mv')
-                WHERE MvDatabaseName = '${context.dbName}'
-                  AND MvName = 'ivm_mm_count_mv'
-                ORDER BY CreateTime DESC, TaskId DESC LIMIT 1
-            """)
-            return !taskResult.isEmpty()
-                    && taskResult[0].TaskId.toString() != lastTaskId
-                    && taskResult[0].Status.toString() != 'PENDING'
-                    && taskResult[0].Status.toString() != 'RUNNING'
-        })
-        lastTaskId = taskResult[0].TaskId.toString()
-        return taskResult[0]
-    }
-
     sql """REFRESH MATERIALIZED VIEW ivm_mm_count_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("ivm_mm_count_mv")
     lastTaskId = sql_return_maparray("""
@@ -106,7 +85,7 @@ suite("test_ivm_minmax_count") {
     sql """DELETE FROM ivm_mm_count_t WHERE id = 1"""
     Thread.sleep(1000)
     sql """REFRESH MATERIALIZED VIEW ivm_mm_count_mv INCREMENTAL"""
-    def duplicateMinTask = latestTask()
+    def duplicateMinTask = latestIvmTask("ivm_mm_count_mv")
     assertEquals("SUCCESS", duplicateMinTask.Status.toString())
     assertNoFallback(duplicateMinTask)
     order_qt_after_duplicate_min_delete """
@@ -118,7 +97,7 @@ suite("test_ivm_minmax_count") {
     sql """DELETE FROM ivm_mm_count_t WHERE id = 4"""
     Thread.sleep(1000)
     sql """REFRESH MATERIALIZED VIEW ivm_mm_count_mv INCREMENTAL"""
-    def duplicateMaxTask = latestTask()
+    def duplicateMaxTask = latestIvmTask("ivm_mm_count_mv")
     assertEquals("SUCCESS", duplicateMaxTask.Status.toString())
     assertNoFallback(duplicateMaxTask)
     order_qt_after_duplicate_max_delete """
@@ -131,7 +110,7 @@ suite("test_ivm_minmax_count") {
     sql """DELETE FROM ivm_mm_count_t WHERE id = 2"""
     Thread.sleep(1000)
     sql """REFRESH MATERIALIZED VIEW ivm_mm_count_mv INCREMENTAL FALLBACK"""
-    def lastMinTask = latestTask()
+    def lastMinTask = latestIvmTask("ivm_mm_count_mv")
     assertEquals("SUCCESS", lastMinTask.Status.toString())
     assertEquals("COMPLETE", lastMinTask.RefreshMode.toString())
     assertEquals("MIN_MAX_BOUNDARY_HIT", lastMinTask.IvmFallbackReason.toString())
@@ -144,7 +123,7 @@ suite("test_ivm_minmax_count") {
     sql """INSERT INTO ivm_mm_count_t VALUES (7, 'a', 7), (8, 'a', 7)"""
     Thread.sleep(1000)
     sql """REFRESH MATERIALIZED VIEW ivm_mm_count_mv INCREMENTAL"""
-    def smallerInsertTask = latestTask()
+    def smallerInsertTask = latestIvmTask("ivm_mm_count_mv")
     assertEquals("SUCCESS", smallerInsertTask.Status.toString())
     assertNoFallback(smallerInsertTask)
     order_qt_after_smaller_insert """

@@ -37,8 +37,6 @@ import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.List;
-
 /**
  * Normalizes an IVM MV's query: settles which table model the MV is built with, and hands the query
  * to the normalizer that maintains one.
@@ -144,19 +142,13 @@ public class IvmNormalizeMTMV implements CustomRewriter {
         if (rewriteContext.isForceMow()) {
             return KeysType.UNIQUE_KEYS;
         }
-        boolean needsRowIdMaintenance = plan.anyMatch(node -> node instanceof LogicalAggregate
-                || node instanceof LogicalRepeat
-                || (node instanceof LogicalJoin
-                        && ((LogicalJoin<?, ?>) node).getJoinType().isOuterJoin()));
-        if (needsRowIdMaintenance) {
-            return KeysType.UNIQUE_KEYS;
-        }
-        List<SupportChangelog> scans = plan.collectToList(SupportChangelog.class::isInstance);
-        for (SupportChangelog scan : scans) {
-            if (!scan.isChangelogAppendOnly()) {
-                return KeysType.UNIQUE_KEYS;
-            }
-        }
-        return KeysType.DUP_KEYS;
+        boolean needsRowIdMaintenance = plan.anyMatch(node ->
+                node instanceof LogicalAggregate
+                        || node instanceof LogicalRepeat
+                        || (node instanceof LogicalJoin
+                                && ((LogicalJoin<?, ?>) node).getJoinType().isOuterJoin())
+                        || (node instanceof SupportChangelog
+                                && !((SupportChangelog) node).isChangelogAppendOnly()));
+        return needsRowIdMaintenance ? KeysType.UNIQUE_KEYS : KeysType.DUP_KEYS;
     }
 }

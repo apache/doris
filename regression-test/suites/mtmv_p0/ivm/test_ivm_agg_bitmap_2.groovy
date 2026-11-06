@@ -18,16 +18,16 @@
 import org.awaitility.Awaitility
 import static java.util.concurrent.TimeUnit.SECONDS
 
-suite("test_ivm_bitmap_agg_2") {
+suite("test_ivm_agg_bitmap_2") {
     // Base-table queries below assert the same rows as the MV, so transparent rewrite must be off.
     sql """set enable_materialized_view_rewrite = false;"""
-    sql """drop materialized view if exists test_ivm_bitmap_agg_2_mv;"""
-    sql """drop table if exists test_ivm_bitmap_agg_2_t;"""
-    sql """drop materialized view if exists test_ivm_bitmap_agg_2_all_mv;"""
-    sql """drop table if exists test_ivm_bitmap_agg_2_all_t;"""
+    sql """drop materialized view if exists test_ivm_agg_bitmap_2_mv;"""
+    sql """drop table if exists test_ivm_agg_bitmap_2_t;"""
+    sql """drop materialized view if exists test_ivm_agg_bitmap_2_all_mv;"""
+    sql """drop table if exists test_ivm_agg_bitmap_2_all_t;"""
 
     sql """
-        CREATE TABLE test_ivm_bitmap_agg_2_t (
+        CREATE TABLE test_ivm_agg_bitmap_2_t (
             id INT,
             b BITMAP,
             keep_bitmap TINYINT
@@ -42,77 +42,77 @@ suite("test_ivm_bitmap_agg_2") {
     """
 
     sql """
-        INSERT INTO test_ivm_bitmap_agg_2_t VALUES
+        INSERT INTO test_ivm_agg_bitmap_2_t VALUES
             (1, bitmap_from_string('1,2'), 1),
             (2, bitmap_from_string('2,3'), 1);
     """
 
     sql """
-        CREATE MATERIALIZED VIEW test_ivm_bitmap_agg_2_mv
+        CREATE MATERIALIZED VIEW test_ivm_agg_bitmap_2_mv
         BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES ('replication_num' = '1')
         AS
         SELECT BITMAP_UNION(IF(keep_bitmap = 1, b, NULL)) AS bu,
                BITMAP_UNION_COUNT(IF(keep_bitmap = 1, b, NULL)) AS buc
-        FROM test_ivm_bitmap_agg_2_t;
+        FROM test_ivm_agg_bitmap_2_t;
     """
 
-    sql """REFRESH MATERIALIZED VIEW test_ivm_bitmap_agg_2_mv COMPLETE"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_bitmap_agg_2_mv")
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_bitmap_2_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_bitmap_2_mv")
     order_qt_scalar_complete """
         SELECT bitmap_to_string(bu), buc
-        FROM test_ivm_bitmap_agg_2_mv
+        FROM test_ivm_agg_bitmap_2_mv
     """
     order_qt_scalar_complete_source """
         SELECT bitmap_to_string(bitmap_union(IF(keep_bitmap = 1, bitmap_from_string(bitmap_to_string(b)), NULL))),
                bitmap_union_count(IF(keep_bitmap = 1, bitmap_from_string(bitmap_to_string(b)), NULL))
-        FROM test_ivm_bitmap_agg_2_t
+        FROM test_ivm_agg_bitmap_2_t
     """
 
-    sql """INSERT INTO test_ivm_bitmap_agg_2_t VALUES (3, bitmap_from_string('3,4'), 1);"""
+    sql """INSERT INTO test_ivm_agg_bitmap_2_t VALUES (3, bitmap_from_string('3,4'), 1);"""
     Thread.sleep(1000)
 
-    sql """REFRESH MATERIALIZED VIEW test_ivm_bitmap_agg_2_mv INCREMENTAL"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_bitmap_agg_2_mv")
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_bitmap_2_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_bitmap_2_mv")
     order_qt_scalar_incremental """
         SELECT bitmap_to_string(bu), buc
-        FROM test_ivm_bitmap_agg_2_mv
+        FROM test_ivm_agg_bitmap_2_mv
     """
     order_qt_scalar_incremental_source """
         SELECT bitmap_to_string(bitmap_union(IF(keep_bitmap = 1, bitmap_from_string(bitmap_to_string(b)), NULL))),
                bitmap_union_count(IF(keep_bitmap = 1, bitmap_from_string(bitmap_to_string(b)), NULL))
-        FROM test_ivm_bitmap_agg_2_t
+        FROM test_ivm_agg_bitmap_2_t
     """
 
-    sql """REFRESH MATERIALIZED VIEW test_ivm_bitmap_agg_2_mv COMPLETE"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_bitmap_agg_2_mv")
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_bitmap_2_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_bitmap_2_mv")
 
-    sql """DELETE FROM test_ivm_bitmap_agg_2_t WHERE id = 4;"""
-    sql """DELETE FROM test_ivm_bitmap_agg_2_t WHERE id = 5;"""
+    sql """DELETE FROM test_ivm_agg_bitmap_2_t WHERE id = 4;"""
+    sql """DELETE FROM test_ivm_agg_bitmap_2_t WHERE id = 5;"""
     Thread.sleep(1000)
 
-    sql """REFRESH MATERIALIZED VIEW test_ivm_bitmap_agg_2_mv INCREMENTAL"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_bitmap_agg_2_mv")
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_bitmap_2_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_bitmap_2_mv")
     order_qt_scalar_delete_null_empty """
         SELECT bitmap_to_string(bu), buc
-        FROM test_ivm_bitmap_agg_2_mv
+        FROM test_ivm_agg_bitmap_2_mv
     """
     order_qt_scalar_delete_null_empty_source """
         SELECT bitmap_to_string(bitmap_union(IF(keep_bitmap = 1, bitmap_from_string(bitmap_to_string(b)), NULL))),
                bitmap_union_count(IF(keep_bitmap = 1, bitmap_from_string(bitmap_to_string(b)), NULL))
-        FROM test_ivm_bitmap_agg_2_t
+        FROM test_ivm_agg_bitmap_2_t
     """
 
-    sql """DELETE FROM test_ivm_bitmap_agg_2_t WHERE id = 2;"""
-    sql """INSERT INTO test_ivm_bitmap_agg_2_t VALUES (6, bitmap_from_string('5'), 1);"""
+    sql """DELETE FROM test_ivm_agg_bitmap_2_t WHERE id = 2;"""
+    sql """INSERT INTO test_ivm_agg_bitmap_2_t VALUES (6, bitmap_from_string('5'), 1);"""
     Thread.sleep(1000)
 
-    sql """REFRESH MATERIALIZED VIEW test_ivm_bitmap_agg_2_mv INCREMENTAL"""
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_bitmap_2_mv INCREMENTAL"""
 
     def showTasksSql = """
         SELECT Status, ErrorMsg FROM tasks('type'='mv')
-        WHERE MvDatabaseName = '${context.dbName}' AND MvName = 'test_ivm_bitmap_agg_2_mv'
+        WHERE MvDatabaseName = '${context.dbName}' AND MvName = 'test_ivm_agg_bitmap_2_mv'
         ORDER BY CreateTime DESC LIMIT 1
     """
     def taskResult
@@ -134,20 +134,20 @@ suite("test_ivm_bitmap_agg_2") {
     assertTrue(errorMsg.contains("BITMAP_AGG_DELETE") || errorMsg.contains("deleted row affects BITMAP aggregate"),
             "Error should mention BITMAP_AGG_DELETE or BITMAP delete guard but got: " + errorMsg)
 
-    sql """REFRESH MATERIALIZED VIEW test_ivm_bitmap_agg_2_mv COMPLETE"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_bitmap_agg_2_mv")
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_bitmap_2_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_bitmap_2_mv")
     order_qt_scalar_delete_fallback """
         SELECT bitmap_to_string(bu), buc
-        FROM test_ivm_bitmap_agg_2_mv
+        FROM test_ivm_agg_bitmap_2_mv
     """
     order_qt_scalar_delete_fallback_source """
         SELECT bitmap_to_string(bitmap_union(IF(keep_bitmap = 1, bitmap_from_string(bitmap_to_string(b)), NULL))),
                bitmap_union_count(IF(keep_bitmap = 1, bitmap_from_string(bitmap_to_string(b)), NULL))
-        FROM test_ivm_bitmap_agg_2_t
+        FROM test_ivm_agg_bitmap_2_t
     """
 
     sql """
-        CREATE TABLE test_ivm_bitmap_agg_2_all_t (
+        CREATE TABLE test_ivm_agg_bitmap_2_all_t (
             id INT,
             b BITMAP
         )
@@ -161,37 +161,37 @@ suite("test_ivm_bitmap_agg_2") {
     """
 
     sql """
-        INSERT INTO test_ivm_bitmap_agg_2_all_t VALUES
+        INSERT INTO test_ivm_agg_bitmap_2_all_t VALUES
             (1, bitmap_from_string('10')),
             (2, bitmap_from_string('20'));
     """
 
     sql """
-        CREATE MATERIALIZED VIEW test_ivm_bitmap_agg_2_all_mv
+        CREATE MATERIALIZED VIEW test_ivm_agg_bitmap_2_all_mv
         BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES ('replication_num' = '1')
         AS
         SELECT BITMAP_UNION(b) AS bu,
                BITMAP_UNION_COUNT(b) AS buc
-        FROM test_ivm_bitmap_agg_2_all_t;
+        FROM test_ivm_agg_bitmap_2_all_t;
     """
 
-    sql """REFRESH MATERIALIZED VIEW test_ivm_bitmap_agg_2_all_mv COMPLETE"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_bitmap_agg_2_all_mv")
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_bitmap_2_all_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_bitmap_2_all_mv")
     order_qt_scalar_delete_all_complete """
         SELECT bitmap_to_string(bu), buc
-        FROM test_ivm_bitmap_agg_2_all_mv
+        FROM test_ivm_agg_bitmap_2_all_mv
     """
 
-    sql """DELETE FROM test_ivm_bitmap_agg_2_all_t WHERE id = 1;"""
-    sql """DELETE FROM test_ivm_bitmap_agg_2_all_t WHERE id = 2;"""
+    sql """DELETE FROM test_ivm_agg_bitmap_2_all_t WHERE id = 1;"""
+    sql """DELETE FROM test_ivm_agg_bitmap_2_all_t WHERE id = 2;"""
     Thread.sleep(1000)
 
-    sql """REFRESH MATERIALIZED VIEW test_ivm_bitmap_agg_2_all_mv INCREMENTAL"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_bitmap_agg_2_all_mv")
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_bitmap_2_all_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_bitmap_2_all_mv")
     order_qt_scalar_delete_all_incremental """
         SELECT bitmap_to_string(bu), buc
-        FROM test_ivm_bitmap_agg_2_all_mv
+        FROM test_ivm_agg_bitmap_2_all_mv
     """
 }
