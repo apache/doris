@@ -271,10 +271,10 @@ public class StatementContext implements Closeable {
     // prepared-statement context drops it per execution via resetConnectorStatementScope() (see
     // ExecuteCommand) so one execution's cached tables never leak into the next.
     private ConnectorStatementScopeImpl connectorStatementScope;
-    // The session variables as a connector session sees them (ConnectorSessionBuilder), computed once per
-    // execution: a plan builds several sessions, and each read every variable by reflection. Dropped with the
-    // connector scope, so a reused prepared-statement context reads them again.
+    // Connector exports are shared per SessionVariable instance until invalidation or an execution reset,
+    // avoiding repeated reflection while observing hints parsed after a view metadata session was created.
     private Map<String, String> connectorSessionProperties;
+    private SessionVariable connectorSessionPropertySource;
 
     // table locks
     private final Stack<CloseableResource> plannerResources = new Stack<>();
@@ -1185,10 +1185,13 @@ public class StatementContext implements Closeable {
         return this.disableRules;
     }
 
+    /** Reuses an immutable export for the same variable instance until invalidation or reset. */
     public synchronized Map<String, String> getOrComputeConnectorSessionProperties(
-            Supplier<Map<String, String>> compute) {
-        if (this.connectorSessionProperties == null) {
+            SessionVariable sessionVariable, Supplier<Map<String, String>> compute) {
+        // Internal-view guards replace and restore SessionVariable without invalidating individual keys.
+        if (this.connectorSessionProperties == null || this.connectorSessionPropertySource != sessionVariable) {
             this.connectorSessionProperties = Collections.unmodifiableMap(compute.get());
+            this.connectorSessionPropertySource = sessionVariable;
         }
         return this.connectorSessionProperties;
     }
@@ -1249,6 +1252,7 @@ public class StatementContext implements Closeable {
         closeConnectorStatementScope();
         this.connectorStatementScope = null;
         this.connectorSessionProperties = null;
+        this.connectorSessionPropertySource = null;
         this.connectorWriteSchemas.clear();
         this.connectorWriteMetadataIdentities.clear();
         this.connectorDeleteTargets.clear();
@@ -1291,6 +1295,10 @@ public class StatementContext implements Closeable {
      */
     public synchronized void invalidCache(String cacheKey) {
         contextCacheMap.remove(cacheKey);
+        // External-view hints can change variables after metadata lookup captured a connector session.
+        // Replace the next export while keeping already-built sessions and their statement scope intact.
+        this.connectorSessionProperties = null;
+        this.connectorSessionPropertySource = null;
         if (cacheKey.equalsIgnoreCase(SessionVariable.DISABLE_NEREIDS_RULES)) {
             this.disableRules = null;
         }
