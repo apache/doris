@@ -54,6 +54,8 @@
 #include "storage/rowset/rowset_fwd.h"
 #include "storage/rowset/rowset_reader.h"
 #include "storage/segment/column_reader.h"
+#include "storage/segment/rowid_read_ahead.h"
+#include "storage/segment/segment_read_ahead.h"
 #include "storage/tablet/tablet_fwd.h"
 #include "storage/txn/txn_manager.h"
 #include "util/bvar_helper.h"
@@ -210,6 +212,47 @@ Status _get_segment_column_iterator(const BetaRowsetSharedPtr& rowset, uint32_t 
     };
     RETURN_IF_ERROR((*column_iterator)->init(opt));
     return Status::OK();
+}
+
+Status _read_row_store_with_read_ahead(
+        const BetaRowsetSharedPtr& rowset, const RowLocation& row_location,
+        const segment_v2::SegmentSharedPtr& segment, const TabletColumn& column,
+        OlapReaderStatistics& stats, const io::IOContext* io_ctx,
+        const std::shared_ptr<io::FileRangeReadContext>& read_ahead_context,
+        MutableColumnPtr& result) {
+    DORIS_CHECK(read_ahead_context != nullptr);
+
+    StorageReadOptions read_options;
+    read_options.stats = &stats;
+    read_options.version = rowset->version();
+    read_options.use_page_cache = !config::disable_storage_page_cache;
+    if (io_ctx != nullptr) {
+        read_options.io_ctx = *io_ctx;
+    }
+    read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+    read_options.io_ctx.file_cache_stats = &stats.file_cache_stats;
+    std::unique_ptr<segment_v2::SegmentReadAhead> read_ahead;
+    RETURN_IF_ERROR(segment_v2::SegmentReadAhead::create_for_query(
+            segment->file_reader(), ExecEnv::GetInstance(), read_ahead_context, read_options,
+            &read_ahead));
+
+    std::vector<segment_v2::rowid_t> rowids {static_cast<segment_v2::rowid_t>(row_location.row_id)};
+    std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
+    // A switch can close after the point request creates its context. The factory then returns
+    // no read-ahead object; reuse the loaded segment with the original synchronous reader.
+    if (read_ahead == nullptr) {
+        RETURN_IF_ERROR(segment->new_column_iterator(column, &column_iterator, &read_options));
+        const segment_v2::ColumnIteratorOptions options {
+                .use_page_cache = read_options.use_page_cache,
+                .file_reader = segment->file_reader().get(),
+                .stats = &stats,
+                .io_ctx = read_options.io_ctx,
+        };
+        RETURN_IF_ERROR(column_iterator->init(options));
+        return column_iterator->read_by_rowids(rowids.data(), rowids.size(), result);
+    }
+    return segment_v2::read_column_by_rowids_with_read_ahead(
+            *segment, column, rowids, result, read_options, column_iterator, *read_ahead);
 }
 
 } // namespace
@@ -551,6 +594,39 @@ Status BaseTablet::lookup_row_data(const Slice& encoded_key, const RowLocation& 
     MutableColumnPtr column_ptr = ColumnString::create();
     std::vector<segment_v2::rowid_t> rowids {static_cast<segment_v2::rowid_t>(row_location.row_id)};
     RETURN_IF_ERROR(column_iterator->read_by_rowids(rowids.data(), 1, column_ptr));
+    assert(column_ptr->size() == 1);
+    auto* string_column = static_cast<ColumnString*>(column_ptr.get());
+    StringRef value = string_column->get_data_at(0);
+    values = value.to_string();
+    if (write_to_cache) {
+        RowCache::instance()->insert({tablet_id(), encoded_key}, Slice {value.data, value.size});
+    }
+    return Status::OK();
+}
+
+Status BaseTablet::lookup_row_data_with_read_ahead(
+        const Slice& encoded_key, const RowLocation& row_location,
+        const segment_v2::SegmentSharedPtr& segment, RowsetSharedPtr input_rowset,
+        OlapReaderStatistics& stats, std::string& values, bool write_to_cache,
+        const io::IOContext* io_ctx,
+        const std::shared_ptr<io::FileRangeReadContext>& read_ahead_context) {
+    DCHECK(segment != nullptr);
+    DCHECK_EQ(segment->id(), row_location.segment_id);
+    MonotonicStopWatch watch;
+    size_t row_size = 1;
+    watch.start();
+    Defer _defer([&]() {
+        LOG_EVERY_N(INFO, 500) << "get a single_row, cost(us):" << watch.elapsed_time() / 1000
+                               << ", row_size:" << row_size;
+    });
+
+    BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(input_rowset);
+    CHECK(rowset);
+    const TabletSchemaSPtr tablet_schema = rowset->tablet_schema();
+    const auto& column = *DORIS_TRY(tablet_schema->column(BeConsts::ROW_STORE_COL));
+    MutableColumnPtr column_ptr = ColumnString::create();
+    RETURN_IF_ERROR(_read_row_store_with_read_ahead(rowset, row_location, segment, column, stats,
+                                                    io_ctx, read_ahead_context, column_ptr));
     assert(column_ptr->size() == 1);
     auto* string_column = static_cast<ColumnString*>(column_ptr.get());
     StringRef value = string_column->get_data_at(0);
