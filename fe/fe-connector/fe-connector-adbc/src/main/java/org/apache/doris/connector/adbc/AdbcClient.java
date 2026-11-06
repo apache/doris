@@ -71,6 +71,11 @@ public class AdbcClient implements Closeable {
 
     private static final Logger LOG = LogManager.getLogger(AdbcClient.class);
 
+    // The native Flight driver shares a mutable DriverInfo map across catalog databases. Concurrent
+    // getInfo calls can terminate the FE with Go's "concurrent map writes", even on different clients.
+    // Only cold vendor probes take this lock; cached identities and ordinary metadata calls do not.
+    private static final Object DRIVER_INFO_LOCK = new Object();
+
     private final Path driverPath;
     private final String driverUrl;
     private final String entrypoint;
@@ -135,12 +140,17 @@ public class AdbcClient implements Closeable {
         if (known != null) {
             return known;
         }
-        // A failed connection or probe must stay unresolved: caching it as unknown would make a
-        // recovered Doris source keep using generic metadata and permanently select ANSI for scans.
-        Optional<String> probed = withConnection(AdbcClient::readVendorName);
-        // Remote calls run outside the lifecycle monitor; racing probes publish one immutable answer.
-        vendorName.compareAndSet(null, probed);
-        return vendorName.get();
+        synchronized (DRIVER_INFO_LOCK) {
+            // Another caller may have completed this catalog's probe while this one waited.
+            known = vendorName.get();
+            if (known == null) {
+                // Keep failures unresolved so a later request can retry. Do not hold the lifecycle
+                // monitor across the RPC: DROP CATALOG must still be able to close without waiting.
+                known = withConnection(AdbcClient::readVendorName);
+                vendorName.set(known);
+            }
+            return known;
+        }
     }
 
     /**
