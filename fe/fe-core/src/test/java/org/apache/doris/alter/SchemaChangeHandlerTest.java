@@ -26,8 +26,10 @@ import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.indexpolicy.DropIndexPolicyLog;
@@ -980,7 +982,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         try {
             String[][] clauseAndError = {
                     {"DROP INDEX idx_v1", "has an unfinished index change job"},
-                    {"DROP INDEX idx_v1 PARTITION (p1)", "has been built specified index"}};
+                    {"DROP INDEX idx_v1 PARTITION (p1)", "has an unfinished index change job"}};
             for (String[] ce : clauseAndError) {
                 String sql = "ALTER TABLE test." + tableName + " " + ce[0];
                 Exception e = Assertions.assertThrows(Exception.class, () -> alterTable(sql, connectContext));
@@ -993,6 +995,79 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             jobSize++;
             Assertions.assertTrue(tbl.getIndexes().stream().noneMatch(idx -> idx.getIndexName().equals("idx_v1")));
         } finally {
+            handler.getIndexChangeJobs().remove(jobId);
+        }
+    }
+
+    private OlapTable createPartitionDropAdmissionTable(String tableName) throws Exception {
+        dropTable("test." + tableName, false);
+        createTable("CREATE TABLE test." + tableName + " ("
+                + "k1 INT, v1 STRING, INDEX idx_v1 (v1) USING INVERTED) "
+                + "DUPLICATE KEY(k1) "
+                + "PARTITION BY RANGE(k1) (PARTITION p1 VALUES LESS THAN (10),"
+                + " PARTITION p2 VALUES LESS THAN (20)) "
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true');");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        return (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+    }
+
+    @Test
+    public void testPartitionDropRequiresLightIndexChanges() throws Exception {
+        String tableName = "sc_partition_drop_disabled";
+        OlapTable tbl = createPartitionDropAdmissionTable(tableName);
+        SchemaChangeHandler handler = Env.getCurrentEnv().getSchemaChangeHandler();
+        int jobsBefore = handler.getIndexChangeJobs().size();
+        int schemaVersion = tbl.getIndexMetaByIndexId(tbl.getBaseIndexId()).getSchemaVersion();
+        boolean saved = Config.enable_light_index_change;
+        try {
+            Config.enable_light_index_change = false;
+            Exception error = Assertions.assertThrows(Exception.class,
+                    () -> alterTable("ALTER TABLE test." + tableName
+                            + " DROP INDEX idx_v1 PARTITION (p1)", connectContext));
+            Assertions.assertTrue(error.getMessage().contains("requires enable_light_index_change"),
+                    error.getMessage());
+            Assertions.assertEquals(jobsBefore, handler.getIndexChangeJobs().size());
+            Assertions.assertEquals(schemaVersion,
+                    tbl.getIndexMetaByIndexId(tbl.getBaseIndexId()).getSchemaVersion());
+            Assertions.assertEquals(1, tbl.getIndexes().size());
+        } finally {
+            Config.enable_light_index_change = saved;
+        }
+    }
+
+    @Test
+    public void testPartitionDropChecksAllConflictsBeforePublishingJobs() throws Exception {
+        String tableName = "sc_partition_drop_late_conflict";
+        OlapTable tbl = createPartitionDropAdmissionTable(tableName);
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        SchemaChangeHandler handler = Env.getCurrentEnv().getSchemaChangeHandler();
+        List<Partition> partitions = Lists.newArrayList(tbl.getPartitions());
+        Assertions.assertEquals(2, partitions.size());
+        Partition busyPartition = partitions.get(partitions.size() - 1);
+        long jobId = Env.getCurrentEnv().getNextId();
+        IndexChangeJob job = new IndexChangeJob(jobId, db.getId(), tbl.getId(), tbl.getName(), 1000L, 0,
+                Lists.newArrayList(), Lists.newArrayList());
+        job.setOriginIndexId(tbl.getBaseIndexId());
+        job.setPartitionId(busyPartition.getId());
+        job.setPartitionName(busyPartition.getName());
+        job.setAlterInvertedIndexInfo(false, Lists.newArrayList(tbl.getIndexes().get(0)));
+        handler.getIndexChangeJobs().put(jobId, job);
+        Set<Long> jobsBefore = Sets.newHashSet(handler.getIndexChangeJobs().keySet());
+        try {
+            Assertions.assertThrows(Exception.class,
+                    () -> alterTable("ALTER TABLE test." + tableName
+                            + " DROP INDEX idx_v1 PARTITIONS (p1, p2)", connectContext));
+            Assertions.assertEquals(jobsBefore, handler.getIndexChangeJobs().keySet(),
+                    "A rejected statement must not publish a deletion job for an earlier partition");
+            Assertions.assertEquals(1, tbl.getIndexes().size());
+        } finally {
+            for (IndexChangeJob current : Lists.newArrayList(handler.getIndexChangeJobs().values())) {
+                if (!jobsBefore.contains(current.getJobId())) {
+                    current.setJobState(IndexChangeJob.JobState.CANCELLED);
+                    handler.getIndexChangeJobs().remove(current.getJobId());
+                }
+            }
             handler.getIndexChangeJobs().remove(jobId);
         }
     }

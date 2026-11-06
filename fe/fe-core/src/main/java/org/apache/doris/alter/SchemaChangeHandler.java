@@ -2236,6 +2236,13 @@ public class SchemaChangeHandler extends AlterHandler {
                             }
                         }
 
+                        if (!Config.enable_light_index_change) {
+                            throw new DdlException(
+                                    "DROP INDEX ON PARTITION requires enable_light_index_change=true");
+                        }
+                        checkNoIndexChangeJobOnPartitions(db, olapTable,
+                                ImmutableList.of(found), specifiedPartitions);
+
                         alterIndexes.add(found);
                         indexOnPartitions.put(found.getIndexId(), specifiedPartitions);
                         isDropIndex = true;
