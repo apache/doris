@@ -1234,17 +1234,22 @@ DEFINE_Validator(variant_max_json_key_length,
 DEFINE_Validator(variant_storage_parse_mode,
                  [](const int config) -> bool { return config >= 0 && config <= 2; });
 
-// Lance uses one BE-wide session so metadata/index caches and the optional Foyer data-file cache
-// can be shared by all Lance dataset readers.
+// Lance shares metadata/index object caches across BE readers.
+// File bytes use Doris FileReader and the Doris file cache.
 DEFINE_Int64(lance_index_cache_size_bytes, "10737418240");   // 10 GiB
 DEFINE_Int64(lance_metadata_cache_size_bytes, "1073741824"); // 1GB
+// Use the host executor for Lance reads; the switch remains available for rollback.
+DEFINE_Bool(enable_lance_host_executor, "true");
+// Per-reader CPU task fan-out shares the query scheduler rather than creating SDK workers.
+DEFINE_Int32(lance_cpu_parallelism, "8");
+DEFINE_Validator(lance_cpu_parallelism, [](int32_t value) { return value > 0; });
+// Keep the SDK request budget and host dispatch bound under the same BE setting.
+DEFINE_Int32(lance_io_parallelism, "64");
+DEFINE_Validator(lance_io_parallelism, [](int32_t value) { return value > 0; });
+// BE-wide background CPU and cleanup concurrency; restart the BE to resize.
+DEFINE_Int32(lance_background_thread_pool_size, "2");
+DEFINE_Validator(lance_background_thread_pool_size, [](int32_t value) { return value > 0; });
 DEFINE_Bool(enable_lance_scalar_index_auto_selection, "true");
-DEFINE_Bool(enable_lance_data_cache, "true");
-DEFINE_String(lance_data_cache_path, "${DORIS_HOME}/lance_data_cache");
-DEFINE_Int64(lance_data_cache_disk_capacity_bytes, "107374182400"); // 100GB
-DEFINE_Int64(lance_data_cache_read_block_size_bytes, "1048576");    // 1MB
-// Zero preserves the existing one-block Foyer memory tier, including custom block sizes.
-DEFINE_Int64(lance_data_cache_memory_capacity_bytes, "0");
 
 // I/O buffering budget per Lance scanner, not a cap on its total memory usage.
 // Runtime changes apply to newly created scanners.

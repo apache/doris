@@ -69,4 +69,27 @@ TEST(ConfigValidatorTest, LookupConnectionCacheBlockPoolSize) {
                     .ok());
 }
 
+TEST(ConfigValidatorTest, LanceBackgroundThreadPoolSize) {
+    const auto field = Register::_s_field_map->find("lance_background_thread_pool_size");
+    ASSERT_NE(field, Register::_s_field_map->end());
+    ASSERT_STREQ(field->second.type, "int32_t");
+    EXPECT_STREQ(field->second.defval, "2");
+    EXPECT_FALSE(field->second.valmutable);
+
+    const auto validator =
+            RegisterConfValidator::_s_field_validator->find("lance_background_thread_pool_size");
+    ASSERT_NE(validator, RegisterConfValidator::_s_field_validator->end());
+    auto& value = *static_cast<int32_t*>(field->second.storage);
+    const auto old_value = value;
+    for (const int32_t size : {-1, 0}) {
+        value = size;
+        EXPECT_FALSE(validator->second()) << size;
+    }
+    for (const int32_t size : {1, 2, 8}) {
+        value = size;
+        EXPECT_TRUE(validator->second()) << size;
+    }
+    value = old_value;
+}
+
 } // namespace doris

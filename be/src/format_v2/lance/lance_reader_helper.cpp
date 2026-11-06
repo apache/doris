@@ -722,6 +722,12 @@ Status build_lance_storage_options(const TFileScanRangeParams* scan_params,
                                    std::vector<std::string>* options) {
     DORIS_CHECK(options != nullptr);
     options->clear();
+    // Include the host budget in dataset/cache identity as well as the SDK open options.
+    // A catalog may override the SDK budget, while host dispatch still obeys its own bound.
+    if (config::enable_lance_host_executor) {
+        options->emplace_back("io_parallelism");
+        options->emplace_back(std::to_string(config::lance_io_parallelism));
+    }
     if (scan_params == nullptr || !scan_params->__isset.lance_scan_params ||
         !scan_params->lance_scan_params.__isset.lance_storage_options) {
         return Status::OK();
@@ -736,6 +742,10 @@ Status build_lance_storage_options(const TFileScanRangeParams* scan_params,
                     "Lance storage option '{}' contains a NUL and cannot reach lance-c",
                     key.substr(0, key.find('\0')));
         }
+        if (config::enable_lance_host_executor && key == "io_parallelism") {
+            (*options)[1] = value;
+            continue;
+        }
         options->emplace_back(key);
         options->emplace_back(value);
     }
@@ -743,6 +753,7 @@ Status build_lance_storage_options(const TFileScanRangeParams* scan_params,
 }
 
 Status lance_error(std::string_view operation) {
+    const auto code = lance_last_error_code();
     const char* raw_message = lance_last_error_message();
     std::string message = raw_message == nullptr ? "" : raw_message;
     if (raw_message != nullptr) {
@@ -751,6 +762,16 @@ Status lance_error(std::string_view operation) {
     if (message.empty()) {
         message = fmt::format("error_code={}", static_cast<int>(lance_last_error_code()));
     }
+    // Preserve Doris limit categories so memory failures reach query cancellation
+    // and diagnostics instead of being reported as generic reader errors.
+    if (code == LANCE_ERR_MEMORY_LIMIT)
+        return Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>("{} failed: {}", operation, message);
+    if (code == LANCE_ERR_WORKLOAD_GROUP_MEMORY_LIMIT)
+        return Status::Error<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>("{} failed: {}", operation,
+                                                                        message);
+    if (code == LANCE_ERR_PROCESS_MEMORY_LIMIT)
+        return Status::Error<ErrorCode::PROCESS_MEMORY_EXCEEDED>("{} failed: {}", operation,
+                                                                 message);
     return Status::InternalError("{} failed: {}", operation, message);
 }
 

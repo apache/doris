@@ -178,6 +178,45 @@ private:
 
 } // namespace
 
+TEST_F(AsyncCachedRemoteFileReaderTest,
+       external_storage_identity_isolates_cache_and_reuses_warm_blocks) {
+    create_cache("external_storage_identity");
+    auto origin = std::make_shared<CountingFileReader>(open_remote_file());
+    FileReaderOptions options;
+    options.cache_type = FileCachePolicy::FILE_BLOCK_CACHE;
+    options.cache_key = "endpoint-a/bucket/data/file.lance";
+    auto first = std::make_shared<CachedRemoteFileReader>(origin, options);
+    std::string bytes(64_kb, '\0');
+    size_t count = 0;
+    FileCacheStatistics statistics;
+    IOContext context;
+    context.file_cache_stats = &statistics;
+    context.is_warmup = true;
+    ASSERT_TRUE(first->read_at(0, Slice(bytes.data(), bytes.size()), &count, &context).ok());
+    ASSERT_EQ(count, bytes.size());
+    ASSERT_GT(origin->read_count(), 0);
+    wait_for_async_writes();
+
+    auto warm_origin = std::make_shared<CountingFileReader>(open_remote_file());
+    auto warm = std::make_shared<CachedRemoteFileReader>(warm_origin, options);
+    ASSERT_EQ(first->_cache_hash, warm->_cache_hash);
+    ASSERT_TRUE(warm->read_at(0, Slice(bytes.data(), bytes.size()), &count, &context).ok());
+    EXPECT_EQ(warm_origin->read_count(), 0);
+    EXPECT_EQ(bytes, std::string(bytes.size(), '0'));
+
+    options.cache_key = "endpoint-b/bucket/data/file.lance";
+    auto other_origin = std::make_shared<CountingFileReader>(open_remote_file());
+    auto other = std::make_shared<CachedRemoteFileReader>(other_origin, options);
+    EXPECT_NE(first->_cache_hash, other->_cache_hash);
+    ASSERT_TRUE(other->read_at(0, Slice(bytes.data(), bytes.size()), &count, &context).ok());
+    EXPECT_GT(other_origin->read_count(), 0);
+
+    options.cache_key.clear();
+    auto legacy = std::make_shared<CachedRemoteFileReader>(open_remote_file(), options);
+    EXPECT_EQ(legacy->_cache_hash,
+              BlockFileCache::hash(fmt::format("{}:{}", legacy->path().native(), options.mtime)));
+}
+
 TEST_F(AsyncCachedRemoteFileReaderTest, sync_write_path_preserves_tablet_id) {
     create_cache("cached_remote_reader_sync_write_tablet_id");
     auto reader = create_reader(open_remote_file());
