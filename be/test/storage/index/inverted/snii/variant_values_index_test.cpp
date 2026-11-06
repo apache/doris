@@ -33,14 +33,17 @@
 #include "core/value/variant/variant_leaf_visitor.h"
 #include "exprs/function/match.h"
 #include "exprs/function/parse/variant_string_parse.h"
+#include "io/fs/local_file_system.h"
 #include "io/io_common.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/index_file_reader.h"
+#include "storage/index/index_file_writer.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/index/inverted/snii/snii_index_reader.h"
 #include "storage/index/inverted/snii/snii_query_oracle.h"
+#include "storage/segment/variant/v2/variant_values_index_writer.h"
 #include "testutil/index_storage_test_util.h"
 
 namespace doris::segment_v2 {
@@ -80,6 +83,32 @@ protected:
     void check_match(const ColumnPtr& values, const TabletIndex* meta,
                      const std::shared_ptr<IndexFileReader>& file);
 };
+
+TEST_F(VariantValuesSegmentTest, InitRequiresSniiContainerBeforeOpeningIndex) {
+    TabletIndexPB pb;
+    pb.set_index_id(72);
+    pb.set_index_type(IndexType::INVERTED);
+    (*pb.mutable_properties())["variant_index_scope"] = "values";
+    (*pb.mutable_properties())["parser"] = "english";
+    (*pb.mutable_properties())["support_phrase"] = "false";
+    TabletIndex index;
+    index.init_from_pb(pb);
+    for (auto format : {InvertedIndexStorageFormatPB::V2, InvertedIndexStorageFormatPB::V3,
+                        InvertedIndexStorageFormatPB::SNII}) {
+        IndexFileWriter file(io::global_local_filesystem(), _test_dir + "/format_guard", "rowset",
+                             0, format);
+        VariantValuesIndexWriter writer(&file, &index, false);
+        Status status = writer.init();
+        if (format == InvertedIndexStorageFormatPB::SNII) {
+            ASSERT_TRUE(status.ok()) << status;
+        } else {
+            EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
+            EXPECT_EQ(writer._writer, nullptr);
+        }
+        EXPECT_TRUE(file._indices_dirs.empty());
+        EXPECT_EQ(file._snii_file_writer, nullptr);
+    }
+}
 
 // One table specifies final visible leaf text; the fixture also crosses the 4096-row write batch.
 // NOLINTNEXTLINE(readability-function-size,readability-function-cognitive-complexity): keep the input/expected table and actual segment readback together.
