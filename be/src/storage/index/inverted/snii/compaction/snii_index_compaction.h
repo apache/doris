@@ -132,6 +132,7 @@ private:
     std::vector<std::vector<uint8_t>> destination_encoded_norms_;
     std::vector<bool> destination_encoded_norms_taken_;
     std::vector<std::unique_ptr<SniiPostingReadContext>> read_contexts_;
+    CompressedRowIdMap::DecodeWorkspace rowid_workspace_;
     bool executed_ = false;
     Status failed_ = Status::OK();
 };
