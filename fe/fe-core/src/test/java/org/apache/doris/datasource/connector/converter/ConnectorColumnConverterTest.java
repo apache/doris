@@ -231,6 +231,23 @@ class ConnectorColumnConverterTest {
     }
 
     @Test
+    void timeScaleRidesInThePrecisionSlot() {
+        // Connectors put the TIMEV2 scale where they put the DATETIMEV2 one: hudi maps Avro time-millis
+        // and time-micros to ("TIMEV2", 3|6, 0), and lance maps Arrow time32(ms) / time64(us|ns) the same
+        // way. Dropping it shows time(3) as time and reads the column at second precision.
+        Assertions.assertEquals(ScalarType.createTimeV2Type(0),
+                ConnectorColumnConverter.convertType(ConnectorType.of("TIMEV2", 0, 0)));
+        Assertions.assertEquals(ScalarType.createTimeV2Type(3),
+                ConnectorColumnConverter.convertType(ConnectorType.of("TIMEV2", 3, 0)));
+        Assertions.assertEquals(ScalarType.createTimeV2Type(6),
+                ConnectorColumnConverter.convertType(ConnectorType.of("TIMEV2", 6, 0)));
+        Assertions.assertEquals("time(3)",
+                ConnectorColumnConverter.convertType(ConnectorType.of("TIMEV2", 3, 0)).toSql());
+        // No precision given: the scale-0 TIMEV2 it has always been.
+        Assertions.assertEquals(ScalarType.TIMEV2, ConnectorColumnConverter.convertType(ConnectorType.of("TIMEV2")));
+    }
+
+    @Test
     void testWithTimeZoneColumnSetsExtraInfo() {
         // A ConnectorColumn marked withTimeZone() must convert to a Doris Column carrying the
         // WITH_TIMEZONE extra info — the value DESC shows in its "Extra" column (IndexSchemaProcNode
