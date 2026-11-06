@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Status;
@@ -29,17 +30,20 @@ import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.analyzer.UnboundTVFTableSink;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
+import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFTableSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
@@ -54,19 +58,27 @@ import org.apache.logging.log4j.Logger;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Command for INSERT INTO tvf_name(properties) SELECT ...
  * This command is independent from InsertIntoTableCommand since TVF sink
  * has no real table, no transaction, and no table lock.
  */
-public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Explainable {
+public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Explainable,
+        NeedAuditEncryption {
 
     private static final Logger LOG = LogManager.getLogger(InsertIntoTVFCommand.class);
 
     private final LogicalPlan logicalQuery;
     private final Optional<String> labelName;
     private final Optional<LogicalPlan> cte;
+
+    // Planning does not hold this lock. Cancellation may interrupt planning, but must
+    // synchronize with the side effects and fragment dispatch before acknowledging it.
+    private final Object executionLock = new Object();
+    private final AtomicBoolean canceled = new AtomicBoolean();
+    private volatile Coordinator activeCoordinator;
 
     public InsertIntoTVFCommand(LogicalPlan logicalQuery, Optional<String> labelName,
             Optional<LogicalPlan> cte) {
@@ -76,8 +88,20 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
         this.cte = cte;
     }
 
-    @Override
-    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+    public void validateJobTarget() throws AnalysisException {
+        if (!(logicalQuery instanceof UnboundTVFTableSink)
+                || !"s3".equalsIgnoreCase(((UnboundTVFTableSink<?>) logicalQuery).getTvfName())) {
+            throw new AnalysisException("INSERT JOB only supports S3 TVF targets; LOCAL and HDFS are not supported");
+        }
+    }
+
+    /** Validate a persisted job without deleting files, registering a query, or executing it. */
+    public void validateForJob(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        validateJobTarget();
+        preparePlan(ctx, executor);
+    }
+
+    private NereidsPlanner preparePlan(ConnectContext ctx, StmtExecutor executor) throws Exception {
         // 1. Check privilege
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN)
                 && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.LOAD)) {
@@ -98,6 +122,109 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
         executor.setPlanner(planner);
         executor.checkBlockRules();
 
+        return planner;
+    }
+
+    @Override
+    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        executor.registerQueryCancellationCallback(this::cancel);
+        checkCanceled();
+        NereidsPlanner planner = preparePlan(ctx, executor);
+        checkCanceled();
+
+        Coordinator coordinator = EnvFactory.getInstance().createCoordinator(
+                ctx, planner, ctx.getStatsErrorEstimator());
+        TUniqueId queryId = ctx.queryId();
+        boolean registered = false;
+        try {
+            activeCoordinator = coordinator;
+            executor.setCoord(coordinator);
+            QeProcessorImpl.INSTANCE.registerQuery(queryId,
+                    new QueryInfo(ctx, "INSERT INTO TVF", coordinator));
+            registered = true;
+
+            synchronized (executionLock) {
+                checkCanceled();
+                deleteExistingFiles(planner);
+                checkCanceled();
+                if (ctx.getConnectType() == ConnectType.MYSQL && ctx.getMysqlChannel() != null) {
+                    ctx.getMysqlChannel().reset();
+                }
+                // Preserve external DML audit ownership from the resolved sink.
+                executor.setExternalDmlAuditCoordinator(coordinator);
+                coordinator.exec();
+            }
+            checkCanceled();
+
+            // join(false) is a timeout. join(true) may also indicate a failed BE.
+            boolean completed = coordinator.join(ctx.getExecTimeoutS());
+            checkCanceled();
+            Status executionStatus = coordinator.getExecStatus();
+            if (!completed || !coordinator.isDone()) {
+                String error = executionStatus.ok() ? "Insert into TVF timeout" : executionStatus.getErrorMsg();
+                coordinator.cancel(new Status(TStatusCode.INTERNAL_ERROR, error));
+                ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, error);
+                return;
+            }
+
+            if (executionStatus.ok()) {
+                String label = labelName.orElse(
+                        String.format("tvf_insert_%x_%x", ctx.queryId().hi, ctx.queryId().lo));
+                long loadedRows = 0;
+                String loadedRowsStr = coordinator.getLoadCounters().get(LoadEtlTask.DPP_NORMAL_ALL);
+                if (loadedRowsStr != null) {
+                    loadedRows = Long.parseLong(loadedRowsStr);
+                }
+                ctx.getState().setOk(loadedRows, 0, "Insert into TVF succeeded. label: " + label);
+            } else {
+                String error = executionStatus.getErrorMsg();
+                coordinator.cancel(executionStatus);
+                ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, error);
+            }
+        } catch (Exception e) {
+            String error = e.getMessage() == null ? "unknown error" : e.getMessage();
+            coordinator.cancel(new Status(canceled.get() ? TStatusCode.CANCELLED : TStatusCode.INTERNAL_ERROR, error));
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, error);
+        } finally {
+            try {
+                if (registered) {
+                    QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
+                }
+            } finally {
+                synchronized (executionLock) {
+                    activeCoordinator = null;
+                    executor.setCoord(null);
+                }
+                coordinator.close();
+            }
+        }
+    }
+
+    /** Called by StmtExecutor even when cancellation arrives before a Coordinator exists. */
+    public void cancel() {
+        canceled.set(true);
+        Coordinator coordinator = activeCoordinator;
+        if (coordinator != null) {
+            // Wake a Coordinator that is waiting for workload admission during exec().
+            coordinator.cancel(new Status(TStatusCode.CANCELLED, "Insert into TVF canceled"));
+        }
+        synchronized (executionLock) {
+            // Dispatch may have installed new fragments after the first cancel. Do not
+            // acknowledge cancellation until startup has exited and those fragments are canceled.
+            coordinator = activeCoordinator;
+            if (coordinator != null) {
+                coordinator.cancel(new Status(TStatusCode.CANCELLED, "Insert into TVF canceled"));
+            }
+        }
+    }
+
+    private void checkCanceled() throws UserException {
+        if (canceled.get()) {
+            throw new UserException("Insert into TVF canceled");
+        }
+    }
+
+    private void deleteExistingFiles(NereidsPlanner planner) throws Exception {
         // FE-side deletion of existing files (before BE execution)
         PhysicalPlan physicalPlan = planner.getPhysicalPlan();
         if (physicalPlan instanceof PhysicalTVFTableSink) {
@@ -111,59 +238,16 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
                 deleteExistingFilesInFE(sinkTvfName, sinkProps);
             }
         }
-
-        // 3. Create coordinator
-        Coordinator coordinator = EnvFactory.getInstance().createCoordinator(
-                ctx, planner, ctx.getStatsErrorEstimator());
-
-        TUniqueId queryId = ctx.queryId();
-        QeProcessorImpl.INSTANCE.registerQuery(queryId,
-                new QueryInfo(ctx, "INSERT INTO TVF", coordinator));
-
-        try {
-            // Audit ownership follows the executor that resolved the external sink, not a logical
-            // plan shape that can also represent internal or blackhole writes.
-            executor.setExternalDmlAuditCoordinator(coordinator);
-            coordinator.exec();
-
-            // Wait for completion
-            int timeoutS = ctx.getExecTimeoutS();
-            if (coordinator.join(timeoutS)) {
-                if (!coordinator.isDone()) {
-                    coordinator.cancel(new Status(TStatusCode.INTERNAL_ERROR, "Insert into TVF timeout"));
-                    ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Insert into TVF timeout");
-                    return;
-                }
-            }
-
-            if (coordinator.getExecStatus().ok()) {
-                String label = labelName.orElse(
-                        String.format("tvf_insert_%x_%x", ctx.queryId().hi, ctx.queryId().lo));
-                long loadedRows = 0;
-                String loadedRowsStr = coordinator.getLoadCounters()
-                        .get(LoadEtlTask.DPP_NORMAL_ALL);
-                if (loadedRowsStr != null) {
-                    loadedRows = Long.parseLong(loadedRowsStr);
-                }
-                ctx.getState().setOk(loadedRows, 0, "Insert into TVF succeeded. label: " + label);
-            } else {
-                String errMsg = coordinator.getExecStatus().getErrorMsg();
-                LOG.warn("insert into TVF failed, error: {}", errMsg);
-                ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, errMsg);
-            }
-        } catch (Exception e) {
-            LOG.warn("insert into TVF failed", e);
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
-                    e.getMessage() == null ? "unknown error" : e.getMessage());
-        } finally {
-            QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
-            coordinator.close();
-        }
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitCommand(this, context);
+    }
+
+    @Override
+    public boolean needAuditEncryption() {
+        return true;
     }
 
     @Override
