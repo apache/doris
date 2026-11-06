@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Function.BinaryType;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -489,6 +490,43 @@ public class CatalogRecycleBinTest extends TestWithFeService {
         Assertions.assertNotNull(olapTable.getPartition(CatalogTestUtil.testPartition1));
         Assertions.assertEquals(TInvertedIndexFileStorageFormat.SNII, olapTable.getPartitionInfo()
                 .getInvertedIndexFileStorageFormat(CatalogTestUtil.testPartitionId1));
+    }
+
+    @Test
+    public void testRecoverValuesIndexPartitionRequiresSnii() throws Exception {
+        for (TInvertedIndexFileStorageFormat format : TInvertedIndexFileStorageFormat.values()) {
+            CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
+            recycleBin.clearAll();
+            Database db = CatalogTestUtil.createSimpleDb(CatalogTestUtil.testDbId1,
+                    CatalogTestUtil.testTableId1, CatalogTestUtil.testPartitionId1,
+                    CatalogTestUtil.testIndexId1, CatalogTestUtil.testTabletId1, CatalogTestUtil.testStartVersion);
+            OlapTable table = (OlapTable) db.getTableNullable(CatalogTestUtil.testTableId1);
+            Partition partition = table.getPartition(CatalogTestUtil.testPartition1);
+            table.getPartitionInfo().setIsInMemory(partition.getId(), false);
+            table.getPartitionInfo().setIsMutable(partition.getId(), true);
+            table.dropPartitionAndReserveTablet(partition.getName());
+            recycleBin.recyclePartition(db.getId(), table.getId(), table.getName(), partition, null, null,
+                    new DataProperty(TStorageMedium.HDD), new ReplicaAllocation((short) 3), false, false, format);
+            table.setIndexes(List.of(new Index(901, "root", List.of("v"), IndexType.INVERTED,
+                    Map.of("variant_index_scope", "values", "parser", "english", "support_phrase", "false"), "")));
+            if (format == TInvertedIndexFileStorageFormat.SNII) {
+                recycleBin.recoverPartition(db.getId(), table, partition.getName(), -1, null);
+                Assertions.assertSame(partition, table.getPartition(partition.getName()));
+                Assertions.assertEquals(format,
+                        table.getPartitionInfo().getInvertedIndexFileStorageFormat(partition.getId()));
+            } else {
+                DdlException error = Assertions.assertThrows(DdlException.class,
+                        () -> recycleBin.recoverPartition(db.getId(), table, partition.getName(), -1, "renamed"));
+                Assertions.assertTrue(error.getMessage().contains("requires SNII"), error.getMessage());
+                Assertions.assertNull(table.getPartition(partition.getName()));
+                Assertions.assertEquals(CatalogTestUtil.testPartition1, partition.getName());
+                Assertions.assertTrue(recycleBin.isRecyclePartition(db.getId(), table.getId(), partition.getId()));
+                // Rejection must leave a usable recycle entry: dropping the values index permits retry.
+                table.setIndexes(List.of());
+                recycleBin.recoverPartition(db.getId(), table, partition.getName(), -1, null);
+                Assertions.assertSame(partition, table.getPartition(partition.getName()));
+            }
+        }
     }
 
     @Test

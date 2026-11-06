@@ -23,6 +23,7 @@ import org.apache.doris.backup.BackupJobInfo.BackupIndexInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupOlapTableInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupPartitionInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupTabletInfo;
+import org.apache.doris.backup.BackupMeta;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.Database;
@@ -42,11 +43,15 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.proto.OlapFile;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TSortType;
 
 import com.google.common.collect.Lists;
@@ -55,6 +60,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -244,6 +250,49 @@ public class CloudRestoreJobTest {
         Mockito.doReturn(null).when(spySysInfo).getCloudClusterIdByName(Mockito.anyString());
         job.checkIfNeedCancel();
         Assertions.assertFalse(job.getStatus().ok());
+    }
+
+    @Test
+    public void testCreateReplicasUsesPartitionFormat() throws Exception {
+        boolean original = Config.enable_partition_inverted_index_storage_format_rollout;
+        Config.enable_partition_inverted_index_storage_format_rollout = true;
+        try {
+            expectedRestoreTbl.setInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat.V2);
+            OlapTable source = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(expectedRestoreTbl), OlapTable.class);
+            for (Partition part : source.getPartitions()) {
+                source.getPartitionInfo().setInvertedIndexFileStorageFormat(part.getId(),
+                        TInvertedIndexFileStorageFormat.SNII);
+            }
+            Deencapsulation.setField(job, "backupMeta", new BackupMeta(List.of(source), List.of()));
+            db.registerTable(expectedRestoreTbl);
+            jobInfo.backupOlapTableObjects.put(expectedRestoreTbl.getName(),
+                    jobInfo.backupOlapTableObjects.get(TEST_TBL_NAME));
+            for (Partition part : expectedRestoreTbl.getPartitions()) {
+                // The destination ID is new and has no format entry; only the source ID does.
+                part.setIdForRestore(part.getId() + 1000000);
+                Deencapsulation.setField(job, "restoredPartitions",
+                        List.of(Pair.of(expectedRestoreTbl.getName(), part)));
+                job.createReplicas(db, expectedRestoreTbl, part, null);
+            }
+            Assertions.assertTrue(job.getStatus().ok(), job.getStatus().getErrMsg());
+            job.doCreateReplicas();
+            ArgumentCaptor<Cloud.CreateTabletsRequest> captor =
+                    ArgumentCaptor.forClass(Cloud.CreateTabletsRequest.class);
+            Mockito.verify(mockMetaServiceProxyInstance, Mockito.atLeastOnce()).createTablets(captor.capture());
+            Assertions.assertFalse(captor.getAllValues().isEmpty());
+            for (Cloud.CreateTabletsRequest request : captor.getAllValues()) {
+                Assertions.assertFalse(request.getTabletMetasList().isEmpty());
+                for (var meta : request.getTabletMetasList()) {
+                    Assertions.assertTrue(meta.hasInvertedIndexStorageFormat());
+                    Assertions.assertEquals(OlapFile.InvertedIndexStorageFormatPB.SNII,
+                            meta.getInvertedIndexStorageFormat());
+                    Assertions.assertEquals(OlapFile.InvertedIndexStorageFormatPB.SNII,
+                            meta.getSchema().getInvertedIndexStorageFormat());
+                }
+            }
+        } finally {
+            Config.enable_partition_inverted_index_storage_format_rollout = original;
+        }
     }
 
     @Test
