@@ -822,6 +822,7 @@ struct OperatorProjection {
     explicit OperatorProjection(RowDescriptor output_row_desc)
             : output_row_descriptor(std::move(output_row_desc)) {}
 
+    bool is_identity = false;
     VExprContextSPtrs projections;
     std::vector<VExprContextSPtrs> intermediate_projections;
     RowDescriptor output_row_descriptor;
@@ -843,6 +844,8 @@ public:
         if (tnode.__isset.projections) {
             DCHECK(tnode.__isset.output_tuple_id);
             _projection.emplace(descs, tnode.output_tuple_id);
+            _projection->is_identity =
+                    tnode.__isset.is_identity_projection && tnode.is_identity_projection;
         }
         if (!tnode.intermediate_output_tuple_id_list.empty()) {
             // common subexpression elimination
@@ -962,6 +965,12 @@ public:
     }
 
     [[nodiscard]] bool has_projection() const { return _projection.has_value(); }
+
+    [[nodiscard]] bool has_identity_projection() const {
+        return has_projection() && _projection->is_identity;
+    }
+
+    void swap_identity_projection(Block* origin_block, Block* output_block) const;
 
     [[nodiscard]] bool has_intermediate_projection() const {
         return has_projection() && !_projection->intermediate_projections.empty();

@@ -77,4 +77,45 @@ TEST(OperatorProjectionTest, PublishesSharedColumnAndReusesOutputBlock) {
     EXPECT_EQ(second_origin.rows(), 0);
 }
 
+TEST(OperatorProjectionTest, IdentityProjectionSwapsBlocksAndReturnsIdleCapacity) {
+    ObjectPool pool;
+    auto data_type = std::make_shared<DataTypeInt32>();
+    MockOperatorX op;
+    op._row_descriptor = MockRowDescriptor({data_type}, &pool);
+    auto& projection = op.set_projection_for_test(
+            MockRowDescriptor(std::vector<DataTypePtr> {data_type}, &pool));
+    projection.is_identity = true;
+
+    MockRuntimeState state;
+    const auto max_operator_id = op.operator_id() - 1;
+    state.resize_op_id_to_local_state(max_operator_id);
+    state.set_max_operator_id(max_operator_id);
+    RuntimeProfile parent_profile("parent");
+    LocalStateInfo info {&parent_profile, {}, nullptr, {}, 0};
+    ASSERT_TRUE(op.setup_local_state(&state, info).ok());
+
+    // The first publication needs no preallocated output columns or expression execution.
+    Block origin = ColumnHelper::create_block<DataTypeInt32>({1, 2});
+    const auto* data_column = origin.get_by_position(0).column.get();
+    const auto capacity = origin.get_by_position(0).column->allocated_bytes();
+    Block output;
+    ASSERT_TRUE(op.do_projections(&state, &origin, &output).ok());
+    EXPECT_EQ(output.get_by_position(0).column.get(), data_column);
+    EXPECT_EQ(output.get_by_position(0).column->get_int(1), 2);
+    EXPECT_EQ(origin.columns(), 0);
+
+    output.clear_column_data();
+    origin = ColumnHelper::create_block<DataTypeInt32>({3, 4});
+    const auto* next_column = origin.get_by_position(0).column.get();
+    auto temporary = ColumnHelper::create_block<DataTypeInt32>({5, 6});
+    origin.insert(temporary.get_by_position(0));
+    ASSERT_TRUE(op.do_projections(&state, &origin, &output).ok());
+    EXPECT_EQ(output.columns(), 1);
+    EXPECT_EQ(output.get_by_position(0).column.get(), next_column);
+    EXPECT_EQ(output.get_by_position(0).column->get_int(0), 3);
+    EXPECT_EQ(origin.get_by_position(0).column.get(), data_column);
+    EXPECT_EQ(origin.get_by_position(0).column->allocated_bytes(), capacity);
+    EXPECT_EQ(origin.rows(), 0);
+}
+
 } // namespace doris
