@@ -62,14 +62,14 @@ public class ShowRestoreCommand extends ShowCommand {
             .add("AllowLoad").add("ReplicationNum").add("ReplicaAllocation").add("ReserveReplica")
             .add("ReserveDynamicPartitionEnable").add("RestoreObjs").add("CreateTime").add("MetaPreparedTime")
             .add("SnapshotFinishedTime").add("DownloadFinishedTime").add("FinishedTime").add("UnfinishedTasks")
-            .add("Progress").add("TaskErrMsg").add("Status").add("Timeout")
+            .add("Progress").add("TaskErrMsg").add("Status").add("Timeout").add("ComputeGroup").add("StorageVault")
             .build();
     public static final ImmutableList<String> BRIEF_TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("JobId").add("Label").add("Timestamp").add("DbName").add("State")
             .add("AllowLoad").add("ReplicationNum").add("ReplicaAllocation").add("ReserveReplica")
             .add("ReserveDynamicPartitionEnable").add("CreateTime").add("MetaPreparedTime")
             .add("SnapshotFinishedTime").add("DownloadFinishedTime").add("FinishedTime").add("UnfinishedTasks")
-            .add("Status").add("Timeout")
+            .add("Status").add("Timeout").add("ComputeGroup").add("StorageVault")
             .build();
 
     private String dbName;
