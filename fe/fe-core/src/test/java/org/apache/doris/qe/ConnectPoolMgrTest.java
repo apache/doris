@@ -19,6 +19,8 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.Auth;
 
@@ -27,7 +29,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.mockito.Mockito;
 
+import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -321,17 +328,161 @@ public class ConnectPoolMgrTest {
     }
 
     @Test
-    public void testUnregisterAfterChangeUserStillReleasesPoolSlot() {
-        Env env = ConnectPoolTestSupport.envAllowing(100);
+    public void testChangeUserTransfersQuotaBeforeUnregistering() throws Exception {
+        Env env = ConnectPoolTestSupport.envAllowing(1);
         ConnectPoolMgr pool = new ConnectPoolMgr(1);
-        ConnectContext ctx = registered(pool, ConnectPoolTestSupport.mysqlConnection(env, ALICE), 1);
-        // Match COM_CHANGE_USER: authentication changes the context identity without registering again.
-        ctx.setCurrentUserIdentity(BOB);
-        Assertions.assertFalse(pool.getUserConnectionMap().containsKey(BOB.getQualifiedUser()));
-        pool.unregisterConnection(ctx);
+        ConnectContext ctx = registeredClient(pool, env, ALICE, 1);
+        try {
+            Assertions.assertFalse(pool.getUserConnectionMap().containsKey(BOB.getQualifiedUser()));
+            changeUser(ctx, BOB);
+            Assertions.assertSame(BOB, ctx.getCurrentUserIdentity());
+            Assertions.assertSame(ctx, pool.getContext(1));
+            Assertions.assertEquals(1, pool.getConnectionNum());
+            Assertions.assertEquals(0, pool.getFlightConnectionNum());
+            assertUserCount(pool, ALICE, 0);
+            assertUserCount(pool, BOB, 1);
+        } finally {
+            ctx.cleanup();
+        }
         Assertions.assertNull(pool.getContext(1));
         Assertions.assertEquals(0, pool.getConnectionNum());
-        Assertions.assertEquals(-1, register(pool, ConnectPoolTestSupport.mysqlConnection(env, CAROL)));
+        assertUserCount(pool, ALICE, 0);
+        assertUserCount(pool, BOB, 0);
     }
 
+    @Test
+    public void testChangeUserDoesNotConsumeAnotherConnectionsQuota() throws Exception {
+        Env env = ConnectPoolTestSupport.envAllowing(2);
+        ConnectPoolMgr pool = new ConnectPoolMgr(2);
+        ConnectContext changing = registeredClient(pool, env, ALICE, 1);
+        ConnectContext existing = registeredClient(pool, env, BOB, 2);
+        try {
+            changeUser(changing, BOB);
+            assertUserCount(pool, ALICE, 0);
+            assertUserCount(pool, BOB, 2);
+            Assertions.assertEquals(2, pool.getConnectionNum());
+            changing.cleanup();
+            assertUserCount(pool, BOB, 1);
+            Assertions.assertSame(existing, pool.getContext(2));
+            Assertions.assertEquals(1, pool.getConnectionNum());
+        } finally {
+            changing.cleanup();
+            existing.cleanup();
+        }
+        assertUserCount(pool, BOB, 0);
+        Assertions.assertEquals(0, pool.getConnectionNum());
+    }
+
+    @Test
+    public void testChangeUserRejectsFullQuotaWithoutChangingIdentityOrCounters() throws Exception {
+        Env env = ConnectPoolTestSupport.envAllowing(1);
+        ConnectPoolMgr pool = new ConnectPoolMgr(2);
+        ConnectContext changing = registeredClient(pool, env, ALICE, 1);
+        ConnectContext existing = registeredClient(pool, env, BOB, 2);
+        try {
+            Assertions.assertTrue(changing.runCommand(() -> {
+                Optional<Pair<ErrorCode, String>> error = changing.changeUser(BOB, "");
+                Assertions.assertTrue(error.isPresent());
+                Assertions.assertEquals(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS, error.get().first);
+            }));
+            Assertions.assertSame(ALICE, changing.getCurrentUserIdentity());
+            assertUserCount(pool, ALICE, 1);
+            assertUserCount(pool, BOB, 1);
+            Assertions.assertEquals(2, pool.getConnectionNum());
+        } finally {
+            changing.cleanup();
+            existing.cleanup();
+        }
+        assertUserCount(pool, ALICE, 0);
+        assertUserCount(pool, BOB, 0);
+    }
+
+    @Test
+    public void testChangeToSameQualifiedUserKeepsTheExistingQuota() throws Exception {
+        Env env = ConnectPoolTestSupport.envAllowing(1);
+        ConnectPoolMgr pool = new ConnectPoolMgr(1);
+        ConnectContext ctx = registeredClient(pool, env, ALICE, 1);
+        UserIdentity aliceAtHost = UserIdentity.createAnalyzedUserIdentWithIp("alice", "127.0.0.1");
+        try {
+            changeUser(ctx, aliceAtHost);
+            Assertions.assertSame(aliceAtHost, ctx.getCurrentUserIdentity());
+            assertUserCount(pool, ALICE, 1);
+            Assertions.assertEquals(1, pool.getConnectionNum());
+        } finally {
+            ctx.cleanup();
+        }
+        assertUserCount(pool, ALICE, 0);
+    }
+
+    @Test
+    public void testRepeatedUserChangesReleaseEveryPreviousQuota() throws Exception {
+        Env env = ConnectPoolTestSupport.envAllowing(1);
+        ConnectPoolMgr pool = new ConnectPoolMgr(1);
+        ConnectContext ctx = registeredClient(pool, env, ALICE, 1);
+        try {
+            changeUser(ctx, BOB);
+            changeUser(ctx, CAROL);
+            changeUser(ctx, ALICE);
+            assertUserCount(pool, ALICE, 1);
+            assertUserCount(pool, BOB, 0);
+            assertUserCount(pool, CAROL, 0);
+            Assertions.assertEquals(1, pool.getConnectionNum());
+        } finally {
+            ctx.cleanup();
+        }
+        assertUserCount(pool, ALICE, 0);
+        Assertions.assertEquals(0, pool.getConnectionNum());
+    }
+
+    @Test
+    @Timeout(30)
+    public void testUserChangeAndNewConnectionCompeteForOneUserSlot() throws Exception {
+        Env env = ConnectPoolTestSupport.envAllowing(1);
+        ConnectPoolMgr pool = new ConnectPoolMgr(2);
+        ConnectContext changing = registeredClient(pool, env, ALICE, 1);
+        ConnectContext connecting = ConnectPoolTestSupport.mysqlConnection(env, BOB);
+        connecting.setConnectionId(2);
+        CyclicBarrier quotaLookups = new CyclicBarrier(2);
+        Auth auth = env.getAuth();
+        Mockito.when(auth.getMaxConn(BOB.getQualifiedUser())).thenAnswer(call -> {
+            quotaLookups.await(10, TimeUnit.SECONDS);
+            return 1L;
+        });
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        try {
+            Future<Boolean> change = workers.submit(() -> changing.executeCommand(0,
+                    () -> changing.changeUser(BOB, "").isEmpty()));
+            Future<Integer> admission = workers.submit(() -> connecting.registerClientSession(pool));
+            boolean changed = change.get(10, TimeUnit.SECONDS);
+            boolean admitted = admission.get(10, TimeUnit.SECONDS) == -1;
+            Assertions.assertNotEquals(changed, admitted, "exactly one request may take Bob's last slot");
+            assertUserCount(pool, BOB, 1);
+            assertUserCount(pool, ALICE, changed ? 0 : 1);
+            Assertions.assertEquals(changed ? BOB : ALICE, changing.getCurrentUserIdentity());
+            Assertions.assertEquals(admitted ? 2 : 1, pool.getConnectionNum());
+        } finally {
+            workers.shutdownNow();
+            Assertions.assertTrue(workers.awaitTermination(10, TimeUnit.SECONDS));
+            changing.cleanup();
+            connecting.cleanup();
+        }
+        assertUserCount(pool, ALICE, 0);
+        assertUserCount(pool, BOB, 0);
+        Assertions.assertEquals(0, pool.getConnectionNum());
+    }
+
+    private static ConnectContext registeredClient(ConnectPoolMgr pool, Env env, UserIdentity user, int id) {
+        ConnectContext ctx = ConnectPoolTestSupport.mysqlConnection(env, user);
+        ctx.setConnectionId(id);
+        Assertions.assertEquals(-1, ctx.registerClientSession(pool));
+        return ctx;
+    }
+
+    private static void changeUser(ConnectContext ctx, UserIdentity user) throws Exception {
+        Assertions.assertTrue(ctx.runCommand(() -> Assertions.assertTrue(ctx.changeUser(user, "").isEmpty())));
+    }
+
+    private static void assertUserCount(ConnectPoolMgr pool, UserIdentity user, int count) {
+        Assertions.assertEquals(count, pool.getUserConnectionMap().get(user.getQualifiedUser()).get());
+    }
 }

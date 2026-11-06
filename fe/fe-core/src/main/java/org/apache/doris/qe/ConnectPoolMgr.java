@@ -61,8 +61,8 @@ public class ConnectPoolMgr {
     protected final Map<String, AtomicInteger> connByUser = Maps.newConcurrentMap();
     // Arrow Flight SQL: peer identity (bearer token) -> connection id
     private final Map<String, Integer> peerIdentity2ConnectionId = Maps.newConcurrentMap();
-    // Serializes the check-and-reserve of the pool/Flight/user quotas in registerConnection, so a
-    // doomed attempt cannot hold one counter's reservation across another attempt's checks.
+    // Serializes admission and user-quota transfer, so a doomed attempt cannot hold one counter's
+    // reservation across another attempt's checks.
     private final Object admissionLock = new Object();
 
     // valid trace id -> query id
@@ -148,6 +148,27 @@ public class ConnectPoolMgr {
         return -1;
     }
 
+    // The caller holds the context lifecycle lock through the following identity update, so closure
+    // cannot unregister between moving the quota and committing the new user. Only local counters
+    // are touched here; authentication, property lookup and namespace validation precede both locks.
+    boolean changeUser(ConnectContext ctx, String newUser, long userLimit) {
+        synchronized (admissionLock) {
+            Preconditions.checkState(connectionMap.get(ctx.getConnectionId()) == ctx,
+                    "Changing user requires a registered connection");
+            String oldUser = ctx.getQualifiedUser();
+            if (oldUser.equals(newUser)) {
+                return true;
+            }
+            AtomicInteger newConnections = connByUser.computeIfAbsent(newUser, u -> new AtomicInteger(0));
+            if (newConnections.get() >= userLimit) {
+                return false;
+            }
+            connByUser.get(oldUser).decrementAndGet();
+            newConnections.incrementAndGet();
+            return true;
+        }
+    }
+
     /**
      * The refusal a client is told when {@link #registerConnection} returned a count instead of -1:
      * the same sentence for every protocol, naming the limits a connection is held to. The Flight
@@ -173,11 +194,8 @@ public class ConnectPoolMgr {
     void unregisterConnection(ConnectContext ctx) {
         synchronized (admissionLock) {
             if (connectionMap.remove(ctx.getConnectionId(), ctx)) {
-                // COM_CHANGE_USER may have changed the context to a user with no pool counter.
-                AtomicInteger conns = connByUser.get(ctx.getQualifiedUser());
-                if (conns != null) {
-                    conns.decrementAndGet();
-                }
+                // Registered identity changes transfer the quota under these same locks.
+                connByUser.get(ctx.getQualifiedUser()).decrementAndGet();
                 if (ctx.traceId() != null) {
                     traceId2QueryId.remove(ctx.traceId());
                 }

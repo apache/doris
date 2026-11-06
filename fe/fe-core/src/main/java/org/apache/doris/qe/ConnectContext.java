@@ -125,6 +125,10 @@ import javax.annotation.Nullable;
  * authentication. Registration returns -1 on success and a nonnegative connection count on quota
  * refusal. The creator must close abandoned initialization, including failed registration or login
  * responses. Install a transport close listener, then check whether the transport had already closed.
+ * A registered session changes users through {@link #changeUser(UserIdentity, String)} inside its
+ * command owner. This validates the target namespace before atomically moving the user's quota and
+ * identity. Direct identity assignment is limited to initialization and same-user refreshes, so
+ * unregister always releases the quota belonging to the registered identity.
  *
  * <p>MySQL's initialization and read listeners use {@link #runCommand(ContextAction, Runnable)}.
  * Its idle action only rearms nonblocking reads, after the response, business finally blocks and
@@ -855,7 +859,84 @@ public class ConnectContext {
     }
 
     public void setCurrentUserIdentity(UserIdentity currentUserIdentity) {
-        this.currentUserIdentity = currentUserIdentity;
+        synchronized (lifecycleLock) {
+            // A registered connection's identity is also its quota owner. Only changeUser may
+            // move that ownership; private contexts and same-user refreshes need no migration.
+            Preconditions.checkState(registeredPool == null
+                            || getQualifiedUser().equals(currentUserIdentity.getQualifiedUser()),
+                    "Use changeUser to change a registered connection's user");
+            this.currentUserIdentity = currentUserIdentity;
+        }
+    }
+
+    /**
+     * Commits COM_CHANGE_USER after authentication. The command owner validates the requested
+     * namespace using a private context, so failure cannot change this session's identity or quota.
+     * Catalog/Auth calls run outside the lifecycle lock. The final quota transfer and identity
+     * update share the registration/close lock order; a close that wins prevents the transfer.
+     */
+    public Optional<Pair<ErrorCode, String>> changeUser(UserIdentity identity, String database) {
+        synchronized (lifecycleLock) {
+            Preconditions.checkState(owner == Thread.currentThread(), "Change user requires command ownership");
+            if (closeIntent != CloseIntent.OPEN) {
+                throw new SessionClosedException();
+            }
+            Preconditions.checkState(registeredPool != null, "Change user requires a registered connection");
+        }
+
+        ConnectContext candidate = new ConnectContext();
+        try {
+            candidate.setEnv(getEnv());
+            candidate.setCurrentUserIdentity(identity);
+            candidate.setRemoteIP(remoteIP);
+            candidate.setQueryId(queryId);
+            candidate.setConnectAttributes(connectAttributes);
+            candidate.setSessionContext(sessionContext);
+            candidate.authenticatedPrincipal = authenticatedPrincipal;
+            candidate.authenticatedRoles = authenticatedRoles;
+            candidate.isTempUser = isTempUser;
+            candidate.sessionVariable = VariableMgr.cloneSessionVariable(sessionVariable);
+            candidate.restoreNameSpaceContext(getNameSpaceContext());
+            candidate.lastDBOfCatalog.putAll(lastDBOfCatalog);
+            // Cloud database selection checks privileges through ConnectContext.get().
+            ConnectContext previous = ConnectContext.get();
+            long userLimit;
+            try {
+                candidate.setThreadLocalInfo();
+                if (Strings.isNullOrEmpty(database)) {
+                    candidate.changeDefaultCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
+                } else {
+                    Optional<Pair<ErrorCode, String>> error = ConnectContextUtil.initCatalogAndDb(candidate, database);
+                    if (error.isPresent()) {
+                        return error;
+                    }
+                }
+                // External-user defaults also consult the authenticated thread-local context.
+                userLimit = getEnv().getAuth().getMaxConn(identity.getQualifiedUser());
+            } finally {
+                restoreThreadContext(previous);
+            }
+
+            synchronized (lifecycleLock) {
+                if (closeIntent != CloseIntent.OPEN) {
+                    throw new SessionClosedException();
+                }
+                if (!registeredPool.changeUser(this, identity.getQualifiedUser(), userLimit)) {
+                    return Optional.of(Pair.of(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS,
+                            "Reach limit of connections for user '" + identity.getQualifiedUser()
+                                    + "'. User limit: " + userLimit));
+                }
+                currentUserIdentity = identity;
+                // These assignments cannot perform catalog IO after the quota has moved.
+                restoreNameSpaceContext(candidate.getNameSpaceContext());
+                lastDBOfCatalog.clear();
+                lastDBOfCatalog.putAll(candidate.lastDBOfCatalog);
+                sessionVariable.setCloudCluster(candidate.sessionVariable.getCloudCluster());
+            }
+            return Optional.empty();
+        } finally {
+            candidate.cleanup();
+        }
     }
 
     public SessionVariable getSessionVariable() {
