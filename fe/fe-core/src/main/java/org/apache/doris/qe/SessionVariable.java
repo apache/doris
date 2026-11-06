@@ -1050,6 +1050,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String MULTI_DISTINCT_STRATEGY = "multi_distinct_strategy";
     public static final String AGG_PHASE = "agg_phase";
+    public static final String ENABLE_SINGLE_TABLET_GATHER = "enable_single_tablet_gather";
     public static final String ENABLE_BUCKETED_HASH_AGG = "enable_bucketed_hash_agg";
     public static final String BUCKETED_AGG_NUM_BUCKETS = "bucketed_agg_num_buckets";
     public static final String BUCKETED_AGG_MIN_INPUT_ROWS = "bucketed_agg_min_input_rows";
@@ -3170,6 +3171,11 @@ public class SessionVariable implements Serializable, Writable {
             + "between 1 and 4 forces the use of phases 1 to 4 for aggregate calculations.",
             checker = "checkAggPhase")
     public int aggPhase = 0;
+
+    @VarAttrDef.VarAttr(name = ENABLE_SINGLE_TABLET_GATHER, needForward = true,
+            description = "Allow a single selected OLAP tablet to satisfy gather without an exchange. "
+                    + "Requires parallel_pipeline_task_num=1 and query cache disabled.")
+    public boolean enableSingleTabletGather = true;
 
     @VarAttrDef.VarAttr(name = ENABLE_BUCKETED_HASH_AGG, needForward = true, description = "Whether to enable bucketed "
             + "hash aggregation optimization. This optimization fuses two-phase "

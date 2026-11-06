@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
@@ -654,6 +655,19 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
                 if (!project.canMergeChildProjections(physicalProject)) {
                     visit(project, context);
                 }
+            }
+        }
+        return ImmutableList.of(originChildrenProperties);
+    }
+
+    @Override
+    public List<List<PhysicalProperties>> visitPhysicalRecursiveUnion(
+            PhysicalRecursiveUnion<? extends Plan, ? extends Plan> recursiveUnion, Void context) {
+        visit(recursiveUnion, context);
+        // Recursive union merges both input fragments, just like a gather set operation.
+        for (int i = 0; i < originChildrenProperties.size(); i++) {
+            if (originChildrenProperties.get(i).getDistributionSpec() instanceof DistributionSpecStorageGather) {
+                updateChildEnforceAndCost(i, PhysicalProperties.GATHER);
             }
         }
         return ImmutableList.of(originChildrenProperties);

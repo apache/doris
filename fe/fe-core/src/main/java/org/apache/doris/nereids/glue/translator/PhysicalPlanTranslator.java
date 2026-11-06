@@ -1046,11 +1046,17 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     .map(context::findSlotRef).collect(Collectors.toList());
             dataPartition = new DataPartition(TPartitionType.HASH_PARTITIONED, partitionExprs);
         }
+        if (olapScan.getDistributionSpec() instanceof DistributionSpecStorageGather) {
+            dataPartition = DataPartition.UNPARTITIONED;
+        }
         if (olapScan.getStats() != null) {
             olapScanNode.setCardinality((long) olapScan.getStats().getRowCount());
         }
         // TODO: maybe we could have a better way to create fragment
         PlanFragment planFragment = createPlanFragment(olapScanNode, dataPartition, olapScan);
+        if (olapScan.getDistributionSpec() instanceof DistributionSpecStorageGather) {
+            planFragment.setForceSingleInstance();
+        }
         context.addPlanFragment(planFragment);
         updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), olapScan);
         return planFragment;
