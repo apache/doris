@@ -120,7 +120,7 @@ final class DeltaLakeScanMetrics {
     }
 
     Result result() {
-        return new Result(handle, totalFiles.value, selectedFiles, splits,
+        return new Result(handle.withoutSnapshot(), totalFiles.value, selectedFiles, splits,
                 countPartitions + partitions.size(), complete);
     }
 
@@ -150,7 +150,7 @@ final class DeltaLakeScanMetrics {
                     .append(complete ? "" : " (partial)").append('\n');
         }
 
-        ConnectorScanProfile profile() {
+        ConnectorScanProfile profile(boolean planningReuseHit) {
             Map<String, String> metrics = new LinkedHashMap<>();
             metrics.put("SnapshotVersion", Long.toString(handle.getVersion()));
             metrics.put("TotalFiles", total < 0 ? "unknown" : Long.toString(total));
@@ -158,6 +158,7 @@ final class DeltaLakeScanMetrics {
             metrics.put("SelectedPartitions", Long.toString(partitions));
             metrics.put("GeneratedSplits", Long.toString(splits));
             metrics.put("EnumerationComplete", Boolean.toString(complete));
+            metrics.put("PlanningReuseHit", Boolean.toString(planningReuseHit));
             return new ConnectorScanProfile("Delta Scan Metrics",
                     "Table Scan (" + handle.getDatabase() + "." + handle.getTable() + ")", metrics);
         }

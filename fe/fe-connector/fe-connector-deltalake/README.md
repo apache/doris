@@ -73,6 +73,30 @@ can still stream until a complete count is available. This decision is local
 to the Delta plugin, including Delta tables read through an HMS gateway; it does
 not change the shared FE row-count cache or BE scanner scheduling.
 
+## Repeated scans in one statement
+
+With the existing `enable_external_scan_task_reuse` session variable enabled,
+identical synchronous scans share their completed file ranges during planning.
+The key includes catalog/query/user, table coordinates, UUID and version, the
+typed predicate, selected partitions, empty-pruning and COUNT flags, split size
+and time zone. Projection does not change file enumeration. Each scan node still
+executes its own predicates and publishes its own metrics; `PlanningReuseHit`
+identifies a reused plan. The same behavior applies through the HMS gateway.
+
+The existing planning scope releases the memo when planning ends, including on
+failure. Nothing is shared across statements. Concurrent identical requests share
+one load; a cancelled waiter leaves without cancelling its producer. Failed or
+cancelled loads are retryable. Values hold immutable ranges and metrics, without
+Kernel rows, snapshots, iterators or resources requiring close.
+
+Per catalog/query, the memo retains at most 128 entries, 16,384 ranges and 16 MiB
+of estimated range payload, whichever fills first. The byte estimate includes
+paths, partition values and inline deletion vectors, and is not a bound on the
+whole query's heap or in-flight planning. Oversized results are returned normally
+without retention. Streaming scans never enter the memo or materialize a file
+list for reuse. The optimization uses existing SPI and configuration, with no
+changes to the shared FE or other connectors.
+
 ## Verification
 
 The standard FE UT reactor includes Delta and its metastore module. Run
@@ -86,6 +110,15 @@ half close iterators early while the other scans must enumerate all files.
 `DeltaLakePlanningScaleTest` is opt-in through `deltalake.planning.table`, using the
 retained million-file planning fixture documented in the Delta p2 README. It also
 checks asynchronous statistics in a bounded test JVM.
+
+`DeltaLakeScanPlanMemoTest` and `DeltaLakeScanPlanProviderTest` cover reuse,
+isolation, typed predicates, COUNT, descriptor ownership, planning lifetime,
+capacity, concurrent loading, failure and cancellation. Run
+`run-regression-test.sh --run -d external_table_p0/deltalake
+-s test_deltalake_scan_reuse` to compare disabled/enabled synchronous planning and
+streaming through filesystem, dedicated HMS and HMS gateway catalogs, including
+deletion vectors and column mapping. The existing mixed HMS/Iceberg suite checks
+the gateway's parallel format path.
 
 Run `run-regression-test.sh --run -d external_table_p0/deltalake
 -s test_deltalake_statistics` against the optional Delta fixtures. The suite checks

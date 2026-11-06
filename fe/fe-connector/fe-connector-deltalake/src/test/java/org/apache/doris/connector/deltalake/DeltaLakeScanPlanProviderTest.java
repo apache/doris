@@ -21,6 +21,7 @@ import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorPushdownOps;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
@@ -62,6 +63,174 @@ import java.util.stream.Collectors;
 class DeltaLakeScanPlanProviderTest {
     @TempDir
     Path warehouse;
+
+    @Test
+    void identicalScansReuseRangesAndPublishMetricsOnEveryNode() throws Exception {
+        createTable();
+        appendStatsFile("a.parquet", "a", 1, 10);
+        appendStatsFile("b.parquet", "b", 11, 20);
+        TestingConnectorSession session = new TestingConnectorSession("reuse",
+                Map.of("enable_external_scan_task_reuse", "true", "file_split_size", "10"));
+        try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(session)) {
+            ConnectorTableHandle handle = metadata.getTableHandle(session, "db", "table").orElseThrow();
+            ConnectorScanPlanProvider first = connector.getScanPlanProvider();
+            List<ConnectorScanRange> ranges = first.planScan(session, request(handle).build());
+            Assertions.assertEquals(6, ranges.size());
+            Assertions.assertThrows(UnsupportedOperationException.class, ranges::clear);
+            ConnectorScanPlanProvider second = connector.getScanPlanProvider();
+            Assertions.assertSame(ranges, second.planScan(session, request(handle).build()));
+            assertMetrics(second, session, "2", "2", "2", "6", true);
+            Assertions.assertEquals("false", first.collectScanProfiles(session).get(0).getMetrics()
+                    .get("PlanningReuseHit"));
+            Assertions.assertEquals("true", second.collectScanProfiles(session).get(0).getMetrics()
+                    .get("PlanningReuseHit"));
+            StringBuilder explain = new StringBuilder();
+            second.appendExplainInfo(explain, "", Map.of("deltalake.snapshot_version", "0"));
+            Assertions.assertTrue(explain.toString().contains("Delta files: 2/2, selected partitions: 2, splits: 6"));
+
+            List<ConnectorScanRange> count = second.planScan(session, request(handle).countPushdown(true).build());
+            Assertions.assertEquals(20, count.get(0).getPushDownRowCount());
+            Assertions.assertSame(count, first.planScan(session, request(handle).countPushdown(true).build()));
+            Assertions.assertEquals(-1, ranges.get(0).getPushDownRowCount());
+            Assertions.assertTrue(second.planScan(session, request(handle).partitionsPrunedToEmpty(true).build())
+                    .isEmpty());
+            List<ConnectorScanRange> partition = second.planScan(session,
+                    request(handle).requiredPartitions(List.of("p=a")).build());
+            Assertions.assertEquals(3, partition.size());
+            Assertions.assertSame(partition, first.planScan(session,
+                    request(handle).requiredPartitions(List.of("p=a", "p=a")).build()));
+            for (long value : new long[] {5, 15, 5}) {
+                ConnectorComparison filter = new ConnectorComparison(ConnectorComparison.Operator.LT,
+                        new ConnectorColumnRef("id", ConnectorType.of("BIGINT")), ConnectorLiteral.ofLong(value));
+                List<ConnectorScanRange> filtered = second.planScan(session,
+                        request(handle).filter(Optional.of(filter)).build());
+                Assertions.assertEquals(value == 5 ? 3 : 6, filtered.size());
+            }
+            Assertions.assertEquals("true", second.collectScanProfiles(session).get(0).getMetrics()
+                    .get("PlanningReuseHit"));
+
+            ConnectorScanRequest cancelled = request(handle).build();
+            cancelled.getScanContext().cancel();
+            Assertions.assertThrows(CancellationException.class, () -> second.planScan(session, cancelled));
+            Assertions.assertSame(ranges, second.planScan(session, request(handle).build()));
+            session.getStatementScope().endPlanning();
+            Assertions.assertNotSame(ranges, first.planScan(session, request(handle).build()));
+        }
+    }
+
+    @Test
+    void scanReuseStaysInsideItsQueryCatalogIdentityAndPlanningLifetime() throws Exception {
+        createTable();
+        appendFile(0, "a.parquet", "a", 25);
+        Map<String, String> enabled = Map.of("enable_external_scan_task_reuse", "true");
+        TestingConnectorSession original = new TestingConnectorSession("scope", enabled);
+        ConnectorStatementScope shared = original.getStatementScope();
+        try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(original)) {
+            ConnectorTableHandle handle = metadata.getTableHandle(original, "db", "table").orElseThrow();
+            ConnectorScanPlanProvider provider = connector.getScanPlanProvider();
+            List<ConnectorScanRange> ranges = provider.planScan(original, request(handle).build());
+            List<TestingConnectorSession> independent = List.of(
+                    new TestingConnectorSession("scope", enabled),
+                    new TestingConnectorSession("scope"),
+                    new TestingConnectorSession("scope", Map.of("enable_external_scan_task_reuse", "false")),
+                    new TestingConnectorSession("scope",
+                            Map.of("enable_external_scan_task_reuse", "true", "file_split_size", "10")) {
+                        @Override
+                        public ConnectorStatementScope getStatementScope() {
+                            return shared;
+                        }
+                    },
+                    new TestingConnectorSession("scope", enabled) {
+                        @Override
+                        public ConnectorStatementScope getStatementScope() {
+                            return shared;
+                        }
+
+                        @Override
+                        public String getTimeZone() {
+                            return "Asia/Shanghai";
+                        }
+                    },
+                    new TestingConnectorSession("scope", enabled) {
+                        @Override
+                        public ConnectorStatementScope getStatementScope() {
+                            return ConnectorStatementScope.NONE;
+                        }
+                    },
+                    new TestingConnectorSession("another-query", enabled) {
+                        @Override
+                        public ConnectorStatementScope getStatementScope() {
+                            return shared;
+                        }
+                    },
+                    new TestingConnectorSession("scope", enabled) {
+                        @Override
+                        public ConnectorStatementScope getStatementScope() {
+                            return shared;
+                        }
+
+                        @Override
+                        public long getCatalogId() {
+                            return 43;
+                        }
+                    },
+                    new TestingConnectorSession("scope", enabled) {
+                        @Override
+                        public ConnectorStatementScope getStatementScope() {
+                            return shared;
+                        }
+
+                        @Override
+                        public String getUser() {
+                            return "another-user";
+                        }
+                    });
+            for (TestingConnectorSession session : independent) {
+                Assertions.assertNotSame(ranges, provider.planScan(session, request(handle).build()));
+                Assertions.assertEquals("false", provider.collectScanProfiles(session).get(0).getMetrics()
+                        .get("PlanningReuseHit"));
+            }
+            Assertions.assertNotSame(ranges, provider.planScan(null, request(handle).build()));
+            appendFile(1, "b.parquet", "b", 25);
+            connector.invalidateTable("db", "table");
+            ConnectorTableHandle next = metadata.getTableHandle(new TestingConnectorSession("latest"),
+                    "db", "table").orElseThrow();
+            Assertions.assertEquals(2, provider.planScan(original, request(next).build()).size());
+            Assertions.assertSame(ranges, provider.planScan(original, request(handle).build()));
+            shared.closeAll();
+            Assertions.assertThrows(CancellationException.class,
+                    () -> provider.planScan(original, request(handle).build()));
+        }
+    }
+
+    @Test
+    void reusedGoldenDescriptorsCannotBeMutatedByAnotherScanNode() throws Exception {
+        Path resources = Path.of(getClass().getResource("/deltalake").toURI()).getParent();
+        TestingConnectorSession session = new TestingConnectorSession("golden-reuse",
+                Map.of("enable_external_scan_task_reuse", "true"));
+        try (Connector connector = new DeltaLakeConnectorProvider().create(
+                Map.of("warehouse", resources.toString()), new RecordingConnectorContext());
+                ConnectorMetadata metadata = connector.getMetadata(session)) {
+            for (String table : List.of("dv-partitioned-with-checkpoint", "v2-checkpoint-parquet")) {
+                ConnectorTableHandle handle = metadata.getTableHandle(session, "deltalake", table).orElseThrow();
+                List<ConnectorScanRange> ranges = connector.getScanPlanProvider()
+                        .planScan(session, request(handle).build());
+                List<ConnectorScanRange> reused = connector.getScanPlanProvider()
+                        .planScan(session, request(handle).build());
+                Assertions.assertSame(ranges, reused);
+                for (int i = 0; i < ranges.size(); i++) {
+                    TTableFormatFileDesc expected = new TTableFormatFileDesc();
+                    TFileRangeDesc file = new TFileRangeDesc();
+                    ranges.get(i).populateRangeParams(expected, file);
+                    TTableFormatFileDesc changed = expected.deepCopy();
+                    changed.getDeltalakeParams().setSchemaId(999);
+                    changed.getDeltalakeParams().unsetDeletionVector();
+                    reused.get(i).populateRangeParams(changed, new TFileRangeDesc());
+                    Assertions.assertEquals(expected, changed);
+                }
+            }
+        }
+    }
 
     @Test
     void scanProviderRejectsCastPredicatePushdown() throws Exception {

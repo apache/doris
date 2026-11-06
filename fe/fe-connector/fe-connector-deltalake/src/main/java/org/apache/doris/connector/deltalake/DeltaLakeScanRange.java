@@ -17,7 +17,9 @@
 
 package org.apache.doris.connector.deltalake;
 
+import org.apache.doris.connector.cache.JvmSizeUtils;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.thrift.TDeltaLakeDeletionVectorDesc;
 import org.apache.doris.thrift.TDeltaLakeFileDesc;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
@@ -72,6 +74,24 @@ final class DeltaLakeScanRange implements ConnectorScanRange {
     DeltaLakeScanRange withRowCount(long count) {
         return new DeltaLakeScanRange(path, start, length, fileSize, modificationTime, targetSize,
                 partitions, descriptor, count);
+    }
+
+    // Conservative range-payload estimate for the planning memo. Count shared strings per range;
+    // the separate entry/range limits also bound empty plans and heavily split single files.
+    long estimatedRetainedBytes() {
+        long bytes = 256L + JvmSizeUtils.stringSize(path);
+        for (Map.Entry<String, String> partition : partitions.entrySet()) {
+            bytes += 64L + JvmSizeUtils.stringSize(partition.getKey())
+                    + JvmSizeUtils.stringSize(partition.getValue());
+        }
+        if (descriptor.isSetDeletionVector()) {
+            TDeltaLakeDeletionVectorDesc dv = descriptor.getDeletionVector();
+            bytes += 128L + JvmSizeUtils.stringSize(dv.getPath());
+            if (dv.isSetInlineData()) {
+                bytes += JvmSizeUtils.byteArraySize(dv.bufferForInlineData().remaining());
+            }
+        }
+        return bytes;
     }
 
     @Override

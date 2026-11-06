@@ -83,7 +83,7 @@ class DeltaLakePlanningScaleTest {
                 Map.of("warehouse", table.getParent().getParent().toString()), new RecordingConnectorContext())) {
             for (int run = 0; run < 3; run++) {
                 TestingConnectorSession session = new TestingConnectorSession("scale-" + run,
-                        Map.of("num_files_in_batch_mode", "1"));
+                        Map.of("num_files_in_batch_mode", "1", "enable_external_scan_task_reuse", "true"));
                 long started = System.nanoTime();
                 try (ConnectorMetadata metadata = connector.getMetadata(session)) {
                     ConnectorTableHandle handle = metadata.getTableHandle(session, database, name).orElseThrow();

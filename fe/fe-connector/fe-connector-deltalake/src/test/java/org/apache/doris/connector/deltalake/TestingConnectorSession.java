@@ -22,20 +22,56 @@ import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
-final class TestingConnectorSession implements ConnectorSession {
+class TestingConnectorSession implements ConnectorSession {
     private final String queryId;
     private final Map<String, String> properties;
     private final ConnectorStatementScope scope = new ConnectorStatementScope() {
-        private final Map<String, Object> values = new HashMap<>();
+        private volatile boolean closed;
+        private final Map<String, Object> values = new ConcurrentHashMap<>();
+
+        private final Map<String, Object> planning = new ConcurrentHashMap<>();
 
         @Override
         @SuppressWarnings("unchecked")
         public <T> T computeIfAbsent(String key, Supplier<T> loader) {
+            checkOpen();
             return (T) values.computeIfAbsent(key, ignored -> loader.get());
+        }
+
+        @Override
+        @SuppressWarnings("unchecked")
+        public <T> T getIfPresent(String key) {
+            return closed ? null : (T) values.get(key);
+        }
+
+        @Override
+        @SuppressWarnings("unchecked")
+        public <T> T computeIfAbsentForPlanning(String key, Supplier<T> loader) {
+            checkOpen();
+            return (T) planning.computeIfAbsent(key, ignored -> loader.get());
+        }
+
+        @Override
+        public void endPlanning() {
+            planning.clear();
+        }
+
+        @Override
+        public void closeAll() {
+            closed = true;
+            endPlanning();
+            values.clear();
+        }
+
+        private void checkOpen() {
+            if (closed) {
+                throw new CancellationException("Statement scope is closed");
+            }
         }
     };
 
@@ -81,6 +117,11 @@ final class TestingConnectorSession implements ConnectorSession {
     @Override
     public <T> T getProperty(String name, Class<T> type) {
         return type.cast(properties.get(name));
+    }
+
+    @Override
+    public Map<String, String> getSessionProperties() {
+        return properties;
     }
 
     @Override

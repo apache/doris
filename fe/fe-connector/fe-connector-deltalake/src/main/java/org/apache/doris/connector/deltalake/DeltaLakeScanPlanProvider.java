@@ -40,6 +40,7 @@ import io.delta.kernel.expressions.Predicate;
 import io.delta.kernel.utils.CloseableIterator;
 import io.delta.kernel.utils.FileStatus;
 
+import java.io.IOException;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -60,6 +61,7 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider, Conn
     // The connector creates a provider per scan node. The gate runs before that node opens its source.
     private boolean streamingCount;
     private volatile DeltaLakeScanMetrics.Result scanMetrics;
+    private boolean planningReuseHit;
 
     DeltaLakeScanPlanProvider(DeltaLakeRuntime runtime, DeltaLakeStatisticsCache statistics) {
         this.runtime = runtime;
@@ -102,6 +104,7 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider, Conn
 
     @Override
     public ConnectorSplitSource streamSplits(ConnectorSession session, ConnectorScanRequest request) {
+        planningReuseHit = false;
         request.getScanContext().checkCancelled();
         return runtime.execute(() -> new StreamingSource(session, request));
     }
@@ -249,61 +252,85 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider, Conn
 
     @Override
     public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
+        scanMetrics = null;
+        planningReuseHit = false;
         return runtime.execute(() -> {
+            DeltaLakeScanPlanMemo.checkCancelled(request.getScanContext());
             DeltaLakeTableHandle handle = (DeltaLakeTableHandle) request.getTableHandle();
             Snapshot snapshot = handle.snapshot(runtime.engine);
             DeltaLakeFeatureCheck.check(snapshot);
-            DeltaLakeScanMetrics metrics = new DeltaLakeScanMetrics(session, handle, snapshot,
-                    statistics.fileCountObserver(session, handle, runtime));
-            scanMetrics = null;
-            try {
-                if (request.isPartitionsPrunedToEmpty()) {
-                    metrics.complete();
+            if (session == null || !session.isExternalScanTaskReuseEnabled()) {
+                return planScanInternal(session, request, handle, snapshot).ranges();
+            }
+            String namespace = DeltaLakeScanPlanMemo.NAMESPACE + ":" + session.getCatalogId()
+                    + ":" + session.getQueryId();
+            DeltaLakeScanPlanMemo memo = session.getStatementScope().computeIfAbsentForPlanning(
+                    namespace, DeltaLakeScanPlanMemo::new);
+            DeltaLakeScanPlanMemo.Outcome outcome = memo.get(
+                    DeltaLakeScanPlanMemo.Key.of(session, request, targetSplitSize(session)), request.getScanContext(),
+                    () -> planScanInternal(session, request, handle, snapshot));
+            planningReuseHit = outcome.reused();
+            scanMetrics = outcome.plan().metrics();
+            return outcome.plan().ranges();
+        });
+    }
+
+    private DeltaLakeScanPlanMemo.Plan planScanInternal(ConnectorSession session, ConnectorScanRequest request,
+            DeltaLakeTableHandle handle, Snapshot snapshot) {
+        DeltaLakeScanMetrics metrics = new DeltaLakeScanMetrics(session, handle, snapshot,
+                statistics.fileCountObserver(session, handle, runtime));
+        try {
+            List<ConnectorScanRange> ranges = planRanges(session, request, handle, snapshot, metrics);
+            DeltaLakeScanPlanMemo.checkCancelled(request.getScanContext());
+            metrics.complete();
+            return new DeltaLakeScanPlanMemo.Plan(ranges, metrics.result());
+        } catch (IOException e) {
+            throw new DorisConnectorException("Failed to plan Delta scan files for " + handle.getPath(), e);
+        } finally {
+            scanMetrics = metrics.result();
+        }
+    }
+
+    private List<ConnectorScanRange> planRanges(ConnectorSession session, ConnectorScanRequest request,
+            DeltaLakeTableHandle handle, Snapshot snapshot, DeltaLakeScanMetrics metrics) throws IOException {
+        if (request.isPartitionsPrunedToEmpty()) {
+            return Collections.emptyList();
+        }
+        long targetSize = targetSplitSize(session);
+        boolean mapped = DeltaLakeSchemaBuilder.hasColumnMapping(snapshot);
+        if (request.isCountPushdown() && request.getFilter().isEmpty()
+                && request.getRequiredPartitions().isEmpty()) {
+            CountSummary summary = countSummary(session, handle);
+            if (summary.count.isPresent()) {
+                metrics.count(summary.files, summary.partitions);
+                if (summary.first == null) {
                     return Collections.emptyList();
                 }
-                long targetSize = targetSplitSize(session);
-                boolean mapped = DeltaLakeSchemaBuilder.hasColumnMapping(snapshot);
-                if (request.isCountPushdown() && request.getFilter().isEmpty()
-                        && request.getRequiredPartitions().isEmpty()) {
-                    CountSummary summary = countSummary(session, handle);
-                    if (summary.count.isPresent()) {
-                        metrics.count(summary.files, summary.partitions);
-                        metrics.complete();
-                        if (summary.first == null) {
-                            return Collections.emptyList();
-                        }
-                        metrics.split();
-                        return Collections.singletonList(summary.first.withRowCount(summary.count.getAsLong()));
-                    }
-                }
-                Set<String> required = new HashSet<>(request.getRequiredPartitions());
-                List<ConnectorScanRange> ranges = new ArrayList<>();
-                Optional<Predicate> predicate = predicate(session, snapshot, request.getFilter());
-                DeltaLakeScanFiles.forEach(snapshot, metrics.engine(runtime.engine), false, predicate, row -> {
-                    Map<String, String> partitions = DeltaLakePartitionValues.normalize(
-                            snapshot, DeltaKernelCompat.partitionValues(row));
-                    if (!required.isEmpty() && !required.contains(DeltaLakePartitionValues.partitionName(partitions))) {
-                        return;
-                    }
-                    DeltaLakeScanRange file = fileRange(row, handle, partitions, targetSize, mapped);
-                    metrics.file(partitions);
-                    for (long offset = 0; offset < file.getFileSize();) {
-                        if (Thread.currentThread().isInterrupted()) {
-                            throw new DorisConnectorException(
-                                    "Delta split planning interrupted for " + handle.getPath());
-                        }
-                        long length = Math.min(targetSize, file.getFileSize() - offset);
-                        ranges.add(file.withByteRange(offset, length));
-                        metrics.split();
-                        offset += length;
-                    }
-                });
-                metrics.complete();
-                return ranges;
-            } finally {
-                scanMetrics = metrics.result();
+                metrics.split();
+                return Collections.singletonList(summary.first.withRowCount(summary.count.getAsLong()));
+            }
+        }
+        Set<String> required = new HashSet<>(request.getRequiredPartitions());
+        List<ConnectorScanRange> ranges = new ArrayList<>();
+        Optional<Predicate> predicate = predicate(session, snapshot, request.getFilter());
+        DeltaLakeScanFiles.forEach(snapshot, metrics.engine(runtime.engine), false, predicate, row -> {
+            DeltaLakeScanPlanMemo.checkCancelled(request.getScanContext());
+            Map<String, String> partitions = DeltaLakePartitionValues.normalize(
+                    snapshot, DeltaKernelCompat.partitionValues(row));
+            if (!required.isEmpty() && !required.contains(DeltaLakePartitionValues.partitionName(partitions))) {
+                return;
+            }
+            DeltaLakeScanRange file = fileRange(row, handle, partitions, targetSize, mapped);
+            metrics.file(partitions);
+            for (long offset = 0; offset < file.getFileSize();) {
+                DeltaLakeScanPlanMemo.checkCancelled(request.getScanContext());
+                long length = Math.min(targetSize, file.getFileSize() - offset);
+                ranges.add(file.withByteRange(offset, length));
+                metrics.split();
+                offset += length;
             }
         });
+        return ranges;
     }
 
     private DeltaLakeScanRange fileRange(Row row, DeltaLakeTableHandle handle,
@@ -435,7 +462,7 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider, Conn
     @Override
     public List<ConnectorScanProfile> collectScanProfiles(ConnectorSession session) {
         DeltaLakeScanMetrics.Result result = scanMetrics;
-        return result == null ? Collections.emptyList() : Collections.singletonList(result.profile());
+        return result == null ? Collections.emptyList() : Collections.singletonList(result.profile(planningReuseHit));
     }
 
     @Override
