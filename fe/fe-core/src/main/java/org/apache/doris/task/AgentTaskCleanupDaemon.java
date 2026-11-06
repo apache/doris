@@ -19,10 +19,8 @@ package org.apache.doris.task;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.Status;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -66,18 +64,7 @@ public class AgentTaskCleanupDaemon extends MasterDaemon {
     }
 
     private void removeInactiveBeAgentTasks(Long beId) {
-        AgentTaskQueue.removeTask(beId, (agentTask -> {
-            String errMsg = "BE down, this agent task is aborted";
-            if (agentTask instanceof PushTask) {
-                PushTask task = ((PushTask) agentTask);
-                task.countDownLatchWithStatus(beId, agentTask.getTabletId(), new Status(TStatusCode.ABORTED, errMsg));
-            }
-            agentTask.setFinished(true);
-            agentTask.setErrorCode(TStatusCode.ABORTED);
-            agentTask.setErrorMsg(errMsg);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("BE down, remove agent task: {}", agentTask);
-            }
-        }));
+        AgentTaskQueue.removeTask(beId,
+                task -> AgentTaskQueue.abortTask(task, "BE down, this agent task is aborted"));
     }
 }
