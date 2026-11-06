@@ -195,10 +195,11 @@ public class ConnectorPluginManager {
             try {
                 // Snapshot self-reported metadata (the security surface included) before publishing the
                 // provider so one throwing implementation is rejected cleanly instead of
-                // aborting startup or being active without an inventory row.
+                // aborting startup or being active without an inventory row. A surface built through the
+                // provider's own ServiceLoader fails with ServiceConfigurationError, as construction can.
                 securitySurface = provider.securitySurface();
                 PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, provider);
-            } catch (RuntimeException e) {
+            } catch (ServiceConfigurationError | RuntimeException e) {
                 LOG.warn("Skip built-in connector provider {}: self-reported metadata failed",
                         providerClass.getName(), e);
                 continue;
@@ -333,12 +334,14 @@ public class ConnectorPluginManager {
                 continue;
             }
             ConnectorProvider provider = handle.getFactory();
-            // Snapshot the security surface before publishing anything: it is plugin code, a connector may
-            // build it through its own ServiceLoader, and one bad plugin dir must not stop FE.
+            // Snapshot the security surface before publishing anything: it is plugin code, and one bad plugin
+            // dir must not stop FE. A connector may build it through its own ServiceLoader, as Hive, Iceberg and
+            // Paimon do for their metastore backends, and a descriptor naming a backend that cannot be loaded
+            // fails that with ServiceConfigurationError, an Error.
             ConnectorSecuritySurface securitySurface;
             try {
                 securitySurface = provider.securitySurface();
-            } catch (RuntimeException | LinkageError e) {
+            } catch (RuntimeException | LinkageError | ServiceConfigurationError e) {
                 runtimeManager.discard(handle.getPluginName());
                 LOG.warn("Skip connector plugin '{}' from {}: securitySurface() failed",
                         handle.getPluginName(), handle.getPluginDir(), e);

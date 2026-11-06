@@ -24,7 +24,11 @@ import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorProvider;
 import org.apache.doris.connector.spi.ConnectorSecuritySurface;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connectorconf.testplugins.BackendDiscoveringConnectorProvider;
 import org.apache.doris.datasource.CatalogFactory;
+import org.apache.doris.extension.loader.PluginRegistry;
+import org.apache.doris.pluginapiversion.testplugins.VersionProbeConnectorProvider;
+import org.apache.doris.utframe.PluginJarWriter;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -340,8 +344,8 @@ public class ConnectorPluginManagerTest {
 
     @Test
     void classpathProviderWhoseSecuritySurfaceThrowsIsSkippedNotFatal(@TempDir Path tempDir) throws Exception {
-        // A connector may build its security surface through its own ServiceLoader. When that throws, FE skips
-        // the provider, as it does a filesystem provider whose sensitivePropertyKeys() throws, and starts.
+        // A connector's security surface is plugin code. When it throws, FE skips the provider, as it does a
+        // filesystem provider whose sensitivePropertyKeys() throws, and starts.
         Path jar = createClasspathProviderJar(tempDir.resolve("throwing-surface.jar"), kernelApiMajor() + ".0",
                 ThrowingSurfaceClasspathProvider.class);
         ConnectorPluginManager loading = new ConnectorPluginManager();
@@ -349,6 +353,49 @@ public class ConnectorPluginManagerTest {
             Assertions.assertDoesNotThrow(() -> loading.loadBuiltins(loader));
         }
         Assertions.assertFalse(loading.getRegisteredTypes().contains("throwing-surface-test"));
+    }
+
+    @Test
+    void classpathProviderWhoseSecuritySurfaceFailsInItsOwnServiceLoaderIsSkippedNotFatal(@TempDir Path tempDir)
+            throws Exception {
+        // Hive, Iceberg and Paimon read their metastore backends through a ServiceLoader to build their security
+        // surfaces. A service descriptor naming a backend that is not there fails that lookup with
+        // ServiceConfigurationError, an Error: FE must skip the provider and start all the same.
+        Path jar = createClasspathProviderJar(tempDir.resolve("backend-discovering.jar"), kernelApiMajor() + ".0",
+                BackendDiscoveringConnectorProvider.class);
+        Path leftBehind = writeBackendDescriptorJar(tempDir.resolve("left-behind.jar"));
+        ConnectorPluginManager loading = new ConnectorPluginManager();
+        try (URLClassLoader loader =
+                providerClassLoader(jar, BackendDiscoveringConnectorProvider.class, leftBehind)) {
+            Assertions.assertDoesNotThrow(() -> loading.loadBuiltins(loader));
+        }
+        Assertions.assertFalse(loading.getRegisteredTypes().contains(BackendDiscoveringConnectorProvider.TYPE));
+    }
+
+    @Test
+    void pluginWhoseSecuritySurfaceFailsInItsOwnServiceLoaderIsSkippedNotFatal(@TempDir Path tempDir)
+            throws Exception {
+        // The same failure from a plugin directory, as a jar left in lib/ by an earlier release causes when its
+        // descriptor names a backend the plugin no longer ships. loadPlugins promises partial success: the plugin
+        // is skipped, and the plugin next to it still loads.
+        String apiVersion = kernelApiMajor() + ".0";
+        Path root = tempDir.resolve("connector-plugins");
+        PluginJarWriter.writePluginRoot(root, "backend-discovering", BackendDiscoveringConnectorProvider.class,
+                ConnectorProvider.class, "Doris-Connector-Plugin-Api-Version", apiVersion,
+                Collections.singletonList(BackendDiscoveringConnectorProvider.Backend.class));
+        writeBackendDescriptorJar(root.resolve("backend-discovering").resolve("lib").resolve("left-behind.jar"));
+        PluginJarWriter.writePluginRoot(root, "version-probe", VersionProbeConnectorProvider.class,
+                ConnectorProvider.class, "Doris-Connector-Plugin-Api-Version", apiVersion, Collections.emptyList());
+        ConnectorPluginManager loading = new ConnectorPluginManager();
+        try {
+            Assertions.assertDoesNotThrow(() -> loading.loadPlugins(Collections.singletonList(root)));
+            Assertions.assertFalse(loading.getRegisteredTypes().contains(BackendDiscoveringConnectorProvider.TYPE));
+            Assertions.assertTrue(loading.getRegisteredTypes().contains("version_probe"),
+                    loading.getRegisteredTypes().toString());
+        } finally {
+            // loadPlugins writes inventory rows into a process-wide singleton.
+            PluginRegistry.getInstance().clearForTest();
+        }
     }
 
     @Test
@@ -462,7 +509,7 @@ public class ConnectorPluginManagerTest {
 
         @Override
         public ConnectorSecuritySurface securitySurface() {
-            throw new IllegalStateException("the connector's metastore providers failed to load");
+            throw new IllegalStateException("the connector could not build its security surface");
         }
     }
 
@@ -498,9 +545,14 @@ public class ConnectorPluginManagerTest {
         return providerClassLoader(jarPath, ClasspathProvider.class);
     }
 
-    private static URLClassLoader providerClassLoader(Path jarPath, Class<? extends ConnectorProvider> providerClass)
-            throws IOException {
-        return new URLClassLoader(new URL[] {jarPath.toUri().toURL()}, ConnectorProvider.class.getClassLoader()) {
+    private static URLClassLoader providerClassLoader(Path jarPath, Class<? extends ConnectorProvider> providerClass,
+            Path... moreJars) throws IOException {
+        URL[] urls = new URL[moreJars.length + 1];
+        urls[0] = jarPath.toUri().toURL();
+        for (int i = 0; i < moreJars.length; i++) {
+            urls[i + 1] = moreJars[i].toUri().toURL();
+        }
+        return new URLClassLoader(urls, ConnectorProvider.class.getClassLoader()) {
             @Override
             protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
                 if (name.equals(providerClass.getName())) {
@@ -518,6 +570,21 @@ public class ConnectorPluginManagerTest {
                 return super.loadClass(name, resolve);
             }
         };
+    }
+
+    /**
+     * Writes a jar holding only a service descriptor for {@link BackendDiscoveringConnectorProvider.Backend} that
+     * names a class no jar has, as a jar left behind by an earlier release would.
+     */
+    private static Path writeBackendDescriptorJar(Path jarPath) throws IOException {
+        Files.createDirectories(jarPath.getParent());
+        try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(jarPath))) {
+            jar.putNextEntry(new JarEntry(
+                    "META-INF/services/" + BackendDiscoveringConnectorProvider.Backend.class.getName()));
+            jar.write("org.apache.doris.connectorconf.testplugins.RemovedBackend\n".getBytes(StandardCharsets.UTF_8));
+            jar.closeEntry();
+        }
+        return jarPath;
     }
 
     /** Admits {@code provider} as both loading paths do: with its security surface read up front. */
