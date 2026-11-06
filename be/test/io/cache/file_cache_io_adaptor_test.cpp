@@ -56,6 +56,65 @@ TEST_F(FileCacheIOAdaptorTest, SmallReadsKeepTheirActualLatency) {
     EXPECT_FALSE(decision.read_remote());
 }
 
+TEST_F(FileCacheIOAdaptorTest, FastLocalNeverReadsRemoteAcrossProbeIntervals) {
+    seed(50, 100, 20000);
+    size_t remote_reads = 0;
+    // At 32 requests/s, every 64th request also satisfies the one-second probe limit.
+    // A healthy 100 us cache must not send any of these real reads to the 20 ms remote path.
+    for (int64_t request = 0; request < 1024; ++request) {
+        const auto decision = adaptor._select(READ_SIZE, 1.0, request * 31'250);
+        remote_reads += decision.read_remote();
+        if (decision.read_remote()) {
+            adaptor.record_remote(READ_SIZE, 20000);
+        } else {
+            adaptor.record_local(READ_SIZE, 100);
+        }
+        if (decision.is_probe()) {
+            adaptor.finish_probe();
+        }
+    }
+    EXPECT_EQ(remote_reads, 0);
+}
+
+TEST_F(FileCacheIOAdaptorTest, FastLocalBucketsDoNotReserveProbeTurns) {
+    seed(50, 100, 20000);
+    seed(50, 20000, 1000, 1 << 20);
+    std::array<size_t, 2> probes {};
+    // Keep the fast bucket active at every quota boundary. It must neither probe remote
+    // storage itself nor reserve the slow bucket's opportunity to discover a faster path.
+    for (int64_t request = 0; request < 8 * 64; ++request) {
+        const bool large = request % 64 == 63;
+        const auto decision =
+                adaptor._select(large ? 1 << 20 : READ_SIZE, 1.0, (request / 64) * 2'000'000);
+        if (decision.is_probe()) {
+            ++probes[large];
+            adaptor.finish_probe();
+        }
+    }
+    EXPECT_EQ(probes[0], 0);
+    EXPECT_EQ(probes[1], 8);
+}
+
+TEST_F(FileCacheIOAdaptorTest, RemoteProbeRespectsFiveMillisecondBoundary) {
+    seed(50, 4999, 20000);
+    size_t probes_below_floor = 0;
+    for (int64_t request = 0; request < 64; ++request) {
+        const auto decision = adaptor._select(READ_SIZE, 1.0, request * 31'250);
+        probes_below_floor += decision.remote_probe;
+        if (decision.is_probe()) {
+            adaptor.finish_probe();
+        }
+    }
+    EXPECT_EQ(probes_below_floor, 0);
+    // Local observations can reach the floor even without any remote probes beforehand.
+    seed(50, 5000, 20000);
+    const auto decision = adaptor._select(READ_SIZE, 1.0, 5'000'000);
+    EXPECT_TRUE(decision.remote_probe);
+    if (decision.is_probe()) {
+        adaptor.finish_probe();
+    }
+}
+
 TEST_F(FileCacheIOAdaptorTest, MixedSizesDoNotShareHistory) {
     seed(50, 100, 1000);
     seed(50, 20000, 1000, 1 << 20);
@@ -205,12 +264,13 @@ TEST_F(FileCacheIOAdaptorTest, MixedSizeRecoveryCannotStarveAtProbeBoundary) {
             adaptor.finish_probe();
         }
     }
-    EXPECT_GE(probes[0], 50);
-    EXPECT_GE(probes[1], 50);
+    // After crossing below the floor, ordinary local reads finish replacing the slow window.
+    EXPECT_GT(probes[0], 0);
+    EXPECT_GT(probes[1], 0);
     EXPECT_EQ(adaptor._buckets[FileCacheIOAdaptor::bucket_index(READ_SIZE)].local.average(), 100);
     EXPECT_EQ(adaptor._buckets[FileCacheIOAdaptor::bucket_index(1 << 20)].local.average(), 100);
     const auto decision = adaptor._select(READ_SIZE, 1.0, 384'000'000);
-    EXPECT_EQ(decision.read_remote(), decision.remote_probe);
+    EXPECT_FALSE(decision.read_remote());
     if (decision.is_probe()) {
         adaptor.finish_probe();
     }
@@ -269,11 +329,11 @@ TEST_P(FileCacheIOAdaptorSparseTrafficTest, SparseBucketsRecoverDespiteInterveni
             adaptor.finish_probe();
         }
     }
-    EXPECT_GT(probes[0], 0);
-    EXPECT_GE(probes[1], 50);
+    EXPECT_EQ(probes[0], 0);
+    EXPECT_GT(probes[1], 0);
     const auto decision = adaptor._select(1 << 20, 1.0, 256'000'000);
     EXPECT_EQ(decision.local_latency_us, 100);
-    EXPECT_EQ(decision.read_remote(), decision.remote_probe);
+    EXPECT_FALSE(decision.read_remote());
     if (decision.is_probe()) {
         adaptor.finish_probe();
     }
@@ -285,7 +345,7 @@ INSTANTIATE_TEST_SUITE_P(SparseTraffic, FileCacheIOAdaptorSparseTrafficTest,
                                          SparseTraffic {64, 2}, SparseTraffic {256, 2}));
 
 TEST_F(FileCacheIOAdaptorTest, SparseBucketStopsReservingAfterItsProbe) {
-    seed(50, 100, 1000);
+    seed(50, 20000, 1000);
     seed(50, 20000, 1000, 1 << 20);
     bool large_probed = false;
     int64_t now_us = 0;
