@@ -165,11 +165,8 @@ TEST(SniiBuildMemoryTracker, UnregisteredResidueNeverReachesTheDecisionInput) {
     EXPECT_EQ(snii_registered_build_bytes(), registered_baseline);
 }
 
-// This is what keeps flush threads off each other's cache lines: a term encoder takes
-// scratch and gives it back for every term, and that must never reach the shared
-// counters. The reporter stays exact, because the hard budget of compaction reads it.
-// Both populations: BKD writers and compaction merges run the same per-term reservations
-// on the same flush threads as the text writers.
+// Keep per-term scratch changes off shared counters in both memory populations.
+// The reporter must still track exact live bytes for compaction budgets.
 TEST(SniiBuildMemoryTracker, PerTermSwingsStayOffTheSharedCounters) {
     doris::MemTracker* tracker = snii_build_mem_tracker();
     const int64_t baseline = tracker->consumption();
@@ -214,11 +211,8 @@ TEST(SniiBuildMemoryTracker, HeldBackBytesArePublishedTogetherAtTheStep) {
     EXPECT_EQ(snii_registered_build_bytes(), registered_baseline);
 }
 
-// +1.5 steps and -1.25 steps both publish, and the last -0.25 steps never reaches a step.
-// The reporter must not wait for its destructor to give that back: IndexFileWriter keeps
-// a finished text writer's reporter until the rowset writer closes, so every segment of a
-// load would leave its remainder in the spill decision's input. An empty reporter
-// publishes what it holds back.
+// Publish the remainder when live bytes reach zero.
+// IndexFileWriter can retain the reporter until its rowset writer closes.
 TEST(SniiBuildMemoryTracker, AnEmptyReporterHoldsNothingBack) {
     doris::MemTracker* tracker = snii_build_mem_tracker();
     const int64_t baseline = tracker->consumption();

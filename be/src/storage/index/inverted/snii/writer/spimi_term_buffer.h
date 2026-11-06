@@ -284,12 +284,8 @@ private:
     Status drain_to_writer(class EncodedRunWriter* w);
     // Counts the posting arena, vocabulary, live term slots and cached ranks by capacity for spill decisions.
     uint64_t resident_bytes() const;
-    // Reports the signed change in REAL resident bytes (resident_bytes()) to
-    // mem_reporter_ since the previous call, then caches the new total.
-    // Single-source diff: every grow/reset/free emits EXACTLY ONE delta
-    // (self-balancing -> impossible to double-count or miss a negative). An attached
-    // global limiter is told only when the arena or the resident total moved enough
-    // to change its decision (see the definition). No-op when both are null.
+    // Reports each change in resident capacity to mem_reporter_ and caches the total.
+    // Refreshes an attached limiter when arena bytes change or resident bytes move by a publish step.
     void report_arena_delta();
     Status merge_runs_streamed(const StreamedTermConsumer& fn);
     Status prepare_run_merge();

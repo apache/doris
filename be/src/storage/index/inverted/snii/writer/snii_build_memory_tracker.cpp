@@ -57,18 +57,8 @@ namespace {
 // plain atomic rather than a second MemTracker.
 std::atomic<int64_t> g_registered_build_bytes {0};
 
-// One reporter's changes that have not reached the process-wide counters yet.
-// Every change is either in pending_ or published, never both, so the counters
-// add up to the reporter's live bytes minus pending_.
-//
-// Changes publish once pending_ reaches a step, and also whenever the reporter's live
-// bytes are back at zero. A finished text writer's reporter is not destroyed with the
-// writer: IndexFileWriter keeps it until the rowset writer closes, so whatever it held
-// back would stay in the spill decision's input for every later segment of the load.
-// For example +1.5 MiB publishes, -1.25 MiB publishes, and the last -0.25 MiB takes the
-// live bytes to zero and publishes as well. A writer holds its arena for the whole
-// build, so per-term swings never reach zero and this costs one publish per finished
-// writer.
+// Holds one reporter's changes until they reach a publish step or its live bytes reach zero.
+// Flush any remainder on destruction because IndexFileWriter can retain a reporter after its writer finishes.
 class HeldBackBuildBytes {
 public:
     HeldBackBuildBytes(doris::MemTracker* tracker, bool registered)
@@ -89,13 +79,8 @@ public:
     }
 
 private:
-    // MemTracker and the subset counter are both thread-safe atomics.
-    //
-    // The registered path updates two of them, which is NOT atomic as a pair --
-    // and does not need to be. The decision layer reads only
-    // g_registered_build_bytes; the tracker is observation. Because no consumer
-    // combines the two, there is no window in which they can disagree with each
-    // other in a way anything can observe.
+    // The limiter reads only the registered counter; the tracker provides observations.
+    // Their atomic updates do not need to form one transaction.
     void publish(int64_t delta) {
         if (delta >= 0) {
             tracker_->consume(delta);

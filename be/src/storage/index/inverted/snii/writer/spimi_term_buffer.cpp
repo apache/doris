@@ -376,18 +376,8 @@ void SpimiTermBuffer::report_arena_delta() {
     if (mem_reporter_ != nullptr) {
         mem_reporter_->report(now - reported_resident_);
     }
-    // Report reclaimable arena bytes to the process-wide limiter. It may flag
-    // this buffer for a spill, which the owner thread handles after this call.
-    //
-    // The call takes a process-wide mutex, so it is made only when the decision can
-    // change. The resident total above moves on every new term while the arena moves
-    // one 32 KiB block at a time, so a log column that interns 4000 new terms into one
-    // block would otherwise take that mutex 4000 times to repeat one number, from every
-    // flush thread at once. The limiter keeps the arena, so a moved arena is reported.
-    // Its decision also reads the build bytes, which reporters publish one
-    // kBuildBytesPublishStep at a time, so a resident move of that size is reported too
-    // even inside one arena block: the term slots doubling from 2^17 to 2^18 entries add
-    // 3.5 MiB in one token, which has to be judged then and not at the next block.
+    // Refresh the limiter when the arena changes or resident bytes move by a publish step.
+    // This keeps per-term changes off the process-wide mutex.
     if (global_limiter_ != nullptr &&
         (pool_.arena_bytes() != reported_arena_ ||
          std::abs(now - decided_resident_) >= kBuildBytesPublishStep)) {
