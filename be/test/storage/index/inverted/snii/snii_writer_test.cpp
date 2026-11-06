@@ -502,7 +502,8 @@ void add_null_handoff_rows(doris::segment_v2::SniiIndexColumnWriter* writer, boo
     if (arrays) {
         std::vector<uint64_t> offsets(kNullHandoffRows + 1, 0);
         std::vector<uint8_t> null_map(kNullHandoffRows, 1);
-        ASSERT_OK(writer->add_array_values(sizeof(doris::Slice), nullptr, nullptr, offsets.data(),
+        ASSERT_OK(writer->add_array_values(sizeof(doris::Slice), nullptr, nullptr,
+                                           reinterpret_cast<const uint8_t*>(offsets.data()),
                                            kNullHandoffRows));
         ASSERT_OK(writer->add_array_nulls(null_map.data(), kNullHandoffRows));
     } else {

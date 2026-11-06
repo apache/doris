@@ -318,7 +318,6 @@ private:
             _raw_positions = part.positions;
             _has_norms = part.has_norms;
             _doc_base = part.begin;
-            _has_norms = part.has_norms;
         }
     }
 
