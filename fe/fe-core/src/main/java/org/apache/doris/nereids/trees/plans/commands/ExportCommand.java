@@ -38,6 +38,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.ParquetFileFormatProperties;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -95,6 +97,7 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
             .add("format")
             .add(ParquetFileFormatProperties.ENABLE_INT96_TIMESTAMPS)
             .add(OutFileClause.PROP_WITH_BOM)
+            .add(CsvFileFormatProperties.PROP_CSV_QUOTE)
             .add(COMPRESS_TYPE)
             .build();
 
@@ -302,6 +305,7 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
             ParquetFileFormatProperties.parseEnableInt96Timestamps(enableInt96Timestamps);
         }
         exportJob.setEnableInt96Timestamps(enableInt96Timestamps);
+        exportJob.setCsvQuote(fileProperties.getOrDefault(CsvFileFormatProperties.PROP_CSV_QUOTE, "false"));
 
         // set withBom
         exportJob.setWithBom(fileProperties.getOrDefault(OutFileClause.PROP_WITH_BOM, "false"));
@@ -401,6 +405,23 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
         // check user specified label
         if (fileProperties.containsKey(LABEL)) {
             FeNameFormat.checkLabel(fileProperties.get(LABEL));
+        }
+        if (fileProperties.containsKey(CsvFileFormatProperties.PROP_CSV_QUOTE)) {
+            boolean csvQuote = CsvFileFormatProperties.parseCsvQuote(
+                    fileProperties.get(CsvFileFormatProperties.PROP_CSV_QUOTE));
+            String format = fileProperties.getOrDefault(LoadCommand.KEY_IN_PARAM_FORMAT_TYPE, "csv");
+            if (!format.equalsIgnoreCase(FileFormatProperties.FORMAT_CSV)
+                    && !format.equalsIgnoreCase(FileFormatProperties.FORMAT_CSV_WITH_NAMES)
+                    && !format.equalsIgnoreCase(FileFormatProperties.FORMAT_CSV_WITH_NAMES_AND_TYPES)) {
+                throw new AnalysisException(CsvFileFormatProperties.PROP_CSV_QUOTE
+                        + " is only supported for CSV format");
+            }
+            String columnSeparator = Separator.convertSeparator(fileProperties.getOrDefault(
+                    PropertyAnalyzer.PROPERTIES_COLUMN_SEPARATOR, DEFAULT_COLUMN_SEPARATOR));
+            String lineDelimiter = Separator.convertSeparator(fileProperties.getOrDefault(
+                    PropertyAnalyzer.PROPERTIES_LINE_DELIMITER, DEFAULT_LINE_DELIMITER));
+            CsvFileFormatProperties.validateCsvQuoteSeparators(
+                    csvQuote, columnSeparator, lineDelimiter);
         }
     }
 

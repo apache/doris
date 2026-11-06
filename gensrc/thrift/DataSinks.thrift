@@ -166,6 +166,9 @@ struct TResultFileSinkOptions {
     // padding, preserving the historical name format. Used to make rollover
     // files sort lexicographically (so _00011 sorts after _00002).
     23: optional i32 file_name_padding
+
+    // Quote every complete CSV cell and double embedded double quotes.
+    24: optional bool csv_quote
 }
 
 struct TMemoryScratchSink {

@@ -64,6 +64,7 @@ struct ResultFileOptions {
     std::string file_suffix;
     //Bring BOM when exporting to CSV format
     bool with_bom = false;
+    bool csv_quote = false;
     int64_t orc_writer_version = 0;
     // Zero-pad the per-file index in the output file name to this many digits.
     // 0 means no padding, preserving the historical name format.
@@ -81,6 +82,7 @@ struct ResultFileOptions {
                 t_opt.__isset.delete_existing_files ? t_opt.delete_existing_files : false;
         file_suffix = t_opt.file_suffix;
         with_bom = t_opt.with_bom;
+        csv_quote = t_opt.__isset.csv_quote ? t_opt.csv_quote : false;
         if (t_opt.__isset.file_name_padding) {
             file_name_padding = t_opt.file_name_padding;
         }
