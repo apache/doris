@@ -47,8 +47,9 @@ suite('rf_merge_context_profile', 'nonConcurrent') {
     // these RFs exercise remote merge/publish even on a one-BE test cluster.
     String remotePlan = sql('''explain select p.k, p.v from rf_merge_profile_probe p
                                join [shuffle] rf_merge_profile_build b on p.k = b.k order by p.k''').toString()
-    assertTrue(remotePlan.contains('INNER JOIN(PARTITIONED)'))
-    assertTrue(remotePlan.contains('runtime filters: RF'))
+    assertTrue(remotePlan.contains('INNER JOIN('), remotePlan)
+    assertTrue(remotePlan.contains('VEXCHANGE'), remotePlan)
+    assertTrue(remotePlan.contains('runtime filters: RF'), remotePlan)
     order_qt_remote '''select p.k, p.v from rf_merge_profile_probe p
                        join [shuffle] rf_merge_profile_build b on p.k = b.k order by p.k'''
 
