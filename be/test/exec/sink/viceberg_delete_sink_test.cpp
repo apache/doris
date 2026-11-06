@@ -25,6 +25,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <optional>
 
 #include "common/consts.h"
 #include "common/object_pool.h"
@@ -744,6 +745,56 @@ TEST_F(VIcebergDeleteSinkTest, TestWriteDeletionVectorsToSingleSharedPuffin) {
     }
 
     std::filesystem::remove_all(temp_dir);
+}
+
+TEST_F(VIcebergDeleteSinkTest, TestCloseDeleteOnlyRowsAttachToSingleCommitItem) {
+    for (const auto delete_only_rows :
+         {std::optional<int64_t> {}, std::optional<int64_t> {0}, std::optional<int64_t> {1}}) {
+        SCOPED_TRACE(delete_only_rows.has_value() ? std::to_string(*delete_only_rows)
+                                                  : "ordinary DELETE");
+        std::filesystem::path temp_dir = std::filesystem::temp_directory_path() /
+                                         ("iceberg_delete_sink_test_" + generate_uuid_string());
+        ASSERT_TRUE(std::filesystem::create_directories(temp_dir));
+
+        TDataSink t_data_sink = build_local_delete_sink(temp_dir.string(), 3);
+        VExprContextSPtrs output_exprs;
+        auto sink =
+                std::make_shared<VIcebergDeleteSink>(t_data_sink, output_exprs, nullptr, nullptr);
+        ObjectPool pool;
+        ASSERT_TRUE(sink->init_properties(&pool).ok());
+
+        std::map<std::string, IcebergFileDeletion> file_deletions;
+        auto [file1_it, file1_inserted] =
+                file_deletions.emplace("file1.parquet", IcebergFileDeletion(1, "[\"p=1\"]"));
+        ASSERT_TRUE(file1_inserted);
+        file1_it->second.rows_to_delete.add(static_cast<uint32_t>(10));
+        auto [file2_it, file2_inserted] =
+                file_deletions.emplace("file2.parquet", IcebergFileDeletion(2, "[\"p=2\"]"));
+        ASSERT_TRUE(file2_inserted);
+        file2_it->second.rows_to_delete.add(static_cast<uint32_t>(30));
+
+        sink->_file_deletions = std::move(file_deletions);
+        // MERGE defers cleanup until both inner writers close; no RuntimeState is needed to inspect
+        // the generated commit items before ownership transfers to the outer writer.
+        sink->defer_file_cleanup_until_outer_close();
+        if (delete_only_rows.has_value()) {
+            ASSERT_TRUE(sink->close(Status::OK(), delete_only_rows).ok());
+        } else {
+            AsyncResultWriter& writer = *sink;
+            ASSERT_TRUE(writer.close(Status::OK()).ok());
+        }
+        ASSERT_EQ(2, sink->_commit_data_list.size());
+        EXPECT_EQ(delete_only_rows.has_value(),
+                  sink->_commit_data_list.front().__isset.delete_only_rows);
+        if (delete_only_rows.has_value()) {
+            EXPECT_EQ(*delete_only_rows, sink->_commit_data_list.front().delete_only_rows);
+        }
+
+        // The sink-wide action count belongs to one item, not every physical delete file.
+        EXPECT_FALSE(sink->_commit_data_list.back().__isset.delete_only_rows);
+
+        std::filesystem::remove_all(temp_dir);
+    }
 }
 
 } // namespace doris
