@@ -71,9 +71,8 @@ public class AdbcClient implements Closeable {
 
     private static final Logger LOG = LogManager.getLogger(AdbcClient.class);
 
-    // The native Flight driver shares a mutable DriverInfo map across catalog databases. Concurrent
-    // getInfo calls can terminate the FE with Go's "concurrent map writes", even on different clients.
-    // Only cold vendor probes take this lock; cached identities and ordinary metadata calls do not.
+    // Retain the existing bound on concurrent cold remote probes. Native correctness comes from
+    // connection-scoped driver information, verified before requesting a vendor; ordinary calls stay concurrent.
     private static final Object DRIVER_INFO_LOCK = new Object();
 
     private final Path driverPath;
@@ -166,6 +165,7 @@ public class AdbcClient implements Closeable {
      * asked for.
      */
     private static Optional<String> readVendorName(AdbcConnection connection) throws Exception {
+        AdbcDriverInfo.requireIsolatedVendorInfo(connection);
         try (ArrowReader reader = connection.getInfo(new AdbcInfoCode[] {AdbcInfoCode.VENDOR_NAME})) {
             VectorSchemaRoot root = reader.getVectorSchemaRoot();
             while (reader.loadNextBatch()) {

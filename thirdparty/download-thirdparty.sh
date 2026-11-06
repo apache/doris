@@ -94,16 +94,6 @@ if [[ "${SPEC_LIB}" != "" ]]; then
         done
     fi
 
-    # ARROW_ADBC_FLIGHTSQL is a companion archive of arrow_adbc rather than a
-    # package of its own: it has no build function, build_arrow_adbc() only copies
-    # the prebuilt driver out of it. Its name therefore never appears on a command
-    # line, so narrowing to the named entries alone leaves it unfetched and
-    # `build-thirdparty.sh arrow_adbc` dies on the missing source directory.
-    if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE}" ]] &&
-        [[ " ${SPEC_ARCHIVES[*]} " == *' ARROW_ADBC '* ]] &&
-        [[ " ${SPEC_ARCHIVES[*]} " != *' ARROW_ADBC_FLIGHTSQL '* ]]; then
-        SPEC_ARCHIVES+=('ARROW_ADBC_FLIGHTSQL')
-    fi
     TP_ARCHIVES=("${SPEC_ARCHIVES[@]}")
     echo "Download and build specified libs only: ${TP_ARCHIVES[*]}"
 fi
@@ -491,13 +481,17 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW " ]]; then
     echo "Finished patching ${ARROW_SOURCE}"
 fi
 
-# arrow-adbc patch adds the pre-generated JNI header, so that building the JNI
-# bridge needs no Maven. See the patch header for how to regenerate it.
+# Keep the JNI-header and connection-info patches independent so cached sources
+# with an existing JNI marker still receive the native server-info isolation fix.
 if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW_ADBC " ]]; then
     cd "${TP_SOURCE_DIR}/${ARROW_ADBC_SOURCE}"
     if [[ ! -f "${PATCHED_MARK}" ]]; then
         patch -p1 <"${TP_PATCH_DIR}/apache-arrow-adbc-24-pregenerated-jni-header.patch"
         touch "${PATCHED_MARK}"
+    fi
+    if [[ ! -f "${PATCHED_MARK}_connection_info" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/apache-arrow-adbc-24-connection-info.patch"
+        touch "${PATCHED_MARK}_connection_info"
     fi
     cd -
     echo "Finished patching ${ARROW_ADBC_SOURCE}"

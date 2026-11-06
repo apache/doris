@@ -36,6 +36,10 @@ suite("test_adbc_concurrent_vendor_probe", "p0,external") {
 
     sql "DROP DATABASE IF EXISTS internal.test_adbc_concurrent_vendor_probe_db FORCE"
     sql "CREATE DATABASE internal.test_adbc_concurrent_vendor_probe_db"
+    sql """CREATE TABLE internal.test_adbc_concurrent_vendor_probe_db.test_vendor_probe_table (
+        id INT
+    ) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ("replication_num" = "1")"""
+    String expectedTables = (sql "SHOW TABLES FROM internal.test_adbc_concurrent_vendor_probe_db").toString()
     String expected = (sql """SHOW DATABASES FROM internal
         LIKE 'test_adbc_concurrent_vendor_probe_db'""").toString()
     int workers = 3
@@ -47,23 +51,30 @@ suite("test_adbc_concurrent_vendor_probe", "p0,external") {
         try {
             catalogs.each { catalog ->
                 sql "DROP CATALOG IF EXISTS ${catalog}"
-                // A rendering override still needs vendor detection for metadata routing. The native
-                // Flight driver shares its info map across these otherwise independent catalog clients.
+                // Metadata routing still needs a source identity with an explicit SQL rendering override.
                 sql """CREATE CATALOG ${catalog} PROPERTIES (
                     "type" = "adbc", "driver_url" = "${driver}", "sql_dialect" = "doris",
                     "uri" = "grpc://127.0.0.1:${port}", "user" = "root", "password" = "")"""
             }
+            String warmCatalog = catalogs[0]
+            assertEquals(expected, (sql "SHOW DATABASES FROM ${warmCatalog} LIKE 'test_adbc_concurrent_vendor_probe_db'")
+                    .toString())
             calls = catalogs.collect { catalog ->
                 thread("vendor-probe-${catalog}") {
                     ready.countDown()
                     assertTrue(start.await(30, TimeUnit.SECONDS), "concurrent probe start timed out")
-                    // Do not warm any of these catalogs before releasing all callers together.
-                    (sql "SHOW DATABASES FROM ${catalog} LIKE 'test_adbc_concurrent_vendor_probe_db'").toString()
+                    if (catalog == warmCatalog) {
+                        // Opening a connection for a warm catalog reads driver info while cold catalogs probe vendors.
+                        return (sql "SHOW TABLES FROM ${catalog}.test_adbc_concurrent_vendor_probe_db").toString()
+                    }
+                    return (sql "SHOW DATABASES FROM ${catalog} LIKE 'test_adbc_concurrent_vendor_probe_db'").toString()
                 }
             }
             assertTrue(ready.await(30, TimeUnit.SECONDS), "concurrent probe callers did not start")
             start.countDown()
-            calls.each { call -> assertEquals(expected, call.get(60, TimeUnit.SECONDS)) }
+            calls.eachWithIndex { call, index ->
+                assertEquals(index == 0 ? expectedTables : expected, call.get(60, TimeUnit.SECONDS))
+            }
         } finally {
             start.countDown()
             calls.each { call -> call.cancel(true) }

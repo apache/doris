@@ -19,6 +19,7 @@ package org.apache.doris.connector.adbc;
 
 import org.apache.arrow.adbc.core.AdbcConnection;
 import org.apache.arrow.adbc.core.AdbcException;
+import org.apache.arrow.adbc.core.AdbcInfoCode;
 import org.apache.arrow.adbc.core.AdbcStatement;
 import org.apache.arrow.adbc.core.AdbcStatusCode;
 import org.apache.arrow.vector.ipc.ArrowReader;
@@ -140,6 +141,9 @@ class AdbcVendorProbeConcurrencyTest {
                 return body.apply(new AdbcConnection() {
                     @Override
                     public ArrowReader getInfo(int[] infoCodes) throws AdbcException {
+                        if (infoCodes[0] == AdbcInfoCode.DRIVER_NAME.getValue()) {
+                            throw AdbcException.notImplemented("Driver name unavailable in this fixture");
+                        }
                         return probe.read();
                     }
 
