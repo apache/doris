@@ -35,7 +35,8 @@ class TimezoneUtils {
 public:
     static void load_timezones_to_cache();
 
-    static bool find_cctz_time_zone(const std::string& timezone, cctz::time_zone& ctz);
+    [[nodiscard]] static bool find_cctz_time_zone(const std::string& timezone,
+                                                  cctz::time_zone& ctz);
 
     // The caller validates the offset according to its parsing policy.
     static cctz::time_zone create_fixed_offset_time_zone(int32_t offset_seconds);
