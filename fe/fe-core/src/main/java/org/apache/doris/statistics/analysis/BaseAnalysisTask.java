@@ -697,6 +697,15 @@ public abstract class BaseAnalysisTask {
                 jobInfo = jobInfo == null ? job.jobInfo : jobInfo;
                 long indexId = info.indexId == -1 ? ((OlapTable) tbl).getBaseIndexId() : info.indexId;
                 jobInfo.addIndexRowCount(indexId, colStatsData.count);
+                // Capture the load counter together with the collected row count, so that the baseline
+                // stored in the stats record describes the same snapshot as the count. Reading it after
+                // the query makes a concurrent load bias the fallback estimate to an under-count instead
+                // of a double count (#69281).
+                TableStatsMeta tableStatsStatus = Env.getCurrentEnv().getAnalysisManager()
+                        .findTableStatsStatus(tbl.getId());
+                if (tableStatsStatus != null) {
+                    jobInfo.updateRows = tableStatsStatus.updatedRows.get();
+                }
             }
             Env.getCurrentEnv().getStatisticsCache().syncColStats(colStatsData);
             queryId = DebugUtil.printId(stmtExecutor.getContext().queryId());
