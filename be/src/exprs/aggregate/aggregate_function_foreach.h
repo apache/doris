@@ -260,6 +260,10 @@ public:
         nested_function->set_version(version_);
     }
 
+    void set_check_overflow_for_decimal(bool v) override {
+        nested_function->set_check_overflow_for_decimal(v);
+    }
+
     String get_name() const override { return nested_function->get_name() + AGG_FOREACH_SUFFIX; }
 
     DataTypePtr get_return_type() const override {

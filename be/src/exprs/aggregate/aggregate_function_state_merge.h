@@ -45,6 +45,10 @@ public:
         _function->set_version(version_);
     }
 
+    void set_check_overflow_for_decimal(bool v) override {
+        _function->set_check_overflow_for_decimal(v);
+    }
+
     String get_name() const override { return _function->get_name() + AGG_MERGE_SUFFIX; }
 
     DataTypePtr get_return_type() const override { return _function->get_return_type(); }
