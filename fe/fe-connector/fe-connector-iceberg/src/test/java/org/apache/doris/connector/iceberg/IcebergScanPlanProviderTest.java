@@ -211,7 +211,89 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
-    public void encryptedDeleteFilesAreRejectedBeforeLosingTheirKeys() {
+    public void encryptedDeleteDescriptorsKeepTheirOwnKeyAndAad() {
+        Table table = createTable("independent_delete_keys", SCHEMA, PartitionSpec.unpartitioned());
+        byte[] metadata = new byte[22];
+        metadata[0] = 1;
+        metadata[1] = 32;
+        Arrays.fill(metadata, 2, 18, (byte) 13);
+        metadata[18] = 2;
+        metadata[19] = 2;
+        metadata[20] = 9;
+        for (boolean equality : new boolean[] {false, true}) {
+            FileMetadata.Builder builder = FileMetadata.deleteFileBuilder(table.spec());
+            if (equality) {
+                builder.ofEqualityDeletes(1);
+            } else {
+                builder.ofPositionDeletes();
+            }
+            DeleteFile delete = builder.withPath("s3://bucket/delete.parquet").withFormat("parquet")
+                    .withFileSizeInBytes(100).withRecordCount(1)
+                    .withEncryptionKeyMetadata(ByteBuffer.wrap(metadata)).build();
+            TIcebergDeleteFileDesc first = Assertions.assertDoesNotThrow(
+                    () -> provider().convertDelete(delete, UnaryOperator.identity()).toThrift());
+            Assertions.assertTrue(first.isSetEncryptionInfo());
+            byte[] expected = new byte[16];
+            Arrays.fill(expected, (byte) 13);
+            Assertions.assertArrayEquals(expected, first.getEncryptionInfo().getKey());
+            Assertions.assertArrayEquals(new byte[] {9}, first.getEncryptionInfo().getAadPrefix());
+            Arrays.fill(first.getEncryptionInfo().getKey(), (byte) 0);
+            TIcebergDeleteFileDesc second = provider().convertDelete(delete, UnaryOperator.identity()).toThrift();
+            Assertions.assertArrayEquals(expected, second.getEncryptionInfo().getKey());
+        }
+    }
+
+    @Test
+    public void encryptedDeleteFormatsAndPositionDeleteSystemTableAreValidated() {
+        Table table = createTable("encrypted_delete_formats", SCHEMA, PartitionSpec.unpartitioned());
+        byte[] metadata = new byte[22];
+        metadata[0] = 1;
+        metadata[1] = 32;
+        Arrays.fill(metadata, 2, 18, (byte) 13);
+        metadata[18] = 2;
+        metadata[19] = 2;
+        metadata[20] = 9;
+        for (FileFormat format : new FileFormat[] {FileFormat.ORC, FileFormat.AVRO, FileFormat.PUFFIN}) {
+            FileMetadata.Builder builder = FileMetadata.deleteFileBuilder(table.spec()).ofPositionDeletes()
+                    .withPath("s3://bucket/delete").withFormat(format).withFileSizeInBytes(100).withRecordCount(1)
+                    .withEncryptionKeyMetadata(ByteBuffer.wrap(metadata));
+            if (format == FileFormat.PUFFIN) {
+                builder.withContentOffset(16L).withContentSizeInBytes(64L)
+                        .withReferencedDataFile("s3://bucket/data.parquet");
+            }
+            DeleteFile delete = builder.build();
+            IllegalArgumentException error = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> provider().convertDelete(delete, UnaryOperator.identity()));
+            Assertions.assertEquals("Iceberg encryption [UNSUPPORTED_FILE_FORMAT]", error.getMessage());
+        }
+        DeleteFile delete = FileMetadata.deleteFileBuilder(table.spec()).ofPositionDeletes()
+                .withPath("s3://bucket/delete.parquet").withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(100).withRecordCount(1)
+                .withEncryptionKeyMetadata(ByteBuffer.wrap(metadata)).build();
+        Table withDeletes = tableWithPositionDelete(delete);
+        List<ConnectorScanRange> ranges = planPositionDeletes(withDeletes, Collections.emptyList());
+        Assertions.assertFalse(ranges.isEmpty());
+        for (ConnectorScanRange range : ranges) {
+            TTableFormatFileDesc desc = new TTableFormatFileDesc();
+            range.populateRangeParams(desc, new TFileRangeDesc());
+            TIcebergDeleteFileDesc encoded = desc.getIcebergParams().getDeleteFiles().get(0);
+            Assertions.assertTrue(encoded.isSetEncryptionInfo());
+            byte[] key = new byte[16];
+            Arrays.fill(key, (byte) 13);
+            Assertions.assertArrayEquals(key, encoded.getEncryptionInfo().getKey());
+            Assertions.assertArrayEquals(new byte[] {9}, encoded.getEncryptionInfo().getAadPrefix());
+        }
+        IcebergScanPlanProvider countProvider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(withDeletes));
+        ConnectorSession countSession = new FakeScanSession("UTC",
+                Collections.singletonMap("ignore_iceberg_dangling_delete", "true"));
+        DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                () -> planCount(countProvider, countSession, true));
+        Assertions.assertEquals("Iceberg encryption [COUNT_READ_UNAVAILABLE]", error.getMessage());
+    }
+
+    @Test
+    public void malformedEncryptedDeleteMetadataCannotBecomePlaintext() {
         for (boolean equality : new boolean[] {false, true}) {
             Table table = createTable("encrypted_deletes_" + equality, SCHEMA, PartitionSpec.unpartitioned());
             FileMetadata.Builder builder = FileMetadata.deleteFileBuilder(table.spec());
@@ -225,18 +307,19 @@ public class IcebergScanPlanProviderTest {
                     .withEncryptionKeyMetadata(ByteBuffer.wrap(new byte[] {1})).build();
             if (!equality) {
                 Table withDeletes = tableWithPositionDelete(delete);
-                Assertions.assertThrows(UnsupportedOperationException.class,
+                Assertions.assertThrows(IllegalArgumentException.class,
                         () -> planPositionDeletes(withDeletes, Collections.emptyList()));
                 IcebergScanPlanProvider countProvider = new IcebergScanPlanProvider(
                         IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(withDeletes));
                 ConnectorSession countSession = new FakeScanSession("UTC",
                         Collections.singletonMap("ignore_iceberg_dangling_delete", "true"));
-                Assertions.assertThrows(UnsupportedOperationException.class,
+                DorisConnectorException countError = Assertions.assertThrows(DorisConnectorException.class,
                         () -> planCount(countProvider, countSession, true));
+                Assertions.assertEquals("Iceberg encryption [COUNT_READ_UNAVAILABLE]", countError.getMessage());
             }
-            UnsupportedOperationException error = Assertions.assertThrows(UnsupportedOperationException.class,
+            IllegalArgumentException error = Assertions.assertThrows(IllegalArgumentException.class,
                     () -> provider().convertDelete(delete, UnaryOperator.identity()));
-            Assertions.assertEquals("Iceberg encryption [DELETE_READ_UNAVAILABLE]", error.getMessage());
+            Assertions.assertEquals("Iceberg encryption [INVALID_KEY_METADATA]", error.getMessage());
         }
     }
 

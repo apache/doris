@@ -418,6 +418,9 @@ protected:
     virtual Status create_file_reader(std::unique_ptr<FileReader>* reader);
     // Some table formats expose UUID as raw bytes rather than the native Doris UUID type.
     virtual bool preserve_binary_uuid() const { return false; }
+
+    // The descriptor belongs to the current split. File readers copy it before initialization.
+    virtual const TFileEncryptionInfo* file_encryption_info() const { return nullptr; }
     virtual TableColumnMappingMode mapping_mode() const { return TableColumnMappingMode::BY_NAME; }
     virtual void configure_mapper_options(TableColumnMapperOptions*) const {}
     virtual Status annotate_file_schema(std::vector<ColumnDefinition>* file_schema) {
