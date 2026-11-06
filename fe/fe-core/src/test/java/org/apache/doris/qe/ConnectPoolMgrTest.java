@@ -399,13 +399,33 @@ public class ConnectPoolMgrTest {
 
     @Test
     public void testChangeToSameQualifiedUserKeepsTheExistingQuota() throws Exception {
-        Env env = ConnectPoolTestSupport.envAllowing(1);
+        Env env = ConnectPoolTestSupport.envAllowing(2);
         ConnectPoolMgr pool = new ConnectPoolMgr(1);
         ConnectContext ctx = registeredClient(pool, env, ALICE, 1);
         UserIdentity aliceAtHost = UserIdentity.createAnalyzedUserIdentWithIp("alice", "127.0.0.1");
         try {
             changeUser(ctx, aliceAtHost);
             Assertions.assertSame(aliceAtHost, ctx.getCurrentUserIdentity());
+            assertUserCount(pool, ALICE, 1);
+            Assertions.assertEquals(1, pool.getConnectionNum());
+        } finally {
+            ctx.cleanup();
+        }
+        assertUserCount(pool, ALICE, 0);
+    }
+
+    @Test
+    public void testChangeToSameQualifiedUserStillChecksAdmission() {
+        Env env = ConnectPoolTestSupport.envAllowing(1);
+        ConnectPoolMgr pool = new ConnectPoolMgr(1);
+        ConnectContext ctx = registeredClient(pool, env, ALICE, 1);
+        try {
+            ctx.runCommand(() -> {
+                Optional<Pair<ErrorCode, String>> error = ctx.changeUser(ALICE, "");
+                Assertions.assertTrue(error.isPresent());
+                Assertions.assertEquals(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS, error.get().first);
+            });
+            Assertions.assertSame(ALICE, ctx.getCurrentUserIdentity());
             assertUserCount(pool, ALICE, 1);
             Assertions.assertEquals(1, pool.getConnectionNum());
         } finally {

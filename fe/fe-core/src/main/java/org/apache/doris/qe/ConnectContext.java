@@ -125,9 +125,11 @@ import javax.annotation.Nullable;
  * authentication. Registration returns -1 on success and a nonnegative connection count on quota
  * refusal. The creator must close abandoned initialization, including failed registration or login
  * responses. Install a transport close listener, then check whether the transport had already closed.
- * A registered session changes users through {@link #changeUser(UserIdentity, String)} inside its
- * command owner. This validates the target namespace before atomically moving the user's quota and
- * identity. Direct identity assignment is limited to initialization and same-user refreshes, so
+ * MySQL COM_CHANGE_USER first calls {@link #resetConnection()} and authenticates, even for the same
+ * user, then calls {@link #changeUser(UserIdentity, String)} inside its command owner. This validates
+ * fresh target-user settings and the namespace before atomically committing quota ownership and
+ * identity. Failure sends an error before AFTER_RESPONSE closes the session; reset resources cannot
+ * be restored. Direct identity assignment is limited to initialization and same-user refreshes, so
  * unregister always releases the quota belonging to the registered identity.
  *
  * <p>MySQL's initialization and read listeners use {@link #runCommand(ContextAction, Runnable)}.
@@ -870,8 +872,9 @@ public class ConnectContext {
     }
 
     /**
-     * Commits COM_CHANGE_USER after authentication. The command owner validates the requested
-     * namespace using a private context, so failure cannot change this session's identity or quota.
+     * Commits COM_CHANGE_USER after unconditional session reset and authentication. The command
+     * owner validates fresh user settings and the requested namespace using a private context, so
+     * failure preserves the old identity and quota until the protocol sends an error and closes.
      * Catalog/Auth calls run outside the lifecycle lock. The final quota transfer and identity
      * update share the registration/close lock order; a close that wins prevents the transfer.
      */
@@ -889,23 +892,19 @@ public class ConnectContext {
             candidate.setEnv(getEnv());
             candidate.setCurrentUserIdentity(identity);
             candidate.setRemoteIP(remoteIP);
-            candidate.setQueryId(queryId);
             candidate.setConnectAttributes(connectAttributes);
-            candidate.setSessionContext(sessionContext);
-            candidate.authenticatedPrincipal = authenticatedPrincipal;
-            candidate.authenticatedRoles = authenticatedRoles;
-            candidate.isTempUser = isTempUser;
-            candidate.sessionVariable = VariableMgr.cloneSessionVariable(sessionVariable);
-            candidate.restoreNameSpaceContext(getNameSpaceContext());
-            candidate.lastDBOfCatalog.putAll(lastDBOfCatalog);
-            // Cloud database selection checks privileges through ConnectContext.get().
+            // User properties and cloud database privileges consult ConnectContext.get().
             ConnectContext previous = ConnectContext.get();
             long userLimit;
             try {
                 candidate.setThreadLocalInfo();
-                if (Strings.isNullOrEmpty(database)) {
-                    candidate.changeDefaultCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
-                } else {
+                candidate.resetSessionVariable();
+                candidate.setComputeGroup(getEnv().getAuth().getComputeGroup(identity.getQualifiedUser()));
+                Optional<Pair<ErrorCode, String>> catalogError = ConnectContextUtil.initDefaultCatalog(candidate);
+                if (catalogError.isPresent()) {
+                    return catalogError;
+                }
+                if (!Strings.isNullOrEmpty(database)) {
                     Optional<Pair<ErrorCode, String>> error = ConnectContextUtil.initCatalogAndDb(candidate, database);
                     if (error.isPresent()) {
                         return error;
@@ -928,10 +927,17 @@ public class ConnectContext {
                 }
                 currentUserIdentity = identity;
                 // These assignments cannot perform catalog IO after the quota has moved.
+                sessionVariable = candidate.sessionVariable;
+                sessionContext = candidate.sessionContext;
+                authenticatedPrincipal = candidate.authenticatedPrincipal;
+                authenticatedRoles = candidate.authenticatedRoles;
+                isTempUser = candidate.isTempUser;
+                computeGroup = candidate.computeGroup;
+                cloudCluster = candidate.cloudCluster;
+                effectiveCloudCluster = candidate.effectiveCloudCluster;
                 restoreNameSpaceContext(candidate.getNameSpaceContext());
                 lastDBOfCatalog.clear();
                 lastDBOfCatalog.putAll(candidate.lastDBOfCatalog);
-                sessionVariable.setCloudCluster(candidate.sessionVariable.getCloudCluster());
             }
             return Optional.empty();
         } finally {
