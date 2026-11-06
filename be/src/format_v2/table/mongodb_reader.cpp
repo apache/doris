@@ -367,6 +367,8 @@ Status MongoFileReader::open(std::shared_ptr<FileScanRequest> request) {
     _serdes.clear();
     _eof = false;
     RETURN_IF_ERROR(FileReader::open(std::move(request)));
+    // Request iteration order need not match slot order. Keep binding/SerDe entries aligned with
+    // their file-local block positions, including reordered or pruned projections.
     for (const auto& [id, position] : _request->local_positions) {
         if (id.value() < 0 || static_cast<size_t>(id.value()) >= _slots.size()) {
             return Status::InvalidArgument("Invalid MongoDB projected slot");
@@ -435,7 +437,11 @@ Status MongoFileReader::_read_block(Block* block, size_t* rows, bool* eof) {
             }
             SCOPED_TIMER(_decode_time);
             BsonValueView root = BsonValueView::document(*document);
+            // Resource/structural failures apply to the entire document, outside the per-field
+            // mismatch-as-NULL policy, so projection cannot bypass the decoding limits.
             RETURN_IF_ERROR(validate_bson_tree(root));
+            // A later field can fail after earlier columns appended. Snapshot every column before
+            // the first append so the failing source document contributes no partial Doris row.
             for (size_t i = 0; i < _positions.size(); ++i) {
                 sizes[i] = columns[_positions[i]]->size();
             }
@@ -456,6 +462,7 @@ Status MongoFileReader::_read_block(Block* block, size_t* rows, bool* eof) {
                     return status;
                 }
             }
+            // All SerDes have copied borrowed payloads; the next stream advance may release them.
             ++*rows;
             if (_bytes_read) {
                 COUNTER_UPDATE(_bytes_read, document->len);

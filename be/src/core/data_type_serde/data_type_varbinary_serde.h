@@ -34,8 +34,7 @@ namespace doris {
 
 class DataTypeVarbinarySerDe : public DataTypeSerDe {
 public:
-    DataTypeVarbinarySerDe(int nesting_level = 1, int max_length = -1)
-            : DataTypeSerDe(nesting_level), _max_length(max_length) {}
+    DataTypeVarbinarySerDe(int nesting_level = 1) : DataTypeSerDe(nesting_level) {}
 
     Status decode_bson_value(IColumn& column, const BsonValueView& value,
                              const BsonDecodeContext& context) const override;
@@ -122,9 +121,6 @@ public:
 
     Status from_string(StringRef& str, IColumn& column,
                        const FormatOptions& options) const override;
-
-private:
-    int _max_length;
 };
 
 } // namespace doris

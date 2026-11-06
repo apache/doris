@@ -288,7 +288,7 @@ TEST_F(BsonSerdeTest, DecodeDepthAndDescriptorLimitsAreEnforced) {
 }
 
 TEST_F(BsonSerdeTest, RawDocumentBytesRoundTripWithoutJsonOrBorrowedStorage) {
-    auto type = std::make_shared<DataTypeVarbinary>();
+    auto type = std::make_shared<DataTypeVarbinary>(1);
     auto column = type->create_column();
     bson_t document = BSON_INITIALIZER;
     BSON_APPEND_INT64(&document, "exact", 9007199254740993LL);
@@ -302,13 +302,38 @@ TEST_F(BsonSerdeTest, RawDocumentBytesRoundTripWithoutJsonOrBorrowedStorage) {
     bson_destroy(&document);
     EXPECT_EQ(column->get_data_at(0).to_string(), bytes);
 }
-TEST_F(BsonSerdeTest, VarbinaryLengthAndNullableBinaryMismatchAreEnforced) {
+TEST_F(BsonSerdeTest, VarbinaryLengthIsMetadataForBsonPayloads) {
     auto type = make_nullable(std::make_shared<DataTypeVarbinary>(4));
     auto column = type->create_column();
     auto field = binding("v", {7});
-    EXPECT_FALSE(read(type, *column, R"({"v":{"$oid":"000102030405060708090a0b"}})", field).ok());
-    EXPECT_TRUE(
+    ASSERT_TRUE(read(type, *column, R"({"v":{"$oid":"000102030405060708090a0b"}})", field).ok());
+    ASSERT_TRUE(
             read(type, *column, R"({"v":{"$oid":"000102030405060708090a0b"}})", field, true).ok());
+    const auto& nullable = assert_cast<ColumnNullable&>(*column);
+    EXPECT_FALSE(nullable.is_null_at(0));
+    EXPECT_FALSE(nullable.is_null_at(1));
+    EXPECT_EQ(nullable.get_nested_column().get_data_at(0).to_string(),
+              std::string("\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b", 12));
+    field = binding("v", {5});
+    field.subtype = 128;
+    ASSERT_TRUE(
+            read(type, *column, R"({"v":{"$binary":{"base64":"AAECAwQF","subType":"80"}}})", field)
+                    .ok());
+    EXPECT_FALSE(nullable.is_null_at(2));
+    EXPECT_EQ(nullable.get_nested_column().get_data_at(2).to_string(),
+              std::string("\x00\x01\x02\x03\x04\x05", 6));
+}
+TEST_F(BsonSerdeTest, NullableBinarySubtypeMismatchStillUsesConfiguredPolicy) {
+    auto type = make_nullable(std::make_shared<DataTypeVarbinary>(4));
+    auto column = type->create_column();
+    auto field = binding("v", {5});
+    field.subtype = 0;
+    EXPECT_FALSE(read(type, *column, R"({"v":{"$binary":{"base64":"AA==","subType":"80"}}})", field)
+                         .ok());
+    ASSERT_TRUE(read(type, *column, R"({"v":{"$binary":{"base64":"AA==","subType":"80"}}})", field,
+                     true)
+                        .ok());
+    EXPECT_EQ(column->size(), 1);
     EXPECT_TRUE(assert_cast<ColumnNullable&>(*column).is_null_at(0));
 }
 TEST_F(BsonSerdeTest, RegexStructPreservesPatternAndOptionsWithoutExecutingThem) {

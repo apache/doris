@@ -70,6 +70,8 @@ one element binding. Free-form objects and heterogeneous arrays can map to JSON.
 ObjectId maps to its raw 12 bytes: use `FROM_BINARY(identifier)` for hex display
 and supported string comparisons, joins, or grouping. Direct VARBINARY operators
 retain Doris's existing analysis restrictions.
+The declared VARBINARY length is schema metadata; decoding preserves the full bytes,
+matching the existing VARBINARY readers.
 BinData mapped to VARBINARY requires an explicit subtype; arbitrary subtypes can be
 preserved in Extended JSON. Timestamp maps to
 `STRUCT<seconds:BIGINT,increment:BIGINT>`, preserving both unsigned 32-bit components.

@@ -92,3 +92,79 @@ nativeFixture.createRole({role: "nativeViewReader", privileges: [
 ], roles: []});
 nativeFixture.createUser({user: "native_view_reader", pwd: "native_view_reader",
     roles: [{role: "nativeViewReader", db: "doris_mongodb_native"}]});
+
+// Explicit BSON null and absent keys must exercise every supported target family independently.
+const boundaryFields = ["bool_v", "tiny_v", "small_v", "int_v", "long_v", "large_v", "float_v", "double_v",
+    "text_v", "oid_v", "bin_v", "dec32_v", "dec64_v", "dec128_v", "date_v", "date_precision_v", "timestamp_v", "regex_v",
+    "array_v", "object_v", "nested_v", "json_v", "decimal_json_v", "min_key_v", "max_key_v", "code_v", "scope_v"];
+const allNull = {_id: nativeOid(1), seq: NumberInt(1)};
+boundaryFields.forEach(name => allNull[name] = null);
+nativeFixture.boundary_records.insertMany([
+    allNull, {_id: nativeOid(2), seq: NumberInt(2)},
+    {_id: nativeOid(3), seq: NumberInt(3), bool_v: false,
+     tiny_v: NumberInt(-128), small_v: NumberInt(-32768), int_v: NumberInt(-2147483648),
+     long_v: NumberLong("-9223372036854775808"), large_v: NumberLong("-9223372036854775808"),
+     float_v: Double("-3.4028234663852886e38"), double_v: Double("-1.7976931348623157e308"),
+     text_v: "", oid_v: ObjectId("000000000000000000000000"), bin_v: BinData(128, ""),
+     dec32_v: NumberDecimal("-9999999.99"), dec64_v: NumberDecimal("-99999999999999.9999"),
+     dec128_v: NumberDecimal("-9999999999999999999999999999999999"),
+     date_v: ISODate("0000-01-01T00:00:00.000Z"), date_precision_v: ISODate("0000-01-01T00:00:00Z"),
+     // MongoDB replaces a top-level zero Timestamp with server time; nesting preserves the boundary.
+     timestamp_v: {value: Timestamp({t: 0, i: 0})},
+     regex_v: /^$/, array_v: [], object_v: {a: null, b: ""}, nested_v: [], json_v: []},
+    {_id: nativeOid(4), seq: NumberInt(4), bool_v: true,
+     tiny_v: NumberInt(127), small_v: NumberInt(32767), int_v: NumberInt(2147483647),
+     long_v: NumberLong("9223372036854775807"), large_v: NumberLong("9223372036854775807"),
+     float_v: Double("3.4028234663852886e38"), double_v: Double("1.7976931348623157e308"),
+     text_v: "a\u0000中文😀", oid_v: ObjectId("ffffffffffffffffffffffff"), bin_v: BinData(128, "AP+Afw=="),
+     dec32_v: NumberDecimal("9999999.99"), dec64_v: NumberDecimal("99999999999999.9999"),
+     dec128_v: NumberDecimal("9999999999999999999999999999999999"),
+     date_v: ISODate("9999-12-31T23:59:59.999Z"), date_precision_v: ISODate("9999-12-31T23:59:59Z"),
+     timestamp_v: {value: Timestamp({t: 4294967295, i: 4294967295})},
+     regex_v: /中文.*é/im, array_v: [null, NumberInt(-2147483648), NumberInt(2147483647)],
+     object_v: {a: NumberInt(2147483647), b: "中文"},
+     nested_v: [null, {a: null, b: ""}, {a: NumberInt(2147483647), b: null}], json_v: {},
+     min_key_v: MinKey(), max_key_v: MaxKey(), code_v: Code("return 1"), scope_v: Code("return n", {n: null})},
+    {_id: nativeOid(5), seq: NumberInt(5), bool_v: false, tiny_v: NumberInt(0), small_v: NumberInt(0),
+     int_v: NumberInt(0), long_v: NumberLong("0"), large_v: NumberLong("0"),
+     float_v: Double("1.401298464324817e-45"), double_v: Double("5e-324"), bin_v: BinData(128, "AA=="),
+     text_v: "a".repeat(4096), dec32_v: NumberDecimal("-0.00"), dec64_v: NumberDecimal("0.0000"),
+     dec128_v: NumberDecimal("0E-6176"), date_v: new Date(-1), date_precision_v: new Date(0),
+     array_v: [null], object_v: {},
+     nested_v: [null, {a: null, b: null}], json_v: ""},
+    {_id: nativeOid(6), seq: NumberInt(6), float_v: Double("NaN"), double_v: Double("NaN"),
+     decimal_json_v: NumberDecimal("NaN")},
+    {_id: nativeOid(7), seq: NumberInt(7), float_v: Double("Infinity"), double_v: Double("Infinity"),
+     decimal_json_v: NumberDecimal("9.999999999999999999999999999999999E+6144")},
+    {_id: nativeOid(8), seq: NumberInt(8), float_v: Double("-Infinity"), double_v: Double("-Infinity"),
+     decimal_json_v: NumberDecimal("1E-6176")},
+    {_id: nativeOid(9), seq: NumberInt(9), float_v: Double("-0.0"), double_v: Double("-0.0"),
+     decimal_json_v: NumberDecimal("-0.0000")},
+    {_id: nativeOid(10), seq: NumberInt(10), float_v: Double("1.1754943508222875e-38"),
+     double_v: Double("2.2250738585072014e-308"), dec32_v: NumberDecimal("-0.01"),
+     dec64_v: NumberDecimal("0.0001"), dec128_v: NumberDecimal("0.0001"), date_v: new Date(0),
+     code_v: Code(""), scope_v: Code("", {})},
+    {_id: nativeOid(11), seq: NumberInt(11), float_v: Double("0.0"), double_v: Double("0.0")}
+]);
+
+// Values just beyond target ranges and values requiring coercion/rounding must fail atomically.
+nativeFixture.boundary_errors.insertMany([
+    {_id: nativeOid(1), seq: NumberInt(1), bool_v: NumberInt(1), tiny_v: NumberInt(128),
+     small_v: NumberInt(32768), int_v: NumberLong("2147483648"), long_v: Double("9007199254740992"),
+     large_v: "9223372036854775808", float_v: Double("0.1"), text_v: NumberInt(1),
+     oid_v: BinData(0, "AAAAAAAAAAAAAAAA"), bin_v: BinData(0, "AA=="),
+     dec32_v: NumberDecimal("10000000.00"), dec64_v: NumberDecimal("100000000000000.0000"),
+     dec128_v: NumberDecimal("1E+34"), date_v: new Date(253402300800000), date_precision_v: new Date(-1),
+     timestamp_v: NumberLong("1"), regex_v: "pattern", array_v: [NumberInt(1), "bad"],
+     object_v: {a: NumberInt(1), b: NumberInt(2)}, nested_v: [{a: NumberInt(1)}, {a: "bad"}]},
+    {_id: nativeOid(2), seq: NumberInt(2), tiny_v: NumberInt(-129), small_v: NumberInt(-32769),
+     int_v: NumberLong("-2147483649"), float_v: Double("1e300"),
+     dec32_v: NumberDecimal("1.001"), dec64_v: NumberDecimal("0.00001"),
+     dec128_v: NumberDecimal("1E+6144"), date_v: new Date(-62167219200001), array_v: true, object_v: 1},
+    {_id: nativeOid(3), seq: NumberInt(3), dec32_v: NumberDecimal("NaN"),
+     dec64_v: NumberDecimal("Infinity"), dec128_v: NumberDecimal("-Infinity")}
+]);
+// MongoDB permits this depth, while the native reader's declared decoding limit is lower.
+let deepValue = NumberInt(1);
+for (let i = 0; i < 65; ++i) deepValue = [deepValue];
+nativeFixture.deep_limit_records.insertOne({_id: nativeOid(1), value: deepValue});

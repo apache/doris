@@ -19,7 +19,6 @@
 
 #include <cstring>
 #include <limits>
-#include <utility>
 
 #include "common/cast_set.h"
 #include "common/config.h"
@@ -450,17 +449,8 @@ Status DataTypeVarbinarySerDe::decode_bson_value(IColumn& column, const BsonValu
         return Status::InvalidArgument("Missing BSON binary value");
     }
     const auto& v = value.value;
-    size_t length = 0;
-    if (v.value_type == BSON_TYPE_OID) {
-        length = 12;
-    } else if (v.value_type == BSON_TYPE_BINARY) {
-        length = v.value.v_binary.data_len;
-    } else if (v.value_type == BSON_TYPE_DOCUMENT) {
-        length = v.value.v_doc.data_len;
-    }
-    if (_max_length >= 0 && std::cmp_greater(length, _max_length)) {
-        return Status::InvalidArgument("BSON binary exceeds the target VARBINARY length");
-    }
+    // VARBINARY length is schema metadata, as in the other readers: VARBINARY(4) must still
+    // preserve all 12 ObjectId bytes rather than reject or truncate the value.
     auto& target = assert_cast<ColumnVarbinary&>(column);
     if (context.binding && context.binding->special == "bson" &&
         v.value_type == BSON_TYPE_DOCUMENT) {

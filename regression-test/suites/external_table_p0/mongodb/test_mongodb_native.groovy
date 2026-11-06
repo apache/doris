@@ -101,6 +101,10 @@ suite("test_mongodb_native", "p0,external") {
     order_qt_document_override "DESC typed_records"
     order_qt_document_bytes "SELECT count(*), min(length(_mongo_bson)), max(length(_mongo_bson)) FROM typed_records"
     order_qt_extended_bson "SELECT cast(_mongo_ejson AS STRING) FROM special_records"
+    test {
+        sql "SELECT _mongo_ejson FROM deep_limit_records"
+        exception "BSON document exceeds the nesting limit"
+    }
     create("mongodb_native_validators", ["mongodb.schema.mode": "validator"])
     sql "SWITCH mongodb_native_validators"
     sql "USE doris_mongodb_native"
@@ -131,6 +135,30 @@ suite("test_mongodb_native", "p0,external") {
             column("refs", "ARRAY<VARBINARY(12)>", null, ["array"])
         ]]
     ]
+    List boundaryColumns = [column("seq", "INT", null, ["int"]),
+        column("bool_v", "BOOLEAN", null, ["bool"]), column("tiny_v", "TINYINT", null, ["int"]),
+        column("small_v", "SMALLINT", null, ["int"]), column("int_v", "INT", null, ["int", "long"]),
+        column("long_v", "BIGINT", null, ["long"]), column("large_v", "LARGEINT", null, ["long"]),
+        column("float_v", "FLOAT", null, ["double"]), column("double_v", "DOUBLE", null, ["double"]),
+        column("text_v", "STRING", null, ["string"]),
+        column("oid_v", "VARBINARY(4)", null, ["objectId"]),
+        column("bin_v", "VARBINARY(1)", null, ["binData"]) + [subtype: 128],
+        column("dec32_v", "DECIMAL(9,2)", null, ["decimal"]),
+        column("dec64_v", "DECIMAL(18,4)", null, ["decimal"]),
+        column("dec128_v", "DECIMAL(38,4)", null, ["decimal"]),
+        column("date_v", "DATETIME(3)", null, ["date"]),
+        column("date_ms", "BIGINT", ["date_v"], ["date"]),
+        column("date_precision_v", "DATETIME(0)", null, ["date"]),
+        column("timestamp_v", "STRUCT<seconds:BIGINT,increment:BIGINT>", ["timestamp_v", "value"], ["timestamp"]),
+        column("regex_v", "STRUCT<pattern:STRING,options:STRING>", null, ["regex"]),
+        column("array_v", "ARRAY<INT>", null, ["array"]),
+        column("object_v", "STRUCT<a:INT,b:STRING>", null, ["object"]),
+        column("nested_v", "ARRAY<STRUCT<a:INT,b:STRING>>", null, ["array"]),
+        column("json_v", "JSON"), column("decimal_json_v", "JSON", null, ["decimal"]),
+        column("min_key_v", "JSON", null, ["minKey"]), column("max_key_v", "JSON", null, ["maxKey"]),
+        column("code_v", "JSON", null, ["javascript"]), column("scope_v", "JSON", null, ["javascriptWithScope"])]
+    manifest["doris_mongodb_native.boundary_records"] = [columns: boundaryColumns]
+    manifest["doris_mongodb_native.boundary_errors"] = [columns: boundaryColumns]
     create("mongodb_native_explicit", ["mongodb.schema.mode": "explicit", "mongodb.schema": JsonOutput.toJson(manifest)])
     sql "SWITCH mongodb_native_explicit"
     sql "USE doris_mongodb_native"
@@ -143,6 +171,34 @@ suite("test_mongodb_native", "p0,external") {
     order_qt_special_types "SELECT cast(pattern AS STRING), cast(low AS STRING), cast(high AS STRING), cast(code AS STRING) FROM special_records"
     order_qt_refs "SELECT array_size(refs), from_binary(refs[1]), refs[2] IS NULL FROM special_records"
 
+    String nullChecks = boundaryColumns.findAll { it.name != "seq" }
+        .collect { "${it.name} IS NULL" }.join(", ")
+    order_qt_type_nulls "SELECT seq, ${nullChecks} FROM boundary_records WHERE seq IN (1, 2)"
+    order_qt_integer_decimal_bounds """SELECT seq, bool_v, tiny_v, small_v, int_v, long_v, large_v,
+        dec32_v, dec64_v, dec128_v FROM boundary_records WHERE seq IN (3, 4, 5, 10)"""
+    order_qt_float_bounds """SELECT seq, cast(float_v AS STRING), cast(double_v AS STRING)
+        FROM boundary_records WHERE seq >= 3"""
+    order_qt_binary_string_bounds """SELECT seq, from_binary(oid_v), from_binary(bin_v), length(bin_v),
+        length(text_v), char_length(text_v), hex(substring(text_v, 1, 8))
+        FROM boundary_records WHERE seq IN (3, 4, 5)"""
+    order_qt_datetime_timestamp_bounds """SELECT seq, cast(date_v AS STRING), date_ms, cast(date_precision_v AS STRING),
+        timestamp_v.seconds, timestamp_v.increment FROM boundary_records WHERE seq IN (3, 4, 5, 10)"""
+    order_qt_complex_bounds """SELECT seq, array_v, object_v, nested_v, cast(json_v AS STRING)
+        FROM boundary_records WHERE seq IN (3, 4, 5)"""
+    order_qt_special_bounds """SELECT seq, regex_v.pattern, regex_v.options, cast(min_key_v AS STRING),
+        cast(max_key_v AS STRING), cast(code_v AS STRING), cast(scope_v AS STRING),
+        cast(decimal_json_v AS STRING) FROM boundary_records WHERE seq >= 3"""
+    order_qt_epoch_outside_datetime_range "SELECT seq, date_ms FROM boundary_errors WHERE date_ms IS NOT NULL"
+    List errorFields = ["bool_v", "tiny_v", "small_v", "int_v", "long_v", "large_v", "float_v",
+        "text_v", "oid_v", "bin_v", "dec32_v", "dec64_v", "dec128_v", "date_v", "date_precision_v",
+        "timestamp_v", "regex_v", "array_v", "object_v", "nested_v"]
+    for (String field : errorFields) {
+        test {
+            sql "SELECT ${field} FROM boundary_errors"
+            exception "BSON"
+        }
+    }
+
     manifest["doris_mongodb_native.special_records"].columns.find { it.name == "literal" }.path = ["nested", "dot"]
     String changedSchema = JsonOutput.toJson(manifest).replace("\\", "\\\\").replace("'", "\\'")
     sql """ALTER CATALOG mongodb_native_explicit SET PROPERTIES ('mongodb.schema'='${changedSchema}')"""
@@ -152,12 +208,20 @@ suite("test_mongodb_native", "p0,external") {
     List mismatchColumns = [column("seq", "BIGINT"), column("n", "BIGINT"), column("arr", "ARRAY<INT>"),
         column("obj", "STRUCT<a:INT,b:STRING>"), column("amount", "DECIMAL(10,2)")]
     Map mismatchManifest = ["doris_mongodb_native.mismatched": [columns: mismatchColumns]]
+    mismatchManifest["doris_mongodb_native.boundary_errors"] = [columns: boundaryColumns]
+    mismatchManifest["doris_mongodb_native.deep_limit_records"] = [columns: [column("value", "JSON")]]
     create("mongodb_native_nulls", ["mongodb.schema.mode": "explicit", "mongodb.type_mismatch": "null",
         "mongodb.schema": JsonOutput.toJson(mismatchManifest)])
     sql "SWITCH mongodb_native_nulls"
     sql "USE doris_mongodb_native"
     order_qt_mismatch_nulls "SELECT seq, n, arr, obj, amount FROM mismatched"
     order_qt_mismatch_filter "SELECT seq FROM mismatched WHERE n IS NULL OR arr IS NULL OR obj IS NULL OR amount IS NULL"
+    String errorNullChecks = errorFields.collect { "${it} IS NULL" }.join(", ")
+    order_qt_boundary_error_nulls "SELECT seq, ${errorNullChecks} FROM boundary_errors"
+    test {
+        sql "SELECT value FROM deep_limit_records"
+        exception "BSON document exceeds the nesting limit"
+    }
     create("mongodb_native_errors", ["mongodb.schema.mode": "explicit",
         "mongodb.schema": JsonOutput.toJson(mismatchManifest)])
     sql "SWITCH mongodb_native_errors"
