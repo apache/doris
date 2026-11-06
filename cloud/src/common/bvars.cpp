@@ -172,6 +172,16 @@ mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_to_recycle_num("recycle
 mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycled_bytes("recycler_instance_last_round_recycled_bytes", {"instance_id", "resource_type"});
 mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_to_recycle_bytes("recycler_instance_last_round_to_recycle_bytes", {"instance_id", "resource_type"});
 mBvarStatus<double> g_bvar_recycler_instance_last_round_recycle_elpased_ts("recycler_instance_last_round_recycle_elpased_ts", {"instance_id", "resource_type"});
+// Current round TxnKV statistics.
+mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_current_round_kv_scanned(
+        "instance_recycle_current_round_kv_scanned",
+        {"instance_id", "task_type"});
+mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_current_round_kv_expired(
+        "instance_recycle_current_round_kv_expired",
+        {"instance_id", "task_type"});
+mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_current_round_kv_recycled(
+        "instance_recycle_current_round_kv_recycled",
+        {"instance_id", "task_type"});
 // total recycled num and bytes of resources since recycler started
 mBvarInt64Adder g_bvar_recycler_instance_recycle_total_num_since_started("recycler_instance_recycle_total_num_since_started", {"instance_id", "resource_type"});
 mBvarInt64Adder g_bvar_recycler_instance_recycle_total_bytes_since_started("recycler_instance_recycle_total_bytes_since_started", {"instance_id", "resource_type"});
