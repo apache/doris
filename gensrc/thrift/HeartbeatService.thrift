@@ -53,6 +53,8 @@ struct TMasterInfo {
     // Cleanup reference only; this is not an active-query safe point.
     // ATTN(changelog-rename): formerly "row_binlog_ttl_reference_tso"
     15: optional i64 changelog_ttl_reference_tso;
+    // Operator-controlled rolling-restart mode. Id 15 is already used by changelog on master.
+    16: optional bool in_graceful_shutdown;
 }
 
 struct TBackendInfo {

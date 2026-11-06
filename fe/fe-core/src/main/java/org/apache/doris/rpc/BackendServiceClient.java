@@ -218,6 +218,12 @@ public class BackendServiceClient {
         return stub.withDeadlineAfter(timeoutSec, TimeUnit.SECONDS).requestCdcClient(request);
     }
 
+    public void shutdownGracefully() {
+        // Let outstanding calls reach their normal deadlines. Do not block the
+        // heartbeat / edit-log replay thread or abort another query's RPC.
+        channel.shutdown();
+    }
+
     public void shutdown() {
         ConnectivityState state = channel.getState(false);
         LOG.warn("shut down backend service client: {}, channel state: {}", address, state);
