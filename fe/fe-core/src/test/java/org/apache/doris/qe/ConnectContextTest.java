@@ -254,10 +254,8 @@ public class ConnectContextTest {
             ctx.setCapability(new MysqlCapability(10));
             Assertions.assertEquals(new MysqlCapability(10), ctx.getCapability());
 
-            // Kill flag
-            Assertions.assertFalse(ctx.isKilled());
-            ctx.setKilled();
-            Assertions.assertTrue(ctx.isKilled());
+            // Construction does not request session closure.
+            Assertions.assertFalse(ctx.isClosingOrClosed());
 
             // Current db
             Assertions.assertEquals("", ctx.getDatabase());
@@ -372,30 +370,23 @@ public class ConnectContextTest {
 
         // sleep no time out
         ctx.setStartTime();
-        Assertions.assertFalse(ctx.isKilled());
+        Assertions.assertFalse(ctx.isClosingOrClosed());
         long now = ctx.getStartTime() + ctx.getSessionVariable().getWaitTimeoutS() * 1000L - 1;
         ctx.checkTimeout(now);
-        Assertions.assertFalse(ctx.isKilled());
+        Assertions.assertFalse(ctx.isClosingOrClosed());
 
         // Timeout
         ctx.setStartTime();
         now = ctx.getStartTime() + ctx.getSessionVariable().getWaitTimeoutS() * 1000L + 1;
         ctx.setExecutor(executor);
         ctx.checkTimeout(now);
-        Assertions.assertTrue(ctx.isKilled());
-
-        // user query timeout
-        ctx.setStartTime();
-        now = ctx.getStartTime() + auth.getQueryTimeout(qualifiedUser) * 1000L + 1;
-        ctx.setExecutor(executor);
-        ctx.checkTimeout(now);
-        Assertions.assertTrue(ctx.isKilled());
+        Assertions.assertTrue(ctx.isClosingOrClosed());
 
         // Kill
         ctx.kill(true);
-        Assertions.assertTrue(ctx.isKilled());
+        Assertions.assertTrue(ctx.isClosingOrClosed());
         ctx.kill(false);
-        Assertions.assertTrue(ctx.isKilled());
+        Assertions.assertTrue(ctx.isClosingOrClosed());
 
         // clean up
         ctx.cleanup();
@@ -407,21 +398,21 @@ public class ConnectContextTest {
         ctx.setCommand(MysqlCommand.COM_QUERY);
 
         // sleep no time out
-        Assertions.assertFalse(ctx.isKilled());
+        Assertions.assertFalse(ctx.isClosingOrClosed());
         ctx.setExecutor(executor);
         long now = ctx.getExecTimeoutS() * 1000L - 1;
         ctx.checkTimeout(now);
-        Assertions.assertFalse(ctx.isKilled());
+        Assertions.assertFalse(ctx.isClosingOrClosed());
 
         // Timeout
         ctx.setExecutor(executor);
         now = ctx.getExecTimeoutS() * 1000L + 1;
         ctx.checkTimeout(now);
-        Assertions.assertFalse(ctx.isKilled());
+        Assertions.assertFalse(ctx.isClosingOrClosed());
 
         // Kill
         ctx.kill(true);
-        Assertions.assertTrue(ctx.isKilled());
+        Assertions.assertTrue(ctx.isClosingOrClosed());
 
         // clean up
         ctx.cleanup();

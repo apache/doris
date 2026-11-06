@@ -29,7 +29,7 @@ import org.apache.doris.common.ConnectionException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
-import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.CachingSha2PasswordExchange;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
@@ -500,6 +500,23 @@ public class MysqlConnectProcessor extends ConnectProcessor {
     }
 
     private void handleChangeUser() throws IOException {
+        try {
+            // MySQL resets the previous session even when the requested user is unchanged or
+            // authentication fails. Keep the command owner until its response has been sent.
+            ctx.resetConnection();
+            ctx.clearLastDBOfCatalog();
+            authenticateAndChangeUser();
+        } catch (UserException e) {
+            ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+        } finally {
+            if (ctx.getState().getStateType() == QueryState.MysqlStateType.ERR) {
+                // A rejected change-user ends the connection after its ERR packet is sent.
+                ctx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+            }
+        }
+    }
+
+    private void authenticateAndChangeUser() throws IOException {
         // Random bytes generated when creating connection.
         byte[] authPluginData = getConnectContext().getAuthPluginData();
         Preconditions.checkNotNull(authPluginData, "Auth plugin data is null.");
@@ -560,17 +577,10 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             ctx.getState().setError(ErrorCode.ERR_ACCESS_DENIED_ERROR, "Authentication failed.");
             return;
         }
-        ctx.setCurrentUserIdentity(currentUserIdentity.get(0));
-
-        // Change default db if set.
-        if (Strings.isNullOrEmpty(db)) {
-            ctx.changeDefaultCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
-        } else {
-            Optional<Pair<ErrorCode, String>> res = ConnectContextUtil.initCatalogAndDb(ctx, db);
-            if (res.isPresent()) {
-                ctx.getState().setError(res.get().first, res.get().second);
-                return;
-            }
+        Optional<Pair<ErrorCode, String>> failure = ctx.changeUser(currentUserIdentity.get(0), db);
+        if (failure.isPresent()) {
+            ctx.getState().setError(failure.get().first, failure.get().second);
+            return;
         }
         ctx.getState().setOk();
     }
@@ -603,12 +613,12 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             }
             if (!packetBuf.hasRemaining()) {
                 LOG.info("No more data to be read. Close connection. remote={}", channel.getRemoteHostPortString());
-                ctx.setKilled();
+                ctx.cleanup();
                 return;
             }
         } catch (AsynchronousCloseException e) {
             // when this happened, timeout checker close this channel
-            // killed flag in ctx has been already set, just return
+            // Immediate closure has been requested; the command owner releases resources on exit.
             return;
         }
 
@@ -628,16 +638,18 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         MysqlProtocolAdapter.of(ctx).finishCommand(ctx, executor);
     }
 
+    /** Blocking driver; the protocol entry owns each complete command and its response. */
     public void loop() {
-        while (!ctx.isKilled()) {
+        while (ctx.runCommand(() -> {
             try {
                 processOnce();
-            } catch (Exception e) {
+            } catch (Throwable e) {
                 // TODO(zhaochun): something wrong
                 LOG.warn("Exception happened in one session(" + ctx + ").", e);
-                ctx.setKilled();
-                break;
+                ctx.cleanup();
             }
+        })) {
+            // The next iteration acquires execution only after the previous response has finished.
         }
     }
 }

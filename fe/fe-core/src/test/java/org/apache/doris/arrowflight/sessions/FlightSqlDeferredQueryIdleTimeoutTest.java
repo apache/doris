@@ -97,18 +97,18 @@ public class FlightSqlDeferredQueryIdleTimeoutTest {
         // not idle for long enough yet
         ctx.checkTimeout(start + 7_000L);
         Mockito.verify(deferred, Mockito.never()).finalizeArrowFlightQuery();
-        Assertions.assertFalse(ctx.isKilled());
+        Assertions.assertFalse(ctx.isClosingOrClosed());
 
         // past the bound: the deferred coordinator is finalized and the session survives
         ctx.checkTimeout(start + 7_001L);
         Mockito.verify(deferred).finalizeArrowFlightQuery();
-        Assertions.assertFalse(ctx.isKilled());
+        Assertions.assertFalse(ctx.isClosingOrClosed());
         Assertions.assertTrue(ctx.getFlightSqlDeferredExecutors().isEmpty());
 
         // a later tick has nothing left to release
         ctx.checkTimeout(start + 60_000L);
         Mockito.verify(deferred, Mockito.times(1)).finalizeArrowFlightQuery();
-        Assertions.assertFalse(ctx.isKilled());
+        Assertions.assertFalse(ctx.isClosingOrClosed());
     }
 
     // The bound counts from when the deferred query started, not from the session's last command:
@@ -125,7 +125,7 @@ public class FlightSqlDeferredQueryIdleTimeoutTest {
 
         ctx.checkTimeout(ctx.getStartTime() + 1L);
         Mockito.verify(deferred).finalizeArrowFlightQuery();
-        Assertions.assertFalse(ctx.isKilled());
+        Assertions.assertFalse(ctx.isClosingOrClosed());
 
         // The other way round as well: the bound of a query that just started is where it is,
         // however many commands the session runs in the meantime.
@@ -137,7 +137,7 @@ public class FlightSqlDeferredQueryIdleTimeoutTest {
         Mockito.verify(young, Mockito.never()).finalizeArrowFlightQuery();
         ctx.checkTimeout(youngStart + 7_001L);
         Mockito.verify(young).finalizeArrowFlightQuery();
-        Assertions.assertFalse(ctx.isKilled());
+        Assertions.assertFalse(ctx.isClosingOrClosed());
     }
 
     // The bound is floored at the execution timeout the query ran with -- a client may still be
@@ -169,7 +169,7 @@ public class FlightSqlDeferredQueryIdleTimeoutTest {
         Mockito.verify(longQuery, Mockito.never()).finalizeArrowFlightQuery();
         ctx.checkTimeout(start + 20_001L);
         Mockito.verify(longQuery).finalizeArrowFlightQuery();
-        Assertions.assertFalse(ctx.isKilled());
+        Assertions.assertFalse(ctx.isClosingOrClosed());
         Assertions.assertTrue(ctx.getFlightSqlDeferredExecutors().isEmpty());
     }
 
@@ -196,14 +196,12 @@ public class FlightSqlDeferredQueryIdleTimeoutTest {
         Mockito.verify(young, Mockito.never()).finalizeArrowFlightQuery();
         ctx.checkTimeout(now + 20_001L);
         Mockito.verify(young).finalizeArrowFlightQuery();
-        Assertions.assertFalse(ctx.isKilled());
+        Assertions.assertFalse(ctx.isClosingOrClosed());
     }
 
-    // The timeout checker does not run as a command of the session: it may interleave with the
-    // session's next request, which takes the deferred executors of the previous one
-    // (beginRequest) and defers its own. Deciding and taking are one step, so an executor is
-    // finalized exactly once, by whichever of the two took it, and one deferred after the checker
-    // decided is not one it decided about.
+    // Timeout maintenance and requests now share execution ownership. The underlying take operation
+    // must still detach exactly the queries it selected: later additions cannot enter that batch,
+    // and resetRequestState cannot finalize the same detached query again.
     @Test
     public void testTheCheckerAndTheNextRequestFinalizeAnExecutorExactlyOnce() {
         Config.arrow_flight_deferred_query_idle_timeout_second = 7;
@@ -211,14 +209,14 @@ public class FlightSqlDeferredQueryIdleTimeoutTest {
         FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
         long now = ctx.getStartTime();
 
-        // The checker takes the overdue executor; the next request begins and defers a query of its
-        // own before the checker gets to finalize what it took.
+        // Exercise the detached batch directly, adding another query before finalizing the batch.
+        // Production additionally serializes these maintenance/request steps under execution ownership.
         StmtExecutor overdue = deferredExecutor(now - 100_000L, 5);
         ctx.addFlightSqlDeferredExecutor(overdue);
         List<StmtExecutor> taken = adapter.takeExpiredDeferredExecutors(now);
         Assertions.assertEquals(Lists.newArrayList(overdue), taken);
         Assertions.assertTrue(ctx.getFlightSqlDeferredExecutors().isEmpty());
-        adapter.beginRequest();
+        adapter.resetRequestState();
         StmtExecutor next = deferredExecutor(now, 5);
         ctx.addFlightSqlDeferredExecutor(next);
         FlightProtocolAdapter.finalizeDeferredExecutors(taken);
@@ -232,15 +230,15 @@ public class FlightSqlDeferredQueryIdleTimeoutTest {
         // The other way round: the next request took the overdue executor first; the checker's
         // decision, made after, finds nothing overdue and does not finalize it again.
         StmtExecutor overdueToo = deferredExecutor(now - 100_000L, 5);
-        adapter.beginRequest();
+        adapter.resetRequestState();
         Mockito.verify(next).finalizeArrowFlightQuery();
         ctx.addFlightSqlDeferredExecutor(overdueToo);
-        adapter.beginRequest();
+        adapter.resetRequestState();
         Mockito.verify(overdueToo).finalizeArrowFlightQuery();
         Assertions.assertTrue(adapter.takeExpiredDeferredExecutors(now + 1L).isEmpty());
         ctx.checkTimeout(now + 1L);
         Mockito.verify(overdueToo, Mockito.times(1)).finalizeArrowFlightQuery();
-        Assertions.assertFalse(ctx.isKilled());
+        Assertions.assertFalse(ctx.isClosingOrClosed());
     }
 
     // One executor failing to finalize does not keep the next from being finalized.
@@ -259,7 +257,7 @@ public class FlightSqlDeferredQueryIdleTimeoutTest {
         Mockito.verify(failing).finalizeArrowFlightQuery();
         Mockito.verify(other).finalizeArrowFlightQuery();
         Assertions.assertTrue(ctx.getFlightSqlDeferredExecutors().isEmpty());
-        Assertions.assertFalse(ctx.isKilled());
+        Assertions.assertFalse(ctx.isClosingOrClosed());
     }
 
     @Test
@@ -274,7 +272,7 @@ public class FlightSqlDeferredQueryIdleTimeoutTest {
         ctx.checkTimeout(ctx.getStartTime() + waitTimeoutMs - 1);
         Mockito.verify(deferred, Mockito.never()).finalizeArrowFlightQuery();
         Assertions.assertEquals(Lists.newArrayList(deferred), ctx.getFlightSqlDeferredExecutors());
-        Assertions.assertFalse(ctx.isKilled());
+        Assertions.assertFalse(ctx.isClosingOrClosed());
     }
 
     @Test
@@ -285,7 +283,7 @@ public class FlightSqlDeferredQueryIdleTimeoutTest {
         Assertions.assertTrue(FlightProtocolAdapter.of(ctx).takeExpiredDeferredExecutors(Long.MAX_VALUE).isEmpty());
 
         ctx.checkTimeout(ctx.getStartTime() + 3_600_000L);
-        Assertions.assertFalse(ctx.isKilled());
+        Assertions.assertFalse(ctx.isClosingOrClosed());
     }
 
     @Test
@@ -298,6 +296,6 @@ public class FlightSqlDeferredQueryIdleTimeoutTest {
 
         // idle far beyond the Flight bound but within wait_timeout: still alive
         ctx.checkTimeout(ctx.getStartTime() + 3_600_000L);
-        Assertions.assertFalse(ctx.isKilled());
+        Assertions.assertFalse(ctx.isClosingOrClosed());
     }
 }

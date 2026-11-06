@@ -174,9 +174,9 @@ public class KillUtils {
         if (killCtx == null) {
             ErrorReport.reportDdlException(ErrorCode.ERR_NO_SUCH_THREAD, connectionId);
         }
-        if (ctx == killCtx) {
-            // Suicide
-            ctx.setKilled();
+        if (ctx == killCtx && killConnection) {
+            // Self KILL CONNECTION must finish its response before closing the transport.
+            ctx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
         } else {
             // Check auth
             // Only user itself and user with admin priv can kill connection

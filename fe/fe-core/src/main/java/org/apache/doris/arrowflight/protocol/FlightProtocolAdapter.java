@@ -27,6 +27,8 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TokenMasker;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
+import org.apache.doris.qe.ConnectContext.ContextAction;
+import org.apache.doris.qe.ConnectContext.ContextCommand;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
@@ -54,7 +56,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * The Arrow Flight SQL side of a session: the bearer token it is known by, the cache of results
@@ -63,8 +64,8 @@ import java.util.concurrent.locks.ReentrantLock;
  *
  * <p>Arrow Flight SQL has no connection in the MySQL sense: every gRPC call of a session may
  * arrive on its own thread, and nothing in the transport serializes them. {@link #runCommand}
- * does, so that a session's {@link ConnectContext}, which is not thread-safe, is only ever used
- * by one command at a time.
+ * delegates admission, serial execution and the final cleanup handoff to {@link ConnectContext},
+ * so a session's mutable state is only used by one command at a time.
  *
  * <p>Nor does a query end where the frontend's command does. The client pulls the results from the
  * backends by itself (DoGet), and the frontend hears nothing of it -- not when it starts, not when
@@ -78,22 +79,26 @@ import java.util.concurrent.locks.ReentrantLock;
  * nothing of the session's live state afterwards, since the session moves on without it (a session
  * option's SET, a metadata request, the next request) and since it may be finalized from a thread
  * that runs no command of the session (the timeout checker, a CloseSession). It is finalized
- * exactly once, by whoever takes it out of the list under the list's lock -- the next request
- * ({@link #beginRequest}), the timeout checker ({@link #takeExpiredDeferredExecutors}, each
- * executor by its own deadline) or teardown ({@link #tearDown}) -- deciding and taking in one
- * critical section, finalizing outside it. Teardown does not wait for a running command, so a
- * query may be deferred after teardown took everything the list held; it is then finalized on the
- * spot by the command that deferred it ({@link #addDeferredExecutor}), since nothing would take it
- * later. The frontend has no signal for the moment a query is done on the backends; the next
- * request stands in for it, as it has since #62259, and the deadline bounds the wait when no
- * request comes.
+ * exactly once, by whoever takes it out of the list under the list's lock -- request reset
+ * ({@link #resetRequestState}), failure ({@link #cancelDeferredExecutors}), the timeout checker
+ * ({@link #takeExpiredDeferredExecutors}, each
+ * executor by its own deadline) or session release ({@link #releaseSession}) -- deciding and taking
+ * in one critical section, finalizing outside it. Requests, timeout maintenance and session release
+ * all hold the context's execution ownership, so none can release buffers used by a DoGet.
+ *
+ * <p>AFTER_RESPONSE rejects new commands but retains the session while the channel or deferred list
+ * still owns a response. {@link #runResult} allows existing FE-side tickets to be consumed while
+ * draining. Cache maintenance enforces the fixed write TTL; deferred executors retain their existing
+ * query deadlines. The frontend has no signal that a client finished pulling BE results, so it does
+ * not treat the GetFlightInfo return or an unrelated FE DoGet as BE completion. Immediate closure
+ * interrupts the current request and releases all remaining results after that owner exits.
  */
 public class FlightProtocolAdapter implements ProtocolAdapter {
     private static final Logger LOG = LogManager.getLogger(FlightProtocolAdapter.class);
 
     private final String peerIdentity;
-    private final FlightSqlChannel channel = new FlightSqlChannel();
-    // Only used by the commands of the session, under the command lock; teardown does not touch it.
+    private final FlightSqlChannel channel;
+    // Only used by the session's execution owner; teardown does not touch it.
     private final Map<String, PreparedQuery> preparedQuerys = new HashMap<>();
     private String runningQuery;
     private final List<FlightSqlEndpointsLocation> endpointsLocations = Lists.newArrayList();
@@ -114,19 +119,19 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     // with "Split source X is released". These executors are finalized when the next query starts
     // on this connection, when the connection is torn down, or by the idle reaper in
     // ConnectContext.checkTimeout once each one's own bound has passed since its query started.
-    // See #62259 and #67503, and the class comment for who owns them. Guarded by its own monitor:
-    // the commands of the session add and take under the command lock, the timeout checker and
-    // teardown take without it.
+    // See #62259 and #67503. Request, timeout maintenance and finalizer all hold session execution.
+    // The list monitor also protects snapshots and transfers each executor to exactly one finalizer;
+    // it does not permit resources to be released concurrently with the session's DoGet.
     private final List<StmtExecutor> deferredExecutors = new ArrayList<>();
-    // Whether the session has been torn down (tearDown): set under the monitor of
-    // deferredExecutors, so that a publication sees either the list or the tombstone; read at the
-    // entry of every command as well.
-    private volatile boolean closed = false;
-    // Serializes the commands of this session, see runCommand.
-    private final ReentrantLock commandLock = new ReentrantLock();
 
     public FlightProtocolAdapter(String peerIdentity) {
+        this(peerIdentity, new FlightSqlChannel());
+    }
+
+    @VisibleForTesting
+    public FlightProtocolAdapter(String peerIdentity, FlightSqlChannel channel) {
         this.peerIdentity = peerIdentity;
+        this.channel = channel;
     }
 
     /** The Arrow Flight SQL side of {@code ctx}; throws if the connection speaks another protocol. */
@@ -270,10 +275,8 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
 
     /**
      * Every Flight SQL session teardown path - the idle timeout (wait_timeout), CloseSession, a
-     * KILL CONNECTION from another connection - reaches here through the pool's
-     * unregisterConnection. The channel-cached Arrow results go first, then the session is closed
-     * for good: teardown does not wait for a command that may still be running, and what that
-     * command defers afterwards is finalized on the spot ({@link #tearDown}).
+     * KILL CONNECTION from another connection - reaches here through ConnectContext.cleanup,
+     * after the running command has exited. The channel allocator is no longer in use then.
      */
     @Override
     public void releaseSession(ConnectContext ctx) {
@@ -284,10 +287,10 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
             // bytes. The error is actionable, but session teardown must still release the
             // coordinator, transaction and pool bookkeeping. The peer identity IS the bearer
             // token, so it is logged as a masked id, the same one the sessions manager uses.
-            LOG.warn("failed to close Flight SQL channel while unregistering connection {}, peer identity {}",
+            LOG.warn("failed to close Flight SQL channel while closing connection {}, peer identity {}",
                     ctx.getConnectionId(), TokenMasker.tokenId(peerIdentity), t);
         }
-        tearDown();
+        closeDeferredExecutors();
     }
 
     /**
@@ -363,8 +366,24 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
 
     @Override
     public void closeConnection(ConnectContext ctx) {
-        // Releases the channel, the deferred executors and the transaction of the session.
-        ctx.getConnectScheduler().getConnectPoolMgr().unregisterConnection(ctx);
+        // There is no session-owned gRPC connection to close: independent RPCs may share one.
+        // releaseSession releases all protocol resources after admitted commands exit.
+    }
+
+    /** Pure observation: expiry and Arrow buffer release must run under execution ownership. */
+    @Override
+    public boolean hasPendingResponse() {
+        if (channel.resultNum() != 0) {
+            return true;
+        }
+        synchronized (deferredExecutors) {
+            return !deferredExecutors.isEmpty();
+        }
+    }
+
+    /** Called by the timeout owner before deciding whether a draining session can finish. */
+    public void expirePendingResults() {
+        channel.expireResults();
     }
 
     public String getPeerIdentity() {
@@ -404,13 +423,14 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     }
 
     /**
-     * Starts a request of the session: whatever the previous request left behind is dropped.
-     * Its query's coordinator, if its close was deferred, is finalized now -- the previous DoGet
-     * is done by the time the next request arrives (#62259); the result it may have cached and
-     * never pulled with DoGet is released; its endpoints are forgotten; and the new request's
-     * result is on this frontend until a query is run for it.
+     * Clears request resources before the next SQL execution or after a failure that returns no ticket.
+     * Finalizes deferred coordinators, releases cached Arrow results, clears endpoints and resets
+     * result routing to this frontend. Failed queries must be cancelled before this reset.
+     * The caller holds session execution ownership; this method neither admits a new command nor
+     * refreshes session activity. At the next SQL execution, the reset also stands in for completion
+     * of the previous query's backend DoGet (#62259).
      */
-    public void beginRequest() {
+    public void resetRequestState() {
         closeDeferredExecutors();
         channel.reset();
         endpointsLocations.clear();
@@ -419,25 +439,19 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     }
 
     /**
-     * Keeps a deferred executor for the session to finalize later -- unless the session has been
-     * torn down meanwhile ({@link #tearDown}). Teardown does not wait for a running command, so
-     * its query may be deferred after teardown took everything the list held, and nothing would
-     * take it then: the session runs no next request, and the timeout checker no longer sees it.
-     * Such an executor is finalized here and now, by the command that deferred it.
+     * Called by an admitted command to retain its executor beyond that command's response.
+     * A close request may already reject new commands. AFTER_RESPONSE retains this query until its
+     * existing deadline; IMMEDIATE takes it during final cleanup after the current owner exits.
      */
     public void addDeferredExecutor(StmtExecutor executor) {
         synchronized (deferredExecutors) {
-            if (!closed) {
-                deferredExecutors.add(executor);
-                return;
-            }
+            deferredExecutors.add(executor);
         }
-        finalizeDeferredExecutors(Collections.singletonList(executor));
     }
 
     /**
      * Takes every deferred executor out of the list and finalizes it: the next request of the
-     * session ({@link #beginRequest}), which stands in for the end of the previous query's DoGet, and
+     * session ({@link #resetRequestState}), which stands in for the end of the previous query's DoGet, and
      * a request that failed after deferring its query, which no DoGet will ever pull.
      */
     public void closeDeferredExecutors() {
@@ -472,24 +486,6 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
             deferredExecutors.clear();
             return taken;
         }
-    }
-
-    /**
-     * Tears the session down: takes every deferred executor out of the list and finalizes it, and
-     * closes the list for good. Teardown -- CloseSession, KILL, the timeout checker -- does not
-     * wait for the command that may be running, so that command may still defer its query
-     * afterwards, which is then finalized on the spot ({@link #addDeferredExecutor}); and a command
-     * that was waiting for the session does not run on it ({@link #callCommand}). Reached through
-     * the pool's unregisterConnection.
-     */
-    public void tearDown() {
-        List<StmtExecutor> taken;
-        synchronized (deferredExecutors) {
-            closed = true;
-            taken = new ArrayList<>(deferredExecutors);
-            deferredExecutors.clear();
-        }
-        finalizeDeferredExecutors(taken);
     }
 
     /**
@@ -599,75 +595,63 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
         }
     }
 
-    @FunctionalInterface
-    public interface SessionAction<E extends Exception> {
-        void run() throws E;
-    }
-
-    /** The body of a command run by {@link #callCommand}. */
-    @FunctionalInterface
-    public interface SessionCommand<T, E extends Exception> {
-        T call() throws E;
-    }
-
     /**
-     * Runs one command of the session, and no other one at the same time: a statement, a prepared
-     * statement action, a DoGet of a frontend-side result, a metadata request, a session option
+     * Runs one new command of the session, and no other one at the same time: a statement, a prepared
+     * statement action, a metadata request, a session option
      * action. The session's {@link ConnectContext} is the thread's current context while the
      * command runs, and the command counts as activity of the session's client: wait_timeout starts
      * over, for a command that runs no statement as much as for one that does. A command that
      * finds another one still running waits for it up to the session's execution timeout and then
      * fails with {@code UNAVAILABLE} instead of running concurrently on the same context.
      *
-     * <p>Session teardown (CloseSession, KILL, the timeout checker) does not go through here and
-     * does not wait for the running command ({@link #tearDown}); a command that gets its turn
-     * after teardown fails with {@code UNAUTHENTICATED}, as any later call of the session would.
+     * <p>Session teardown (CloseSession, KILL, the timeout checker) does not acquire execution
+     * ownership here. ConnectContext releases resources only after both the running command and
+     * the teardown's synchronous interruption have finished. A command that gets its turn after
+     * closure fails with {@code UNAUTHENTICATED}.
      */
-    public <E extends Exception> void runCommand(ConnectContext ctx, SessionAction<E> action) throws E {
+    public <E extends Exception> void runCommand(ConnectContext ctx, ContextAction<E> action) throws E {
         this.<Void, E>callCommand(ctx, () -> {
             action.run();
             return null;
         });
     }
 
-    /** {@link #runCommand} for a command that returns a value. */
-    public <T, E extends Exception> T callCommand(ConnectContext ctx, SessionCommand<T, E> command) throws E {
-        acquireCommandLock(ctx);
-        ConnectContext previous = ConnectContext.get();
-        try {
-            if (closed) {
-                throw CallStatus.UNAUTHENTICATED.withDescription(String.format("this Arrow Flight SQL session "
-                        + "was closed, connection id: %d; reconnect to run further commands", ctx.getConnectionId()))
-                        .toRuntimeException();
-            }
-            ctx.refreshStartTime();
-            ctx.setThreadLocalInfo();
-            return command.call();
-        } finally {
-            if (previous == null) {
-                ConnectContext.remove();
-            } else {
-                previous.setThreadLocalInfo();
-            }
-            commandLock.unlock();
-        }
+    /**
+     * {@link #runCommand} for a command that returns a value. The return value must no longer
+     * borrow session resources: yielding execution ownership may release them before gRPC serializes it.
+     * A ticket names a separately retained response consumed through runResult. Streaming commands
+     * must finish using their Arrow buffers within the command body instead.
+     */
+    public <T, E extends Exception> T callCommand(ConnectContext ctx, ContextCommand<T, E> command) throws E {
+        return execute(ctx, command, false);
     }
 
-    private void acquireCommandLock(ConnectContext ctx) {
-        // Wait as long as the running command is allowed to run: for a synchronous load statement
-        // that is max(insert_timeout, query_timeout), the bound the timeout checker applies to it.
+    /** Consumes an already-issued result, including while the session drains AFTER_RESPONSE. */
+    public <E extends Exception> void runResult(ConnectContext ctx, ContextAction<E> action) throws E {
+        this.<Void, E>execute(ctx, () -> {
+            action.run();
+            return null;
+        }, true);
+    }
+
+    private <T, E extends Exception> T execute(ConnectContext ctx, ContextCommand<T, E> command,
+            boolean result) throws E {
+        // The context owns both serialization and final cleanup. Waiting RPCs own no resources;
+        // closure wakes them to reject admission without waiting for the running RPC to exit.
         long waitS = ctx.getExecTimeoutS();
-        boolean locked;
         try {
-            locked = commandLock.tryLock(waitS, TimeUnit.SECONDS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+            return result ? ctx.executeResult(TimeUnit.SECONDS.toMillis(waitS), command)
+                    : ctx.executeCommand(TimeUnit.SECONDS.toMillis(waitS), command);
+        } catch (ConnectContext.SessionClosedException e) {
+            throw CallStatus.UNAUTHENTICATED.withDescription(String.format("this Arrow Flight SQL session "
+                    + "was closed, connection id: %d; reconnect to run further commands", ctx.getConnectionId()))
+                    .toRuntimeException();
+        } catch (ConnectContext.SessionWaitInterruptedException e) {
             LOG.warn("interrupted while waiting for the running command of Arrow Flight SQL connection {}",
                     ctx.getConnectionId());
             throw CallStatus.CANCELLED.withDescription("interrupted while waiting for the previous command of "
-                    + "this Arrow Flight SQL session to finish").withCause(e).toRuntimeException();
-        }
-        if (!locked) {
+                    + "this Arrow Flight SQL session to finish").withCause(e.getCause()).toRuntimeException();
+        } catch (ConnectContext.SessionBusyException e) {
             LOG.warn("a command of Arrow Flight SQL connection {} gave up after waiting {}s for the running one",
                     ctx.getConnectionId(), waitS);
             throw CallStatus.UNAVAILABLE.withDescription(String.format("another command of this Arrow Flight SQL "

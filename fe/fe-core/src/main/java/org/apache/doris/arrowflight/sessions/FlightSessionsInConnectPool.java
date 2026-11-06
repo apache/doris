@@ -18,12 +18,11 @@
 package org.apache.doris.arrowflight.sessions;
 
 import org.apache.doris.arrowflight.auth2.FlightAuthResult;
-import org.apache.doris.common.Status;
+import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
 import org.apache.doris.common.util.TokenMasker;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectPoolMgr;
 import org.apache.doris.qe.ConnectScheduler;
-import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -38,10 +37,12 @@ import java.security.SecureRandom;
  * The Arrow Flight SQL sessions as the connection pool holds them. A bearer token is the peer
  * identity a session is registered in the pool under, nothing else: issuing a token is opening a
  * session, validating a token is looking its session up, and a session that has left the pool -
- * by whichever teardown path ({@link ConnectPoolMgr#unregisterConnection}) - has taken its token
- * with it. So the pool's quotas are the only admission control (a session that does not fit is
+ * by whichever teardown path ({@link ConnectContext#cleanup}) - has taken its token
+ * with it. AFTER_RESPONSE retains that registration while an existing result is delivered or expires;
+ * the context rejects new commands but admits result continuations. IMMEDIATE revokes it at once.
+ * So the pool's quotas are the only admission control (a session that does not fit is
  * refused, never one that does evicted), and the pool's timeout checker (wait_timeout) the only
- * expiry.
+ * session expiry. Result and deferred-query expiry are checked under the same context's execution owner.
  */
 public class FlightSessionsInConnectPool implements FlightSessionsManager {
     private static final Logger LOG = LogManager.getLogger(FlightSessionsInConnectPool.class);
@@ -68,29 +69,27 @@ public class FlightSessionsInConnectPool implements FlightSessionsManager {
         final String token = newToken();
         ConnectContext connectContext = FlightSessionsManager.buildConnectContext(token,
                 authResult.getUserIdentity(), authResult.getRemoteIp(), connectScheduler);
-        connectScheduler.submit(connectContext);
-        // The one pool every protocol registers in: qe_max_connection, the user's
-        // max_user_connections and the Arrow Flight SQL sub-quota, refused in the words a MySQL
-        // client is refused in. Nothing is left of a refused session: the client gets no token, so it
-        // does not keep a credential that can never open a session.
-        ConnectPoolMgr pool = connectScheduler.getConnectPoolMgr();
-        int res = pool.registerConnection(connectContext);
-        if (res >= 0) {
-            String errMsg = pool.limitReachedMessage(connectContext, res);
-            // The refused session never entered the pool, so nothing else releases what its
-            // adapter allocated (the channel's allocator).
-            connectContext.releaseProtocolSession();
-            LOG.warn("refuse arrow flight sql session, user: {}, remote: {}: {}", connectContext.getQualifiedUser(),
-                    connectContext.getRemoteHostPortString(), errMsg);
-            throw CallStatus.RESOURCE_EXHAUSTED.withDescription(errMsg).toRuntimeException();
-        }
-        // Never log the token itself: fe.log is routinely shipped off the FE host, and the token is
-        // accepted as a full credential for as long as the session lives. The id is enough to trace
-        // the session's lifecycle.
-        LOG.info("open arrow flight sql session, connection id: {}, user: {}, remote: {}, token id: {}",
-                connectContext.getConnectionId(), connectContext.getQualifiedUser(),
-                connectContext.getRemoteHostPortString(), TokenMasker.tokenId(token));
-        return token;
+        return FlightProtocolAdapter.of(connectContext).callCommand(connectContext, () -> {
+            try {
+                connectScheduler.submit(connectContext);
+                ConnectPoolMgr pool = connectScheduler.getConnectPoolMgr();
+                int res = connectContext.registerClientSession(pool);
+                if (res >= 0) {
+                    String errMsg = pool.limitReachedMessage(connectContext, res);
+                    LOG.warn("refuse arrow flight sql session, user: {}, remote: {}: {}",
+                            connectContext.getQualifiedUser(), connectContext.getRemoteHostPortString(), errMsg);
+                    throw CallStatus.RESOURCE_EXHAUSTED.withDescription(errMsg).toRuntimeException();
+                }
+                // A token is a credential: log its masked id only.
+                LOG.info("open arrow flight sql session, connection id: {}, user: {}, remote: {}, token id: {}",
+                        connectContext.getConnectionId(), connectContext.getQualifiedUser(),
+                        connectContext.getRemoteHostPortString(), TokenMasker.tokenId(token));
+                return token;
+            } catch (Throwable failure) {
+                connectContext.cleanup();
+                throw failure;
+            }
+        });
     }
 
     @Override
@@ -120,13 +119,6 @@ public class FlightSessionsInConnectPool implements FlightSessionsManager {
         LOG.info("close arrow flight sql session by client, connection id: {}, user: {}, remote: {}, token id: {}",
                 connectContext.getConnectionId(), connectContext.getQualifiedUser(),
                 connectContext.getRemoteHostPortString(), TokenMasker.tokenId(peerIdentity));
-        // The way a MySQL connection ends on its client's COM_QUIT: the channel's cached results, the
-        // deferred executors and the transaction are released and the pool's slots given back
-        // (unregisterConnection), and the session's temporary tables are dropped. A Flight session's
-        // commands need not run on the thread that closes it, so a statement that is still running
-        // is cancelled as well: no client will take its result.
         connectContext.cleanup();
-        connectContext.cancelQuery(new Status(TStatusCode.CANCELLED,
-                "session closed by client (CloseSession) from " + connectContext.getRemoteHostPortString()));
     }
 }

@@ -66,27 +66,28 @@ public class AnalyzeTest extends TestWithFeService {
 
     @Test
     public void testCreateAnalysisJob() throws Exception {
+        connectContext.setThreadLocalInfo();
         try (MockedStatic<StatisticsUtil> mockedStatisticsUtil = Mockito.mockStatic(StatisticsUtil.class);
                 MockedConstruction<StmtExecutor> ignored = Mockito.mockConstruction(StmtExecutor.class,
                         (mock, context) -> {
                             Mockito.when(mock.executeInternalQuery()).thenReturn(Collections.emptyList());
-                        });
-                MockedStatic<ConnectContext> mockedConnectContext = Mockito.mockStatic(ConnectContext.class)) {
-
-            mockedConnectContext.when(ConnectContext::get).thenReturn(connectContext);
+                        })) {
 
             mockedStatisticsUtil.when(() -> StatisticsUtil.buildConnectContext(Mockito.anyBoolean()))
-                    .thenAnswer(invocation -> new AutoCloseConnectContext(connectContext));
+                    .thenAnswer(invocation -> new AutoCloseConnectContext(new ConnectContext()));
             mockedStatisticsUtil.when(() -> StatisticsUtil.execUpdate(Mockito.anyString()))
                     .thenReturn(null);
 
             String sql = "ANALYZE TABLE t1";
             Assertions.assertNotNull(getSqlStmtExecutor(sql));
+            Assertions.assertSame(connectContext, ConnectContext.get());
+            Assertions.assertFalse(connectContext.isClosingOrClosed());
         }
     }
 
     @Test
     public void testJobExecution() throws Exception {
+        connectContext.setThreadLocalInfo();
         InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
         Database database = Mockito.mock(Database.class);
         OlapTable olapTable = Mockito.mock(OlapTable.class);
@@ -105,7 +106,7 @@ public class AnalyzeTest extends TestWithFeService {
                         })) {
 
             mockedStatisticsUtil.when(() -> StatisticsUtil.buildConnectContext(Mockito.anyBoolean()))
-                    .thenAnswer(invocation -> new AutoCloseConnectContext(connectContext));
+                    .thenAnswer(invocation -> new AutoCloseConnectContext(new ConnectContext()));
             mockedStatisticsUtil.when(() -> StatisticsUtil.execUpdate(Mockito.anyString()))
                     .thenReturn(null);
             mockedStatisticsUtil.when(() -> StatisticsUtil.convertIdToObjects(
@@ -130,6 +131,8 @@ public class AnalyzeTest extends TestWithFeService {
             task.doExecute();
 
             Mockito.verify(task, Mockito.times(1)).runQuery(Mockito.anyString());
+            Assertions.assertSame(connectContext, ConnectContext.get());
+            Assertions.assertFalse(connectContext.isClosingOrClosed());
         }
     }
 

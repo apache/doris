@@ -134,9 +134,9 @@ public class MTMVCache {
         mvSqlStatementContext.setForceRecordTmpPlan(true);
         boolean originalRewriteFlag = createCacheContext.getSessionVariable().enableMaterializedViewRewrite;
         createCacheContext.getSessionVariable().enableMaterializedViewRewrite = false;
-        LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(defSql);
-        NereidsPlanner planner = new NereidsPlanner(mvSqlStatementContext);
         try {
+            LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(defSql);
+            NereidsPlanner planner = new NereidsPlanner(mvSqlStatementContext);
             // Can not convert to table sink, because use the same column from different table when self join
             // the out slot is wrong
             if (needCost) {
@@ -189,6 +189,8 @@ public class MTMVCache {
             createCacheContext.getSessionVariable().enableMaterializedViewRewrite = originalRewriteFlag;
             if (currentContext != null) {
                 currentContext.setThreadLocalInfo();
+            } else {
+                ConnectContext.remove();
             }
         }
     }

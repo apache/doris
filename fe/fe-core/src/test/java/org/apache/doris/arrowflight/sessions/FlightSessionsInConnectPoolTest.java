@@ -69,6 +69,21 @@ public class FlightSessionsInConnectPoolTest {
         FeConstants.runningUnitTest = savedRunningUnitTest;
     }
 
+    @Test
+    public void testInitializationFailureClosesTheAllocatedChannel() {
+        ConnectContext ctx = ConnectContext.forFlight("initializing-token");
+        ctx.getFlightSqlChannel().addOKResult("query", "SELECT 1");
+        Mockito.when(env.getAuth().getQueryTimeout(Mockito.anyString()))
+                .thenThrow(new IllegalStateException("failed to resolve user timeout"));
+        try (MockedStatic<ConnectContext> factory = Mockito.mockStatic(ConnectContext.class, Mockito.CALLS_REAL_METHODS)) {
+            factory.when(() -> ConnectContext.forFlight("initializing-token")).thenReturn(ctx);
+            Assertions.assertThrows(IllegalStateException.class, () -> FlightSessionsManager.buildConnectContext(
+                    "initializing-token", ALICE, "127.0.0.1", new ConnectScheduler(10)));
+        }
+        Assertions.assertTrue(ctx.isClosingOrClosed());
+        Assertions.assertEquals(0, ctx.getFlightSqlChannel().getAllocatedMemory());
+    }
+
     private static FlightStatusCode statusOf(Runnable call) {
         FlightRuntimeException e = Assertions.assertThrows(FlightRuntimeException.class, call::run);
         return e.status().code();
@@ -132,8 +147,8 @@ public class FlightSessionsInConnectPoolTest {
         Assertions.assertNull(scheduler.getContext(ctx.getConnectionId()));
         Assertions.assertEquals(FlightStatusCode.UNAUTHENTICATED, statusOf(() -> sessions.getConnectContext(token)));
         ArgumentCaptor<Status> cancelled = ArgumentCaptor.forClass(Status.class);
-        Mockito.verify(running).cancel(cancelled.capture());
-        Assertions.assertTrue(cancelled.getValue().getErrorMsg().contains("CloseSession"),
+        Mockito.verify(running).cancel(cancelled.capture(), Mockito.eq(false));
+        Assertions.assertTrue(cancelled.getValue().getErrorMsg().contains("session closed"),
                 cancelled.getValue().getErrorMsg());
         // Closing a session that has already ended is nothing to complain about.
         Assertions.assertDoesNotThrow(() -> sessions.closeConnectContext(token));

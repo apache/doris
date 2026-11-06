@@ -53,7 +53,7 @@ public class AutoCloseSessionVariable implements AutoCloseable {
     @Override
     public void close() {
         if (previousConnectContext == null) {
-            ConnectContext.remove();
+            currentConnectContext.cleanup();
             return;
         }
         if (changed) {
