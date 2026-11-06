@@ -250,6 +250,22 @@ public class FederationBackendPolicy {
         for (List<Backend> backendList : backendMap.values()) {
             backends.addAll(backendList);
         }
+        if (backends.size() == 1 && splits.stream().allMatch(Split::isRemotelyAccessible)) {
+            // Every remotely readable split has the same owner. Avoid per-split hashing,
+            // candidate allocation and weight-map updates under the batch assignment lock.
+            // Local-only splits still need the locality checks in the general path below.
+            Backend backend = backends.get(0);
+            long weight = 0;
+            for (Split split : splits) {
+                weight = Math.addExact(weight, split.getSplitWeight().getRawValue());
+                split.setAlternativeHosts(Collections.emptyList());
+            }
+            assignment.putAll(backend, splits);
+            if (!splits.isEmpty()) {
+                assignedWeightPerBackend.put(backend, Math.addExact(assignedWeightPerBackend.get(backend), weight));
+            }
+            return assignment;
+        }
         ResettableRandomizedIterator<Backend> randomCandidates = new ResettableRandomizedIterator<>(backends);
 
         // optimizedLocalScheduling enables prioritized assignment of splits to local nodes when splits contain
