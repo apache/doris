@@ -152,7 +152,7 @@ public class OlapTableSqlCacheVersion {
 
     /** Check metadata first, and refresh partition dependencies when the table's data version changes. */
     public boolean matches(OlapTable table, long currentVersion) throws RpcException {
-        List<Partition> partitions = new ArrayList<>(partitionVersions.size());
+        List<Partition> partitions;
         if (!table.tryReadLock(1, TimeUnit.MINUTES)) {
             return false;
         }
@@ -163,6 +163,7 @@ public class OlapTableSqlCacheVersion {
             if (currentVersion == validatedTableVersion) {
                 return true;
             }
+            partitions = new ArrayList<>(partitionVersions.size());
             for (Long id : partitionVersions.keySet()) {
                 partitions.add(table.getPartition(id));
             }
