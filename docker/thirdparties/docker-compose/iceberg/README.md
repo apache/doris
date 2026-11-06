@@ -196,6 +196,20 @@ services, decryption failures or incorrect reference results fail the enabled su
 See the connector's [metadata validation contract](../../../../fe/fe-connector/docs/iceberg-encryption-read.md#hmskms-metadata-validation)
 for the KMS failure coverage and encrypted-query boundary.
 
+The fixture reset removes only the two fixture HMS entries and their dedicated
+object prefixes, without decrypting old manifests. This also handles `stop`/`up`:
+HMS retains its entries while the disposable KMS starts with new keys. Run the
+lifecycle regression against an isolated stack (it restarts the fixture and KMS):
+
+```sh
+bash docker/thirdparties/docker-compose/iceberg/encryption/test_restart.sh \
+    docker/thirdparties/docker-compose/iceberg/iceberg.yaml \
+    isolated-project http://localhost:18385
+```
+
+The test requires the first reset after restart to succeed and then checks the
+SDK/Spark snapshot results and KMS failure cases again. It never retries reset.
+
 ## Delta Lake regression
 
 The optional `deltalake` Compose profile reuses this stack's MinIO and the

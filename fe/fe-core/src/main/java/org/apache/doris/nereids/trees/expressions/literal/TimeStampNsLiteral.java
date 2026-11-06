@@ -311,6 +311,7 @@ public final class TimeStampNsLiteral extends DateLiteral {
         if (targetType.isTimeStampTzType()) {
             int scale = ((TimeStampTzType) targetType).getScale();
             LocalDateTime rounded = roundToScale(scale);
+            // Round before resolving the local time: a carry can cross a DST transition.
             Instant instant = DateTimeLiteral.convertLocalToInstantPreservingFraction(
                     rounded, DateUtils.getTimeZone());
             LocalDateTime utc = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);

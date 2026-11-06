@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.executable;
 
-import org.apache.doris.common.util.TimeZoneParser;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.rules.SupportJavaDateFormatter;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
@@ -164,7 +163,6 @@ public class DateTimeExtractAndTransform {
     public static Expression century(TimeStampNsLiteral date) {
         return new SmallIntLiteral((short) ((date.getYear() - 1) / 100 + 1));
     }
-
 
     /**
      * Executable datetime extract quarter
@@ -1095,24 +1093,15 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "convert_tz")
     public static Expression convertTz(DateTimeV2Literal datetime, StringLikeLiteral fromTz, StringLikeLiteral toTz) {
-        return DateTimeV2Literal.fromJavaDateType(
-                convertTz(datetime.toJavaDateType(), fromTz, toTz), datetime.getDataType().getScale());
+        return datetime.inTimeZone(fromTz.getStringValue(), toTz.getStringValue());
     }
 
     @ExecFunction(name = "convert_tz")
     public static Expression convertTz(TimeStampNsLiteral datetime, StringLikeLiteral fromTz,
             StringLikeLiteral toTz) {
         return TimeStampNsLiteral.fromJavaDateType(
-                convertTz(datetime.toJavaDateType(), fromTz, toTz));
-    }
-
-    private static LocalDateTime convertTz(LocalDateTime datetime, StringLikeLiteral fromTz,
-            StringLikeLiteral toTz) {
-        ZoneId fromZone = TimeZoneParser.parse(fromTz.getStringValue(), TimeZoneParser.Usage.SESSION);
-        ZoneId toZone = TimeZoneParser.parse(toTz.getStringValue(), TimeZoneParser.Usage.SESSION);
-
-        Instant instant = DateTimeLiteral.convertLocalToInstant(datetime, fromZone);
-        return LocalDateTime.ofInstant(instant, toZone);
+                DateUtils.convertTimeZone(
+                        datetime.toJavaDateType(), fromTz.getStringValue(), toTz.getStringValue()));
     }
 
     @ExecFunction(name = "weekday")

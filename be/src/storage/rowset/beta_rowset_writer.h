@@ -87,7 +87,7 @@ public:
     // `seg_id` -> inverted index file writer
     Status add(int seg_id, IndexFileWriterPtr&& writer);
 
-    // Close all file writers
+    // Close all file writers that are still open
     // If the inverted index file writer is not closed, an error will be thrown during destruction
     Status begin_close();
 
@@ -232,9 +232,9 @@ protected:
         std::lock_guard l(_segid_statistics_map_mutex);
         return std::accumulate(_segment_num_rows.begin(), _segment_num_rows.end(), uint64_t(0));
     }
-    // Only during vertical compaction is this method called
     // Some index files are written during normal compaction and some files are written during index compaction.
     // After all index writes are completed, call this method to write the final compound index file.
+    // Index files sealed when their segment was flushed only wait for that close to finish.
     Status _close_inverted_index_file_writers() {
         RETURN_NOT_OK_STATUS_WITH_WARN(_idx_files.begin_close(),
                                        "failed to close index file when build new rowset");

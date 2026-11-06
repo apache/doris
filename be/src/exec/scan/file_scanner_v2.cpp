@@ -67,6 +67,7 @@
 #include "format_v2/table/hudi_reader.h"
 #include "format_v2/table/iceberg_position_delete_sys_table_reader.h"
 #include "format_v2/table/iceberg_reader.h"
+#include "format_v2/table/lance_reader.h"
 #include "format_v2/table/load_reader.h"
 #include "format_v2/table/paimon_reader.h"
 #include "format_v2/table/remote_doris_reader.h"
@@ -661,6 +662,8 @@ Status FileScannerV2::_create_table_reader_for_format(
         } else {
             *reader = std::make_unique<format::iceberg::IcebergTableReader>();
         }
+    } else if (table_format == "lance") {
+        *reader = std::make_unique<format::lance::LanceTableReader>();
     } else if (table_format == "paimon") {
         *reader = std::make_unique<format::paimon::PaimonHybridReader>();
     } else if (table_format == "hudi") {
@@ -973,6 +976,9 @@ Status FileScannerV2::_to_file_format(TFileFormatType::type format_type,
         return Status::OK();
     case TFileFormatType::FORMAT_WAL:
         *file_format = format::FileFormat::WAL;
+        return Status::OK();
+    case TFileFormatType::FORMAT_LANCE:
+        *file_format = format::FileFormat::LANCE;
         return Status::OK();
     default:
         return Status::NotSupported("FileScannerV2 does not support file format {}",

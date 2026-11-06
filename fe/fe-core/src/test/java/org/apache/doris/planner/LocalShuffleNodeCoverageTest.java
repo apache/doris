@@ -999,7 +999,8 @@ public class LocalShuffleNodeCoverageTest {
     @Test
     public void testAggregationNodeDistinctLocalPhaseWithLeDisabledStaysNoRequire() {
         // LOCAL distinct phase + enable_local_exchange_before_agg=false → base class
-        // behavior (NOOP for a non-serial child): user explicitly opted out of pre-agg LE.
+        // behavior (NOOP for a non-serial child that keeps the key distribution): user
+        // explicitly opted out of pre-agg LE.
         AggContext agg = buildAggContext(Collections.singletonList(multiDistinctFunction("multi_distinct_count")), /* groupByExprs */ true,
                 /* merge */ false, /* needsFinalize */ false, LocalExchangeType.NOOP, KEYED_DISTRIBUTE_EXPRS);
         SessionVariable sessionVariable = new SessionVariable();
@@ -1047,7 +1048,8 @@ public class LocalShuffleNodeCoverageTest {
     @Test
     public void testAggregationNodeGroupByLocalPhaseWithLeDisabledStaysNoRequire() {
         // GROUP BY local phase + enable_local_exchange_before_agg=false → base class
-        // behavior (NOOP for a non-serial child): user explicitly opted out of pre-agg LE.
+        // behavior (NOOP for a non-serial child that keeps the key distribution): user
+        // explicitly opted out of pre-agg LE.
         // aggExprs is non-empty so the AggSink branch is exercised (an empty aggExprs
         // would route through DistinctStreamingAgg with its own hash logic).
         AggContext agg = buildAggContext(Collections.singletonList(multiDistinctFunction("multi_distinct_count")), /* groupByExprs */ false,
@@ -1117,6 +1119,155 @@ public class LocalShuffleNodeCoverageTest {
                 "the grouping key must not replace the inherited child distribution key");
     }
 
+    @Test
+    public void testStreamingPreAggKeepsChildDistributionByDefault() {
+        // enable_local_exchange_before_streaming_agg=false (default) mirrors BE
+        // StreamingAggOperatorX after #66222: when the child keeps the local key distribution,
+        // the streaming preagg inherits it instead of asking for a hash local exchange.
+        TrackingPlanNode child = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
+        AggregationNode agg = buildStreamingPreAgg(child);
+        Pair<PlanNode, LocalExchangeType> output = agg.enforceAndDeriveLocalExchange(
+                mockTranslatorContext(new SessionVariable()), null, LocalExchangeTypeRequire.noRequire());
+        Assertions.assertEquals(LocalExchangeNode.NoRequire.class, child.lastRequire.getClass());
+        Assertions.assertEquals(LocalExchangeType.NOOP, output.second);
+        Assertions.assertSame(child, agg.getChild(0));
+    }
+
+    @Test
+    public void testStreamingPreAggRequiresHashWhenSwitchEnabled() {
+        // enable_local_exchange_before_streaming_agg=true asks for the hash local exchange.
+        // enable_local_exchange_before_agg no longer applies to streaming aggregation, so turning
+        // it off must not drop that hash requirement.
+        for (boolean enableLeBeforeAgg : new boolean[] {true, false}) {
+            SessionVariable sessionVariable = new SessionVariable();
+            sessionVariable.enableLocalExchangeBeforeStreamingAgg = true;
+            sessionVariable.enableLocalExchangeBeforeAgg = enableLeBeforeAgg;
+            TrackingPlanNode child = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
+            AggregationNode agg = buildStreamingPreAgg(child);
+            Pair<PlanNode, LocalExchangeType> output = agg.enforceAndDeriveLocalExchange(
+                    mockTranslatorContext(sessionVariable), null, LocalExchangeTypeRequire.noRequire());
+            Assertions.assertEquals(LocalExchangeNode.RequireHash.class, child.lastRequire.getClass(),
+                    "enable_local_exchange_before_agg=" + enableLeBeforeAgg);
+            Assertions.assertEquals(LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE, output.second);
+            assertChildLocalExchangeType(agg, 0, LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
+        }
+    }
+
+    @Test
+    public void testStreamingPreAggRequiresHashWhenChildBreaksKeyDistribution() {
+        // Mirrors BE child_breaks_local_key_distribution(): with the switch off (default), the
+        // streaming preagg still reshuffles by its grouping keys after a child that is serial, or
+        // whose own BE operator requires a non-hash local exchange.
+        SessionVariable sessionVariable = new SessionVariable();
+        // The hash join case below needs the streaming agg's hash-join passthrough rule off.
+        sessionVariable.enableStreamingAggHashJoinForcePassthrough = false;
+        sessionVariable.enableBroadcastJoinForcePassthrough = true;
+
+        for (PlanNode child : childrenThatBreakKeyDistribution()) {
+            AggregationNode agg = buildStreamingPreAgg(child);
+            Pair<PlanNode, LocalExchangeType> output = agg.enforceAndDeriveLocalExchange(
+                    mockTranslatorContext(sessionVariable), null, LocalExchangeTypeRequire.noRequire());
+            String name = child.getClass().getSimpleName();
+            Assertions.assertEquals(LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE, output.second, name);
+            assertChildLocalExchangeType(agg, 0, LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
+            Assertions.assertSame(child, agg.getChild(0).getChild(0), name);
+        }
+    }
+
+    @Test
+    public void testAggSinkLocalPhaseRequiresHashWhenChildBreaksKeyDistribution() {
+        // Mirrors BE AggSinkOperatorX after #63766: with enable_local_exchange_before_agg=false the
+        // LOCAL (non-merge, non-finalize) phase falls back to the base class only while the child
+        // keeps the local key distribution. After a child that is serial, or whose own BE operator
+        // requires a non-hash local exchange, it still hashes by its grouping keys.
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.enableLocalExchangeBeforeAgg = false;
+        sessionVariable.enableBroadcastJoinForcePassthrough = true;
+
+        for (PlanNode child : childrenThatBreakKeyDistribution()) {
+            AggregationNode agg = buildLocalPhaseAgg(child,
+                    Collections.singletonList(plainAggregateFunction("count")), /* streaming */ false);
+            Pair<PlanNode, LocalExchangeType> output = agg.enforceAndDeriveLocalExchange(
+                    mockTranslatorContext(sessionVariable), null, LocalExchangeTypeRequire.noRequire());
+            String name = child.getClass().getSimpleName();
+            Assertions.assertEquals(LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE, output.second, name);
+            assertChildLocalExchangeType(agg, 0, LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
+            Assertions.assertSame(child, agg.getChild(0).getChild(0), name);
+        }
+    }
+
+    @Test
+    public void testDistinctStreamingPreAggFollowsForcePassthroughWhenChildBreaksKeyDistribution() {
+        // Mirrors BE DistinctStreamingAggOperatorX after #63766: with
+        // enable_local_exchange_before_agg=false a streaming distinct preagg falls back to the base
+        // class only while the child keeps the local key distribution. After a child that breaks
+        // it, the preagg follows the same rule as with the switch on, which is never a hash:
+        // PASSTHROUGH when enable_distinct_streaming_agg_force_passthrough is on, else the base
+        // class. The joins and AssertNumRows already report a passthrough output that satisfies a
+        // PASSTHROUGH requirement, so only the table function (NOOP output) gets a new exchange.
+        for (boolean forcePassthrough : new boolean[] {true, false}) {
+            SessionVariable sessionVariable = new SessionVariable();
+            sessionVariable.enableLocalExchangeBeforeAgg = false;
+            sessionVariable.enableBroadcastJoinForcePassthrough = true;
+            sessionVariable.enableDistinctStreamingAggForcePassthrough = forcePassthrough;
+
+            for (PlanNode child : childrenThatBreakKeyDistribution()) {
+                AggregationNode agg = buildLocalPhaseAgg(child, Collections.emptyList(), /* streaming */ true);
+                agg.enforceAndDeriveLocalExchange(
+                        mockTranslatorContext(sessionVariable), null, LocalExchangeTypeRequire.noRequire());
+                String name = child.getClass().getSimpleName() + ", force passthrough " + forcePassthrough;
+                // The base class also asks for PASSTHROUGH over the serial child.
+                if (child instanceof SerialTrackingPlanNode
+                        || (forcePassthrough && child instanceof TableFunctionNode)) {
+                    assertChildLocalExchangeType(agg, 0, LocalExchangeType.PASSTHROUGH);
+                    Assertions.assertSame(child, agg.getChild(0).getChild(0), name);
+                } else {
+                    Assertions.assertSame(child, agg.getChild(0), name);
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testStreamingPreAggKeepsDistributionOfJoinsThatKeepKeys() {
+        // The join probes that BE leaves on NOOP do not break the key distribution, so the
+        // default streaming preagg adds no local exchange above them: a null-aware anti nested
+        // loop join, a right outer nested loop join outside a serial-source fragment, and a
+        // broadcast hash join that is not forced to passthrough over a non-serial probe.
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.enableStreamingAggHashJoinForcePassthrough = false;
+        sessionVariable.enableBroadcastJoinForcePassthrough = false;
+
+        List<PlanNode> joins = new ArrayList<>();
+        for (JoinOperator joinOp : new JoinOperator[] {JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN,
+                JoinOperator.RIGHT_OUTER_JOIN}) {
+            NestedLoopJoinNode nestedLoopJoin = new NestedLoopJoinNode(nextPlanNodeId(),
+                    new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP),
+                    new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP),
+                    Lists.newArrayList(new TupleId(NEXT_ID.getAndIncrement())), joinOp, false);
+            nestedLoopJoin.fragment = Mockito.mock(PlanFragment.class);
+            Mockito.when(nestedLoopJoin.fragment.useSerialSource(Mockito.any())).thenReturn(false);
+            joins.add(nestedLoopJoin);
+        }
+        HashJoinNode broadcastJoin = new HashJoinNode(nextPlanNodeId(),
+                new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP),
+                new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP), JoinOperator.INNER_JOIN,
+                Collections.singletonList(Mockito.mock(BinaryPredicate.class)), Collections.emptyList(),
+                null, null, false);
+        broadcastJoin.setDistributionMode(DistributionMode.BROADCAST);
+        joins.add(broadcastJoin);
+
+        for (PlanNode join : joins) {
+            AggregationNode agg = buildStreamingPreAgg(join);
+            Pair<PlanNode, LocalExchangeType> output = agg.enforceAndDeriveLocalExchange(
+                    mockTranslatorContext(sessionVariable), null, LocalExchangeTypeRequire.noRequire());
+            String name = join.getClass().getSimpleName() + " " + ((JoinNodeBase) join).getJoinOp();
+            Assertions.assertEquals(LocalExchangeType.NOOP, output.second, name);
+            Assertions.assertSame(join, agg.getChild(0), name);
+        }
+    }
+
+
     /** A non-empty child distribute expr list, as fragment planning sets for a keyed DISTINCT agg. */
     private static final List<Expr> KEYED_DISTRIBUTE_EXPRS =
             Collections.singletonList(Mockito.mock(Expr.class));
@@ -1154,10 +1305,7 @@ public class LocalShuffleNodeCoverageTest {
     private static AggContext buildAggContext(List<FunctionCallExpr> aggExprs, List<Expr> groupingExprs,
             boolean merge, boolean needsFinalize, LocalExchangeType childProvided,
             List<Expr> distributeExprs) {
-        PlanTranslatorContext ctx = Mockito.mock(PlanTranslatorContext.class);
-        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
-        Mockito.when(connectContext.getSessionVariable()).thenReturn(new SessionVariable());
-        Mockito.when(ctx.getConnectContext()).thenReturn(connectContext);
+        PlanTranslatorContext ctx = mockTranslatorContext(new SessionVariable());
 
         AggregateInfo aggInfo = Mockito.mock(AggregateInfo.class);
         Mockito.when(aggInfo.getOutputTupleId()).thenReturn(new TupleId(NEXT_ID.getAndIncrement()));
@@ -1173,7 +1321,74 @@ public class LocalShuffleNodeCoverageTest {
         if (!needsFinalize) {
             agg.unsetNeedsFinalize();
         }
-        return new AggContext(agg, ctx, child, connectContext);
+        return new AggContext(agg, ctx, child, ctx.getConnectContext());
+    }
+
+    private static PlanTranslatorContext mockTranslatorContext(SessionVariable sessionVariable) {
+        PlanTranslatorContext ctx = Mockito.mock(PlanTranslatorContext.class);
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(ctx.getConnectContext()).thenReturn(connectContext);
+        return ctx;
+    }
+
+    /** A LOCAL-phase streaming preagg with one grouping key over {@code child}. */
+    private static AggregationNode buildStreamingPreAgg(PlanNode child) {
+        return buildLocalPhaseAgg(child, Collections.singletonList(plainAggregateFunction("count")),
+                /* streaming */ true);
+    }
+
+    /**
+     * A LOCAL-phase (non-merge, non-finalize) agg with one grouping key over {@code child}: a
+     * DistinctStreamingAgg without aggregate functions, otherwise a streaming preagg or an AggSink.
+     */
+    private static AggregationNode buildLocalPhaseAgg(PlanNode child, List<FunctionCallExpr> aggExprs,
+            boolean streaming) {
+        AggregateInfo aggInfo = Mockito.mock(AggregateInfo.class);
+        Mockito.when(aggInfo.getOutputTupleId()).thenReturn(new TupleId(NEXT_ID.getAndIncrement()));
+        Mockito.when(aggInfo.getGroupingExprs()).thenReturn(Lists.newArrayList(Mockito.mock(Expr.class)));
+        Mockito.when(aggInfo.getAggregateExprs()).thenReturn(new ArrayList<>(aggExprs));
+        AggregationNode agg = new AggregationNode(nextPlanNodeId(), child, aggInfo);
+        agg.unsetNeedsFinalize();
+        agg.setUseStreamingPreagg(streaming);
+        return agg;
+    }
+
+    /**
+     * One child of each kind that breaks the local key distribution on BE: a serial child, and the
+     * operators whose own BE required_data_distribution() is a non-hash local exchange. The
+     * broadcast hash join breaks it only with enable_broadcast_join_force_passthrough on.
+     */
+    private static List<PlanNode> childrenThatBreakKeyDistribution() {
+        SerialTrackingPlanNode serialChild = new SerialTrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
+        serialChild.fragment = Mockito.mock(PlanFragment.class);
+        Mockito.when(serialChild.fragment.useSerialSource(Mockito.any())).thenReturn(true);
+
+        NestedLoopJoinNode nestedLoopJoin = new NestedLoopJoinNode(nextPlanNodeId(),
+                new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP),
+                new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP),
+                Lists.newArrayList(new TupleId(NEXT_ID.getAndIncrement())), JoinOperator.INNER_JOIN, false);
+        nestedLoopJoin.fragment = Mockito.mock(PlanFragment.class);
+        Mockito.when(nestedLoopJoin.fragment.useSerialSource(Mockito.any())).thenReturn(false);
+
+        HashJoinNode broadcastJoin = new HashJoinNode(nextPlanNodeId(),
+                new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP),
+                new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP), JoinOperator.INNER_JOIN,
+                Collections.singletonList(Mockito.mock(BinaryPredicate.class)), Collections.emptyList(),
+                null, null, false);
+        broadcastJoin.setDistributionMode(DistributionMode.BROADCAST);
+
+        TableFunctionNode tableFunction = new TableFunctionNode(nextPlanNodeId(),
+                new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP),
+                new TupleId(NEXT_ID.getAndIncrement()), new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
+
+        AssertNumRowsElement assertElement = Mockito.mock(AssertNumRowsElement.class);
+        Mockito.when(assertElement.getAssertion()).thenReturn(AssertNumRowsElement.Assertion.EQ);
+        AssertNumRowsNode assertNumRows = new AssertNumRowsNode(nextPlanNodeId(),
+                new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP), assertElement,
+                new TupleDescriptor(new TupleId(NEXT_ID.getAndIncrement())));
+
+        return Lists.newArrayList(serialChild, nestedLoopJoin, broadcastJoin, tableFunction, assertNumRows);
     }
 
     private static FunctionCallExpr plainAggregateFunction(String functionName) {

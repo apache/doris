@@ -246,6 +246,10 @@ public final class HiveCatalogProperties {
         return hmsClientPoolSize;
     }
 
+    public int getHmsPartitionsBatchSizePerRpc() {
+        return hmsPartitionsBatchSizePerRpc;
+    }
+
     public boolean isHmsEventsIncrementalSyncEnabled() {
         return enableHmsEventsIncrementalSync;
     }
