@@ -18,6 +18,7 @@
 #include "cloud/cloud_schema_change_job.h"
 
 #include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/cloud.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest.h>
 

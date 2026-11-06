@@ -71,6 +71,7 @@ namespace doris {
 class Block;
 struct DeleteFileDesc;
 class RuntimeState;
+class ShardedKVCache;
 } // namespace doris
 
 namespace doris::format {
@@ -230,6 +231,7 @@ public:
                     _current_file_description->is_immutable);
         return _current_task->data_file->is_immutable;
     }
+    bool TEST_conjuncts_empty() const { return _conjuncts.empty(); }
 #endif
 
     // Prepare for reading a new split/task.

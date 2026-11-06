@@ -19,6 +19,7 @@
 
 #include <arrow/builder.h>
 #include <arrow/extension/uuid.h>
+#include <gen_cpp/types.pb.h>
 
 #include <cstring>
 #include <utility>

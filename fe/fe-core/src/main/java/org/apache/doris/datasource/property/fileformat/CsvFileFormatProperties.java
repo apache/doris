@@ -110,20 +110,13 @@ public class CsvFileFormatProperties extends FileFormatProperties {
             String enclosedString = getOrDefault(formatProperties, PROP_ENCLOSE,
                     "", isRemoveOriginProperty);
             if (!Strings.isNullOrEmpty(enclosedString)) {
-                if (enclosedString.length() > 1) {
-                    throw new AnalysisException("enclose should not be longer than one byte.");
-                }
-                enclose = (byte) enclosedString.charAt(0);
+                enclose = parseEnclose(enclosedString);
             }
 
             String escapeStr = getOrDefault(formatProperties, PROP_ESCAPE,
                     "", isRemoveOriginProperty);
             if (!Strings.isNullOrEmpty(escapeStr)) {
-                if (escapeStr.length() != 1) {
-                    throw new AnalysisException("escape must be single-char");
-                } else {
-                    escape = escapeStr.getBytes()[0];
-                }
+                escape = parseEscape(escapeStr);
             }
 
             trimDoubleQuotes = Boolean.valueOf(getOrDefault(formatProperties,
@@ -158,6 +151,28 @@ public class CsvFileFormatProperties extends FileFormatProperties {
         } catch (org.apache.doris.common.AnalysisException e) {
             throw new AnalysisException(e.getMessage());
         }
+    }
+
+    // The byte an enclose property stands for, 0 for an empty one.
+    public static byte parseEnclose(String enclose) {
+        if (Strings.isNullOrEmpty(enclose)) {
+            return 0;
+        }
+        if (enclose.length() > 1) {
+            throw new AnalysisException("enclose should not be longer than one byte.");
+        }
+        return (byte) enclose.charAt(0);
+    }
+
+    // The byte an escape property stands for, 0 for an empty one.
+    public static byte parseEscape(String escape) {
+        if (Strings.isNullOrEmpty(escape)) {
+            return 0;
+        }
+        if (escape.length() != 1) {
+            throw new AnalysisException("escape must be single-char");
+        }
+        return escape.getBytes()[0];
     }
 
     public void checkSupportedCompressionType(boolean isWrite) {

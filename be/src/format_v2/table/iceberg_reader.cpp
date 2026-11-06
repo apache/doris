@@ -49,6 +49,7 @@
 #include "core/value/time_value.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
+#include "format/format_common.h"
 #include "format/table/deletion_vector_reader.h"
 #include "format/table/iceberg_default_value.h"
 #include "format_v2/expr/equality_delete_predicate.h"
@@ -161,6 +162,8 @@ const char* file_format_name(FileFormat format) {
         return "ES_HTTP";
     case FileFormat::WAL:
         return "WAL";
+    case FileFormat::LANCE:
+        return "LANCE";
     }
     return "UNKNOWN";
 }
@@ -868,7 +871,8 @@ public:
 
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override {
-        RETURN_IF_ERROR_OR_PREPARED(VExpr::open(state, context, scope));
+        DCHECK(_prepare_finished);
+        RETURN_IF_ERROR(VExpr::open(state, context, scope));
         _open_finished = true;
         return Status::OK();
     }

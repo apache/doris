@@ -513,7 +513,15 @@ Status VectorizedIfNullExpr::execute_column_impl(VExprContext* context, const Bl
         return Status::OK();
     }
 
-    if (first_column->only_null()) {
+    const auto& nullable_first_column = assert_cast<const ColumnNullable&>(*first_column);
+    const auto null_map_state = nullable_first_column.get_null_map_state();
+    if (!null_map_state.has_null) {
+        result_column = _data_type->is_nullable() ? first_column
+                                                  : nullable_first_column.get_nested_column_ptr();
+        return Status::OK();
+    }
+
+    if (null_map_state.only_null) {
         RETURN_IF_ERROR(
                 _children[1]->execute_column(context, block, selector, count, result_column));
         return Status::OK();
@@ -521,8 +529,6 @@ Status VectorizedIfNullExpr::execute_column_impl(VExprContext* context, const Bl
 
     ColumnPtr second_column;
     RETURN_IF_ERROR(_children[1]->execute_column(context, block, selector, count, second_column));
-
-    const auto& nullable_first_column = assert_cast<const ColumnNullable&>(*first_column);
 
     ColumnPtr cond_column = nullable_first_column.get_null_map_column_ptr();
 
