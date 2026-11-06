@@ -63,7 +63,7 @@ public class ColumnStatistic {
 
     public static final Set<Type> UNSUPPORTED_TYPE = Sets.newHashSet(Type.HLL, Type.BITMAP, Type.ARRAY, Type.STRUCT,
             Type.MAP, Type.QUANTILE_STATE, Type.JSONB, Type.VARIANT, Type.TIMEV2, Type.LAMBDA_FUNCTION,
-            Type.VARBINARY);
+            Type.VARBINARY, Type.FILE);
 
     // ATTENTION: Stats deriving WILL NOT use 'count' field any longer.
     // Use 'rowCount' field in Statistics if needed.

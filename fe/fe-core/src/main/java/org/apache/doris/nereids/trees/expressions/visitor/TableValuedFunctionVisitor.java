@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.Http;
 import org.apache.doris.nereids.trees.expressions.functions.table.HttpStream;
 import org.apache.doris.nereids.trees.expressions.functions.table.IndexDiskUsage;
 import org.apache.doris.nereids.trees.expressions.functions.table.Jobs;
+import org.apache.doris.nereids.trees.expressions.functions.table.ListFiles;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.MvInfos;
 import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
@@ -115,6 +116,10 @@ public interface TableValuedFunctionVisitor<R, C> {
 
     default R visitLocal(Local local, C context) {
         return visitTableValuedFunction(local, context);
+    }
+
+    default R visitListFiles(ListFiles listFiles, C context) {
+        return visitTableValuedFunction(listFiles, context);
     }
 
     default R visitNumbers(Numbers numbers, C context) {

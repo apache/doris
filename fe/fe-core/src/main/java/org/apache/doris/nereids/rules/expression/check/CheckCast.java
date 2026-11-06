@@ -395,6 +395,10 @@ public class CheckCast implements ExpressionPatternRuleFactory {
      */
     public static boolean check(DataType originalType, DataType targetType,
             boolean isStrictMode, boolean looseAggState) {
+        if (originalType.typeContainsFile() || targetType.typeContainsFile()) {
+            return !targetType.isAggStateType()
+                    && (originalType.isNullType() || originalType.equals(targetType));
+        }
         if (originalType instanceof ConnectorComputeVariantType && targetType.isVariantType()) {
             // The connector marker and ordinary Variant share the V2 runtime carrier. Allow the
             // marker to cross the sink boundary without relaxing casts between stored Variant layouts.

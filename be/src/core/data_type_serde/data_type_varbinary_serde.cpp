@@ -32,6 +32,26 @@
 
 namespace doris {
 
+Status DataTypeVarbinarySerDe::write_column_to_pb(const IColumn& column, PValues& result,
+                                                  int64_t start, int64_t end) const {
+    result.mutable_type()->set_id(PGenericType::VARBINARY);
+    result.mutable_bytes_value()->Reserve(cast_set<int>(end - start));
+    for (int64_t row = start; row < end; ++row) {
+        const auto bytes = column.get_data_at(row);
+        result.add_bytes_value(bytes.data, bytes.size);
+    }
+    return Status::OK();
+}
+
+Status DataTypeVarbinarySerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
+    auto& output = assert_cast<ColumnVarbinary&>(column);
+    output.reserve(output.size() + arg.bytes_value_size());
+    for (const auto& bytes : arg.bytes_value()) {
+        output.insert_data(bytes.data(), bytes.size());
+    }
+    return Status::OK();
+}
+
 namespace {
 
 class VarbinaryParquetConsumer final : public ParquetFixedValueConsumer,
