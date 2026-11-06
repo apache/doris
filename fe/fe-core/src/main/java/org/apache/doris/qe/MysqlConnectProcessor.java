@@ -29,7 +29,6 @@ import org.apache.doris.common.ConnectionException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
-import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.CachingSha2PasswordExchange;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
@@ -560,17 +559,10 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             ctx.getState().setError(ErrorCode.ERR_ACCESS_DENIED_ERROR, "Authentication failed.");
             return;
         }
-        ctx.setCurrentUserIdentity(currentUserIdentity.get(0));
-
-        // Change default db if set.
-        if (Strings.isNullOrEmpty(db)) {
-            ctx.changeDefaultCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
-        } else {
-            Optional<Pair<ErrorCode, String>> res = ConnectContextUtil.initCatalogAndDb(ctx, db);
-            if (res.isPresent()) {
-                ctx.getState().setError(res.get().first, res.get().second);
-                return;
-            }
+        Optional<Pair<ErrorCode, String>> failure = ctx.changeUser(currentUserIdentity.get(0), db);
+        if (failure.isPresent()) {
+            ctx.getState().setError(failure.get().first, failure.get().second);
+            return;
         }
         ctx.getState().setOk();
     }
