@@ -17,15 +17,17 @@
 
 package org.apache.doris.connector.spi;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
 /**
  * The security-sensitive property surface a connector exposes to the engine's CREATE / ALTER CATALOG
- * security gates. It lets those gates stay connector-agnostic: the engine applies its own policies —
- * SSRF endpoint checking and the jdbc driver-url operator gate — to the property keys declared here,
- * instead of branching on the catalog type. A connector that names no such property returns {@link #EMPTY}.
+ * security gates and to the masking of catalog properties. It lets both stay connector-agnostic: the engine
+ * applies its own policies — SSRF endpoint checking, the jdbc driver-url operator gate, and hiding secret
+ * values — to the property keys declared here, instead of branching on the catalog type. A connector that
+ * names no such property returns {@link #EMPTY}.
  *
  * <p>The keys are the connector's wire-stable, user-facing property names (documented aliases included).
  * They are declared here, on the provider, rather than read by the engine, because the engine must not
@@ -34,18 +36,20 @@ import java.util.List;
 public final class ConnectorSecuritySurface {
 
     /** For connectors that name no security-sensitive property. */
-    public static final ConnectorSecuritySurface EMPTY =
-            new ConnectorSecuritySurface(Collections.emptyList(), Collections.emptyList(), null);
+    public static final ConnectorSecuritySurface EMPTY = new ConnectorSecuritySurface(
+            Collections.emptyList(), Collections.emptyList(), null, Collections.emptyList());
 
     private final List<String> ssrfEndpointKeys;
     private final List<String> jdbcDriverUrlKeys;
     private final String jdbcDriverUrlFlavorKey;
+    private final List<String> sensitiveKeys;
 
     private ConnectorSecuritySurface(List<String> ssrfEndpointKeys, List<String> jdbcDriverUrlKeys,
-            String jdbcDriverUrlFlavorKey) {
+            String jdbcDriverUrlFlavorKey, List<String> sensitiveKeys) {
         this.ssrfEndpointKeys = ssrfEndpointKeys;
         this.jdbcDriverUrlKeys = jdbcDriverUrlKeys;
         this.jdbcDriverUrlFlavorKey = jdbcDriverUrlFlavorKey;
+        this.sensitiveKeys = sensitiveKeys;
     }
 
     /**
@@ -59,7 +63,8 @@ public final class ConnectorSecuritySurface {
      * placeholder.
      */
     public static ConnectorSecuritySurface ofSsrfEndpoints(String... keys) {
-        return new ConnectorSecuritySurface(Arrays.asList(keys), Collections.emptyList(), null);
+        return new ConnectorSecuritySurface(Arrays.asList(keys), Collections.emptyList(), null,
+                Collections.emptyList());
     }
 
     /**
@@ -71,7 +76,31 @@ public final class ConnectorSecuritySurface {
      * @param keys      the driver_url property names (documented aliases included)
      */
     public static ConnectorSecuritySurface ofJdbcDriverUrls(String flavorKey, String... keys) {
-        return new ConnectorSecuritySurface(Collections.emptyList(), Arrays.asList(keys), flavorKey);
+        return new ConnectorSecuritySurface(Collections.emptyList(), Arrays.asList(keys), flavorKey,
+                Collections.emptyList());
+    }
+
+    /**
+     * Declares the property keys whose value is a secret, for a connector that names no other
+     * security-sensitive property. See {@link #withSensitiveKeys} for what the engine does with them.
+     */
+    public static ConnectorSecuritySurface ofSensitiveKeys(String... keys) {
+        return EMPTY.withSensitiveKeys(keys);
+    }
+
+    /**
+     * Returns a copy of this surface that also declares {@code keys} as secrets: passwords, tokens, keys.
+     * The engine masks their values where it shows catalog properties, such as SHOW CREATE CATALOG,
+     * matching the key case-insensitively. The keys are registered with the provider at FE startup, so
+     * they cover catalogs created before an upgrade too, but not a catalog whose connector plugin is not
+     * loaded. Storage credentials the engine already masks for every catalog ({@code s3.secret_key} and
+     * the like) need not be declared.
+     */
+    public ConnectorSecuritySurface withSensitiveKeys(String... keys) {
+        List<String> merged = new ArrayList<>(sensitiveKeys);
+        merged.addAll(Arrays.asList(keys));
+        return new ConnectorSecuritySurface(ssrfEndpointKeys, jdbcDriverUrlKeys, jdbcDriverUrlFlavorKey,
+                Collections.unmodifiableList(merged));
     }
 
     /** The endpoint property keys to check against the SSRF policy; empty when none. */
@@ -90,5 +119,10 @@ public final class ConnectorSecuritySurface {
      */
     public String jdbcDriverUrlFlavorKey() {
         return jdbcDriverUrlFlavorKey;
+    }
+
+    /** The property keys whose values the engine masks when it shows catalog properties; empty when none. */
+    public List<String> sensitiveKeys() {
+        return sensitiveKeys;
     }
 }

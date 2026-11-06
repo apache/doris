@@ -319,9 +319,13 @@ Rules for `of(map)`:
   condition *holds*, so the lambda states the failure case — the opposite of
   Guava's `checkArgument`. Reversing it compiles cleanly and inverts the check.
 - **Mark secrets `sensitive = true`** and implement `toString()` as
-  `ConnectorPropertiesUtils.toMaskedString(this)`. That covers logs only; the
-  `SHOW CREATE CATALOG` masking is a separate, hand-maintained list in fe-core
-  (`DatasourcePrintableMap.SENSITIVE_KEY`).
+  `ConnectorPropertiesUtils.toMaskedString(this)`. That covers logs only. For
+  `SHOW CREATE CATALOG` and the other places that print catalog properties,
+  also declare the keys in `ConnectorProvider#securitySurface()` with
+  `ConnectorSecuritySurface.ofSensitiveKeys(...)` or `withSensitiveKeys(...)`;
+  the engine adds them to its masking list (`DatasourcePrintableMap`) when it
+  registers the provider. Storage credentials (`s3.secret_key`, ...) are already
+  on that list.
 - **Never pass the raw map into anything that can reach user-visible output.**
   It holds the credentials. `ConnectorTableSchema`'s table properties are the
   trap: `SHOW CREATE TABLE` renders them unmasked, and the only thing keeping
