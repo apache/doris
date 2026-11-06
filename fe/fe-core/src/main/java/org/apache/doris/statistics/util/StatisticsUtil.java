@@ -148,19 +148,17 @@ public class StatisticsUtil {
     }
 
     public static QueryState execUpdate(String sql) throws Exception {
-        StmtExecutor stmtExecutor = null;
-        AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false);
-        try {
-            stmtExecutor = new StmtExecutor(r.connectContext, sql);
-            stmtExecutor.execute();
-            QueryState state = r.connectContext.getState();
-            if (state.getStateType().equals(QueryState.MysqlStateType.ERR)) {
-                throw new Exception(state.getErrorMessage());
-            }
-            return state;
-        } finally {
-            r.close();
-            if (stmtExecutor != null) {
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
+            StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
+            try {
+                stmtExecutor.execute();
+                QueryState state = r.connectContext.getState();
+                if (state.getStateType().equals(QueryState.MysqlStateType.ERR)) {
+                    throw new Exception(state.getErrorMessage());
+                }
+                return state;
+            } finally {
+                // Audit consumes session counters, so it must run before the owning scope closes.
                 AuditLogHelper.logAuditLog(r.connectContext, stmtExecutor.getOriginStmt().originStmt,
                         stmtExecutor.getParsedStmt(), stmtExecutor.getQueryStatisticsForAuditLog(), true);
             }
