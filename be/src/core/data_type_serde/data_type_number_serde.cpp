@@ -1904,6 +1904,36 @@ void value_to_string(const typename PrimitiveTypeTraits<T>::CppType value, Buffe
 }
 
 template <PrimitiveType T>
+void append_value_to_chars(const typename PrimitiveTypeTraits<T>::CppType value,
+                           ColumnString::Chars& chars, int scale,
+                           const DataTypeSerDe::FormatOptions& options) {
+    if constexpr (T == TYPE_BOOLEAN || T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
+                  T == TYPE_BIGINT || T == TYPE_LARGEINT || T == TYPE_FLOAT || T == TYPE_DOUBLE) {
+        CastToString::push_number(value, chars);
+    } else if constexpr (T == TYPE_DATE || T == TYPE_DATETIME) {
+        CastToString::push_date_or_datetime(value, chars);
+    } else if constexpr (T == TYPE_DATEV2) {
+        CastToString::push_datev2(value, chars);
+    } else if constexpr (T == TYPE_DATETIMEV2) {
+        CastToString::push_datetimev2(value, scale, chars);
+    } else if constexpr (T == TYPE_TIMESTAMP_NS) {
+        CastToString::push_timestamp_ns(value, chars);
+    } else if constexpr (T == TYPE_TIMESTAMPTZ) {
+        CastToString::push_timestamptz(value, scale, chars, options);
+    } else if constexpr (T == TYPE_TIMEV2) {
+        CastToString::push_time(value, scale, chars);
+    } else if constexpr (T == TYPE_IPV4 || T == TYPE_IPV6) {
+        CastToString::push_ip(value, chars);
+    } else if constexpr (T == TYPE_UUID) {
+        CastToString::push_uuid(value, chars);
+    } else {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "append_value_to_chars not implemented for type: {}",
+                               type_to_string(T));
+    }
+}
+
+template <PrimitiveType T>
 void DataTypeNumberSerDe<T>::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
                                        const FormatOptions& options) const {
     auto& data = assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data();
@@ -1959,14 +1989,15 @@ void DataTypeNumberSerDe<T>::to_string_batch(const IColumn& column, ColumnString
                                              const FormatOptions& options) const {
     auto& data = assert_cast<const ColumnType&>(column).get_data();
     const size_t size = column.size();
-    const auto maybe_reserve_size = CastToString::string_length<T>;
-    column_to.get_chars().reserve(size * maybe_reserve_size);
-    column_to.get_offsets().reserve(size);
-    BufferWriter bw(column_to);
+    auto& chars = column_to.get_chars();
+    auto& offsets = column_to.get_offsets();
+    const size_t old_size = offsets.size();
     const auto scale = get_scale();
+    chars.reserve(chars.size() + size * CastToString::string_length<T>);
+    offsets.resize(old_size + size);
     for (size_t i = 0; i < size; ++i) {
-        value_to_string<T>(data[i], bw, scale, options);
-        bw.commit();
+        append_value_to_chars<T>(data[i], chars, scale, options);
+        offsets[old_size + i] = static_cast<UInt32>(chars.size());
     }
 }
 
