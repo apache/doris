@@ -1008,8 +1008,8 @@ Status ScanLocalState<Derived>::_start_scanners(
         const std::list<std::shared_ptr<ScannerDelegate>>& scanners) {
     auto& p = _parent->cast<typename Derived::Parent>();
     _scanner_ctx.store(ScannerContext::create_shared(
-            state(), this, p._output_tuple_desc, p.has_projection(), scanners, p.limit(),
-            _scan_dependency, &p._shared_scan_limit, p._mem_arb, p._mem_limiter, _instance_idx,
+            state(), this, p._output_tuple_desc, scanners, p.limit(), _scan_dependency,
+            &p._shared_scan_limit, p._mem_arb, p._mem_limiter, _instance_idx,
             _state->get_query_ctx()->get_query_options().__isset.enable_adaptive_scan &&
                     _state->get_query_ctx()->get_query_options().enable_adaptive_scan
 #ifdef BE_TEST
@@ -1332,6 +1332,7 @@ Status ScanOperatorX<LocalStateType>::get_block_impl(RuntimeState* state, Block*
     DCHECK(ctx != nullptr);
     RETURN_IF_ERROR(ctx->get_block_from_queue(state, block, eos, 0));
 
+    // Trim raw rows before the common projection so discarded rows need no expression work.
     local_state.reached_limit(block, eos);
     if (*eos) {
         // reach limit, stop the scanners.
@@ -1346,29 +1347,25 @@ template <typename LocalStateType>
 size_t ScanOperatorX<LocalStateType>::get_reserve_mem_size(RuntimeState* state) {
     auto& local_state = get_local_state(state);
     auto ctx = local_state._scanner_ctx.load();
-    if (!local_state._opened || local_state._closed || !ctx) {
-        return config::doris_scanner_row_bytes;
-    }
-
-    if (local_state.low_memory_mode()) {
-        return ctx->low_memory_mode_scan_bytes_per_scanner() * ctx->low_memory_mode_scanners();
-    } else {
-        const auto peak_usage = local_state._memory_used_counter->value();
-        const auto block_usage = ctx->block_memory_usage();
-        if (peak_usage > 0) {
-            // It is only a safty check, to avoid some counter not right.
-            if (peak_usage > block_usage) {
-                return peak_usage - block_usage;
-            } else {
-                return config::doris_scanner_row_bytes;
-            }
+    size_t scan_reserve = config::doris_scanner_row_bytes;
+    if (local_state._opened && !local_state._closed && ctx) {
+        if (local_state.low_memory_mode()) {
+            scan_reserve =
+                    ctx->low_memory_mode_scan_bytes_per_scanner() * ctx->low_memory_mode_scanners();
         } else {
-            // If the scan operator is first time to run, then we think it will occupy doris_scanner_row_bytes.
-            // It maybe a little smaller than actual usage.
-            return config::doris_scanner_row_bytes;
-            // return local_state._scanner_ctx->max_bytes_in_queue();
+            const auto peak_usage = local_state._memory_used_counter->value();
+            const auto block_usage = ctx->block_memory_usage();
+            // Queued blocks are already allocated; reserve only the remaining operator memory.
+            if (peak_usage > block_usage) {
+                scan_reserve = peak_usage - block_usage;
+            }
         }
     }
+
+    // Projection allocates on the pipeline thread and uses the common operator estimate.
+    const size_t projection_reserve =
+            this->has_projection() ? OperatorX<LocalStateType>::get_reserve_mem_size(state) : 0;
+    return std::max(scan_reserve, projection_reserve);
 }
 
 template class ScanOperatorX<OlapScanLocalState>;

@@ -173,7 +173,7 @@ class ScannerContext : public std::enable_shared_from_this<ScannerContext>,
 
 public:
     ScannerContext(RuntimeState* state, ScanLocalStateBase* local_state,
-                   const TupleDescriptor* output_tuple_desc, bool has_projection,
+                   const TupleDescriptor* output_tuple_desc,
                    const std::list<std::shared_ptr<ScannerDelegate>>& scanners, int64_t limit_,
                    std::shared_ptr<Dependency> dependency, std::atomic<int64_t>* shared_scan_limit,
                    std::shared_ptr<MemShareArbitrator> arb, std::shared_ptr<MemLimiter> limiter,
