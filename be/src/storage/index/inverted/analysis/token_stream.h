@@ -31,6 +31,7 @@
 #include "CLucene/analysis/AnalysisHeader.h"
 #include "common/cast_set.h"
 #include "storage/index/inverted/analysis/reader.h"
+#include "storage/index/inverted/analysis/scratch.h"
 
 using namespace lucene::analysis;
 
@@ -40,10 +41,6 @@ class DorisTokenizer;
 using TokenizerPtr = std::shared_ptr<DorisTokenizer>;
 
 using TokenStreamPtr = std::shared_ptr<TokenStream>;
-
-// Reused analyzers keep ordinary scratch across values; one oversized value must not pin its
-// capacity for the rest of the writer lifetime.
-constexpr size_t ANALYZER_SCRATCH_HIGH_WATER_BYTES = 64 * 1024;
 
 // Longest prefix of text that fits in max_bytes without splitting a rune, and its rune count.
 inline std::pair<size_t, size_t> utf8_prefix_at_most(std::string_view text, size_t max_bytes) {
@@ -61,14 +58,6 @@ inline std::pair<size_t, size_t> utf8_prefix_at_most(std::string_view text, size
         ++rune_count;
     }
     return {static_cast<size_t>(offset), rune_count};
-}
-
-template <typename Container>
-void release_oversized_scratch(Container& container) {
-    if (container.capacity() * sizeof(typename Container::value_type) >
-        ANALYZER_SCRATCH_HIGH_WATER_BYTES) {
-        Container().swap(container);
-    }
 }
 
 /**

@@ -37,8 +37,10 @@
 #include "storage/index/inverted/analysis/char_filter/char_filter_factory.h"
 #include "storage/index/inverted/analysis/inverted_index_parser.h"
 #include "storage/index/inverted/analysis/reader.h"
+#include "storage/index/inverted/analysis/token_batch.h"
 #include "storage/index/inverted/analysis/token_filter/token_filter_factory.h"
 #include "storage/index/inverted/analysis/tokenizer/tokenizer_factory.h"
+#include "storage/index/inverted/clucene/lucene_backed_text_analyzer.h"
 #include "util/hash_util.hpp"
 
 namespace doris::segment_v2::inverted_index::golden {
@@ -182,6 +184,66 @@ private:
     const std::map<std::string, std::string> _properties;
 };
 
+class TextDriver final : public GoldenDriver {
+public:
+    explicit TextDriver(TextAnalyzerPtr analyzer) : _analyzer(std::move(analyzer)) {}
+
+    GoldenLine fresh(std::string_view line) override {
+        std::unique_ptr<TextTokenStream> stream;
+        return read(&stream, line);
+    }
+
+    GoldenLine reused(std::string_view line) override { return read(&_stream, line); }
+
+private:
+    // Reads `line` with `*stream`, made first if there is none. A stream is not used again after
+    // it threw, so it is dropped then.
+    GoldenLine read(std::unique_ptr<TextTokenStream>* stream, std::string_view line) {
+        GoldenLine out;
+        try {
+            if (*stream == nullptr) {
+                *stream = _analyzer->create_stream();
+            }
+            (*stream)->reset(line);
+            while ((*stream)->next_batch(_batch)) {
+                for (const TokenRef& token : _batch.tokens()) {
+                    out.tokens.push_back({.bytes = std::string(token.term()),
+                                          .position_increment = token.position_increment});
+                }
+            }
+        } catch (const Exception&) {
+            out = threw_line();
+            stream->reset();
+            _batch.clear();
+        }
+        _batch.release_oversized();
+        return out;
+    }
+
+    const TextAnalyzerPtr _analyzer;
+    std::unique_ptr<TextTokenStream> _stream;
+    TokenBatch _batch;
+};
+
+// The analyzer configuration the writers read from `properties`, except that an unset lower_case
+// stays unset, as on the query path; lower_case=true covers what the writers pass.
+InvertedIndexAnalyzerConfig analyzer_config_of(
+        const std::map<std::string, std::string>& properties) {
+    InvertedIndexAnalyzerConfig analyzer_config;
+    analyzer_config.analyzer_name = get_analyzer_name_from_properties(properties);
+    analyzer_config.parser_type = get_inverted_index_parser_type_from_string(
+            get_parser_string_from_properties(properties));
+    analyzer_config.parser_mode = get_parser_mode_string_from_properties(properties);
+    analyzer_config.lower_case = get_parser_lowercase_from_properties(properties);
+    analyzer_config.stop_words = get_parser_stopwords_from_properties(properties);
+    analyzer_config.char_filter_map = get_parser_char_filter_map_from_properties(properties);
+    return analyzer_config;
+}
+
+AnalyzerPtr build_analyzer(const InvertedIndexAnalyzerConfig& analyzer_config) {
+    return InvertedIndexAnalyzer::create_analyzer_provider(&analyzer_config)->get_analyzer();
+}
+
 } // namespace
 
 FamilyDigest digest_family(GoldenDriver& driver, DriveMode mode, const CorpusFamily& family,
@@ -260,29 +322,41 @@ Status make_golden_driver(const GoldenConfig& config, std::unique_ptr<GoldenDriv
         *driver = std::make_unique<NormalizeDriver>(config.properties);
         return Status::OK();
     }
-    // The analyzer configuration the writers read from the properties, except that an unset
-    // lower_case stays unset, as on the query path; lower_case=true covers what the writers pass.
-    const auto& properties = config.properties;
-    InvertedIndexAnalyzerConfig analyzer_config;
-    analyzer_config.analyzer_name = get_analyzer_name_from_properties(properties);
-    analyzer_config.parser_type = get_inverted_index_parser_type_from_string(
-            get_parser_string_from_properties(properties));
-    analyzer_config.parser_mode = get_parser_mode_string_from_properties(properties);
-    analyzer_config.lower_case = get_parser_lowercase_from_properties(properties);
-    analyzer_config.stop_words = get_parser_stopwords_from_properties(properties);
-    analyzer_config.char_filter_map = get_parser_char_filter_map_from_properties(properties);
+    const InvertedIndexAnalyzerConfig analyzer_config = analyzer_config_of(config.properties);
     try {
         *driver = std::make_unique<LuceneDriver>(
-                [analyzer_config]() {
-                    return InvertedIndexAnalyzer::create_analyzer_provider(&analyzer_config)
-                            ->get_analyzer();
-                },
+                [analyzer_config]() { return build_analyzer(analyzer_config); },
                 analyzer_config.char_filter_map);
     } catch (const CLuceneError& e) {
         return Status::InternalError("building {} failed: {}", config.name, e.what());
     } catch (const Exception& e) {
         return Status::InternalError("building {} failed: {}", config.name, e.what());
     }
+    return Status::OK();
+}
+
+Status make_golden_text_analyzer(const GoldenConfig& config, TextAnalyzerPtr* analyzer) {
+    DORIS_CHECK(config.kind == GoldenKind::ANALYZE) << config.name;
+    const InvertedIndexAnalyzerConfig analyzer_config = analyzer_config_of(config.properties);
+    try {
+        *analyzer = std::make_shared<LuceneBackedTextAnalyzer>(build_analyzer(analyzer_config),
+                                                               analyzer_config.char_filter_map);
+    } catch (const CLuceneError& e) {
+        return Status::InternalError("building {} failed: {}", config.name, e.what());
+    } catch (const Exception& e) {
+        return Status::InternalError("building {} failed: {}", config.name, e.what());
+    }
+    return Status::OK();
+}
+
+std::unique_ptr<GoldenDriver> make_text_driver(TextAnalyzerPtr analyzer) {
+    return std::make_unique<TextDriver>(std::move(analyzer));
+}
+
+Status make_golden_text_driver(const GoldenConfig& config, std::unique_ptr<GoldenDriver>* driver) {
+    TextAnalyzerPtr analyzer;
+    RETURN_IF_ERROR(make_golden_text_analyzer(config, &analyzer));
+    *driver = make_text_driver(std::move(analyzer));
     return Status::OK();
 }
 
