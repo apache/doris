@@ -254,24 +254,15 @@ public class MTMVRelationManager implements MTMVHookService {
     }
 
     private Set<BaseTableInfo> getOrCreateMTMVs(BaseTableInfo baseTableInfo) {
-        if (!tableMTMVs.containsKey(baseTableInfo)) {
-            tableMTMVs.put(baseTableInfo, Sets.newConcurrentHashSet());
-        }
-        return tableMTMVs.get(baseTableInfo);
+        return tableMTMVs.computeIfAbsent(baseTableInfo, ignored -> Sets.newConcurrentHashSet());
     }
 
     private Set<BaseTableInfo> getOrCreateMTMVsView(BaseTableInfo baseTableInfo) {
-        if (!viewMTMVs.containsKey(baseTableInfo)) {
-            viewMTMVs.put(baseTableInfo, Sets.newConcurrentHashSet());
-        }
-        return viewMTMVs.get(baseTableInfo);
+        return viewMTMVs.computeIfAbsent(baseTableInfo, ignored -> Sets.newConcurrentHashSet());
     }
 
     private Set<BaseTableInfo> getOrCreateMTMVsOneLevelAndFromView(BaseTableInfo baseTableInfo) {
-        if (!tableMTMVsOneLevelAndFromView.containsKey(baseTableInfo)) {
-            tableMTMVsOneLevelAndFromView.put(baseTableInfo, Sets.newConcurrentHashSet());
-        }
-        return tableMTMVsOneLevelAndFromView.get(baseTableInfo);
+        return tableMTMVsOneLevelAndFromView.computeIfAbsent(baseTableInfo, ignored -> Sets.newConcurrentHashSet());
     }
 
     public void refreshMTMVCache(MTMVRelation relation, BaseTableInfo mtmvInfo) {
