@@ -150,6 +150,7 @@ struct TReportRequest {
     // Top-N tablets by load (memtable flush) count since the previous report.
     // Entries set only tablet_id / load_count_delta / last_load_time_ms / delta_window_ms.
     19: optional list<TActiveTabletStat> top_load_tablets
+    20: optional set<i64> python_udf_ids
 }
 
 struct TMasterResult {

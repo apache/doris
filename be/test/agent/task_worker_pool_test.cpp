@@ -19,22 +19,113 @@
 
 #include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/MasterService_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <condition_variable>
+#include <mutex>
 #include <thread>
+#include <vector>
 
 #include "agent/agent_server.h"
 #include "cloud/cloud_storage_engine.h"
+#include "common/config.h"
+#include "cpp/sync_point.h"
 #include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
+#include "runtime/user_function_cache.h"
 #include "storage/options.h"
 #include "storage/storage_engine.h"
 
 namespace doris {
 
 using namespace std::chrono_literals;
+
+class CleanUDFCacheWorkerTest : public ::testing::Test {
+protected:
+    UserFunctionCache cache;
+    UserFunctionCache* original_cache = nullptr;
+    bool original_java_support = false;
+    std::vector<TFinishTaskRequest> acknowledgements;
+
+    void SetUp() override {
+        original_cache = ExecEnv::GetInstance()->_user_function_cache;
+        ExecEnv::GetInstance()->_user_function_cache = &cache;
+        original_java_support = config::enable_java_support;
+        config::enable_java_support = false;
+        auto* sync_point = SyncPoint::get_instance();
+        sync_point->set_call_back("TaskWorkerPool::finish_task", [this](auto&& args) {
+            acknowledgements.push_back(*try_any_cast<const TFinishTaskRequest*>(args[0]));
+            *try_any_cast<bool*>(args.back()) = true;
+        });
+        sync_point->enable_processing();
+    }
+
+    void TearDown() override {
+        auto* sync_point = SyncPoint::get_instance();
+        sync_point->disable_processing();
+        sync_point->clear_call_back("TaskWorkerPool::finish_task");
+        config::enable_java_support = original_java_support;
+        ExecEnv::GetInstance()->_user_function_cache = original_cache;
+    }
+
+    TAgentTaskRequest request(int64_t signature, int64_t function_id = 938812) {
+        TAgentTaskRequest req;
+        req.__set_task_type(TTaskType::CLEAN_UDF_CACHE);
+        req.__set_signature(signature);
+        TCleanUDFCacheReq clean;
+        clean.__set_function_id(function_id);
+        clean.__set_function_signature("sum(INT)");
+        req.__set_clean_udf_cache_req(clean);
+        return req;
+    }
+};
+
+TEST_F(CleanUDFCacheWorkerTest, OneShotCleanupDoesNotAcknowledge) {
+    clean_udf_cache_callback(request(-1));
+    EXPECT_TRUE(acknowledgements.empty());
+}
+
+TEST_F(CleanUDFCacheWorkerTest, TrackedCleanupCanRunAgainAfterLostAcknowledgement) {
+    std::mutex mutex;
+    std::condition_variable cv;
+    int completed = 0;
+    TaskWorkerPool workers("test_clean_udf", 1, [&](const auto& req) {
+        clean_udf_cache_callback(req);
+        {
+            std::scoped_lock lock(mutex);
+            ++completed;
+        }
+        cv.notify_all();
+    });
+    auto req = request(938812);
+    ASSERT_TRUE(workers.submit_task(req).ok());
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, 5s, [&] { return completed == 1; }));
+    }
+    // A lost execution result must not prevent the same task from running again.
+    ASSERT_TRUE(workers.submit_task(req).ok());
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, 5s, [&] { return completed == 2; }));
+    }
+    ASSERT_EQ(2, acknowledgements.size());
+    for (const auto& ack : acknowledgements) {
+        EXPECT_EQ(TTaskType::CLEAN_UDF_CACHE, ack.task_type);
+        EXPECT_EQ(938812, ack.signature);
+        EXPECT_EQ(TStatusCode::OK, ack.task_status.status_code);
+    }
+}
+
+TEST_F(CleanUDFCacheWorkerTest, InvalidTrackedCleanupReportsFailure) {
+    clean_udf_cache_callback(request(938813, 0));
+    ASSERT_EQ(1, acknowledgements.size());
+    EXPECT_EQ(938813, acknowledgements.front().signature);
+    EXPECT_EQ(TStatusCode::INVALID_ARGUMENT, acknowledgements.front().task_status.status_code);
+}
 
 TEST(TaskWorkerPoolTest, TaskWorkerPool) {
     std::atomic_int count {0};

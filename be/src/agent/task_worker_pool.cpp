@@ -59,6 +59,7 @@
 #include "common/metrics/doris_metrics.h"
 #include "common/status.h"
 #include "cpp/obj-client/obj_storage_client.h"
+#include "cpp/sync_point.h"
 #include "exec/spill/spill_file_manager.h"
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
@@ -178,6 +179,7 @@ void remove_task_info(const TTaskType::type task_type, int64_t signature) {
 }
 
 void finish_task(const TFinishTaskRequest& finish_task_request) {
+    TEST_SYNC_POINT_RETURN_WITH_VOID("TaskWorkerPool::finish_task", &finish_task_request);
     // Return result to FE
     TMasterResult result;
     uint32_t try_time = 0;
@@ -1128,7 +1130,7 @@ void check_consistency_callback(StorageEngine& engine, const TAgentTaskRequest& 
     remove_task_info(req.task_type, req.signature);
 }
 
-void report_task_callback(const ClusterInfo* cluster_info) {
+void report_task_callback(const ClusterInfo* cluster_info, int64_t& next_python_udf_report_time) {
     TReportRequest request;
     if (config::report_random_wait) {
         random_sleep(5);
@@ -1146,10 +1148,21 @@ void report_task_callback(const ClusterInfo* cluster_info) {
     }
     request.__set_backend(BackendOptions::get_local_backend());
     request.__set_running_tasks(ExecEnv::GetInstance()->fragment_mgr()->running_query_num());
+    const auto now = MonotonicSeconds();
+    // Include Python UDF resources once every six hours.
+    if (now >= next_python_udf_report_time) {
+        auto function_ids = UserFunctionCache::instance()->collect_pyudf_ids();
+        auto runtime_ids = PythonServerManager::instance().collect_pyudf_ids();
+        function_ids.insert(runtime_ids.begin(), runtime_ids.end());
+        request.__set_python_udf_ids(function_ids);
+    }
     bool succ = handle_report(request, cluster_info, "task");
     report_task_total << 1;
     if (!succ) [[unlikely]] {
         report_task_failed << 1;
+    } else if (request.__isset.python_udf_ids) {
+        // Failed reports retry with the next task report.
+        next_python_udf_report_time = now + std::chrono::seconds(std::chrono::hours(6)).count();
     }
 }
 
@@ -2652,34 +2665,50 @@ void clean_trash_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
 }
 
 void clean_udf_cache_callback(const TAgentTaskRequest& req) {
+    Status status;
     const auto& clean_req = req.clean_udf_cache_req;
     if (clean_req.__isset.function_id && clean_req.function_id <= 0) {
         LOG(WARNING) << "skip clean udf cache request with invalid function_id="
                      << clean_req.function_id
                      << ", function_signature=" << clean_req.function_signature;
-        return;
-    }
-    // Requests from old FEs do not set function_id and must keep signature-based cleanup.
-    const bool drop_by_function_id = clean_req.__isset.function_id;
+        status = Status::InvalidArgument("Invalid function_id for UDF cache cleanup: {}",
+                                         clean_req.function_id);
+    } else {
+        // Requests from old FEs do not set function_id and must keep signature-based cleanup.
+        const bool drop_by_function_id = clean_req.__isset.function_id;
 
-    if (doris::config::enable_java_support) {
-        // The id, not just the signature: it is what the java-udf plugin keys its compiled
-        // classes by, because the signature carries no database and FE renders a variadic one
-        // differently here than on the requests that execute the function.
-        WARN_IF_ERROR(
-                Jni::PluginRegistry::clean_udf_cache(
-                        drop_by_function_id ? clean_req.function_id : 0,
-                        clean_req.function_signature),
-                fmt::format("failed to clean Java UDF cache, function_signature={}, function_id={}",
+        if (doris::config::enable_java_support) {
+            // The id, not just the signature: it is what the java-udf plugin keys its compiled
+            // classes by, because the signature carries no database and FE renders a variadic one
+            // differently here than on the requests that execute the function.
+            WARN_IF_ERROR(
+                    Jni::PluginRegistry::clean_udf_cache(
+                            drop_by_function_id ? clean_req.function_id : 0,
+                            clean_req.function_signature),
+                    fmt::format(
+                            "failed to clean Java UDF cache, function_signature={}, function_id={}",
                             clean_req.function_signature, clean_req.function_id));
-    }
-    if (drop_by_function_id) {
-        UserFunctionCache::instance()->drop_function_cache(clean_req.function_id);
-        PythonServerManager::instance().clear_udaf_state_cache(clean_req.function_id);
+        }
+        if (drop_by_function_id) {
+            UserFunctionCache::instance()->drop_function_cache(clean_req.function_id);
+            PythonServerManager::instance().drop_function(clean_req.function_id);
+        }
+
+        LOG(INFO) << "clean udf cache callback finish: function_signature="
+                  << clean_req.function_signature << ", function_id=" << clean_req.function_id;
     }
 
-    LOG(INFO) << "clean udf cache callback finish: function_signature="
-              << clean_req.function_signature << ", function_id=" << clean_req.function_id;
+    // Report the result only for queued tasks; one-shot tasks use signature -1.
+    if (req.signature != -1) {
+        TFinishTaskRequest finish_task_request;
+        finish_task_request.__set_backend(BackendOptions::get_local_backend());
+        finish_task_request.__set_task_type(req.task_type);
+        finish_task_request.__set_signature(req.signature);
+        finish_task_request.__set_task_status(status.to_thrift());
+        finish_task(finish_task_request);
+        // Stop reporting this task as running so a failed result submission can trigger a retry.
+        remove_task_info(req.task_type, req.signature);
+    }
 }
 
 void report_index_policy_callback(const ClusterInfo* cluster_info) {

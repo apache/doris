@@ -30,28 +30,28 @@ suite("test_python_udf_external_api") {
         sql """ DROP FUNCTION IF EXISTS py_fetch_post_title(INT); """
         sql """
         CREATE FUNCTION py_fetch_post_title(INT) RETURNS STRING
-        PROPERTIES ("file"="file://${pyPath}", "symbol"="external_api.fetch_post_title", "type"="PYTHON_UDF", "runtime_version"="${runtime_version}");
+        PROPERTIES ("file"="file://${pyPath}", "symbol"="external_api.fetch_post_title", "type"="PYTHON_UDF", "runtime_version"="${runtime_version}", "pool_size"="1", "auto_suspend"="0");
         """
         qt_fetch_post_title """ SELECT py_fetch_post_title(1); """
 
         sql """ DROP FUNCTION IF EXISTS py_fetch_user_email(INT); """
         sql """
         CREATE FUNCTION py_fetch_user_email(INT) RETURNS STRING
-        PROPERTIES ("file"="file://${pyPath}", "symbol"="external_api.fetch_user_email", "type"="PYTHON_UDF", "runtime_version"="${runtime_version}");
+        PROPERTIES ("file"="file://${pyPath}", "symbol"="external_api.fetch_user_email", "type"="PYTHON_UDF", "runtime_version"="${runtime_version}", "pool_size"="1", "auto_suspend"="0");
         """
         qt_fetch_user_email """ SELECT py_fetch_user_email(1); """
 
         sql """ DROP FUNCTION IF EXISTS py_fetch_user_name(INT); """
         sql """
         CREATE FUNCTION py_fetch_user_name(INT) RETURNS STRING
-        PROPERTIES ("file"="file://${pyPath}", "symbol"="external_api.fetch_user_name", "type"="PYTHON_UDF", "runtime_version"="${runtime_version}");
+        PROPERTIES ("file"="file://${pyPath}", "symbol"="external_api.fetch_user_name", "type"="PYTHON_UDF", "runtime_version"="${runtime_version}", "pool_size"="1", "auto_suspend"="0");
         """
         qt_fetch_user_name """ SELECT py_fetch_user_name(1); """
 
         sql """ DROP FUNCTION IF EXISTS py_fetch_comments_count(INT); """
         sql """
         CREATE FUNCTION py_fetch_comments_count(INT) RETURNS INT
-        PROPERTIES ("file"="file://${pyPath}", "symbol"="external_api.fetch_comments_count", "type"="PYTHON_UDF", "runtime_version"="${runtime_version}");
+        PROPERTIES ("file"="file://${pyPath}", "symbol"="external_api.fetch_comments_count", "type"="PYTHON_UDF", "runtime_version"="${runtime_version}", "pool_size"="1", "auto_suspend"="0");
         """
         qt_fetch_comments_count """ SELECT py_fetch_comments_count(1); """
 
@@ -59,7 +59,7 @@ suite("test_python_udf_external_api") {
         sql """ DROP FUNCTION IF EXISTS py_get_ip_location(STRING); """
         sql """
         CREATE FUNCTION py_get_ip_location(STRING) RETURNS STRING
-        PROPERTIES ("file"="file://${pyPath}", "symbol"="external_api.get_ip_location", "type"="PYTHON_UDF", "runtime_version"="${runtime_version}");
+        PROPERTIES ("file"="file://${pyPath}", "symbol"="external_api.get_ip_location", "type"="PYTHON_UDF", "runtime_version"="${runtime_version}", "pool_size"="1", "auto_suspend"="0");
         """
         def ip_result = sql """ SELECT py_get_ip_location('8.8.8.8') """
         assertTrue(ip_result.size() == 1)
@@ -68,7 +68,7 @@ suite("test_python_udf_external_api") {
         sql """ DROP FUNCTION IF EXISTS py_get_weather(DOUBLE, DOUBLE); """
         sql """
         CREATE FUNCTION py_get_weather(DOUBLE, DOUBLE) RETURNS STRING
-        PROPERTIES ("file"="file://${pyPath}", "symbol"="external_api.get_weather", "type"="PYTHON_UDF", "runtime_version"="${runtime_version}");
+        PROPERTIES ("file"="file://${pyPath}", "symbol"="external_api.get_weather", "type"="PYTHON_UDF", "runtime_version"="${runtime_version}", "pool_size"="1", "auto_suspend"="0");
         """
         def weather_result = sql """ SELECT py_get_weather(39.9042, 116.4074) """
         assertTrue(weather_result.size() == 1)

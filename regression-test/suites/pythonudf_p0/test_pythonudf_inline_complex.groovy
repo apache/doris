@@ -27,6 +27,8 @@ suite("test_pythonudf_inline_complex") {
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}"
         )
@@ -47,6 +49,8 @@ def evaluate(arr):
         RETURNS STRING 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}"
         )
@@ -67,6 +71,8 @@ def evaluate(s):
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}"
         )
@@ -90,6 +96,8 @@ def evaluate(val1, weight1, val2, weight2):
         RETURNS STRING 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}"
         )
@@ -110,6 +118,8 @@ def evaluate(first_name, last_name):
         RETURNS BOOLEAN 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}"
         )

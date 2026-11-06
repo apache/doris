@@ -420,6 +420,8 @@ struct TFunction {
   17: optional TDictFunction dict_function
   18: optional string runtime_version
   19: optional string function_code
+  20: optional i32 pool_size = 3
+  21: optional i64 auto_suspend = 14400 // idle timeout in seconds; -1 disables suspension
 }
 
 enum TJdbcOperation {

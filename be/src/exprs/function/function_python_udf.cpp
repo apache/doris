@@ -53,6 +53,9 @@ Status PythonFunctionCall::open(FunctionContext* context,
     PythonVersion version;
     PythonUDFMeta func_meta;
     func_meta.id = _fn.id;
+    func_meta.pool_size = _fn.__isset.pool_size ? _fn.pool_size : 3;
+    func_meta.auto_suspend = _fn.__isset.auto_suspend ? _fn.auto_suspend
+                                                      : PythonUDFMeta::DEFAULT_AUTO_SUSPEND_SECONDS;
     func_meta.name = _fn.name.function_name;
     func_meta.symbol = _fn.scalar_fn.symbol;
     if (!_fn.function_code.empty()) {
@@ -85,13 +88,16 @@ Status PythonFunctionCall::open(FunctionContext* context,
     LOG(INFO) << fmt::format("runtime_version: {}, func_meta: {}", version.to_string(),
                              func_meta.to_string());
 
+    std::shared_ptr<UserFunctionCacheEntry> package_cache_entry;
     if (func_meta.type == PythonUDFLoadType::MODULE) {
         RETURN_IF_ERROR(UserFunctionCache::instance()->get_pypath(
-                func_meta.id, func_meta.location, func_meta.checksum, &func_meta.location));
+                func_meta.id, func_meta.location, func_meta.checksum, &func_meta.location,
+                &package_cache_entry));
     }
 
     PythonUDFClientPtr client = nullptr;
-    RETURN_IF_ERROR(PythonServerManager::instance().get_client(func_meta, version, &client));
+    RETURN_IF_ERROR(PythonServerManager::instance().get_client(func_meta, version, &client, nullptr,
+                                                               std::move(package_cache_entry)));
 
     if (!client) {
         return Status::InternalError("Python UDF client is null");
