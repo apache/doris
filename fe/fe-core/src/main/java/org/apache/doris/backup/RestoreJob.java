@@ -17,6 +17,7 @@
 
 package org.apache.doris.backup;
 
+import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.backup.BackupJobInfo.BackupIndexInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupOlapTableInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupPartitionInfo;
@@ -85,6 +86,7 @@ import org.apache.doris.task.DownloadTask;
 import org.apache.doris.task.ReleaseSnapshotTask;
 import org.apache.doris.task.SnapshotTask;
 import org.apache.doris.thrift.TFinishTaskRequest;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TRemoteTabletSnapshot;
 import org.apache.doris.thrift.TStatusCode;
@@ -113,6 +115,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -776,6 +779,16 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             }
                         }
 
+                        // The historical signature omits index properties. A path index with the
+                        // same name is not compatible with a values index, even when IDs differ.
+                        if (!isAtomicRestore) {
+                            st = checkValuesIndexCompatibility(localOlapTbl, remoteOlapTbl, tblInfo);
+                            if (!st.ok()) {
+                                status = st;
+                                return;
+                            }
+                        }
+
                         st = remoteOlapTbl.checkPropertiesForRestore();
                         if (!st.ok()) {
                             status = st;
@@ -878,6 +891,11 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
                 // Table does not exist or atomic restore
                 if (localTbl == null || isAtomicRestore) {
+                    Status formatStatus = checkValuesIndexCompatibility(remoteOlapTbl, remoteOlapTbl, tblInfo);
+                    if (!formatStatus.ok()) {
+                        status = formatStatus;
+                        return;
+                    }
                     // Retain only expected restore partitions in this table;
                     Set<String> allPartNames = remoteOlapTbl.getPartitionNames();
                     for (String partName : allPartNames) {
@@ -1185,6 +1203,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             isInMemory,
                             remotePartitionInfo.getIsMutable(remotePartId));
                 }
+                restorePartitionStorageFormat(localTbl, restoredPart);
                 localTbl.addPartition(restoredPart);
             } finally {
                 localTbl.writeUnlock();
@@ -1419,12 +1438,60 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         return false;
     }
 
+    protected Status checkValuesIndexCompatibility(OlapTable localTbl, OlapTable remoteTbl,
+            BackupOlapTableInfo tableInfo) {
+        boolean hasValuesIndex = localTbl.getIndexes().stream().anyMatch(Index::isVariantValuesIndex)
+                || remoteTbl.getIndexes().stream().anyMatch(Index::isVariantValuesIndex);
+        if (!hasValuesIndex) {
+            return Status.OK;
+        }
+        Map<String, Index> remoteIndexes = remoteTbl.getIndexesMap();
+        for (Index index : localTbl.getIndexes()) {
+            Index remote = remoteIndexes.get(index.getIndexName());
+            // The historical signature already compares index names, types and columns.
+            Preconditions.checkNotNull(remote);
+            if (!Objects.equals(index.getProperties(), remote.getProperties())) {
+                return new Status(ErrCode.COMMON_ERROR, "Incompatible index definitions for values index restore: "
+                        + localTbl.getName() + "." + index.getIndexName());
+            }
+        }
+        try {
+            for (BackupPartitionInfo partition : tableInfo.partitions.values()) {
+                InvertedIndexUtil.checkIndexStorageFormat(localTbl.getIndexes(),
+                        remoteTbl.getInvertedIndexFileStorageFormatForPartition(partition.id));
+            }
+        } catch (DdlException e) {
+            return new Status(ErrCode.COMMON_ERROR, e.getMessage());
+        }
+        return Status.OK;
+    }
+
+    protected TInvertedIndexFileStorageFormat getRestorePartitionStorageFormat(OlapTable localTbl,
+            Partition restorePart) {
+        // Whole-table restores already remap PartitionInfo in resetIdsForRestore. Partitions
+        // restored into an existing table still use the original IDs in the backup metadata.
+        boolean newPartition = restoredPartitions.stream().anyMatch(entry -> entry.second == restorePart);
+        if (!newPartition) {
+            return localTbl.getInvertedIndexFileStorageFormatForPartition(restorePart.getId());
+        }
+        String originName = jobInfo.getOrginNameByAlias(localTbl.getName());
+        OlapTable source = (OlapTable) backupMeta.getTable(originName);
+        long sourceId = jobInfo.getOlapTableInfo(originName).getPartInfo(restorePart.getName()).id;
+        return source.getInvertedIndexFileStorageFormatForPartition(sourceId);
+    }
+
+    private void restorePartitionStorageFormat(OlapTable localTbl, Partition restorePart) {
+        localTbl.getPartitionInfo().setInvertedIndexFileStorageFormat(restorePart.getId(),
+                getRestorePartitionStorageFormat(localTbl, restorePart));
+    }
+
     protected void createReplicas(Database db, OlapTable localTbl, Partition restorePart) {
         createReplicas(db, localTbl, restorePart, null);
     }
 
     protected void createReplicas(Database db, OlapTable localTbl, Partition restorePart,
             Map<Long, TabletRef> tabletBases) {
+        TInvertedIndexFileStorageFormat restoreFormat = getRestorePartitionStorageFormat(localTbl, restorePart);
         Set<String> bfColumns = localTbl.getCopiedBfColumns();
         double bfFpp = localTbl.getBfFpp();
 
@@ -1499,7 +1566,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             localTbl.getVerticalCompactionNumColumnsPerGroup(),
                             localTbl.getRowTtlConfig(),
                             localTbl.getRowTtlTimeZoneOffsetSeconds());
-                    task.setInvertedIndexFileStorageFormat(localTbl.getInvertedIndexFileStorageFormat());
+                    task.setInvertedIndexFileStorageFormat(restoreFormat);
                     task.setInRestoreMode(true);
                     if (baseTabletRef != null) {
                         // ensure this replica is bound to the same backend disk as the origin table's replica.
@@ -1737,6 +1804,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     remoteDataProperty, restoreReplicaAlloc,
                     isInMemory,
                     remotePartitionInfo.getIsMutable(remotePartId));
+            restorePartitionStorageFormat(localTbl, restorePart);
             localTbl.addPartition(restorePart);
 
             // modify tablet inverted index
