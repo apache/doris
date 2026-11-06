@@ -27,8 +27,10 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <memory>
 #include <string>
+#include <thread>
 #include <variant>
 #include <vector>
 
@@ -40,8 +42,13 @@
 #include "exec/operator/hash_join_test_helper.h"
 #include "exec/operator/operator.h"
 #include "exec/pipeline/pipeline_task.h"
+#include "exec/pipeline/thrift_builder.h"
+#include "exec/runtime_filter/runtime_filter_mgr.h"
+#include "exec/runtime_filter/runtime_filter_producer.h"
+#include "exec/runtime_filter/runtime_filter_wrapper.h"
 #include "exprs/vexpr_context.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
@@ -535,6 +542,152 @@ TEST_F(HashJoinBuildSinkTest, Terminate) {
     };
 
     run_test_block(test_block);
+}
+
+// A probe which short-circuits on an empty build side finishes without reading its input. If it
+// were released at eos, it could finish before close() publishes the runtime filters, wake up the
+// build task early and make terminate() publish them as DISABLED. So it is released in close().
+TEST_F(HashJoinBuildSinkTest, ReleaseShortCircuitProbeOnClose) {
+    enum class Input { EMPTY, ONE_NULL_KEY };
+    struct Case {
+        TJoinOp::type op_type;
+        Input input = Input::EMPTY;
+        bool with_runtime_filter = true;
+        // Wake up the task after eos, as when the probe pipeline finished first.
+        bool terminate_after_eos = false;
+        // Let the runtime filter wait time pass before close().
+        bool release_by_timer = false;
+        bool expect_released_at_eos = false;
+    };
+    if (ExecEnv::GetInstance()->runtime_filter_timer_queue() == nullptr) {
+        ExecEnv::GetInstance()->_init_runtime_filter_timer_queue();
+    }
+    // All cases share one query context, so each one registers its own filter id.
+    int next_filter_id = 0;
+    auto run_case = [&](const Case& c) {
+        auto tnode = _helper.create_test_plan_node(c.op_type, {TPrimitiveType::INT}, {true},
+                                                   {c.input == Input::ONE_NULL_KEY});
+        if (c.with_runtime_filter) {
+            auto src_expr = tnode.hash_join_node.eq_join_conjuncts[0].right;
+            tnode.__isset.runtime_filters = true;
+            tnode.runtime_filters.push_back(
+                    TRuntimeFilterDescBuilder(next_filter_id++, src_expr, 0).build());
+        }
+        auto [probe_operator, sink_operator] = _helper.create_operators(tnode);
+        ASSERT_TRUE(probe_operator);
+        ASSERT_TRUE(sink_operator);
+
+        auto runtime_state = std::make_unique<MockRuntimeState>();
+        runtime_state->_query_ctx = _helper.query_ctx.get();
+        runtime_state->_query_id = _helper.query_ctx->query_id();
+        runtime_state->resize_op_id_to_local_state(-100);
+        runtime_state->set_max_operator_id(-100);
+        runtime_state->set_desc_tbl(_helper.desc_tbl);
+        auto local_rf_mgr = std::make_unique<RuntimeFilterMgr>(false);
+        runtime_state->set_runtime_filter_mgr(local_rf_mgr.get());
+        // The mock task execution context is not a PipelineFragmentContext, which registering a
+        // runtime filter producer would read.
+        runtime_state->_task_execution_context_inited = false;
+        runtime_state->_query_options.__set_runtime_filter_wait_time_ms(
+                c.release_by_timer ? 50 : 600000);
+
+        auto st = sink_operator->init(tnode, runtime_state.get());
+        ASSERT_TRUE(st.ok()) << "init failed: " << st.to_string();
+        st = sink_operator->prepare(runtime_state.get());
+        ASSERT_TRUE(st.ok()) << "prepare failed: " << st.to_string();
+
+        auto shared_state = sink_operator->create_shared_state();
+        ASSERT_TRUE(shared_state);
+        auto* source_dep = shared_state->create_source_dependency(
+                sink_operator->operator_id(), tnode.node_id, "HashJoinSinkTestDep");
+
+        std::map<int, std::pair<std::shared_ptr<BasicSharedState>,
+                                std::vector<std::shared_ptr<Dependency>>>>
+                shared_state_map;
+        LocalSinkStateInfo info {.task_idx = 0,
+                                 .parent_profile = _helper.runtime_profile.get(),
+                                 .sender_id = 0,
+                                 .shared_state = shared_state.get(),
+                                 .shared_state_map = shared_state_map,
+                                 .tsink = TDataSink()};
+        st = sink_operator->setup_local_state(runtime_state.get(), info);
+        ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
+
+        auto* local_state = reinterpret_cast<HashJoinBuildSinkLocalState*>(
+                runtime_state->get_sink_local_state());
+        ASSERT_TRUE(local_state);
+        st = local_state->open(runtime_state.get());
+        ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
+
+        const auto& row_desc = sink_operator->child()->operator_row_desc_after_projection();
+        Block block(row_desc.tuple_descriptors()[0]->slots(), 0);
+        if (c.input == Input::ONE_NULL_KEY) {
+            // The default value of a nullable column is null.
+            auto mutable_block = MutableBlock(block.clone_empty());
+            for (auto& col : mutable_block.mutable_columns()) {
+                col->insert_default();
+            }
+            auto null_key_block = mutable_block.to_block();
+            st = sink_operator->sink(runtime_state.get(), &null_key_block, false);
+            ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
+        }
+        st = sink_operator->sink(runtime_state.get(), &block, true);
+        ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
+
+        ASSERT_EQ(source_dep->ready(), c.expect_released_at_eos) << "join op: " << c.op_type;
+        if (c.release_by_timer) {
+            for (int i = 0; i < 500 && !source_dep->ready(); i++) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+            ASSERT_TRUE(source_dep->ready()) << "join op: " << c.op_type;
+        }
+
+        std::shared_ptr<RuntimeFilterWrapper> wrapper;
+        if (c.with_runtime_filter) {
+            ASSERT_EQ(local_state->_runtime_filter_producer_helper->_producers.size(), 1);
+            wrapper = local_state->_runtime_filter_producer_helper->_producers[0]->_wrapper;
+        }
+        if (c.terminate_after_eos) {
+            st = local_state->terminate(runtime_state.get());
+            ASSERT_TRUE(st.ok()) << "terminate failed: " << st.to_string();
+        }
+
+        st = local_state->close(runtime_state.get(), st);
+        ASSERT_TRUE(st.ok()) << "close failed: " << st.to_string();
+        ASSERT_TRUE(source_dep->ready()) << "join op: " << c.op_type;
+
+        if (wrapper) {
+            // A terminated sink still disables its filters; otherwise an empty filter is
+            // published, which keeps the merged global filter usable.
+            ASSERT_EQ(local_state->_runtime_filter_producer_helper->_skip_runtime_filters_process,
+                      c.terminate_after_eos)
+                    << "join op: " << c.op_type;
+            ASSERT_TRUE(wrapper->get_state() == (c.terminate_after_eos
+                                                         ? RuntimeFilterWrapper::State::DISABLED
+                                                         : RuntimeFilterWrapper::State::READY))
+                    << "join op: " << c.op_type << ", " << wrapper->debug_string();
+        }
+    };
+
+    // Short-circuited on an empty build side.
+    run_case({.op_type = TJoinOp::INNER_JOIN});
+    run_case({.op_type = TJoinOp::RIGHT_OUTER_JOIN});
+    run_case({.op_type = TJoinOp::RIGHT_SEMI_JOIN});
+    run_case({.op_type = TJoinOp::RIGHT_ANTI_JOIN});
+    // Short-circuited on a null key in the build side.
+    run_case({.op_type = TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN, .input = Input::ONE_NULL_KEY});
+    // A sink terminated after eos must still release the probe in close().
+    run_case({.op_type = TJoinOp::RIGHT_OUTER_JOIN, .terminate_after_eos = true});
+    // A probe held back is still released after the runtime filter wait time, e.g. when the
+    // filter size sync never completes.
+    run_case({.op_type = TJoinOp::RIGHT_OUTER_JOIN, .release_by_timer = true});
+    // Without runtime filters there is nothing to wait for.
+    run_case({.op_type = TJoinOp::RIGHT_OUTER_JOIN,
+              .with_runtime_filter = false,
+              .expect_released_at_eos = true});
+    // Still read the probe side on an empty build side.
+    run_case({.op_type = TJoinOp::LEFT_OUTER_JOIN, .expect_released_at_eos = true});
+    run_case({.op_type = TJoinOp::LEFT_ANTI_JOIN, .expect_released_at_eos = true});
 }
 
 // ============================================================================

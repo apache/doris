@@ -25,6 +25,12 @@
 namespace doris {
 class HashJoinBuildSinkOperatorX;
 
+// Releases `probe_dependency` if it is still blocked after `runtime_filter_wait_time_ms`, so that a
+// probe held back until the runtime filters are published cannot wait forever, e.g. when the
+// filter size sync never completes. The probe-side scans stop waiting for the filters by then too.
+std::shared_ptr<RuntimeFilterTimer> start_probe_release_timer(
+        RuntimeState* state, std::shared_ptr<Dependency> probe_dependency);
+
 class HashJoinBuildSinkLocalState MOCK_REMOVE(final)
         : public JoinBuildSinkLocalState<HashJoinSharedState, HashJoinBuildSinkLocalState> {
 public:
@@ -71,6 +77,10 @@ protected:
     std::vector<ColumnPtr> _key_columns_holder;
 
     bool _should_build_hash_table = true;
+    // The probe side is released in close() instead of at eos, after the runtime filters are
+    // published. See `HashJoinBuildSinkOperatorX::sink_impl`.
+    bool _release_probe_on_close = false;
+    std::shared_ptr<RuntimeFilterTimer> _release_probe_timer;
 
     size_t _evaluate_mem_usage = 0;
     size_t _build_side_rows = 0;
