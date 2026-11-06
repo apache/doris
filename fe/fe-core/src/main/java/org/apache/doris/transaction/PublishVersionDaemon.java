@@ -431,12 +431,15 @@ public class PublishVersionDaemon extends MasterDaemon {
             List<TPartitionVersionInfo> partitionVersionInfos, Map<Long, Set<Long>> beIdToBaseTabletIds,
             long createPublishVersionTaskTime,
             AgentBatchTask batchTask) {
+        Map<Long, ChangelogWriteMapping> changelogWriteMappings =
+                transactionState.getChangelogWriteMappings(transactionId);
         for (Long backendId : publishBackends) {
             PublishVersionTask task = new PublishVersionTask(backendId,
                     transactionId,
                     transactionState.getDbId(),
                     partitionVersionInfos,
                     createPublishVersionTaskTime);
+            task.setChangelogWriteMappings(changelogWriteMappings);
             task.setBaseTabletsIds(beIdToBaseTabletIds.getOrDefault(backendId, Collections.emptySet()));
             // add to AgentTaskQueue for handling finish report.
             // not check return value, because the add will success

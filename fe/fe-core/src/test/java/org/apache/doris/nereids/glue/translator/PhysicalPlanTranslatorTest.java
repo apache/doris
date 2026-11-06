@@ -24,6 +24,7 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
@@ -54,6 +55,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
@@ -93,6 +95,7 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -131,6 +134,10 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                 + "'enable_unique_key_merge_on_write' = 'true',"
                 + "'changelog.enable' = 'true',"
                 + "'changelog.need_historical_value' = 'true');");
+        createTable("create table test_db.changelog_without_history_t(k int, v int) "
+                + "unique key(k) distributed by hash(k) buckets 1 "
+                + "properties('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true',"
+                + "'changelog.enable' = 'true', 'changelog.need_historical_value' = 'false');");
         createTable("create table test_db.sequence_scan_schema_t(\n"
                 + "k1 int, k2 int, v1 int, v2 int)\n"
                 + "unique key(k1, k2)\n"
@@ -265,12 +272,33 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                 .collect(Collectors.toList()));
 
         TPlanNode thriftScanNode = scanNode.treeToThrift().getNodes().get(0);
+        Assertions.assertTrue(thriftScanNode.olap_scan_node.isSetChangelogColumnMappings());
+        Assertions.assertEquals(2, thriftScanNode.olap_scan_node.getChangelogColumnMappings().getPairsSize());
+        Map<Integer, String> slotNames = scanNode.getTupleDesc().getSlots().stream()
+                .collect(Collectors.toMap(slot -> slot.getId().asInt(), slot -> slot.getColumn().getName()));
+        thriftScanNode.olap_scan_node.getChangelogColumnMappings().getPairs().forEach(pair ->
+                Assertions.assertEquals(Column.generateBeforeColName(slotNames.get(pair.getCurrentSlotId())),
+                        slotNames.get(pair.getBeforeSlotId())));
         Set<Integer> dependencyUniqueIds = scanNode.getTupleDesc().getSlots().stream()
                 .filter(slot -> !slot.getColumn().getName().equals("v1"))
                 .map(slot -> slot.getColumn().getUniqueId())
                 .collect(Collectors.toSet());
         Assertions.assertTrue(dependencyUniqueIds.stream()
                 .noneMatch(thriftScanNode.olap_scan_node.getOutputColumnUniqueIds()::contains));
+    }
+
+    @Test
+    public void testChangelogMappingsFollowFinalTupleAfterReordering() throws Exception {
+        OlapScanNode scan = getFirstOlapScanNode("select v1 from test_db.changelog_scan_schema_t"
+                + "@incr(\"incrementType\" = \"MIN_DELTA\")");
+        Collections.reverse(scan.getTupleDesc().getSlots());
+        Map<Integer, String> namesById = scan.getTupleDesc().getSlots().stream()
+                .collect(Collectors.toMap(slot -> slot.getId().asInt(), slot -> slot.getColumn().getName()));
+        TPlanNode thrift = scan.treeToThrift().getNodes().get(0);
+        Assertions.assertEquals(2, thrift.olap_scan_node.getChangelogColumnMappings().getPairsSize());
+        thrift.olap_scan_node.getChangelogColumnMappings().getPairs().forEach(pair ->
+                Assertions.assertEquals(Column.generateBeforeColName(namesById.get(pair.getCurrentSlotId())),
+                        namesById.get(pair.getBeforeSlotId())));
     }
 
     @Test
@@ -285,6 +313,32 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                 "v1", Column.CHANGELOG_OP_COL, Column.CHANGELOG_TSO_COL), scanColumns);
 
         Assertions.assertTrue(scanNode.getExtraKeyColumnSlotIds().isEmpty());
+    }
+
+    @Test
+    public void testDetailWithoutHistoryHasExplicitEmptyMappings() throws Exception {
+        OlapScanNode scan = getFirstOlapScanNode("select v from test_db.changelog_without_history_t"
+                + "@incr(\"incrementType\" = \"DETAIL\")");
+        TPlanNode thrift = scan.treeToThrift().getNodes().get(0);
+        Assertions.assertTrue(thrift.olap_scan_node.isSetChangelogColumnMappings());
+        Assertions.assertTrue(thrift.olap_scan_node.getChangelogColumnMappings().isSetPairs());
+        Assertions.assertTrue(thrift.olap_scan_node.getChangelogColumnMappings().getPairs().isEmpty());
+    }
+
+    @Test
+    public void testChangelogNestedPruningDependsOnReadMode() throws Exception {
+        Database database = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_db");
+        OlapTable table = (OlapTable) database.getTableOrMetaException("changelog_scan_schema_t");
+        LogicalOlapScan scan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(),
+                new OlapChangelogTableWrapper(table));
+        Assertions.assertTrue(scan.withTableScanParams(new TableScanParams(TableScanParams.INCREMENTAL_READ,
+                Collections.singletonMap(OlapScanNode.OLAP_INCREMENT_TYPE, "APPEND_ONLY"),
+                Collections.emptyList())).supportPruneNestedColumn());
+        for (String mode : ImmutableList.of("DETAIL", "MIN_DELTA")) {
+            Assertions.assertFalse(scan.withTableScanParams(new TableScanParams(TableScanParams.INCREMENTAL_READ,
+                    Collections.singletonMap(OlapScanNode.OLAP_INCREMENT_TYPE, mode),
+                    Collections.emptyList())).supportPruneNestedColumn());
+        }
     }
 
     @Test

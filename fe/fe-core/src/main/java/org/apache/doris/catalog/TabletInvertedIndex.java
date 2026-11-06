@@ -21,7 +21,7 @@ import org.apache.doris.clone.PartitionRebalancer.TabletMove;
 import org.apache.doris.common.Pair;
 import org.apache.doris.cooldown.CooldownConf;
 import org.apache.doris.master.PartitionInfoCollector.PartitionCollectInfo;
-import org.apache.doris.thrift.TPartitionVersionInfo;
+import org.apache.doris.task.PublishVersionTask.RepublishInfo;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTablet;
 import org.apache.doris.thrift.TTabletMetaInfo;
@@ -89,7 +89,7 @@ public abstract class TabletInvertedIndex {
                              Set<Long> tabletFoundInMeta,
                              ListMultimap<TStorageMedium, Long> tabletMigrationMap,
                              Map<Long, Long> partitionVersionSyncMap,
-                             Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
+                             Map<Long, SetMultimap<Long, RepublishInfo>> transactionsToPublish,
                              SetMultimap<Long, Long> transactionsToClear,
                              ListMultimap<Long, Long> tabletRecoveryMap,
                              List<TTabletMetaInfo> tabletToUpdate,

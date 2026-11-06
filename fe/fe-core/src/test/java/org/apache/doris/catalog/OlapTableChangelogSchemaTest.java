@@ -18,11 +18,15 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.binlog.BinlogTestUtils;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TStorageType;
+import org.apache.doris.transaction.ChangelogWriteMapping;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -59,6 +63,33 @@ public class OlapTableChangelogSchemaTest {
             table.setChangelogIndexMeta(changelogIndexMeta, "changelog");
         }
         return table;
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false, false", "false, true", "true, false", "true, true"})
+    public void testChangelogWriteMappingUsesCreationTimeIdentities(boolean lightSchemaChange, boolean historical) {
+        OlapTable table = newTestTable(BinlogTestUtils.newTestChangelogConfig(true, historical));
+        table.setEnableLightSchemaChange(lightSchemaChange);
+        table.initSchemaColumnUniqueId();
+        Assertions.assertEquals(lightSchemaChange, table.getEnableLightSchemaChange());
+        List<Column> source = table.getBaseSchema(true);
+        List<Column> target = table.getChangelogIndexMeta().getSchema(true);
+        for (List<Column> columns : List.of(source, target)) {
+            Assertions.assertTrue(columns.stream().allMatch(column -> column.getUniqueId() >= 0));
+            Assertions.assertEquals(columns.size(), columns.stream().map(Column::getUniqueId).distinct().count());
+        }
+        ChangelogWriteMapping mapping = ChangelogWriteMapping.fromColumns(source, target, historical);
+        Assertions.assertEquals(2, mapping.toThrift().getEntriesSize());
+        Assertions.assertEquals(historical, mapping.toThrift().getEntries().get(1).isSetBeforeColumnUniqueId());
+        OlapTable restored = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(table), OlapTable.class);
+        Assertions.assertEquals(lightSchemaChange, restored.getEnableLightSchemaChange());
+        Assertions.assertEquals(source.stream().map(Column::getUniqueId).collect(Collectors.toList()),
+                restored.getBaseSchema(true).stream().map(Column::getUniqueId).collect(Collectors.toList()));
+        Assertions.assertEquals(target.stream().map(Column::getUniqueId).collect(Collectors.toList()),
+                restored.getChangelogIndexMeta().getSchema(true).stream()
+                        .map(Column::getUniqueId).collect(Collectors.toList()));
+        Assertions.assertEquals(mapping, ChangelogWriteMapping.fromColumns(restored.getBaseSchema(true),
+                restored.getChangelogIndexMeta().getSchema(true), historical));
     }
 
     @Test

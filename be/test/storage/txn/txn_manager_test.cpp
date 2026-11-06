@@ -44,6 +44,7 @@
 #include "storage/tablet/tablet_manager.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/task/engine_publish_version_task.h"
+#include "testutil/creators.h"
 #include "util/uid_util.h"
 
 using ::testing::_;
@@ -124,7 +125,8 @@ public:
         return json_rowset_meta.substr(0, json_rowset_meta.size() - 1);
     }
 
-    RowsetSharedPtr create_changelog_rowset(int64_t rowset_id, const Version& version) {
+    RowsetSharedPtr create_changelog_rowset(int64_t rowset_id, const Version& version,
+                                            bool with_system_columns = true) {
         auto json_rowset_meta = read_rowset_meta_json(rowset_meta_path);
         RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
         rowset_meta->init_from_json(json_rowset_meta);
@@ -138,9 +140,28 @@ public:
         rowset_meta->set_version(version);
         rowset_meta->mark_changelog();
 
+        TabletSchemaPB schema_pb;
+        _schema->to_schema_pb(&schema_pb);
+        schema_pb.set_keys_type(DUP_KEYS);
+        if (with_system_columns) {
+            int uid = 100;
+            for (const auto& name : {CHANGELOG_TSO_COL, CHANGELOG_LSN_COL, CHANGELOG_OP_COL}) {
+                auto* column = schema_pb.add_column();
+                column->set_unique_id(uid++);
+                column->set_name(name);
+                column->set_type("BIGINT");
+                column->set_is_key(false);
+                column->set_is_nullable(name == CHANGELOG_TSO_COL);
+                column->set_length(8);
+                column->set_index_length(8);
+            }
+        }
+        auto changelog_schema = std::make_shared<TabletSchema>();
+        changelog_schema->init_from_pb(schema_pb);
+        rowset_meta->set_tablet_schema(changelog_schema);
         RowsetSharedPtr rowset;
-        EXPECT_EQ(Status::OK(),
-                  RowsetFactory::create_rowset(_schema, rowset_meta_path, rowset_meta, &rowset));
+        EXPECT_EQ(Status::OK(), RowsetFactory::create_rowset(changelog_schema, rowset_meta_path,
+                                                             rowset_meta, &rowset));
         return rowset;
     }
 
@@ -481,11 +502,19 @@ TEST_F(TxnManagerTest, TxnWithChangelog) {
     EXPECT_EQ(committed_changelog_meta->rowset_state(), RowsetStatePB::COMMITTED);
     EXPECT_TRUE(committed_changelog_meta->is_changelog());
 
+    auto mappings = std::make_shared<const PChangelogWriteColumnMappings>(
+            testutil::create_changelog_mapping(*_schema, *changelog_rowset->tablet_schema(),
+                                               false));
     Version new_version(10, 10);
     TabletPublishStatistics stats;
     std::shared_ptr<TabletTxnInfo> tablet_txn_info = nullptr;
     st = k_engine->txn_manager()->publish_txn(_meta.get(), partition_id, transaction_id, tablet_id,
                                               _tablet_uid, new_version, &stats, tablet_txn_info);
+    ASSERT_FALSE(st.ok());
+    EXPECT_EQ(changelog_rowset->rowset_meta_state(), RowsetStatePB::COMMITTED);
+    st = k_engine->txn_manager()->publish_txn(_meta.get(), partition_id, transaction_id, tablet_id,
+                                              _tablet_uid, new_version, &stats, tablet_txn_info,
+                                              12345, mappings);
     ASSERT_TRUE(st.ok()) << st;
 
     RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
@@ -509,7 +538,7 @@ TEST_F(TxnManagerTest, TxnWithChangelog) {
 // rewrite, which reads the LSN of conflicting rows from that rowset, must fail with an error
 // instead of indexing past the schema.
 TEST_F(TxnManagerTest, PublishRejectsChangelogRowsetWithoutHiddenColumns) {
-    auto changelog_rowset = create_changelog_rowset(30001, _rowset->version());
+    auto changelog_rowset = create_changelog_rowset(30001, _rowset->version(), false);
     ASSERT_LT(changelog_rowset->tablet_schema()->changelog_lsn_col_idx(), 0);
     auto tablet = k_engine->tablet_manager()->get_tablet(tablet_id);
     ASSERT_TRUE(tablet != nullptr);
@@ -521,7 +550,11 @@ TEST_F(TxnManagerTest, PublishRejectsChangelogRowsetWithoutHiddenColumns) {
     TabletTxnInfo txn_info(load_id, _rowset);
     txn_info.attach_changelog.rowset = changelog_rowset;
     txn_info.attach_changelog.tablet = tablet;
-    auto st = BaseTablet::update_delete_bitmap(tablet, &txn_info, transaction_id);
+    auto mapping =
+            testutil::create_changelog_mapping(*_schema, *changelog_rowset->tablet_schema(), false);
+    std::shared_ptr<const changelog::ResolvedChangelogLayout> layout;
+    auto st =
+            changelog::resolve_layout(_schema, changelog_rowset->tablet_schema(), mapping, &layout);
     ASSERT_FALSE(st.ok());
     EXPECT_NE(st.to_string().find("misses its hidden columns"), std::string::npos) << st;
 }
@@ -682,6 +715,26 @@ TEST_F(TxnManagerTest, DeleteCommittedTxnCleanupOnError) {
     k_engine->txn_manager()->get_tablet_related_txns(tablet_id, _tablet_uid, &found_partition_id,
                                                      &found_txn_ids);
     ASSERT_TRUE(found_txn_ids.empty()) << "Transaction should not be found in tablet related txns";
+}
+
+TEST_F(TxnManagerTest, PendingPublishRetainsExplicitMapping) {
+    auto rowset = create_changelog_rowset(30003, _rowset->version());
+    PendingPublishInfoPB pending;
+    pending.set_partition_id(partition_id);
+    pending.set_transaction_id(transaction_id);
+    pending.set_commit_tso(12345);
+    *pending.mutable_changelog_column_mappings() =
+            testutil::create_changelog_mapping(*_schema, *rowset->tablet_schema(), true);
+    PendingPublishInfoPB recovered;
+    ASSERT_TRUE(recovered.ParseFromString(pending.SerializeAsString()));
+    ASSERT_TRUE(recovered.has_changelog_column_mappings());
+    const auto& mapping = recovered.changelog_column_mappings();
+    EXPECT_TRUE(mapping.has_need_historical_value());
+    EXPECT_TRUE(mapping.need_historical_value());
+    std::shared_ptr<const changelog::ResolvedChangelogLayout> layout;
+    ASSERT_TRUE(changelog::resolve_layout(_schema, rowset->tablet_schema(), mapping, &layout).ok());
+    EXPECT_TRUE(layout->need_historical_value);
+    EXPECT_TRUE(layout->before_source_cids.empty()); // key-only historical remains explicit
 }
 
 } // namespace doris

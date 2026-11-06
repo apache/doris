@@ -2806,6 +2806,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         tableProperty.buildPartitionRetentionCount();
     }
 
+    public boolean requiresColumnUniqueIds() {
+        return getEnableLightSchemaChange() || hasChangelog();
+    }
+
     public boolean getEnableLightSchemaChange() {
         if (tableProperty != null) {
             return tableProperty.getUseSchemaLightChange();
@@ -3458,9 +3462,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         tableProperty.buildReplicaAllocation();
     }
 
-    // for light schema change
+    // Changelog writes also require stable source UIDs when light schema change DDL is disabled.
     public void initSchemaColumnUniqueId() {
-        if (!getEnableLightSchemaChange()) {
+        if (!requiresColumnUniqueIds()) {
             return;
         }
 

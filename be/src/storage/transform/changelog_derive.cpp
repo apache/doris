@@ -17,11 +17,9 @@
 
 #include "storage/transform/changelog_derive.h"
 
-#include <algorithm>
 #include <optional>
 #include <span>
 
-#include "common/cast_set.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
@@ -39,20 +37,15 @@
 
 namespace doris::segment_v2 {
 
-namespace {
-
-// Number of changelog system columns: TSO, LSN, op.
-constexpr uint32_t CHANGELOG_COLNUM = 3;
-
 // Runs the primary-key historical lookup over `block`'s source key (+seq)
 // columns, leaving the planned reads and the op for each row in `retriever` for
 // building AFTER/BEFORE. `seq_pos` is the seq column's position in the input
 // block (-1 if absent).
-Status setup_retriever_and_lookup(TransformExecContext& ctx,
-                                  const SegmentWriteChangelogOptions& cfg,
-                                  const TabletSchemaSPtr& source_schema, const Block* block,
-                                  int32_t seq_pos, const Int8* delete_signs, size_t num_rows,
-                                  std::unique_ptr<PrimaryKeyModelRowRetriever>& retriever) {
+static Status setup_retriever_and_lookup(TransformExecContext& ctx,
+                                         const SegmentWriteChangelogOptions& cfg,
+                                         const TabletSchemaSPtr& source_schema, const Block* block,
+                                         int32_t seq_pos, const Int8* delete_signs, size_t num_rows,
+                                         std::unique_ptr<PrimaryKeyModelRowRetriever>& retriever) {
     retriever = std::make_unique<PrimaryKeyModelRowRetriever>();
     // Changelog lives in its own tablet, so ctx.tablet is that changelog tablet
     // while the history to look up sits in the source tablet. Falling back to
@@ -83,17 +76,13 @@ Status setup_retriever_and_lookup(TransformExecContext& ctx,
 // Fills the BEFORE value columns into `out` from the retriever's historical
 // reads. No-op when the source schema has no value columns. The retriever is
 // not const: reading BEFORE also loads the old delete signs it keeps.
-Status fill_before_columns(Block& out, const TabletSchema& changelog_schema,
-                           PrimaryKeyModelRowRetriever* retriever, uint32_t before_col_start,
-                           const std::vector<uint32_t>& value_source_cids, size_t num_rows) {
+static Status fill_before_columns(Block& out, const TabletSchema& changelog_schema,
+                                  PrimaryKeyModelRowRetriever* retriever,
+                                  const std::vector<uint32_t>& before_cids,
+                                  const std::vector<uint32_t>& value_source_cids, size_t num_rows) {
     size_t value_column_num = value_source_cids.size();
     if (value_column_num == 0) {
         return Status::OK();
-    }
-    std::vector<uint32_t> before_cids;
-    for (uint32_t cid = before_col_start;
-         cid < before_col_start + cast_set<uint32_t>(value_column_num); ++cid) {
-        before_cids.emplace_back(cid);
     }
     Block before_block = changelog_schema.create_storage_block(before_cids);
     DCHECK(retriever != nullptr);
@@ -108,10 +97,12 @@ Status fill_before_columns(Block& out, const TabletSchema& changelog_schema,
 
 // Fills the TSO / LSN / op columns into `out`. TSO is unknown until publish,
 // LSN is the per-row auto-inc value, and op describes the row change.
-void fill_changelog_system_columns(Block& out, const TabletSchema& changelog_schema,
-                                   uint32_t changelog_tso_cid, uint32_t changelog_lsn_cid,
-                                   uint32_t changelog_op_cid, const std::vector<int64_t>& lsn_ids,
-                                   const std::vector<ChangelogOp>& operators, size_t num_rows) {
+static void fill_changelog_system_columns(Block& out, const TabletSchema& changelog_schema,
+                                          uint32_t changelog_tso_cid, uint32_t changelog_lsn_cid,
+                                          uint32_t changelog_op_cid,
+                                          const std::vector<int64_t>& lsn_ids,
+                                          const std::vector<ChangelogOp>& operators,
+                                          size_t num_rows) {
     std::vector<uint32_t> changelog_cids = {changelog_tso_cid, changelog_lsn_cid, changelog_op_cid};
     Block changelog_system_block = changelog_schema.create_storage_block(changelog_cids);
     {
@@ -161,14 +152,11 @@ void fill_changelog_system_columns(Block& out, const TabletSchema& changelog_sch
     }
 }
 
-// Shared setup step: work out the changelog schema layout and consume this
-// segment's LSN range (exactly once).
-Status resolve_changelog_context(TransformExecContext& ctx, const Block* block,
-                                 ChangelogDeriveContext* c) {
-    c->changelog_schema = ctx.tablet_schema;
-    auto& cfg = ctx.rowset_ctx->write_changelog_opt().write_changelog_config();
-    c->source_schema = cfg.source.tablet_schema;
-    if (UNLIKELY(c->source_schema == nullptr)) {
+// Borrow the prepared layout and consume this segment's LSN range exactly once.
+static Status prepare_changelog_context(TransformExecContext& ctx, const Block* block,
+                                        ChangelogDeriveContext* c) {
+    const auto& cfg = ctx.rowset_ctx->write_changelog_opt().write_changelog_config();
+    if (UNLIKELY(cfg.source.tablet_schema == nullptr)) {
         return Status::InternalError("changelog derive missing source_tablet_schema, tablet_id={}",
                                      ctx.rowset_ctx->tablet_id);
     }
@@ -177,6 +165,9 @@ Status resolve_changelog_context(TransformExecContext& ctx, const Block* block,
         return Status::InternalError(
                 "changelog derive needs the source tablet to look history up, tablet_id={}",
                 ctx.rowset_ctx->tablet_id);
+    }
+    if (cfg.layout == nullptr) {
+        return Status::InvalidArgument("changelog derive requires a resolved column mapping");
     }
     c->num_rows = block->rows();
 
@@ -190,59 +181,15 @@ Status resolve_changelog_context(TransformExecContext& ctx, const Block* block,
     ctx.rowset_ctx->remove_segment_allocated_lsns(ctx.segment_id);
     CHECK(c->lsn_ids->size() >= c->num_rows) << c->lsn_ids->size() << " vs " << c->num_rows;
 
-    // Preserve the source writer's layout: system columns may be a prefix or
-    // suffix, and source hidden non-key columns are omitted while hidden keys
-    // remain part of the normal row image.
-    int tso_col_id = c->changelog_schema->changelog_tso_col_idx();
-    int lsn_col_id = c->changelog_schema->changelog_lsn_col_idx();
-    int op_col_id = c->changelog_schema->changelog_op_col_idx();
-    // The three positions are derived from the column names, so a schema whose hidden columns
-    // carry other names has none of them. Example: a load into a changelog tablet created by a
-    // build that named them differently. Fail that load instead of aborting the BE.
-    if (tso_col_id < 0 || lsn_col_id < 0 || op_col_id < 0) {
-        return Status::InternalError<false>(
-                "changelog schema misses its hidden columns: {}={}, {}={}, {}={}, tablet_id={}",
-                CHANGELOG_TSO_COL, tso_col_id, CHANGELOG_LSN_COL, lsn_col_id, CHANGELOG_OP_COL,
-                op_col_id, ctx.rowset_ctx->tablet_id);
-    }
-    c->changelog_tso_cid = cast_set<uint32_t>(tso_col_id);
-    c->changelog_lsn_cid = cast_set<uint32_t>(lsn_col_id);
-    c->changelog_op_cid = cast_set<uint32_t>(op_col_id);
-    c->normal_col_start = tso_col_id == 0 ? CHANGELOG_COLNUM : 0;
-    for (uint32_t cid = 0; cid < c->source_schema->num_columns(); ++cid) {
-        const auto& column = c->source_schema->column(cid);
-        if (column.visible() || column.is_key()) {
-            c->normal_source_cids.emplace_back(cid);
-        }
-        if (column.visible() && !column.is_key()) {
-            c->value_source_cids.emplace_back(cid);
-        }
-    }
-    c->before_col_start = c->normal_col_start + cast_set<uint32_t>(c->normal_source_cids.size());
-    c->write_before = cfg.write_before;
-    // The schema must carry exactly the BEFORE columns this flush fills: one per
-    // source value column when write_before is on, none otherwise. Too few and
-    // the BEFORE fill would write over the TSO/LSN columns; too many and those
-    // columns would stay empty in an otherwise full block, leaving the writer a
-    // block whose columns hold different row counts.
-    const size_t expected_before_columns = c->write_before ? c->value_source_cids.size() : 0;
-    const size_t expected_columns =
-            c->normal_source_cids.size() + expected_before_columns + CHANGELOG_COLNUM;
-    if (c->changelog_schema->num_columns() != expected_columns) {
-        return Status::InternalError<false>(
-                "changelog schema does not match the derived block: num_columns={}, expected={} "
-                "(normal={}, before={}, system={}), write_before={}, tablet_id={}",
-                c->changelog_schema->num_columns(), expected_columns, c->normal_source_cids.size(),
-                expected_before_columns, CHANGELOG_COLNUM, c->write_before,
-                ctx.rowset_ctx->tablet_id);
-    }
+    c->layout = cfg.layout.get();
     return Status::OK();
 }
 
 // A view over the delete-sign column, or nullopt when the schema has no
 // delete-sign column or the column does not cover the requested rows.
-std::optional<std::span<const Int8>> read_delete_signs(const Block* block, int32_t delete_sign_pos,
-                                                       size_t num_rows) {
+static std::optional<std::span<const Int8>> read_delete_signs(const Block* block,
+                                                              int32_t delete_sign_pos,
+                                                              size_t num_rows) {
     if (delete_sign_pos == -1) {
         return std::nullopt;
     }
@@ -257,32 +204,35 @@ std::optional<std::span<const Int8>> read_delete_signs(const Block* block, int32
 // Shared final step: build the final changelog block -- AFTER columns (COW from
 // after_src), optional BEFORE columns, the TSO/LSN/op columns -- and swap
 // it into `block`.
-Status emit_changelog_block(const ChangelogDeriveContext& c, const Block* after_src,
-                            PrimaryKeyModelRowRetriever* retriever,
-                            const std::vector<ChangelogOp>* plain_operators, Block* block) {
-    Block out = c.changelog_schema->create_storage_block();
+static Status emit_changelog_block(const ChangelogDeriveContext& c, const Block* after_src,
+                                   PrimaryKeyModelRowRetriever* retriever,
+                                   const std::vector<ChangelogOp>* plain_operators, Block* block) {
+    const auto& layout = *c.layout;
+    const auto& changelog_schema = *layout.target_schema;
+    Block out = changelog_schema.create_storage_block();
     // every index below is a cid, so the block has to carry every schema column
-    if (out.columns() != c.changelog_schema->num_columns()) {
+    if (out.columns() != changelog_schema.num_columns()) {
         return Status::InternalError<false>(
                 "changelog block width {} does not match its schema's {} columns", out.columns(),
-                c.changelog_schema->num_columns());
+                changelog_schema.num_columns());
     }
     // key + AFTER columns: COW pointers of the source-layout visible columns
-    for (size_t ordinal = 0; ordinal < c.normal_source_cids.size(); ++ordinal) {
-        const uint32_t source_cid = c.normal_source_cids[ordinal];
+    for (size_t ordinal = 0; ordinal < layout.current_source_cids.size(); ++ordinal) {
+        const uint32_t source_cid = layout.current_source_cids[ordinal];
         ColumnPtr after_column = after_src->get_by_position(source_cid).column;
         // The changelog schema declares every AFTER value column nullable and `out` keeps that
         // type when a column is replaced, so a NOT NULL source column is wrapped to match it; a
         // nullable ARRAY, MAP or STRUCT writer would refuse it otherwise. Keys keep their own
         // nullability.
-        if (!c.source_schema->column(source_cid).is_key()) {
+        if (layout.current_nullable_widening[ordinal]) {
             after_column = make_nullable(after_column);
         }
-        out.replace_by_position(c.normal_col_start + ordinal, std::move(after_column));
+        out.replace_by_position(layout.current_target_cids[ordinal], std::move(after_column));
     }
-    if (c.write_before) {
-        RETURN_IF_ERROR(fill_before_columns(out, *c.changelog_schema, retriever, c.before_col_start,
-                                            c.value_source_cids, c.num_rows));
+    if (layout.need_historical_value) {
+        RETURN_IF_ERROR(fill_before_columns(out, changelog_schema, retriever,
+                                            layout.before_target_cids, layout.before_source_cids,
+                                            c.num_rows));
     }
     // An insert whose old row is a tombstone is an append, not an update. Run
     // this after the BEFORE read, which already loaded the old delete signs.
@@ -291,14 +241,11 @@ Status emit_changelog_block(const ChangelogDeriveContext& c, const Block* after_
     }
     const std::vector<ChangelogOp>& operators =
             retriever != nullptr ? retriever->get_operators() : *plain_operators;
-    fill_changelog_system_columns(out, *c.changelog_schema, c.changelog_tso_cid,
-                                  c.changelog_lsn_cid, c.changelog_op_cid, *c.lsn_ids, operators,
-                                  c.num_rows);
+    fill_changelog_system_columns(out, changelog_schema, layout.tso_cid, layout.lsn_cid,
+                                  layout.op_cid, *c.lsn_ids, operators, c.num_rows);
     block->swap(out);
     return Status::OK();
 }
-
-} // namespace
 
 bool changelog_needs_historical_lookup(const RowsetWriterContext& context) {
     const auto& cfg = context.write_changelog_opt().write_changelog_config();
@@ -310,23 +257,24 @@ bool changelog_needs_historical_lookup(const RowsetWriterContext& context) {
     const bool is_partial_update = cfg.source.partial_update_info != nullptr &&
                                    cfg.source.partial_update_info->is_partial_update() &&
                                    is_source_direct_write;
-    return is_partial_update || cfg.write_before;
+    return is_partial_update || (cfg.layout != nullptr && cfg.layout->need_historical_value);
 }
 
 Status ChangelogDeriveStage::apply(TransformExecContext& ctx, Block* block) const {
     ChangelogDeriveContext c;
-    RETURN_IF_ERROR(resolve_changelog_context(ctx, block, &c));
+    RETURN_IF_ERROR(prepare_changelog_context(ctx, block, &c));
     return derive(ctx, block, c);
 }
 
 Status PlainChangelogDeriveStage::derive(TransformExecContext& /*ctx*/, Block* block,
                                          const ChangelogDeriveContext& c) const {
-    DCHECK(!c.write_before);
+    const auto& layout = *c.layout;
+    DCHECK(!layout.need_historical_value);
 
     // No probe: op is APPEND, or DELETE when the row carries a delete sign. DUP
     // tables have no delete-sign column, so every row is APPEND.
     std::optional<std::span<const Int8>> delete_signs =
-            read_delete_signs(block, c.source_schema->delete_sign_idx(), c.num_rows);
+            read_delete_signs(block, layout.source_schema->delete_sign_idx(), c.num_rows);
     std::vector<ChangelogOp> operators;
     operators.reserve(c.num_rows);
     for (size_t pos = 0; pos < c.num_rows; ++pos) {
@@ -339,6 +287,7 @@ Status PlainChangelogDeriveStage::derive(TransformExecContext& /*ctx*/, Block* b
 Status MowChangelogDeriveStage::derive(TransformExecContext& ctx, Block* block,
                                        const ChangelogDeriveContext& c) const {
     const auto& cfg = ctx.rowset_ctx->write_changelog_opt().write_changelog_config();
+    const auto& source_schema = c.layout->source_schema;
 
     const bool is_source_direct_write =
             cfg.source.source_write_type == DataWriteType::TYPE_DIRECT &&
@@ -353,7 +302,7 @@ Status MowChangelogDeriveStage::derive(TransformExecContext& ctx, Block* block,
         auto retriever = std::make_unique<PrimaryKeyModelRowRetriever>();
         RETURN_IF_ERROR(retriever->init(HistoricalRowRetrieverContext {
                 .tablet = cfg.source.base_tablet,
-                .tablet_schema = c.source_schema,
+                .tablet_schema = source_schema,
                 .rowset_writer_ctx = ctx.rowset_ctx,
                 .partial_update_info = cfg.source.partial_update_info,
                 .is_transient_rowset_writer = cfg.source.is_transient_rowset_writer,
@@ -372,28 +321,28 @@ Status MowChangelogDeriveStage::derive(TransformExecContext& ctx, Block* block,
     }
 
     if (is_fixed_partial_update) {
-        if (block->columns() < c.source_schema->num_key_columns() ||
-            block->columns() >= c.source_schema->num_columns()) {
+        if (block->columns() < source_schema->num_key_columns() ||
+            block->columns() >= source_schema->num_columns()) {
             return Status::InvalidArgument(fmt::format(
                     "illegal partial update block columns: {}, num key columns: {}, total "
                     "schema columns: {}",
-                    block->columns(), c.source_schema->num_key_columns(),
-                    c.source_schema->num_columns()));
+                    block->columns(), source_schema->num_key_columns(),
+                    source_schema->num_columns()));
         }
     }
 
     // find the delete sign and sequence columns in the input block (positions
     // move in the narrow partial-update block)
-    int32_t delete_sign_pos = c.source_schema->delete_sign_idx();
-    int32_t seq_pos = c.source_schema->sequence_col_idx();
+    int32_t delete_sign_pos = source_schema->delete_sign_idx();
+    int32_t seq_pos = source_schema->sequence_col_idx();
     if (is_fixed_partial_update) {
         delete_sign_pos = -1;
         seq_pos = -1;
         int32_t pos = 0;
         for (auto& cid : cfg.source.partial_update_info->update_cids) {
-            if (cid == c.source_schema->delete_sign_idx()) {
+            if (cid == source_schema->delete_sign_idx()) {
                 delete_sign_pos = pos;
-            } else if (cid == c.source_schema->sequence_col_idx()) {
+            } else if (cid == source_schema->sequence_col_idx()) {
                 seq_pos = pos;
             }
             pos++;
@@ -406,7 +355,7 @@ Status MowChangelogDeriveStage::derive(TransformExecContext& ctx, Block* block,
     // and the exact op for each row (APPEND / UPDATE / DELETE). retrieve_historical_row
     // takes the raw delete-sign pointer (the codebase convention), so bridge here.
     std::unique_ptr<PrimaryKeyModelRowRetriever> retriever;
-    RETURN_IF_ERROR(setup_retriever_and_lookup(ctx, cfg, c.source_schema, block, seq_pos,
+    RETURN_IF_ERROR(setup_retriever_and_lookup(ctx, cfg, source_schema, block, seq_pos,
                                                delete_signs ? delete_signs->data() : nullptr,
                                                c.num_rows, retriever));
 
@@ -416,7 +365,7 @@ Status MowChangelogDeriveStage::derive(TransformExecContext& ctx, Block* block,
     const Block* after_src = block;
     if (is_fixed_partial_update) {
         full_block = widen_partial_update_block(
-                *c.source_schema, cfg.source.partial_update_info->update_cids, *block);
+                *source_schema, cfg.source.partial_update_info->update_cids, *block);
         RETURN_IF_ERROR(retriever->build_after_block(&full_block, 0, c.num_rows));
         after_src = &full_block;
     }

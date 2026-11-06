@@ -25,6 +25,7 @@ import org.apache.doris.common.Pair;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -55,6 +56,28 @@ public class OlapChangelogTableWrapper extends OlapTableWrapper {
         this.changelogIndexMeta = originTable.getChangelogIndexMeta();
         Preconditions.checkNotNull(changelogIndexMeta, "changelog meta is null, table=%s", originTable.getName());
         this.setBaseIndexId(changelogIndexMeta.getIndexId());
+    }
+
+    /**
+     * Discover relationships once at the catalog boundary. Both scan-slot preservation and
+     * final tuple serialization use these same column identities, never tuple positions.
+     */
+    public List<Pair<Column, Column>> getChangelogReadColumnPairs() {
+        if (!originTable.getChangelogConfig().getNeedHistoricalValue()) {
+            return Collections.emptyList();
+        }
+        List<Pair<Column, Column>> pairs = new ArrayList<>();
+        for (Column source : originTable.getBaseSchema()) {
+            if (source.isKey() || !source.isVisible()) {
+                continue;
+            }
+            Column current = getColumn(source.getName());
+            Column before = getColumn(Column.generateBeforeColName(source.getName()));
+            Preconditions.checkState(current != null && before != null,
+                    "Missing changelog read pair for column %s", source.getName());
+            pairs.add(Pair.of(current, before));
+        }
+        return Collections.unmodifiableList(pairs);
     }
 
     @Override

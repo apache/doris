@@ -141,8 +141,14 @@ TEST_F(StorageEngineTest, TestAsyncPublish) {
     TabletSharedPtr tablet = _storage_engine->tablet_manager()->get_tablet(tablet_id);
     EXPECT_EQ(tablet->max_version().second, 10);
 
+    auto mapping = std::make_shared<PChangelogWriteColumnMappings>();
+    mapping->set_need_historical_value(true);
+    auto* entry = mapping->add_entries();
+    entry->set_source_column_unique_id(1);
+    entry->set_current_column_unique_id(2);
     for (int64_t i = 5; i < 12; ++i) {
-        _storage_engine->add_async_publish_task(partition_id, tablet_id, i, i, false, i * 10);
+        _storage_engine->add_async_publish_task(partition_id, tablet_id, i, i, false, i * 10,
+                                                mapping);
     }
     EXPECT_EQ(_storage_engine->_async_publish_tasks[tablet_id].size(), 7);
     EXPECT_EQ(_storage_engine->get_pending_publish_min_version(tablet_id), 5);
@@ -158,11 +164,23 @@ TEST_F(StorageEngineTest, TestAsyncPublish) {
                 bool parsed = pb.ParseFromArray(info.data(), static_cast<int>(info.size()));
                 EXPECT_TRUE(parsed);
                 version_to_commit_tso[publish_version] = pb.commit_tso();
+                EXPECT_TRUE(pb.has_changelog_column_mappings());
+                EXPECT_EQ(pb.changelog_column_mappings().SerializeAsString(),
+                          mapping->SerializeAsString());
+                // DataDir uses this same recovery entry point after deserializing PB.
+                _storage_engine->add_async_publish_task(
+                        pb.partition_id(), tablet_id, publish_version, pb.transaction_id(), true,
+                        pb.commit_tso(),
+                        std::make_shared<const PChangelogWriteColumnMappings>(
+                                pb.changelog_column_mappings()));
                 return true;
             });
     EXPECT_TRUE(st.ok()) << st;
     EXPECT_EQ(version_to_commit_tso[5], 50);
     EXPECT_EQ(version_to_commit_tso[11], 110);
+    EXPECT_EQ(
+            std::get<3>(_storage_engine->_async_publish_tasks[tablet_id][11])->SerializeAsString(),
+            mapping->SerializeAsString());
 
     for (int64_t i = 1; i < 8; ++i) {
         _storage_engine->_process_async_publish();

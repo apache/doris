@@ -115,6 +115,16 @@ public class BatchInsertIntoTableCommand extends Command implements NoForward, E
 
         PhysicalOlapTableSink<?> sink;
         TableIf targetTableIf = InsertUtils.getTargetTable(originLogicalQuery, ctx);
+        // check auth
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), targetTableIf.getDatabase().getCatalog().getName(),
+                        targetTableIf.getDatabase().getFullName(), targetTableIf.getName(),
+                        PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    targetTableIf.getDatabase().getFullName() + ": " + targetTableIf.getName());
+        }
+
         targetTableIf.readLock();
         try {
             StatementContext statementContext = ctx.getStatementContext();
@@ -158,15 +168,6 @@ public class BatchInsertIntoTableCommand extends Command implements NoForward, E
             // should set columns of sink since we maybe generate some invisible columns
             List<Column> fullSchema = sink.getTargetTable().getFullSchema();
             List<Column> targetSchema = removeSkipBitmapCol(fullSchema);
-            // check auth
-            if (!Env.getCurrentEnv().getAccessManager()
-                    .checkTblPriv(ConnectContext.get(), targetTable.getDatabase().getCatalog().getName(),
-                            targetTable.getQualifiedDbName(), targetTable.getName(),
-                            PrivPredicate.LOAD)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                        ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                        targetTable.getQualifiedDbName() + ": " + targetTable.getName());
-            }
 
             Optional<PhysicalUnion> union = planner.getPhysicalPlan()
                     .<PhysicalUnion>collect(PhysicalUnion.class::isInstance).stream().findAny();
