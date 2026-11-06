@@ -19,6 +19,8 @@ package org.apache.doris.monitor.jvm;
 
 import org.apache.doris.monitor.unit.ByteSizeValue;
 
+import org.apache.logging.log4j.LogManager;
+
 import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
 import java.lang.management.ManagementPermission;
@@ -80,6 +82,24 @@ public class JvmInfo {
         }
         String[] inputArguments = runtimeMXBean.getInputArguments()
                 .toArray(new String[runtimeMXBean.getInputArguments().size()]);
+
+        if (directMemoryMax == 0) {
+            for (String arg : inputArguments) {
+                if (arg.startsWith("-XX:MaxDirectMemorySize=")) {
+                    try {
+                        directMemoryMax = ByteSizeValue.simpleParseBytesSizeValue(
+                                arg.substring("-XX:MaxDirectMemorySize=".length()),
+                                "MaxDirectMemorySize");
+                    } catch (Exception e) {
+                        // ignore unparseable value
+                    }
+                    break;
+                }
+            }
+        }
+        if (directMemoryMax == 0) {
+            LogManager.getLogger(JvmInfo.class).warn("Failed to determine max direct memory size");
+        }
         Mem mem = new Mem(heapInit, heapMax, nonHeapInit, nonHeapMax, directMemoryMax);
 
         String bootClassPath;
