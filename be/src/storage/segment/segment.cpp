@@ -424,9 +424,6 @@ Status Segment::_open_index_file_reader() {
 
 Status Segment::new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& read_options,
                              std::unique_ptr<RowwiseIterator>* iter) {
-    if (read_options.runtime_state != nullptr) {
-        _be_exec_version = read_options.runtime_state->be_exec_version();
-    }
     RETURN_IF_ERROR(_create_column_meta_once(read_options.stats, &read_options.io_ctx));
 
     read_options.stats->total_segment_number++;
@@ -944,9 +941,6 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
                                     const StorageReadOptions* opt,
                                     const std::unordered_map<int32_t, PathToBinaryColumnCacheUPtr>*
                                             variant_sparse_column_cache) {
-    if (opt->runtime_state != nullptr) {
-        _be_exec_version = opt->runtime_state->be_exec_version();
-    }
     RETURN_IF_ERROR(_create_column_meta_once(opt->stats, &opt->io_ctx));
 
     // A persisted column, including a VARIANT root, uses its own uid. Only BE-generated VARIANT
@@ -1038,7 +1032,8 @@ Status Segment::_get_column_reader_for_read(const TabletColumn& col,
             return Status::InternalError("could not find version column read version is {}-{}",
                                          read_options.version.first, read_options.version.second);
         }
-        return _column_reader_cache->get_column_reader(col_uid, column_reader, read_options.stats,
+        return _column_reader_cache->get_column_reader(col_uid, read_options.get_be_exec_version(),
+                                                       column_reader, read_options.stats,
                                                        &read_options.io_ctx);
     }
 
@@ -1053,7 +1048,8 @@ Status Segment::_get_column_reader_for_read(const TabletColumn& col,
                 return Status::InternalError("could not find {} column", col.name());
             }
             return _column_reader_cache->get_column_reader(
-                    col_uid, column_reader, read_options.stats, &read_options.io_ctx);
+                    col_uid, read_options.get_be_exec_version(), column_reader, read_options.stats,
+                    &read_options.io_ctx);
         }
         if (read_options.version.first == read_options.version.second) {
             // A singleton needs its publish TSO to replace the on-disk NULL/0 placeholder.
@@ -1079,7 +1075,8 @@ Status Segment::_get_column_reader_for_read(const TabletColumn& col,
         if (!_column_meta_accessor->has_column_uid(col_uid)) {
             return Status::InternalError("could not find {} column", col.name());
         }
-        return _column_reader_cache->get_column_reader(col_uid, column_reader, read_options.stats,
+        return _column_reader_cache->get_column_reader(col_uid, read_options.get_be_exec_version(),
+                                                       column_reader, read_options.stats,
                                                        &read_options.io_ctx);
     }
 
@@ -1099,7 +1096,8 @@ Status Segment::_get_column_reader_for_read(const TabletColumn& col,
     // (uid=-1, resolved to its parent) returns the root reader, and new_column_iterator() delegates
     // typed/sparse/default selection to VariantColumnReader. A schema path with its own uid keeps
     // using that physical reader, exactly like an ordinary persisted column.
-    return _column_reader_cache->get_column_reader(col_uid, column_reader, read_options.stats,
+    return _column_reader_cache->get_column_reader(col_uid, read_options.get_be_exec_version(),
+                                                   column_reader, read_options.stats,
                                                    &read_options.io_ctx);
 }
 
@@ -1146,7 +1144,8 @@ Status Segment::get_variant_root_reader(const TabletColumn& col,
 
     std::shared_ptr<ColumnReader> physical_reader;
     RETURN_IF_ERROR(_column_reader_cache->get_column_reader(
-            root_uid, &physical_reader, read_options.stats, &read_options.io_ctx));
+            root_uid, read_options.get_be_exec_version(), &physical_reader, read_options.stats,
+            &read_options.io_ctx));
     auto variant_reader = std::dynamic_pointer_cast<VariantColumnReader>(physical_reader);
     if (variant_reader == nullptr) {
         return Status::InternalError(
@@ -1189,17 +1188,14 @@ Status Segment::get_column_reader_for_pruning(const TabletColumn& col,
     // Keep NOT_FOUND in the Status channel. For example, a sparse-only `v.user.id` has no physical
     // leaf reader; callers must skip pruning conservatively instead of interpreting nullptr as a
     // successful reader lookup.
-    return _column_reader_cache->get_path_column_reader(path_uid, relative_path, column_reader,
-                                                        read_options.stats, nullptr,
-                                                        &read_options.io_ctx);
+    return _column_reader_cache->get_path_column_reader(
+            path_uid, relative_path, read_options.get_be_exec_version(), column_reader,
+            read_options.stats, nullptr, &read_options.io_ctx);
 }
 
 Status Segment::new_index_iterator(const TabletColumn& tablet_column, const TabletIndex* index_meta,
                                    const StorageReadOptions& read_options,
                                    std::unique_ptr<IndexIterator>* iter) {
-    if (read_options.runtime_state != nullptr) {
-        _be_exec_version = read_options.runtime_state->be_exec_version();
-    }
     RETURN_IF_ERROR(_create_column_meta_once(read_options.stats, &read_options.io_ctx));
     std::shared_ptr<ColumnReader> reader;
     Status st = get_column_reader_for_pruning(tablet_column, read_options, &reader);
