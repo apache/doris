@@ -287,7 +287,7 @@ public class ShowFunctionsCommand extends ShowCommand {
             properties.put(locationKey, function.getLocation().toString());
         }
         properties.put("NULLABLE_MODE", function.getNullableMode().name());
-        if (function.isStaticLoad()) {
+        if (function.getBinaryType() == Function.BinaryType.JAVA_UDF) {
             properties.put("STATIC_LOAD", String.valueOf(function.isStaticLoad()));
         }
         if (!Strings.isNullOrEmpty(function.getRuntimeVersion())) {
