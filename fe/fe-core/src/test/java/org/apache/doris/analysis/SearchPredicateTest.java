@@ -29,6 +29,7 @@ import org.apache.doris.thrift.TSearchParam;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -187,6 +188,38 @@ public class SearchPredicateTest {
         // Verify field bindings
         Assertions.assertEquals("title", param.field_bindings.get(0).field_name);
         Assertions.assertEquals("content", param.field_bindings.get(1).field_name);
+    }
+
+    @Test
+    public void testNestedAliasUsesPhysicalOwnerAndFullArrayPath() {
+        String dsl = "NESTED(doc.items, msg:hello AND tags.name:world)";
+        SearchDslParser.QsPlan plan = SearchDslParser.parseDsl(dsl);
+        for (List<String> prefix : Arrays.asList(Collections.<String>emptyList(), Arrays.asList("payload"))) {
+            List<String> messagePath = new ArrayList<>(prefix);
+            messagePath.addAll(Arrays.asList("items", "msg"));
+            List<String> tagPath = new ArrayList<>(prefix);
+            tagPath.addAll(Arrays.asList("items", "tags", "name"));
+            SearchPredicate predicate = new SearchPredicate(dsl, plan, Arrays.asList(
+                    createVariantSlot("v", messagePath.toArray(new String[0])),
+                    createVariantSlot("v", tagPath.toArray(new String[0]))), false);
+            TSearchParam param = ExprToThriftVisitor.buildSearchThriftParam(predicate);
+            Assertions.assertEquals(prefix.isEmpty() ? "v.items" : "v.payload.items", param.root.nested_path);
+            Assertions.assertEquals("doc.items.msg", param.field_bindings.get(0).field_name);
+            Assertions.assertEquals("doc.items.tags.name", param.field_bindings.get(1).field_name);
+            Assertions.assertEquals("doc.items", plan.getRoot().getNestedPath());
+        }
+    }
+
+    @Test
+    public void testNestedAliasRetainsUnmaterializedPath() {
+        String dsl = "NESTED(doc.items, msg:hello)";
+        Expr child = new FunctionCallExpr("element_at",
+                Arrays.asList(createVariantSlot("v", "payload"), new StringLiteral("items.msg")), true);
+        SearchPredicate predicate = new SearchPredicate(dsl, SearchDslParser.parseDsl(dsl),
+                Arrays.asList(child), false);
+        TSearchParam param = ExprToThriftVisitor.buildSearchThriftParam(predicate);
+        Assertions.assertEquals("v.payload.items", param.root.nested_path);
+        Assertions.assertEquals("doc.items.msg", param.field_bindings.get(0).field_name);
     }
 
     @Test

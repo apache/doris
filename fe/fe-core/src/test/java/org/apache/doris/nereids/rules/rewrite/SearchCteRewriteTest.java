@@ -17,11 +17,13 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Search;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.thrift.TSearchParam;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -29,6 +31,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Regression test for SEARCH under a materialized CTE.
@@ -61,6 +64,31 @@ public class SearchCteRewriteTest extends TestWithFeService {
                 + "DUPLICATE KEY(id)\n"
                 + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1');");
+    }
+
+    @Test
+    public void testNestedAliasPhysicalBindingAfterPlanning() throws Exception {
+        createTable("CREATE TABLE t_nested_alias (id INT, v VARIANT, "
+                + "INDEX idx_v(v) USING INVERTED PROPERTIES('parser' = 'unicode')) "
+                + "DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
+                + "PROPERTIES ('replication_num' = '1')");
+        for (String projection : new String[] {"v", "v['payload']"}) {
+            String sql = "SELECT id FROM (SELECT id, " + projection + " AS doc FROM t_nested_alias) x "
+                    + "WHERE SEARCH('NESTED(doc.items, msg:hello AND tags.name:world)')";
+            PlanChecker.from(connectContext).checkPlannerResult(sql, planner -> {
+                List<TSearchParam> params = planner.getScanNodes().stream()
+                        .flatMap(scan -> scan.getConjuncts().stream())
+                        .flatMap(expr -> ExprToThriftVisitor.treeToThrift(expr).nodes.stream())
+                        .filter(node -> node.isSetSearchParam())
+                        .map(node -> node.search_param).collect(Collectors.toList());
+                Assertions.assertEquals(1, params.size());
+                TSearchParam param = params.get(0);
+                Assertions.assertEquals(projection.equals("v") ? "v.items" : "v.payload.items",
+                        param.root.nested_path);
+                Assertions.assertEquals("v", param.field_bindings.get(0).parent_field_name);
+                Assertions.assertEquals("doc.items.msg", param.field_bindings.get(0).field_name);
+            });
+        }
     }
 
     @Test
