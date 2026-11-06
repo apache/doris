@@ -32,8 +32,27 @@ public class DorisHiveCatalog extends HiveCatalog {
 
     @Override
     public void initialize(String name, Map<String, String> properties) {
-        super.initialize(name, properties);
-        ownedFileIO = extractFileIO();
+        try {
+            super.initialize(name, properties);
+            ownedFileIO = extractFileIO();
+        } catch (RuntimeException | Error failure) {
+            closePartiallyInitializedFileIO(failure);
+            throw failure;
+        }
+    }
+
+    // HiveCatalog creates the FileIO before the client pool and the metrics reporter, and only the group it builds
+    // after them closes the FileIO, so when one of those fails, nothing else closes it.
+    private void closePartiallyInitializedFileIO(Throwable initializationFailure) {
+        try {
+            FileIO fileIO = extractFileIO();
+            // null when loading the FileIO itself failed
+            if (fileIO != null) {
+                fileIO.close();
+            }
+        } catch (Throwable closeFailure) {
+            initializationFailure.addSuppressed(closeFailure);
+        }
     }
 
     @Override

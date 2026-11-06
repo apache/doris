@@ -89,7 +89,7 @@ public class ConnectorPluginSurfaceTest {
             version.load(in);
         }
         // Major 29 adds typed table-absence errors after the upstream API 28 changes.
-        Assertions.assertEquals("29.0", version.getProperty("api.version"));
+        Assertions.assertEquals("30.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */

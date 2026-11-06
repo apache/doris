@@ -31,6 +31,7 @@
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/get_least_supertype.h"
+#include "core/data_type_serde/arrow_parent_nulls.h"
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/complex_type_deserialize_util.h"
 #include "core/data_type_serde/orc_serde_utils.h"
@@ -407,9 +408,19 @@ Status DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::
             // Convert Arrow offsets to Doris offsets, starting at offsets.back().
             offsets_data.emplace_back(prev_size + read_offset(i) - arrow_nested_start_offset);
         }
-        return nested_serde->read_column_from_arrow(
-                column_array.get_data(), concrete_array->values().get(), arrow_nested_start_offset,
-                arrow_nested_end_offset, ctz);
+        // A NULL row still owns its child segment: always list_size values for a fixed-size
+        // list, possibly a non-empty one for a list. The values there are unspecified and are
+        // not decoded.
+        std::shared_ptr<arrow::Array> values;
+        RETURN_IF_ERROR(mask_arrow_children_hidden_by_null_parents(
+                *concrete_array, start, end, concrete_array->values(),
+                [&read_offset](int64_t row) {
+                    return std::pair<int64_t, int64_t>(read_offset(row), read_offset(row + 1));
+                },
+                &values));
+        return nested_serde->read_column_from_arrow(column_array.get_data(), values.get(),
+                                                    arrow_nested_start_offset,
+                                                    arrow_nested_end_offset, ctz);
     };
 
     switch (arrow_array->type_id()) {

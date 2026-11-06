@@ -2377,6 +2377,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         });
 
         // Admission does no connector I/O and remains owned by the planning thread.
+        int startedSources = 0;
         try {
             splitAssignment.startEnumeration();
             Executor scheduleExecutor = connectorSession.getTaskScheduler(ConnectorTaskScheduler.Stage.SPLIT);
@@ -2384,6 +2385,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 if (batchException.get() != null || splitAssignment.isStop()) {
                     break;
                 }
+                startedSources++;
                 profileFinalizer.taskSubmitted();
                 new SplitProducer(splitAssignment, scheduleExecutor, source, failure -> {
                     try {
@@ -2399,6 +2401,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         } catch (Exception e) {
             publishBatchFailure(batchException, splitAssignment, new UserException(e.getMessage(), e));
         } finally {
+            for (int i = startedSources; i < sources.size(); i++) {
+                try {
+                    sources.get(i).close();
+                } catch (Exception e) {
+                    publishBatchFailure(batchException, splitAssignment, new UserException(e.getMessage(), e));
+                }
+            }
             profileFinalizer.closeDispatch();
         }
     }
@@ -2411,6 +2420,14 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         int producerLimit = sessionVariable.getSplitProducerParallelism();
         if (producerLimit > 0) {
             sourceCount = Math.min(sourceCount, producerLimit);
+        }
+        int maxSources = sourceCount;
+        Optional<List<ConnectorSplitSource>> cooperating = onPluginClassLoader(scanProvider,
+                () -> scanProvider.streamPartitionSources(connectorSession,
+                        request.withRequiredPartitions(partitions), partitionsPerBatch, maxSources));
+        if (cooperating.isPresent()) {
+            return cooperating.get().stream().map(source -> cooperatingBatchSource(scanProvider, source))
+                    .collect(Collectors.toList());
         }
         List<SplitProducer.BatchSource> sources = new ArrayList<>(sourceCount);
         // Bound active partition batches even when full queues make producers yield their workers.
@@ -2466,6 +2483,60 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             });
         }
         return sources;
+    }
+
+    private SplitProducer.BatchSource cooperatingBatchSource(ConnectorScanPlanProvider scanProvider,
+            ConnectorSplitSource source) {
+        return new SplitProducer.BatchSource() {
+            private final PluginDrivenSplit.Factory splitFactory = new PluginDrivenSplit.Factory();
+            private CompletableFuture<Void> blocked;
+
+            @Override
+            public CompletableFuture<Void> isBlocked() {
+                return blocked;
+            }
+
+            @Override
+            public List<Split> getNextBatch() {
+                return readMetadata(() -> onPluginClassLoader(scanProvider, () -> {
+                    blocked = null;
+                    List<Split> splits = new ArrayList<>(splitAssignment.getSplitBatchSize());
+                    while (splits.size() < splitAssignment.getSplitBatchSize()
+                            && splitAssignment.needMoreSplit()) {
+                        CompletableFuture<Void> dependency = source.isBlocked();
+                        if (dependency != null) {
+                            if (!dependency.isDone()) {
+                                blocked = dependency;
+                                break;
+                            }
+                            dependency.join();
+                        }
+                        if (source.hasNext()) {
+                            splits.add(toSplit(source.next(), splitFactory));
+                            continue;
+                        }
+                        blocked = source.isBlocked();
+                        if (blocked == null || !blocked.isDone()) {
+                            break;
+                        }
+                        blocked.join();
+                    }
+                    return splits;
+                }));
+            }
+
+            @Override
+            public void close() {
+                onPluginClassLoader(scanProvider, () -> {
+                    try {
+                        source.close();
+                    } catch (IOException e) {
+                        throw new UncheckedIOException(e);
+                    }
+                    return null;
+                });
+            }
+        };
     }
 
     private SplitProducer.BatchSource createStreamingBatchSource(ConnectorScanPlanProvider scanProvider,
