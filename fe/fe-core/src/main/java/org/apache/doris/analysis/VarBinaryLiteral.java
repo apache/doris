@@ -51,6 +51,10 @@ public class VarBinaryLiteral extends LiteralExpr {
         analysisDone();
     }
 
+    public byte[] getValue() {
+        return value;
+    }
+
     protected VarBinaryLiteral(VarBinaryLiteral other) {
         super(other);
         this.value = other.value;

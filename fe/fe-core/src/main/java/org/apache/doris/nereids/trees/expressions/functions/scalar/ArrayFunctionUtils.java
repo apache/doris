@@ -34,6 +34,9 @@ final class ArrayFunctionUtils {
             while (type instanceof ArrayType) {
                 type = ((ArrayType) type).getItemType();
             }
+            if (type.typeContainsFile()) {
+                throw new AnalysisException(function.getName() + " does not support element type " + type.toSql());
+            }
             if (type.isVarBinaryType()) {
                 throw new AnalysisException(function.getName() + " does not support VARBINARY arguments");
             }

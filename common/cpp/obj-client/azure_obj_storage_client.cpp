@@ -294,7 +294,10 @@ ObjStorageHeadResult AzureObjStorageClient::head_object(const ObjStoragePath& op
             client_bvar::ScopedLatency scoped_latency(client_bvar::s3_head_latency);
             return _client->GetBlockBlobClient(opts.key).GetProperties().Value;
         }();
-        return {.resp = ObjStorageResponse::OK(), .file_size = properties.BlobSize};
+        return {.resp = ObjStorageResponse::OK(),
+                .file_size = properties.BlobSize,
+                .content_type = properties.HttpHeaders.ContentType,
+                .etag = properties.ETag.ToString()};
     } catch (Azure::Core::RequestFailedException& e) {
         if (e.StatusCode == Azure::Core::Http::HttpStatusCode::NotFound) {
             return ObjStorageHeadResult {
@@ -363,34 +366,39 @@ ObjStorageListPageResult AzureObjStorageClient::list_objects_page(
     TEST_SYNC_POINT_CALLBACK("AzureObjStorageClient::list_objects", &request);
 
     try {
-        auto response = [&]() {
+        ObjStorageListPageResult page;
+        auto make_page = [&](auto response) {
+            page.has_more = response.NextPageToken.HasValue();
+            page.continuation_token =
+                    page.has_more ? response.NextPageToken.Value() : std::string {};
+            page.objects.reserve(response.Blobs.size());
+            for (auto&& item : response.Blobs) {
+                DCHECK(item.Name.starts_with(*request.Prefix)) << item.Name << ' ' << *request.Prefix;
+                page.objects.emplace_back(ObjectMeta {
+                        .key = std::move(item.Name),
+                        .size = item.BlobSize,
+                        .mtime_s = duration_cast<std::chrono::seconds>(item.Details.LastModified -
+                                                                     SystemClockEpoch)
+                                           .count(),
+                        .etag = item.Details.ETag.ToString()});
+            }
+        };
+        {
             client_bvar::ScopedLatency scoped_latency(client_bvar::s3_list_latency);
-            return _client->ListBlobs(request);
-        }();
-        const bool has_more = response.NextPageToken.HasValue();
-        auto next_token = has_more ? response.NextPageToken.Value() : std::string {};
-        if (has_more && next_token.empty()) {
+            if (opts.delimiter.empty()) {
+                make_page(_client->ListBlobs(request));
+            } else {
+                auto response = _client->ListBlobsByHierarchy(opts.delimiter, request);
+                page.common_prefixes = std::move(response.BlobPrefixes);
+                make_page(std::move(response));
+            }
+        }
+        if (page.has_more && page.continuation_token.empty()) {
             return {
                     .resp = {.status = {ObjStorageStatus::INTERNAL_ERROR,
                                         "Azure list response has an empty continuation token"},
                              .http_code = 0},
             };
-        }
-        ObjStorageListPageResult page {.resp = ObjStorageResponse::OK(),
-                                       .continuation_token = std::move(next_token),
-                                       .has_more = has_more};
-        page.objects.reserve(response.Blobs.size());
-        for (auto&& item : response.Blobs) {
-            DCHECK(item.Name.starts_with(*request.Prefix)) << item.Name << ' ' << *request.Prefix;
-            page.objects.emplace_back(ObjectMeta {
-                    .key = std::move(item.Name),
-                    .size = item.BlobSize,
-                    // `Azure::DateTime` adds the offset of `SystemClockEpoch` to the given Unix timestamp,
-                    // so here we need to subtract this offset to obtain the Unix timestamp of the mtime.
-                    // https://github.com/Azure/azure-sdk-for-cpp/blob/azure-core_1.12.0/sdk/core/azure-core/inc/azure/core/datetime.hpp#L129
-                    .mtime_s = duration_cast<std::chrono::seconds>(item.Details.LastModified -
-                                                                   SystemClockEpoch)
-                                       .count()});
         }
         return page;
     } catch (Azure::Core::RequestFailedException& e) {
