@@ -2779,6 +2779,13 @@ public class InternalCatalog implements CatalogIf<Database> {
         olapTable.setVerticalCompactionNumColumnsPerGroup(verticalCompactionNumColumnsPerGroup);
 
         try {
+            if (olapTable instanceof MTMV) {
+                List<TableIf> baseTables = Lists.newArrayList();
+                for (BaseTableInfo baseTable : ((MTMV) olapTable).getRelation().getBaseTables()) {
+                    baseTables.add(MTMVUtil.getTable(baseTable));
+                }
+                properties.putAll(PropertyAnalyzer.inheritVariantEscapeDotsInKeys(properties, baseTables, true));
+            }
             olapTable.setVariantEscapeDotsInKeys(PropertyAnalyzer.analyzeVariantEscapeDotsInKeys(properties));
             PropertyAnalyzer.validateVariantTable(olapTable.getVariantEscapeDotsInKeys(),
                     baseSchema, createTableInfo.getIndexes());

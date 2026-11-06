@@ -25,7 +25,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -41,7 +40,6 @@ import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
-import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVAnalyzeQueryInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
@@ -371,11 +369,6 @@ public class CreateMTMVInfo extends CreateTableInfo {
         this.keys = Utils.copyRequiredList(mtmvAnalyzeQueryInfo.getKeys());
         this.relation = mtmvAnalyzeQueryInfo.getRelation();
         this.properties = mtmvAnalyzeQueryInfo.getProperties();
-        List<TableIf> sourceTables = Lists.newArrayList();
-        for (BaseTableInfo baseTable : relation.getBaseTables()) {
-            sourceTables.add(MTMVUtil.getTable(baseTable));
-        }
-        this.properties = PropertyAnalyzer.inheritVariantEscapeDotsInKeys(this.properties, sourceTables, true);
         ivmAppendOnlyDupModel = isEnableIvm()
                 && mtmvAnalyzeQueryInfo.getIvmRewriteResult().isAppendOnlyDupTable();
         if (isEnableIvm() && !ivmAppendOnlyDupModel) {

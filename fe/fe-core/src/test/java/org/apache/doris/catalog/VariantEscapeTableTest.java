@@ -130,7 +130,7 @@ public class VariantEscapeTableTest extends TestWithFeService {
                     : ",'variant_escape_dots_in_keys'='" + policy + "'";
             createMvByNereids("CREATE MATERIALIZED VIEW async_" + policy
                     + " BUILD DEFERRED REFRESH COMPLETE ON MANUAL DISTRIBUTED BY HASH(k) BUCKETS 1 "
-                    + "PROPERTIES('replication_num'='1'" + explicit + ") "
+                    + "PROPERTIES('replication_num'='1','storage_medium'='HDD'" + explicit + ") "
                     + "AS WITH c AS (SELECT k,v FROM async_source) SELECT k,v FROM c");
             Assertions.assertEquals(!policy.equals("false"), table("async_" + policy).getVariantEscapeDotsInKeys());
         }
@@ -139,6 +139,8 @@ public class VariantEscapeTableTest extends TestWithFeService {
                 + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1',"
                 + "'variant_escape_dots_in_keys'='false') AS SELECT k,v FROM async_source"));
         Assertions.assertTrue(mismatch.getMessage().contains("async MV must use the same value"));
+        Assertions.assertNull(Env.getCurrentInternalCatalog().getDbOrMetaException("variant_escape_table")
+                .getTableNullable("async_false"));
     }
 
 }
