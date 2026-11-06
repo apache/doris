@@ -36,7 +36,8 @@
 
 namespace doris {
 class EqualityDeleteHashIndex;
-}
+class LRUCachePolicy;
+} // namespace doris
 
 namespace doris::format::fluss {
 
@@ -73,6 +74,9 @@ namespace doris::format::fluss {
  */
 class FlussUnionLakeReader final : public format::TableReader {
 public:
+    // ExecEnv owns this cache so it unregisters before CacheManager and tracked memory teardown.
+    static LRUCachePolicy* create_tail_cache();
+
     /** One bucket's log tail: the half-open offset range the lake snapshot does not cover yet. */
     struct Tail {
         /** Empty on an unpartitioned table, which fluss subscribes to by bucket alone. */
