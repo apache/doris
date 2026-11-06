@@ -42,6 +42,7 @@
 #include "format_v2/table/fluss_range_type.h"
 #include "format_v2/table/paimon_reader.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime/file_scan_profile.h"
 #include "runtime/memory/lru_cache_policy.h"
 #include "runtime/runtime_state.h"
@@ -190,39 +191,45 @@ class ProcessTailCache final : public LRUCachePolicy {
 public:
     using Keys = FlussUnionLakeReader::SuppressionKeys;
 
-    static ProcessTailCache& instance() {
-        static ProcessTailCache cache;
-        return cache;
-    }
+    ProcessTailCache()
+            : LRUCachePolicy(CacheType::FLUSS_UNION_TAIL_CACHE, 64 * 1024 * 1024,
+                             LRUCacheType::SIZE, 300, 1, 256, true, false) {}
 
     Status get(const std::string& key, const std::function<Status(Keys*)>& load,
                std::shared_ptr<const Keys>* result, bool* hit) {
-        // A stripe serializes concurrent misses without holding the LRU lock across network I/O.
-        std::lock_guard<std::mutex> guard(
-                _loading[std::hash<std::string>()(key) % _loading.size()]);
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker());
         auto* handle = lookup(key);
         *hit = handle != nullptr;
+        // A warm tail B must not wait for tail A's JNI read when their load stripes collide.
+        // lookup pins B before any load lock is taken, even if GC evicts it concurrently.
         if (handle == nullptr) {
-            auto value = std::make_unique<Value>();
-            value->tracker = mem_tracker();
-            value->keys = std::make_unique<Keys>();
-            RETURN_IF_ERROR(load(value->keys.get()));
-            const auto& keys = *value->keys;
-            size_t extra_bytes = sizeof(Value) + sizeof(Keys) + keys.hash_index->memory_usage();
-            if (keys.int_keys != nullptr) {
-                extra_bytes += keys.int_keys->capacity() * (sizeof(int64_t) + 1);
-                extra_bytes += keys.sorted_int_keys->capacity() * sizeof(int64_t);
+            std::lock_guard<std::mutex> guard(
+                    _loading[std::hash<std::string>()(key) % _loading.size()]);
+            handle = lookup(key);
+            *hit = handle != nullptr;
+            // Another miss may have populated this key while we waited for its load stripe.
+            if (handle == nullptr) {
+                auto value = std::make_unique<Value>();
+                value->tracker = mem_tracker();
+                value->keys = std::make_unique<Keys>();
+                RETURN_IF_ERROR(load(value->keys.get()));
+                const auto& keys = *value->keys;
+                size_t extra_bytes = sizeof(Value) + sizeof(Keys) + keys.hash_index->memory_usage();
+                if (keys.int_keys != nullptr) {
+                    extra_bytes += keys.int_keys->capacity() * (sizeof(int64_t) + 1);
+                    extra_bytes += keys.sorted_int_keys->capacity() * sizeof(int64_t);
+                }
+                if (keys.packed_keys != nullptr) {
+                    extra_bytes += keys.packed_keys->bytes.capacity();
+                    extra_bytes +=
+                            keys.packed_keys->keys.capacity() * (sizeof(std::string_view) + 1);
+                    extra_bytes += keys.packed_keys->types.capacity() * sizeof(PrimitiveType);
+                }
+                // Column buffers use the Doris allocator; account for the STL/hash storage separately.
+                const size_t charge = keys.keys.allocated_bytes() + extra_bytes + key.size();
+                handle = insert(key, value.get(), charge, extra_bytes);
+                value.release();
             }
-            if (keys.packed_keys != nullptr) {
-                extra_bytes += keys.packed_keys->bytes.capacity();
-                extra_bytes += keys.packed_keys->keys.capacity() * (sizeof(std::string_view) + 1);
-                extra_bytes += keys.packed_keys->types.capacity() * sizeof(PrimitiveType);
-            }
-            // Column buffers use the Doris allocator; account for the STL/hash storage separately.
-            const size_t charge = keys.keys.allocated_bytes() + extra_bytes + key.size();
-            handle = insert(key, value.get(), charge, extra_bytes);
-            value.release();
         }
         const auto* value = static_cast<const Value*>(this->value(handle));
         // The lease pins the entire entry, even if GC evicts it while a scan is using its key views.
@@ -242,10 +249,6 @@ private:
         std::shared_ptr<MemTrackerLimiter> tracker;
         std::unique_ptr<Keys> keys;
     };
-
-    ProcessTailCache()
-            : LRUCachePolicy(CacheType::FLUSS_UNION_TAIL_CACHE, 64 * 1024 * 1024,
-                             LRUCacheType::SIZE, 300, 1, 256, true, false) {}
 
     std::array<std::mutex, 32> _loading;
 };
@@ -274,6 +277,10 @@ bool parse_integer(std::string_view text, T* value) {
 }
 
 } // namespace
+
+LRUCachePolicy* FlussUnionLakeReader::create_tail_cache() {
+    return new ProcessTailCache();
+}
 
 Status FlussUnionLakeReader::parse_tail(const std::string& spec, Tail* tail) {
     DORIS_CHECK(tail != nullptr);
@@ -637,7 +644,9 @@ Status FlussUnionLakeReader::_load_suppression_keys(const format::SplitReadOptio
     if (props.contains("fluss.table_id") && props.contains("fluss.schema_id")) {
         bool cache_hit = false;
         std::shared_ptr<const SuppressionKeys> keys;
-        RETURN_IF_ERROR(ProcessTailCache::instance().get(
+        auto* cache = static_cast<ProcessTailCache*>(
+                ExecEnv::GetInstance()->get_fluss_union_tail_cache());
+        RETURN_IF_ERROR(cache->get(
                 _tail_cache_key(tail),
                 [&](SuppressionKeys* loaded) { return _prepare_suppression_keys(tail, loaded); },
                 &keys, &cache_hit));

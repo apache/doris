@@ -1310,6 +1310,9 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         props.put(PROP_TABLE_NAME, flussHandle.getTableName());
         props.put("fluss.table_id", String.valueOf(flussHandle.getTableId()));
         props.put("fluss.schema_id", String.valueOf(flussHandle.getSchemaId()));
+        // The JNI cache reads a Doris option, not a Fluss client option. Preserve disable values
+        // under that key so FE and BE do not apply different TTLs to the same catalog.
+        props.put(FlussTableInfoCache.TTL_PROPERTY, String.valueOf(catalogProperties.getMetadataCacheTtlSec()));
         catalogProperties.getFlussClientConfig()
                 .forEach((key, value) -> props.put(PROP_CLIENT_PREFIX + key, value));
 

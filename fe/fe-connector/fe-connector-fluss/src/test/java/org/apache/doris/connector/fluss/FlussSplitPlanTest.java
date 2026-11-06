@@ -2146,6 +2146,23 @@ public class FlussSplitPlanTest {
     }
 
     @Test
+    public void scanLevelParamsCarryTheValidatedMetadataTtlOutsideClientConfig() {
+        registerLogTable(LOG_TABLE, 1);
+        for (String value : new String[] {" 0 ", " -1 ", " 17 ", " "}) {
+            Map<String, String> catalog = catalog(FlussTableInfoCache.TTL_PROPERTY, value);
+            catalog.put(FlussPartitionListCache.TTL_PROPERTY, "5");
+            TFileScanRangeParams params = new TFileScanRangeParams();
+            FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps,
+                    FlussCatalogProperties.of(catalog), this::lakeSibling);
+            provider.populateScanLevelParams(params, nodeProperties(LOG_TABLE, catalog));
+            String expected = value.trim().isEmpty() ? "10" : value.trim();
+            Assertions.assertEquals(expected, params.getFlussProperties().get(FlussTableInfoCache.TTL_PROPERTY));
+            Assertions.assertFalse(params.getFlussProperties().containsKey("fluss.client.metadata.cache.ttl.sec"));
+            Assertions.assertFalse(params.getFlussProperties().containsKey("fluss.client.partition.cache.ttl.sec"));
+        }
+    }
+
+    @Test
     public void scanLevelParamsCarryTheClientConfigAndTableIdentity() {
         registerLogTable(LOG_TABLE, 1);
         Map<String, String> catalog = catalog();
@@ -2161,6 +2178,7 @@ public class FlussSplitPlanTest {
         expected.put("fluss.table_name", "log_tbl");
         expected.put("fluss.table_id", "1");
         expected.put("fluss.schema_id", "1");
+        expected.put("fluss.metadata.cache.ttl.sec", "10");
         expected.put("fluss.client.bootstrap.servers", "localhost:9123");
         expected.put("fluss.client.client.writer.batch-size", "2mb");
         Assertions.assertEquals(expected, params.getFlussProperties());

@@ -40,6 +40,7 @@
 #include "format/format_common.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
 
 namespace doris::format::fluss {
@@ -1057,6 +1058,116 @@ TEST(FlussUnionLakeReaderTest, ProcessCacheReusesOnlyTheSameVersionedTail) {
     EXPECT_NE(first.reader._tail_cache_key(tail), recreated.reader._tail_cache_key(tail));
     ASSERT_TRUE(first.reader.close().ok());
     EXPECT_NE(nullptr, hit.reader._current_keys);
+}
+
+static std::string colliding_tail_spec(const FlussUnionLakeReader& reader, const Tail& warm) {
+    const auto stripe = std::hash<std::string>()(reader._tail_cache_key(warm)) % 32;
+    for (int bucket = 1; bucket <= 65536; ++bucket) {
+        Tail candidate = warm;
+        candidate.bucket_id = bucket;
+        candidate.spec = candidate.partition_id + ":" + std::to_string(bucket) + ":" +
+                         std::to_string(candidate.start_offset) + ":" +
+                         std::to_string(candidate.stop_offset);
+        if (std::hash<std::string>()(reader._tail_cache_key(candidate)) % 32 == stripe) {
+            return candidate.spec;
+        }
+    }
+    return {};
+}
+
+static void expect_cached_tail_suppression(SuppressionFixture& fixture) {
+    fixture.lake->blocks.push_back(make_block({1, 2, 3}, {"a", "b", "c"}, {10, 20, 30}));
+    Block result;
+    bool eos = false;
+    ASSERT_TRUE(fixture.reader.get_block(&result, &eos).ok());
+    EXPECT_EQ((std::vector<int32_t> {1, 3}), ids_of(result));
+}
+
+TEST(FlussUnionLakeReaderTest, ProcessCacheHitDoesNotWaitForACollidingTailLoad) {
+    SuppressionFixture warm;
+    static std::atomic<int64_t> next_table_id {4901};
+    warm.scan_params.fluss_properties["fluss.table_id"] =
+            std::to_string(next_table_id.fetch_add(1));
+    warm.scan_params.fluss_properties["fluss.schema_id"] = "1";
+    ASSERT_TRUE(warm.open(make_key_block({2}, {"b"})).ok());
+    const std::string warm_spec = ":0:120:130";
+    Tail warm_tail;
+    ASSERT_TRUE(FlussUnionLakeReader::parse_tail(warm_spec, &warm_tail).ok());
+    const auto cold_spec = colliding_tail_spec(warm.reader, warm_tail);
+    ASSERT_FALSE(cold_spec.empty());
+    ASSERT_TRUE(warm.reader.prepare_split(warm.split(warm_spec)).ok());
+
+    SuppressionFixture cold;
+    SuppressionFixture hit;
+    cold.scan_params = hit.scan_params = warm.scan_params;
+    ASSERT_TRUE(cold.open(make_key_block({3}, {"c"})).ok());
+    ASSERT_TRUE(hit.open(make_key_block({4}, {"d"})).ok());
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool loading = false;
+    bool release = false;
+    bool hit_finished = false;
+    cold.reader._test_tail_reader = [&](const Tail& tail, Block* out) {
+        cold.tails_read.push_back(tail.spec);
+        std::unique_lock lock(mutex);
+        loading = true;
+        cv.notify_all();
+        cv.wait(lock, [&] { return release; });
+        *out = make_key_block({3}, {"c"});
+        return Status::OK();
+    };
+    Status cold_status;
+    Status hit_status;
+    std::thread cold_thread(
+            [&] { cold_status = cold.reader.prepare_split(cold.split(cold_spec)); });
+    bool entered;
+    {
+        std::unique_lock lock(mutex);
+        entered = cv.wait_for(lock, std::chrono::seconds(5), [&] { return loading; });
+    }
+    std::thread hit_thread([&] {
+        hit_status = hit.reader.prepare_split(hit.split(warm_spec));
+        std::lock_guard lock(mutex);
+        hit_finished = true;
+        cv.notify_all();
+    });
+    bool hit_before_release;
+    {
+        std::unique_lock lock(mutex);
+        hit_before_release =
+                cv.wait_for(lock, std::chrono::seconds(2), [&] { return hit_finished; });
+        release = true;
+    }
+    cv.notify_all();
+    cold_thread.join();
+    hit_thread.join();
+    ASSERT_TRUE(entered);
+    EXPECT_TRUE(hit_before_release) << "a cached tail must bypass another tail's network load";
+    EXPECT_TRUE(cold_status.ok()) << cold_status.to_string();
+    EXPECT_TRUE(hit_status.ok()) << hit_status.to_string();
+    EXPECT_TRUE(hit.tails_read.empty());
+    EXPECT_EQ(1, cold.tails_read.size());
+    expect_cached_tail_suppression(hit);
+}
+
+TEST(FlussUnionLakeReaderTest, ReleasesProcessTailEntriesDuringExecEnvCacheTeardown) {
+    static std::atomic<int64_t> next_table_id {5901};
+    std::weak_ptr<const EqualityDeleteHashIndex> retained;
+    {
+        SuppressionFixture fixture;
+        fixture.scan_params.fluss_properties["fluss.table_id"] =
+                std::to_string(next_table_id.fetch_add(1));
+        fixture.scan_params.fluss_properties["fluss.schema_id"] = "1";
+        ASSERT_TRUE(fixture.open(make_key_block({2}, {"b"})).ok());
+        ASSERT_TRUE(fixture.reader.prepare_split(fixture.split(":0:120:130")).ok());
+        retained = fixture.reader._current_keys->hash_index;
+    }
+    EXPECT_FALSE(retained.expired());
+    auto* env = ExecEnv::GetInstance();
+    env->destroy_fluss_union_tail_cache();
+    EXPECT_EQ(nullptr, env->get_fluss_union_tail_cache());
+    EXPECT_TRUE(retained.expired()) << "tail columns must be freed before CacheManager teardown";
+    env->init_fluss_union_tail_cache();
 }
 
 TEST(FlussUnionLakeReaderTest, PackedCompositeKeysPreserveFieldBoundaries) {
