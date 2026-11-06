@@ -160,8 +160,12 @@ void BeExecVersionManager::check_function_compatibility(int current_be_exec_vers
 //   a. support Iceberg partition transform routing in the external sink exchange.
 // 19: start from master
 //   a. support hashing VARBINARY values in a shuffle or partition exchange.
+// 20: start from master
+//   a. use native column serialization for complex collect_list query intermediate states;
+//      older query versions retain the legacy JSON wire format during rolling upgrades.
 
-const int BeExecVersionManager::max_be_exec_version = SUPPORT_VARBINARY_SHUFFLE_HASH_VERSION;
+const int BeExecVersionManager::max_be_exec_version =
+        SUPPORT_COLLECT_LIST_NATIVE_SERIALIZATION_VERSION;
 const int BeExecVersionManager::min_be_exec_version = 0;
 std::map<std::string, std::set<int>> BeExecVersionManager::_function_change_map {};
 std::map<std::string, std::set<int>> BeExecVersionManager::_function_alternative_map {};
