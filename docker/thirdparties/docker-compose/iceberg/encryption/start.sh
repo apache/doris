@@ -20,7 +20,7 @@ set -euo pipefail
 
 classpath="/fixtures/jars/iceberg-spark-runtime-4.0_2.13-1.12.0.jar:/fixtures/jars/iceberg-aws-bundle-1.12.0.jar:/opt/spark/jars/*"
 mkdir -p /tmp/encryption-classes
-javac -cp "${classpath}" -d /tmp/encryption-classes /fixtures/IcebergEncryptionFixture.java
+javac -cp "${classpath}" -d /tmp/encryption-classes /fixtures/IcebergEncryptionFixture.java /fixtures/NativeDeleteFixture.java
 exec java -XX:ActiveProcessorCount=4 -Xmx1g -cp "/tmp/encryption-classes:${classpath}" \
     IcebergEncryptionFixture thrift://encryption-hms:9083 http://encryption-kms:5000 \
     http://minio:9000 /state/kms.properties

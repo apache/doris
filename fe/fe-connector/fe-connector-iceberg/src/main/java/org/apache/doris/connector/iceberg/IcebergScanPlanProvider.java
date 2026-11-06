@@ -1297,7 +1297,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             List<NestedField> outputPartitionFields, boolean enableMappingVarbinary, ZoneId zone,
             UnaryOperator<String> uriNormalizer) {
         DeleteFile deleteFile = task.file();
-        rejectEncryptedDelete(deleteFile);
+        IcebergFileEncryption encryption = deleteFileEncryption(deleteFile);
         String originalPath = deleteFile.path().toString();
         IcebergScanRange.Builder builder = new IcebergScanRange.Builder()
                 .path(uriNormalizer.apply(originalPath))
@@ -1307,7 +1307,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 // The split's own scheduling weight, mirroring legacy newPositionDeleteSysTableSplit
                 // (selfSplitWeight = max(length, 1)).
                 .selfSplitWeight(Math.max(task.length(), 1L))
-                .targetSplitSize(task.length());
+                .targetSplitSize(task.length())
+                .encryption(encryption);
 
         // DV vs plain position-delete file is decided by content ALONE (BE never looks at the file format):
         // a puffin DV still travels as FORMAT_PARQUET, exactly as legacy getNativePositionDeleteFileFormat does.
@@ -1742,6 +1743,15 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             // Falling back would retain all tasks/ranges before dispatch rejects unsupported encryption.
             throw new EncryptedCountException();
         }
+        if (task.deletes() != null) {
+            for (DeleteFile delete : task.deletes()) {
+                // An encrypted delete also prevents metadata-only COUNT, even for plaintext data.
+                // Returning a normal fallback would eagerly retain every range before the RPC fence.
+                if (delete.keyMetadata() != null) {
+                    throw new EncryptedCountException();
+                }
+            }
+        }
     }
 
     private static final class EncryptedCountException extends DorisConnectorException {
@@ -1792,8 +1802,12 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             try (ManifestReader<DeleteFile> reader = ManifestFiles.readDeleteManifest(
                     manifest, table.io(), table.specs())) {
                 for (DeleteFile delete : reader) {
-                    if (delete.keyMetadata() != null || delete.content() != FileContent.POSITION_DELETES
-                            || delete.recordCount() < 0) {
+                    // Netting delete counts happens before file-task planning. Keep the same early
+                    // encryption rejection here so COUNT cannot escape through the manifest shortcut.
+                    if (delete.keyMetadata() != null) {
+                        throw new EncryptedCountException();
+                    }
+                    if (delete.content() != FileContent.POSITION_DELETES || delete.recordCount() < 0) {
                         return OptionalLong.empty();
                     }
                     try {
@@ -2031,12 +2045,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         return result;
     }
 
-    private static void rejectEncryptedDelete(DeleteFile delete) {
-        // Plaintext data can reference an independently encrypted delete. Until delete decryption is
-        // integrated, dropping its key would send BE a plaintext descriptor for encrypted content.
-        if (delete.keyMetadata() != null) {
-            throw new UnsupportedOperationException("Iceberg encryption [DELETE_READ_UNAVAILABLE]");
+    private static IcebergFileEncryption deleteFileEncryption(DeleteFile delete) {
+        if (delete.keyMetadata() != null && delete.format() != FileFormat.PARQUET) {
+            throw new IllegalArgumentException("Iceberg encryption [UNSUPPORTED_FILE_FORMAT]");
         }
+        // Deletes have their own key/AAD even when their data file is plaintext. Decode the
+        // descriptor independently so a split never substitutes its data key for a delete key.
+        return IcebergFileEncryption.fromMetadata(delete.keyMetadata());
     }
 
     /**
@@ -2055,7 +2070,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * Package-private for direct unit testing.
      */
     IcebergScanRange.DeleteFile convertDelete(DeleteFile delete, UnaryOperator<String> uriNormalizer) {
-        rejectEncryptedDelete(delete);
+        IcebergFileEncryption encryption = deleteFileEncryption(delete);
         String path = uriNormalizer.apply(delete.path().toString());
         FileContent content = delete.content();
         if (content == FileContent.POSITION_DELETES) {
@@ -2070,10 +2085,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                         contentOffset, contentLength, delete.fileSizeInBytes());
             }
             return IcebergScanRange.DeleteFile.positionDelete(path, deleteFileFormat(delete.format()),
-                    lowerBound, upperBound, delete.fileSizeInBytes());
+                    lowerBound, upperBound, delete.fileSizeInBytes()).withEncryption(encryption);
         } else if (content == FileContent.EQUALITY_DELETES) {
             return IcebergScanRange.DeleteFile.equalityDelete(path, deleteFileFormat(delete.format()),
-                    delete.equalityFieldIds(), delete.fileSizeInBytes());
+                    delete.equalityFieldIds(), delete.fileSizeInBytes()).withEncryption(encryption);
         }
         // Defensive (legacy parity): delete files are only position or equality; DATA content here is a bug.
         throw new IllegalStateException("Unknown delete content: " + content);

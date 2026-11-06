@@ -1569,6 +1569,23 @@ Status IcebergTableReader::prepare_split(const format::SplitReadOptions& options
             }
         }
     }
+    bool encrypted = file_encryption_info() != nullptr;
+    if (_iceberg_params.has_value() && _iceberg_params->__isset.delete_files) {
+        for (const auto& delete_file : _iceberg_params->delete_files) {
+            if (!delete_file.__isset.encryption_info) {
+                continue;
+            }
+            encrypted = true;
+            if (is_iceberg_deletion_vector(delete_file) || !delete_file.__isset.file_format ||
+                delete_file.file_format != TFileFormatType::FORMAT_PARQUET) {
+                return Status::NotSupported("File encryption [UNSUPPORTED_FILE_FORMAT]");
+            }
+        }
+    }
+    if (encrypted && _push_down_agg_type != TPushAggOp::type::NONE) {
+        // Metadata COUNT must not bypass a delete file's independent key or authentication.
+        return Status::NotSupported("File encryption [AGGREGATE_UNAVAILABLE]");
+    }
     RETURN_IF_ERROR(TableReader::prepare_split(options));
     SCOPED_TIMER(_profile.total_timer);
     SCOPED_TIMER(_profile.prepare_split_timer);
@@ -1731,6 +1748,10 @@ Status IcebergTableReader::_parse_deletion_vector_file(const TTableFormatFileDes
     }
     if (deletion_vector == nullptr) {
         return Status::OK();
+    }
+    if (deletion_vector->__isset.encryption_info) {
+        // PME applies to Parquet modules, not Puffin deletion-vector blobs.
+        return Status::NotSupported("File encryption [UNSUPPORTED_FILE_FORMAT]");
     }
     size_t bytes_read = 0;
     RETURN_IF_ERROR(validate_iceberg_deletion_vector_descriptor(*deletion_vector, bytes_read));
@@ -2155,6 +2176,14 @@ Status IcebergTableReader::_convert_equality_delete_filter(const EqualityDeleteF
     DORIS_CHECK(_split_cache != nullptr);
     DORIS_CHECK(result != nullptr);
     DORIS_CHECK(comparison_types.size() == filter.delete_key_types.size());
+    if (filter.cache_key.empty()) {
+        // Converted equality keys are plaintext too. An uncached encrypted filter cannot share
+        // the empty identity with another file or bypass a later split's key validation.
+        RETURN_IF_ERROR(_build_converted_equality_delete_filter(filter, comparison_types, result));
+        COUNTER_UPDATE(_profile.equality_delete_hash_index_memory,
+                       static_cast<int64_t>(result->hash_index->memory_usage()));
+        return Status::OK();
+    }
     std::ostringstream cache_key;
     cache_key << filter.cache_key << ":compare";
     for (const auto& type : comparison_types) {
@@ -2221,6 +2250,10 @@ Status IcebergTableReader::_create_delete_file_reader(const TIcebergDeleteFileDe
     if (!delete_file.__isset.file_format) {
         return Status::InternalError("Iceberg delete file is missing file format");
     }
+    if (delete_file.__isset.encryption_info &&
+        delete_file.file_format != TFileFormatType::FORMAT_PARQUET) {
+        return Status::NotSupported("File encryption [UNSUPPORTED_FILE_FORMAT]");
+    }
     if (delete_file.file_format != TFileFormatType::FORMAT_PARQUET &&
         delete_file.file_format != TFileFormatType::FORMAT_ORC) {
         return Status::NotSupported("Unsupported Iceberg delete file format {}",
@@ -2244,7 +2277,9 @@ Status IcebergTableReader::_create_delete_file_reader(const TIcebergDeleteFileDe
         *reader = std::make_unique<format::parquet::ParquetReader>(
                 system_properties, file_description, io_ctx, _scanner_profile, std::nullopt,
                 enable_mapping_timestamp_tz, enable_mapping_varbinary, "", preserve_binary_uuid(),
-                _parquet_profile_cache);
+                _parquet_profile_cache,
+                delete_file.__isset.encryption_info ? std::optional(delete_file.encryption_info)
+                                                    : std::nullopt);
     } else {
         *reader = std::make_unique<format::orc::OrcReader>(
                 system_properties, file_description, io_ctx, _scanner_profile, std::nullopt,
@@ -2318,26 +2353,33 @@ Status IcebergTableReader::_init_position_delete_rows(
     IcebergDeleteFileIOContext delete_io_ctx(_runtime_state);
     for (const auto& delete_file : delete_files) {
         Status read_status = Status::OK();
-        // A position delete file normally references many data files. Cache the complete
-        // path-to-position map once; caching only the current data file would still rescan the
-        // shared delete file for every subsequent split.
-        auto* rows_by_data_file =
-                _split_cache->get<PositionDeleteRowsCollector::PositionDeleteFile>(
-                        _delete_file_cache_key("iceberg_v2_position_delete_", delete_file.path),
-                        [&]() -> PositionDeleteRowsCollector::PositionDeleteFile* {
-                            auto result = std::make_unique<
-                                    PositionDeleteRowsCollector::PositionDeleteFile>();
-                            PositionDeleteRowsCollector collector(result.get());
-                            read_status = _read_position_delete_file(
-                                    delete_file, delete_scan_params, &delete_io_ctx, &collector);
-                            if (!read_status.ok()) {
-                                return nullptr;
-                            }
-                            for (auto& [_, rows] : *result) {
-                                std::ranges::sort(rows);
-                            }
-                            return result.release();
-                        });
+        auto load_rows = [&]() -> PositionDeleteRowsCollector::PositionDeleteFile* {
+            auto result = std::make_unique<PositionDeleteRowsCollector::PositionDeleteFile>();
+            PositionDeleteRowsCollector collector(result.get());
+            read_status = _read_position_delete_file(delete_file, delete_scan_params,
+                                                     &delete_io_ctx, &collector);
+            if (!read_status.ok()) {
+                return nullptr;
+            }
+            for (auto& [_, rows] : *result) {
+                std::ranges::sort(rows);
+            }
+            return result.release();
+        };
+        std::unique_ptr<PositionDeleteRowsCollector::PositionDeleteFile> uncached;
+        PositionDeleteRowsCollector::PositionDeleteFile* rows_by_data_file = nullptr;
+        if (delete_file.__isset.encryption_info) {
+            // A warmed path must never authorize another split's missing, wrong or expired key.
+            // Keep decrypted positions scan-local until encrypted cache identities are defined.
+            uncached.reset(load_rows());
+            rows_by_data_file = uncached.get();
+        } else {
+            // Plaintext position files commonly reference many data files; retain their complete
+            // path-to-position cache so subsequent splits do not rescan the shared delete file.
+            rows_by_data_file = _split_cache->get<PositionDeleteRowsCollector::PositionDeleteFile>(
+                    _delete_file_cache_key("iceberg_v2_position_delete_", delete_file.path),
+                    load_rows);
+        }
         RETURN_IF_ERROR(read_status);
         DORIS_CHECK(rows_by_data_file != nullptr);
         const auto rows_it = rows_by_data_file->find(_data_file_path());
@@ -2515,6 +2557,17 @@ Status IcebergTableReader::_read_equality_delete_file(const TIcebergDeleteFileDe
                                                       IcebergDeleteFileIOContext* delete_io_ctx) {
     if (!delete_file.__isset.field_ids || delete_file.field_ids.empty()) {
         return Status::InternalError("Iceberg equality delete file is missing field ids");
+    }
+    if (delete_file.__isset.encryption_info) {
+        EqualityDeleteFilter filter;
+        RETURN_IF_ERROR(
+                _load_equality_delete_file(delete_file, scan_params, delete_io_ctx, &filter));
+        // Leaving cache_key empty also prevents type-converted equality keys from being shared.
+        COUNTER_UPDATE(_profile.equality_delete_index_cache_miss_count, 1);
+        COUNTER_UPDATE(_profile.equality_delete_hash_index_memory,
+                       static_cast<int64_t>(filter.hash_index->memory_usage()));
+        _equality_delete_filters.push_back(std::move(filter));
+        return Status::OK();
     }
     std::ostringstream cache_key;
     cache_key << _delete_file_cache_key("iceberg_v2_equality_delete_", delete_file.path);
