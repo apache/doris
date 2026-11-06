@@ -17,6 +17,7 @@
 
 package org.apache.doris.cloud.rpc;
 
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.MetaServiceGrpc;
 import org.apache.doris.common.Config;
@@ -478,6 +479,14 @@ public class MetaServiceClient {
     }
 
     public Cloud.AlterClusterResponse alterCluster(Cloud.AlterClusterRequest request) {
+        // Meta service requires cloud_unique_id with instance_id in strict instance auth mode.
+        String cloudUniqueId = CloudEnv.getAuthCloudUniqueId();
+        if (!request.hasCloudUniqueId() && !cloudUniqueId.isEmpty()) {
+            Cloud.AlterClusterRequest.Builder builder = Cloud.AlterClusterRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .alterCluster(builder.setCloudUniqueId(cloudUniqueId).build());
+        }
         return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
                 .alterCluster(request);
     }
@@ -652,6 +661,14 @@ public class MetaServiceClient {
     }
 
     public Cloud.AlterInstanceResponse alterInstance(Cloud.AlterInstanceRequest request) {
+        // Meta service requires cloud_unique_id with instance_id in strict instance auth mode.
+        String cloudUniqueId = CloudEnv.getAuthCloudUniqueId();
+        if (!request.hasCloudUniqueId() && !cloudUniqueId.isEmpty()) {
+            Cloud.AlterInstanceRequest.Builder builder = Cloud.AlterInstanceRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .alterInstance(builder.setCloudUniqueId(cloudUniqueId).build());
+        }
         return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
                 .alterInstance(request);
     }

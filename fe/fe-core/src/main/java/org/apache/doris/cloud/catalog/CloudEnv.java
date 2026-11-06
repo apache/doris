@@ -76,6 +76,9 @@ public class CloudEnv extends Env {
 
     private static final Logger LOG = LogManager.getLogger(CloudEnv.class);
 
+    // Whether Config.cloud_unique_id is derived from cluster_id, it is process wide like Config.
+    private static volatile boolean cloudUniqueIdDerived;
+
     private CloudInstanceStatusChecker cloudInstanceStatusChecker;
     private CloudClusterChecker cloudClusterCheck;
     private CloudUpgradeMgr upgradeMgr;
@@ -164,6 +167,13 @@ public class CloudEnv extends Env {
         this.cloudInstanceId = cloudInstanceId;
     }
 
+    // The cloud_unique_id to prove which instance a request naming the instance id comes from. The one
+    // derived from cluster_id proves nothing, and is not registered before this FE adds itself to meta
+    // service, so it is not sent.
+    public static String getAuthCloudUniqueId() {
+        return cloudUniqueIdDerived ? "" : Config.cloud_unique_id;
+    }
+
     @Override
     public void initialize(String[] args) throws Exception {
         if (clusterSnapshotFile != null && Strings.isNullOrEmpty(Config.cloud_unique_id)) {
@@ -182,6 +192,7 @@ public class CloudEnv extends Env {
 
         if (Strings.isNullOrEmpty(Config.cloud_unique_id) && !Strings.isNullOrEmpty(cloudInstanceId)) {
             Config.cloud_unique_id = "1:" + cloudInstanceId + ":fe";
+            cloudUniqueIdDerived = true;
             LOG.info("cloud_unique_id is empty, setting it to: {}", Config.cloud_unique_id);
         }
 
