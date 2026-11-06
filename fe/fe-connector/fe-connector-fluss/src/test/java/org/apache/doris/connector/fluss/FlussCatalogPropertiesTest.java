@@ -52,6 +52,48 @@ public class FlussCatalogPropertiesTest {
     }
 
     @Test
+    public void cacheTtlsRejectMalformedAndOverflowingValuesBeforeConnectorConstruction() {
+        // ALTER validates the merged property map before journaling it or rebuilding the connector.
+        FlussConnectorProvider provider = new FlussConnectorProvider();
+        for (String key : new String[] {"fluss.metadata.cache.ttl.sec", "fluss.partition.cache.ttl.sec"}) {
+            for (String bad : new String[] {"invalid", "1.5", "9223372036854775808",
+                    "-9223372036854775809"}) {
+                IllegalArgumentException error = Assertions.assertThrows(IllegalArgumentException.class,
+                        () -> bound(key, bad), "accepted invalid TTL for " + key + ": " + bad);
+                Assertions.assertTrue(error.getMessage().contains(key), error.getMessage());
+                Map<String, String> current = props(FlussCatalogProperties.BOOTSTRAP_SERVERS, "localhost:9123",
+                        key, "5");
+                Assertions.assertThrows(IllegalArgumentException.class,
+                        () -> provider.validatePropertiesForUpdate(current, props(key, bad)));
+                Assertions.assertEquals("5", current.get(key));
+            }
+        }
+    }
+
+    @Test
+    public void cacheTtlsAreDorisPropertiesAndDoNotReachTheFlussClient() {
+        FlussCatalogProperties p = bound("fluss.metadata.cache.ttl.sec", "10",
+                "fluss.partition.cache.ttl.sec", "5");
+        Assertions.assertEquals(Collections.singletonMap("bootstrap.servers", "localhost:9123"),
+                p.getFlussClientConfig());
+    }
+
+    @Test
+    public void cacheTtlsBindDefaultsWhitespaceDisableValuesAndLongBoundaries() {
+        Assertions.assertEquals(10L, bound().getMetadataCacheTtlSec());
+        Assertions.assertEquals(5L, bound().getPartitionCacheTtlSec());
+        Assertions.assertEquals(10L, bound("fluss.metadata.cache.ttl.sec", " ").getMetadataCacheTtlSec());
+        Assertions.assertEquals(5L, bound("fluss.partition.cache.ttl.sec", "").getPartitionCacheTtlSec());
+        for (long value : new long[] {0L, -1L, 7L, Long.MIN_VALUE, Long.MAX_VALUE}) {
+            String text = " " + value + " ";
+            FlussCatalogProperties p = bound("fluss.metadata.cache.ttl.sec", text,
+                    "fluss.partition.cache.ttl.sec", text);
+            Assertions.assertEquals(value, p.getMetadataCacheTtlSec());
+            Assertions.assertEquals(value, p.getPartitionCacheTtlSec());
+        }
+    }
+
+    @Test
     public void bootstrapServersIsRequired() {
         // A catalog with no bootstrap servers can never answer a query, so it must fail at CREATE
         // CATALOG rather than at the user's first SELECT.

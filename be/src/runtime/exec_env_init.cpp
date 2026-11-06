@@ -589,6 +589,7 @@ Status ExecEnv::init_mem_env() {
 
     _id_manager = new IdManager();
     _cache_manager = CacheManager::create_global_instance();
+    init_fluss_union_tail_cache();
 
     int64_t storage_cache_limit =
             ParseUtil::parse_mem_spec(config::storage_page_cache_limit, MemInfo::mem_limit(),
@@ -1029,6 +1030,9 @@ void ExecEnv::destroy() {
 
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_user_function_cache);
+
+    // Scanner schedulers and query owners are gone; release tail entries while CacheManager is alive.
+    destroy_fluss_union_tail_cache();
 
     // cache_manager must be destoried after all cache.
     // https://github.com/apache/doris/issues/24082#issuecomment-1712544039

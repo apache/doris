@@ -188,6 +188,19 @@ public interface ConnectorScanPlanProvider {
     }
 
     /**
+     * The columns BE materializes from each range instead of reading them, when the provider can name them
+     * without building its scan-node properties. The engine asks while it initializes the scan node, before
+     * it has attached the filter, so a provider whose properties depend on the filter (and cost something to
+     * build) avoids building them for nothing. Must agree with the
+     * {@link ScanNodePropertyKeys#PATH_PARTITION_KEYS} it returns later.
+     *
+     * @return the columns, or empty (the default) to have the engine read them from the properties
+     */
+    default Optional<List<String>> getPathPartitionKeys(ConnectorSession session, ConnectorTableHandle handle) {
+        return Optional.empty();
+    }
+
+    /**
      * Plans the scan described by {@code request}, returning the ranges that cover the requested data.
      *
      * <p>This is the one method a scanning connector must implement. Everything the engine can tell it about

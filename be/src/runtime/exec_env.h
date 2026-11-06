@@ -133,6 +133,7 @@ class LookupConnectionCache;
 class RowCache;
 class DummyLRUCache;
 class CacheManager;
+class LRUCachePolicy;
 class IdManager;
 class ProcessProfile;
 class HeapProfiler;
@@ -166,6 +167,8 @@ public:
 
     // Stop all threads and delete resources.
     void destroy();
+    void init_fluss_union_tail_cache();
+    void destroy_fluss_union_tail_cache();
 
     /// Returns the first created exec env instance. In a normal doris, this is
     /// the only instance. In test setups with multiple ExecEnv's per process,
@@ -410,6 +413,7 @@ public:
     LookupConnectionCache* get_lookup_connection_cache() { return _lookup_connection_cache; }
     RowCache* get_row_cache() { return _row_cache; }
     CacheManager* get_cache_manager() { return _cache_manager; }
+    LRUCachePolicy* get_fluss_union_tail_cache() { return _fluss_union_tail_cache; }
     IdManager* get_id_manager() { return _id_manager; }
     ProcessProfile* get_process_profile() { return _process_profile; }
     HeapProfiler* get_heap_profiler() { return _heap_profiler; }
@@ -606,6 +610,7 @@ private:
     io::PackedFileManager* _packed_file_manager = nullptr;
     S3RateLimiterHolder* _warmup_download_rate_limiter = nullptr;
     std::unique_ptr<MSRpcRateLimitServices> _ms_rpc_rate_limit_services;
+    LRUCachePolicy* _fluss_union_tail_cache = nullptr;
 };
 
 template <>
