@@ -35,12 +35,12 @@ usage() {
     echo "
 Usage: $0 <options>
   Optional options:
-    -c             parallelism to load data of lineitem, orders, partsupp, default is 5.
+    -c             max number of data files loaded concurrently, default is 5.
     -x              use transaction id. multi times of loading with the same id won't load duplicate data.
 
   Eg.
     $0              load data using default value.
-    $0 -c 10        load lineitem, orders, partsupp table data using parallelism 10.
+    $0 -c 10        load data with at most 10 files in flight concurrently.
     $0 -x blabla    use transaction id \"blabla\".
   "
     exit 1
@@ -167,17 +167,24 @@ done
 start_time=$(date +%s)
 echo "Start time: $(date)"
 for table_name in ${!table_columns[*]}; do
-    # 领取令牌, 即从fd3中读取行, 每次一行
-    # 对管道，读一行便少一行，每次只能读取一行
-    # 所有行读取完毕, 执行挂起, 直到管道再次有可读行
-    # 因此实现了进程数量控制
-    read -r -u3
+    for file in "${TPCDS_DATA_DIR}/${table_name}"_{1..100}_*.dat; do
+        # 跳过不存在的文件（花括号展开可能产生不存在的路径）
+        if [[ ! -f "${file}" ]]; then continue; fi
 
-    # 要批量执行的命令放在大括号内, 后台运行
-    {
-        for file in "${TPCDS_DATA_DIR}/${table_name}"_{1..100}_*.dat; do
-            if ! [[ -f "${file}" ]]; then continue; fi
+        # 领取令牌, 即从fd3中读取行, 每次一行
+        # 对管道，读一行便少一行，每次只能读取一行
+        # 所有行读取完毕, 执行挂起, 直到管道再次有可读行
+        # 因此实现了进程数量控制
+        read -r -u3
+
+        # 要执行的命令放在大括号内, 后台运行
+        {
+            # 无论加载成功与否, 进程退出时都归还令牌, 否则后续循环会永久阻塞
+            trap 'echo >&3' EXIT
+
             FILE_ID=$(echo "${file}" | awk -F'/' '{print $(NF)}' | awk -F'.' '{print $(1)}')
+            # curl 自身失败(如连接中断)时也要报告出来, 而不是静默跳过该文件
+            CURL_FAIL='{"Status": "Fail", "Message": "curl exited with a non-zero status"}'
             if [[ -z ${TXN_ID} ]]; then
                 ret=$(curl \
                     --location-trusted \
@@ -186,7 +193,7 @@ for table_name in ${!table_columns[*]}; do
                     -H "column_separator:|" \
                     -H "columns: ${table_columns[${table_name}]}" \
                     -T "${file}" \
-                    http://"${FE_HOST}":"${FE_HTTP_PORT:-8030}"/api/"${DB}"/"${table_name}"/_stream_load 2>/dev/null)
+                    http://"${FE_HOST}":"${FE_HTTP_PORT:-8030}"/api/"${DB}"/"${table_name}"/_stream_load 2>/dev/null) || ret="${CURL_FAIL}"
             else
                 ret=$(curl \
                     --location-trusted \
@@ -196,7 +203,7 @@ for table_name in ${!table_columns[*]}; do
                     -H "column_separator:|" \
                     -H "columns: ${table_columns[${table_name}]}" \
                     -T "${file}" \
-                    http://"${FE_HOST}":"${FE_HTTP_PORT:-8030}"/api/"${DB}"/"${table_name}"/_stream_load 2>/dev/null)
+                    http://"${FE_HOST}":"${FE_HTTP_PORT:-8030}"/api/"${DB}"/"${table_name}"/_stream_load 2>/dev/null) || ret="${CURL_FAIL}"
             fi
 
             if [[ $(echo "${ret}" | jq ".Status") == '"Success"' ]]; then
@@ -204,10 +211,8 @@ for table_name in ${!table_columns[*]}; do
             else
                 echo -e "\033[31m----load ${file} FAIL...\n${ret}\033[0m"
             fi
-        done
-        # 归还令牌, 即进程结束后，再写入一行，使挂起的循环继续执行
-        echo >&3
-    } &
+        } &
+    done
 done
 
 # 等待所有的后台子进程结束
