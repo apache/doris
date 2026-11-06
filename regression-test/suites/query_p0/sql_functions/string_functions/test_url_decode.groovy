@@ -44,4 +44,30 @@ suite("test_url_decode") {
     order_qt_const_nullable "select url_decode('') from test_url_decode" // choose one case to test const multi-rows
     order_qt_const_not_nullable "select url_decode('%2Fhome%2Fdoris%2Fdirectory%2F')"
     order_qt_const_nullable_no_null "select url_decode('%2Fhome%2Fdoris%2Fdirectory%2F')"
+
+    // malformed percent-encoding: url_decode should raise an error
+    test {
+        sql """ select url_decode('%2') """
+        exception "Decode url failed"
+    }
+    test {
+        sql """ select url_decode('%') """
+        exception "Decode url failed"
+    }
+    test {
+        sql """ select url_decode('hello%') """
+        exception "Decode url failed"
+    }
+    test {
+        sql """ select url_decode('%GG') """
+        exception "Decode url failed"
+    }
+    test {
+        sql """ select url_decode('%20%GG%41') """
+        exception "Decode url failed"
+    }
+    test {
+        sql """ select url_decode('%%20') """
+        exception "Decode url failed"
+    }
 }
