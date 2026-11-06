@@ -125,7 +125,8 @@ ObjStorageResponse do_azure_client_call(Func f, const ObjStoragePath& opts,
         return {.status = obj_storage_status_from_http_code(static_cast<int>(e.StatusCode),
                                                             std::move(msg)),
                 .http_code = static_cast<int>(e.StatusCode),
-                .request_id = std::move(e.RequestId)};
+                .request_id = std::move(e.RequestId),
+                .throttled = obj_storage_throttled_http_code(static_cast<int>(e.StatusCode))};
     } catch (const std::exception& e) {
         return make_azure_std_exception_response(e, opts, tls_debug_context);
     }
@@ -187,7 +188,9 @@ struct AzureBatchDeleter {
                 return {.status = obj_storage_status_from_http_code(static_cast<int>(e.StatusCode),
                                                                     std::move(msg)),
                         .http_code = static_cast<int>(e.StatusCode),
-                        .request_id = std::move(e.RequestId)};
+                        .request_id = std::move(e.RequestId),
+                        .throttled = obj_storage_throttled_http_code(
+                                static_cast<int>(e.StatusCode))};
             }
         }
 
@@ -480,6 +483,7 @@ ObjStorageResponse AzureObjStorageClient::delete_object(const ObjStoragePath& op
                                                             std::move(msg)),
                 .http_code = static_cast<int>(e.StatusCode),
                 .request_id = std::move(e.RequestId),
+                .throttled = obj_storage_throttled_http_code(static_cast<int>(e.StatusCode)),
         };
     } catch (std::exception& e) {
         auto msg = fmt::format("Azure request failed because {}, path msg {}{}", e.what(),

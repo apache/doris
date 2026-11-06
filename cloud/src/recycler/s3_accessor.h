@@ -21,8 +21,13 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
+#include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <string>
+#include <string_view>
 
 #include "cpp/aws_common.h"
 #include "cpp/obj-client/auth/aws_credential_factory.h"
@@ -40,6 +45,7 @@ using S3RateLimiterHolder = TokenBucketRateLimiterHolder;
 
 enum class S3RateLimitType;
 namespace cloud {
+class ObjDeleteGroup;
 class ObjectStoreInfoPB;
 class SimpleThreadPool;
 
@@ -114,15 +120,17 @@ public:
     // returns 0 for success otherwise error
     int init();
 
-    int delete_prefix(const std::string& path_prefix, int64_t expiration_time = 0) override;
+    int delete_prefix(const std::string& path_prefix, int64_t expiration_time = 0,
+                      std::string_view task_name = {}) override;
 
-    int delete_directory(const std::string& dir_path) override;
+    int delete_directory(const std::string& dir_path, std::string_view task_name = {}) override;
 
-    int delete_all(int64_t expiration_time = 0) override;
+    int delete_all(int64_t expiration_time = 0, std::string_view task_name = {}) override;
 
-    int delete_files(const std::vector<std::string>& paths) override;
+    int delete_files(const std::vector<std::string>& paths,
+                     std::string_view task_name = {}) override;
 
-    int delete_file(const std::string& path) override;
+    int delete_file(const std::string& path, std::string_view task_name = {}) override;
 
     int list_directory(const std::string& dir_path, std::unique_ptr<ListIterator>* res) override;
 
@@ -143,12 +151,21 @@ public:
     int check_versioning();
 
 protected:
+    // If `group` is not null, each delete task executes through it in the worker pool.
     static ObjStorageRecursiveDeleteOptions make_recursive_delete_options(
-            int64_t expiration_time, std::shared_ptr<SimpleThreadPool> pool);
+            int64_t expiration_time, std::shared_ptr<SimpleThreadPool> pool,
+            std::shared_ptr<ObjDeleteGroup> group = nullptr);
 
     int list_prefix(const std::string& path_prefix, std::unique_ptr<ListIterator>* res);
 
-    virtual int delete_prefix_impl(const std::string& path_prefix, int64_t expiration_time = 0);
+    virtual int delete_prefix_impl(const std::string& path_prefix, int64_t expiration_time = 0,
+                                   std::string_view task_name = {});
+
+    // Returns the delete group of this accessor and `task_name`, creates it if it does not exist,
+    // or returns nullptr if ObjDeleteGroup is disabled. A group lives as long as the accessor, so
+    // the rate learned in a recycle round is not kept for the next round, which creates its own
+    // accessors.
+    std::shared_ptr<ObjDeleteGroup> delete_group(std::string_view task_name) const;
 
     AwsCredentialResult create_aws_credentials_provider(const S3Conf& s3_conf);
 
@@ -158,6 +175,10 @@ protected:
     S3Conf conf_;
     std::shared_ptr<ObjStorageClient> obj_client_;
     std::string _ca_cert_file_path;
+
+    mutable std::mutex delete_groups_mtx_;
+    // task name -> group, an empty task name is the default group
+    mutable std::map<std::string, std::shared_ptr<ObjDeleteGroup>, std::less<>> delete_groups_;
 };
 
 class GcsAccessor final : public S3Accessor {

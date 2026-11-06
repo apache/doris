@@ -1016,7 +1016,7 @@ int InstanceRecycler::recycle_deleted_instance_data() {
             }
 
             LOG(INFO) << "begin to delete all objects in " << accessor->uri();
-            int del_ret = accessor->delete_all();
+            int del_ret = accessor->delete_all(0, "recycle_deleted_instance_data");
             if (del_ret == 0) {
                 LOG(INFO) << "successfully delete all objects in " << accessor->uri();
             } else if (del_ret != 1) { // no need to log, because S3Accessor has logged this error
@@ -1563,6 +1563,10 @@ int InstanceRecycler::correct_packed_file_info(cloud::PackedFileInfoPB* packed_i
     return 0;
 }
 
+// Packed files are not stored under the tablets of the rowsets being recycled, so all packed file
+// deletions are paced by one delete group, whichever recycle task deletes them.
+static constexpr std::string_view kPackedFileDeleteTask = "recycle_packed_files";
+
 int InstanceRecycler::process_single_packed_file(const std::string& packed_key,
                                                  const std::string& packed_file_path,
                                                  PackedFileRecycleStats* stats) {
@@ -1691,7 +1695,7 @@ int InstanceRecycler::process_single_packed_file(const std::string& packed_key,
                 .tag("resource_id", packed_info.resource_id());
         return -1;
     }
-    int del_ret = accessor->delete_file(packed_file_path);
+    int del_ret = accessor->delete_file(packed_file_path, kPackedFileDeleteTask);
     if (del_ret != 0 && del_ret != 1) {
         LOG_WARNING("failed to delete packed file")
                 .tag("instance_id", instance_id_)
@@ -2553,9 +2557,9 @@ int InstanceRecycler::batch_abort_txn_or_job_for_recycle(
 
 void InstanceRecycler::submit_recycle_prepare_rowsets_job(
         SimpleThreadPool& worker_pool, std::vector<std::string> rowset_keys_to_abort,
-        std::atomic_long* num_recycled) {
+        std::atomic_long* num_recycled, std::string_view task_name) {
     int ret = worker_pool.submit([this, rowset_keys_to_abort = std::move(rowset_keys_to_abort),
-                                  num_recycled]() mutable {
+                                  num_recycled, task_name = std::string(task_name)]() mutable {
         std::vector<std::pair<std::string, RelatedTxnOrJobAbortTask>> keys_to_recheck;
         int abort_ret = batch_abort_txn_or_job_for_recycle<RecycleRowsetPB>(rowset_keys_to_abort,
                                                                             keys_to_recheck);
@@ -2578,7 +2582,7 @@ void InstanceRecycler::submit_recycle_prepare_rowsets_job(
         for (const auto& [key, current_rowset] : rowsets_to_recycle) {
             const auto& current_meta = current_rowset.rowset_meta();
             if (delete_rowset_data(current_meta.resource_id(), current_meta.tablet_id(),
-                                   current_meta.rowset_id_v2()) != 0) {
+                                   current_meta.rowset_id_v2(), task_name) != 0) {
                 LOG(WARNING) << "failed to delete rowset data, key=" << hex(key);
                 continue;
             }
@@ -3834,7 +3838,8 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
     return ret;
 }
 
-int InstanceRecycler::delete_rowset_data(const RowsetMetaCloudPB& rs_meta_pb) {
+int InstanceRecycler::delete_rowset_data(const RowsetMetaCloudPB& rs_meta_pb,
+                                         std::string_view task_name) {
     TEST_SYNC_POINT_RETURN_WITH_VALUE("delete_rowset_data::bypass_check", true);
     int64_t num_segments = rs_meta_pb.num_segments();
     if (num_segments <= 0) return 0;
@@ -3906,7 +3911,7 @@ int InstanceRecycler::delete_rowset_data(const RowsetMetaCloudPB& rs_meta_pb) {
 
     if (delete_rowset_data_by_prefix) {
         return delete_rowset_data(rs_meta_pb.resource_id(), rs_meta_pb.tablet_id(),
-                                  rs_meta_pb.rowset_id_v2());
+                                  rs_meta_pb.rowset_id_v2(), task_name);
     }
 
     auto it = accessor_map_.find(rs_meta_pb.resource_id());
@@ -3958,7 +3963,7 @@ int InstanceRecycler::delete_rowset_data(const RowsetMetaCloudPB& rs_meta_pb) {
         return -1;
     }
     // TODO(AlexYue): seems could do do batch
-    return accessor->delete_files(file_paths);
+    return accessor->delete_files(file_paths, task_name);
 }
 
 int InstanceRecycler::decrement_packed_file_ref_counts(const doris::RowsetMetaCloudPB& rs_meta_pb) {
@@ -4454,7 +4459,7 @@ int InstanceRecycler::delete_packed_file_and_kv(const std::string& packed_file_p
         return -1;
     }
 
-    int del_ret = accessor->delete_file(packed_file_path);
+    int del_ret = accessor->delete_file(packed_file_path, kPackedFileDeleteTask);
     if (del_ret != 0 && del_ret != 1) {
         LOG_WARNING("failed to delete packed file")
                 .tag("instance_id", instance_id_)
@@ -4751,7 +4756,7 @@ int InstanceRecycler::delete_rowset_data(
                 return -1;
             }
             auto& accessor = accessor_map_[*rid];
-            int ret = accessor->delete_files(*paths);
+            int ret = accessor->delete_files(*paths, metrics_context.operation_type);
             if (!ret) {
                 // deduplication of different files with the same rowset id
                 // 020000000000007fd045a62bc87a6587dd7ac274aa36e5a9_0.dat
@@ -4796,7 +4801,8 @@ int InstanceRecycler::delete_rowset_data(
                 "resource_id={}, tablet_id={}, instance_id={}, task_type={}",
                 rowset_id, resource_id, tablet_id, instance_id_, metrics_context.operation_type);
         concurrent_delete_executor.add([&]() -> int {
-            int ret = delete_rowset_data(resource_id, tablet_id, rowset_id);
+            int ret = delete_rowset_data(resource_id, tablet_id, rowset_id,
+                                         metrics_context.operation_type);
             if (!ret) {
                 auto rs = rowsets.at(rowset_id);
                 metrics_context.total_recycled_data_size += rs.total_disk_size();
@@ -4821,7 +4827,7 @@ int InstanceRecycler::delete_rowset_data(
 }
 
 int InstanceRecycler::delete_rowset_data(const std::string& resource_id, int64_t tablet_id,
-                                         const std::string& rowset_id) {
+                                         const std::string& rowset_id, std::string_view task_name) {
     auto it = accessor_map_.find(resource_id);
     if (it == accessor_map_.end()) {
         LOG_WARNING("instance has no such resource id")
@@ -4832,7 +4838,7 @@ int InstanceRecycler::delete_rowset_data(const std::string& resource_id, int64_t
         return -1;
     }
     auto& accessor = it->second;
-    return accessor->delete_prefix(rowset_path_prefix(tablet_id, rowset_id));
+    return accessor->delete_prefix(rowset_path_prefix(tablet_id, rowset_id), 0, task_name);
 }
 
 bool InstanceRecycler::is_tablet_recycled(int64_t tablet_id) {
@@ -4963,7 +4969,7 @@ bool InstanceRecycler::decode_packed_file_key(std::string_view key, std::string*
 }
 
 int InstanceRecycler::recycle_packed_files() {
-    const std::string task_name = "recycle_packed_files";
+    const std::string task_name(kPackedFileDeleteTask);
     auto start_tp = steady_clock::now();
     int64_t start_time = duration_cast<seconds>(start_tp.time_since_epoch()).count();
     int ret = 0;
@@ -5369,7 +5375,8 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
         concurrent_delete_executor.add(
                 [&, rs_id = resource_id,
                  accessor_ptr = accessor_map_[resource_id]]() -> decltype(auto) {
-                    int res = accessor_ptr->delete_directory(tablet_path_prefix(tablet_id));
+                    int res = accessor_ptr->delete_directory(tablet_path_prefix(tablet_id),
+                                                             metrics_context.operation_type);
                     if (res != 0) {
                         LOG(WARNING) << "failed to delete rowset data of tablet " << tablet_id
                                      << " path=" << accessor_ptr->uri()
@@ -5604,11 +5611,12 @@ int InstanceRecycler::recycle_versioned_tablet(int64_t tablet_id,
 
             // Old version RecycleRowsetPB lacks full rowset_meta info (num_segments, schema, etc.),
             // so we must use prefix deletion directly instead of batch delete.
-            concurrent_delete_executor.add(
-                    [tablet_id, resource_id = recycle_rowset.resource_id(), rowset_id, this]() {
-                        // delete by prefix, the recycle rowset key will be deleted by range later.
-                        return delete_rowset_data(resource_id, tablet_id, rowset_id);
-                    });
+            concurrent_delete_executor.add([tablet_id, resource_id = recycle_rowset.resource_id(),
+                                            rowset_id, &metrics_context, this]() {
+                // delete by prefix, the recycle rowset key will be deleted by range later.
+                return delete_rowset_data(resource_id, tablet_id, rowset_id,
+                                          metrics_context.operation_type);
+            });
         } else {
             const auto& rowset_meta = recycle_rowset.rowset_meta();
             // Version 0-1 rowset has no resource_id and no actual data files,
@@ -5639,8 +5647,8 @@ int InstanceRecycler::recycle_versioned_tablet(int64_t tablet_id,
                     .tag("instance_id", instance_id_)
                     .tag("tablet_id", tablet_id)
                     .tag("rowset_id", task.rowset_meta.rowset_id_v2());
-            concurrent_delete_executor.add([this, t = std::move(task)]() mutable {
-                return recycle_rowset_meta_and_data(t);
+            concurrent_delete_executor.add([this, t = std::move(task), &metrics_context]() mutable {
+                return recycle_rowset_meta_and_data(t, metrics_context.operation_type);
             });
         }
     }
@@ -5834,7 +5842,7 @@ int InstanceRecycler::recycle_rowsets() {
         // Try to delete rowset data in background thread
         int ret = worker_pool->submit_with_timeout(
                 [&, resource_id, partition_id, tablet_id, rowset_id, key]() mutable {
-                    if (delete_rowset_data(resource_id, tablet_id, rowset_id) != 0) {
+                    if (delete_rowset_data(resource_id, tablet_id, rowset_id, task_name) != 0) {
                         LOG(WARNING) << "failed to delete rowset data, key=" << hex(key);
                         return;
                     }
@@ -5863,7 +5871,7 @@ int InstanceRecycler::recycle_rowsets() {
                 0);
         if (ret == 0) return 0;
         // Submit task failed, delete rowset data in current thread
-        if (delete_rowset_data(resource_id, tablet_id, rowset_id) != 0) {
+        if (delete_rowset_data(resource_id, tablet_id, rowset_id, task_name) != 0) {
             LOG(WARNING) << "failed to delete rowset data, key=" << hex(key);
             return -1;
         }
@@ -6013,7 +6021,7 @@ int InstanceRecycler::recycle_rowsets() {
         }
         if (!abort_job_keys_to_process.empty()) {
             submit_recycle_prepare_rowsets_job(*worker_pool, std::move(abort_job_keys_to_process),
-                                               &num_recycled);
+                                               &num_recycled, task_name);
         }
         worker_pool->submit([&, rowset_keys_to_delete = std::move(rowset_keys_to_delete),
                              rowsets_to_delete = std::move(rowsets_to_delete)]() mutable {
@@ -6319,7 +6327,7 @@ int InstanceRecycler::recycle_versioned_rowsets() {
         // Try to delete rowset data in background thread
         int ret = worker_pool->submit_with_timeout(
                 [&, resource_id, tablet_id, rowset_id, key]() mutable {
-                    if (delete_rowset_data(resource_id, tablet_id, rowset_id) != 0) {
+                    if (delete_rowset_data(resource_id, tablet_id, rowset_id, task_name) != 0) {
                         LOG(WARNING) << "failed to delete rowset data, key=" << hex(key);
                         return;
                     }
@@ -6346,7 +6354,7 @@ int InstanceRecycler::recycle_versioned_rowsets() {
                 0);
         if (ret == 0) return 0;
         // Submit task failed, delete rowset data in current thread
-        if (delete_rowset_data(resource_id, tablet_id, rowset_id) != 0) {
+        if (delete_rowset_data(resource_id, tablet_id, rowset_id, task_name) != 0) {
             LOG(WARNING) << "failed to delete rowset data, key=" << hex(key);
             return -1;
         }
@@ -6440,7 +6448,7 @@ int InstanceRecycler::recycle_versioned_rowsets() {
                         RowsetDeleteTask task;
                         task.rowset_meta = rowset_meta;
                         task.recycle_rowset_key = k;
-                        if (recycle_rowset_meta_and_data(task) != 0) {
+                        if (recycle_rowset_meta_and_data(task, task_name) != 0) {
                             return;
                         }
                         num_compacted += is_compacted;
@@ -6487,7 +6495,8 @@ int InstanceRecycler::recycle_versioned_rowsets() {
     return ret;
 }
 
-int InstanceRecycler::recycle_rowset_meta_and_data(const RowsetDeleteTask& task) {
+int InstanceRecycler::recycle_rowset_meta_and_data(const RowsetDeleteTask& task,
+                                                   std::string_view task_name) {
     constexpr int MAX_RETRY = 10;
     const RowsetMetaCloudPB& rowset_meta = task.rowset_meta;
     int64_t tablet_id = rowset_meta.tablet_id();
@@ -6530,7 +6539,7 @@ int InstanceRecycler::recycle_rowset_meta_and_data(const RowsetDeleteTask& task)
 
         if (ref_count == 1) {
             // It would not be added since it is recycling.
-            if (delete_rowset_data(rowset_meta) != 0) {
+            if (delete_rowset_data(rowset_meta, task_name) != 0) {
                 LOG_WARNING("failed to delete rowset data");
                 return -1;
             }
@@ -7309,6 +7318,7 @@ struct CopyJobIdTuple {
     std::string copy_id;
     std::string stage_path;
 };
+static constexpr std::string_view kRecycleCopyJobsTask = "recycle_copy_jobs";
 struct BatchObjStoreAccessor {
     BatchObjStoreAccessor(std::shared_ptr<StorageVaultAccessor> accessor, uint64_t& batch_count,
                           TxnKv* txn_kv)
@@ -7368,7 +7378,7 @@ private:
 
         StopWatch sw;
         // TODO(yuejing): 在accessor的delete_objets的实现里可以考虑如果_paths数量不超过10个的话，就直接发10个delete objection operation而不是发post
-        if (0 != accessor_->delete_files(paths_)) {
+        if (0 != accessor_->delete_files(paths_, kRecycleCopyJobsTask)) {
             LOG_WARNING("failed to delete {} internal stage objects in batch {} and it takes {} us",
                         paths_.size(), batch_count_, sw.elapsed_us());
             return;
@@ -7422,7 +7432,7 @@ int InstanceRecycler::recycle_copy_jobs() {
     int64_t num_recycled = 0;
     // Used for INTERNAL stage's copy jobs to tag each batch for log trace
     uint64_t batch_count = 0;
-    const std::string task_name = "recycle_copy_jobs";
+    const std::string task_name(kRecycleCopyJobsTask);
     RecyclerMetricsContext metrics_context(instance_id_, task_name);
 
     LOG_WARNING("begin to recycle copy jobs").tag("instance_id", instance_id_);
@@ -7743,7 +7753,7 @@ int InstanceRecycler::recycle_stage() {
                 .tag("user_id", recycle_stage.stage().mysql_user_id()[0])
                 .tag("obj_info_id", idx)
                 .tag("prefix", recycle_stage.stage().obj_info().prefix());
-        ret = accessor->delete_all();
+        ret = accessor->delete_all(0, metrics_context.operation_type);
         if (ret != 0) {
             LOG(WARNING) << "failed to delete objects of dropped internal stage. instance_id="
                          << instance_id_ << ", stage_id=" << recycle_stage.stage().stage_id()
@@ -7844,7 +7854,7 @@ int InstanceRecycler::recycle_expired_stage_objects() {
         if (config::force_immediate_recycle) {
             expiration_time = INT64_MAX;
         }
-        ret1 = accessor->delete_all(expiration_time);
+        ret1 = accessor->delete_all(expiration_time, metrics_context.operation_type);
         if (ret1 != 0) {
             LOG(WARNING) << "failed to recycle expired stage objects, ret=" << ret1 << " "
                          << ss.str();

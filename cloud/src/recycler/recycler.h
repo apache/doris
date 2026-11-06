@@ -504,13 +504,16 @@ private:
             std::function<int(std::string_view k, std::string_view v)> recycle_func,
             std::function<int()> loop_done = nullptr);
 
+    // `task_name` of the delete functions is the recycle task deleting the files, see
+    // StorageVaultAccessor. The functions taking a RecyclerMetricsContext use its operation type.
+
     // return 0 for success otherwise error
-    int delete_rowset_data(const doris::RowsetMetaCloudPB& rs_meta_pb);
+    int delete_rowset_data(const doris::RowsetMetaCloudPB& rs_meta_pb, std::string_view task_name);
 
     // return 0 for success otherwise error
     // NOTE: this function ONLY be called when the file paths cannot be calculated
     int delete_rowset_data(const std::string& resource_id, int64_t tablet_id,
-                           const std::string& rowset_id);
+                           const std::string& rowset_id, std::string_view task_name);
 
     bool is_tablet_recycled(int64_t tablet_id);
 
@@ -583,7 +586,7 @@ private:
     // Recycle rowset meta and data, return 0 for success otherwise error
     //
     // This function will decrease the rowset ref count and remove the rowset meta and data if the ref count is 1.
-    int recycle_rowset_meta_and_data(const RowsetDeleteTask& task);
+    int recycle_rowset_meta_and_data(const RowsetDeleteTask& task, std::string_view task_name);
 
     // Classify rowset task by ref_count, return 0 to add to batch delete, 1 if handled (ref>1), -1 on error
     int classify_rowset_task_by_ref_count(RowsetDeleteTask& task,
@@ -673,7 +676,8 @@ private:
 
     void submit_recycle_prepare_rowsets_job(SimpleThreadPool& worker_pool,
                                             std::vector<std::string> rowset_keys_to_abort,
-                                            std::atomic_long* num_recycled);
+                                            std::atomic_long* num_recycled,
+                                            std::string_view task_name);
 
     void submit_recycle_tmp_rowsets_job(SimpleThreadPool& worker_pool,
                                         std::vector<std::string> rowset_keys_to_abort,
