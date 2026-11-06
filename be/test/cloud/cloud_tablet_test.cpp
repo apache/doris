@@ -1130,6 +1130,7 @@ public:
     CloudTabletSyncMetaTest() : _engine(CloudStorageEngine(EngineOptions {})) {}
 
     void SetUp() override {
+        _old_enable_file_cache = config::enable_file_cache;
         config::enable_file_cache = true;
 
         // Use incrementing tablet_id to create unique schema cache keys for each test
@@ -1161,7 +1162,7 @@ public:
         _current_tablet_id = unique_tablet_id;
     }
 
-    void TearDown() override { config::enable_file_cache = false; }
+    void TearDown() override { config::enable_file_cache = _old_enable_file_cache; }
 
 protected:
     // Helper to create a unique TabletMeta for mock responses
@@ -1194,6 +1195,9 @@ protected:
     CloudStorageEngine _engine;
     int64_t _current_tablet_id;
     static inline int _test_counter = 0;
+
+private:
+    bool _old_enable_file_cache = false;
 };
 
 // Test sync_meta syncs disable_auto_compaction from false to true

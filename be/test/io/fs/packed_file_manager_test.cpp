@@ -40,8 +40,11 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/packed_file_trailer.h"
 #include "io/fs/path.h"
+#include "runtime/exec_env.h"
+#include "testutil/scoped_file_cache.h"
 #include "util/coding.h"
 #include "util/slice.h"
+#include "util/threadpool.h"
 
 namespace doris::io {
 
@@ -225,7 +228,6 @@ protected:
         _old_small_file_count_threshold = config::packed_file_small_file_count_threshold;
         _old_deploy_mode = config::deploy_mode;
         _old_cloud_id = config::cloud_unique_id;
-        _old_enable_file_cache = config::enable_file_cache;
         _old_enable_file_cache_write_from_s3_file_writer =
                 config::enable_file_cache_write_from_s3_file_writer;
 
@@ -238,6 +240,8 @@ protected:
         config::cloud_unique_id.clear();
         config::enable_file_cache_write_from_s3_file_writer = true;
 
+        auto st = _file_cache.init();
+        ASSERT_TRUE(st.ok()) << st;
         file_system = std::make_shared<MockFileSystem>();
         manager = std::make_unique<PackedFileManager>();
         manager->_file_systems[_resource_id] = file_system;
@@ -252,6 +256,12 @@ protected:
         manager.reset();
         file_system.reset();
 
+        // Standalone tests write the cache synchronously; a preceding fixture may provide a
+        // pool. Drain its cache writes before restoring configuration or destroying our cache.
+        if (auto* pool = ExecEnv::GetInstance()->s3_file_upload_thread_pool()) {
+            pool->wait();
+        }
+
         config::packed_file_size_threshold_bytes = _old_merge_threshold;
         config::small_file_threshold_bytes = _old_small_threshold;
         config::uploaded_file_retention_seconds = _old_retention;
@@ -259,7 +269,6 @@ protected:
         config::packed_file_small_file_count_threshold = _old_small_file_count_threshold;
         config::deploy_mode = _old_deploy_mode;
         config::cloud_unique_id = _old_cloud_id;
-        config::enable_file_cache = _old_enable_file_cache;
         config::enable_file_cache_write_from_s3_file_writer =
                 _old_enable_file_cache_write_from_s3_file_writer;
     }
@@ -281,6 +290,7 @@ protected:
         return info;
     }
 
+    test::ScopedFileCache _file_cache;
     std::shared_ptr<MockFileSystem> file_system;
     std::unique_ptr<PackedFileManager> manager;
 
@@ -292,7 +302,6 @@ private:
     int64_t _old_small_file_count_threshold = 0;
     std::string _old_deploy_mode;
     std::string _old_cloud_id;
-    bool _old_enable_file_cache = false;
     bool _old_enable_file_cache_write_from_s3_file_writer = true;
     std::string _resource_id = "test_resource";
     int64_t _tablet_id = 12345;
