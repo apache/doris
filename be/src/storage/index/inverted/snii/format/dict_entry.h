@@ -123,7 +123,7 @@ Status decode_dict_entry(ByteSource* src, std::string_view prev_term, IndexTier 
 // verify CRC).
 Status skip_dict_entry(ByteSource* src);
 
-// ---- Key-first decode primitives (T07) ----
+// Key-first decode primitives.
 //
 // decode_dict_entry is split into a "key" stage and a "rest" (body) stage so a
 // caller scanning many entries can decide on the (front-coded) term key alone
