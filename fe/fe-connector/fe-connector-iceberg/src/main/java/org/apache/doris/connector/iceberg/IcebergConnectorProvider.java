@@ -91,8 +91,9 @@ public class IcebergConnectorProvider implements ConnectorProvider {
     public ConnectorSecuritySurface securitySurface() {
         // iceberg.jdbc.driver_url is a jar the connector loads, but only live on a jdbc-flavored catalog
         // (iceberg.catalog.type = jdbc); on a REST/HMS/... catalog it is dead config the gate must not touch.
-        // The secrets are those of every metastore flavor: the engine masks by key name alone.
+        // Keep secret masking and JDBC restrictions when REST decryption adds a KMS endpoint check.
         return ConnectorSecuritySurface.ofJdbcDriverUrls("iceberg.catalog.type", "iceberg.jdbc.driver_url")
-                .withSensitiveKeys(MetaStoreProviders.sensitivePropertyKeys());
+                .withSensitiveKeys(MetaStoreProviders.sensitivePropertyKeys())
+                .withSsrfEndpoints("kms.endpoint");
     }
 }

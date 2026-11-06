@@ -88,8 +88,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 32 adds connector-declared secret catalog properties to the security surface.
-        Assertions.assertEquals("32.0", version.getProperty("api.version"));
+        // Endpoint composition extends the published major-32 surface and needs a distinct version.
+        Assertions.assertEquals("33.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
