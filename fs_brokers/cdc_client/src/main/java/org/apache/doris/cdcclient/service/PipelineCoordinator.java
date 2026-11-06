@@ -450,13 +450,8 @@ public class PipelineCoordinator {
                                 writeRecordRequest.getJobId(),
                                 writeRecordRequest.getTaskId());
                     } catch (Exception ex) {
-                        // a displaced task must not close the streamload the successor is using
-                        if (Env.getCurrentEnv()
-                                .isOwner(
-                                        writeRecordRequest.getJobId(),
-                                        writeRecordRequest.getTaskId())) {
-                            closeJobStreamLoad(writeRecordRequest.getJobId());
-                        }
+                        closeTaskStreamLoad(
+                                writeRecordRequest.getJobId(), writeRecordRequest.getTaskId());
                         String rootCauseMessage = ExceptionUtils.getRootCauseMessage(ex);
                         taskErrorMaps.put(writeRecordRequest.getTaskId(), rootCauseMessage);
                         taskProgressMap.remove(writeRecordRequest.getTaskId());
@@ -522,7 +517,17 @@ public class PipelineCoordinator {
         try {
             // 1. submit split async
             readResult = sourceReader.prepareAndSubmitSplit(writeRecordRequest);
-            batchStreamLoad = getOrCreateBatchStreamLoad(writeRecordRequest);
+            synchronized (this) {
+                if (!Env.getCurrentEnv()
+                        .isOwner(writeRecordRequest.getJobId(), writeRecordRequest.getTaskId())) {
+                    LOG.info(
+                            "Skip writer acquisition for job {} task {}: reader released or taken over",
+                            writeRecordRequest.getJobId(),
+                            writeRecordRequest.getTaskId());
+                    return;
+                }
+                batchStreamLoad = getOrCreateBatchStreamLoad(writeRecordRequest);
+            }
 
             isSnapshotSplit = sourceReader.isSnapshotSplit(readResult.getSplit());
             long startTime = System.currentTimeMillis();
@@ -542,6 +547,14 @@ public class PipelineCoordinator {
 
             // 2. poll record
             while (!shouldStop) {
+                if (!Env.getCurrentEnv()
+                        .isOwner(writeRecordRequest.getJobId(), writeRecordRequest.getTaskId())) {
+                    LOG.info(
+                            "Skip polling for job {} task {}: reader released or taken over",
+                            writeRecordRequest.getJobId(),
+                            writeRecordRequest.getTaskId());
+                    return;
+                }
                 // Active poll keeps the reader alive so the reaper won't reclaim it mid-task.
                 Env.getCurrentEnv().keepAlive(writeRecordRequest.getJobId());
                 Iterator<SourceRecord> recordIterator = sourceReader.pollRecords();
@@ -853,6 +866,12 @@ public class PipelineCoordinator {
 
     private synchronized DorisBatchStreamLoad getOrCreateBatchStreamLoad(
             WriteRecordRequest writeRecordRequest) {
+        DorisBatchStreamLoad previous = batchStreamLoadMap.get(writeRecordRequest.getJobId());
+        String previousTaskId = previous == null ? null : previous.getCurrentTaskId();
+        if (previousTaskId != null) {
+            // The previous task has not finished flushing; isolate its in-flight loads.
+            closeJobStreamLoad(writeRecordRequest.getJobId());
+        }
         DorisBatchStreamLoad batchStreamLoad =
                 batchStreamLoadMap.computeIfAbsent(
                         writeRecordRequest.getJobId(),
@@ -873,7 +892,14 @@ public class PipelineCoordinator {
         return batchStreamLoad;
     }
 
-    public void closeJobStreamLoad(String jobId) {
+    private synchronized void closeTaskStreamLoad(String jobId, String taskId) {
+        // Check and remove under the acquisition lock so stale failures cannot close a new writer.
+        if (Env.getCurrentEnv().isOwner(jobId, taskId)) {
+            closeJobStreamLoad(jobId);
+        }
+    }
+
+    public synchronized void closeJobStreamLoad(String jobId) {
         DorisBatchStreamLoad batchStreamLoad = batchStreamLoadMap.remove(jobId);
         if (batchStreamLoad != null) {
             LOG.info("Close DorisBatchStreamLoad for jobId={}", jobId);
