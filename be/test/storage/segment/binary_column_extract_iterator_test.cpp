@@ -28,8 +28,8 @@
 #include <vector>
 
 #include "core/column/column_nullable.h"
-#include "core/column/column_variant.h"
 #include "core/column/column_string.h"
+#include "core/column/column_variant.h"
 #include "core/column/column_vector.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_nullable.h"
@@ -503,7 +503,8 @@ void check_exact_sparse_promotion(const std::string& path, bool by_rowids) {
     OlapReaderStatistics stats;
     StorageReadOptions read_options;
     read_options.stats = &stats;
-    BinaryColumnExtractIterator extract(path, std::move(cache), &read_options, /*use_variant_v2=*/true);
+    BinaryColumnExtractIterator extract(path, std::move(cache), &read_options,
+                                        /*use_variant_v2=*/true);
     ColumnIteratorOptions iterator_options;
     iterator_options.stats = &stats;
     ASSERT_TRUE(extract.init(iterator_options).ok());
