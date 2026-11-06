@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Resource;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AIFunction;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.StringType;
@@ -74,6 +75,11 @@ public class AIAgg extends NullableAggregateFunction
     }
 
     @Override
+    public boolean isDeterministic() {
+        return false;
+    }
+
+    @Override
     public void checkLegalityAfterRewrite() {
         // The rewrite has folded a constant task and resource name, unless constant folding is skipped
         // (debug_skip_fold_constant). The value FE can evaluate is validated like the literal, and BE reads the
@@ -113,6 +119,7 @@ public class AIAgg extends NullableAggregateFunction
     private void checkResource(Expression resourceNameArgument) {
         //Check if the resource is valid
         String resourceName = resourceNameArgument.toString().replaceAll("^['\"]|['\"]$", "");
+        AIFunction.checkResourceUsagePrivilege(resourceName);
         Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
         if (!(resource instanceof AIResource)) {
             throw new AnalysisException("AI resource '" + resourceName + "' does not exist");
