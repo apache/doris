@@ -46,8 +46,7 @@ suite("test_iceberg_encryption_native_reader", "p0,external") {
     assertEquals("PAR1", new String(Arrays.copyOf(plain.bytes, 4), StandardCharsets.US_ASCII))
     def previous = sql """SELECT @@enable_file_scanner_v2,
         @@enable_count_push_down_for_external_table, @@enable_parquet_file_page_cache,
-        @@enable_parquet_filter_by_bloom_filter,
-        @@enable_parquet_filter_by_min_max"""
+        @@enable_parquet_filter_by_bloom_filter"""
     def client = AmazonS3ClientBuilder.standard()
             .withCredentials(new AWSStaticCredentialsProvider(new BasicAWSCredentials("admin", "password")))
             .withEndpointConfiguration(new AwsClientBuilder.EndpointConfiguration(endpoint, "us-east-1"))
@@ -97,14 +96,15 @@ suite("test_iceberg_encryption_native_reader", "p0,external") {
                 order_qt_plain_after_rejection rows
             }
         }
-        for (String pruning : ["false", "true"]) {
-            sql "SET enable_parquet_filter_by_min_max=${pruning}"
-            sql "SET enable_parquet_filter_by_bloom_filter=${pruning}"
-            quickTest("index_tail_${pruning}", """SELECT COUNT(*), MIN(id), MAX(id), COUNT(label)
+        // This toggles Bloom probes; native footer/page pruning remains active. The physical-reader
+        // unit test separately disables all metadata pruning for its full-scan reference.
+        for (String bloom : ["false", "true"]) {
+            sql "SET enable_parquet_filter_by_bloom_filter=${bloom}"
+            quickTest("index_tail_${bloom}", """SELECT COUNT(*), MIN(id), MAX(id), COUNT(label)
                 FROM ${tvf(indexedPlainKey)} WHERE id > 900""")
-            quickTest("index_membership_${pruning}", """SELECT id, label FROM ${tvf(indexedPlainKey)}
+            quickTest("index_membership_${bloom}", """SELECT id, label FROM ${tvf(indexedPlainKey)}
                 WHERE id IN (3, 900, 1022) ORDER BY id""")
-            quickTest("index_absent_${pruning}", "SELECT COUNT(*) FROM ${tvf(indexedPlainKey)} WHERE id = 3")
+            quickTest("index_absent_${bloom}", "SELECT COUNT(*) FROM ${tvf(indexedPlainKey)} WHERE id = 3")
             // A negative Bloom probe must never authorize a keyless scan of an encrypted file.
             for (String key : [indexedEncryptedKey, prefix + '/indexed/*.parquet']) {
                 test {
@@ -128,7 +128,6 @@ suite("test_iceberg_encryption_native_reader", "p0,external") {
             sql "SET enable_count_push_down_for_external_table=${previous[0][1]}"
             sql "SET enable_parquet_file_page_cache=${previous[0][2]}"
             sql "SET enable_parquet_filter_by_bloom_filter=${previous[0][3]}"
-            sql "SET enable_parquet_filter_by_min_max=${previous[0][4]}"
         } finally {
             try {
                 // A failed bucket creation has nothing to clean up. Once created, this UUID bucket

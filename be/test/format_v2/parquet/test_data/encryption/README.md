@@ -90,15 +90,22 @@ cp be/test/format_v2/parquet/test_data/encryption/indexes_java*.parquet \
   regression-test/data/external_table_p0/iceberg/encryption/
 ```
 
-Native reader tests compare encrypted/plaintext and pruned/unpruned results,
-assert effective page and Bloom pruning, and authenticate indexes against their
-module type, file, row group and physical column. Additional C++ fixtures cover
+Native reader tests compare encrypted/plaintext and pruned/unpruned results.
+The reference request excludes all conjuncts from metadata pruning while keeping
+them for row-level evaluation; counters verify all 512 physical rows are read
+without row-group/page pruning. Pruned scans assert effective page and Bloom
+pruning, and authenticate indexes against their module type, file, row group and
+physical column. Additional C++ fixtures cover
 Page V1/V2, dictionary/plain pages and indexed seeks past earlier pages. Modified
 index/Bloom authentication tags, oversized module prefixes and invalid index
-ranges must fail explicitly. Index parsing uses the same decoded-container and
-recursion bounds as encrypted footers.
+ranges must fail explicitly. Index parsing uses root-specific native element
+sizes for its decoded-container budget and the same recursion and module-size
+limits as encrypted footers. A generated encrypted file with 30,000 pages per
+row group covers valid indexes beyond the old footer-based allocation estimate.
 
-SQL tests compare the plaintext twin with min/max and Bloom filtering enabled
-and disabled. Keyless encrypted scans, including negative Bloom queries, remain
-rejected by the existing admission contract. These SQL checks do not claim that
+SQL tests compare the plaintext twin with Bloom filtering enabled and disabled;
+native footer and page pruning remain active in both SQL scans. The fully
+unpruned comparison is provided by the physical-reader unit test above.
+Keyless encrypted scans, including negative Bloom queries, remain rejected by
+the existing admission contract. These SQL checks do not claim that
 encrypted Iceberg SQL admission has been enabled.

@@ -55,8 +55,9 @@ using apache::thrift::transport::TMemoryBuffer;
 
 class BoundedCryptoProtocol final : public TCompactProtocol {
 public:
-    explicit BoundedCryptoProtocol(const std::shared_ptr<TMemoryBuffer>& transport, int limit)
-            : TCompactProtocol(transport, limit, 65536) {}
+    explicit BoundedCryptoProtocol(const std::shared_ptr<TMemoryBuffer>& transport, int limit,
+                                   size_t max_element_size)
+            : TCompactProtocol(transport, limit, 65536), _max_element_size(max_element_size) {}
 
 protected:
     void checkReadBytesAvailable(TList& list) override {
@@ -78,20 +79,21 @@ private:
     void charge(uint32_t count) {
         // Generated readers resize their statically typed vectors without checking the wire element
         // type: a list advertised as BYTE can still allocate ColumnChunks. Charge every element at
-        // the largest native size; trusting the wire type would undercount those allocations.
-        constexpr size_t unit =
-                std::max({sizeof(tparquet::ColumnChunk), sizeof(tparquet::SchemaElement),
-                          sizeof(tparquet::RowGroup)});
-        if (count > _budget / unit) {
+        // the largest native size reachable from this root, independently of the wire type.
+        if (count > _budget / _max_element_size) {
             throw TProtocolException(TProtocolException::SIZE_LIMIT);
         }
-        _budget -= count * unit;
+        _budget -= count * _max_element_size;
     }
+    const size_t _max_element_size;
     size_t _budget = MAX_ENCRYPTED_PARQUET_MODULE_BYTES;
 };
 
 template <typename T>
-Status deserialize_bounded(std::span<const uint8_t> bytes, uint32_t* consumed, T* metadata) {
+Status deserialize_bounded(std::span<const uint8_t> bytes, uint32_t* consumed, T* metadata,
+                           size_t max_element_size = std::max({sizeof(tparquet::ColumnChunk),
+                                                               sizeof(tparquet::SchemaElement),
+                                                               sizeof(tparquet::RowGroup)})) {
     if (bytes.empty() || bytes.size() > MAX_ENCRYPTED_PARQUET_MODULE_BYTES) {
         return Status::Corruption("File encryption [INVALID_METADATA_SIZE]");
     }
@@ -102,7 +104,7 @@ Status deserialize_bounded(std::span<const uint8_t> bytes, uint32_t* consumed, T
         auto transport = std::make_shared<TMemoryBuffer>(const_cast<uint8_t*>(bytes.data()),
                                                          static_cast<uint32_t>(bytes.size()),
                                                          TMemoryBuffer::OBSERVE, configuration);
-        BoundedCryptoProtocol protocol(transport, static_cast<int>(bytes.size()));
+        BoundedCryptoProtocol protocol(transport, static_cast<int>(bytes.size()), max_element_size);
         metadata->read(&protocol);
         *consumed = static_cast<uint32_t>(bytes.size()) - transport->available_read();
         return Status::OK();
@@ -169,11 +171,17 @@ Status deserialize_crypto_metadata(std::span<const uint8_t> bytes, uint32_t* con
 
 Status deserialize_crypto_metadata(std::span<const uint8_t> bytes, uint32_t* consumed,
                                    tparquet::ColumnIndex* metadata) {
-    return deserialize_bounded(bytes, consumed, metadata);
+    // Index lists hold strings or scalar counters, never footer structs. Charging ColumnChunks
+    // would reject a valid 30,000-page INT32 index whose decoded containers need only a few MiB.
+    return deserialize_bounded(bytes, consumed, metadata,
+                               std::max(sizeof(std::string), sizeof(int64_t)));
 }
 Status deserialize_crypto_metadata(std::span<const uint8_t> bytes, uint32_t* consumed,
                                    tparquet::OffsetIndex* metadata) {
-    return deserialize_bounded(bytes, consumed, metadata);
+    // PageLocation is the largest native element reachable from this index root, regardless of
+    // the advertised wire type; optional unencoded-byte counts contain only int64_t values.
+    return deserialize_bounded(bytes, consumed, metadata,
+                               std::max(sizeof(tparquet::PageLocation), sizeof(int64_t)));
 }
 Status deserialize_crypto_metadata(std::span<const uint8_t> bytes, uint32_t* consumed,
                                    tparquet::BloomFilterHeader* metadata) {
