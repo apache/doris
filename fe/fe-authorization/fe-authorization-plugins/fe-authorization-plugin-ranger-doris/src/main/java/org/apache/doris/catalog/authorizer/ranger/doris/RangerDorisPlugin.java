@@ -98,8 +98,10 @@ public class RangerDorisPlugin extends LoadedRangerPlugin {
                     installedEngine, getConfig(), installedConfig);
             readScopes = new ReadScopes(installedEngine, installedConfig, summary, resources);
             if (resources != null) {
-                LOG.info("Ranger read resource index initialized: version={}, tables={}, users={}, bindings={}",
-                        getPoliciesVersion(), resources.tableCount(), resources.userCount(), resources.bindingCount());
+                LOG.info("Ranger read resource index initialized: version={}, tables={}, users={}, bindings={},"
+                                + " nativeUsers={}",
+                        getPoliciesVersion(), resources.tableCount(), resources.userCount(), resources.bindingCount(),
+                        resources.nativeUserCount());
             }
         }
     }

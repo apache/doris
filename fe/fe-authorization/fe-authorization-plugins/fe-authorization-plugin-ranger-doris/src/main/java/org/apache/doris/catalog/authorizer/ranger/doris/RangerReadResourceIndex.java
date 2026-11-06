@@ -33,9 +33,11 @@ import org.apache.ranger.plugin.policyresourcematcher.RangerPolicyResourceMatche
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * A Boolean-only index for the static direct-user snapshots accepted by {@link RangerReadScopeSummary}.
@@ -51,14 +53,16 @@ final class RangerReadResourceIndex {
     private final Map<String, Integer> users;
     private final Map<TableKey, TableAccess> tables;
     private final TableAccess broadResources;
+    private final Set<String> nativeUsers;
     private final boolean[] ignoreCase;
     private final int bindings;
 
     private RangerReadResourceIndex(Map<String, Integer> users, Map<TableKey, TableAccess> tables,
-            TableAccess broadResources, boolean[] ignoreCase, int bindings) {
+            TableAccess broadResources, Set<String> nativeUsers, boolean[] ignoreCase, int bindings) {
         this.users = users;
         this.tables = tables;
         this.broadResources = broadResources;
+        this.nativeUsers = Collections.unmodifiableSet(nativeUsers);
         this.ignoreCase = ignoreCase;
         this.bindings = bindings;
     }
@@ -91,6 +95,7 @@ final class RangerReadResourceIndex {
         Map<String, Integer> users = new HashMap<>();
         Map<TableKey, TableBuilder> builders = new HashMap<>();
         TableBuilder broad = new TableBuilder();
+        Set<String> nativeUsers = new HashSet<>();
         int bindings = 0;
         List<RangerPolicyEvaluator> policies = ((RangerPolicyEngineImpl) engine).getPolicyEngine()
                 .getPolicyRepository().getPolicyEvaluators();
@@ -103,6 +108,12 @@ final class RangerReadResourceIndex {
                 continue;
             }
             for (RangerPolicyResourceEvaluator resource : evaluator.getResourceEvaluators()) {
+                if (!hasOnlyAsciiValues(resource.getPolicyResource())) {
+                    // Native trie lookup and equalsIgnoreCase matchers can disagree on Unicode folds.
+                    // Reusing the matcher alone must not grant an access rejected by native candidate lookup.
+                    nativeUsers.addAll(actions.keySet());
+                    continue;
+                }
                 TableKey key = policyKey(resource.getPolicyResource(), ignoreCase);
                 if (actions.size() > MAX_BINDINGS - bindings) {
                     return null;
@@ -123,11 +134,12 @@ final class RangerReadResourceIndex {
         for (Map.Entry<TableKey, TableBuilder> builder : builders.entrySet()) {
             tables.put(builder.getKey(), builder.getValue().finish(positions));
         }
-        return new RangerReadResourceIndex(users, tables, broad.finish(positions), ignoreCase, bindings);
+        return new RangerReadResourceIndex(users, tables, broad.finish(positions), nativeUsers, ignoreCase, bindings);
     }
 
     Boolean allows(String user, DorisAccessType action, RangerDorisResource resource) {
-        if (resource.getValue("column") == null) {
+        String column = (String) resource.getValue("column");
+        if (column == null || nativeUsers.contains(user) || !isAscii(column)) {
             return null;
         }
         TableKey key = requestKey(resource, ignoreCase);
@@ -156,6 +168,32 @@ final class RangerReadResourceIndex {
 
     int bindingCount() {
         return bindings;
+    }
+
+    int nativeUserCount() {
+        return nativeUsers.size();
+    }
+
+    private static boolean hasOnlyAsciiValues(Map<String, RangerPolicyResource> resources) {
+        // Native matcher initialization already uses this key set; avoid caching an extra values view per map.
+        for (String name : resources.keySet()) {
+            List<String> values = resources.get(name).getValues();
+            for (int index = 0; index < values.size(); index++) {
+                if (!isAscii(values.get(index))) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private static boolean isAscii(String value) {
+        for (int index = 0; index < value.length(); index++) {
+            if (value.charAt(index) > 127) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static Map<String, Byte> readActions(RangerPolicy policy) {

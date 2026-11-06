@@ -1,0 +1,135 @@
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements. See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership. The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License. You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied. See the License for the
+specific language governing permissions and limitations
+under the License.
+
+
+Read resource index correctness validation, 2026-11-06
+
+Scope
+
+Preserve the unmodified native Ranger 2.9.0 authorization decisions inside the
+Doris controller. No Ranger source, class, dependency version or artifact is
+changed. This work does not change login, AD/OIDC identity or Doris GRANT routing.
+
+Defect reproduced before the correction
+
+A policy database named "\u017fales" (Unicode long s followed by "ales") can be
+accepted by the final case-insensitive resource matcher for an ASCII "sales"
+request, while native resource-trie candidate lookup rejects that request.
+The previous index reused the final matcher without native candidate selection
+and therefore returned true where the native controller returned false.
+
+The native 2.9.0 RangerResourceTrie.getLookupChar uses Character.toLowerCase;
+RangerAbstractResourceMatcher's CaseInsensitiveStringMatcher uses
+StringUtils.equalsIgnoreCase. These are different equivalence relations for
+characters such as long s and dotless i. Comparing only the final matcher was
+insufficient even with static direct-user policies.
+
+Pre-fix evidence:
+  .test-env/read-resource-index/correctness-001/unicode-before-fix.log
+  unicodeCaseFoldingMatchesNativeCandidateSelectionAsWellAsTheResourceMatcher
+  [\u017fales, c1, sales, c1] ==> expected: <false> but was: <true>
+The production sources at that run were the committed a536d851c95 implementation.
+
+Correction
+
+- Any enabled native read resource block with a non-ASCII value marks its direct
+  ADMIN/SELECT users for native evaluation. This includes column values.
+- The set is per installed snapshot and per user, rather than disabling the
+  entire service. Unaffected users retain the index.
+- Non-ASCII request columns also use native evaluation; request prefixes already
+  had conservative native fallback. Exact Unicode grants remain usable.
+- User identity strings can still contain Unicode. If such an identity is also
+  used as a fake column, its resource value triggers native fallback for the
+  affected users. This trades acceleration for exact native behavior.
+- Full replacements and copy-on-update deltas rebuild the native-user set;
+  removing the policy restores that user's indexed path.
+- Construction INFO includes nativeUsers to expose this applicability limit.
+
+Regression coverage
+
+RangerReadResourceIndexCorrectnessTest contains 14 test methods:
+
+- Full refresh and copy-on-update delta are each paused by a native auth-context
+  listener after engine installation, before Doris can publish the new index.
+  Queries during this controlled gap must use new native grants: revoked c1 is
+  denied and new c2 is allowed. After publication the same checks use the index.
+- Closing the actual controller while installation is paused must finish without
+  waiting for the install monitor and must never revive grants after close.
+- 24 seeded snapshots x 160 complete controller queries compare against an
+  independently installed native plugin. Eligible ASCII policy fixtures keep the
+  index active; requests include case variants, Unicode and absent resources.
+  Additional fresh per-action raw requests compare native and indexed column
+  decisions without preprocessing the indexed resource through the native API.
+- 32 snapshots x 80 complete queries compare mixed create/update/delete deltas
+  with independent native full replacements, interleaving periodic full loads.
+  Together these two randomized tests compare 6400 complete authorization
+  decisions, plus thousands of direct column action decisions.
+- Deny, public-group, implied-grant, excluded-resource and case-variant-access
+  updates discard prior indexed grants and match the native controller.
+- Registered result processors observe the same ordered native result sequence:
+  policy/audit IDs, allowed/audited/determined flags, policy version/priority/type,
+  zone, reason, access type and resource. Removing the processor restores indexing.
+- Real native in-place deltas retain the same engine, revoke old grants and grant
+  new ones while the index stays disabled. Ranger 2.9's repository keeps a final
+  version field in this mode; the test checks actual permissions, not an assumed
+  version increment.
+- 65536 users x 62 blocks exceed four million indexed bindings. The scope summary
+  remains eligible, while the complete resource index falls back; the last block
+  remains allowed natively and an old grant remains revoked. No partial index is
+  allowed to decide.
+- A rejected same-version native installation cannot build an index from the
+  rejected payload or grant its new permissions.
+- Unicode regressions cover long s, dotless i, patterns and exact names across
+  catalog/database/table/column; per-user isolation; a native-only user absent
+  from the ID dictionary; and clearing fallback on full/delta policy removal.
+- Delegate-admin-only mode uses the native evaluator's pruned policy, so items
+  present only in the unpruned payload cannot be reintroduced as grants.
+
+Recorded validation
+
+Module package with the Maven build cache disabled:
+  155 tests passed, one existing test skipped, zero failures/errors.
+  .test-env/read-resource-index/correctness-001/full-module-final.log
+
+Five FE integration gates passed 51 tests, zero failures/errors/skips:
+  .test-env/read-resource-index/correctness-001/core-integration-final.log
+  AccessControllerManagerTest, AccessTranslationTest, LegacyAccessControllerPluginTest,
+  AccessControlBehaviorBaselineTest, AuthorizationPluginFromDirectoryTest.
+The reactor used current plugin target/classes with the Maven build cache disabled.
+Unchanged FE main classes were reused; the five selected gate classes executed.
+These gates cover kernel routing/baselines and generic installed-plugin behavior,
+not a live deployment of the Ranger plugin or an actual AD/OIDC login.
+
+Together 206 tests passed, one existing test skipped. Authorization behavior/API
+golden files are not regenerated. Formal review is recorded separately under
+review-docs/ for the immutable final local commit.
+The historical performance report identifies its earlier measured source; this
+correctness change does not claim a fresh speedup or refresh-heap measurement.
+
+Limits
+
+These tests use real embedded native engines and actual Doris controller paths,
+with deterministic scheduling for the stated publication/close cases. They are
+not a live Ranger Admin/FE SQL deployment, an actual audit sink, AD/OIDC login
+test, proof of every possible thread interleaving, or a guarantee of zero defects.
+
+Native jar SHA256 (unchanged):
+0e7426640614810290e2510e89cfe6c42a90497b453c94ff11a0e9a0019e010b
+
+Production source SHA256 for this correctness revision:
+RangerReadResourceIndex.java 7848081f687278372a8b5d59e1ea6496a2eaf8de60ade9cca6f4735e81789b71
+RangerDorisPlugin.java 1419e493f6fd076e7075744ce928a88e0472e654e2a8bf484a5a207b559c6caf

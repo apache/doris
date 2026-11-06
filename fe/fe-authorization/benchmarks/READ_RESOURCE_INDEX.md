@@ -67,6 +67,7 @@ ReadScopes for one installed engine/version/config
         byte[] ADMIN/SELECT flags
         RangerPolicyResourceMatcher[] references to existing native matchers
   + TableAccess for global/parent/pattern resources, also sorted by user ID
+  + Set<user name> requiring native evaluation because of non-ASCII policy resources
 ```
 
 The new index does not copy column names, column sets, resource matchers or
@@ -89,10 +90,22 @@ other unsupported service overrides. A policy can disable eligibility for the
 whole snapshot.
 
 Single, exact ASCII catalog/database/table values use the table buckets.
-Global, parent, wildcard, multi-value and other static resource prefixes use a
-separate per-user matcher bucket. A global administrator policy therefore does
-not disable employee indexing. Non-ASCII or pattern-bearing request prefixes
-fall back to the ordinary API. Column patterns are matched by Ranger.
+Global, parent, wildcard and multi-value ASCII resource prefixes use a separate
+per-user matcher bucket. A global administrator policy therefore does not disable
+employee indexing. Non-ASCII or pattern-bearing request prefixes and non-ASCII
+request columns fall back to the ordinary API. ASCII column patterns are matched
+by Ranger.
+
+Native resource-trie lookup and final resource matching can disagree on Unicode
+case folding. For example, a policy database named `\u017fales` and a request for
+`sales` are rejected by the native trie even though the final case-insensitive
+matcher accepts them. Reusing that matcher without native candidate lookup must
+not turn a native refusal into a grant. Therefore any enabled read policy block
+containing a non-ASCII resource value marks its direct read users for native
+evaluation. Other users retain the index; full and copy-on-update delta refreshes
+recompute this set. A non-ASCII user name alone is supported, but using that name
+as a fake column makes it a non-ASCII resource value and triggers this fallback.
+
 In-place policy updates disable this
 index because they can mutate the matchers referenced by a previously published
 snapshot. Normal full replacement and verified copy-on-update deltas rebuild
@@ -112,8 +125,9 @@ to `true`. Set it to `false` before policy installation to retain descriptor
 sharing and the original scope-only optimization. Values other than the exact
 strings `true` and `false` are rejected.
 
-Successful construction logs the policy version, table count, user count and
-binding count. Existing native failure logs remain intact; DEBUG logs distinguish
+Successful construction logs the policy version, table count, dictionary user
+count, binding count and `nativeUsers` count. Existing native failure logs remain
+intact; DEBUG logs distinguish
 indexed controller decisions from raw Ranger requests. No production metric or
 per-query atomic counter was introduced.
 
@@ -127,6 +141,14 @@ It also covers controller allow/deny, audit fallback,
 full/delta revocation, runtime super users, concurrent refresh, failed index
 configuration and cleanup. The existing authorization behavior baseline is not
 regenerated.
+
+`RangerReadResourceIndexCorrectnessTest` adds controlled full/delta publication
+gaps and close/refresh interleavings using latches, independently installed native
+controller comparisons across randomized full and mixed delta snapshots, audit
+result-sequence equivalence, actual in-place revocation, binding-limit fallback,
+failed-install rejection, native delegate-admin pruning and Unicode candidate
+selection parity. See `READ_RESOURCE_INDEX_CORRECTNESS.txt` for the reproduced
+defect, regression evidence and current validation limits.
 
 ## Reproduce the comparison
 
