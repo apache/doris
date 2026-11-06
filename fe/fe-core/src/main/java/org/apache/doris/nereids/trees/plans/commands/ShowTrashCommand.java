@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -42,6 +43,17 @@ import java.util.List;
  * show trash command
  */
 public class ShowTrashCommand extends ShowCommand {
+    private static final ShowResultSetMetaData META_DATA = ShowResultSetMetaData.builder()
+            .addColumn(new Column("BackendId", ScalarType.createType(PrimitiveType.BIGINT)))
+            .addColumn(new Column("Backend", ScalarType.createStringType()))
+            .addColumn(new Column("RootPath", ScalarType.createStringType()))
+            .addColumn(new Column("State", ScalarType.createStringType()))
+            .addColumn(new Column("TrashUsedCapacity", ScalarType.createStringType()))
+            .addColumn(new Column("TrashFileNum", ScalarType.createStringType()))
+            .addColumn(new Column("DiskCapacity", ScalarType.createStringType()))
+            .addColumn(new Column("AvailableCapacity", ScalarType.createStringType()))
+            .build();
+
     private List<Backend> backends = Lists.newArrayList();
     private String backendQuery;
 
@@ -63,11 +75,7 @@ public class ShowTrashCommand extends ShowCommand {
     }
 
     public ShowResultSetMetaData getMetaData() {
-        ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
-        for (String title : TrashProcDir.TITLE_NAMES) {
-            builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
-        }
-        return builder.build();
+        return META_DATA;
     }
 
     private ShowResultSet handleShowTrash(String backendQuery) throws Exception {
