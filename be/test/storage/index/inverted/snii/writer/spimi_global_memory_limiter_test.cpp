@@ -804,7 +804,9 @@ TEST(SniiSpimiGlobalSpill, ResidentStepInsideOneArenaBlockReachesTheLimiter) {
         if (buf.arena_bytes_for_test() == arena &&
             buf.resident_bytes_for_test() >=
                     resident + doris::snii::writer::kBuildBytesPublishStep) {
-            EXPECT_EQ(decisions.load(), before + 1)
+            // One add_token can report twice (interning and accumulating), so this
+            // asks only that the step was decided at this term.
+            EXPECT_GT(decisions.load(), before)
                     << "the resident step at term " << i << " was not decided";
             checked = true;
         }

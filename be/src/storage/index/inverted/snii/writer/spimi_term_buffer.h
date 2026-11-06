@@ -287,8 +287,9 @@ private:
     // Reports the signed change in REAL resident bytes (resident_bytes()) to
     // mem_reporter_ since the previous call, then caches the new total.
     // Single-source diff: every grow/reset/free emits EXACTLY ONE delta
-    // (self-balancing -> impossible to double-count or miss a negative). No-op when
-    // mem_reporter_ is null.
+    // (self-balancing -> impossible to double-count or miss a negative). An attached
+    // global limiter is told only when the arena or the resident total moved enough
+    // to change its decision (see the definition). No-op when both are null.
     void report_arena_delta();
     Status merge_runs_streamed(const StreamedTermConsumer& fn);
     Status prepare_run_merge();

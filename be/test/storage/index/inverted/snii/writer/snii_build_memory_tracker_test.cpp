@@ -168,13 +168,16 @@ TEST(SniiBuildMemoryTracker, UnregisteredResidueNeverReachesTheDecisionInput) {
 // This is what keeps flush threads off each other's cache lines: a term encoder takes
 // scratch and gives it back for every term, and that must never reach the shared
 // counters. The reporter stays exact, because the hard budget of compaction reads it.
+// Both populations: BKD writers and compaction merges run the same per-term reservations
+// on the same flush threads as the text writers.
 TEST(SniiBuildMemoryTracker, PerTermSwingsStayOffTheSharedCounters) {
     doris::MemTracker* tracker = snii_build_mem_tracker();
     const int64_t baseline = tracker->consumption();
     const int64_t registered_baseline = snii_registered_build_bytes();
     constexpr int64_t kTermScratch = 32 * 1024;
-    {
-        MemoryReporter reporter(snii_build_consume_release(BuildMemoryPopulation::kRegistered));
+    for (BuildMemoryPopulation population :
+         {BuildMemoryPopulation::kRegistered, BuildMemoryPopulation::kUnregistered}) {
+        MemoryReporter reporter(snii_build_consume_release(population));
         for (int term = 0; term < 1000; ++term) {
             MemoryReporter::Reservation scratch = reporter.make_postings_reservation();
             ASSERT_TRUE(scratch.set_bytes(kTermScratch).ok());
@@ -211,25 +214,51 @@ TEST(SniiBuildMemoryTracker, HeldBackBytesArePublishedTogetherAtTheStep) {
     EXPECT_EQ(snii_registered_build_bytes(), registered_baseline);
 }
 
-// The counters can end above zero with the reporter empty: +1.5 steps and -1.25 steps
-// both publish, and the last -0.25 steps never reach a step. A writer per segment
-// leaving that behind would add up to phantom pressure, so the last copy of the
-// callback publishes it.
-TEST(SniiBuildMemoryTracker, DestroyingAReporterPublishesTheLastPartialStep) {
+// +1.5 steps and -1.25 steps both publish, and the last -0.25 steps never reaches a step.
+// The reporter must not wait for its destructor to give that back: IndexFileWriter keeps
+// a finished text writer's reporter until the rowset writer closes, so every segment of a
+// load would leave its remainder in the spill decision's input. An empty reporter
+// publishes what it holds back.
+TEST(SniiBuildMemoryTracker, AnEmptyReporterHoldsNothingBack) {
     doris::MemTracker* tracker = snii_build_mem_tracker();
     const int64_t baseline = tracker->consumption();
     const int64_t registered_baseline = snii_registered_build_bytes();
+    auto retained = std::make_shared<MemoryReporter>(
+            snii_build_consume_release(BuildMemoryPopulation::kRegistered));
+    retained->report(kStep + kStep / 2);
+    retained->report(-(kStep + kStep / 4));
+    EXPECT_EQ(tracker->consumption() - baseline, kStep / 4);
+    retained->report(-kStep / 4);
+    EXPECT_EQ(retained->current_bytes(), 0);
+    EXPECT_EQ(tracker->consumption(), baseline)
+            << "a finished writer whose reporter is still retained left bytes behind";
+    EXPECT_EQ(snii_registered_build_bytes(), registered_baseline);
+
+    // The same holds when the reporter goes back to zero through a reservation: both steps
+    // publish, and only the zero rule can return the last quarter step.
+    {
+        MemoryReporter::Reservation reservation = retained->make_reservation();
+        ASSERT_TRUE(reservation.set_bytes(kStep + kStep / 2).ok());
+        ASSERT_TRUE(reservation.set_bytes(kStep / 4).ok());
+        EXPECT_EQ(tracker->consumption() - baseline, kStep / 4);
+    }
+    EXPECT_EQ(retained->current_bytes(), 0);
+    EXPECT_EQ(tracker->consumption(), baseline);
+    EXPECT_EQ(snii_registered_build_bytes(), registered_baseline);
+}
+
+// Unbalanced bytes still go back when the reporter is destroyed.
+TEST(SniiBuildMemoryTracker, DestroyingAReporterPublishesWhatItHeldBack) {
+    doris::MemTracker* tracker = snii_build_mem_tracker();
+    const int64_t baseline = tracker->consumption();
     {
         MemoryReporter reporter(snii_build_consume_release(BuildMemoryPopulation::kRegistered));
         reporter.report(kStep + kStep / 2);
         reporter.report(-(kStep + kStep / 4));
-        reporter.report(-kStep / 4);
-        EXPECT_EQ(reporter.current_bytes(), 0);
+        reporter.report(kStep / 8);
         EXPECT_EQ(tracker->consumption() - baseline, kStep / 4);
-        EXPECT_EQ(snii_registered_build_bytes() - registered_baseline, kStep / 4);
     }
     EXPECT_EQ(tracker->consumption(), baseline);
-    EXPECT_EQ(snii_registered_build_bytes(), registered_baseline);
 }
 
 TEST(SniiBuildMemoryTracker, ConcurrentChangesOnOneReporterLoseNothing) {

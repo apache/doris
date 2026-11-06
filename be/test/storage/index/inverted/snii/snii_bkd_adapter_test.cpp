@@ -345,10 +345,9 @@ TEST_F(SniiBkdAdapterTest, BuildMemoryIsChargedAndGivenBackAtFinish) {
     std::vector<int64_t> values(1000);
     std::iota(values.begin(), values.end(), 0);
     assert_ok(writer.add_values(reinterpret_cast<const uint8_t*>(values.data()), values.size()));
-    // At least the 4 bytes of every NULL docid, and the builder's point buffer on top,
-    // less what the writer may still hold back from the process-wide tracker.
-    EXPECT_GE(tracker->consumption() - baseline,
-              static_cast<int64_t>(kNulls) * 4 - ::doris::snii::writer::kBuildBytesPublishStep);
+    // At least the 4 bytes of every NULL docid, and the builder's point buffer on top. The
+    // NULL docids are one change larger than a publish step, so none of it is held back.
+    EXPECT_GE(tracker->consumption() - baseline, static_cast<int64_t>(kNulls) * 4);
     // A BKD build cannot be reclaimed by a forced spill, so it is not offered to the spill decision.
     EXPECT_EQ(::doris::snii::writer::snii_registered_build_bytes(), registered_baseline);
 
