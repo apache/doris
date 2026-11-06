@@ -140,7 +140,8 @@ import javax.annotation.Nullable;
  * it validates and consumes its ticket under that ownership. Business code needs no lifecycle calls.
  * Helpers borrow the current context; they must not recursively enter a top-level command. An
  * unregistered internal context can be used privately and closed by its creating scope without
- * activation or per-statement bookkeeping.
+ * activation or per-statement bookkeeping. {@link AutoCloseConnectContext} binds and closes a
+ * privately owned internal context and restores the caller's binding; it must not wrap a borrowed session.
  *
  * <p>Only one initialization, request, expiry maintenance or cleanup owns execution at a time.
  * Queued requests acquire ownership when they actually start, not when submitted. A stale pool
@@ -190,7 +191,8 @@ import javax.annotation.Nullable;
  * the closer takes execution and cleans up inline. This handles either ordering without a task object,
  * waiting for the request, counting references or submitting work to another executor. Cleanup
  * releases protocol state, rolls back transactions, invokes the
- * existing temporary-table/session hooks and clears statement state. Each step is attempted once;
+ * existing temporary-table/session hooks, closes the remaining StatementContext and clears statement state.
+ * Each step is attempted once;
  * failures are logged and remaining steps continue. Reentrant close callbacks see STOPPING and return.
  * Cleanup binds this context for rollback helpers, then restores an unrelated caller's binding.
  * Its finally releases execution directly, without rechecking protocol resources or entering yield again.
@@ -1600,6 +1602,9 @@ public class ConnectContext {
         setThreadLocalInfo();
         try {
             cleanupStep("release protocol session", this::releaseProtocolSession);
+            if (statementContext != null) {
+                cleanupStep("close statement", statementContext::close);
+            }
             cleanupStep("close transaction", this::closeTxn);
             cleanupStep("drop temporary tables", this::deleteTempTable);
             // init can fail before it allocates a session id.
@@ -1728,8 +1733,13 @@ public class ConnectContext {
             this.lastQueryId = this.queryId.deepCopy();
         }
         this.queryId = queryId;
-        if (connectScheduler != null && !Strings.isNullOrEmpty(traceId)) {
-            connectScheduler.getConnectPoolMgr().putTraceId2QueryId(traceId, queryId);
+        synchronized (lifecycleLock) {
+            // An admitted command may assign its query id after immediate closure unregistered
+            // the connection. Keep the id for auditing, but never republish its removed trace index.
+            if (sessionState != SessionState.STOPPING
+                    && connectScheduler != null && !Strings.isNullOrEmpty(traceId)) {
+                connectScheduler.getConnectPoolMgr().putTraceId2QueryId(traceId, queryId);
+            }
         }
     }
 

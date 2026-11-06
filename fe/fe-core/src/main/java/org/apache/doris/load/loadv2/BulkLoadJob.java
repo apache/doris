@@ -313,7 +313,8 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
         // Reset dataSourceInfo, it will be re-created in analyze
         fileGroupAggInfo = new BrokerFileGroupAggInfo();
         NereidsParser nereidsParser = new NereidsParser();
-        ConnectContext ctx = ConnectContext.get();
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext ctx = previousContext;
         try {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbId);
             if (ctx == null) {
@@ -328,6 +329,10 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
                             + e.getMessage())
                     .build(), e);
             cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), false, true);
+        } finally {
+            if (previousContext == null && ctx != null) {
+                ctx.cleanup();
+            }
         }
     }
 

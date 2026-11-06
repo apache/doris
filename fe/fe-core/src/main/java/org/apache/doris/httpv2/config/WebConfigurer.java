@@ -19,8 +19,10 @@ package org.apache.doris.httpv2.config;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.httpv2.interceptor.AuthInterceptor;
+import org.apache.doris.httpv2.interceptor.ConnectContextFilter;
 import org.apache.doris.httpv2.interceptor.WebUiAvailabilityInterceptor;
 
+import jakarta.servlet.DispatcherType;
 import org.springframework.boot.web.error.ErrorPage;
 import org.springframework.boot.web.server.WebServerFactoryCustomizer;
 import org.springframework.boot.web.server.servlet.ConfigurableServletWebServerFactory;
@@ -37,6 +39,8 @@ import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.PathMatchConfigurer;
 import org.springframework.web.servlet.config.annotation.ViewControllerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+import java.util.EnumSet;
 
 @Configuration
 public class WebConfigurer implements WebMvcConfigurer {
@@ -66,6 +70,15 @@ public class WebConfigurer implements WebMvcConfigurer {
     @Override
     public void configurePathMatch(PathMatchConfigurer configurer) {
         configurer.setPathMatcher(new AntPathMatcher());
+    }
+
+    @Bean
+    public FilterRegistrationBean<ConnectContextFilter> connectContextFilter() {
+        FilterRegistrationBean<ConnectContextFilter> registration = new FilterRegistrationBean<>(
+                new ConnectContextFilter());
+        registration.setDispatcherTypes(EnumSet.allOf(DispatcherType.class));
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
+        return registration;
     }
 
     @Bean
