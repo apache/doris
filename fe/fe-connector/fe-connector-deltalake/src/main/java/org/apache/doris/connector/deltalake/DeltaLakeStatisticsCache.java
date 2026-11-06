@@ -34,6 +34,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
@@ -44,9 +45,11 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.LongConsumer;
 
 /**
- * Nonblocking, user/table-identity/version-scoped statistics. Cache ownership also owns the pending work:
+ * Nonblocking, user/table-identity/version-scoped statistics and observed file counts.
+ * Cache ownership also owns the pending work:
  * REFRESH, eviction and catalog close cancel the old task, which can never publish into a replacement entry.
  */
 final class DeltaLakeStatisticsCache {
@@ -83,13 +86,11 @@ final class DeltaLakeStatisticsCache {
             // Without an identity there is no authorization-safe cross-query cache key.
             return fallback;
         }
-        DeltaLakeTableHandle coordinates = handle.withoutSnapshot();
-        return get(SnapshotKey.of(session.getUser(), handle), fallback,
-                () -> runtime.execute(() -> collect(coordinates.snapshot(runtime.engine), runtime.engine)));
+        return get(SnapshotKey.of(session.getUser(), handle), fallback, loader(handle, runtime));
     }
 
     Optional<ConnectorTableStatistics> get(SnapshotKey key, Optional<ConnectorTableStatistics> fallback,
-            Callable<ConnectorTableStatistics> loader) {
+            Callable<Statistics> loader) {
         if (!cache.isEnabled()) {
             return fallback;
         }
@@ -105,32 +106,77 @@ final class DeltaLakeStatisticsCache {
                 return fallback;
             }
         }
+        return completed(key, load).map(Statistics::tableStatistics).or(() -> fallback);
+    }
+
+    OptionalLong cachedFileCount(ConnectorSession session, DeltaLakeTableHandle handle) {
+        // A planning hint must not create work, wait for IO, or share an authorization-sensitive result
+        // without a user identity. Reuse the exact same versioned entry as table statistics.
+        return session == null ? OptionalLong.empty() : cachedFileCount(SnapshotKey.of(session.getUser(), handle));
+    }
+
+    OptionalLong cachedFileCount(SnapshotKey key) {
+        Load load = cache.getIfPresent(key);
+        if (load == null) {
+            return OptionalLong.empty();
+        }
+        long observed = load.observedFileCount;
+        return observed >= 0 ? OptionalLong.of(observed)
+                : completed(key, load).map(value -> OptionalLong.of(value.fileCount())).orElseGet(OptionalLong::empty);
+    }
+
+    LongConsumer fileCountObserver(ConnectorSession session, DeltaLakeTableHandle handle, DeltaLakeRuntime runtime) {
+        return session == null ? count -> { }
+                : fileCountObserver(SnapshotKey.of(session.getUser(), handle), loader(handle, runtime));
+    }
+
+    LongConsumer fileCountObserver(SnapshotKey key, Callable<Statistics> loader) {
+        if (!cache.isEnabled()) {
+            return count -> { };
+        }
+        // Capture the entry before scanning. A late report can update only this entry, never replace
+        // a newer entry after REFRESH/eviction. Creating it does not submit its statistics task.
+        Load load = cache.get(key, ignored -> new Load(key, loader));
+        return count -> load.observedFileCount = count;
+    }
+
+    private static Callable<Statistics> loader(DeltaLakeTableHandle handle, DeltaLakeRuntime runtime) {
+        DeltaLakeTableHandle coordinates = handle.withoutSnapshot();
+        return () -> runtime.execute(() -> collect(coordinates.snapshot(runtime.engine), runtime.engine));
+    }
+
+    private Optional<Statistics> completed(SnapshotKey key, Load load) {
         if (!load.task.isDone()) {
-            return fallback;
+            return Optional.empty();
         }
         try {
             return Optional.of(load.task.get());
         } catch (CancellationException e) {
-            return fallback;
+            return Optional.empty();
         } catch (ExecutionException e) {
             // Failed loads are retryable, and cannot remove a newer entry installed after REFRESH.
             cache.compareAndSet(key, load, null);
-            return fallback;
+            return Optional.empty();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new DorisConnectorException("Interrupted retrieving Delta statistics", e);
         }
     }
 
-    static ConnectorTableStatistics collect(Snapshot snapshot, Engine engine) throws IOException {
+    static Statistics collect(Snapshot snapshot, Engine engine) throws IOException {
         DeltaLakeFeatureCheck.check(snapshot);
         DeltaLakeRowCount rows = new DeltaLakeRowCount();
         long[] bytes = {0};
+        long[] files = {0};
         DeltaLakeScanFiles.forEach(snapshot, engine, true, file -> {
             rows.add(file);
             bytes[0] = Math.addExact(bytes[0], DeltaKernelCompat.fileStatus(file).getSize());
+            files[0]++;
         });
-        return new ConnectorTableStatistics(rows.value().orElse(-1), bytes[0]);
+        return new Statistics(new ConnectorTableStatistics(rows.value().orElse(-1), bytes[0]), files[0]);
+    }
+
+    record Statistics(ConnectorTableStatistics tableStatistics, long fileCount) {
     }
 
     private void cancel(Load load) {
@@ -154,9 +200,10 @@ final class DeltaLakeStatisticsCache {
 
     private static final class Load {
         private final AtomicBoolean started = new AtomicBoolean();
-        private final FutureTask<ConnectorTableStatistics> task;
+        private final FutureTask<Statistics> task;
+        private volatile long observedFileCount = -1;
 
-        private Load(SnapshotKey key, Callable<ConnectorTableStatistics> loader) {
+        private Load(SnapshotKey key, Callable<Statistics> loader) {
             task = new FutureTask<>(() -> {
                 try {
                     return loader.call();

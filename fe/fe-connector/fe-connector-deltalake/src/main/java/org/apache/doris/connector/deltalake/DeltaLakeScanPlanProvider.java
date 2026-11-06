@@ -56,12 +56,14 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider, Conn
     private static final String SCHEMA_MAPPING = "deltalake.schema_mapping";
     private static final long DEFAULT_SPLIT_SIZE = 128L << 20;
     private final DeltaLakeRuntime runtime;
+    private final DeltaLakeStatisticsCache statistics;
     // The connector creates a provider per scan node. The gate runs before that node opens its source.
     private boolean streamingCount;
     private volatile DeltaLakeScanMetrics.Result scanMetrics;
 
-    DeltaLakeScanPlanProvider(DeltaLakeRuntime runtime) {
+    DeltaLakeScanPlanProvider(DeltaLakeRuntime runtime, DeltaLakeStatisticsCache statistics) {
         this.runtime = runtime;
+        this.statistics = statistics;
     }
 
     @Override
@@ -81,10 +83,15 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider, Conn
         String configured = session.getProperty("num_files_in_batch_mode", String.class);
         long threshold = configured == null ? 10000 : Long.parseLong(configured);
         return runtime.execute(() -> {
-            Snapshot snapshot = ((DeltaLakeTableHandle) handle).snapshot(runtime.engine);
+            DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
+            Snapshot snapshot = delta.snapshot(runtime.engine);
             OptionalLong files = DeltaKernelCompat.fileCount(snapshot);
+            if (files.isEmpty()) {
+                long observed = DeltaLakeStatementScope.fileCount(session, delta).value;
+                files = observed >= 0 ? OptionalLong.of(observed) : statistics.cachedFileCount(session, delta);
+            }
             // Old writers may not produce a checksum. Unknown size streams conservatively instead
-            // of enumerating all AddFiles merely to decide whether enumeration should be lazy.
+            // of enumerating AddFiles or waiting for statistics merely to choose a scheduling mode.
             if (files.isPresent() && files.getAsLong() < threshold) {
                 return -1L;
             }
@@ -131,7 +138,8 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider, Conn
             requiredPartitions = new HashSet<>(request.getRequiredPartitions());
             partitionsPrunedToEmpty = request.isPartitionsPrunedToEmpty();
             countPushdown = streamingCount && request.getFilter().isEmpty() && requiredPartitions.isEmpty();
-            metrics = new DeltaLakeScanMetrics(session, handle, snapshot);
+            metrics = new DeltaLakeScanMetrics(session, handle, snapshot,
+                    statistics.fileCountObserver(session, handle, runtime));
             scanMetrics = null;
         }
 
@@ -245,7 +253,8 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider, Conn
             DeltaLakeTableHandle handle = (DeltaLakeTableHandle) request.getTableHandle();
             Snapshot snapshot = handle.snapshot(runtime.engine);
             DeltaLakeFeatureCheck.check(snapshot);
-            DeltaLakeScanMetrics metrics = new DeltaLakeScanMetrics(session, handle, snapshot);
+            DeltaLakeScanMetrics metrics = new DeltaLakeScanMetrics(session, handle, snapshot,
+                    statistics.fileCountObserver(session, handle, runtime));
             scanMetrics = null;
             try {
                 if (request.isPartitionsPrunedToEmpty()) {

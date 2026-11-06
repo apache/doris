@@ -62,6 +62,10 @@ class DeltaLakePlanningScaleTest {
                 }
                 Assertions.assertEquals(1_000_000, result.get().getRowCount());
                 Assertions.assertEquals(527_000_000, result.get().getDataSize());
+                ConnectorScanPlanProvider provider = connector.getScanPlanProvider(handle);
+                Assertions.assertEquals(1_000_000,
+                        provider.streamingSplitEstimate(session, handle, Optional.empty(), false),
+                        "completed statistics must keep large tables streaming");
                 System.out.printf("DELTA_STATS_SCALE cold_ms=%.3f total_ms=%.3f rows=%d "
                                 + "peak_heap_bytes=%d max_heap_bytes=%d%n", (coldReturned - started) / 1e6,
                         (System.nanoTime() - started) / 1e6, result.get().getRowCount(), peakHeap,
@@ -85,7 +89,9 @@ class DeltaLakePlanningScaleTest {
                     ConnectorTableHandle handle = metadata.getTableHandle(session, database, name).orElseThrow();
                     long snapshotDone = System.nanoTime();
                     ConnectorScanPlanProvider provider = connector.getScanPlanProvider(handle);
-                    Assertions.assertTrue(provider.streamingSplitEstimate(session, handle, Optional.empty(), false) >= 0);
+                    long estimate = provider.streamingSplitEstimate(session, handle, Optional.empty(), false);
+                    Assertions.assertEquals(run == 0 ? 1 : 1_000_000, estimate,
+                            "later queries reuse the complete count and remain streaming");
                     long gateDone = System.nanoTime();
                     long files = 0;
                     long bytes = 0;

@@ -56,6 +56,23 @@ requires complete unfiltered metadata and shares only the row-count aggregation
 logic. Statistics improve planning inputs, but do not by themselves establish
 performance parity with Hive.
 
+## Small-table scan scheduling
+
+With external-table batch mode enabled, Delta checks the current checksum's file
+count, then a complete count already observed in the statement, then a cached
+count for the same user/table identity/version. A known count below
+`num_files_in_batch_mode` uses synchronous split planning; large or unknown counts
+keep streaming. The scheduling lookup never starts or waits for statistics and
+never enumerates files. Background statistics retain one additional file counter,
+including when row statistics are missing. Normal exhaustive scans also publish
+their complete active-file count into the same cache entry without starting a
+statistics task. Partial scans and partition-pruned replay counts cannot establish
+the table total. Reports update only the entry captured before scanning, so late
+completion cannot resurrect an invalidated entry. A cold snapshot without a checksum
+can still stream until a complete count is available. This decision is local
+to the Delta plugin, including Delta tables read through an HMS gateway; it does
+not change the shared FE row-count cache or BE scanner scheduling.
+
 ## Verification
 
 The standard FE UT reactor includes Delta and its metastore module. Run

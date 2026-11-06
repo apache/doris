@@ -35,19 +35,23 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.LongConsumer;
 
 /** One producer owns this collector. Only the immutable result is published to the explain thread. */
 final class DeltaLakeScanMetrics {
     private final DeltaLakeTableHandle handle;
     private final DeltaLakeStatementScope.FileCount totalFiles;
+    private final LongConsumer fileCountObserver;
     private final Set<Map<String, String>> partitions = new HashSet<>();
     private long selectedFiles;
     private long splits;
     private long countPartitions;
     private boolean complete;
 
-    DeltaLakeScanMetrics(ConnectorSession session, DeltaLakeTableHandle handle, Snapshot snapshot) {
+    DeltaLakeScanMetrics(ConnectorSession session, DeltaLakeTableHandle handle, Snapshot snapshot,
+            LongConsumer fileCountObserver) {
         this.handle = handle;
+        this.fileCountObserver = fileCountObserver;
         totalFiles = DeltaLakeStatementScope.fileCount(session, handle);
         DeltaKernelCompat.fileCount(snapshot).ifPresent(value -> totalFiles.value = value);
     }
@@ -61,6 +65,7 @@ final class DeltaLakeScanMetrics {
                 // Only an exhaustive scan without that predicate establishes the table total.
                 if (scan.getIsFullyConsumed() && scan.getPartitionPredicate().isEmpty()) {
                     totalFiles.value = scan.getScanMetrics().getNumActiveAddFiles();
+                    fileCountObserver.accept(totalFiles.value);
                 }
             }
         });
@@ -106,6 +111,7 @@ final class DeltaLakeScanMetrics {
     void count(long files, long partitionCount) {
         selectedFiles = files;
         totalFiles.value = files;
+        fileCountObserver.accept(files);
         countPartitions = partitionCount;
     }
 

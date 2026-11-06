@@ -73,6 +73,37 @@ class DeltaLakeScanPlanProviderTest {
     }
 
     @Test
+    void streamingDecisionReusesCompleteStatementCountsAtThePinnedVersion() throws Exception {
+        createTable();
+        appendFile(0, "first.parquet", "a", 257);
+        appendFile(0, "second.parquet", "b", 25);
+        TestingConnectorSession session = new TestingConnectorSession("known-files", Map.of("file_split_size", "128"));
+        try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(session)) {
+            ConnectorTableHandle handle = metadata.getTableHandle(session, "db", "table").orElseThrow();
+            ConnectorScanPlanProvider provider = connector.getScanPlanProvider();
+            Assertions.assertTrue(provider.streamingSplitEstimate(session, handle, Optional.empty(), false) >= 0);
+            metadata.listPartitions(session, handle, Optional.empty());
+            Assertions.assertEquals(-1, provider.streamingSplitEstimate(session, handle, Optional.empty(), false));
+            // Few files need not mean few splits: keep normal byte-range planning for large files.
+            Assertions.assertEquals(4, provider.planScan(session, request(handle).build()).size());
+
+            TestingConnectorSession boundary = new TestingConnectorSession("boundary",
+                    Map.of("num_files_in_batch_mode", "2"));
+            metadata.listPartitions(boundary, handle, Optional.empty());
+            Assertions.assertEquals(2, provider.streamingSplitEstimate(boundary, handle, Optional.empty(), false));
+            Assertions.assertEquals(-1, provider.streamingSplitEstimate(new TestingConnectorSession("next-query"),
+                    handle, Optional.empty(), false));
+
+            appendFile(1, "later.parquet", "c", 25);
+            connector.invalidateTable("db", "table");
+            ConnectorTableHandle next = metadata.getTableHandle(new TestingConnectorSession("next"),
+                    "db", "table").orElseThrow();
+            Assertions.assertTrue(provider.streamingSplitEstimate(session, next, Optional.empty(), false) >= 0);
+            Assertions.assertEquals(-1, provider.streamingSplitEstimate(session, handle, Optional.empty(), false));
+        }
+    }
+
+    @Test
     void splitsByteRangesAndKeepsPartitionsAndFilesOnThePinnedVersion() throws Exception {
         createTable();
         appendFile(0, "s3a://bucket/first.parquet", "a/b", 257);
@@ -350,6 +381,8 @@ class DeltaLakeScanPlanProviderTest {
                 source.next();
             }
             assertMetrics(provider, session, "2", "1", "1", "1", false);
+            Assertions.assertTrue(provider.streamingSplitEstimate(new TestingConnectorSession("after-partial"),
+                    handle, Optional.empty(), false) >= 0);
             try (ConnectorSplitSource source = provider.streamSplits(session,
                     request(handle).filter(Optional.of(filter)).build())) {
                 while (source.hasNext()) {
@@ -358,8 +391,15 @@ class DeltaLakeScanPlanProviderTest {
             }
             // The partition predicate's replay counter must not replace the complete table total.
             assertMetrics(provider, session, "2", "1", "1", "3", true);
+            Assertions.assertTrue(provider.streamingSplitEstimate(new TestingConnectorSession("after-partition-pruning"),
+                    handle, Optional.empty(), false) >= 0);
             provider.planScan(session, request(handle).partitionsPrunedToEmpty(true).build());
             assertMetrics(provider, session, "2", "0", "0", "0", true);
+            Assertions.assertTrue(provider.streamingSplitEstimate(new TestingConnectorSession("after-empty-request"),
+                    handle, Optional.empty(), false) >= 0);
+            provider.planScan(session, request(handle).build());
+            Assertions.assertEquals(-1, provider.streamingSplitEstimate(new TestingConnectorSession("after-full-scan"),
+                    handle, Optional.empty(), false));
             Assertions.assertTrue(DeltaLakeStatementScope.FILE_COUNT_NAMESPACE.startsWith("deltalake."));
         }
     }

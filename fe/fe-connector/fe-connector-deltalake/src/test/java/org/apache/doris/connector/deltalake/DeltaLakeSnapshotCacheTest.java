@@ -216,7 +216,8 @@ class DeltaLakeSnapshotCacheTest {
                                 Assertions.assertEquals(15, count);
                             }
                         }
-                        Assertions.assertEquals(35, DeltaLakeStatisticsCache.collect(shared, sharedEngine).getRowCount());
+                        Assertions.assertEquals(35,
+                                DeltaLakeStatisticsCache.collect(shared, sharedEngine).tableStatistics().getRowCount());
                     }
                     return null;
                 }));
