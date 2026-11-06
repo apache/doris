@@ -94,13 +94,10 @@ public class PlanPostProcessors {
         // filters are generated (and the plan is translated) - runtime-filter expr_order indexes
         // the join's conjunct list, so it must observe the final order, and the GroupJoin fusion
         // gate relies on the alignment as well. When the switch is off the plan must stay
-        // untouched, so the processor is not even added. Fusion also requires the Nereids
-        // distribute planner (see maybeTranslateToGroupJoin) and a cluster that can execute
-        // GROUP_JOIN_NODE, so those modes keep the plan untouched as well.
+        // untouched, so the processor is not even added. Fusion also requires a cluster that can
+        // execute GROUP_JOIN_NODE, so unsupported clusters keep the plan untouched as well.
         boolean groupJoinFusionEnabled = cascadesContext.getConnectContext().getSessionVariable()
                 .isEnableGroupJoinFusion()
-                && cascadesContext.getConnectContext().getSessionVariable()
-                        .isEnableNereidsDistributePlanner()
                 && GroupJoinFusionUtils.isSupportedByCluster(cascadesContext.getConnectContext());
         if (groupJoinFusionEnabled) {
             builder.add(new AlignGroupJoinConjunctOrder());

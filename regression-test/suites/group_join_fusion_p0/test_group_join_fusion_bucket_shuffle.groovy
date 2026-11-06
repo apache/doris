@@ -118,17 +118,14 @@ suite("test_group_join_fusion_bucket_shuffle") {
     //    run, so a repeat guards against a plan that only occasionally takes the bucket path.
     order_qt_bucket_shuffle_fusion_on_repeat bucketShuffleQuery
 
-    // 4. The legacy distribute planner assigns fragments with Coordinator's
-    //    BucketShuffleJoinController, whose bucket-shuffle detector only recognizes HashJoinNode.
-    //    Forcing it must therefore skip fusion altogether: a fused BUCKET_SHUFFLE GroupJoin would
-    //    miss bucket-aligned scan assignment and then fail the bucket-shuffle sink check
-    //    ("The destFragment must have bucket shuffle join node"). The query must still run and
-    //    return the same rows as the unfused plan.
+    // 4. The legacy distribute planner has been removed. Its old switch is still accepted for
+    //    compatibility, but setting it to false must keep the unified planner and GroupJoin fusion.
+    //    Bucket-aligned scan assignment and results must match the fused plan above.
     sql "SET enable_nereids_distribute_planner = false"
     explain {
         sql bucketShuffleQuery
-        contains("VHASH JOIN")
-        notContains("VGROUP JOIN")
+        contains("VGROUP JOIN")
+        contains("BUCKET_SHUFFLE")
     }
     order_qt_legacy_distributor_fallback bucketShuffleQuery
     assertEquals(fusionOffResult, sql(bucketShuffleQuery))
