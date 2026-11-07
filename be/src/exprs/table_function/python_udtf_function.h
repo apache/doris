@@ -48,7 +48,8 @@ class PythonUDTFFunction final : public TableFunction {
     ENABLE_FACTORY_CREATOR(PythonUDTFFunction);
 
 public:
-    PythonUDTFFunction(const TFunction& t_fn);
+    PythonUDTFFunction(const TFunction& t_fn, const std::string& timezone,
+                       const cctz::time_zone& timezone_obj);
     ~PythonUDTFFunction() override = default;
 
     Status open() override;
@@ -84,6 +85,7 @@ private:
     const TFunction& _t_fn;
     DataTypePtr _return_type;
     PythonUDTFClientPtr _udtf_client;
+    const std::string _timezone;
     cctz::time_zone _timezone_obj;
 
     // Result storage (similar to Java UDTF)

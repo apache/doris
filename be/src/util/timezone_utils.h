@@ -44,6 +44,9 @@ public:
     static bool try_get_fixed_offset_seconds(const cctz::time_zone& timezone,
                                              int32_t* offset_seconds);
 
+    // Normalize recognized UTC aliases and fixed offsets, e.g. GMT+08:00 to +08:00.
+    static bool normalize_timezone_name(const std::string& timezone, std::string* normalized);
+
     static const std::string default_time_zone;
 
 private:
@@ -52,8 +55,6 @@ private:
     static size_t cache_size();
 
     static void load_offsets_to_cache();
-
-    static bool normalize_timezone_name(const std::string& timezone, std::string* normalized);
 
     static bool parse_tz_offset_string(const std::string& timezone, cctz::time_zone& ctz);
 };

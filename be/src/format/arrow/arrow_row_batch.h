@@ -80,6 +80,21 @@ private:
     const std::string _timezone;
 };
 
+class PythonArrowSchemaConvertor final : public DorisArrowSchemaConvertor {
+public:
+    PythonArrowSchemaConvertor(std::string timezone, bool datetime_naive)
+            : DorisArrowSchemaConvertor(std::move(timezone)), _datetime_naive(datetime_naive) {}
+    PythonArrowSchemaConvertor(const Block& header, std::string timezone, bool datetime_naive)
+            : DorisArrowSchemaConvertor(header, std::move(timezone)),
+              _datetime_naive(datetime_naive) {}
+
+protected:
+    std::string timestamp_timezone(PrimitiveType type) const override;
+
+private:
+    const bool _datetime_naive;
+};
+
 class ArrowFlightSchemaConvertor : public DorisArrowSchemaConvertor {
 public:
     explicit ArrowFlightSchemaConvertor(std::string timezone)

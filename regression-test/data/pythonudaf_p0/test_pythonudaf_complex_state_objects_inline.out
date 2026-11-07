@@ -6,10 +6,10 @@
 {"Desk Lamp": {"avg_price": 45.99, "total_quantity": 1, "total_revenue": 45.99, "transactions": 1}, "HDMI Cable": {"avg_price": 15.99, "total_quantity": 2, "total_revenue": 31.98, "transactions": 1}, "Headphones": {"avg_price": 149.99, "total_quantity": 1, "total_revenue": 149.99, "transactions": 1}, "Keyboard": {"avg_price": 79.99, "total_quantity": 3, "total_revenue": 239.97, "transactions": 2}, "Laptop Pro": {"avg_price": 1299.99, "total_quantity": 2, "total_revenue": 2599.98, "transactions": 2}, "Monitor": {"avg_price": 399.99, "total_quantity": 3, "total_revenue": 1199.97, "transactions": 2}, "Mouse": {"avg_price": 29.99, "total_quantity": 6, "total_revenue": 179.94, "transactions": 3}, "Office Chair": {"avg_price": 299.99, "total_quantity": 1, "total_revenue": 299.99, "transactions": 1}, "USB Cable": {"avg_price": 9.99, "total_quantity": 3, "total_revenue": 29.97, "transactions": 1}, "Webcam": {"avg_price": 89.99, "total_quantity": 1, "total_revenue": 89.99, "transactions": 1}}
 
 -- !test_transaction_timeline --
-East	{"count": 4, "total": 1779.94, "first_transaction": "2024-01-03 14:00:00+08:00", "last_transaction": "2024-01-08 11:00:00+08:00", "first_amount": 1299.99, "last_amount": 89.97}
-North	{"count": 5, "total": 2069.93, "first_transaction": "2024-01-01 10:00:00+08:00", "last_transaction": "2024-01-06 14:00:00+08:00", "first_amount": 1299.99, "last_amount": 149.99}
-South	{"count": 4, "total": 955.93, "first_transaction": "2024-01-02 11:00:00+08:00", "last_transaction": "2024-01-07 15:00:00+08:00", "first_amount": 79.99, "last_amount": 45.99}
-West	{"count": 2, "total": 61.97, "first_transaction": "2024-01-04 15:00:00+08:00", "last_transaction": "2024-01-06 10:00:00+08:00", "first_amount": 29.99, "last_amount": 31.98}
+East	{"count": 4, "total": 1779.94, "first_transaction": "2024-01-03 14:00:00", "last_transaction": "2024-01-08 11:00:00", "first_amount": 1299.99, "last_amount": 89.97}
+North	{"count": 5, "total": 2069.93, "first_transaction": "2024-01-01 10:00:00", "last_transaction": "2024-01-06 14:00:00", "first_amount": 1299.99, "last_amount": 149.99}
+South	{"count": 4, "total": 955.93, "first_transaction": "2024-01-02 11:00:00", "last_transaction": "2024-01-07 15:00:00", "first_amount": 79.99, "last_amount": 45.99}
+West	{"count": 2, "total": 61.97, "first_transaction": "2024-01-04 15:00:00", "last_transaction": "2024-01-06 10:00:00", "first_amount": 29.99, "last_amount": 31.98}
 
 -- !test_unique_tracker --
 Accessories	{"unique_users": 2, "unique_products": 2, "payment_methods": ["Cash"]}
