@@ -65,11 +65,10 @@ import java.util.stream.Collectors;
  * columns. Proves the actual persisted schema after each build+commit, and that the validation guards fail loud.
  *
  * <p>Ported from the (deleted) fe-core {@code IcebergMetadataOpsValidationTest}, keeping its NESTED-schema
- * assertions but matched to the connector's own error-message text. Two upstream behaviors are enforced ONE LAYER
- * UP in {@code IcebergConnectorMetadata}, not the engine, so they are not exercised here: the nested {@code ADD
- * COLUMN} "must be nullable" / "DEFAULT and ON UPDATE" rejections (the engine always adds an OPTIONAL field via
- * {@code UpdateSchema.addColumn}). The "new nested struct field must be nullable" invariant is still covered here
- * via the engine-reachable complex-MODIFY append path ({@link IcebergComplexTypeDiff}).</p>
+ * assertions but matched to the connector's own error-message text. Required additions and defaults are covered
+ * through metadata conversion and the real catalog in {@link IcebergAddColumnDefaultsTest}. The complex-MODIFY
+ * append path ({@link IcebergComplexTypeDiff}) still requires nullable new fields because its type declaration
+ * does not carry field defaults.</p>
  */
 public class IcebergNestedColumnEvolutionTest {
 
@@ -215,8 +214,6 @@ public class IcebergNestedColumnEvolutionTest {
 
     // ======================================================================================================
     // Group 2 — nested ADD: add a struct field; position FIRST / AFTER; case-insensitive sibling collision.
-    // (The nested ADD "must be nullable" guard lives in IcebergConnectorMetadata; the engine's addColumn always
-    //  adds an OPTIONAL field. The invariant is covered below via the complex-MODIFY append path.)
     // ======================================================================================================
 
     @Test

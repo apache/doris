@@ -19,7 +19,9 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnNullableType;
+import org.apache.doris.analysis.DateLiteralUtils;
 import org.apache.doris.analysis.DefaultValueExprDef;
+import org.apache.doris.analysis.UuidLiteral;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
@@ -28,16 +30,22 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
@@ -53,12 +61,17 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * column definition
  * TODO: complex types will not work, we will support them later.
  */
 public class ColumnDefinition {
+    private static final Pattern COMPACT_DATETIME_FRACTION =
+            Pattern.compile("^([0-9]{8}T?[0-9]{6})([0-9]{1,6})(.*)$");
+
     private final String name;
     private DataType type;
     private boolean isKey;
@@ -300,7 +313,7 @@ public class ColumnDefinition {
                     if (exprDef != null) {
                         sb.append("DEFAULT ").append(value).append(" ");
                     } else {
-                        sb.append("DEFAULT ").append("\"").append(SqlUtils.escapeQuota(value)).append("\"")
+                        sb.append("DEFAULT ").append(SqlLiteralUtils.quoteStringLiteral(value))
                                 .append(" ");
                     }
                 } else if (type.isBitmapType()) {
@@ -409,6 +422,15 @@ public class ColumnDefinition {
     public void validateNestedColumn(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet,
             boolean isEnableMergeOnWrite, KeysType keysType) {
         validateInternal(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, true, false);
+    }
+
+    private static String normalizeCompactDateTimeFraction(String value) {
+        Matcher matcher = COMPACT_DATETIME_FRACTION.matcher(value.trim());
+        // The DEFAULT validator also accepts compact fractional seconds without a decimal point.
+        if (matcher.matches()) {
+            return matcher.group(1) + "." + matcher.group(2) + matcher.group(3);
+        }
+        return value;
     }
 
     private void validateInternal(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet,
@@ -564,12 +586,34 @@ public class ColumnDefinition {
             try {
                 ColumnDef.validateDefaultValue(type.toCatalogDataType(),
                         defaultValue.get().getValue(), defaultValue.get().getDefaultValueExprDef());
-                if (!isOlap && type.isTimeStampNsType()
+                if (!isOlap && type.isDateLikeType()
                         && defaultValue.get().getDefaultValueExprDef() == null) {
-                    // Connectors receive civil SQL defaults, not numeric epoch carriers. Normalize
-                    // with the same parser as validation so compact dates cannot become epoch nanos.
+                    // Preserve SQL literal time-zone and rounding semantics for civil temporal defaults.
+                    String value = defaultValue.get().getValue();
+                    if (type.isDateTimeV2Type() || type.isTimeStampTzType()) {
+                        value = normalizeCompactDateTimeFraction(value);
+                    }
+                    Literal normalized;
+                    if (type.isTimeStampTzType()) {
+                        TimeStampTzType zonedType = (TimeStampTzType) type;
+                        // Retain civil precision until the connector binds the session zone.
+                        normalized = DateTimeChecker.hasTimeZone(value)
+                                ? new TimestampTzLiteral(zonedType, value)
+                                : new DateTimeV2Literal(DateTimeV2Type.MAX, value);
+                    } else if (type.isTimeStampNsType()) {
+                        normalized = new TimeStampNsLiteral(value);
+                    } else if (type.isDateTimeV2Type()) {
+                        normalized = new DateTimeV2Literal((DateTimeV2Type) type, value);
+                    } else {
+                        normalized = Literal.fromLegacyLiteral(
+                                DateLiteralUtils.createLiteral(value, type.toCatalogDataType()),
+                                type.toCatalogDataType());
+                    }
+                    defaultValue = Optional.of(new DefaultValue(normalized.getStringValue()));
+                }
+                if (!isOlap && type.isUuidType() && defaultValue.get().getDefaultValueExprDef() == null) {
                     defaultValue = Optional.of(new DefaultValue(
-                            new TimeStampNsLiteral(defaultValue.get().getValue()).getStringValue()));
+                            new UuidLiteral(defaultValue.get().getValue()).getStringValue()));
                 }
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage(), e);

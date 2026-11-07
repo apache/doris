@@ -89,7 +89,7 @@ public final class IcebergNestedColumnEvolution {
                 parentPath.getFullPath(), path.getLeafName(), null, "add");
 
         UpdateSchema updateSchema = table.updateSchema();
-        updateSchema.addColumn(parentPath.getFullPath(), path.getLeafName(), column.getType(), column.getComment());
+        column.addTo(updateSchema, parentPath.getFullPath(), IcebergWriterHelper.getFormatVersion(table));
         if (position != null) {
             applyPosition(updateSchema, position, childPath(parentPath.getColumnPath(), path.getLeafName()),
                     schema, "add");
