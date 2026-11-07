@@ -125,6 +125,8 @@ private:
 
     std::vector<OlapScanRange*> _key_ranges;
 
+    // The scan node aggregates the rows itself.
+    bool _aggregation = false;
     TabletReader::ReaderParams _tablet_reader_params;
     std::unique_ptr<TabletReader> _tablet_reader;
     std::optional<int64_t> _start_tso;

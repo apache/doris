@@ -31,8 +31,7 @@
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_reader.h"
-#include "storage/schema.h"
-#include "storage/segment/segment_loader.h"
+#include "storage/segment/row_ranges.h"
 #include "util/once.h"
 
 namespace doris {
@@ -46,24 +45,18 @@ public:
 
     ~BetaRowsetReader() override { _rowset->release(); }
 
-    Status init(RowsetReaderContext* read_context, const RowSetSplits& rs_splits) override;
+    Status init(const RowsetReaderContext* read_context, const RowSetSplits& rs_splits) override;
 
-    Status get_segment_iterators(RowsetReaderContext* read_context,
+    Status get_segment_iterators(const RowsetReaderContext* read_context,
                                  std::vector<RowwiseIteratorUPtr>* out_iters,
                                  bool use_cache = false) override;
+
+    Status new_iterator(const RowsetReaderContext* read_context,
+                        RowwiseIteratorUPtr* out_iter) override;
+
     void reset_read_options() override;
-    Status next_batch(Block* block) override { return _next_batch(block); }
-    Status next_batch(BlockView* block_view) override { return _next_batch(block_view); }
-    Status next_batch(BlockWithSameBit* block_with_same_bit) override {
-        return _next_batch(block_with_same_bit);
-    }
 
-    bool is_merge_iterator() const override {
-        return _read_context->need_ordered_result && _get_segment_num() > 1 &&
-               _rowset->rowset_meta()->is_segments_overlapping();
-    }
-
-    bool delete_flag() override { return _rowset->delete_flag(); }
+    Status next_batch(Block* block) override;
 
     Version version() override { return _rowset->version(); }
 
@@ -80,7 +73,8 @@ public:
                _stats->rows_vec_cond_filtered + _stats->rows_short_circuit_cond_filtered;
     }
 
-    uint64_t merged_rows() override { return *(_read_context->merged_rows); }
+    // Rows dropped by the segment merge of next_batch(): the older versions of a key.
+    uint64_t merged_rows() override { return _iterator != nullptr ? _iterator->merged_rows() : 0; }
 
     RowsetTypePB type() const override { return RowsetTypePB::BETA_ROWSET; }
 
@@ -88,43 +82,13 @@ public:
 
     RowsetReaderSharedPtr clone() override;
 
-    void set_topn_limit(size_t topn_limit) override { _topn_limit = topn_limit; }
-
     OlapReaderStatistics* get_stats() { return _stats; }
 
 private:
-    template <typename T>
-    Status _next_batch(T* block) {
-        RETURN_IF_ERROR(_init_iterator_once());
-        SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
-        if (_empty) {
-            return Status::Error<ErrorCode::END_OF_FILE>("BetaRowsetReader is empty");
-        }
+    // Whether new_iterator() must merge the segments: the read wants key order and the
+    // segments of the read's range overlap on keys.
+    bool _needs_segment_merge() const;
 
-        RuntimeState* runtime_state = nullptr;
-        if (_read_context != nullptr) {
-            runtime_state = _read_context->runtime_state;
-        }
-
-        do {
-            Status s = _iterator->next_batch(block);
-            if (!s.ok()) {
-                if (!s.is<ErrorCode::END_OF_FILE>()) {
-                    LOG(WARNING) << "failed to read next block: " << s.to_string();
-                }
-                return s;
-            }
-
-            if (runtime_state != nullptr && runtime_state->is_cancelled()) [[unlikely]] {
-                return runtime_state->cancel_reason();
-            }
-        } while (block->empty());
-
-        return Status::OK();
-    }
-
-    [[nodiscard]] Status _init_iterator_once();
-    [[nodiscard]] Status _init_iterator();
     bool _should_push_down_value_predicates() const;
 
     int64_t _get_segment_num() const {
@@ -141,19 +105,22 @@ private:
     std::pair<int64_t, int64_t> _segment_offsets;
     std::vector<RowRanges> _segment_row_ranges;
 
-    RowsetReaderContext* _read_context = nullptr;
+    const RowsetReaderContext* _read_context = nullptr;
     BetaRowsetSharedPtr _rowset;
 
+    // The statistics the segment reads add to: the context's when the read supplies one (a
+    // query, a compaction), these otherwise (a schema change, which checks the row counts of
+    // every rowset on its own).
     OlapReaderStatistics _owned_stats;
     OlapReaderStatistics* _stats = nullptr;
 
+    // The iterator of next_batch(), created on the first call.
     std::unique_ptr<RowwiseIterator> _iterator;
 
+    // The read options of this rowset's segments, built by get_segment_iterators() and shared
+    // by every segment iterator it creates; `_read_options` is the working copy it is built in.
     StorageReadOptions _read_options;
-
-    bool _empty = false;
-    size_t _topn_limit = 0;
-    uint64_t _merged_rows = 0;
+    std::shared_ptr<const StorageReadOptions> _segment_options;
 };
 
 } // namespace doris

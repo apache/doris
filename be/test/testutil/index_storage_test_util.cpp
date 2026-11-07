@@ -1305,7 +1305,7 @@ Result<IndexReadResult> IndexStorageTestFixture::read_rowsets(
 
         RowsetReaderContext context;
         context.reader_type = options.reader_type;
-        context.need_ordered_result = options.need_ordered_result;
+        context.merge.key_ordered = options.key_ordered;
         context.read_schema = read_schema;
         EXPECT_TRUE(read_schema
                             ->init_from_tablet_schema(*_tablet_schema,

@@ -46,6 +46,7 @@
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/segment/array_index_input.h"
 #include "storage/segment/column_reader.h"
+#include "storage/segment/empty_segment_iterator.h"
 #include "storage/segment/segment.h"
 #include "storage/storage_engine.h"
 #include "storage/storage_layout.h"
@@ -837,7 +838,7 @@ protected:
         ASSERT_TRUE(st.ok()) << st;
         OlapReaderStatistics stats;
         StorageReadOptions options(stats);
-        options.version = rowset->version();
+        options.rowset_version = rowset->version();
         options.commit_tso = rowset->rowset_meta()->commit_tso();
         options.io_ctx.reader_type = ReaderType::READER_QUERY;
         segment_v2::ColumnIteratorUPtr iter;
@@ -880,7 +881,9 @@ protected:
         std::unique_ptr<RowwiseIterator> filtered;
         st = segment->new_iterator(read_schema, options, &filtered);
         ASSERT_TRUE(st.ok()) << st;
-        EXPECT_EQ(expected_tso == 0, filtered->empty());
+        // The segment is filtered out completely exactly when the TSO predicate matches no row.
+        EXPECT_EQ(expected_tso == 0,
+                  dynamic_cast<segment_v2::EmptySegmentIterator*>(filtered.get()) != nullptr);
     }
 };
 
