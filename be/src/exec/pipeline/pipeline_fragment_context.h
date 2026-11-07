@@ -291,14 +291,7 @@ private:
 
     // TODO: remove the _sink and _multi_cast_stream_sink_senders to set both
     // of it in pipeline task not the fragment_context
-#ifdef __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wshadow-field"
-#endif
     DataSinkOperatorPtr _sink = nullptr;
-#ifdef __clang__
-#pragma clang diagnostic pop
-#endif
 
     // `_dag` manage dependencies between pipelines by pipeline ID. the indices will be blocked by members
     std::map<PipelineId, std::vector<PipelineId>> _dag;
