@@ -37,7 +37,6 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ThriftLogHelper;
 import org.apache.doris.load.routineload.RoutineLoadJob;
-import org.apache.doris.nereids.load.NereidsCloudStreamLoadPlanner;
 import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
 import org.apache.doris.nereids.load.NereidsStreamLoadTask;
 import org.apache.doris.planner.GroupCommitPlanner;
@@ -290,16 +289,14 @@ public class StreamLoadHandler implements AutoCloseable {
                 buildMultiTableStreamLoadTask(streamLoadTask, request.getTxnId());
             }
 
-            NereidsStreamLoadPlanner planner = null;
             if (Config.isCloudMode()) {
-                planner = new NereidsCloudStreamLoadPlanner(db, table, streamLoadTask, request.getCloudCluster());
-            } else {
-                planner = new NereidsStreamLoadPlanner(db, table, streamLoadTask);
+                // The handler has already established the planning context. The planner borrows it.
+                ConnectContext.get().setCloudCluster(request.getCloudCluster());
             }
+            NereidsStreamLoadPlanner planner = new NereidsStreamLoadPlanner(db, table, streamLoadTask);
             int index = multiTableFragmentInstanceIdIndex != null
                     ? multiTableFragmentInstanceIdIndex.getAndIncrement() : 0;
-            TPipelineFragmentParams result = null;
-            result = planner.plan(streamLoadTask.getId(), index);
+            TPipelineFragmentParams result = planner.plan(streamLoadTask.getId(), index);
             assignAdaptiveRandomBucket(result);
             result.setTableName(table.getName());
             result.query_options.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());

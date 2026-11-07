@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.RedirectStatus;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LoadException;
@@ -28,6 +29,7 @@ import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TNetworkAddress;
 
+import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -81,6 +83,40 @@ public class MasterOpExecutor extends FEOpExecutor {
         waitOnReplaying(result);
     }
 
+    /** Synchronizes a metadata request without creating or borrowing a SQL session. */
+    public static void syncJournal(Env env, String database, String user) throws Exception {
+        TMasterOpRequest request = buildMetadataRequest(env, database, user);
+        request.setSyncJournalOnly(true);
+        int timeoutMs = metadataRpcTimeoutMs(env, user);
+        TMasterOpResult response = forward(env,
+                new TNetworkAddress(env.getMasterHost(), env.getMasterRpcPort()), timeoutMs, false, request);
+        LOG.info("forwarding to master get result max journal id: {}", response.maxJournalId);
+        env.getJournalObservable().waitOn(response.maxJournalId, timeoutMs);
+    }
+
+    /** Reports group-commit pressure; this in-memory update does not wait for journal replay. */
+    public static void updateLoadData(Env env, long tableId, long receiveData) throws Exception {
+        String user = UserIdentity.ADMIN.getQualifiedUser();
+        TMasterOpRequest request = buildMetadataRequest(env, "", user);
+        request.setGroupCommitInfo(new TGroupCommitInfo().setUpdateLoadData(true)
+                .setTableId(tableId).setReceiveData(receiveData));
+        forward(env, new TNetworkAddress(env.getMasterHost(), env.getMasterRpcPort()),
+                metadataRpcTimeoutMs(env, user), false, request);
+    }
+
+    private static TMasterOpRequest buildMetadataRequest(Env env, String database, String user) {
+        return new TMasterOpRequest().setClientNodeHost(env.getSelfNode().getHost())
+                .setClientNodePort(env.getSelfNode().getPort()).setDb(database).setUser(user).setSql("");
+    }
+
+    private static int metadataRpcTimeoutMs(Env env, String user) {
+        // These RPCs used a fresh ordinary user's session, never the invoking SQL session's
+        // overrides or external temporary-user defaults.
+        int userTimeoutS = Strings.isNullOrEmpty(user) ? 0 : env.getAuth().getQueryTimeoutForRegularUser(user);
+        int timeoutS = userTimeoutS > 0 ? userTimeoutS : VariableMgr.getDefaultQueryTimeoutS();
+        return (int) (timeoutS * 1000 * RPC_TIMEOUT_COEFFICIENT);
+    }
+
     public long getGroupCommitLoadBeId(long tableId, String cluster) throws Exception {
         result = forward(buildGetGroupCommitLoadBeIdParmas(tableId, cluster));
         if (result.isSetStatusCode() && result.getStatusCode() != 0) {
@@ -99,21 +135,8 @@ public class MasterOpExecutor extends FEOpExecutor {
         return "failed to select backend for group commit, status code: " + result.getStatusCode();
     }
 
-    public void updateLoadData(long tableId, long receiveData) throws Exception {
-        result = forward(buildUpdateLoadDataParams(tableId, receiveData));
-    }
-
     private TMasterOpRequest buildSyncJournalParams() {
-        final TMasterOpRequest params = new TMasterOpRequest();
-        // node ident
-        params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
-        params.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
-        params.setSyncJournalOnly(true);
-        params.setDb(ctx.getDatabase());
-        params.setUser(ctx.getQualifiedUser());
-        // just make the protocol happy
-        params.setSql("");
-        return params;
+        return buildMetadataRequest(env, ctx.getDatabase(), ctx.getQualifiedUser()).setSyncJournalOnly(true);
     }
 
     private TMasterOpRequest buildGetGroupCommitLoadBeIdParmas(long tableId, String cluster) {
@@ -135,25 +158,9 @@ public class MasterOpExecutor extends FEOpExecutor {
         groupCommitParams.setLoadSelectionMode(decision.getMode().name());
     }
 
-    private TMasterOpRequest buildUpdateLoadDataParams(long tableId, long receiveData) {
-        final TGroupCommitInfo groupCommitParams = new TGroupCommitInfo();
-        groupCommitParams.setUpdateLoadData(true);
-        groupCommitParams.setTableId(tableId);
-        groupCommitParams.setReceiveData(receiveData);
-        return getMasterOpRequestForGroupCommit(groupCommitParams);
-    }
-
     private TMasterOpRequest getMasterOpRequestForGroupCommit(TGroupCommitInfo groupCommitParams) {
-        final TMasterOpRequest params = new TMasterOpRequest();
-        // node ident
-        params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
-        params.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
-        params.setGroupCommitInfo(groupCommitParams);
-        params.setDb(ctx.getDatabase());
-        params.setUser(ctx.getQualifiedUser());
-        // just make the protocol happy
-        params.setSql("");
-        return params;
+        return buildMetadataRequest(env, ctx.getDatabase(), ctx.getQualifiedUser())
+                .setGroupCommitInfo(groupCommitParams);
     }
 
 }

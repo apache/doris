@@ -18,7 +18,10 @@
 package org.apache.doris.resource.workloadgroup;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authorization.AccessContext;
+import org.apache.doris.authorization.AuthorizedResource;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -31,6 +34,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.proc.ProcResult;
+import org.apache.doris.mysql.privilege.AccessTranslation;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.DropWorkloadGroupOperationLog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -142,10 +146,48 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
     // the workload group name in AllBackendComputeGroup will associate with multiple workload groups
     public List<WorkloadGroup> getWorkloadGroup(ConnectContext context) throws UserException {
         String wgName = getWorkloadGroupNameAndCheckPriv(context);
-        ComputeGroup cg = context.getComputeGroup();
+        return getWorkloadGroup(context.getComputeGroup(), wgName);
+    }
+
+    /** Resolves a background operation's group without borrowing a client's session or access context. */
+    public List<WorkloadGroup> getWorkloadGroup(UserIdentity user, String workloadGroup, ComputeGroup computeGroup)
+            throws UserException {
+        return getWorkloadGroup(computeGroup, getWorkloadGroupNameAndCheckPriv(user, workloadGroup));
+    }
+
+    /**
+     * Resolves a job's workload group as its owner. Outside cloud mode the owner's resource tags select
+     * the compute group. An empty workload-group name falls back to the user property, then "normal";
+     * callers that inherit the global session default supply that default explicitly.
+     * Cloud policy selection retains its existing caller-thread access context.
+     */
+    public List<WorkloadGroup> getWorkloadGroup(UserIdentity user, String workloadGroup, String cloudCluster)
+            throws UserException {
+        String wgName = getWorkloadGroupNameAndCheckPriv(user, workloadGroup);
+        ComputeGroup computeGroup;
+        if (Config.isCloudMode()) {
+            if (Strings.isNullOrEmpty(cloudCluster)) {
+                ConnectContext.CloudClusterResult selected = ConnectContext.getCloudClusterByPolicy(user);
+                if (selected == null || Strings.isNullOrEmpty(selected.clusterName)) {
+                    throw new ComputeGroupException("the user is not granted permission to the compute group",
+                            ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_ANY_COMPUTE_GROUP);
+                }
+                cloudCluster = selected.clusterName;
+            }
+            computeGroup = Env.getCurrentEnv().getComputeGroupMgr().getComputeGroupByName(cloudCluster);
+        } else {
+            String qualifiedUser = user == null ? null : user.getQualifiedUser();
+            computeGroup = Strings.isNullOrEmpty(qualifiedUser)
+                    ? Env.getCurrentEnv().getComputeGroupMgr().getComputeGroupByName(Tag.VALUE_DEFAULT_TAG)
+                    : Env.getCurrentEnv().getAuth().getComputeGroup(qualifiedUser);
+        }
+        return getWorkloadGroup(computeGroup, wgName);
+    }
+
+    private List<WorkloadGroup> getWorkloadGroup(ComputeGroup computeGroup, String workloadGroup) throws UserException {
         readLock();
         try {
-            return cg.getWorkloadGroup(wgName, this);
+            return computeGroup.getWorkloadGroup(workloadGroup, this);
         } finally {
             readUnlock();
         }
@@ -183,21 +225,37 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
     }
 
     private String getWorkloadGroupNameAndCheckPriv(ConnectContext context) throws AnalysisException {
-        String groupName = context.getSessionVariable().getWorkloadGroup();
+        String groupName = getWorkloadGroupName(context.getCurrentUserIdentity(),
+                context.getSessionVariable().getWorkloadGroup());
+        if (!Env.getCurrentEnv().getAccessManager().checkWorkloadGroupPriv(context, groupName, PrivPredicate.USAGE)) {
+            reportWorkloadGroupAccessDenied(context.getCurrentUserIdentity(), groupName);
+        }
+        return groupName;
+    }
+
+    private String getWorkloadGroupNameAndCheckPriv(UserIdentity user, String workloadGroup) throws AnalysisException {
+        String groupName = getWorkloadGroupName(user, workloadGroup);
+        if (!Env.getCurrentEnv().getAccessManager().decide(user, AuthorizedResource.workloadGroup(groupName),
+                AccessTranslation.requirementOf(PrivPredicate.USAGE), AccessContext.NONE)) {
+            reportWorkloadGroupAccessDenied(user, groupName);
+        }
+        return groupName;
+    }
+
+    private String getWorkloadGroupName(UserIdentity user, String groupName) {
         if (Strings.isNullOrEmpty(groupName)) {
-            groupName = Env.getCurrentEnv().getAuth().getWorkloadGroup(context.getQualifiedUser());
+            groupName = Env.getCurrentEnv().getAuth().getWorkloadGroup(user == null ? null : user.getQualifiedUser());
         }
         if (Strings.isNullOrEmpty(groupName)) {
             groupName = DEFAULT_GROUP_NAME;
         }
-        if (!Env.getCurrentEnv().getAccessManager().checkWorkloadGroupPriv(context, groupName, PrivPredicate.USAGE)) {
-            ErrorReport.reportAnalysisException(
-                    "Access denied; you need (at least one of) the %s privilege(s) to use workload group '%s'. "
-                            + "User: %s",
-                    ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "USAGE/ADMIN", groupName,
-                    context.getCurrentUserIdentity());
-        }
         return groupName;
+    }
+
+    private void reportWorkloadGroupAccessDenied(UserIdentity user, String groupName) throws AnalysisException {
+        ErrorReport.reportAnalysisException(
+                "Access denied; you need (at least one of) the %s privilege(s) to use workload group '%s'. User: %s",
+                ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "USAGE/ADMIN", groupName, user);
     }
 
     public void createWorkloadGroup(String computeGroup, WorkloadGroup workloadGroup, boolean isIfNotExists)

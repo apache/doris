@@ -24,7 +24,6 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
-import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
@@ -343,10 +342,7 @@ public abstract class FileScanNode extends ExternalScanNode {
                 if (expression != null) {
                     expression = TypeCoercionUtils.castIfNotSameType(expression,
                             DataType.fromCatalogType(slotDesc.getType()));
-                    Expression defaultExpression = expression;
-                    expr = CascadesContext.withTempContext(cascadesContext ->
-                            ExpressionTranslator.translate(defaultExpression,
-                                    new PlanTranslatorContext(cascadesContext)));
+                    expr = ExpressionTranslator.translate(expression, new PlanTranslatorContext());
                     defaultExpr = ExprToThriftVisitor.treeToThrift(expr);
                 } else {
                     defaultExpr = tExpr;

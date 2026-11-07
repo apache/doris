@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.coercion.Int32OrLessType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 /** ComputePrecisionForRound */
 public interface ComputePrecisionForRound extends ComputePrecision {
@@ -37,7 +38,7 @@ public interface ComputePrecisionForRound extends ComputePrecision {
                     .withReturnType(DecimalV3Type.createDecimalV3Type(decimalV3Type.getPrecision(), 0));
         } else if (arity() == 2 && signature.getArgType(0) instanceof DecimalV3Type) {
             DecimalV3Type decimalV3Type = DecimalV3Type.forType(getArgumentType(0));
-            Expression floatLength = getArgument(1);
+            Expression floatLength = ExpressionUtils.foldConstantArgument(getArgument(1));
             int scale;
 
             if (!floatLength.isLiteral() && !floatLength.isSlot()) {

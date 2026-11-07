@@ -17,17 +17,26 @@
 
 package org.apache.doris.service;
 
+import org.apache.doris.binlog.BinlogManager;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.master.MasterImpl;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.MasterOpExecutor;
 import org.apache.doris.qe.MysqlConnectProcessor;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.thrift.TFetchLoadJobRequest;
+import org.apache.doris.thrift.TGetBinlogRequest;
+import org.apache.doris.thrift.TGetBinlogResult;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
+import org.apache.doris.thrift.TStatus;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
 import org.apache.thrift.TException;
@@ -114,13 +123,13 @@ class FrontendServiceContextLifecycleTest {
 
     @Test
     void forwardInitializationFailureClosesContextBeforeQueryRegistration() {
-        TMasterOpRequest request = forwardRequest();
+        TMasterOpRequest request = Mockito.spy(forwardRequest());
         Frontend requester = Mockito.mock(Frontend.class);
         Mockito.when(env.checkFeExist("follower", 9020)).thenReturn(requester);
         AtomicReference<ConnectContext> requestContext = new AtomicReference<>();
         StatementContext statement = Mockito.mock(StatementContext.class);
-        IllegalStateException failure = new IllegalStateException("resource group unavailable");
-        Mockito.when(requester.getLocalResourceGroup()).thenAnswer(call -> {
+        IllegalStateException failure = new IllegalStateException("initialization failed");
+        Mockito.when(request.getClientNodeHost()).thenReturn("follower").thenAnswer(call -> {
             ConnectContext context = ConnectContext.get();
             requestContext.set(context);
             context.setStatementContext(statement);
@@ -131,6 +140,51 @@ class FrontendServiceContextLifecycleTest {
         Assertions.assertTrue(requestContext.get().isClosingOrClosed());
         Mockito.verify(statement).close();
         Assertions.assertNull(ConnectContext.get());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void followerBinlogSyncDoesNotCreateOrReplaceContext(boolean fail) throws Exception {
+        Database database = Mockito.mock(Database.class);
+        Mockito.when(database.getId()).thenReturn(7L);
+        Mockito.when(catalog.getDbNullable("binlog_db")).thenReturn(database);
+        BinlogManager binlogs = Mockito.mock(BinlogManager.class);
+        Mockito.when(env.getBinlogManager()).thenReturn(binlogs);
+        Mockito.when(binlogs.getBinlog(7L, -1L, 11L, 1L))
+                .thenReturn(Pair.of(new TStatus(TStatusCode.OK), Collections.emptyList()));
+        TGetBinlogRequest request = new TGetBinlogRequest().setUser("binlog_user").setPasswd("")
+                .setDb("binlog_db").setPrevCommitSeq(11L).setNumAcquired(1L)
+                .setAllowFollowerRead(true).setToken("internal-token");
+        DdlException failure = new DdlException("journal replay timeout");
+        ConnectContext caller = new ConnectContext();
+        caller.setThreadLocalInfo();
+        try (MockedConstruction<ConnectContext> contexts = Mockito.mockConstruction(ConnectContext.class);
+                MockedStatic<MasterOpExecutor> forwarding = Mockito.mockStatic(MasterOpExecutor.class)) {
+            forwarding.when(() -> MasterOpExecutor.syncJournal(env, "binlog_db", "binlog_user"))
+                    .thenAnswer(call -> {
+                        Assertions.assertSame(caller, ConnectContext.get());
+                        if (fail) {
+                            throw failure;
+                        }
+                        return null;
+                    });
+            TGetBinlogResult result = service.getBinlog(request);
+            if (fail) {
+                Assertions.assertEquals(TStatusCode.ANALYSIS_ERROR, result.getStatus().getStatusCode());
+                Assertions.assertEquals(Collections.singletonList(failure.getMessage()),
+                        result.getStatus().getErrorMsgs());
+                Mockito.verifyNoInteractions(binlogs);
+            } else {
+                Assertions.assertEquals(TStatusCode.OK, result.getStatus().getStatusCode());
+                Assertions.assertTrue(result.getBinlogs().isEmpty());
+            }
+            forwarding.verify(() -> MasterOpExecutor.syncJournal(env, "binlog_db", "binlog_user"));
+            Assertions.assertTrue(contexts.constructed().isEmpty());
+            Assertions.assertSame(caller, ConnectContext.get());
+            Assertions.assertFalse(caller.isClosingOrClosed());
+        } finally {
+            caller.cleanup();
+        }
     }
 
     @ParameterizedTest

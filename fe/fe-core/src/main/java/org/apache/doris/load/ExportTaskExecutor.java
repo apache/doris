@@ -160,7 +160,7 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
                     return;
                 }
                 LOG.debug("[Export Task] taskId: {} executed successfully", taskId);
-                outfileInfoList = getOutFileInfo(r.connectContext.getResultAttachedInfo());
+                outfileInfoList = getOutFileInfo(stmtExecutor.getResultAttachedInfo());
             } catch (Exception e) {
                 LOG.debug("[Export Task] taskId: {} failed with exception: {}",
                         taskId, e.getMessage(), e);

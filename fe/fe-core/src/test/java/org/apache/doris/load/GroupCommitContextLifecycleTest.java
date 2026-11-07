@@ -20,7 +20,6 @@ package org.apache.doris.load;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterOpExecutor;
 
@@ -32,8 +31,6 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
-
-import java.util.concurrent.atomic.AtomicReference;
 
 public class GroupCommitContextLifecycleTest {
     private boolean savedUnitTest;
@@ -61,24 +58,23 @@ public class GroupCommitContextLifecycleTest {
 
     @ParameterizedTest
     @CsvSource({"false, false", "false, true", "true, false", "true, true"})
-    public void forwardingReleasesPrivateContextAndRestoresCaller(boolean hasParent, boolean fail) throws Exception {
+    public void forwardingDoesNotCreateOrReplaceContext(boolean hasParent, boolean fail) throws Exception {
         ConnectContext parent = hasParent ? new ConnectContext() : null;
         if (parent != null) {
             parent.setThreadLocalInfo();
         }
-        AtomicReference<ConnectContext> forwarded = new AtomicReference<>();
-        StatementContext statement = Mockito.mock(StatementContext.class);
         Exception failure = new Exception("forward failed");
-        try (MockedConstruction<MasterOpExecutor> construction = Mockito.mockConstruction(MasterOpExecutor.class,
-                (executor, context) -> {
-                    ConnectContext child = (ConnectContext) context.arguments().get(0);
-                    Assertions.assertSame(child, ConnectContext.get());
-                    child.setStatementContext(statement);
-                    forwarded.set(child);
-                    if (fail) {
-                        Mockito.doThrow(failure).when(executor).updateLoadData(7L, 11L);
-                    }
-                })) {
+        Env env = Env.getCurrentEnv();
+        try (MockedConstruction<ConnectContext> contexts = Mockito.mockConstruction(ConnectContext.class);
+                MockedStatic<MasterOpExecutor> forwarding = Mockito.mockStatic(MasterOpExecutor.class)) {
+            forwarding.when(() -> MasterOpExecutor.updateLoadData(env, 7L, 11L))
+                    .thenAnswer(call -> {
+                        Assertions.assertSame(parent, ConnectContext.get());
+                        if (fail) {
+                            throw failure;
+                        }
+                        return null;
+                    });
             GroupCommitManager manager = new GroupCommitManager();
             if (fail) {
                 RuntimeException caught = Assertions.assertThrows(RuntimeException.class,
@@ -87,14 +83,10 @@ public class GroupCommitContextLifecycleTest {
             } else {
                 manager.updateLoadData(7L, 11L);
             }
-            Assertions.assertEquals(1, construction.constructed().size());
-            Mockito.verify(construction.constructed().get(0)).updateLoadData(7L, 11L);
+            Assertions.assertTrue(contexts.constructed().isEmpty());
+            forwarding.verify(() -> MasterOpExecutor.updateLoadData(env, 7L, 11L));
         }
         Assertions.assertSame(parent, ConnectContext.get());
-        Assertions.assertNotSame(parent, forwarded.get());
-        Assertions.assertTrue(forwarded.get().isClosingOrClosed());
-        Assertions.assertNull(forwarded.get().getStatementContext());
-        Mockito.verify(statement).close();
         if (parent != null) {
             Assertions.assertFalse(parent.isClosingOrClosed());
             parent.cleanup();

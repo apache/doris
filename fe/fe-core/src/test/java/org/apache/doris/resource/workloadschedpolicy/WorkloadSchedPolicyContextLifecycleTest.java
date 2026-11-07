@@ -17,11 +17,11 @@
 
 package org.apache.doris.resource.workloadschedpolicy;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
-import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
@@ -34,14 +34,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.mockito.ArgumentCaptor;
+import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicReference;
 
 class WorkloadSchedPolicyContextLifecycleTest {
     private boolean savedRunningUnitTest;
@@ -80,41 +79,38 @@ class WorkloadSchedPolicyContextLifecycleTest {
     }
 
     @Test
-    void computeGroupLookupFailureReleasesUnboundSession() throws Exception {
+    void computeGroupLookupFailureDoesNotCreateSession() throws Exception {
         UserException failure = new UserException("missing compute group");
         Mockito.when(computeGroups.getComputeGroupByName(Mockito.anyString())).thenThrow(failure);
-        Assertions.assertSame(failure, Assertions.assertThrows(UserException.class,
-                () -> new WorkloadSchedPolicyMgr().checkProperties(
-                        Collections.singletonMap(WorkloadSchedPolicy.WORKLOAD_GROUP, "group"), new ArrayList<>())));
-        ArgumentCaptor<String> session = ArgumentCaptor.forClass(String.class);
-        Mockito.verify(env).registerSessionInfo(session.capture());
-        Mockito.verify(env).unregisterSessionInfo(session.getValue());
-        Assertions.assertNull(ConnectContext.get());
+        try (MockedConstruction<ConnectContext> contexts = Mockito.mockConstruction(ConnectContext.class)) {
+            Assertions.assertSame(failure, Assertions.assertThrows(UserException.class,
+                    () -> new WorkloadSchedPolicyMgr().checkProperties(
+                            Collections.singletonMap(WorkloadSchedPolicy.WORKLOAD_GROUP, "group"), new ArrayList<>())));
+            Assertions.assertTrue(contexts.constructed().isEmpty());
+            Mockito.verifyNoInteractions(workloadGroups);
+            Assertions.assertNull(ConnectContext.get());
+        }
     }
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void workloadGroupLookupClosesPrivateContextAndPreservesCaller(boolean fail) throws Exception {
+    void workloadGroupLookupUsesRootAndPreservesCaller(boolean fail) throws Exception {
+        ComputeGroup computeGroup = Mockito.mock(ComputeGroup.class);
         Mockito.when(computeGroups.getComputeGroupByName(Mockito.anyString()))
-                .thenReturn(Mockito.mock(ComputeGroup.class));
+                .thenReturn(computeGroup);
         ConnectContext caller = new ConnectContext();
         caller.setThreadLocalInfo();
-        AtomicReference<ConnectContext> requestContext = new AtomicReference<>();
-        StatementContext statement = Mockito.mock(StatementContext.class);
         WorkloadGroup workloadGroup = Mockito.mock(WorkloadGroup.class);
         Mockito.when(workloadGroup.getId()).thenReturn(7L);
         UserException failure = new UserException("workload group unavailable");
-        Mockito.when(workloadGroups.getWorkloadGroup(Mockito.any())).thenAnswer(call -> {
+        Mockito.when(workloadGroups.getWorkloadGroup(UserIdentity.ROOT, "group", computeGroup)).thenAnswer(call -> {
             Assertions.assertSame(caller, ConnectContext.get());
-            ConnectContext context = call.getArgument(0);
-            requestContext.set(context);
-            context.setStatementContext(statement);
             if (fail) {
                 throw failure;
             }
             return Collections.singletonList(workloadGroup);
         });
-        try {
+        try (MockedConstruction<ConnectContext> contexts = Mockito.mockConstruction(ConnectContext.class)) {
             List<Long> groups = new ArrayList<>();
             WorkloadSchedPolicyMgr manager = new WorkloadSchedPolicyMgr();
             if (fail) {
@@ -125,9 +121,8 @@ class WorkloadSchedPolicyContextLifecycleTest {
                 manager.checkProperties(Collections.singletonMap(WorkloadSchedPolicy.WORKLOAD_GROUP, "group"), groups);
                 Assertions.assertEquals(Collections.singletonList(7L), groups);
             }
-            Assertions.assertTrue(requestContext.get().isClosingOrClosed());
-            Mockito.verify(statement).close();
-            Mockito.verify(env).unregisterSessionInfo(requestContext.get().getSessionId());
+            Assertions.assertTrue(contexts.constructed().isEmpty());
+            Mockito.verify(workloadGroups).getWorkloadGroup(UserIdentity.ROOT, "group", computeGroup);
             Assertions.assertSame(caller, ConnectContext.get());
             Assertions.assertFalse(caller.isClosingOrClosed());
         } finally {
