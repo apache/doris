@@ -25,6 +25,7 @@ import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.timeline.TimelineUtils;
 import org.apache.hudi.metadata.HoodieTableMetadata;
 import org.apache.hudi.metadata.HoodieTableMetadataUtil;
+import org.apache.hudi.metadata.NativeTableMetadataFactory;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -43,7 +44,7 @@ public final class HudiPartitionUtils {
         HoodieMetadataConfig metadataConfig = HoodieMetadataConfig.newBuilder()
                 .enable(HoodieTableMetadataUtil.isFilesPartitionAvailable(tableMetaClient))
                 .build();
-        HoodieTableMetadata newTableMetadata = HoodieTableMetadata.create(
+        HoodieTableMetadata newTableMetadata = NativeTableMetadataFactory.getInstance().create(
                 new HoodieLocalEngineContext(tableMetaClient.getStorageConf()), tableMetaClient.getStorage(),
                 metadataConfig, tableMetaClient.getBasePath().toString(), true);
         return newTableMetadata.getAllPartitionPaths();
