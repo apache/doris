@@ -179,7 +179,7 @@ public class EditLog {
 
     private AtomicLong numTransactions = new AtomicLong(0);
     private AtomicLong totalTimeTransactions = new AtomicLong(0);
-    private Journal journal;
+    private final Journal journal;
 
     /**
      * The constructor.
@@ -210,6 +210,15 @@ public class EditLog {
             batch.clear();
             EditLogItem first = logEditQueue.poll(100, TimeUnit.MILLISECONDS);
             if (first == null) {
+                return;
+            }
+            if (!Config.enable_batch_editlog) {
+                long logId = logEditDirectly(first.op, first.writable);
+                synchronized (first.lock) {
+                    first.logId = logId;
+                    first.finished = true;
+                    first.lock.notifyAll();
+                }
                 return;
             }
             batch.add(first);
@@ -307,7 +316,7 @@ public class EditLog {
         return journal.getDatabaseNames();
     }
 
-    public synchronized int getNumEditStreams() {
+    public int getNumEditStreams() {
         return journal == null ? 0 : 1;
     }
 
@@ -1627,15 +1636,17 @@ public class EditLog {
     }
 
     /**
-     * Submit an edit log entry to the batch queue without waiting for it to be flushed.
-     * The entry is enqueued in FIFO order, so calling this inside a write lock guarantees
-     * that edit log entries are ordered by lock acquisition order.
+     * Submit a non-timestamp edit log entry to the queue without waiting for journal I/O.
+     * Entries are enqueued in FIFO order regardless of whether batching is enabled, so
+     * calling this inside a write lock orders entries by lock acquisition order.
+     * With batching disabled, the flusher writes each entry with a single journal write.
      *
      * <p>The caller MUST call {@link EditLogItem#await()} after releasing the lock to ensure
      * the entry is persisted before proceeding.
      *
-     * <p>If batch edit log is disabled, this falls back to a synchronous direct write
-     * and the returned item is already completed.
+     * <p>Timestamp entries retain synchronous direct writes and their existing journal retry semantics.
+     * Non-batch metadata sync points also write directly: their caller holds this object's monitor
+     * across the cloud sync operation. These exceptions return an already completed item.
      *
      * @return an {@link EditLogItem} handle to await completion
      */
@@ -1646,7 +1657,8 @@ public class EditLog {
         }
 
         EditLogItem req = new EditLogItem(op, writable);
-        if (Config.enable_batch_editlog && op != OperationType.OP_TIMESTAMP) {
+        if (op != OperationType.OP_TIMESTAMP
+                && (Config.enable_batch_editlog || op != OperationType.OP_META_SYNC_POINT)) {
             while (true) {
                 try {
                     logEditQueue.put(req);
@@ -1661,7 +1673,7 @@ public class EditLog {
                 }
             }
         } else {
-            // Non-batch mode: write directly (synchronous)
+            // Preserve direct-write semantics for timestamps and non-batch metadata sync points.
             long logId = logEditDirectly(op, writable);
             req.logId = logId;
             req.finished = true;
@@ -1728,7 +1740,8 @@ public class EditLog {
             }
         }
         long logId = -1;
-        if (Config.enable_batch_editlog && op != OperationType.OP_TIMESTAMP) {
+        if (op != OperationType.OP_TIMESTAMP
+                && (Config.enable_batch_editlog || op != OperationType.OP_META_SYNC_POINT)) {
             logId = logEditWithQueue(op, writable);
         } else {
             logId = logEditDirectly(op, writable);
