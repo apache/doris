@@ -24,11 +24,8 @@ import java.util.Map;
  * and automatically restore to the previous SessionVariables after use.
  */
 public class AutoCloseSessionVariable implements AutoCloseable {
-    private static final ConnectContext notNullContext = new ConnectContext();
     private ConnectContext currentConnectContext;
-    private boolean changed = false;
     private SessionVariable previousVariable;
-    private ConnectContext previousConnectContext = notNullContext;
 
     /** if argument connectContext is not null, must be same with value of ConnectContext.get();
      * if argument connectContext is null, value of ConnectContext.get() must be null*/
@@ -36,28 +33,27 @@ public class AutoCloseSessionVariable implements AutoCloseable {
         if (affectQueryResultVariables == null || affectQueryResultVariables.isEmpty()) {
             return;
         }
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.setAffectQueryResultInPlanSessionVariables(affectQueryResultVariables);
         if (connectContext == null) {
-            previousConnectContext = null;
             currentConnectContext = new ConnectContext();
             currentConnectContext.setThreadLocalInfo();
         } else {
-            changed = true;
             currentConnectContext = connectContext;
             previousVariable = connectContext.getSessionVariable();
         }
-        SessionVariable sessionVariable = new SessionVariable();
-        sessionVariable.setAffectQueryResultInPlanSessionVariables(affectQueryResultVariables);
         currentConnectContext.setSessionVariable(sessionVariable);
     }
 
     @Override
     public void close() {
-        if (previousConnectContext == null) {
-            currentConnectContext.cleanup();
+        if (currentConnectContext == null) {
             return;
         }
-        if (changed) {
+        if (previousVariable != null) {
             currentConnectContext.setSessionVariable(previousVariable);
+        } else {
+            currentConnectContext.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
         }
     }
 }

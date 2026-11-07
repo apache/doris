@@ -307,13 +307,17 @@ public class CreateRoutineLoadInfo {
     public static void checkWorkloadGroup(UserIdentity user, String workloadGroup, String computeGroup)
             throws UserException {
         ConnectContext tmpCtx = new ConnectContext();
-        tmpCtx.setCurrentUserIdentity(user);
-        tmpCtx.getSessionVariable().setWorkloadGroup(workloadGroup);
-        // a no-op outside cloud mode
-        tmpCtx.setCloudCluster(computeGroup);
-        List<WorkloadGroup> wgList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(tmpCtx);
-        if (wgList.size() == 0) {
-            throw new UserException("Can not find workload group " + workloadGroup);
+        try {
+            tmpCtx.setCurrentUserIdentity(user);
+            tmpCtx.getSessionVariable().setWorkloadGroup(workloadGroup);
+            // a no-op outside cloud mode
+            tmpCtx.setCloudCluster(computeGroup);
+            List<WorkloadGroup> wgList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(tmpCtx);
+            if (wgList.size() == 0) {
+                throw new UserException("Can not find workload group " + workloadGroup);
+            }
+        } finally {
+            tmpCtx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
         }
     }
 

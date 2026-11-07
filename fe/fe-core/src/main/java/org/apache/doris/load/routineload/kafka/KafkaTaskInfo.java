@@ -198,10 +198,10 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         tPlanFragment.getOutputSink().getOlapTableSink().setTxnId(txnId);
 
         if (Config.enable_workload_group) {
+            ConnectContext tmpContext = new ConnectContext();
             try {
                 List<TPipelineWorkloadGroup> tWgList = new ArrayList<>();
 
-                ConnectContext tmpContext = new ConnectContext();
                 if (Config.isCloudMode()) {
                     tmpContext.setCloudCluster(routineLoadJob.getCloudCluster());
                 }
@@ -223,6 +223,8 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
             } catch (Throwable t) {
                 LOG.info("Get workload group failed when replan kafka, job id:{} , ", routineLoadJob.getTxnId(), t);
                 throw t;
+            } finally {
+                tmpContext.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
             }
 
         }

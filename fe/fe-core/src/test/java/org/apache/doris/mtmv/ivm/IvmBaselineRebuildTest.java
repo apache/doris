@@ -52,6 +52,7 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.TruncateTableInfo;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -254,8 +255,10 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         Assertions.assertFalse(mtmv.isIvm());
         Assertions.assertEquals("c_v1", mtmv.getBaseSchema(true).get(2).getName());
 
-        Assertions.assertDoesNotThrow(() -> MTMVPlanUtil.ensureMTMVQueryUsable(mtmv,
-                MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK)));
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(
+                MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK))) {
+            Assertions.assertDoesNotThrow(() -> MTMVPlanUtil.ensureMTMVQueryUsable(mtmv, scope.connectContext));
+        }
     }
 
     /**

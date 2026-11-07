@@ -339,19 +339,23 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
                 }
             }
             ConnectContext tmpCtx = new ConnectContext();
-            tmpCtx.setComputeGroup(
-                    Env.getCurrentEnv().getComputeGroupMgr().getComputeGroupByName(cg));
-            // In cloud mode ConnectContext#getComputeGroup() re-resolves the compute group via
-            // getCloudCluster() and ignores setComputeGroup(), so propagate the name through the
-            // session variable as well to make sure the downstream lookup uses the chosen cg.
-            if (Config.isCloudMode()) {
-                tmpCtx.getSessionVariable().setCloudCluster(cg);
+            try {
+                tmpCtx.setComputeGroup(
+                        Env.getCurrentEnv().getComputeGroupMgr().getComputeGroupByName(cg));
+                // In cloud mode ConnectContext#getComputeGroup() re-resolves the compute group via
+                // getCloudCluster() and ignores setComputeGroup(), so propagate the name through the
+                // session variable as well to make sure the downstream lookup uses the chosen cg.
+                if (Config.isCloudMode()) {
+                    tmpCtx.getSessionVariable().setCloudCluster(cg);
+                }
+                tmpCtx.getSessionVariable().setWorkloadGroup(wg);
+                tmpCtx.setCurrentUserIdentity(UserIdentity.ROOT);
+                Long wgId = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(tmpCtx)
+                        .get(0).getId();
+                wgIdList.add(wgId);
+            } finally {
+                tmpCtx.cleanup();
             }
-            tmpCtx.getSessionVariable().setWorkloadGroup(wg);
-            tmpCtx.setCurrentUserIdentity(UserIdentity.ROOT);
-            Long wgId = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(tmpCtx)
-                    .get(0).getId();
-            wgIdList.add(wgId);
         }
     }
 

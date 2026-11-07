@@ -853,8 +853,6 @@ public class MetadataGenerator {
         Collection<DatabaseIf<? extends TableIf>> allDbs = Env.getCurrentEnv().getInternalCatalog().getAllDbs();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         List<TRow> dataBatch = Lists.newArrayList();
-        ConnectContext ctx = new ConnectContext();
-        ctx.setEnv(Env.getCurrentEnv());
         for (DatabaseIf<? extends TableIf> db : allDbs) {
             String dbName = db.getFullName();
             if (FrontendConjunctsUtils.isFiltered(viewSchemaConjuncts, "VIEW_SCHEMA", dbName)) {
@@ -890,29 +888,35 @@ public class MetadataGenerator {
                         continue;
                     }
                     String inlineViewDef = ((View) table).getInlineViewDef();
-                    Map<List<String>, TableIf> tablesMap;
+                    ConnectContext ctx = new ConnectContext();
                     try {
-                        tablesMap = PlanUtils.tableCollect(inlineViewDef, ctx);
-                    } catch (Exception e) {
-                        // A view may reference tables that no longer exist (dangling view).
-                        // Skip it so the whole metadata query does not fail.
-                        LOG.warn("Failed to collect base tables of view {} in database {}, skip it. exception: {}",
-                                tableName, dbName, e);
-                        continue;
-                    }
-                    for (Map.Entry<List<String>, TableIf> info : tablesMap.entrySet()) {
-                        List<String> fullName = info.getKey();
-                        TableIf tbl = info.getValue();
-                        TRow trow = new TRow();
-                        trow.addToColumnValue(new TCell().setStringVal("internal"));
-                        trow.addToColumnValue(new TCell().setStringVal(dbName));
-                        trow.addToColumnValue(new TCell().setStringVal(tableName));
-                        trow.addToColumnValue(new TCell().setStringVal(table.getType().name()));
-                        trow.addToColumnValue(new TCell().setStringVal(fullName.get(0)));
-                        trow.addToColumnValue(new TCell().setStringVal(fullName.get(1)));
-                        trow.addToColumnValue(new TCell().setStringVal(fullName.get(2)));
-                        trow.addToColumnValue(new TCell().setStringVal(tbl.getType().name()));
-                        dataBatch.add(trow);
+                        ctx.setEnv(Env.getCurrentEnv());
+                        Map<List<String>, TableIf> tablesMap;
+                        try {
+                            tablesMap = PlanUtils.tableCollect(inlineViewDef, ctx);
+                        } catch (Exception e) {
+                            // A view may reference tables that no longer exist (dangling view).
+                            // Skip it so the whole metadata query does not fail.
+                            LOG.warn("Failed to collect base tables of view {} in database {}, skip it. exception: {}",
+                                    tableName, dbName, e);
+                            continue;
+                        }
+                        for (Map.Entry<List<String>, TableIf> info : tablesMap.entrySet()) {
+                            List<String> fullName = info.getKey();
+                            TableIf tbl = info.getValue();
+                            TRow trow = new TRow();
+                            trow.addToColumnValue(new TCell().setStringVal("internal"));
+                            trow.addToColumnValue(new TCell().setStringVal(dbName));
+                            trow.addToColumnValue(new TCell().setStringVal(tableName));
+                            trow.addToColumnValue(new TCell().setStringVal(table.getType().name()));
+                            trow.addToColumnValue(new TCell().setStringVal(fullName.get(0)));
+                            trow.addToColumnValue(new TCell().setStringVal(fullName.get(1)));
+                            trow.addToColumnValue(new TCell().setStringVal(fullName.get(2)));
+                            trow.addToColumnValue(new TCell().setStringVal(tbl.getType().name()));
+                            dataBatch.add(trow);
+                        }
+                    } finally {
+                        ctx.cleanup();
                     }
                 }
             }

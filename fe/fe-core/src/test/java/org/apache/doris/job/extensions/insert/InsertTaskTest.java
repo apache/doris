@@ -17,15 +17,49 @@
 
 package org.apache.doris.job.extensions.insert;
 
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedConstruction;
+import org.mockito.Mockito;
 
 public class InsertTaskTest {
     @Test
     public void testMakeConnection() {
-        ConnectContext ctx = InsertTask.makeConnectContext(null, null);
-        Assertions.assertTrue(ctx.getState().isNereids());
+        ConnectContext previousContext = new ConnectContext();
+        try (AutoCloseConnectContext parent = new AutoCloseConnectContext(previousContext)) {
+            ConnectContext ctx = InsertTask.makeConnectContext(null, null);
+            Assertions.assertSame(previousContext, ConnectContext.get());
+            try (AutoCloseConnectContext scope = new AutoCloseConnectContext(ctx)) {
+                Assertions.assertTrue(ctx.getState().isNereids());
+                Assertions.assertSame(ctx, ConnectContext.get());
+            }
+            Assertions.assertTrue(ctx.isClosingOrClosed());
+            Assertions.assertSame(previousContext, ConnectContext.get());
+            Assertions.assertFalse(previousContext.isClosingOrClosed());
+        }
     }
+
+    @Test
+    public void testFailedDatabaseSetupClosesOnlyNewContext() {
+        ConnectContext parent = new ConnectContext();
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(parent);
+                MockedConstruction<ConnectContext> contexts = Mockito.mockConstruction(ConnectContext.class,
+                        (context, construction) -> {
+                            Mockito.when(context.getState()).thenReturn(new QueryState());
+                            Mockito.doThrow(new IllegalStateException("database setup failed"))
+                                    .when(context).setDatabase("db");
+                        })) {
+            Assertions.assertThrows(IllegalStateException.class,
+                    () -> InsertTask.makeConnectContext(null, "db"));
+            Assertions.assertEquals(1, contexts.constructed().size());
+            Mockito.verify(contexts.constructed().get(0)).cleanup();
+            Assertions.assertSame(parent, ConnectContext.get());
+            Assertions.assertFalse(parent.isClosingOrClosed());
+        }
+    }
+
 }

@@ -32,6 +32,7 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.entity.RestBaseResult;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
+import org.apache.doris.httpv2.interceptor.ConnectContextFilter;
 import org.apache.doris.httpv2.util.HttpHeaderUtils;
 import org.apache.doris.httpv2.util.StreamLoadRedirectDrainUtil;
 import org.apache.doris.load.StreamLoadHandler;
@@ -622,7 +623,7 @@ public class LoadAction extends RestBaseController {
     private Object executeWithClusterToken(HttpServletRequest request, HttpServletResponse response, String db,
             String table, boolean isStreamLoad) {
         try {
-            ConnectContext ctx = new ConnectContext();
+            ConnectContext ctx = ConnectContextFilter.createRequestContext(request);
             ctx.setEnv(Env.getCurrentEnv());
             ctx.setRemoteIP(request.getRemoteAddr());
             // set user to ADMIN_USER, so that we can get the proper resource tag
@@ -757,18 +758,17 @@ public class LoadAction extends RestBaseController {
     private Backend selectBackendForGroupCommit(String clusterName, HttpServletRequest req, long tableId)
             throws LoadException {
         ConnectContext currentCtx = ConnectContext.get();
-        ConnectContext ctx = new ConnectContext();
-        ctx.setEnv(Env.getCurrentEnv());
-        ctx.setRemoteIP(req.getRemoteAddr());
-        // We set this variable to fulfill required field 'user' in
-        // TMasterOpRequest(FrontendService.thrift)
-        ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
-        inheritLoadSelectionContext(currentCtx, ctx);
-        if (Config.isCloudMode()) {
-            ctx.setCloudCluster(clusterName);
-        }
-
-        try (AutoCloseConnectContext ignored = new AutoCloseConnectContext(ctx)) {
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(new ConnectContext())) {
+            ConnectContext ctx = scope.connectContext;
+            ctx.setEnv(Env.getCurrentEnv());
+            ctx.setRemoteIP(req.getRemoteAddr());
+            // We set this variable to fulfill required field 'user' in
+            // TMasterOpRequest(FrontendService.thrift)
+            ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
+            inheritLoadSelectionContext(currentCtx, ctx);
+            if (Config.isCloudMode()) {
+                ctx.setCloudCluster(clusterName);
+            }
             return Env.getCurrentEnv().getGroupCommitManager().selectBackendForGroupCommit(tableId, ctx);
         } catch (DdlException e) {
             throw new LoadException(e.getMessage(), e);

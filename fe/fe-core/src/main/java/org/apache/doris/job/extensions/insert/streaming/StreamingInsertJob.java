@@ -74,6 +74,7 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertUtils;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.rpc.RpcException;
@@ -489,26 +490,18 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         return unboundTVFRelation;
     }
 
-    private void makeConnectContext() {
+    private ConnectContext makeConnectContext() {
         ConnectContext ctx = InsertTask.makeConnectContext(getCreateUser(), getCurrentDbName());
-        StatementContext statementContext = new StatementContext();
-        ctx.setStatementContext(statementContext);
+        ctx.setStatementContext(new StatementContext(ctx, null));
+        return ctx;
     }
 
     public void initLogicalPlan(boolean regen) {
         if (regen || baseCommand == null) {
             this.baseCommand = null;
-            ConnectContext previousContext = ConnectContext.get();
-            try {
-                makeConnectContext();
+            try (AutoCloseConnectContext scope = new AutoCloseConnectContext(makeConnectContext())) {
                 LogicalPlan logicalPlan = new NereidsParser().parseSingle(getExecuteSql());
                 this.baseCommand = (InsertIntoTableCommand) logicalPlan;
-            } finally {
-                // Subsequent privilege checks must retain the caller's identity and session roles.
-                ConnectContext.remove();
-                if (previousContext != null) {
-                    previousContext.setThreadLocalInfo();
-                }
             }
         }
     }
@@ -946,7 +939,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             log.info("clear running streaming insert task for job {}, task {}, status {} ",
                     getJobId(), runningStreamTask.getTaskId(), runningStreamTask.getStatus());
             runningStreamTask.cancel(JobStatus.STOPPED.equals(newJobStatus) ? false : true);
-            runningStreamTask.closeOrReleaseResources();
         }
     }
 
@@ -1394,8 +1386,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     public boolean hasPrivilege(UserIdentity userIdentity) {
-        ConnectContext ctx = InsertTask.makeConnectContext(userIdentity, getCurrentDbName());
-        try {
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(
+                InsertTask.makeConnectContext(userIdentity, getCurrentDbName()))) {
+            ConnectContext ctx = scope.connectContext;
             if (StringUtils.isNotEmpty(getExecuteSql())) {
                 LogicalPlan logicalPlan = new NereidsParser().parseSingle(getExecuteSql());
                 LogicalPlan logicalQuery = ((InsertIntoTableCommand) logicalPlan).getLogicalQuery();
@@ -1415,8 +1408,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 log.info("insert sql and target db are both empty");
                 return false;
             }
-        } finally {
-            ctx.cleanup();
         }
     }
 
@@ -1433,13 +1424,14 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     private String generateEncryptedSql() {
-        makeConnectContext();
-        TreeMap<Pair<Integer, Integer>, String> indexInSqlToString = new TreeMap<>(new Pair.PairComparator<>());
-        new NereidsParser().parseForEncryption(getExecuteSql(), indexInSqlToString);
-        BaseViewInfo.rewriteSql(indexInSqlToString, getExecuteSql());
-        String encryptSql = BaseViewInfo.rewriteSql(indexInSqlToString, getExecuteSql());
-        setEncryptedSql(encryptSql);
-        return encryptSql;
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(makeConnectContext())) {
+            TreeMap<Pair<Integer, Integer>, String> indexInSqlToString = new TreeMap<>(new Pair.PairComparator<>());
+            new NereidsParser().parseForEncryption(getExecuteSql(), indexInSqlToString);
+            BaseViewInfo.rewriteSql(indexInSqlToString, getExecuteSql());
+            String encryptSql = BaseViewInfo.rewriteSql(indexInSqlToString, getExecuteSql());
+            setEncryptedSql(encryptSql);
+            return encryptSql;
+        }
     }
 
     @Override

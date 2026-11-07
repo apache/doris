@@ -189,7 +189,8 @@ public class FederationBackendPolicy {
 
     public void init(BeSelectionPolicy policy) throws UserException {
         ConnectContext ctx = ConnectContext.get();
-        if (ctx == null) {
+        boolean ownsContext = ctx == null;
+        if (ownsContext) {
             if (Config.isCloudMode()) {
                 throw new AnalysisException("ConnectContext is null");
             } else {
@@ -197,32 +198,38 @@ public class FederationBackendPolicy {
             }
 
         }
-        ComputeGroup computeGroup = ctx.getComputeGroup();
-        if (Config.isNotCloudMode() && computeGroup.equals(ComputeGroup.INVALID_COMPUTE_GROUP)) {
-            throw new LoadException(ComputeGroup.INVALID_COMPUTE_GROUP_ERR_MSG);
-        }
-
-        backends.addAll(policy.getCandidateBackends(computeGroup.getBackendList()));
-        if (backends.isEmpty()) {
-            if (Config.isCloudMode()) {
-                throw new UserException("No available backends, "
-                        + "in cloud maybe this cluster has been dropped, please `use @otherClusterName` switch it");
-            } else {
-                throw new UserException("No available backends for compute group: " + computeGroup.toString());
-            }
-        }
-        assignedWeightPerBackend.clear();
-        assignedWeightCounts.clear();
-        backendMap.clear();
-        backendMap.putAll(backends.stream().collect(Collectors.groupingBy(Backend::getHost)));
-        for (Backend backend : backends) {
-            setAssignedWeight(backend, 0L);
-        }
-
         try {
-            consistentHash = consistentHashCache.get(new HashCacheKey(backends));
-        } catch (ExecutionException e) {
-            throw new UserException("failed to get consistent hash", e);
+            ComputeGroup computeGroup = ctx.getComputeGroup();
+            if (Config.isNotCloudMode() && computeGroup.equals(ComputeGroup.INVALID_COMPUTE_GROUP)) {
+                throw new LoadException(ComputeGroup.INVALID_COMPUTE_GROUP_ERR_MSG);
+            }
+
+            backends.addAll(policy.getCandidateBackends(computeGroup.getBackendList()));
+            if (backends.isEmpty()) {
+                if (Config.isCloudMode()) {
+                    throw new UserException("No available backends, "
+                            + "in cloud maybe this cluster has been dropped, please `use @otherClusterName` switch it");
+                } else {
+                    throw new UserException("No available backends for compute group: " + computeGroup.toString());
+                }
+            }
+            assignedWeightPerBackend.clear();
+            assignedWeightCounts.clear();
+            backendMap.clear();
+            backendMap.putAll(backends.stream().collect(Collectors.groupingBy(Backend::getHost)));
+            for (Backend backend : backends) {
+                setAssignedWeight(backend, 0L);
+            }
+
+            try {
+                consistentHash = consistentHashCache.get(new HashCacheKey(backends));
+            } catch (ExecutionException e) {
+                throw new UserException("failed to get consistent hash", e);
+            }
+        } finally {
+            if (ownsContext) {
+                ctx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+            }
         }
     }
 

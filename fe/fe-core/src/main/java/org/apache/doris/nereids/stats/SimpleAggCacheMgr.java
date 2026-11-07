@@ -424,46 +424,51 @@ public class SimpleAggCacheMgr {
      */
     private static AutoCloseConnectContext buildConnectContext() {
         ConnectContext connectContext = new ConnectContext();
-        connectContext.getState().setInternal(true);
-        connectContext.setEnv(Env.getCurrentEnv());
-        connectContext.setCurrentUserIdentity(UserIdentity.ADMIN);
-        connectContext.setStartTime();
-        // The internal SQL names its table fully qualified; this only gives the context a database.
-        connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
-        SessionVariable sessionVariable = connectContext.getSessionVariable();
-        // A load is one aggregate over one table, so a single pipeline task is enough.
-        sessionVariable.parallelPipelineTaskNum = 1;
-        // Disable our own rule to prevent infinite recursion:
-        // this internal SQL goes through Nereids and would otherwise trigger
-        // RewriteSimpleAggToConstantRule again.
-        sessionVariable.setDisableNereidsRules("REWRITE_SIMPLE_AGG_TO_CONSTANT");
-        // Statistics collection turns this on to accept approximate bounds. This cache promises
-        // exact ones, so a delete predicate has to keep MIN/MAX off the zone maps. COUNT keeps the
-        // BE's delete-predicate guard whether the switch is on or off.
-        sessionVariable.forcePushDownZonemapMinMax = false;
-        // The cache exists to answer from the table's current visible version. A result cache keyed
-        // on a session-variable signature must neither answer this query nor be filled by it.
-        sessionVariable.enableSqlCache = false;
-        sessionVariable.enableQueryCache = false;
-        // Read the base table: a materialized view answers from its own snapshot.
-        sessionVariable.enableMaterializedViewRewrite = false;
-        // A background scan of a whole column must not evict the pages user queries are reading, and
-        // this query's result outlives a user query by far once it is cached in FE, so it reads
-        // storage directly instead of through a block cache. disableFileCache only takes effect in
-        // cloud mode; elsewhere the block file cache is off regardless.
-        sessionVariable.enablePageCache = false;
-        sessionVariable.disableFileCache = true;
-        if (Config.isCloudMode()) {
-            try {
-                connectContext.getCloudCluster();
-            } catch (ComputeGroupException e) {
-                // Best effort, the way statistics collection treats it: the planner resolves the
-                // compute group again if this fails, and a load that cannot run costs the rewrite
-                // rather than correctness.
-                LOG.warn("failed to resolve the compute group of an internal min/max query", e);
+        try {
+            connectContext.getState().setInternal(true);
+            connectContext.setEnv(Env.getCurrentEnv());
+            connectContext.setCurrentUserIdentity(UserIdentity.ADMIN);
+            connectContext.setStartTime();
+            // The internal SQL names its table fully qualified; this only gives the context a database.
+            connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
+            SessionVariable sessionVariable = connectContext.getSessionVariable();
+            // A load is one aggregate over one table, so a single pipeline task is enough.
+            sessionVariable.parallelPipelineTaskNum = 1;
+            // Disable our own rule to prevent infinite recursion:
+            // this internal SQL goes through Nereids and would otherwise trigger
+            // RewriteSimpleAggToConstantRule again.
+            sessionVariable.setDisableNereidsRules("REWRITE_SIMPLE_AGG_TO_CONSTANT");
+            // Statistics collection turns this on to accept approximate bounds. This cache promises
+            // exact ones, so a delete predicate has to keep MIN/MAX off the zone maps. COUNT keeps the
+            // BE's delete-predicate guard whether the switch is on or off.
+            sessionVariable.forcePushDownZonemapMinMax = false;
+            // The cache exists to answer from the table's current visible version. A result cache keyed
+            // on a session-variable signature must neither answer this query nor be filled by it.
+            sessionVariable.enableSqlCache = false;
+            sessionVariable.enableQueryCache = false;
+            // Read the base table: a materialized view answers from its own snapshot.
+            sessionVariable.enableMaterializedViewRewrite = false;
+            // A background scan of a whole column must not evict the pages user queries are reading, and
+            // this query's result outlives a user query by far once it is cached in FE, so it reads
+            // storage directly instead of through a block cache. disableFileCache only takes effect in
+            // cloud mode; elsewhere the block file cache is off regardless.
+            sessionVariable.enablePageCache = false;
+            sessionVariable.disableFileCache = true;
+            if (Config.isCloudMode()) {
+                try {
+                    connectContext.getCloudCluster();
+                } catch (ComputeGroupException e) {
+                    // Best effort, the way statistics collection treats it: the planner resolves the
+                    // compute group again if this fails, and a load that cannot run costs the rewrite
+                    // rather than correctness.
+                    LOG.warn("failed to resolve the compute group of an internal min/max query", e);
+                }
             }
+            return new AutoCloseConnectContext(connectContext);
+        } catch (RuntimeException | Error e) {
+            connectContext.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+            throw e;
         }
-        return new AutoCloseConnectContext(connectContext);
     }
 
     /**

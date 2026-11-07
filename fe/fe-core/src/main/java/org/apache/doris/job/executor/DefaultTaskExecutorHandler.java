@@ -51,7 +51,11 @@ public class DefaultTaskExecutorHandler<T extends AbstractTask> implements WorkH
         } catch (Exception e) {
             log.error("execute task error, task id is {}", executeTaskEvent.getTask().getTaskId(), e);
         } finally {
-            executeTaskEvent.clear();
+            try {
+                TaskProcessor.closeTaskContext();
+            } finally {
+                executeTaskEvent.clear();
+            }
         }
 
     }

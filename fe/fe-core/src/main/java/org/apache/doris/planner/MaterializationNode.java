@@ -150,12 +150,19 @@ public class MaterializationNode extends PlanNode {
                 .build();
         nodesInfo = new TPaloNodesInfo();
         ConnectContext context = ConnectContext.get();
-        if (context == null) {
+        boolean ownsContext = context == null;
+        if (ownsContext) {
             context = new ConnectContext();
         }
-        ComputeGroup computeGroup = context.getComputeGroupSafely();
-        for (Backend backend : policy.getCandidateBackends(computeGroup.getBackendList())) {
-            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
+        try {
+            ComputeGroup computeGroup = context.getComputeGroupSafely();
+            for (Backend backend : policy.getCandidateBackends(computeGroup.getBackendList())) {
+                nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
+            }
+        } finally {
+            if (ownsContext) {
+                context.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+            }
         }
     }
 

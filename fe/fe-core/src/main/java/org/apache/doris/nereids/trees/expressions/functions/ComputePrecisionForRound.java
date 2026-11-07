@@ -41,9 +41,9 @@ public interface ComputePrecisionForRound extends ComputePrecision {
             int scale;
 
             if (!floatLength.isLiteral() && !floatLength.isSlot()) {
-                ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(
-                        CascadesContext.initTempContext());
-                floatLength = FoldConstantRuleOnFE.evaluate(floatLength, rewriteContext);
+                Expression scaleExpression = floatLength;
+                floatLength = CascadesContext.withTempContext(cascadesContext ->
+                        FoldConstantRuleOnFE.evaluate(scaleExpression, new ExpressionRewriteContext(cascadesContext)));
             }
 
             // If scale arg is an integer literal, or it is a cast(Integer as Integer)

@@ -30,6 +30,7 @@ import org.apache.doris.httpv2.controller.BaseController;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.exception.BadRequestException;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
+import org.apache.doris.httpv2.interceptor.ConnectContextFilter;
 import org.apache.doris.master.MetaHelper;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -123,7 +124,7 @@ public class RestBaseController extends BaseController {
         authInfo.userIdentity = currentUser;
 
         // Set ConnectContext for backward compatibility
-        ConnectContext ctx = new ConnectContext();
+        ConnectContext ctx = ConnectContextFilter.createRequestContext(request);
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setRemoteIP(authInfo.remoteIp);
         ctx.setCurrentUserIdentity(currentUser);

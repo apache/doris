@@ -150,20 +150,25 @@ public class InsertTask extends AbstractTask {
         this.loadStatistic = statistic;
     }
 
+    /** Returns a new, unbound context. The caller owns its binding and cleanup. */
     public static ConnectContext makeConnectContext(UserIdentity userIdentity, String currentDb) {
         ConnectContext ctx = new ConnectContext();
-        ctx.setEnv(Env.getCurrentEnv());
-        ctx.setCurrentUserIdentity(userIdentity);
-        ctx.getState().reset();
-        ctx.getState().setInternal(true);
-        ctx.getState().setNereids(true);
-        ctx.setThreadLocalInfo();
-        TUniqueId queryId = generateQueryId();
-        ctx.setQueryId(queryId);
-        if (StringUtils.isNotEmpty(currentDb)) {
-            ctx.setDatabase(currentDb);
+        try {
+            ctx.setEnv(Env.getCurrentEnv());
+            ctx.setCurrentUserIdentity(userIdentity);
+            ctx.getState().reset();
+            ctx.getState().setInternal(true);
+            ctx.getState().setNereids(true);
+            TUniqueId queryId = generateQueryId();
+            ctx.setQueryId(queryId);
+            if (StringUtils.isNotEmpty(currentDb)) {
+                ctx.setDatabase(currentDb);
+            }
+            return ctx;
+        } catch (RuntimeException | Error e) {
+            ctx.cleanup();
+            throw e;
         }
-        return ctx;
     }
 
     public static StmtExecutor makeStmtExecutor(ConnectContext ctx) {
@@ -176,6 +181,7 @@ public class InsertTask extends AbstractTask {
             throw new JobException("Export executor has been canceled, task id: {}", getTaskId());
         }
         ctx = makeConnectContext(userIdentity, currentDb);
+        ctx.setThreadLocalInfo();
         StatementContext statementContext = new StatementContext();
         ctx.setStatementContext(statementContext);
         if (StringUtils.isNotEmpty(sql)) {

@@ -192,18 +192,23 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
 
     private AutoCloseConnectContext buildConnectContext() {
         ConnectContext connectContext = new ConnectContext();
-        exportJob.getSessionVariables().setQueryTimeoutS(exportJob.getTimeoutSecond());
-        connectContext.setSessionVariable(VariableMgr.cloneSessionVariable(exportJob.getSessionVariables()));
-        // The rollback to the old optimizer is prohibited
-        // Since originStmt is empty, reverting to the old optimizer when the new optimizer is enabled is meaningless.
-        connectContext.setEnv(Env.getCurrentEnv());
-        connectContext.setDatabase(exportJob.getTableName().getDb());
-        connectContext.setCurrentUserIdentity(exportJob.getUserIdentity());
-        UUID uuid = UUID.randomUUID();
-        TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-        connectContext.setQueryId(queryId);
-        connectContext.setStartTime();
-        return new AutoCloseConnectContext(connectContext);
+        try {
+            exportJob.getSessionVariables().setQueryTimeoutS(exportJob.getTimeoutSecond());
+            connectContext.setSessionVariable(VariableMgr.cloneSessionVariable(exportJob.getSessionVariables()));
+            // The rollback to the old optimizer is prohibited
+            // Since originStmt is empty, reverting to the old optimizer is meaningless.
+            connectContext.setEnv(Env.getCurrentEnv());
+            connectContext.setDatabase(exportJob.getTableName().getDb());
+            connectContext.setCurrentUserIdentity(exportJob.getUserIdentity());
+            UUID uuid = UUID.randomUUID();
+            TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+            connectContext.setQueryId(queryId);
+            connectContext.setStartTime();
+            return new AutoCloseConnectContext(connectContext);
+        } catch (RuntimeException | Error e) {
+            connectContext.cleanup();
+            throw e;
+        }
     }
 
     private List<OutfileInfo> getOutFileInfo(List<Map<String, String>> resultAttachedInfo) {

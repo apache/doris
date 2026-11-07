@@ -41,15 +41,19 @@ public class ConnectContextUtil {
     // Note: After calling this method, ensure to invoke the cleanup() method of ConnectContext.
     public static ConnectContext getDummyCtx(String dbName) {
         ConnectContext ctx = new ConnectContext();
-        ctx.setDatabase(dbName);
-        StatementContext statementContext = new StatementContext();
-        statementContext.setConnectContext(ctx);
-        ctx.setStatementContext(statementContext);
-        ctx.setEnv(Env.getCurrentEnv());
-        ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
-        ctx.getState().reset();
-        ctx.setThreadLocalInfo();
-        return ctx;
+        try {
+            ctx.setDatabase(dbName);
+            ctx.setStatementContext(new StatementContext(ctx, null));
+            ctx.setEnv(Env.getCurrentEnv());
+            ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
+            ctx.getState().reset();
+            ctx.setThreadLocalInfo();
+            return ctx;
+        } catch (Throwable failure) {
+            // Ownership has not reached the caller when namespace initialization fails.
+            ctx.cleanup();
+            throw failure;
+        }
     }
 
     public static Optional<Pair<ErrorCode, String>> initDefaultCatalog(ConnectContext ctx) {

@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.ColumnRange;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -30,13 +32,17 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
+import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -46,27 +52,27 @@ import org.junit.jupiter.api.Test;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 class CalendarAddSubMonotonicTest {
-    private ConnectContext previousContext;
+    private AutoCloseConnectContext scope;
     private ExpressionRewriteContext context;
 
     @BeforeEach
     void setUp() {
-        previousContext = ConnectContext.get();
-        ConnectContext connectContext = new ConnectContext();
+        scope = new AutoCloseConnectContext(new ConnectContext());
+        ConnectContext connectContext = scope.connectContext;
         connectContext.getSessionVariable().setTimeZone("+00:00");
-        connectContext.setThreadLocalInfo();
-        context = new ExpressionRewriteContext(CascadesContext.initTempContext());
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("", 0));
+        connectContext.setStatementContext(statementContext);
+        context = new ExpressionRewriteContext(CascadesContext.initContext(statementContext,
+                new LogicalOneRowRelation(new RelationId(0), Collections.emptyList()), PhysicalProperties.ANY));
     }
 
     @AfterEach
     void tearDown() {
-        ConnectContext.remove();
-        if (previousContext != null) {
-            previousContext.setThreadLocalInfo();
-        }
+        scope.close();
     }
 
     @Test

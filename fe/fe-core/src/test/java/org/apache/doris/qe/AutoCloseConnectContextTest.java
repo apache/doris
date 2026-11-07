@@ -129,4 +129,21 @@ public class AutoCloseConnectContextTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void emptySessionVariableScopeLeavesBindingUntouched(boolean hasParent) {
+        ConnectContext parent = hasParent ? new ConnectContext() : null;
+        if (parent != null) {
+            parent.setThreadLocalInfo();
+        }
+        try (AutoCloseSessionVariable scope = new AutoCloseSessionVariable(parent, Collections.emptyMap())) {
+            Assertions.assertSame(parent, ConnectContext.get());
+        }
+        Assertions.assertSame(parent, ConnectContext.get());
+        if (parent != null) {
+            Assertions.assertFalse(parent.isClosingOrClosed());
+            parent.cleanup();
+        }
+    }
+
 }

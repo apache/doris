@@ -20,6 +20,7 @@ package org.apache.doris.mtmv;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.exceptions.ParseException;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
@@ -40,12 +41,21 @@ public class MTMVCacheContextLifecycleTest {
             ConnectContext parent = hasParent ? new ConnectContext() : null;
             ConnectContext cacheContext = new ConnectContext();
             cacheContext.getSessionVariable().enableMaterializedViewRewrite = true;
-            cacheContext.setThreadLocalInfo();
+            if (parent == null) {
+                ConnectContext.remove();
+            } else {
+                parent.setThreadLocalInfo();
+            }
             try {
-                Assertions.assertThrows(ParseException.class, () -> MTMVCache.from("select from",
-                        cacheContext, false, false, parent, false));
+                try (AutoCloseConnectContext scope = new AutoCloseConnectContext(cacheContext)) {
+                    Assertions.assertThrows(ParseException.class, () -> MTMVCache.from("select from",
+                            scope.connectContext, false, false, false));
+                    Assertions.assertSame(cacheContext, ConnectContext.get());
+                    Assertions.assertFalse(cacheContext.isClosingOrClosed());
+                    Assertions.assertTrue(cacheContext.getSessionVariable().enableMaterializedViewRewrite);
+                }
                 Assertions.assertSame(parent, ConnectContext.get());
-                Assertions.assertTrue(cacheContext.getSessionVariable().enableMaterializedViewRewrite);
+                Assertions.assertTrue(cacheContext.isClosingOrClosed());
                 if (parent != null) {
                     Assertions.assertFalse(parent.isClosingOrClosed());
                 }

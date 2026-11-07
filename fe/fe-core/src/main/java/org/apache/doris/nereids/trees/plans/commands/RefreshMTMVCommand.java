@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.StmtExecutor;
@@ -114,35 +115,26 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
                             + "only supports IVM materialized views");
         }
 
-        // createDryRunConnectContext installs the internal ADMIN context as the thread-local
-        // ConnectContext, and leaves it installed when its compute group check fails. Restore the
-        // caller's context afterwards, mirroring ExplainCommand: the next statement of the same
-        // multi-statement request must not observe the internal identity/session.
-        ConnectContext previousCtx = ConnectContext.get();
-        try {
-            ConnectContext internalCtx = createDryRunConnectContext(mtmv);
-            StatementContext stmtCtx = createDryRunStatementContext(mtmv, internalCtx);
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(createDryRunConnectContext(mtmv))) {
+            try {
+                ConnectContext internalCtx = scope.connectContext;
+                StatementContext stmtCtx = createDryRunStatementContext(mtmv, internalCtx);
 
-            LogicalPlan queryPlan = new IvmIncrRefreshManager().buildQueryPlan(mtmv);
-            LogicalPlanAdapter adapter = new LogicalPlanAdapter(queryPlan, stmtCtx);
-            adapter.setOrigStmt(new OriginStatement(mtmv.getQuerySql(), 0));
+                LogicalPlan queryPlan = new IvmIncrRefreshManager().buildQueryPlan(mtmv);
+                LogicalPlanAdapter adapter = new LogicalPlanAdapter(queryPlan, stmtCtx);
+                adapter.setOrigStmt(new OriginStatement(mtmv.getQuerySql(), 0));
 
-            // Execute on a dedicated internal executor (admin identity, MV session variables)
-            // and stream each batch to the client through this session's result sender. The
-            // internal executor owns a fresh query id that KILL QUERY cannot reach, so forward
-            // cancellations of the outer statement (Ctrl+C / KILL / timeout) to it while it runs.
-            StmtExecutor internalExecutor = new StmtExecutor(internalCtx, adapter);
-            internalCtx.setExecutor(internalExecutor);
-            executor.setCancelDelegate(internalExecutor::cancel);
-            internalExecutor.executeInternalQueryAndSend(adapter, ctx.getResultSender());
-            ctx.getState().setEof();
-        } finally {
-            executor.clearCancelDelegate();
-            if (ConnectContext.get() != previousCtx) {
-                ConnectContext.remove();
-                if (previousCtx != null) {
-                    previousCtx.setThreadLocalInfo();
-                }
+                // Execute on a dedicated internal executor (admin identity, MV session variables)
+                // and stream each batch to the client through this session's result sender. The
+                // internal executor owns a fresh query id that KILL QUERY cannot reach, so forward
+                // cancellations of the outer statement (Ctrl+C / KILL / timeout) to it while it runs.
+                StmtExecutor internalExecutor = new StmtExecutor(internalCtx, adapter);
+                internalCtx.setExecutor(internalExecutor);
+                executor.setCancelDelegate(internalExecutor::cancel);
+                internalExecutor.executeInternalQueryAndSend(adapter, ctx.getResultSender());
+                ctx.getState().setEof();
+            } finally {
+                executor.clearCancelDelegate();
             }
         }
     }
@@ -158,10 +150,15 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
         // Read once, so the group that is checked is the group that is bound.
         Optional<String> declaredComputeGroup = mtmv.getComputeGroup();
         ConnectContext internalCtx = createRefreshContext(mtmv, declaredComputeGroup);
-        // Like MTMVTask, only a declared group is re-checked: the MV never chose the session's group.
-        ComputeGroupBindingUtil.checkComputeGroupBeforeTask(internalCtx.getCurrentUserIdentity(),
-                declaredComputeGroup.orElse(null));
-        return internalCtx;
+        try {
+            // Like MTMVTask, only a declared group is re-checked: the MV never chose the session's group.
+            ComputeGroupBindingUtil.checkComputeGroupBeforeTask(internalCtx.getCurrentUserIdentity(),
+                    declaredComputeGroup.orElse(null));
+            return internalCtx;
+        } catch (UserException | RuntimeException | Error e) {
+            internalCtx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+            throw e;
+        }
     }
 
     /**

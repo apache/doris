@@ -44,6 +44,7 @@ import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -236,20 +237,19 @@ public class ExpressionAnalyzerTest {
                 new StructField("Σ", "Σ", IntegerType.INSTANCE, true, "", false)));
         SlotReference payload = new SlotReference(
                 new ExprId(1), "payload", structType, true, ImmutableList.of());
-        ConnectContext connectContext = new ConnectContext();
-        connectContext.setThreadLocalInfo();
-        try {
-            CascadesContext cascadesContext = CascadesContext.initTempContext();
-            ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, new Scope(ImmutableList.of(payload)),
-                    cascadesContext, true, true);
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(new ConnectContext())) {
+            scope.call();
+            CascadesContext.withTempContext(cascadesContext -> {
+                ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, new Scope(ImmutableList.of(payload)),
+                        cascadesContext, true, true);
 
-            Expression analyzed = analyzer.analyze(new UnboundSlot("payload", "Σ"));
+                Expression analyzed = analyzer.analyze(new UnboundSlot("payload", "Σ"));
 
-            Assertions.assertInstanceOf(Alias.class, analyzed);
-            Assertions.assertInstanceOf(ElementAt.class, analyzed.child(0));
-            Assertions.assertEquals("σ", ((StringLikeLiteral) analyzed.child(0).child(1)).getStringValue());
-        } finally {
-            ConnectContext.remove();
+                Assertions.assertInstanceOf(Alias.class, analyzed);
+                Assertions.assertInstanceOf(ElementAt.class, analyzed.child(0));
+                Assertions.assertEquals("σ", ((StringLikeLiteral) analyzed.child(0).child(1)).getStringValue());
+                return null;
+            });
         }
     }
 

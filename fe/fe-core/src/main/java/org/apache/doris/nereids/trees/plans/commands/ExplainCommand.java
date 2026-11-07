@@ -94,6 +94,7 @@ public class ExplainCommand extends Command implements NoForward {
         try {
             explainCtx = explainable.getExplainConnectContext(ctx);
             if (explainCtx != ctx) {
+                explainCtx.setThreadLocalInfo();
                 // A context of its own (EXPLAIN REFRESH MATERIALIZED VIEW plans on an MTMV context) is a statement
                 // of its own, which the cleanup at the end of this one does not reach. Give it a query id for its
                 // scans to register their query-finish cleanup under, which the finally below runs: without one
@@ -170,12 +171,12 @@ public class ExplainCommand extends Command implements NoForward {
 
     // Ends the statement of an explain context of its own as MTMVTask ends a refresh's: runs the query-finish
     // cleanup its scans registered (which stops their split producers and closes their connector scope), then
-    // closes its statement context. It has no coordinator, so only the callbacks are left to finish.
+    // closes its session. It has no coordinator, so only the callbacks are left to finish.
     private static void closeExplainConnectContext(ConnectContext explainCtx) {
         try {
             QeProcessorImpl.INSTANCE.finishQueryCallbacks(explainCtx.queryId());
         } finally {
-            explainCtx.getStatementContext().close();
+            explainCtx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
         }
     }
 

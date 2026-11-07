@@ -229,22 +229,27 @@ public class CacheHotspotManagerUtils {
 
     public static AutoCloseConnectContext buildConnectContext() {
         ConnectContext connectContext = new ConnectContext();
-        connectContext.getState().setInternal(true);
-        SessionVariable sessionVariable = connectContext.getSessionVariable();
-        // sessionVariable.setMaxExecMemByte(StatisticConstants.STATISTICS_MAX_MEM_PER_QUERY_IN_BYTES);
-        sessionVariable.setEnableInsertStrict(true);
-        sessionVariable.setInsertMaxFilterRatio(1);
-        // sessionVariable.parallelExecInstanceNum = StatisticConstants.STATISTIC_PARALLEL_EXEC_INSTANCE_NUM;
-        sessionVariable.enableProfile = false;
-        connectContext.setEnv(Env.getCurrentEnv());
-        connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
-        UUID uuid = UUID.randomUUID();
-        TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-        connectContext.setQueryId(queryId);
-        connectContext.setStartTime();
-        connectContext.setCurrentUserIdentity(UserIdentity.ADMIN);
-        connectContext.setUserInsertTimeout(getCacheHotSpotInsertTimeoutInSecTimeout());
-        return new AutoCloseConnectContext(connectContext);
+        try {
+            connectContext.getState().setInternal(true);
+            SessionVariable sessionVariable = connectContext.getSessionVariable();
+            // sessionVariable.setMaxExecMemByte(StatisticConstants.STATISTICS_MAX_MEM_PER_QUERY_IN_BYTES);
+            sessionVariable.setEnableInsertStrict(true);
+            sessionVariable.setInsertMaxFilterRatio(1);
+            // sessionVariable.parallelExecInstanceNum = StatisticConstants.STATISTIC_PARALLEL_EXEC_INSTANCE_NUM;
+            sessionVariable.enableProfile = false;
+            connectContext.setEnv(Env.getCurrentEnv());
+            connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
+            UUID uuid = UUID.randomUUID();
+            TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+            connectContext.setQueryId(queryId);
+            connectContext.setStartTime();
+            connectContext.setCurrentUserIdentity(UserIdentity.ADMIN);
+            connectContext.setUserInsertTimeout(getCacheHotSpotInsertTimeoutInSecTimeout());
+            return new AutoCloseConnectContext(connectContext);
+        } catch (RuntimeException | Error e) {
+            connectContext.cleanup();
+            throw e;
+        }
     }
 
     public static class AutoCloseConnectContext extends org.apache.doris.qe.AutoCloseConnectContext {
@@ -255,6 +260,9 @@ public class CacheHotspotManagerUtils {
                 connectContext.getCloudCluster();
             } catch (ComputeGroupException e) {
                 LOG.warn("failed to get compute group name", e);
+            } catch (RuntimeException | Error e) {
+                super.close();
+                throw e;
             }
         }
     }
