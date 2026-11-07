@@ -149,10 +149,12 @@ public class AlterUserInfo {
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
         }
-        // Changing how ANOTHER account authenticates (its password or its authentication binding) is
-        // taking that account over, so it needs admin_priv; grant_priv alone lets an account manage
-        // privileges, not become other accounts. One's own credentials stay under the grant_priv gate.
-        if (ops.contains(AlterUserOpType.SET_PASSWORD)
+        // Changing how ANOTHER account authenticates - its password, its authentication binding or its
+        // certificate requirement (a REQUIRE SAN/ISSUER/SUBJECT can let a certificate log in as the
+        // account, with no password at all under tls_cert_based_auth_ignore_password) - is taking that
+        // account over, so it needs admin_priv; grant_priv alone lets an account manage privileges,
+        // not become other accounts. One's own credentials stay under the grant_priv gate.
+        if ((ops.contains(AlterUserOpType.SET_PASSWORD) || ops.contains(AlterUserOpType.SET_TLS_REQUIRE))
                 && !userDesc.getUserIdent().equals(ConnectContext.get().getCurrentUserIdentity())
                 && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");

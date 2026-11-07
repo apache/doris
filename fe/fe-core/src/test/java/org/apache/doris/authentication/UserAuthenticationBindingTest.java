@@ -99,6 +99,11 @@ class UserAuthenticationBindingTest {
                 .thenReturn(true);
         Mockito.when(access.checkGlobalPriv(Mockito.any(UserIdentity.class), Mockito.eq(PrivPredicate.GRANT)))
                 .thenReturn(true);
+        // The statements here run as root, which holds admin_priv: another account's credentials need it.
+        Mockito.when(access.checkGlobalPriv(Mockito.any(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN)))
+                .thenReturn(true);
+        Mockito.when(access.checkGlobalPriv(Mockito.any(UserIdentity.class), Mockito.eq(PrivPredicate.ADMIN)))
+                .thenReturn(true);
         auth = new Auth();
         Mockito.when(env.getAuth()).thenReturn(auth);
         Mockito.when(access.getAuth()).thenReturn(auth);

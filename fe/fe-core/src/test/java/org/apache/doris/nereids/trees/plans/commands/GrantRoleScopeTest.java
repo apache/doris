@@ -44,6 +44,13 @@ public class GrantRoleScopeTest extends TestWithFeService {
         run("CREATE USER 'gs_target'@'%' IDENTIFIED BY 'p2'");
         run("CREATE USER 'gs_admin'@'%' IDENTIFIED BY 'p3'");
         run("GRANT ADMIN_PRIV ON *.*.* TO 'gs_admin'@'%'");
+        // a role carrying node_priv, and one carrying a workload-group privilege
+        run("CREATE ROLE gs_node_role");
+        run("GRANT NODE_PRIV ON *.*.* TO ROLE 'gs_node_role'");
+        run("CREATE WORKLOAD GROUP IF NOT EXISTS gs_wg"
+                + " PROPERTIES (\"min_memory_percent\"=\"10\", \"max_memory_percent\"=\"30%\")");
+        run("CREATE ROLE gs_wg_role");
+        run("GRANT USAGE_PRIV ON WORKLOAD GROUP 'gs_wg' TO ROLE 'gs_wg_role'");
     }
 
     private void run(String sql) throws Exception {
@@ -91,9 +98,23 @@ public class GrantRoleScopeTest extends TestWithFeService {
         runAs(grantor, "CREATE USER 'gs_new'@'%' IDENTIFIED BY 'p' DEFAULT ROLE '" + ROLE + "'");
         Assertions.assertTrue(Env.getCurrentEnv().getAuth().getRolesByUser(ident("gs_new"), false).contains(ROLE));
 
-        // admin_priv grants any role, as it grants any privilege
+        // admin_priv grants any role, as it grants any privilege ...
         runAs(as("gs_admin"), "GRANT '" + ROLE + "' TO 'gs_admin'@'%'");
         Assertions.assertTrue(Env.getCurrentEnv().getAuth().getRolesByUser(ident("gs_admin"), false).contains(ROLE));
+        // ... except node_priv, which a direct grant refuses to an account without it, admin or not
+        Assertions.assertTrue(refusal(as("gs_admin"), "GRANT 'gs_node_role' TO 'gs_target'@'%'").contains("NODE_PRIV"));
+        Assertions.assertFalse(Env.getCurrentEnv().getAuth().getRolesByUser(ident("gs_target"), false)
+                .contains("gs_node_role"));
+    }
+
+    @Test
+    public void testARoleCarryingAWorkloadGroupPrivilegeIsCheckedOnThatGroup() throws Exception {
+        ConnectContext grantor = as("gs_grantor");
+        Assertions.assertTrue(refusal(grantor, "GRANT 'gs_wg_role' TO 'gs_target'@'%'").contains("Usage_priv"));
+        run("GRANT USAGE_PRIV ON WORKLOAD GROUP 'gs_wg' TO 'gs_grantor'@'%'");
+        runAs(grantor, "GRANT 'gs_wg_role' TO 'gs_target'@'%'");
+        Assertions.assertTrue(Env.getCurrentEnv().getAuth().getRolesByUser(ident("gs_target"), false)
+                .contains("gs_wg_role"));
     }
 
     @Test
@@ -101,6 +122,11 @@ public class GrantRoleScopeTest extends TestWithFeService {
         ConnectContext grantor = as("gs_grantor");
         Assertions.assertTrue(refusal(grantor, "ALTER USER 'gs_target'@'%' IDENTIFIED BY 'x'").contains("ADMIN"));
         Assertions.assertTrue(refusal(grantor, "SET PASSWORD FOR 'gs_target'@'%' = PASSWORD('x')").contains("ADMIN"));
+        // an authentication binding and a certificate requirement are credentials too
+        Assertions.assertTrue(refusal(grantor,
+                "ALTER USER 'gs_target'@'%' IDENTIFIED WITH AUTHENTICATION INTEGRATION gs_integration")
+                .contains("ADMIN"));
+        Assertions.assertTrue(refusal(grantor, "ALTER USER 'gs_target'@'%' REQUIRE SAN 'gs-san'").contains("ADMIN"));
         // one's own credentials, and the other administrative operations, stay under grant_priv
         runAs(grantor, "SET PASSWORD = PASSWORD('q1')");
         runAs(grantor, "ALTER USER 'gs_grantor'@'%' IDENTIFIED BY 'q2'");
@@ -110,5 +136,7 @@ public class GrantRoleScopeTest extends TestWithFeService {
         ConnectContext admin = as("gs_admin");
         runAs(admin, "ALTER USER 'gs_target'@'%' IDENTIFIED BY 'x1'");
         runAs(admin, "SET PASSWORD FOR 'gs_target'@'%' = PASSWORD('x2')");
+        runAs(admin, "ALTER USER 'gs_target'@'%' REQUIRE SAN 'gs-san'");
+        runAs(admin, "ALTER USER 'gs_target'@'%' REQUIRE NONE");
     }
 }

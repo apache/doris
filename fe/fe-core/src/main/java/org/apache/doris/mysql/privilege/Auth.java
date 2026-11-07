@@ -185,6 +185,26 @@ public class Auth implements Writable {
         return roleManager.getRole(roleName);
     }
 
+    /**
+     * A copy of the role's column privileges taken under the read lock: unlike the role's pattern maps
+     * (concurrent maps) its column map is a plain HashMap of HashSets, which a concurrent grant or revoke
+     * to the role mutates under the write lock. Empty for an unknown role.
+     */
+    public Map<ColPrivilegeKey, Set<String>> getRoleColPrivsSnapshot(String roleName) {
+        readLock();
+        try {
+            Role role = roleManager.getRole(roleName);
+            if (role == null) {
+                return Collections.emptyMap();
+            }
+            Map<ColPrivilegeKey, Set<String>> copy = Maps.newHashMap();
+            role.getColPrivMap().forEach((key, cols) -> copy.put(key, Sets.newHashSet(cols)));
+            return copy;
+        } finally {
+            readUnlock();
+        }
+    }
+
     /*
      * check password, if matched, save the userIdentity in matched entry.
      * the following auth checking should use userIdentity saved in currentUser.
