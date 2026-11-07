@@ -2174,8 +2174,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         FileIO fileIO = table.io();
         Map<String, String> ioProps = new HashMap<>(fileIO.properties());
         // REST credentials live outside properties(). Authentication decorators must not hide them from BE.
-        while (fileIO instanceof IcebergAuthenticatedFileIO) {
-            fileIO = ((IcebergAuthenticatedFileIO) fileIO).delegate();
+        while (fileIO instanceof IcebergAuthenticatedFileIO || fileIO instanceof IcebergRestEncryptionFileIO) {
+            fileIO = fileIO instanceof IcebergAuthenticatedFileIO
+                    ? ((IcebergAuthenticatedFileIO) fileIO).delegate()
+                    : ((IcebergRestEncryptionFileIO) fileIO).delegate();
         }
         if (fileIO instanceof SupportsStorageCredentials) {
             for (StorageCredential storageCredential : ((SupportsStorageCredentials) fileIO).credentials()) {
