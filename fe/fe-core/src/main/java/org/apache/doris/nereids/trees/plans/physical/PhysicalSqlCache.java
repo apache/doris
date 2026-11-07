@@ -167,6 +167,11 @@ public class PhysicalSqlCache extends PhysicalLeaf
     }
 
     @Override
+    public boolean canComputeResultInFe(List<Slot> outputSlots) {
+        return resultSet.isPresent();
+    }
+
+    @Override
     public Optional<ResultSet> computeResultInFe(CascadesContext cascadesContext, List<Slot> outputSlots) {
         return resultSet;
     }

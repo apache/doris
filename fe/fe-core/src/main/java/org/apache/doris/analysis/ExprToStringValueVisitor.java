@@ -23,13 +23,14 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FractionalFormat;
 import org.apache.doris.foundation.format.FormatOptions;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.util.DateUtils;
 
 import org.apache.commons.lang3.StringUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
-import java.time.ZoneId;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -42,8 +43,6 @@ import java.util.List;
  * from Expr subclasses, following the same visitor pattern as {@link ExprToSqlVisitor}.
  */
 public class ExprToStringValueVisitor extends ExprVisitor<String, StringValueContext> {
-    private static final Logger LOG = LogManager.getLogger(ExprToStringValueVisitor.class);
-
     public static final ExprToStringValueVisitor INSTANCE = new ExprToStringValueVisitor();
 
     @Override
@@ -55,46 +54,24 @@ public class ExprToStringValueVisitor extends ExprVisitor<String, StringValueCon
     public String visitDateLiteral(DateLiteral expr, StringValueContext ctx) {
         String value;
         if (expr.getType().isTimeStampTz()) {
-            try {
-                if (ctx.isForStreamLoad()) {
-                    // BE's TIMESTAMPTZ parser consumes only hour/minute offsets
-                    // (minutes restricted to 00/30/45).  Historical zone offsets
-                    // can include seconds (e.g. Asia/Shanghai before 1901 had
-                    // +08:05:43), which BE would reject.  Since TIMESTAMPTZ
-                    // stores UTC internally, render in UTC format that BE can
-                    // round-trip.
-                    value = expr.getStringValue();
-                } else {
-                    ZoneId dorisZone = DateUtils.getTimeZone();
-                    // Compute offset from the target instant (the literal's UTC
-                    // value), not Instant.now() which may be in a different DST
-                    // period.
-                    java.time.Instant targetInstant = java.time.LocalDateTime.of(
-                            (int) expr.getYear(), (int) expr.getMonth(), (int) expr.getDay(),
-                            (int) expr.getHour(), (int) expr.getMinute(), (int) expr.getSecond(),
-                            (int) expr.getMicrosecond() * 1000)
-                            .atZone(java.time.ZoneOffset.UTC).toInstant();
-                    String offset = dorisZone.getRules().getOffset(targetInstant).toString();
-                    DateLiteral dateLiteral = DateLiteralUtils.createDateLiteral(expr.getStringValue(),
-                            ScalarType.createDatetimeV2Type(((ScalarType) expr.getType()).getScalarScale()));
-                    // BE's TimestampTzValue::to_string() renders the wall clock
-                    // with the session timezone offset but truncates seconds
-                    // (e.g. +08:05:43 becomes +08:05), producing text that
-                    // denotes a different instant if reparsed.  When the offset
-                    // contains seconds (a second colon), fall back to UTC so
-                    // that FE constant evaluation and BE row serialisation
-                    // produce the same string for the same stored instant.
-                    int firstColon = offset.indexOf(':');
-                    if (firstColon > 0 && offset.indexOf(':', firstColon + 1) > 0) {
-                        value = expr.getStringValue();
-                    } else {
-                        value = dateLiteral.getStringValue() + offset;
-                    }
-                }
-            } catch (Exception e) {
-                LOG.warn("generate timestamptz({})'s string value for query failed. ",
-                        expr.getStringValue(), e);
+            if (ctx.isForStreamLoad()) {
+                // Storage input stays in UTC: a valid instant can have an unrepresentable local year.
                 value = expr.getStringValue();
+            } else {
+                ZonedDateTime localTime = LocalDateTime.of(
+                        (int) expr.getYear(), (int) expr.getMonth(), (int) expr.getDay(),
+                        (int) expr.getHour(), (int) expr.getMinute(), (int) expr.getSecond(),
+                        (int) expr.getMicrosecond() * 1000)
+                        .atZone(ZoneOffset.UTC).withZoneSameInstant(DateUtils.getTimeZone());
+                int localYear = localTime.getYear();
+                // Match BE output before the fixed-width DateLiteral formatter can corrupt the year.
+                if (localYear < 0 || localYear > 9999) {
+                    throw new AnalysisException("TIMESTAMPTZ local year is outside [0, 9999]: year="
+                            + localYear + ", timezone=" + localTime.getZone());
+                }
+                DateLiteral localLiteral = new DateLiteral(localTime.toLocalDateTime(),
+                        ScalarType.createDatetimeV2Type(((ScalarType) expr.getType()).getScalarScale()));
+                value = localLiteral.getStringValue() + localTime.getOffset();
             }
         } else {
             value = expr.getStringValue();
