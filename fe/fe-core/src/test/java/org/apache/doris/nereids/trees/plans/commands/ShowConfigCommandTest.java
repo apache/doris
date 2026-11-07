@@ -82,6 +82,16 @@ public class ShowConfigCommandTest extends TestWithFeService {
     }
 
     @Test
+    public void testBuildBackendConfigUrl() {
+        Assertions.assertEquals("http://127.0.0.1:8040/api/show_config",
+                ShowConfigCommand.buildBackendConfigUrl("127.0.0.1", 8040));
+        Assertions.assertEquals("http://be.example.com:8040/api/show_config",
+                ShowConfigCommand.buildBackendConfigUrl("be.example.com", 8040));
+        Assertions.assertEquals("http://[2001:db8::415b]:8040/api/show_config",
+                ShowConfigCommand.buildBackendConfigUrl("2001:db8::415b", 8040));
+    }
+
+    @Test
     public void testMaskSensitiveConfig() throws Exception {
         ShowResultSet resultSet = runShowFrontendConfig(null);
         List<List<String>> rows = resultSet.getResultRows();
