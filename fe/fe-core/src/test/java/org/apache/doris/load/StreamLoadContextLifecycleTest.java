@@ -18,13 +18,18 @@
 package org.apache.doris.load;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
+import org.apache.doris.nereids.load.NereidsStreamLoadTask;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TPipelineFragmentParams;
+import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TStreamLoadPutResult;
 import org.apache.doris.thrift.TUniqueId;
@@ -34,7 +39,9 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -128,5 +135,58 @@ public class StreamLoadContextLifecycleTest {
         Assertions.assertNull(ConnectContext.get());
         Assertions.assertNotNull(created.get());
         Assertions.assertTrue(created.get().isClosingOrClosed());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,false", "false,true", "true,false", "true,true"})
+    public void cloudPlannerBorrowsHandlerContext(boolean borrowed, boolean fail) throws Exception {
+        config.when(Config::isCloudMode).thenReturn(true);
+        ConnectContext caller = borrowed ? new ConnectContext() : null;
+        if (caller != null) {
+            caller.setCloudCluster("previous-cluster");
+            caller.setThreadLocalInfo();
+        }
+        // User-less internal loads do not need to resolve a login identity.
+        TStreamLoadPutRequest request = request().setUser("").setCloudCluster("load-cluster");
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.tryReadLock(Mockito.anyLong(), Mockito.any())).thenReturn(true);
+        NereidsStreamLoadTask task = Mockito.mock(NereidsStreamLoadTask.class);
+        Mockito.when(task.getGroupCommit()).thenReturn("sync_mode");
+        AtomicReference<ConnectContext> planningContext = new AtomicReference<>();
+        AtomicReference<ConnectContext> handlerContext = new AtomicReference<>();
+        UserException failure = new UserException("planning failed");
+        try (MockedStatic<NereidsStreamLoadTask> tasks = Mockito.mockStatic(NereidsStreamLoadTask.class);
+                MockedConstruction<NereidsStreamLoadPlanner> planners = Mockito.mockConstruction(
+                        NereidsStreamLoadPlanner.class, (planner, construction) ->
+                                Mockito.when(planner.plan(Mockito.any(), Mockito.anyInt())).thenAnswer(call -> {
+                                    planningContext.set(ConnectContext.get());
+                                    if (fail) {
+                                        throw failure;
+                                    }
+                                    return new TPipelineFragmentParams().setQueryOptions(new TQueryOptions());
+                                }))) {
+            tasks.when(() -> NereidsStreamLoadTask.fromTStreamLoadPutRequest(request)).thenReturn(task);
+            try (StreamLoadHandler handler = new StreamLoadHandler(request, null, null, "127.0.0.1")) {
+                handler.setCloudCluster();
+                handlerContext.set(ConnectContext.get());
+                if (fail) {
+                    Assertions.assertSame(failure,
+                            Assertions.assertThrows(UserException.class, () -> handler.generatePlan(table)));
+                } else {
+                    handler.generatePlan(table);
+                    Assertions.assertEquals(1, handler.getFragmentParams().size());
+                }
+                Assertions.assertSame(handlerContext.get(), planningContext.get());
+                Assertions.assertEquals("load-cluster", planningContext.get().getCloudCluster());
+                Assertions.assertFalse(planningContext.get().isClosingOrClosed());
+            }
+            Assertions.assertSame(caller, ConnectContext.get());
+            Assertions.assertEquals(!borrowed, planningContext.get().isClosingOrClosed());
+            Mockito.verify(table).readUnlock();
+        } finally {
+            if (caller != null) {
+                caller.cleanup();
+            }
+        }
     }
 }

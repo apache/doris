@@ -92,8 +92,16 @@ public class UserPropertyMgr implements Writable {
     }
 
     public int getQueryTimeout(String qualifiedUser) {
+        return getQueryTimeout(qualifiedUser, useDefaultPropertyForExternalTempUser(qualifiedUser));
+    }
+
+    public int getQueryTimeoutForRegularUser(String qualifiedUser) {
+        return getQueryTimeout(qualifiedUser, false);
+    }
+
+    private int getQueryTimeout(String qualifiedUser, boolean useTemporaryUserDefault) {
         UserProperty existProperty = propertyMap.get(qualifiedUser);
-        existProperty = getPropertyIfNull(qualifiedUser, existProperty);
+        existProperty = getPropertyIfNull(qualifiedUser, existProperty, useTemporaryUserDefault);
         if (existProperty == null) {
             return 0;
         }
@@ -286,10 +294,15 @@ public class UserPropertyMgr implements Writable {
      * network queries that could hang under Auth read lock, blocking all new connections.
      */
     private UserProperty getPropertyIfNull(String qualifiedUser, UserProperty existProperty) {
+        return getPropertyIfNull(qualifiedUser, existProperty, useDefaultPropertyForExternalTempUser(qualifiedUser));
+    }
+
+    private UserProperty getPropertyIfNull(String qualifiedUser, UserProperty existProperty,
+            boolean useTemporaryUserDefault) {
         if (null != existProperty) {
             return existProperty;
         }
-        if (useDefaultPropertyForExternalTempUser(qualifiedUser)) {
+        if (useTemporaryUserDefault) {
             return DEFAULT_USER_PROPERTY;
         }
         if (AuthenticateType.LDAP.name().equalsIgnoreCase(Config.authentication_type)

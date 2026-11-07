@@ -1196,7 +1196,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TMasterOpResult forward(TMasterOpRequest params) throws TException {
-        Frontend requester = validateForwardRequester(params);
+        validateForwardRequester(params);
         TMasterOpResult shortcut = handleForwardShortcut(params);
         if (shortcut != null) {
             return shortcut;
@@ -1205,7 +1205,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try (AutoCloseConnectContext scope = new AutoCloseConnectContext(
                 ConnectContext.forMysqlProxy(params.getSessionId()))) {
             ConnectContext context = scope.connectContext;
-            initializeForwardContext(context, params, requester);
+            initializeForwardContext(context, params);
             // The master replays every forwarded statement over a ProxyMysqlChannel and hands
             // packets back to the origin FE, whatever protocol the client is speaking there.
             ConnectProcessor processor = new MysqlConnectProcessor(context);
@@ -1218,10 +1218,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
     }
 
-    private Frontend validateForwardRequester(TMasterOpRequest params) throws TException {
+    private void validateForwardRequester(TMasterOpRequest params) throws TException {
         Frontend fe = Env.getCurrentEnv().checkFeExist(params.getClientNodeHost(), params.getClientNodePort());
         if (fe != null) {
-            return fe;
+            return;
         }
         LOG.warn("reject request from invalid host. client: {}", params.getClientNodeHost());
         throw new TException("request from invalid host was rejected.");
@@ -1307,12 +1307,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
     }
 
-    private void initializeForwardContext(ConnectContext context, TMasterOpRequest params, Frontend requester) {
+    private void initializeForwardContext(ConnectContext context, TMasterOpRequest params) {
         // Set current connected FE to the client address, so that we can know where
         // this request come from.
         context.setCurrentConnectedFEIp(params.getClientNodeHost());
-        context.setConnectingFeLocalResourceGroup(params.isSetConnectingFeLocalResourceGroup()
-                ? params.getConnectingFeLocalResourceGroup() : requester.getLocalResourceGroup());
         if (Config.isCloudMode() && !Strings.isNullOrEmpty(params.getCloudCluster())) {
             context.setCloudCluster(params.getCloudCluster());
         }
@@ -4108,14 +4106,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
 
             if (syncJournal) {
-                try (AutoCloseConnectContext scope = new AutoCloseConnectContext(new ConnectContext())) {
-                    ConnectContext ctx = scope.connectContext;
-                    ctx.setDatabase(request.getDb());
-                    ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(request.getUser(), "%"));
-                    ctx.setEnv(Env.getCurrentEnv());
-                    MasterOpExecutor executor = new MasterOpExecutor(ctx);
-                    executor.syncJournal();
-                }
+                MasterOpExecutor.syncJournal(Env.getCurrentEnv(), request.getDb(), request.getUser());
             }
 
             result = getBinlogImpl(request, clientAddr);

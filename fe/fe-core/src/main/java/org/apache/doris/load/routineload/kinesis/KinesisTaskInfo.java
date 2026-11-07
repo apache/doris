@@ -30,7 +30,7 @@ import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.load.routineload.RoutineLoadTaskInfo;
 import org.apache.doris.nereids.load.NereidsLoadTaskInfo;
 import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TKinesisLoadInfo;
 import org.apache.doris.thrift.TLoadSourceType;
@@ -208,21 +208,13 @@ public class KinesisTaskInfo extends RoutineLoadTaskInfo {
         tPlanFragment.getOutputSink().getOlapTableSink().setTxnId(txnId);
 
         if (Config.enable_workload_group) {
-            ConnectContext tmpContext = new ConnectContext();
             try {
-                List<TPipelineWorkloadGroup> tWgList = new ArrayList<>();
-
-                if (Config.isCloudMode()) {
-                    tmpContext.setCloudCluster(routineLoadJob.getCloudCluster());
-                }
-                tmpContext.setCurrentUserIdentity(routineLoadJob.getUserIdentity());
-
                 String wgName = routineLoadJob.getWorkloadGroup();
-                if (!StringUtils.isEmpty(wgName)) {
-                    tmpContext.getSessionVariable().setWorkloadGroup(wgName);
+                if (StringUtils.isEmpty(wgName)) {
+                    wgName = VariableMgr.getDefaultWorkloadGroup();
                 }
-
-                tWgList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(tmpContext)
+                List<TPipelineWorkloadGroup> tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
+                        .getWorkloadGroup(routineLoadJob.getUserIdentity(), wgName, routineLoadJob.getCloudCluster())
                         .stream()
                         .map(e -> e.toThrift())
                         .collect(Collectors.toList());
@@ -233,8 +225,6 @@ public class KinesisTaskInfo extends RoutineLoadTaskInfo {
             } catch (Throwable t) {
                 LOG.info("Get workload group failed when replan kinesis, job id:{} , ", routineLoadJob.getTxnId(), t);
                 throw t;
-            } finally {
-                tmpContext.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
             }
         }
 

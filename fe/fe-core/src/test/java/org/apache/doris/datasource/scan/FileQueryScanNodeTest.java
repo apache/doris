@@ -32,6 +32,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.property.fileformat.ParquetFileFormatProperties;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.tablefunction.FileTableValuedFunction;
@@ -46,6 +47,9 @@ import org.apache.doris.thrift.TFileScanSlotInfo;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.MockedConstruction;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Method;
@@ -371,6 +375,39 @@ public class FileQueryScanNodeTest {
                 .getRequiredSlots().get(0).getDefaultValueExpr();
         Assertions.assertEquals(TExprNodeType.NULL_LITERAL,
                 missingColumnExpr.getNodes().get(0).getNodeType());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testDefaultExpressionTranslationDoesNotCreateSession(boolean applyDefaults) throws Exception {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext.remove();
+        TestFileQueryScanNode node = new TestFileQueryScanNode(new SessionVariable());
+        node.setTargetTable(table);
+        node.setApplyColumnDefaultsOnRead(applyDefaults);
+        Column column = new Column("added_later", Type.INT, false, null, true, "7", "");
+        TupleDescriptor desc = node.getTupleDescriptor();
+        desc.setTable(table);
+        SlotDescriptor slot = new SlotDescriptor(new SlotId(1), desc.getId());
+        slot.setColumn(column);
+        desc.addSlot(slot);
+        Mockito.when(table.getBaseSchema(false)).thenReturn(Collections.singletonList(column));
+        Mockito.when(table.getFullSchema()).thenReturn(Collections.singletonList(column));
+        try (MockedConstruction<ConnectContext> contexts = Mockito.mockConstruction(ConnectContext.class)) {
+            node.initSchemaParamsForTest();
+            TExpr expression = node.getFileScanRangeParams().getRequiredSlots().get(0).getDefaultValueExpr();
+            Assertions.assertEquals(applyDefaults ? TExprNodeType.INT_LITERAL : TExprNodeType.NULL_LITERAL,
+                    expression.getNodes().get(0).getNodeType());
+            if (applyDefaults) {
+                Assertions.assertEquals(7, expression.getNodes().get(0).getIntLiteral().getValue());
+            }
+            Assertions.assertTrue(contexts.constructed().isEmpty());
+            Assertions.assertNull(ConnectContext.get());
+        } finally {
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
     }
 
 }

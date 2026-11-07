@@ -87,6 +87,7 @@ import org.apache.doris.thrift.TDetailedReportParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryProfile;
+import org.apache.doris.thrift.TResultBatch;
 import org.apache.doris.thrift.TRuntimeProfileNode;
 import org.apache.doris.thrift.TRuntimeProfileTree;
 import org.apache.doris.thrift.TStatusCode;
@@ -139,6 +140,63 @@ public class StmtExecutorTest extends TestWithFeService {
         InternalSchemaInitializer.createDb();
         InternalSchemaInitializer.createTbl();
         createDatabase("testDb");
+    }
+
+    @Test
+    @ResourceLock("global")
+    public void testResultAttachmentsBelongToEachExecution() throws Exception {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = Mockito.spy(connectContext);
+        SessionVariable session = VariableMgr.cloneSessionVariable(context.getSessionVariable());
+        session.enableSqlCache = false;
+        session.enableProfile = false;
+        context.setSessionVariable(session);
+        context.setThreadLocalInfo();
+        Mockito.doReturn(Mockito.mock(ResultSender.class)).when(context).getResultSender();
+        Mockito.doReturn(false).when(context).supportHandleByFe();
+        List<StmtExecutor> executions = Lists.newArrayList();
+        try (MockedConstruction<Coordinator> coordinators = Mockito.mockConstruction(Coordinator.class,
+                (coordinator, construction) -> {
+                    Mockito.when(coordinator.getQueryOptions()).thenReturn(new TQueryOptions());
+                    Mockito.when(coordinator.getExecStatus()).thenReturn(Status.OK);
+                    ExecutionProfile executionProfile = new ExecutionProfile(context.queryId(), Collections.emptyList());
+                    Mockito.when(coordinator.getExecutionProfile()).thenReturn(executionProfile);
+                    RowBatch withoutAttachments = new RowBatch();
+                    withoutAttachments.setBatch(new TResultBatch().setRows(Collections.emptyList()));
+                    withoutAttachments.setEos(false);
+                    RowBatch withAttachments = new RowBatch();
+                    withAttachments.setBatch(new TResultBatch().setRows(Collections.emptyList())
+                            .setAttachedInfos(Collections.singletonMap("fileNumber",
+                                    Integer.toString(construction.getCount()))));
+                    Mockito.when(coordinator.getNext()).thenReturn(withoutAttachments, withAttachments);
+                })) {
+            for (int i = 1; i <= 2; i++) {
+                context.getState().reset();
+                context.setStartTime();
+                StmtExecutor executor = new StmtExecutor(context, "select 1");
+                executions.add(executor);
+                try {
+                    executor.execute(new TUniqueId(0x22060L, i));
+                    Assertions.assertEquals(QueryState.MysqlStateType.EOF, context.getState().getStateType(),
+                            context.getState().getErrorMessage());
+                    Assertions.assertEquals(Collections.singletonList(Collections.singletonMap(
+                            "fileNumber", Integer.toString(i))), executor.getResultAttachedInfo());
+                } finally {
+                    context.getStatementContext().close();
+                    context.clear();
+                }
+            }
+            Assertions.assertEquals(2, coordinators.constructed().size());
+            Assertions.assertEquals(Collections.singletonList(Collections.singletonMap("fileNumber", "1")),
+                    executions.get(0).getResultAttachedInfo(), "the next query must not append to the first query");
+            Assertions.assertNotSame(executions.get(0).getResultAttachedInfo(),
+                    executions.get(1).getResultAttachedInfo());
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
     }
 
     @Test

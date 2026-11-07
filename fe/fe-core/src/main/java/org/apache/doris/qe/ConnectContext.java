@@ -79,7 +79,6 @@ import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.system.Backend;
-import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TResultSinkType;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
@@ -118,6 +117,17 @@ import javax.annotation.Nullable;
  * Owns session state, serial execution and final cleanup. ProtocolAdapter owns protocol resources;
  * ConnectPoolMgr maintains local indexes and quotas. Neither GC nor removing a thread-local binding
  * closes a session. There is no activation step or reference-counted operation API.
+ *
+ * <h2>State ownership</h2>
+ * Identity and delegated credentials, session variables, namespace, transactions, prepared statements,
+ * temporary tables and last-query/last-insert history live across commands and belong to the session.
+ * The current command, query identity and executor are also exposed here so timeout, cancellation,
+ * processlist and protocol response handling can observe the active execution. They are not a place
+ * to accumulate results from successive statements. StatementContext owns analysis resources;
+ * StmtExecutor owns its result attachments; ProtocolAdapter owns transport and retained response
+ * resources. A response can outlive its SQL analysis, particularly for Flight DoGet.
+ * Env and scheduler references are borrowed services, not resources this context closes. Helpers
+ * needing only an identity, namespace or configuration value should take that input explicitly.
  *
  * <h2>Creation and use</h2>
  * A synchronous helper borrows its caller's context and executor when it runs as part of that command.
@@ -275,7 +285,6 @@ public class ConnectContext {
     protected volatile long backendId;
     // range [Integer.MIN_VALUE, Integer.MAX_VALUE]
     protected int preparedStmtId = INITIAL_PREPARED_STMT_ID;
-    protected volatile LoadTaskInfo streamLoadInfo;
 
     protected volatile TUniqueId queryId = null;
     // only be active one time. tell Coordinator to regenerate instance ids for certain query(when retry).
@@ -325,8 +334,6 @@ public class ConnectContext {
     protected volatile long startTime;
     // Timestamp with nanosecond precision when the current command starts.
     protected volatile Instant startTimeInstant = Instant.now();
-    // Cache thread info for this connection.
-    protected volatile ThreadInfo threadInfo;
 
     // Catalog: put catalog here is convenient for unit test,
     // because catalog is singleton, hard to mock
@@ -340,19 +347,12 @@ public class ConnectContext {
 
     protected String remoteIP;
 
-    // This is used to statistic the current query details.
-    // This property will only be set when the query starts to execute.
-    // So in the query planning stage, do not use any value in this attribute.
-    protected QueryDetail queryDetail = null;
-
     // cloud cluster name
     protected volatile String cloudCluster = null;
     // The compute group selected for the statement currently being executed. Unlike cloudCluster,
     // this value is query-scoped and remains available after a per-query SET_VAR is reverted.
     protected volatile String effectiveCloudCluster = null;
 
-    // If set to true, the nondeterministic function will not be rewrote to constant.
-    private boolean notEvalNondeterministicFunction = false;
     // The compute group tag is used to limit the node resources that the user can use for query.
     // The default is empty, that is, unlimited.
     // This property is obtained from UserProperty when the client connection is created.
@@ -363,15 +363,12 @@ public class ConnectContext {
 
     // The FE ip current connected
     private String currentConnectedFEIp = "";
-    private transient String connectingFeLocalResourceGroup = "";
 
     private InsertResult insertResult;
 
     private SessionContext sessionContext = SessionContext.empty();
 
     private StatsErrorEstimator statsErrorEstimator;
-
-    private List<Map<String, String>> resultAttachedInfo = Lists.newArrayList();
 
     private String workloadGroupName = "";
     private boolean isGroupCommit;
@@ -522,14 +519,6 @@ public class ConnectContext {
         }
         setUserQueryTimeout(auth.getQueryTimeout(qualifiedUser));
         setUserInsertTimeout(auth.getInsertTimeout(qualifiedUser));
-    }
-
-    public void setNotEvalNondeterministicFunction(boolean notEvalNondeterministicFunction) {
-        this.notEvalNondeterministicFunction = notEvalNondeterministicFunction;
-    }
-
-    public boolean notEvalNondeterministicFunction() {
-        return notEvalNondeterministicFunction;
     }
 
     public ConnectType getConnectType() {
@@ -714,14 +703,6 @@ public class ConnectContext {
         this.loadId = loadId;
     }
 
-    public void setStreamLoadInfo(LoadTaskInfo streamLoadInfo) {
-        this.streamLoadInfo = streamLoadInfo;
-    }
-
-    public LoadTaskInfo getStreamLoadInfo() {
-        return streamLoadInfo;
-    }
-
     public void setStmtId(long stmtId) {
         this.stmtId = stmtId;
     }
@@ -740,14 +721,6 @@ public class ConnectContext {
 
     public void setRemoteIP(String remoteIP) {
         this.remoteIP = remoteIP;
-    }
-
-    public void setQueryDetail(QueryDetail queryDetail) {
-        this.queryDetail = queryDetail;
-    }
-
-    public QueryDetail getQueryDetail() {
-        return queryDetail;
     }
 
     public AuditEventBuilder getAuditEventBuilder() {
@@ -1921,11 +1894,7 @@ public class ConnectContext {
 
     // Helper to dump connection information.
     public ThreadInfo toThreadInfo(boolean isFull) {
-        if (threadInfo == null) {
-            threadInfo = new ThreadInfo();
-        }
-        threadInfo.isFull = isFull;
-        return threadInfo;
+        return new ThreadInfo(isFull);
     }
 
     public boolean isSetComputeGroup() {
@@ -1942,14 +1911,6 @@ public class ConnectContext {
 
     public String getCurrentConnectedFEIp() {
         return currentConnectedFEIp;
-    }
-
-    public void setConnectingFeLocalResourceGroup(String connectingFeLocalResourceGroup) {
-        this.connectingFeLocalResourceGroup = Strings.nullToEmpty(connectingFeLocalResourceGroup);
-    }
-
-    public String getConnectingFeLocalResourceGroup() {
-        return connectingFeLocalResourceGroup;
     }
 
     /**
@@ -2030,16 +1991,12 @@ public class ConnectContext {
         return env.getAuth().getExecMemLimit(getQualifiedUser());
     }
 
-    public void addResultAttachedInfo(Map<String, String> resultAttachedInfo) {
-        this.resultAttachedInfo.add(resultAttachedInfo);
-    }
-
-    public List<Map<String, String>> getResultAttachedInfo() {
-        return resultAttachedInfo;
-    }
-
     public class ThreadInfo {
-        public boolean isFull;
+        private final boolean isFull;
+
+        private ThreadInfo(boolean isFull) {
+            this.isFull = isFull;
+        }
 
         public List<String> toRow(int connId, long nowMs, Optional<String> timeZone) {
             List<String> row = Lists.newArrayList();
@@ -2153,9 +2110,18 @@ public class ConnectContext {
     // 如果有多个cluster满足权限条件,优先选活的，按字母序选
     // 如果没有活的，则拉起一个，按字母序选
     public CloudClusterResult getCloudClusterByPolicy() {
+        return getCloudClusterByPolicy(getCurrentUserIdentity());
+    }
+
+    /**
+     * Resolves the user's compute-group policy without creating a session. Cloud privilege checks
+     * retain their existing caller-thread access context; workload-group checks use their own context.
+     */
+    public static CloudClusterResult getCloudClusterByPolicy(UserIdentity userIdentity) {
+        String qualifiedUser = userIdentity == null ? null : userIdentity.getQualifiedUser();
         List<String> cloudClusterNames = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames();
         // try set default cluster
-        String defaultCloudCluster = Env.getCurrentEnv().getAuth().getDefaultCloudCluster(getQualifiedUser());
+        String defaultCloudCluster = Env.getCurrentEnv().getAuth().getDefaultCloudCluster(qualifiedUser);
         if (!Strings.isNullOrEmpty(defaultCloudCluster)) {
             // check cluster validity
             CloudClusterResult r;
@@ -2176,7 +2142,7 @@ public class ConnectContext {
         List<String> hasAuthCluster = new ArrayList<>();
         // get all available cluster of the user
         for (String cloudClusterName : cloudClusterNames) {
-            if (Env.getCurrentEnv().getAccessManager().checkCloudPriv(getCurrentUserIdentity(),
+            if (Env.getCurrentEnv().getAccessManager().checkCloudPriv(userIdentity,
                     cloudClusterName, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
                 if (((CloudSystemInfoService) Env.getCurrentSystemInfo()).isStandByComputeGroup(cloudClusterName)) {
                     continue;
@@ -2188,7 +2154,7 @@ public class ConnectContext {
                         .getBackendsByClusterName(cloudClusterName);
                 AtomicBoolean hasAliveBe = new AtomicBoolean(false);
                 bes.stream().filter(Backend::isAlive).findAny().ifPresent(backend -> {
-                    LOG.debug("get a compute group {}, it's has more than one alive be {}", cloudCluster, backend);
+                    LOG.debug("get a compute group {}, it's has more than one alive be {}", cloudClusterName, backend);
                     hasAliveBe.set(true);
                 });
                 if (hasAliveBe.get()) {

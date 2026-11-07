@@ -256,6 +256,8 @@ public class StmtExecutor {
     private boolean isProxy;
     private ShowResultSet proxyShowResultSet = null;
     private Data.PQueryStatistics.Builder statisticsForAuditLog;
+    // Result metadata (such as OUTFILE information) belongs to this execution, not its session.
+    private final List<Map<String, String>> resultAttachedInfo = Lists.newArrayList();
     private boolean isCached;
     private String stmtName;
     private String prepareStmtName; // for prox
@@ -518,6 +520,10 @@ public class StmtExecutor {
 
     public void setPlanner(Planner planner) {
         this.planner = planner;
+    }
+
+    public List<Map<String, String>> getResultAttachedInfo() {
+        return resultAttachedInfo;
     }
 
     public boolean isForwardToMaster() {
@@ -1985,7 +1991,9 @@ public class StmtExecutor {
                     }
                     profile.getSummaryProfile().freshWriteResultConsumeTime();
                     context.updateReturnRows(batch.getBatch().getRows().size());
-                    context.addResultAttachedInfo(batch.getBatch().getAttachedInfos());
+                    if (batch.getBatch().isSetAttachedInfos()) {
+                        resultAttachedInfo.add(batch.getBatch().getAttachedInfos());
+                    }
                 }
                 if (batch.isEos()) {
                     break;

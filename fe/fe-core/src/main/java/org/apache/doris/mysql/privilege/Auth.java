@@ -1410,6 +1410,16 @@ public class Auth implements Writable {
         }
     }
 
+    /** User-property timeout for a metadata RPC, independent of the calling SQL session. */
+    public int getQueryTimeoutForRegularUser(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getQueryTimeoutForRegularUser(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
     public int getInsertTimeout(String qualifiedUser) {
         readLock();
         try {

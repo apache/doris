@@ -149,6 +149,12 @@ public class FEOpExecutor {
 
     // Send request to specific fe
     protected TMasterOpResult forward(TMasterOpRequest params) throws Exception {
+        return forward(env, feAddr, thriftTimeoutMs, shouldNotRetry, params);
+    }
+
+    /** Shared transport for statement forwarding and metadata RPCs that do not own a session. */
+    protected static TMasterOpResult forward(Env env, TNetworkAddress feAddr, int thriftTimeoutMs,
+            boolean shouldNotRetry, TMasterOpRequest params) throws Exception {
         env.checkReadyOrThrow();
 
         FrontendService.Client client;

@@ -284,11 +284,11 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
     }
 
     public void parseStmt() throws IOException {
+        if (defineStmt == null) {
+            return;
+        }
         try (AutoCloseSessionVariable auto = new AutoCloseSessionVariable(ConnectContext.get(), sessionVariables)) {
             // analyze define stmt
-            if (defineStmt == null) {
-                return;
-            }
             try {
                 NereidsParser nereidsParser = new NereidsParser();
                 CreateMaterializedViewCommand command = (CreateMaterializedViewCommand) nereidsParser.parseSingle(

@@ -323,6 +323,7 @@ public abstract class ConnectProcessor {
             }
             try {
                 ctx.getState().reset();
+                ctx.setGroupCommit(false);
                 if (i > 0) {
                     ctx.resetReturnRows();
                 }

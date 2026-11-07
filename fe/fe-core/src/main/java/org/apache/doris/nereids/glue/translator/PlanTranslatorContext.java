@@ -194,9 +194,8 @@ public class PlanTranslatorContext {
     }
 
     /**
-     * Constructor for testing purposes with default values.
+     * Translate standalone expressions without a query plan or a connection context.
      */
-    @VisibleForTesting
     public PlanTranslatorContext() {
         this(Config.be_exec_version);
     }

@@ -326,6 +326,25 @@ public class ConnectContextTest {
     }
 
     @Test
+    public void testProcesslistReadersKeepTheirOwnFullSqlOption() {
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getSelfNode())
+                    .thenReturn(new SystemInfoService.HostInfo("127.0.0.1", 9030));
+            String sql = "select " + "x".repeat(150);
+            Mockito.when(executor.getOriginStmtInString()).thenReturn(sql);
+            try (AutoCloseConnectContext scope = new AutoCloseConnectContext(new ConnectContext())) {
+                scope.connectContext.setExecutor(executor);
+                ConnectContext.ThreadInfo full = scope.connectContext.toThreadInfo(true);
+                ConnectContext.ThreadInfo abbreviated = scope.connectContext.toThreadInfo(false);
+                Assertions.assertEquals(sql, full.toRow(-1, 0, Optional.empty()).get(12));
+                scope.connectContext.toThreadInfo(true);
+                Assertions.assertEquals(sql.substring(0, 100), abbreviated.toRow(-1, 0, Optional.empty()).get(12));
+            }
+        }
+    }
+
+    @Test
     public void testThreadInfoUsesSessionCloudCluster() {
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);

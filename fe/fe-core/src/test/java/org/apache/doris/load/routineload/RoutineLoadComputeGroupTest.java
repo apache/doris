@@ -19,6 +19,7 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authorization.AccessContext;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.load.CloudRoutineLoadManager;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
@@ -148,6 +149,8 @@ public class RoutineLoadComputeGroupTest {
                 Mockito.any(PrivPredicate.class), Mockito.any(ResourceTypeEnum.class))).thenReturn(hasPriv);
         Mockito.when(accessManager.checkWorkloadGroupPriv(Mockito.any(ConnectContext.class), Mockito.anyString(),
                 Mockito.any(PrivPredicate.class))).thenReturn(hasPriv);
+        Mockito.when(accessManager.decide(Mockito.any(UserIdentity.class), Mockito.any(), Mockito.any(),
+                Mockito.same(AccessContext.NONE))).thenReturn(hasPriv);
         Deencapsulation.setField(Env.getCurrentEnv(), "accessManager", accessManager);
     }
 
@@ -668,20 +671,21 @@ public class RoutineLoadComputeGroupTest {
         List<String> existingGroups = Lists.newArrayList(existing);
         List<String> lookups = Lists.newArrayList();
         WorkloadGroupMgr workloadGroupMgr = Mockito.mock(WorkloadGroupMgr.class);
-        Mockito.when(workloadGroupMgr.getWorkloadGroup(Mockito.any(ConnectContext.class))).thenAnswer(invocation -> {
-            ConnectContext lookupCtx = invocation.getArgument(0);
-            String computeGroup = lookupCtx.getSessionVariable().getCloudCluster();
-            String workloadGroup = lookupCtx.getSessionVariable().getWorkloadGroup();
-            String lookup = computeGroup + "/" + workloadGroup;
-            String recorded = lookupCtx.getCurrentUserIdentity().getQualifiedUser() + ":" + lookup;
-            lookups.add(recorded);
-            onLookup.accept(recorded);
-            if (!existingGroups.contains(lookup)) {
-                throw new UserException("Can not find workload group " + workloadGroup + " in compute croup "
-                        + computeGroup);
-            }
-            return Lists.newArrayList(Mockito.mock(WorkloadGroup.class));
-        });
+        Mockito.when(workloadGroupMgr.getWorkloadGroup(Mockito.any(UserIdentity.class), Mockito.anyString(),
+                Mockito.nullable(String.class))).thenAnswer(invocation -> {
+                    UserIdentity user = invocation.getArgument(0);
+                    String computeGroup = Config.isCloudMode() ? invocation.getArgument(2) : "";
+                    String workloadGroup = invocation.getArgument(1);
+                    String lookup = computeGroup + "/" + workloadGroup;
+                    String recorded = user.getQualifiedUser() + ":" + lookup;
+                    lookups.add(recorded);
+                    onLookup.accept(recorded);
+                    if (!existingGroups.contains(lookup)) {
+                        throw new UserException("Can not find workload group " + workloadGroup + " in compute croup "
+                                + computeGroup);
+                    }
+                    return Lists.newArrayList(Mockito.mock(WorkloadGroup.class));
+                });
         Deencapsulation.setField(Env.getCurrentEnv(), "workloadGroupMgr", workloadGroupMgr);
         return lookups;
     }

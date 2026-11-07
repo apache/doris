@@ -106,30 +106,6 @@ public class MasterOpExecutorBackendSelectionTest {
     }
 
     @Test
-    public void testGroupCommitUpdateLoadDataDoesNotWaitJournalReplay() throws Exception {
-        TMasterOpResult result = new TMasterOpResult();
-        result.setMaxJournalId(456L);
-        Env env = Mockito.mock(Env.class);
-        JournalObservable journalObservable = Mockito.mock(JournalObservable.class);
-        ConnectContext context = Mockito.mock(ConnectContext.class);
-        Mockito.when(context.getEnv()).thenReturn(env);
-        Mockito.when(context.getExecTimeoutS()).thenReturn(1);
-        Mockito.when(env.getMasterHost()).thenReturn("127.0.0.1");
-        Mockito.when(env.getMasterRpcPort()).thenReturn(9010);
-        Mockito.when(env.getJournalObservable()).thenReturn(journalObservable);
-        Mockito.when(env.getSelfNode()).thenReturn(new HostInfo("127.0.0.1", 9010));
-        MasterOpExecutor executor = new TestingMasterOpExecutor(context, result);
-
-        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
-            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-
-            executor.updateLoadData(1L, 2L);
-
-            Mockito.verify(journalObservable, Mockito.never()).waitOn(Mockito.anyLong(), Mockito.anyInt());
-        }
-    }
-
-    @Test
     public void testForwardResultExposesExternalDmlAuditBackendIds() throws Exception {
         TMasterOpResult result = new TMasterOpResult();
         result.setMaxJournalId(0L);
