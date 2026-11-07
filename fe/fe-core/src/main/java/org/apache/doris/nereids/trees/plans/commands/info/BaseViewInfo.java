@@ -81,9 +81,9 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.antlr.v4.runtime.ParserRuleContext;
+import org.antlr.v4.runtime.misc.Interval;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.RuleNode;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Map;
@@ -128,18 +128,25 @@ public class BaseViewInfo {
      * Add the full path to the field
      *
      * @param indexStringSqlMap key is the start and end position of the sql substring that needs to be replaced,
-     *         and value is the new string used for replacement.
+     *         and value is the new string used for replacement. The positions are the token positions the
+     *         parser reports for querySql.
      * @param querySql origin query sql
      * @return sql rewritten sql
      */
     public static String rewriteSql(TreeMap<Pair<Integer, Integer>, String> indexStringSqlMap, String querySql) {
         StringBuilder builder = new StringBuilder();
+        // The parser counts a supplementary character such as an emoji as one character, while querySql
+        // counts it as two. beg and begTokenPosition are the same place on both scales; the keys ascend,
+        // so each position is converted by scanning forward from the previous one.
         int beg = 0;
+        int begTokenPosition = 0;
         for (Map.Entry<Pair<Integer, Integer>, String> entry : indexStringSqlMap.entrySet()) {
             Pair<Integer, Integer> index = entry.getKey();
-            builder.append(querySql, beg, index.first);
+            int start = querySql.offsetByCodePoints(beg, index.first - begTokenPosition);
+            builder.append(querySql, beg, start);
             builder.append(entry.getValue());
-            beg = index.second + 1;
+            beg = querySql.offsetByCodePoints(start, index.second + 1 - index.first);
+            begTokenPosition = index.second + 1;
         }
         builder.append(querySql, beg, querySql.length());
         return builder.toString();
@@ -167,10 +174,11 @@ public class BaseViewInfo {
         List<NamedExpressionContext> namedExpressionContexts = finder.getNamedExpressionContexts();
         StringBuilder replaceWithColsBuilder = new StringBuilder();
         for (int i = 0; i < namedExpressionContexts.size(); ++i) {
-            NamedExpressionContext namedExpressionContext = namedExpressionContexts.get(i);
-            int start = namedExpressionContext.expression().start.getStartIndex();
-            int stop = namedExpressionContext.expression().stop.getStopIndex();
-            replaceWithColsBuilder.append(resSql, start, stop + 1);
+            ParserRuleContext expression = namedExpressionContexts.get(i).expression();
+            // Token positions count a supplementary character such as an emoji as one character, so read
+            // the expression from the parser's input instead of cutting resSql.
+            replaceWithColsBuilder.append(expression.start.getInputStream().getText(
+                    Interval.of(expression.start.getStartIndex(), expression.stop.getStopIndex())));
             replaceWithColsBuilder.append(" AS `");
             String escapeBacktick = finalColNames.get(i).replace("`", "``");
             replaceWithColsBuilder.append(escapeBacktick);
@@ -179,9 +187,9 @@ public class BaseViewInfo {
                 replaceWithColsBuilder.append(", ");
             }
         }
-        String replaceWithCols = replaceWithColsBuilder.toString();
-        return StringUtils.overlay(resSql, replaceWithCols, finder.getIndex().first,
-                finder.getIndex().second + 1);
+        TreeMap<Pair<Integer, Integer>, String> selectColumns = new TreeMap<>(new Pair.PairComparator<>());
+        selectColumns.put(finder.getIndex(), replaceWithColsBuilder.toString());
+        return rewriteSql(selectColumns, resSql);
     }
 
     protected void createFinalCols(List<Slot> outputs) throws org.apache.doris.common.AnalysisException {
