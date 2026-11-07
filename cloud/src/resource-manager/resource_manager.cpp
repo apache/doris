@@ -781,14 +781,14 @@ std::string ResourceManager::update_cluster(
         const std::string& instance_id, const ClusterInfo& cluster,
         std::function<bool(const ClusterPB&)> filter,
         std::function<std::string(ClusterPB&, std::vector<ClusterPB>& clusters_in_instance)> action,
-        bool replace_if_existing_empty_target_cluster) {
+        bool replace_if_existing_empty_target_cluster, bool allow_cluster_name) {
     std::stringstream ss;
     std::string msg;
 
     std::string cluster_id = cluster.cluster.has_cluster_id() ? cluster.cluster.cluster_id() : "";
     std::string cluster_name =
             cluster.cluster.has_cluster_name() ? cluster.cluster.cluster_name() : "";
-    if (cluster_id.empty()) {
+    if (cluster_id.empty() && (!allow_cluster_name || cluster_name.empty())) {
         ss << "missing cluster_id=" << cluster_id;
         msg = ss.str();
         LOG(INFO) << msg;
@@ -916,6 +916,7 @@ std::string ResourceManager::update_cluster(
               << " instance json=" << proto_to_json(instance);
 
     refresh_instance(instance_id, instance);
+    TEST_INJECTION_POINT("ResourceManager::node_update:after_refresh");
 
     return msg;
 }
@@ -1383,6 +1384,7 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
     }
 
     refresh_instance(instance_id, instance);
+    TEST_INJECTION_POINT("ResourceManager::node_update:after_refresh");
 
     return "";
 }

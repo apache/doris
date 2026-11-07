@@ -268,6 +268,17 @@ HttpResponse set_sleep(const std::string& point, const brpc::URI& uri) {
     return http_json_reply(MetaServiceCode::OK, "OK");
 }
 
+HttpResponse set_wait(const std::string& point) {
+    auto* sp = SyncPoint::get_instance();
+    sp->set_call_back(point, [point, sp](auto&&) {
+        LOG(INFO) << "injection point waiting, point=" << point;
+        while (sp->get_enable() && sp->has_point(point)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    });
+    return http_json_reply(MetaServiceCode::OK, "OK");
+}
+
 HttpResponse set_return(const std::string& point, const brpc::URI& uri) {
     auto sp = SyncPoint::get_instance();
     sp->set_call_back(point, [point](auto&& args) {
@@ -293,7 +304,9 @@ HttpResponse handle_set(const brpc::URI& uri) {
     if (behavior.empty()) {
         return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "empty behavior");
     }
-    if (behavior == "sleep") {
+    if (behavior == "wait") {
+        return set_wait(point);
+    } else if (behavior == "sleep") {
         return set_sleep(point, uri);
     } else if (behavior == "return") {
         return set_return(point, uri);
@@ -349,6 +362,8 @@ HttpResponse handle_disable(const brpc::URI& uri) {
 // curl "ms_ip:port/MetaService/http/v1/injection_point?token=greedisgood9999&op=disable"
 // ```
 
+// behavior=wait blocks at a point until it is cleared or injection is disabled.
+//
 // clear all injection points
 // ```
 // curl "ms_ip:port/MetaService/http/v1/injection_point?token=greedisgood9999&op=clear"
