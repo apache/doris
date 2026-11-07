@@ -182,6 +182,9 @@ public class Index implements Writable {
     // local mode supports light add for bf index, inverted index, ann index and ngram_bf index
     // the rest of the index types do not support light add
     public boolean isLightAddIndexSupported(boolean enableAddIndexForNewData) {
+        if (isVariantValuesIndex()) {
+            return enableAddIndexForNewData;
+        }
         if (Config.isCloudMode()) {
             if (indexType == IndexType.INVERTED) {
                 return isInvertedIndexParserNone() && enableAddIndexForNewData;
@@ -330,5 +333,11 @@ public class Index implements Writable {
                 || properties.containsKey(InvertedIndexProperties.INVERTED_INDEX_PARSER_KEY_ALIAS)
                 || properties.containsKey(InvertedIndexProperties.INVERTED_INDEX_ANALYZER_NAME_KEY)
                 || properties.containsKey(InvertedIndexProperties.INVERTED_INDEX_NORMALIZER_NAME_KEY));
+    }
+
+    /** A VARIANT values index: whole-column tokens from scalar leaves. */
+    public boolean isVariantValuesIndex() {
+        return indexType == IndexType.INVERTED
+                && InvertedIndexProperties.isVariantValuesIndex(properties);
     }
 }

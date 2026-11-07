@@ -103,6 +103,7 @@ public class InvertedIndexUtil {
 
     public static String INVERTED_INDEX_PARSER_FIELD_PATTERN_KEY =
             InvertedIndexProperties.INVERTED_INDEX_PARSER_FIELD_PATTERN_KEY;
+    public static final String VARIANT_INDEX_SCOPE_KEY = InvertedIndexProperties.VARIANT_INDEX_SCOPE_KEY;
 
     public static String getInvertedIndexFieldPattern(Map<String, String> properties) {
         return InvertedIndexProperties.getInvertedIndexFieldPattern(properties);
@@ -226,7 +227,8 @@ public class InvertedIndexUtil {
                 INVERTED_INDEX_DICT_COMPRESSION_KEY,
                 INVERTED_INDEX_ANALYZER_NAME_KEY,
                 INVERTED_INDEX_NORMALIZER_NAME_KEY,
-                INVERTED_INDEX_PARSER_FIELD_PATTERN_KEY
+                INVERTED_INDEX_PARSER_FIELD_PATTERN_KEY,
+                VARIANT_INDEX_SCOPE_KEY
         ));
 
         for (String key : properties.keySet()) {
@@ -507,6 +509,10 @@ public class InvertedIndexUtil {
         Set<String> analyzerKeys = new HashSet<>();
         Set<String> analyzerSelectors = new HashSet<>();
         for (IndexDefinition indexDef : indexDefs) {
+            // Values and path indexes bind disjoint predicates. CREATE TABLE checks values index uniqueness.
+            if (indexDef.isVariantValuesIndex()) {
+                continue;
+            }
             Map<String, String> properties = indexDef.getProperties();
             String key = buildAnalyzerIdentity(properties);
             // HashSet.add() returns false if element already exists
