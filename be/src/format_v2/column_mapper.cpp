@@ -1882,6 +1882,16 @@ static bool build_variant_projection(const ColumnMapping& mapping, LocalColumnIn
 static Status build_complex_projection(const ColumnMapping& mapping, LocalColumnIndex* projection,
                                        bool enable_variant_leaf_projection = false);
 
+static bool needs_full_map_shape_for_null_value(const DataTypePtr& file_type,
+                                                const std::vector<ColumnMapping>& children) {
+    // A physical MAP must retain its value stream to preserve a valid key/value shape, even
+    // when its table value is UNKNOWN. Materialization replaces that stream with NULLs.
+    return remove_nullable(file_type)->get_primitive_type() == TYPE_MAP &&
+           std::ranges::any_of(children, [](const ColumnMapping& child) {
+               return !child.file_local_id.has_value() && child.table_type->is_null_literal();
+           });
+}
+
 // Build the projected file children/type according to the pruned complex projection. For example,
 // if we have a struct column `s` with children `id` and `name`, and the projection only keeps
 // `s.name`, then the file reader should expose `STRUCT<name ...>`.
@@ -1892,6 +1902,11 @@ static Status rebuild_projected_file_children_and_type(
     DORIS_CHECK(file_type != nullptr);
     DORIS_CHECK(projected_file_children != nullptr);
     DORIS_CHECK(projected_type != nullptr);
+    if (needs_full_map_shape_for_null_value(file_type, child_mappings)) {
+        *projected_file_children = original_file_children;
+        *projected_type = file_type;
+        return Status::OK();
+    }
     ColumnDefinition field;
     field.type = file_type;
     field.children = original_file_children;
@@ -1931,6 +1946,10 @@ static Status build_complex_projection(const ColumnMapping& mapping, LocalColumn
     projection->timestamp_is_adjusted_to_utc = mapping.timestamp_is_adjusted_to_utc;
     projection->project_all_children = mapping.child_mappings.empty();
     projection->children.clear();
+    if (needs_full_map_shape_for_null_value(mapping.file_type, mapping.child_mappings)) {
+        projection->project_all_children = true;
+        return Status::OK();
+    }
     const auto present_children = present_child_mappings_in_file_order(mapping.child_mappings);
     if (!projection->project_all_children && present_children.empty()) {
         // All requested table children under this complex node are missing/default-only. The file
@@ -2345,6 +2364,14 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
     mapping->table_column_name = table_column.name;
     mapping->table_type = table_column.type;
     mapping->variant_access_paths = table_column.variant_access_paths;
+    if (table_column.type->is_null_literal()) {
+        // Iceberg V3 unknown is NULL even if a physical field with the same ID/name exists.
+        // Resolve it before partition/physical matching so file values and statistics cannot leak in.
+        DORIS_CHECK(table_column.type->is_nullable());
+        _set_constant_mapping(mapping, VExprContext::create_shared(VLiteral::create_shared(
+                                               table_column.type, Field {})));
+        return Status::OK();
+    }
     const auto iceberg_metadata_type = [&] {
         if (!_options.enable_iceberg_metadata_virtual_columns || !table_column.is_synthesized) {
             return TableVirtualColumnType::INVALID;
@@ -3013,6 +3040,12 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
                 if (file_child != nullptr) {
                     synthesized_used_file_child_ids.push_back(file_child->file_local_id());
                 }
+            }
+            if (table_child.type->is_null_literal()) {
+                // An unknown child is always synthesized. Keep the physical parent for its null
+                // map and ARRAY/MAP offsets, but never decode this child's value into the result.
+                DORIS_CHECK(table_child.type->is_nullable());
+                file_child = nullptr;
             }
             if (file_child == nullptr) {
                 if (table_child.default_expr == nullptr &&

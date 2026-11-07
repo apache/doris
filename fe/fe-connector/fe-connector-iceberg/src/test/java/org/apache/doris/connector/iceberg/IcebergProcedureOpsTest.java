@@ -77,6 +77,22 @@ public class IcebergProcedureOpsTest {
     }
 
     @Test
+    public void rewriteRejectsUnknownBeforeEmptyTableShortcut() {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        catalog.createTable(TableIdentifier.of("db1", "t"),
+                new Schema(Types.NestedField.optional(1, "u", Types.UnknownType.get())),
+                PartitionSpec.unpartitioned(), Collections.singletonMap("format-version", "3"));
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = catalog.loadTable(TableIdentifier.of("db1", "t"));
+        IcebergProcedureOps procedures = new IcebergProcedureOps(Collections.emptyMap(), ops, null);
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> procedures.planRewrite(SESSION, new IcebergTableHandle("db1", "t"),
+                        "rewrite_data_files", Collections.emptyMap(), null, Collections.emptyList()));
+    }
+
+    @Test
     public void getSupportedProceduresExportsFactoryNamesInLegacyOrder() {
         Assertions.assertEquals(
                 ImmutableList.of(

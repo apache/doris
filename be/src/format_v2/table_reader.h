@@ -1438,6 +1438,12 @@ protected:
         DORIS_CHECK(column != nullptr);
         DORIS_CHECK(mapping.file_type != nullptr);
         DORIS_CHECK(mapping.table_type != nullptr);
+        if (mapping.table_type->is_null_literal()) {
+            // ARRAY/MAP retain a physical child stream to recover offsets. UNKNOWN values must
+            // still be NULL, rather than cast from that stream (for example STRING to UInt8).
+            return _materialize_default_or_missing_column(mapping, nullptr, rows, column,
+                                                          nullable_parent_null_map);
+        }
         *column = file_column;
         if (!mapping.is_trivial) {
             if (!mapping.child_mappings.empty()) {
@@ -2023,6 +2029,15 @@ protected:
         const ColumnMapping* value_mapping = nullptr;
         for (const auto& child_mapping : mapping.child_mappings) {
             if (!child_mapping.file_local_id.has_value()) {
+                if (child_mapping.table_type->is_null_literal()) {
+                    // Iceberg map keys are required, so only the value can be UNKNOWN. Its
+                    // mapping deliberately has no file ID even though the parent has offsets.
+                    DORIS_CHECK(
+                            assert_cast<const DataTypeMap&>(*remove_nullable(mapping.table_type))
+                                    .get_value_type()
+                                    ->is_null_literal());
+                    value_mapping = &child_mapping;
+                }
                 continue;
             }
             if (*child_mapping.file_local_id == 0) {

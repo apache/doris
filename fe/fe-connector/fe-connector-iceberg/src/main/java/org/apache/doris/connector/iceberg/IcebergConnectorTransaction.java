@@ -282,6 +282,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                 this.table = loaded;
                 try {
                     validateBoundWriteGeneration(ctx, loaded);
+                    IcebergSchemaUtils.validateNoUnknownForWrite(loaded.schema());
                     if (writeSchemaContext != null) {
                         writeSchemaContext.validateCurrentSchema(loaded, ctx.isOverwrite());
                     }
@@ -290,6 +291,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                     // BaseTable.newTransaction refreshes metadata. Fence that second load too, closing the
                     // drop/recreate race between the initial generation check and transaction construction.
                     validateBoundWriteGeneration(ctx, loaded);
+                    IcebergSchemaUtils.validateNoUnknownForWrite(loaded.schema());
                     if (writeSchemaContext != null) {
                         writeSchemaContext.validateCurrentSchema(loaded, ctx.isOverwrite());
                     }

@@ -86,9 +86,9 @@ public class IcebergTypeMappingReadTest {
     }
 
     @Test
-    public void unknownAndV3TypesDegradeToUnsupportedByDesign() {
+    public void unsupportedV3TypesKeepGracefulDegradation() {
         // WHY (user decision 2026-07-13, DV-051): iceberg primitive types Doris cannot represent —
-        // Zoned TIMESTAMP_NANO / GEOMETRY / GEOGRAPHY / UNKNOWN — must map to UNSUPPORTED WITHOUT throwing,
+        // Zoned TIMESTAMP_NANO / GEOMETRY / GEOGRAPHY — must map to UNSUPPORTED WITHOUT throwing,
         // so the table still loads and only the exotic column is
         // present-but-unqueryable. This deliberately DIVERGES from legacy fe-core, which threw
         // IllegalArgumentException("Cannot transform unknown type") at schema-load and failed the whole table.
@@ -99,10 +99,15 @@ public class IcebergTypeMappingReadTest {
         Assertions.assertEquals("UNSUPPORTED", mapOff(Types.TimestampNanoType.withZone()).getTypeName());
         Assertions.assertEquals("UNSUPPORTED", mapOff(Types.GeometryType.crs84()).getTypeName());
         Assertions.assertEquals("UNSUPPORTED", mapOff(Types.GeographyType.crs84()).getTypeName());
-        Assertions.assertEquals("UNSUPPORTED", mapOff(Types.UnknownType.get()).getTypeName());
         Assertions.assertEquals("VARIANT_COMPUTE_V2", mapOff(Types.VariantType.get()).getTypeName());
         // The mapping flags do not rescue an unrepresentable type (both arms are flag-independent).
         Assertions.assertEquals("UNSUPPORTED", mapOn(Types.GeometryType.crs84()).getTypeName());
+    }
+
+    @Test
+    public void unknownRetainsItsReadOnlyIdentityRegardlessOfMappingFlags() {
+        Assertions.assertEquals("UNKNOWN", mapOff(Types.UnknownType.get()).getTypeName());
+        Assertions.assertEquals("UNKNOWN", mapOn(Types.UnknownType.get()).getTypeName());
     }
 
     @Test

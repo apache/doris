@@ -2090,6 +2090,17 @@ Status IcebergTableReader::_append_equality_delete_predicates(format::FileScanRe
         DataTypes comparison_types;
         bool has_missing_key = false;
         for (size_t idx = 0; idx < filter.field_ids.size(); ++idx) {
+            if (filter.key_types[idx]->is_null_literal()) {
+                // Current Iceberg UNKNOWN is NULL even when a same-ID physical field exists.
+                // Compare a typed NULL against the tombstones, never the ignored physical key.
+                // Dropped historical UNKNOWN keys retain a STRING carrier for physical resolution.
+                const auto comparison_type = remove_nullable(filter.delete_key_types[idx]);
+                key_exprs.push_back(
+                        VLiteral::create_shared(make_nullable(comparison_type), Field {}));
+                comparison_types.push_back(comparison_type);
+                has_missing_key = true;
+                continue;
+            }
             EqualityDeleteColumnPath data_path;
             bool complete_path = false;
             RETURN_IF_ERROR(

@@ -253,6 +253,66 @@ TEST(ColumnMapperDebugTest, CoversDebugStringEnumAndNestedBranches) {
     }
 }
 
+TEST(ColumnMapperConstantTest, NullTypeIgnoresPresentPhysicalFieldsAndPartitionValues) {
+    auto nested = std::make_shared<DataTypeUInt8>();
+    nested->set_null_literal(true);
+    const auto null_type = make_nullable(nested);
+    auto column = field_id_col("u", 1, null_type);
+    column.is_partition_key = true;
+    for (const auto mode : {TableColumnMappingMode::BY_FIELD_ID, TableColumnMappingMode::BY_NAME,
+                            TableColumnMappingMode::BY_INDEX}) {
+        TableColumnMapper mapper({.mode = mode});
+        const std::map<std::string, Field> partitions = {
+                {"u", Field::create_field<TYPE_STRING>("must be ignored")}};
+        ASSERT_TRUE(
+                mapper.create_mapping({column}, partitions, {field_id_col("u", 1, str(), 0)}).ok());
+        const auto& mapping = mapper.mappings().front();
+        EXPECT_FALSE(mapping.file_local_id.has_value());
+        EXPECT_TRUE(mapping.constant_index.has_value());
+        EXPECT_EQ(mapping.filter_conversion, FilterConversionType::CONSTANT);
+        const auto& literal = assert_cast<const VLiteral&>(*mapping.default_expr->root());
+        EXPECT_TRUE((*literal.get_column_ptr())[0].is_null());
+        FileScanRequest request;
+        ASSERT_TRUE(mapper.create_scan_request({}, {column}, &request).ok());
+        EXPECT_TRUE(request.predicate_columns.empty());
+        EXPECT_TRUE(request.non_predicate_columns.empty());
+    }
+}
+
+TEST(ColumnMapperCreateMappingTest, NullChildrenIgnorePhysicalValuesUnderStructArrayAndMap) {
+    auto nested = std::make_shared<DataTypeUInt8>();
+    nested->set_null_literal(true);
+    const auto null_type = make_nullable(nested);
+    const auto table_struct = struct_col("s", 1, {field_id_col("u", 2, null_type)});
+    const auto file_struct = struct_col("s", 1, {field_id_col("u", 2, str(), 0)}, 0);
+    const auto table_array = array_col("a", 3, field_id_col("element", 4, null_type));
+    const auto file_array = array_col("a", 3, field_id_col("element", 4, str(), 0), 1);
+    const auto table_map =
+            map_col("m", 5, {field_id_col("key", 6, str()), field_id_col("value", 7, null_type)},
+                    str(), null_type);
+    const auto file_map =
+            map_col("m", 5, {field_id_col("key", 6, str(), 0), field_id_col("value", 7, str(), 1)},
+                    str(), str(), 2);
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_struct, table_array, table_map}, {},
+                                      {file_struct, file_array, file_map})
+                        .ok());
+    for (size_t index = 0; index < 3; ++index) {
+        const auto& mapping = mapper.mappings()[index];
+        EXPECT_TRUE(mapping.file_local_id.has_value());
+        EXPECT_FALSE(mapping.is_trivial);
+        const auto& child = mapping.child_mappings[index == 2 ? 1 : 0];
+        EXPECT_FALSE(child.file_local_id.has_value());
+        EXPECT_EQ(child.filter_conversion, FilterConversionType::FINALIZE_ONLY);
+        EXPECT_TRUE(child.table_type->is_null_literal());
+    }
+    FileScanRequest request;
+    ASSERT_TRUE(
+            mapper.create_scan_request({}, {table_struct, table_array, table_map}, &request).ok());
+    ASSERT_EQ(request.non_predicate_columns.size(), 3);
+    EXPECT_TRUE(request.non_predicate_columns[2].project_all_children);
+}
+
 TEST(ColumnMapperTest, ParquetRetainsIdlessComplexWrapperWithNestedFieldId) {
     auto table_child = field_id_col("a", 1, i32());
     auto table_struct = struct_col("s", 10, {table_child});
