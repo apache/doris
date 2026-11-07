@@ -90,7 +90,7 @@ protected:
                                                     .file_type = TFileType::FILE_LOCAL,
                                                     .broker_addresses = {}};
         return std::make_unique<VIcebergPartitionWriter>(
-                sink, std::vector<std::string> {}, output_exprs, schema, schema_json,
+                sink, std::vector<std::optional<std::string>> {}, output_exprs, schema, schema_json,
                 std::vector<std::string> {}, std::move(write_info), "data", 0, format,
                 TFileCompressType::ZLIB, hadoop_conf);
     }
@@ -130,6 +130,27 @@ TEST_F(VIcebergPartitionWriterTest, OrcSkipsFooterCollectionWhenMetricsAreDisabl
     TIcebergCommitData commit_data;
     ASSERT_TRUE(build_commit_data(writer.get(), &commit_data).ok());
     EXPECT_FALSE(commit_data.__isset.column_stats);
+}
+
+TEST_F(VIcebergPartitionWriterTest, CommitDataPreservesPartitionNullBitmap) {
+    VExprContextSPtrs output_exprs;
+    iceberg::Schema schema(std::vector<iceberg::NestedField> {});
+    std::string schema_json;
+    std::map<std::string, std::string> hadoop_conf;
+    IPartitionWriterBase::WriteInfo write_info {
+            .location = IcebergOutputLocation("/tmp/iceberg_null_test", "/tmp/iceberg_null_test"),
+            .file_type = TFileType::FILE_LOCAL,
+            .broker_addresses = {}};
+    VIcebergPartitionWriter writer(make_table_sink(false), {"null", std::nullopt, "ordinary", ""},
+                                   output_exprs, schema, &schema_json, {}, std::move(write_info),
+                                   "data", 0, TFileFormatType::FORMAT_ORC, TFileCompressType::ZLIB,
+                                   hadoop_conf);
+    install_fake_transformer(&writer, output_exprs);
+    TIcebergCommitData commit;
+    ASSERT_TRUE(build_commit_data(&writer, &commit).ok());
+    EXPECT_EQ(std::vector<std::string>({"null", "null", "ordinary", ""}), commit.partition_values);
+    ASSERT_TRUE(commit.__isset.partition_values_is_null);
+    EXPECT_EQ(std::vector<bool>({false, true, false, false}), commit.partition_values_is_null);
 }
 
 TEST_F(VIcebergPartitionWriterTest, CommitDataRecordsTheTableFormOfTheLocation) {
