@@ -76,6 +76,23 @@ public class DoubleLiteral extends FractionalLiteral {
     }
 
     @Override
+    public boolean equals(Object o) {
+        if (!(o instanceof DoubleLiteral)) {
+            return false;
+        }
+        double other = ((DoubleLiteral) o).getValue();
+        // SQL value equality so a folded -0.0 still matches +0.0 in =, IN and set dedup, which is
+        // what BE does; Double.equals on the boxed value compares the bits instead.
+        return value == other || (Double.isNaN(value) && Double.isNaN(other));
+    }
+
+    @Override
+    protected int computeHashCode() {
+        // must agree with equals, so the two signed zeros share one hash
+        return Double.hashCode(value == 0.0 ? 0.0 : value);
+    }
+
+    @Override
     public LiteralExpr toLegacyLiteral() {
         return new FloatLiteral(value, Type.DOUBLE);
     }
