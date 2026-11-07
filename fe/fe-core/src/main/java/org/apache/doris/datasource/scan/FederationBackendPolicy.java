@@ -20,6 +20,7 @@
 
 package org.apache.doris.datasource.scan;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.IndexedPriorityQueue;
@@ -29,6 +30,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ConsistentHash;
 import org.apache.doris.datasource.split.SplitWeight;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
@@ -189,47 +191,40 @@ public class FederationBackendPolicy {
 
     public void init(BeSelectionPolicy policy) throws UserException {
         ConnectContext ctx = ConnectContext.get();
-        boolean ownsContext = ctx == null;
-        if (ownsContext) {
+        ComputeGroup computeGroup;
+        if (ctx == null) {
             if (Config.isCloudMode()) {
                 throw new AnalysisException("ConnectContext is null");
-            } else {
-                ctx = new ConnectContext();
             }
-
+            computeGroup = Env.getCurrentEnv().getComputeGroupMgr().getComputeGroupByName(Tag.VALUE_DEFAULT_TAG);
+        } else {
+            computeGroup = ctx.getComputeGroup();
         }
+        if (Config.isNotCloudMode() && computeGroup.equals(ComputeGroup.INVALID_COMPUTE_GROUP)) {
+            throw new LoadException(ComputeGroup.INVALID_COMPUTE_GROUP_ERR_MSG);
+        }
+
+        backends.addAll(policy.getCandidateBackends(computeGroup.getBackendList()));
+        if (backends.isEmpty()) {
+            if (Config.isCloudMode()) {
+                throw new UserException("No available backends, "
+                        + "in cloud maybe this cluster has been dropped, please `use @otherClusterName` switch it");
+            } else {
+                throw new UserException("No available backends for compute group: " + computeGroup.toString());
+            }
+        }
+        assignedWeightPerBackend.clear();
+        assignedWeightCounts.clear();
+        backendMap.clear();
+        backendMap.putAll(backends.stream().collect(Collectors.groupingBy(Backend::getHost)));
+        for (Backend backend : backends) {
+            setAssignedWeight(backend, 0L);
+        }
+
         try {
-            ComputeGroup computeGroup = ctx.getComputeGroup();
-            if (Config.isNotCloudMode() && computeGroup.equals(ComputeGroup.INVALID_COMPUTE_GROUP)) {
-                throw new LoadException(ComputeGroup.INVALID_COMPUTE_GROUP_ERR_MSG);
-            }
-
-            backends.addAll(policy.getCandidateBackends(computeGroup.getBackendList()));
-            if (backends.isEmpty()) {
-                if (Config.isCloudMode()) {
-                    throw new UserException("No available backends, "
-                            + "in cloud maybe this cluster has been dropped, please `use @otherClusterName` switch it");
-                } else {
-                    throw new UserException("No available backends for compute group: " + computeGroup.toString());
-                }
-            }
-            assignedWeightPerBackend.clear();
-            assignedWeightCounts.clear();
-            backendMap.clear();
-            backendMap.putAll(backends.stream().collect(Collectors.groupingBy(Backend::getHost)));
-            for (Backend backend : backends) {
-                setAssignedWeight(backend, 0L);
-            }
-
-            try {
-                consistentHash = consistentHashCache.get(new HashCacheKey(backends));
-            } catch (ExecutionException e) {
-                throw new UserException("failed to get consistent hash", e);
-            }
-        } finally {
-            if (ownsContext) {
-                ctx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
-            }
+            consistentHash = consistentHashCache.get(new HashCacheKey(backends));
+        } catch (ExecutionException e) {
+            throw new UserException("failed to get consistent hash", e);
         }
     }
 

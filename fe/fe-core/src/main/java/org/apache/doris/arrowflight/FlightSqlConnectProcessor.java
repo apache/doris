@@ -54,9 +54,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 /**
- * Process one flgiht sql connection.
- * <p>
- * Must use try-with-resources.
+ * Processes statements under the enclosing Flight command's execution ownership and thread binding.
+ * Use try-with-resources to release statement resources; the protocol entry retains the session and
+ * restores the caller's thread binding after the complete command exits.
  */
 public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoCloseable {
     private static final Logger LOG = LogManager.getLogger(FlightSqlConnectProcessor.class);
@@ -64,7 +64,6 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
 
     public FlightSqlConnectProcessor(ConnectContext context) {
         super(context);
-        context.setThreadLocalInfo();
     }
 
     public Schema getArrowSchema() {
@@ -217,6 +216,5 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
             executor.finalizeQuery();
         }
         ctx.clear();
-        ConnectContext.remove();
     }
 }

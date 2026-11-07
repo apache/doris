@@ -84,10 +84,12 @@ public class LoadTaskContextLifecycleTest {
         StatementContext statement = Mockito.mock(StatementContext.class);
         RuntimeException failure = new IllegalStateException("coordinator initialization failed");
         EnvFactory factory = Mockito.mock(EnvFactory.class);
-        Mockito.when(factory.createCoordinator(Mockito.eq(17L), Mockito.isNull(), Mockito.isNull(),
+        Mockito.when(factory.createCoordinator(Mockito.any(ConnectContext.class),
+                Mockito.eq(17L), Mockito.isNull(), Mockito.isNull(),
                 Mockito.anyList(), Mockito.anyList(), Mockito.eq("UTC"), Mockito.eq(false), Mockito.eq(false)))
                 .thenAnswer(invocation -> {
-                    execution.set(ConnectContext.get());
+                    execution.set(invocation.getArgument(0));
+                    Assertions.assertSame(ConnectContext.get(), execution.get());
                     execution.get().setStatementContext(statement);
                     throw failure;
                 });

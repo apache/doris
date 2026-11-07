@@ -17,14 +17,18 @@
 
 package org.apache.doris.cloud;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -32,51 +36,45 @@ import org.mockito.Mockito;
 import java.util.Collections;
 
 public class CloudContextLifecycleTest {
-    @Test
-    public void testWarmUpClosesOwnedContextAndRestoresCaller() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testWarmUpDoesNotCreateContext(boolean hasCaller) {
         boolean previousUnitTest = FeConstants.runningUnitTest;
         FeConstants.runningUnitTest = true;
-        ConnectContext parent = new ConnectContext();
-        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(parent);
-                MockedStatic<Config> config = Mockito.mockStatic(Config.class);
+        ConnectContext parent = hasCaller ? new ConnectContext() : null;
+        CloudEnv env = Mockito.mock(CloudEnv.class);
+        CacheHotspotManager manager = Mockito.mock(CacheHotspotManager.class);
+        Mockito.when(env.getCacheHotspotMgr()).thenReturn(manager);
+        Mockito.when(env.getEditLog()).thenReturn(Mockito.mock(EditLog.class));
+        Mockito.when(manager.tryRegisterRunningJob(Mockito.any())).thenReturn(true);
+        ConnectContext.remove();
+        try (AutoCloseConnectContext scope = hasCaller ? new AutoCloseConnectContext(parent) : null;
+                MockedStatic<Env> environment = Mockito.mockStatic(Env.class);
                 MockedConstruction<ConnectContext> contexts = Mockito.mockConstruction(ConnectContext.class)) {
-            config.when(Config::isCloudMode).thenReturn(true);
+            environment.when(Env::getCurrentEnv).thenReturn(env);
             CloudWarmUpJob job = new CloudWarmUpJob(1L, "source", "destination", Collections.emptyMap(),
                     CloudWarmUpJob.JobType.CLUSTER);
-            job.setJobState(CloudWarmUpJob.JobState.FINISHED);
             job.run();
-            Assertions.assertEquals(1, contexts.constructed().size());
-            Mockito.verify(contexts.constructed().get(0))
-                    .requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+            Assertions.assertEquals(CloudWarmUpJob.JobState.RUNNING, job.getJobState());
+            Assertions.assertTrue(contexts.constructed().isEmpty());
             Assertions.assertSame(parent, ConnectContext.get());
-            Assertions.assertFalse(parent.isClosingOrClosed());
+            if (hasCaller) {
+                Assertions.assertFalse(parent.isClosingOrClosed());
+            }
         } finally {
             FeConstants.runningUnitTest = previousUnitTest;
         }
     }
 
     @Test
-    public void testClusterLookupClosesPrivateContextOnEarlyReturnAndFailure() {
+    public void testClusterLookupWithoutCallerDoesNotCreateContext() {
         ConnectContext.remove();
-        for (boolean fail : new boolean[] {false, true}) {
-            try (MockedConstruction<ConnectContext> contexts = Mockito.mockConstruction(ConnectContext.class,
-                    (context, construction) -> {
-                        if (fail) {
-                            Mockito.when(context.getCloudClusterByPolicy())
-                                    .thenThrow(new IllegalStateException("cluster lookup failed"));
-                        }
-                    })) {
-                CloudSystemInfoService service = new CloudSystemInfoService();
-                if (fail) {
-                    Assertions.assertThrows(IllegalStateException.class, () -> service.getClusterNameAutoStart(null));
-                } else {
-                    Assertions.assertNull(service.getClusterNameAutoStart(null));
-                }
-                Assertions.assertEquals(1, contexts.constructed().size());
-                Mockito.verify(contexts.constructed().get(0))
-                        .requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
-                Assertions.assertNull(ConnectContext.get());
-            }
+        try (MockedConstruction<ConnectContext> contexts = Mockito.mockConstruction(ConnectContext.class)) {
+            CloudSystemInfoService service = new CloudSystemInfoService();
+            Assertions.assertNull(service.getClusterNameAutoStart(null));
+            Assertions.assertEquals("cluster", service.getClusterNameAutoStart("cluster"));
+            Assertions.assertTrue(contexts.constructed().isEmpty());
+            Assertions.assertNull(ConnectContext.get());
         }
     }
 
