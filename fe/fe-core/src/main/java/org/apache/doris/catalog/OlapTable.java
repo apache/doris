@@ -1997,7 +1997,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
      *         If strict is false, return the sum of partition's all indexes current reported row count.
      */
     public long getRowCountForPartitionIndex(long partitionId, long indexId, boolean strict) {
-        Partition partition = idToPartition.get(partitionId);
+        Partition partition = getPartition(partitionId);
         if (partition == null) {
             LOG.warn("Partition {} not exist in table {}, {}", partitionId, id, name);
             return -1;
