@@ -22,14 +22,18 @@
 #include <pdqsort.h>
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "bvar/bvar.h"
 #include "common/config.h"
 #include "core/column/column.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "exec/common/arithmetic_overflow.h"
 #include "exprs/aggregate/aggregate_function_reader.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "load/delta_writer/delta_writer_context.h"
@@ -40,6 +44,7 @@
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/resource_context.h"
 #include "storage/olap_define.h"
+#include "storage/sparse_flush_output.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/debug_points.h"
 #include "util/stopwatch.hpp"
@@ -48,6 +53,9 @@ namespace doris {
 
 bvar::Adder<int64_t> g_memtable_cnt("memtable_cnt");
 bvar::Adder<uint64_t> g_flush_cuz_memtable_full("flush_cuz_memtable_full");
+bvar::Adder<uint64_t> g_sparse_memtable_encoded_columns("sparse_memtable_encoded_columns");
+bvar::Adder<uint64_t> g_sparse_memtable_fallback_columns("sparse_memtable_fallback_columns");
+bvar::Adder<uint64_t> g_sparse_memtable_flush_fallbacks("sparse_memtable_flush_fallbacks");
 
 using namespace ErrorCode;
 
@@ -80,7 +88,16 @@ MemTable::MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schem
           _is_first_insertion(true),
           _agg_functions(tablet_schema->num_columns()),
           _offsets_of_aggregate_states(tablet_schema->num_columns()),
-          _total_size_of_aggregate_states(0) {
+          _total_size_of_aggregate_states(0),
+          _enable_sparse_snapshot(config::enable_sparse_memtable),
+          _sparse_options {
+                  .sample_rows = kSparseMemtableSampleRows,
+                  .max_non_null_ratio = kSparseMemtableMaxNonNullRatio,
+                  .min_saving_ratio = kSparseMemtableMinSavingRatio,
+                  .materialize_limit_bytes =
+                          static_cast<size_t>(config::sparse_memtable_materialize_limit_bytes),
+                  .max_rows = static_cast<uint64_t>(config::sparse_memtable_max_rows),
+          } {
     g_memtable_cnt << 1;
     _mem_tracker = std::make_shared<MemTracker>();
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
@@ -110,13 +127,30 @@ void MemTable::_init_columns_offset_by_slot_descs(const std::vector<SlotDescript
         for (int j = 0; j < slots.size(); ++j) {
             if (slot_desc->id() == slots[j]->id()) {
                 _column_offset.emplace_back(j);
+                int schema_idx = -1;
+                if (slot_desc->col_unique_id() >= 0) {
+                    schema_idx = _tablet_schema->field_index(slot_desc->col_unique_id());
+                }
+                if (schema_idx < 0) {
+                    schema_idx = _tablet_schema->field_index(slot_desc->col_name());
+                }
+                _schema_column_index.emplace_back(schema_idx);
                 break;
             }
         }
     }
     if (_is_partial_update_and_auto_inc) {
         _column_offset.emplace_back(_column_offset.size());
+        int schema_idx = -1;
+        for (int i = 0; i < _tablet_schema->num_columns(); ++i) {
+            if (_tablet_schema->column(i).is_auto_increment()) {
+                schema_idx = i;
+                break;
+            }
+        }
+        _schema_column_index.emplace_back(schema_idx);
     }
+    DCHECK_EQ(_column_offset.size(), _schema_column_index.size());
     _num_columns = _column_offset.size();
 }
 
@@ -201,6 +235,8 @@ MemTable::~MemTable() {
         _vec_row_comparator.reset();
         _row_in_blocks.reset();
         _agg_functions.clear();
+        _sparse_columns.clear();
+        _sparse_columns.shrink_to_fit();
         _input_mutable_block.clear();
         _output_mutable_block.clear();
         // Reset the LSN sidecar to release its capacity tracked by the memtable tracker.
@@ -277,12 +313,21 @@ Status MemTable::insert(const Block* input_block, const TabletAddRowsPayload& ro
             // we only need columns indicated by column offset in the output
             RETURN_IF_CATCH_EXCEPTION(_init_agg_functions(&clone_block));
         }
+        // Keep the disabled path identical to the normal dense MemTable initialization. In
+        // particular, do not scan the schema or allocate sparse sidecars when the POC is off.
+        if (UNLIKELY(_enable_sparse_snapshot)) {
+            RETURN_IF_CATCH_EXCEPTION(_init_sparse_columns(clone_block));
+        }
     }
 
     auto num_rows = row_idxs.size();
-    size_t cursor_in_mutableblock = _input_mutable_block.rows();
-    RETURN_IF_ERROR(_input_mutable_block.add_rows(input_block, row_idxs.data(),
-                                                  row_idxs.data() + num_rows, &_column_offset));
+    size_t cursor_in_mutableblock = _row_in_blocks->size();
+    if (UNLIKELY(_enable_sparse)) {
+        RETURN_IF_ERROR(_append_rows_by_sparse_state(input_block, row_idxs));
+    } else {
+        RETURN_IF_ERROR(_input_mutable_block.add_rows(input_block, row_idxs.data(),
+                                                      row_idxs.data() + num_rows, &_column_offset));
+    }
     if (_need_lsn && _row_lsn_col_pos >= 0) {
         auto lsn_column = ColumnInt64::create();
         lsn_column->get_data().assign(allocated_lsns.begin(), allocated_lsns.end());
@@ -298,6 +343,12 @@ Status MemTable::insert(const Block* input_block, const TabletAddRowsPayload& ro
     }
 
     _stat.raw_rows += num_rows;
+    if (UNLIKELY(_enable_sparse)) {
+        RETURN_IF_CATCH_EXCEPTION(_make_sparse_column_decisions());
+#ifndef NDEBUG
+        _check_sparse_invariants();
+#endif
+    }
     return Status::OK();
 }
 
@@ -351,6 +402,303 @@ void MemTable::_aggregate_two_row_with_sequence_map(MutableBlock& mutable_block,
         }
     }
 }
+
+bool MemTable::_is_sparse_supported_type(FieldType type) const {
+    switch (type) {
+    case FieldType::OLAP_FIELD_TYPE_BOOL:
+    case FieldType::OLAP_FIELD_TYPE_TINYINT:
+    case FieldType::OLAP_FIELD_TYPE_SMALLINT:
+    case FieldType::OLAP_FIELD_TYPE_INT:
+    case FieldType::OLAP_FIELD_TYPE_BIGINT:
+    case FieldType::OLAP_FIELD_TYPE_LARGEINT:
+    case FieldType::OLAP_FIELD_TYPE_FLOAT:
+    case FieldType::OLAP_FIELD_TYPE_DOUBLE:
+    case FieldType::OLAP_FIELD_TYPE_DATE:
+    case FieldType::OLAP_FIELD_TYPE_DATEV2:
+    case FieldType::OLAP_FIELD_TYPE_DATETIME:
+    case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL32:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL64:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL128I:
+    case FieldType::OLAP_FIELD_TYPE_CHAR:
+    case FieldType::OLAP_FIELD_TYPE_VARCHAR:
+    case FieldType::OLAP_FIELD_TYPE_STRING:
+        return true;
+    default:
+        return false;
+    }
+}
+
+void MemTable::_init_sparse_columns(const Block& clone_block) {
+    _enable_sparse = _enable_sparse_snapshot &&
+                     (_keys_type == KeysType::DUP_KEYS || _keys_type == KeysType::UNIQUE_KEYS) &&
+                     _partial_update_mode == UniqueKeyUpdateModePB::UPSERT &&
+                     _tablet_schema->num_key_columns() > 0 &&
+                     _tablet_schema->cluster_key_uids().empty() &&
+                     !_tablet_schema->has_row_store_for_all_columns() &&
+                     _tablet_schema->row_columns_uids().empty();
+    if (!_enable_sparse) {
+        return;
+    }
+
+    _sparse_columns.resize(_num_columns);
+    bool has_candidate = false;
+    for (size_t cid = 0; cid < _num_columns; ++cid) {
+        const auto& block_col = clone_block.get_by_position(cid);
+        const int32_t schema_idx = _schema_column_index[cid];
+        if (schema_idx < 0) {
+            continue;
+        }
+        const auto& tablet_col = _tablet_schema->column(schema_idx);
+        if (!tablet_col.is_nullable() || tablet_col.is_key() || tablet_col.is_row_store_column() ||
+            schema_idx == _tablet_schema->sequence_col_idx() ||
+            schema_idx == _tablet_schema->delete_sign_idx() ||
+            schema_idx == _tablet_schema->skip_bitmap_col_idx() ||
+            schema_idx == _tablet_schema->version_col_idx() ||
+            schema_idx == _tablet_schema->row_lsn_col_idx() ||
+            _tablet_schema->seq_col_idx_to_value_cols_idx().contains(schema_idx) ||
+            !_is_sparse_supported_type(tablet_col.type()) || !block_col.type->is_nullable()) {
+            continue;
+        }
+        _sparse_columns[cid].state = SparseState::COLLECTING_SAMPLE;
+        has_candidate = true;
+        ++_stat.sparse_candidate_columns;
+    }
+    if (!has_candidate) {
+        _enable_sparse = false;
+        _sparse_columns.clear();
+        _sparse_columns.shrink_to_fit();
+    }
+}
+
+void MemTable::_append_sparse_column_data(SparseNullableSidecar& sidecar, const IColumn& src,
+                                          const DorisVector<uint32_t>& row_idxs) {
+    const auto& nullable = assert_cast<const ColumnNullable&>(src);
+    const auto& null_map = nullable.get_null_map_data();
+    const auto& nested = nullable.get_nested_column();
+    for (uint32_t row_idx : row_idxs) {
+        if (!null_map[row_idx]) {
+            sidecar.data.rowids.push_back(static_cast<uint32_t>(sidecar.data.row_count));
+            sidecar.data.values->insert_from(nested, row_idx);
+            ++sidecar.non_null_count;
+        }
+        ++sidecar.data.row_count;
+    }
+}
+
+Status MemTable::_append_rows_by_sparse_state(const Block* input_block,
+                                              const DorisVector<uint32_t>& row_idxs) {
+    if (!_enable_sparse) {
+        return _input_mutable_block.add_rows(input_block, row_idxs.data(),
+                                             row_idxs.data() + row_idxs.size(), &_column_offset);
+    }
+    RETURN_IF_CATCH_EXCEPTION({
+        const auto& block_data = input_block->get_columns_with_type_and_name();
+        for (size_t cid = 0; cid < _num_columns; ++cid) {
+            auto& sidecar = _sparse_columns[cid];
+            const auto& src = *block_data[_column_offset[cid]].column;
+            constexpr uint64_t max_sparse_rows =
+                    static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 1;
+            if (sidecar.encoded() && (sidecar.data.row_count > max_sparse_rows ||
+                                      row_idxs.size() > max_sparse_rows - sidecar.data.row_count)) {
+                RETURN_IF_ERROR(_materialize_sparse_column(cid, true));
+            }
+            if (!sidecar.encoded()) {
+                _input_mutable_block.get_column_by_position(cid)->insert_indices_from(
+                        src, row_idxs.data(), row_idxs.data() + row_idxs.size());
+                continue;
+            }
+
+            _append_sparse_column_data(sidecar, src, row_idxs);
+            if (sidecar.non_null_count != 0) {
+                sidecar.state = SparseState::SPARSE;
+            }
+            const double ratio = sidecar.data.row_count == 0
+                                         ? 0
+                                         : static_cast<double>(sidecar.non_null_count) /
+                                                   static_cast<double>(sidecar.data.row_count);
+            if (ratio > _sparse_options.max_non_null_ratio) {
+                RETURN_IF_ERROR(_materialize_sparse_column(cid, true));
+            }
+        }
+    });
+    return Status::OK();
+}
+
+void MemTable::_make_sparse_column_decisions() {
+    if (!_enable_sparse || std::cmp_less(_stat.raw_rows.load(), _sparse_options.sample_rows)) {
+        return;
+    }
+    for (size_t cid = 0; cid < _sparse_columns.size(); ++cid) {
+        auto& sidecar = _sparse_columns[cid];
+        if (sidecar.state != SparseState::COLLECTING_SAMPLE) {
+            continue;
+        }
+        auto& dense_ptr = _input_mutable_block.get_column_by_position(cid);
+        const auto& nullable = assert_cast<const ColumnNullable&>(*dense_ptr);
+        constexpr uint64_t max_sparse_rows =
+                static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 1;
+        if (nullable.size() > max_sparse_rows) {
+            sidecar.state = SparseState::PERMANENT_DENSE;
+            ++_stat.sparse_fallback_columns;
+            g_sparse_memtable_fallback_columns << 1;
+            continue;
+        }
+        const auto& null_map = nullable.get_null_map_data();
+        const auto& nested = nullable.get_nested_column();
+        sidecar.data.row_count = nullable.size();
+        sidecar.data.values = nested.clone_empty();
+        for (size_t row = 0; row < nullable.size(); ++row) {
+            if (!null_map[row]) {
+                sidecar.data.rowids.push_back(static_cast<uint32_t>(row));
+                sidecar.data.values->insert_from(nested, row);
+            }
+        }
+        sidecar.non_null_count = sidecar.data.rowids.size();
+        const double ratio = sidecar.data.row_count == 0
+                                     ? 0
+                                     : static_cast<double>(sidecar.non_null_count) /
+                                               static_cast<double>(sidecar.data.row_count);
+        const size_t dense_bytes = dense_ptr->allocated_bytes();
+        size_t rowid_bytes = 0;
+        if (common::mul_overflow(sidecar.data.rowids.capacity(), sizeof(uint32_t), rowid_bytes)) {
+            rowid_bytes = std::numeric_limits<size_t>::max();
+        }
+        size_t sparse_bytes = 0;
+        if (common::add_overflow(rowid_bytes, sidecar.data.values->allocated_bytes(),
+                                 sparse_bytes)) {
+            sparse_bytes = std::numeric_limits<size_t>::max();
+        }
+        const bool saves_enough =
+                static_cast<long double>(sparse_bytes) <=
+                static_cast<long double>(dense_bytes) * (1.0 - _sparse_options.min_saving_ratio);
+        if (ratio > _sparse_options.max_non_null_ratio || !saves_enough) {
+            sidecar = SparseNullableSidecar {};
+            sidecar.state = SparseState::PERMANENT_DENSE;
+            ++_stat.sparse_fallback_columns;
+            g_sparse_memtable_fallback_columns << 1;
+            continue;
+        }
+        sidecar.dense_bytes_per_row =
+                std::max<size_t>(1, dense_bytes / sidecar.data.row_count +
+                                            (dense_bytes % sidecar.data.row_count != 0));
+        sidecar.state = sidecar.non_null_count == 0 ? SparseState::ALL_NULL : SparseState::SPARSE;
+        dense_ptr = dense_ptr->clone_empty();
+        ++_stat.sparse_encoded_columns;
+        if (sidecar.state == SparseState::ALL_NULL) {
+            ++_stat.sparse_all_null_columns;
+        }
+        g_sparse_memtable_encoded_columns << 1;
+    }
+}
+
+Status MemTable::_materialize_sparse_column(size_t column_idx, bool fallback) {
+    auto& sidecar = _sparse_columns[column_idx];
+    if (!sidecar.encoded()) {
+        return Status::OK();
+    }
+    auto dense = _input_mutable_block.get_column_by_position(column_idx)->clone_empty();
+    auto& nullable = assert_cast<ColumnNullable&>(*dense);
+    nullable.reserve(sidecar.data.row_count);
+    size_t value_idx = 0;
+    for (uint64_t row = 0; row < sidecar.data.row_count; ++row) {
+        if (value_idx < sidecar.data.rowids.size() && sidecar.data.rowids[value_idx] == row) {
+            nullable.get_nested_column().insert_from(*sidecar.data.values, value_idx++);
+            nullable.get_null_map_data().push_back(0);
+        } else {
+            nullable.insert_default();
+        }
+    }
+    _stat.sparse_materialize_bytes += dense->allocated_bytes();
+    _input_mutable_block.get_column_by_position(column_idx) = std::move(dense);
+    sidecar.data.rowids.clear();
+    sidecar.data.rowids.shrink_to_fit();
+    sidecar.data.values.reset();
+    sidecar.state = fallback ? SparseState::PERMANENT_DENSE : SparseState::DISABLED;
+    if (fallback) {
+        ++_stat.sparse_fallback_columns;
+        g_sparse_memtable_fallback_columns << 1;
+    }
+    return Status::OK();
+}
+
+Status MemTable::_materialize_sparse_columns() {
+    if (!_enable_sparse) {
+        return Status::OK();
+    }
+    MonotonicStopWatch watch;
+    watch.start();
+    for (size_t cid = 0; cid < _sparse_columns.size(); ++cid) {
+        RETURN_IF_ERROR(_materialize_sparse_column(cid, false));
+    }
+    watch.stop();
+    _stat.sparse_materialize_ns += watch.elapsed_time();
+    return Status::OK();
+}
+
+size_t MemTable::_dense_equivalent_bytes() const {
+    size_t bytes = _input_mutable_block.allocated_bytes();
+    for (const auto& sidecar : _sparse_columns) {
+        if (sidecar.encoded()) {
+            size_t projected_dense_bytes = 0;
+            if (common::mul_overflow(sidecar.dense_bytes_per_row,
+                                     static_cast<size_t>(sidecar.data.row_count),
+                                     projected_dense_bytes)) {
+                projected_dense_bytes = std::numeric_limits<size_t>::max();
+            }
+            const size_t allocated_value_bytes =
+                    sidecar.data.values ? sidecar.data.values->allocated_bytes() : 0;
+            if (common::add_overflow(bytes, std::max(projected_dense_bytes, allocated_value_bytes),
+                                     bytes)) {
+                bytes = std::numeric_limits<size_t>::max();
+            }
+        }
+    }
+    return bytes;
+}
+
+size_t MemTable::_sparse_sidecar_bytes() const {
+    size_t bytes = 0;
+    for (const auto& sidecar : _sparse_columns) {
+        if (!sidecar.encoded()) {
+            continue;
+        }
+        size_t rowid_bytes = 0;
+        if (common::mul_overflow(sidecar.data.rowids.capacity(), sizeof(uint32_t), rowid_bytes)) {
+            rowid_bytes = std::numeric_limits<size_t>::max();
+        }
+        if (common::add_overflow(bytes, rowid_bytes, bytes)) {
+            bytes = std::numeric_limits<size_t>::max();
+        }
+        if (sidecar.data.values) {
+            if (common::add_overflow(bytes, sidecar.data.values->allocated_bytes(), bytes)) {
+                bytes = std::numeric_limits<size_t>::max();
+            }
+        }
+    }
+    return bytes;
+}
+
+#ifndef NDEBUG
+void MemTable::_check_sparse_invariants() const {
+    const size_t rows = _stat.raw_rows;
+    for (size_t cid = 0; cid < _sparse_columns.size(); ++cid) {
+        const auto& sidecar = _sparse_columns[cid];
+        if (!sidecar.encoded()) {
+            DCHECK_EQ(_input_mutable_block.get_column_by_position(cid)->size(), rows);
+            continue;
+        }
+        DCHECK_EQ(sidecar.data.row_count, rows);
+        DCHECK(sidecar.data.values);
+        DCHECK_EQ(sidecar.data.values->size(), sidecar.data.rowids.size());
+        DCHECK(std::ranges::is_sorted(sidecar.data.rowids));
+        if (!sidecar.data.rowids.empty()) {
+            DCHECK_LT(sidecar.data.rowids.back(), sidecar.data.row_count);
+        }
+    }
+}
+#endif
 
 template <bool has_skip_bitmap_col>
 void MemTable::_aggregate_two_row_in_block(MutableBlock& mutable_block, RowInBlock* src_row,
@@ -413,6 +761,144 @@ Status MemTable::_put_into_output(Block& in_block) {
     }
     return _output_mutable_block.add_rows(&in_block, row_pos_vec.data(),
                                           row_pos_vec.data() + in_block.rows());
+}
+
+SparseFlushCapability MemTable::_sparse_flush_static_capability() const {
+    if (!_enable_sparse_snapshot) {
+        return {SparseFlushCapabilityReason::CONFIG_DISABLED};
+    }
+    if (_keys_type != KeysType::DUP_KEYS && _keys_type != KeysType::UNIQUE_KEYS) {
+        return {SparseFlushCapabilityReason::UNSUPPORTED_KEYS};
+    }
+    if (_partial_update_mode != UniqueKeyUpdateModePB::UPSERT) {
+        return {SparseFlushCapabilityReason::PARTIAL_UPDATE};
+    }
+    if (_tablet_schema->num_key_columns() == 0) {
+        return {SparseFlushCapabilityReason::NO_KEY_COLUMNS};
+    }
+    if (!_tablet_schema->cluster_key_uids().empty()) {
+        return {SparseFlushCapabilityReason::CLUSTER_KEY};
+    }
+    if (_tablet_schema->has_row_store_for_all_columns() ||
+        !_tablet_schema->row_columns_uids().empty()) {
+        return {SparseFlushCapabilityReason::ROW_STORE};
+    }
+    if (_tablet_schema->num_variant_columns() > 0) {
+        return {SparseFlushCapabilityReason::VARIANT};
+    }
+    return {};
+}
+
+SparseFlushCapability MemTable::_sparse_flush_capability(size_t duplicate_keys) const {
+    auto result = _sparse_flush_static_capability();
+    if (!result.eligible()) {
+        return result;
+    }
+    if (!_enable_sparse || !std::ranges::any_of(_sparse_columns, [](const auto& sidecar) {
+            return sidecar.encoded();
+        })) {
+        return {SparseFlushCapabilityReason::NO_SPARSE_COLUMNS};
+    }
+    if (_keys_type == KeysType::UNIQUE_KEYS && duplicate_keys != 0) {
+        return {SparseFlushCapabilityReason::UNIQUE_DUPLICATES};
+    }
+    return {};
+}
+
+SparseFlushCapability MemTable::sparse_flush_capability_for_test(size_t duplicate_keys) const {
+    return _sparse_flush_capability(duplicate_keys);
+}
+
+void MemTable::_record_sparse_flush_fallback(SparseFlushCapabilityReason reason) const {
+    if (reason == SparseFlushCapabilityReason::ELIGIBLE ||
+        reason == SparseFlushCapabilityReason::NO_SPARSE_COLUMNS) {
+        return;
+    }
+    g_sparse_memtable_flush_fallbacks << 1;
+    VLOG_DEBUG << "sparse flush fallback tablet=" << _tablet_id
+               << " reason=" << static_cast<int>(reason);
+}
+
+Status MemTable::_put_into_sparse_output(Block& in_block,
+                                         std::shared_ptr<const SparseFlushOutput>* sparse_output) {
+    if (sparse_output == nullptr) {
+        return Status::InvalidArgument("sparse flush output has no consumer");
+    }
+    SCOPED_RAW_TIMER(&_stat.put_into_output_ns);
+    SparseFlushOutput::Columns columns(_num_columns);
+    DorisVector<uint32_t> permutation;
+    permutation.reserve(_row_in_blocks->size());
+    for (const auto& row : *_row_in_blocks) {
+        permutation.emplace_back(row->_row_pos);
+        _append_output_allocated_lsn(row.get());
+    }
+
+    DorisVector<uint8_t> seen(permutation.size(), 0);
+    DorisVector<uint32_t> inverse(permutation.size());
+    for (size_t output_row = 0; output_row < permutation.size(); ++output_row) {
+        uint32_t input_row = permutation[output_row];
+        if (input_row >= permutation.size() || seen[input_row] != 0) {
+            return Status::InternalError("invalid sparse permutation tablet={}, row={}", _tablet_id,
+                                         input_row);
+        }
+        seen[input_row] = 1;
+        inverse[input_row] = static_cast<uint32_t>(output_row);
+    }
+
+    const auto& block_data = in_block.get_columns_with_type_and_name();
+    for (size_t cid = 0; cid < _num_columns; ++cid) {
+        auto& sidecar = _sparse_columns[cid];
+        if (!sidecar.encoded()) {
+            auto& dst = _output_mutable_block.get_column_by_position(cid);
+            dst->insert_indices_from(*block_data[cid].column, permutation.data(),
+                                     permutation.data() + permutation.size());
+            continue;
+        }
+        if (sidecar.data.row_count != permutation.size() ||
+            sidecar.data.rowids.size() != sidecar.data.values->size()) {
+            return Status::InternalError(
+                    "invalid sparse output tablet={}, cid={}, rows={}, permutation={}, rowids={}, "
+                    "values={}",
+                    _tablet_id, cid, sidecar.data.row_count, permutation.size(),
+                    sidecar.data.rowids.size(), sidecar.data.values->size());
+        }
+
+        DorisVector<std::pair<uint32_t, uint32_t>> positions;
+        positions.reserve(sidecar.data.rowids.size());
+        for (uint32_t value_idx = 0; value_idx < sidecar.data.rowids.size(); ++value_idx) {
+            if (sidecar.data.rowids[value_idx] >= inverse.size()) {
+                return Status::InternalError("invalid sparse rowid tablet={}, cid={}, row={}",
+                                             _tablet_id, cid, sidecar.data.rowids[value_idx]);
+            }
+            positions.emplace_back(inverse[sidecar.data.rowids[value_idx]], value_idx);
+        }
+        std::ranges::sort(positions);
+
+        auto sparse_column = std::make_unique<SparseFlushOutput::Column>();
+        sparse_column->row_count = permutation.size();
+        auto reordered_values = sidecar.data.values->clone_empty();
+        reordered_values->reserve(positions.size());
+        sparse_column->rowids.reserve(positions.size());
+        for (const auto& [output_row, value_idx] : positions) {
+            sparse_column->rowids.emplace_back(output_row);
+            reordered_values->insert_from(*sidecar.data.values, value_idx);
+        }
+        sparse_column->values = std::move(reordered_values);
+        columns[cid] = std::move(sparse_column);
+    }
+    RETURN_IF_ERROR(SparseFlushOutput::create(std::move(columns), sparse_output));
+    // Publish the complete attachment before releasing MemTable ownership. On every error path the
+    // sidecars remain intact, so the caller can destroy the MemTable normally without observing a
+    // partially transferred sparse representation.
+    for (auto& sidecar : _sparse_columns) {
+        if (sidecar.encoded()) {
+            sidecar.data.rowids.clear();
+            sidecar.data.rowids.shrink_to_fit();
+            sidecar.data.values.reset();
+            sidecar.state = SparseState::DISABLED;
+        }
+    }
+    return Status::OK();
 }
 
 size_t MemTable::_sort() {
@@ -803,6 +1289,22 @@ void MemTable::shrink_memtable_by_agg() {
 
 bool MemTable::need_flush() const {
     DBUG_EXECUTE_IF("MemTable.need_flush", { return true; });
+    const auto max_size = _effective_write_buffer_size();
+    const auto dense_bytes = _dense_equivalent_bytes();
+    if (_enable_sparse &&
+        (dense_bytes >= _sparse_options.materialize_limit_bytes ||
+         std::cmp_greater_equal(_stat.raw_rows.load(), _sparse_options.max_rows))) {
+        g_flush_cuz_memtable_full << 1;
+        return true;
+    }
+    if (memory_usage() >= max_size) {
+        g_flush_cuz_memtable_full << 1;
+        return true;
+    }
+    return false;
+}
+
+size_t MemTable::_effective_write_buffer_size() const {
     auto max_size = _adaptive_write_buffer_size();
     if (_partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
         auto update_columns_size = _num_columns;
@@ -811,11 +1313,7 @@ bool MemTable::need_flush() const {
         max_size = max_size > min_buffer_size ? max_size : min_buffer_size;
     }
 
-    if (memory_usage() >= max_size) {
-        g_flush_cuz_memtable_full << 1;
-        return true;
-    }
-    return false;
+    return max_size;
 }
 
 int64_t MemTable::_adaptive_write_buffer_size() const {
@@ -849,31 +1347,66 @@ bool MemTable::need_agg() const {
 }
 
 size_t MemTable::get_flush_reserve_memory_size() const {
-    if (_keys_type == KeysType::DUP_KEYS && _tablet_schema->num_key_columns() == 0) {
+    if (!_enable_sparse && _keys_type == KeysType::DUP_KEYS &&
+        _tablet_schema->num_key_columns() == 0) {
         return 0; // no need to reserve
     }
-    return static_cast<size_t>(static_cast<double>(_input_mutable_block.allocated_bytes()) * 1.2);
+    const long double reserve = static_cast<long double>(_dense_equivalent_bytes()) * 1.2L;
+    return reserve >= std::numeric_limits<size_t>::max() ? std::numeric_limits<size_t>::max()
+                                                         : static_cast<size_t>(reserve);
 }
 
-Status MemTable::_to_block(std::unique_ptr<Block>* res) {
+Status MemTable::_put_into_flush_output(size_t same_keys_num, bool use_sparse_output,
+                                        MemTableFlushOutput* output) {
+    if (_keys_type != KeysType::DUP_KEYS && same_keys_num != 0) {
+        (_skip_bitmap_col_idx == -1) ? _aggregate<true, false>() : _aggregate<true, true>();
+        return Status::OK();
+    }
+    if (_keys_type == KeysType::DUP_KEYS && _tablet_schema->num_key_columns() == 0) {
+        _output_mutable_block.swap(_input_mutable_block);
+        if (_need_lsn) {
+            _output_allocated_lsns->reserve(_row_in_blocks->size());
+            for (const auto& row : *_row_in_blocks) {
+                _append_output_allocated_lsn(row.get());
+            }
+        }
+        return Status::OK();
+    }
+    Block in_block = _input_mutable_block.to_block();
+    if (use_sparse_output) {
+        return _put_into_sparse_output(in_block, &output->sparse_attachment);
+    }
+    return _put_into_output(in_block);
+}
+
+Status MemTable::_to_flush_output(MemTableFlushOutput* output) {
+    if (output == nullptr) {
+        return Status::InvalidArgument("memtable flush output is null");
+    }
+    *output = {};
+    MemTableFlushOutput pending;
+    _stat.sparse_actual_bytes_at_flush = static_cast<int64_t>(
+            std::min(memory_usage(), static_cast<size_t>(std::numeric_limits<int64_t>::max())));
+    _stat.sparse_dense_equivalent_bytes = static_cast<int64_t>(std::min(
+            _dense_equivalent_bytes(), static_cast<size_t>(std::numeric_limits<int64_t>::max())));
+    _stat.sparse_sidecar_bytes_at_flush = static_cast<int64_t>(std::min(
+            _sparse_sidecar_bytes(), static_cast<size_t>(std::numeric_limits<int64_t>::max())));
+    const auto static_capability = _sparse_flush_capability(0);
+    const bool sparse_output_candidate = static_capability.eligible();
+    if (!sparse_output_candidate) {
+        _record_sparse_flush_fallback(static_capability.reason);
+        RETURN_IF_ERROR(_materialize_sparse_columns());
+    }
     _output_allocated_lsns = std::make_shared<std::vector<int64_t>>();
     size_t same_keys_num = _sort();
-    if (_keys_type == KeysType::DUP_KEYS || same_keys_num == 0) {
-        if (_keys_type == KeysType::DUP_KEYS && _tablet_schema->num_key_columns() == 0) {
-            _output_mutable_block.swap(_input_mutable_block);
-            if (_need_lsn) {
-                _output_allocated_lsns->reserve(_row_in_blocks->size());
-                for (const auto& row : *_row_in_blocks) {
-                    _append_output_allocated_lsn(row.get());
-                }
-            }
-        } else {
-            Block in_block = _input_mutable_block.to_block();
-            RETURN_IF_ERROR(_put_into_output(in_block));
-        }
-    } else {
-        (_skip_bitmap_col_idx == -1) ? _aggregate<true, false>() : _aggregate<true, true>();
+    const auto final_capability = _sparse_flush_capability(same_keys_num);
+    const bool use_sparse_output = final_capability.eligible();
+    if (sparse_output_candidate && !use_sparse_output) {
+        _record_sparse_flush_fallback(final_capability.reason);
+        // Duplicate UNIQUE keys still use the established whole-block aggregation path.
+        RETURN_IF_ERROR(_materialize_sparse_columns());
     }
+    RETURN_IF_ERROR(_put_into_flush_output(same_keys_num, use_sparse_output, &pending));
     if (_keys_type == KeysType::UNIQUE_KEYS && _enable_unique_key_mow &&
         !_tablet_schema->cluster_key_uids().empty()) {
         if (_partial_update_mode != UniqueKeyUpdateModePB::UPSERT) {
@@ -886,12 +1419,23 @@ Status MemTable::_to_block(std::unique_ptr<Block>* res) {
         DCHECK_EQ(_output_allocated_lsns->size(), _output_mutable_block.rows());
     }
     _input_mutable_block.clear();
-    *res = Block::create_unique(_output_mutable_block.to_block());
+    pending.block = Block::create_unique(_output_mutable_block.to_block());
+    *output = std::move(pending);
     return Status::OK();
 }
 
 Status MemTable::to_block(std::unique_ptr<Block>* res) {
-    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_to_block(res));
+    // Changelog sub-writers share a complete Block before deriving their own schemas.
+    // Materialize here so neither sub-writer can observe an empty sparse value column.
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_materialize_sparse_columns());
+    MemTableFlushOutput output;
+    RETURN_IF_ERROR(to_flush_output(&output));
+    *res = std::move(output.block);
+    return Status::OK();
+}
+
+Status MemTable::to_flush_output(MemTableFlushOutput* output) {
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_to_flush_output(output));
     return Status::OK();
 }
 
