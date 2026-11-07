@@ -22,6 +22,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "core/assert_cast.h"
@@ -33,17 +34,16 @@
 #include "core/value/variant/variant_leaf_visitor.h"
 #include "exprs/function/match.h"
 #include "exprs/function/parse/variant_string_parse.h"
-#include "io/fs/local_file_system.h"
 #include "io/io_common.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/index_file_reader.h"
-#include "storage/index/index_file_writer.h"
+#include "storage/index/index_iterator.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/index/inverted/snii/snii_index_reader.h"
 #include "storage/index/inverted/snii/snii_query_oracle.h"
-#include "storage/segment/variant/v2/variant_values_index_writer.h"
+#include "storage/segment/column_reader.h"
 #include "testutil/index_storage_test_util.h"
 
 namespace doris::segment_v2 {
@@ -84,31 +84,106 @@ protected:
                      const std::shared_ptr<IndexFileReader>& file);
 };
 
-TEST_F(VariantValuesSegmentTest, InitRequiresSniiContainerBeforeOpeningIndex) {
-    TabletIndexPB pb;
-    pb.set_index_id(72);
-    pb.set_index_type(IndexType::INVERTED);
-    (*pb.mutable_properties())["variant_index_scope"] = "values";
-    (*pb.mutable_properties())["parser"] = "english";
-    (*pb.mutable_properties())["support_phrase"] = "false";
-    TabletIndex index;
-    index.init_from_pb(pb);
-    for (auto format : {InvertedIndexStorageFormatPB::V2, InvertedIndexStorageFormatPB::V3,
-                        InvertedIndexStorageFormatPB::SNII}) {
-        IndexFileWriter file(io::global_local_filesystem(), _test_dir + "/format_guard", "rowset",
-                             0, format);
-        VariantValuesIndexWriter writer(&file, &index, false);
-        Status status = writer.init();
-        if (format == InvertedIndexStorageFormatPB::SNII) {
-            ASSERT_TRUE(status.ok()) << status;
-        } else {
-            EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
-            EXPECT_EQ(writer._writer, nullptr);
-        }
-        EXPECT_TRUE(file._indices_dirs.empty());
-        EXPECT_EQ(file._snii_file_writer, nullptr);
+class VariantValuesSegmentTestWithFormat
+        : public VariantValuesSegmentTest,
+          public testing::WithParamInterface<std::tuple<InvertedIndexStorageFormatPB, bool>> {};
+
+// Exercise both an empty legacy index file and one containing an unrelated text index.
+// NOLINTNEXTLINE(readability-function-size,readability-function-cognitive-complexity): keep persisted segment and index assertions before and after compaction together.
+TEST_P(VariantValuesSegmentTestWithFormat, ValuesIndexExistsOnlyInSniiSegments) {
+    using namespace index_storage_test;
+    const auto [format, sibling] = GetParam();
+    IndexTabletOptions options;
+    options.tablet_id = 120300 + 2 * format + sibling;
+    options.index_storage_format = format;
+    options.variant_columns = {VariantColumnSpec {}};
+    options.inverted_indexes = {IndexSpec::column_index(
+            72, "values", 2, {{"variant_index_scope", "values"}, {"parser", "english"}})};
+    if (sibling) {
+        options.text_columns = {TextColumnSpec {.unique_id = 3}};
+        options.inverted_indexes.push_back(IndexSpec::column_index(73, "text", 3));
     }
+    ASSERT_TRUE(create_tablet(options).ok());
+    IndexRowsetSpec spec;
+    spec.batches = {IndexBatch::single_variant_column(
+            encode_documents({R"({"a":"hello"})", R"({"b":"world"})", "{}"}))};
+    if (sibling) {
+        spec.batches.front().text_values_by_column = {{"one", "two", "three"}};
+    }
+    auto rowset = write_rowset(spec);
+    ASSERT_TRUE(rowset.has_value()) << rowset.error();
+    IndexReadOptions read_options;
+    read_options.collect_variant_values = true;
+    auto rows = read_rowsets({*rowset}, read_options);
+    ASSERT_TRUE(rows.has_value()) << rows.error();
+    EXPECT_EQ(rows->variant_values_by_uid.at(2),
+              (std::vector<std::optional<std::string>> {R"({"a":"hello"})", R"({"b":"world"})",
+                                                        "{}"}));
+    ASSERT_EQ((*rowset)->num_segments(), 1);
+    const auto segment = (*rowset)->segment(0);
+    auto path = segment.path();
+    ASSERT_TRUE(path.has_value()) << path.error();
+    const auto fs = (*rowset)->rowset_meta()->fs();
+    auto file = std::make_shared<IndexFileReader>(
+            fs, std::string(InvertedIndexDescriptor::get_index_file_path_prefix(*path)), format,
+            segment.inverted_index_file_info());
+    const auto init_status = file->init();
+    const auto* meta = (*rowset)->tablet_schema()->inverted_indexs(2).front();
+    ColumnReader reader;
+    reader._meta_type = reader._type = FieldType::OLAP_FIELD_TYPE_VARIANT;
+    std::unique_ptr<IndexIterator> iterator;
+    const auto status = reader.new_index_iterator(file, meta, "", segment.id(), 3, &iterator);
+    ASSERT_TRUE(status.ok()) << status;
+    if (format == InvertedIndexStorageFormatPB::SNII) {
+        ASSERT_TRUE(init_status.ok()) << init_status;
+        EXPECT_NE(iterator, nullptr);
+        auto index = file->open_snii_index(meta);
+        ASSERT_TRUE(index.has_value()) << index.error();
+        std::vector<uint32_t> docids;
+        ASSERT_TRUE(snii::query::term_query(**index, "hello", &docids).ok());
+        EXPECT_EQ(docids, (std::vector<uint32_t> {0}));
+    } else {
+        EXPECT_EQ(iterator, nullptr);
+        if (sibling) {
+            ASSERT_TRUE(init_status.ok()) << init_status;
+            bool exists = true;
+            ASSERT_TRUE(file->index_file_exist(meta, &exists).ok());
+            EXPECT_FALSE(exists);
+            ASSERT_TRUE(file->index_file_exist(
+                                    (*rowset)->tablet_schema()->inverted_indexs(3).front(), &exists)
+                                .ok());
+            EXPECT_TRUE(exists);
+        } else {
+            EXPECT_TRUE(init_status.is<ErrorCode::INVERTED_INDEX_BYPASS>()) << init_status;
+            int64_t size = -1;
+            ASSERT_TRUE(fs->file_size(file->get_index_file_path(meta), &size).ok());
+            EXPECT_EQ(size, 0);
+        }
+    }
+    spec.version = 1;
+    for (auto& key : spec.batches.front().keys) {
+        key += 3;
+    }
+    auto next = write_rowset(spec);
+    ASSERT_TRUE(next.has_value()) << next.error();
+    auto compacted = compact_rowsets_and_reload(IndexCompactionKind::FULL, {*rowset, *next});
+    ASSERT_TRUE(compacted.has_value()) << compacted.error();
+    auto merged = read_rowsets({*compacted}, read_options);
+    ASSERT_TRUE(merged.has_value()) << merged.error();
+    auto expected = rows->variant_values_by_uid.at(2);
+    expected.insert(expected.end(), rows->variant_values_by_uid.at(2).begin(),
+                    rows->variant_values_by_uid.at(2).end());
+    EXPECT_EQ(merged->variant_values_by_uid.at(2), expected);
+    auto probe = probe_rowset(*compacted);
+    ASSERT_TRUE(probe.has_value()) << probe.error();
+    EXPECT_TRUE(probe->index_files.all_expected_files_exist());
 }
+
+INSTANTIATE_TEST_SUITE_P(StorageFormats, VariantValuesSegmentTestWithFormat,
+                         testing::Combine(testing::Values(InvertedIndexStorageFormatPB::V2,
+                                                          InvertedIndexStorageFormatPB::V3,
+                                                          InvertedIndexStorageFormatPB::SNII),
+                                          testing::Bool()));
 
 // One table specifies final visible leaf text; the fixture also crosses the 4096-row write batch.
 // NOLINTNEXTLINE(readability-function-size,readability-function-cognitive-complexity): keep the input/expected table and actual segment readback together.

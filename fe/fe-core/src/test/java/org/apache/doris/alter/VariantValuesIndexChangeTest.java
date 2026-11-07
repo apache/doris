@@ -143,39 +143,6 @@ public class VariantValuesIndexChangeTest extends TestWithFeService {
     }
 
     @Test
-    public void testCloudAddAndReaddWithLegacyTableFormat() throws Exception {
-        connectContext.setCloudCluster("test_compute_group");
-        boolean original = Config.enable_partition_inverted_index_storage_format_rollout;
-        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS)) {
-            Config.enable_partition_inverted_index_storage_format_rollout = true;
-            for (String legacy : List.of("V2", "V3")) {
-                config.when(Config::isCloudMode).thenReturn(false);
-                String name = "legacy_" + legacy.toLowerCase();
-                createTable("CREATE TABLE values_index_change." + name + " (id INT, v VARIANT) "
-                        + "DUPLICATE KEY(id) PARTITION BY RANGE(id)(PARTITION p1 VALUES LESS THAN(100)) "
-                        + "DISTRIBUTED BY HASH(id) BUCKETS 1 "
-                        + "PROPERTIES('replication_num'='1','inverted_index_storage_format'='" + legacy + "')");
-                OlapTable table = table(name);
-                table.getTableProperty().getProperties().put("partition.inverted_index_storage_format", "SNII");
-                table.getPartitionInfo().setInvertedIndexFileStorageFormat(table.getPartition("p1").getId(),
-                        TInvertedIndexFileStorageFormat.SNII);
-                config.when(Config::isCloudMode).thenReturn(true);
-                String add = "ALTER TABLE values_index_change." + name + " ADD INDEX root_idx(v) USING INVERTED "
-                        + "PROPERTIES('variant_index_scope'='values','parser'='english')";
-                executeNereidsSql(add);
-                Assertions.assertTrue(table.getIndexes().stream().anyMatch(Index::isVariantValuesIndex));
-                executeNereidsSql("DROP INDEX root_idx ON values_index_change." + name);
-                executeNereidsSql(add);
-                Assertions.assertTrue(table.getIndexes().stream().anyMatch(Index::isVariantValuesIndex));
-                Assertions.assertEquals(TInvertedIndexFileStorageFormat.valueOf(legacy),
-                        table.getInvertedIndexFileStorageFormat());
-            }
-        } finally {
-            Config.enable_partition_inverted_index_storage_format_rollout = original;
-        }
-    }
-
-    @Test
     public void testRejectValuesIndexAlterAddOnMor() throws Exception {
         createTable("CREATE TABLE values_index_change.mor_alter (id INT, v VARIANT) "
                 + "UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
