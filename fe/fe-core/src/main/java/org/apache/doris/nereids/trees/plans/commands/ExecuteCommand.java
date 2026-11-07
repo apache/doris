@@ -177,7 +177,7 @@ public class ExecuteCommand extends Command {
                 OlapGroupCommitInsertExecutor.analyzeGroupCommit(ctx, prepareCommand);
             }
             if (ctx.isGroupCommit()) {
-                GroupCommitPlanner.executeGroupCommitInsert(ctx, preparedStmtCtx, statementContext);
+                GroupCommitPlanner.executeGroupCommitInsert(ctx, executor, preparedStmtCtx, statementContext);
                 return;
             }
         }

@@ -494,11 +494,11 @@ public class PlanUtils {
      */
     public static Map<List<String>, TableIf> tableCollect(String sql, ConnectContext connectContext) {
         ImmutableList<RewriteJob> rewriteJobs = ImmutableList.of(Rewriter.topDown(new CollectOneLevelRelation()));
-        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(sql, 0));
-        connectContext.setStatementContext(statementContext);
-        CascadesContext cascadesContext = CascadesContext.initContext(
-                statementContext, new NereidsParser().parseSingle(sql), PhysicalProperties.GATHER);
-        Rewriter.getCteChildrenRewriter(cascadesContext, rewriteJobs).execute();
-        return statementContext.getTables();
+        try (StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(sql, 0))) {
+            CascadesContext cascadesContext = CascadesContext.initContext(
+                    statementContext, new NereidsParser().parseSingle(sql), PhysicalProperties.GATHER);
+            Rewriter.getCteChildrenRewriter(cascadesContext, rewriteJobs).execute();
+            return statementContext.getTables();
+        }
     }
 }

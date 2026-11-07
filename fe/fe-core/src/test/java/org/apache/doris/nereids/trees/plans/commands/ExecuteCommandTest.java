@@ -141,7 +141,7 @@ public class ExecuteCommandTest {
         try (MockedStatic<GroupCommitPlanner> groupCommit = Mockito.mockStatic(GroupCommitPlanner.class)) {
             bindAndExecute(context, prepared, executor, new StringLiteral("ASCII"));
             groupCommit.verify(() -> GroupCommitPlanner.executeGroupCommitInsert(
-                    context, prepared, prepared.getStatementContext()));
+                    context, executor, prepared, prepared.getStatementContext()));
             groupCommit.clearInvocations();
 
             Expression binary = new Cast(new VarBinaryLiteral(new byte[] {(byte) 0xff}), StringType.INSTANCE);
@@ -153,7 +153,7 @@ public class ExecuteCommandTest {
 
             bindAndExecute(context, prepared, executor, new NullLiteral());
             groupCommit.verify(() -> GroupCommitPlanner.executeGroupCommitInsert(
-                    context, prepared, prepared.getStatementContext()));
+                    context, executor, prepared, prepared.getStatementContext()));
             Assertions.assertSame(cached, prepared.groupCommitPlanner.orElseThrow());
         }
     }

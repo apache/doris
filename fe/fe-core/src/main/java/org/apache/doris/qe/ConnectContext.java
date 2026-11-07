@@ -120,7 +120,13 @@ import javax.annotation.Nullable;
  * closes a session. There is no activation step or reference-counted operation API.
  *
  * <h2>Creation and use</h2>
- * Configure a new context privately before publishing it. Client protocol entries wrap initialization
+ * A synchronous helper borrows its caller's context and executor when it runs as part of that command.
+ * Helpers that only need values such as a compute group should accept those values directly. Use a
+ * separate StatementContext when only statement-local analysis state needs isolation. Create a private
+ * context when work needs its own SQL execution, identity or session settings. Borrowing must not
+ * change the caller's ownership or close its context.
+ *
+ * <p>Configure a new context privately before publishing it. Client protocol entries wrap initialization
  * in {@link #runCommand(ContextAction)} and call {@link #registerClientSession(ConnectPoolMgr)} after
  * authentication. Registration returns -1 on success and a nonnegative connection count on quota
  * refusal. The creator must close abandoned initialization, including failed registration or login

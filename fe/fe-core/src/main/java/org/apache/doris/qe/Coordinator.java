@@ -131,12 +131,12 @@ public class Coordinator implements CoordInterface {
     }
 
     // broker load
-    public Coordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable,
+    public Coordinator(ConnectContext context, Long jobId, TUniqueId queryId, DescriptorTable descTable,
             List<PlanFragment> fragments, List<PipelineDistributedPlan> distributedPlans,
             List<ScanNode> scanNodes, String timezone, boolean loadZeroTolerance,
             boolean enableProfile) {
         this.coordinatorContext = CoordinatorContext.buildForLoad(
-                this, jobId, queryId, fragments, distributedPlans, scanNodes,
+                this, context, jobId, queryId, fragments, distributedPlans, scanNodes,
                 descTable, timezone, loadZeroTolerance, enableProfile
         );
         // same reason in `setForInsert`

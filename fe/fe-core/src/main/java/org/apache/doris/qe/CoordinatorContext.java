@@ -152,6 +152,7 @@ public class CoordinatorContext {
     // for broker load
     private CoordinatorContext(
             Coordinator coordinator,
+            ConnectContext connectContext,
             long jobId,
             List<PlanFragment> fragments,
             List<PipelineDistributedPlan> distributedPlans,
@@ -173,7 +174,7 @@ public class CoordinatorContext {
         this.descriptorTable = descriptorTable;
         this.executionProfile = executionProfile;
 
-        this.connectContext = ConnectContext.get();
+        this.connectContext = connectContext;
         this.runtimeFilters = ImmutableList.of();
         this.topnFilters = ImmutableList.of();
         this.jobProcessor = new LoadProcessor(this, jobId);
@@ -304,6 +305,7 @@ public class CoordinatorContext {
 
     public static CoordinatorContext buildForLoad(
             Coordinator coordinator,
+            ConnectContext connectContext,
             long jobId, TUniqueId queryId,
             List<PlanFragment> fragments,
             List<PipelineDistributedPlan> distributedPlans,
@@ -329,7 +331,7 @@ public class CoordinatorContext {
                         .collect(Collectors.toList())
         );
 
-        return new CoordinatorContext(coordinator, jobId, fragments, distributedPlans,
+        return new CoordinatorContext(coordinator, connectContext, jobId, fragments, distributedPlans,
                 scanNodes, queryId, queryOptions, queryGlobals, DescriptorToThriftConverter.toThrift(descTable),
                 executionProfile);
     }

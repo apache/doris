@@ -1690,33 +1690,27 @@ public class CloudSystemInfoService extends SystemInfoService {
             return clusterName;
         }
 
-        ConnectContext previousContext = ConnectContext.get();
-        ConnectContext context = previousContext;
+        ConnectContext context = ConnectContext.get();
         if (context == null) {
-            LOG.warn("auto start cant get context so new it");
-            context = new ConnectContext();
+            // Policy selection needs the caller's identity. Background callers must name the cluster.
+            LOG.warn("cannot choose a compute group without a context or an explicit cluster name");
+            return null;
         }
-        try {
-            ConnectContext.CloudClusterResult cloudClusterTypeAndName = context.getCloudClusterByPolicy();
-            if (cloudClusterTypeAndName == null) {
-                LOG.warn("get cluster from ctx err");
-                return null;
-            }
-            if (cloudClusterTypeAndName.comment
-                    == ConnectContext.CloudClusterResult.Comment.DEFAULT_CLUSTER_SET_BUT_NOT_EXIST) {
-                LOG.warn("get default cluster from ctx err");
-                return null;
-            }
+        ConnectContext.CloudClusterResult cloudClusterTypeAndName = context.getCloudClusterByPolicy();
+        if (cloudClusterTypeAndName == null) {
+            LOG.warn("get cluster from ctx err");
+            return null;
+        }
+        if (cloudClusterTypeAndName.comment
+                == ConnectContext.CloudClusterResult.Comment.DEFAULT_CLUSTER_SET_BUT_NOT_EXIST) {
+            LOG.warn("get default cluster from ctx err");
+            return null;
+        }
 
-            Preconditions.checkState(!Strings.isNullOrEmpty(cloudClusterTypeAndName.clusterName),
-                    "get cluster name empty");
-            LOG.info("get cluster to resume {}", cloudClusterTypeAndName);
-            return cloudClusterTypeAndName.clusterName;
-        } finally {
-            if (previousContext == null) {
-                context.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
-            }
-        }
+        Preconditions.checkState(!Strings.isNullOrEmpty(cloudClusterTypeAndName.clusterName),
+                "get cluster name empty");
+        LOG.info("get cluster to resume {}", cloudClusterTypeAndName);
+        return cloudClusterTypeAndName.clusterName;
     }
 
     public String waitForAutoStart(String clusterName) throws DdlException {

@@ -18,24 +18,72 @@
 package org.apache.doris.cloud.load;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.BrokerFileGroupAggInfo;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.qe.AutoCloseConnectContext;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.system.Backend;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TxnStateCallbackFactory;
 
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 public class CloudBrokerLoadJobTest {
+
+    @ParameterizedTest
+    @CsvSource({"false, false", "false, true", "true, false", "true, true"})
+    public void testMultiClusterSyncDoesNotCreateContext(boolean hasCaller, boolean enabled) {
+        boolean previousEnabled = SessionVariable.cloudEnableMultiClusterSyncLoad;
+        SessionVariable.cloudEnableMultiClusterSyncLoad = enabled;
+        ConnectContext.remove();
+        ConnectContext caller = hasCaller ? new ConnectContext() : null;
+        CloudBrokerLoadJob job = new CloudBrokerLoadJob();
+        Deencapsulation.setField(job, "cloudClusterId", "loading");
+        CloudSystemInfoService infoService = Mockito.mock(CloudSystemInfoService.class);
+        List<Backend> backends = Collections.singletonList(Mockito.mock(Backend.class));
+        Mockito.when(infoService.getCloudClusterIds()).thenReturn(Arrays.asList("loading", "other"));
+        Mockito.when(infoService.getBackendsByClusterId("other")).thenReturn(backends);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        List<Long> tablets = Collections.singletonList(123L);
+        Mockito.when(table.getAllTabletIds()).thenReturn(tablets);
+
+        try (AutoCloseConnectContext scope = hasCaller ? new AutoCloseConnectContext(caller) : null;
+                MockedStatic<Env> environment = Mockito.mockStatic(Env.class);
+                MockedStatic<StmtExecutor> executor = Mockito.mockStatic(StmtExecutor.class);
+                MockedConstruction<ConnectContext> contexts = Mockito.mockConstruction(ConnectContext.class)) {
+            environment.when(Env::getCurrentSystemInfo).thenReturn(infoService);
+            job.afterLoadingTaskCommitTransaction(Collections.singletonList(table));
+            executor.verify(() -> StmtExecutor.syncLoadForTablets(Collections.singletonList(backends), tablets),
+                    Mockito.times(enabled ? 1 : 0));
+            Assertions.assertTrue(contexts.constructed().isEmpty());
+            Assertions.assertSame(caller, ConnectContext.get());
+            if (hasCaller) {
+                Assertions.assertFalse(caller.isClosingOrClosed());
+            }
+        } finally {
+            SessionVariable.cloudEnableMultiClusterSyncLoad = previousEnabled;
+        }
+    }
 
     @Test
     public void testRetryStartsNewTransactionAfterAbort() throws Exception {

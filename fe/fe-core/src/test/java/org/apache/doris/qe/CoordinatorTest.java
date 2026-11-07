@@ -250,13 +250,33 @@ public class CoordinatorTest extends TestWithFeService {
                 factory.createCoordinator(connectContext, planner, null).getClass());
         Coordinator insert = factory.createCoordinator(connectContext, planner, null, 123L);
         Assertions.assertEquals(123L, insert.getJobId());
-        Coordinator load = factory.createCoordinator(456L, connectContext.queryId(), planner.getDescTable(),
+        Coordinator load = factory.createCoordinator(connectContext, 456L,
+                connectContext.queryId(), planner.getDescTable(),
                 planner.getFragments(), planner.getScanNodes(), "UTC", false, false);
+        Assertions.assertSame(connectContext, load.getCoordinatorContext().connectContext);
+        Assertions.assertFalse(connectContext.isClosingOrClosed());
         Assertions.assertEquals(Coordinator.class, load.getClass());
         Assertions.assertEquals(456L, load.getJobId());
         Assertions.assertTrue(load.getQueryOptions().isNewVersionUnixTimestamp());
         Assertions.assertTrue(load.getQueryOptions().isNewVersionPercentile());
         Assertions.assertTrue(load.getQueryOptions().isNewVersionBitmapOpCount());
+    }
+
+    @Test
+    public void testLoadCoordinatorBorrowsExplicitContextWithoutThreadBinding() throws Exception {
+        NereidsPlanner planner = plan("select * from test.tbl");
+        ConnectContext.remove();
+        try {
+            Coordinator coordinator = EnvFactory.getInstance().createCoordinator(connectContext, 456L,
+                    connectContext.queryId(), planner.getDescTable(), planner.getFragments(),
+                    planner.getScanNodes(), "UTC", false, false);
+            Assertions.assertSame(connectContext, coordinator.getCoordinatorContext().connectContext);
+            Assertions.assertNull(ConnectContext.get());
+            coordinator.close();
+            Assertions.assertFalse(connectContext.isClosingOrClosed());
+        } finally {
+            connectContext.setThreadLocalInfo();
+        }
     }
 
     @ParameterizedTest

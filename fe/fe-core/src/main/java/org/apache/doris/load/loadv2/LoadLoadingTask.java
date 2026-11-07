@@ -179,8 +179,8 @@ public class LoadLoadingTask extends LoadTask {
             BackendSelectionManager.restoreLoadSelection(executionContext, loadBackendSelectionHint);
             final boolean enableProfile = this.jobProfile != null;
             // New one query id,
-            Coordinator curCoordinator =  EnvFactory.getInstance().createCoordinator(callback.getCallbackId(),
-                    loadId, planner.getDescTable(),
+            Coordinator curCoordinator =  EnvFactory.getInstance().createCoordinator(executionContext,
+                    callback.getCallbackId(), loadId, planner.getDescTable(),
                     planner.getFragments(), planner.getScanNodes(), planner.getTimezone(), loadZeroTolerance,
                     enableProfile);
             if (enableProfile) {

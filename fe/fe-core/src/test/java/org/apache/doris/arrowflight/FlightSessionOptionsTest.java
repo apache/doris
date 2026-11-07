@@ -89,7 +89,7 @@ public class FlightSessionOptionsTest extends TestWithFeService {
     // test's own context on the thread afterwards.
     private ErrorValue set(ConnectContext ctx, String name, SessionOptionValue value) {
         try {
-            return FlightSessionOptions.setOne(ctx, name, value);
+            return ctx.executeCommand(0, () -> FlightSessionOptions.setOne(ctx, name, value));
         } finally {
             connectContext.setThreadLocalInfo();
         }
@@ -98,7 +98,7 @@ public class FlightSessionOptionsTest extends TestWithFeService {
     private Map<String, SetSessionOptionsResult.Error> setAll(ConnectContext ctx,
             Map<String, SessionOptionValue> options) {
         try {
-            return FlightSessionOptions.set(ctx, options);
+            return ctx.executeCommand(0, () -> FlightSessionOptions.set(ctx, options));
         } finally {
             connectContext.setThreadLocalInfo();
         }
@@ -107,12 +107,45 @@ public class FlightSessionOptionsTest extends TestWithFeService {
     // Runs a statement of the session the way a request does, and leaves the test's own context on
     // the thread afterwards.
     private void run(ConnectContext ctx, String statement) throws Exception {
-        try (FlightSqlConnectProcessor processor = new FlightSqlConnectProcessor(ctx)) {
-            processor.handleQuery(statement);
-            Assertions.assertNotEquals(MysqlStateType.ERR, ctx.getState().getStateType(),
-                    statement + " failed: " + ctx.getState().getErrorMessage());
+        try {
+            ctx.executeCommand(0, () -> {
+                try (FlightSqlConnectProcessor processor = new FlightSqlConnectProcessor(ctx)) {
+                    processor.handleQuery(statement);
+                    Assertions.assertNotEquals(MysqlStateType.ERR, ctx.getState().getStateType(),
+                            statement + " failed: " + ctx.getState().getErrorMessage());
+                }
+                return null;
+            });
         } finally {
             connectContext.setThreadLocalInfo();
+        }
+    }
+
+    @Test
+    public void testProcessorClosePreservesEnclosingCommandBinding() throws Exception {
+        ConnectContext ctx = rootSession();
+        connectContext.setThreadLocalInfo();
+        try {
+            for (boolean fails : new boolean[] {false, true}) {
+                ctx.executeCommand(0, () -> {
+                    try (FlightSqlConnectProcessor processor = new FlightSqlConnectProcessor(ctx)) {
+                        processor.handleQuery("SET SESSION sql_select_limit = 123");
+                        if (fails) {
+                            throw new IllegalStateException("response failed");
+                        }
+                    } catch (IllegalStateException failure) {
+                        Assertions.assertTrue(fails);
+                        Assertions.assertEquals("response failed", failure.getMessage());
+                    }
+                    // The response and error handling still belong to the same admitted command.
+                    Assertions.assertSame(ctx, ConnectContext.get());
+                    Assertions.assertFalse(ctx.isClosingOrClosed());
+                    return null;
+                });
+                Assertions.assertSame(connectContext, ConnectContext.get());
+            }
+        } finally {
+            ctx.cleanup();
         }
     }
 

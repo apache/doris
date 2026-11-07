@@ -203,8 +203,8 @@ public class GroupCommitPlanner {
     }
 
     // prepare command
-    public static void executeGroupCommitInsert(ConnectContext ctx, PreparedStatementContext preparedStmtCtx,
-            StatementContext statementContext) throws Exception {
+    public static void executeGroupCommitInsert(ConnectContext ctx, StmtExecutor executor,
+            PreparedStatementContext preparedStmtCtx, StatementContext statementContext) throws Exception {
         PrepareCommand prepareCommand = preparedStmtCtx.command;
         InsertIntoTableCommand command = (InsertIntoTableCommand) (prepareCommand.getLogicalPlan());
         OlapTable table = (OlapTable) command.getTable(ctx);
@@ -222,13 +222,8 @@ public class GroupCommitPlanner {
                 groupCommitPlanner = preparedStmtCtx.groupCommitPlanner.get();
                 reuse = true;
             } else {
-                // call nereids planner to check to sql
-                ConnectContext planningContext = new ConnectContext();
-                try {
-                    command.initPlan(ctx, new StmtExecutor(planningContext, ""), false);
-                } finally {
-                    planningContext.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
-                }
+                // Planning belongs to the current EXECUTE, including its user and statement resources.
+                command.initPlan(ctx, executor, false);
                 List<String> targetColumnNames = command.getTargetColumns();
                 groupCommitPlanner = EnvFactory.getInstance()
                         .createGroupCommitPlanner((Database) table.getDatabase(), table,

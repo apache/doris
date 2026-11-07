@@ -1567,11 +1567,11 @@ public class LocalShuffleNodeCoverageTest {
 
     private static class TestMaterializationNode extends MaterializationNode {
         TestMaterializationNode(PlanNodeId id, TupleDescriptor desc, PlanNode child) {
-            super(id, desc, child);
+            super(id, desc, child, null);
         }
 
         @Override
-        public void initNodeInfo() {
+        public void initNodeInfo(org.apache.doris.resource.computegroup.ComputeGroup computeGroup) {
         }
     }
 }

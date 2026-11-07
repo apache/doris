@@ -853,44 +853,49 @@ public class MetadataGenerator {
         Collection<DatabaseIf<? extends TableIf>> allDbs = Env.getCurrentEnv().getInternalCatalog().getAllDbs();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         List<TRow> dataBatch = Lists.newArrayList();
-        for (DatabaseIf<? extends TableIf> db : allDbs) {
-            String dbName = db.getFullName();
-            if (FrontendConjunctsUtils.isFiltered(viewSchemaConjuncts, "VIEW_SCHEMA", dbName)) {
-                continue;
-            }
-            List<? extends TableIf> tables = db.getTables();
-            for (TableIf table : tables) {
-                if (FrontendConjunctsUtils.isFiltered(viewTypeConjuncts, "VIEW_TYPE", table.getType().name())) {
+        ConnectContext ctx = null;
+        try {
+            for (DatabaseIf<? extends TableIf> db : allDbs) {
+                String dbName = db.getFullName();
+                if (FrontendConjunctsUtils.isFiltered(viewSchemaConjuncts, "VIEW_SCHEMA", dbName)) {
                     continue;
                 }
-                if (table instanceof MTMV) {
-                    String tableName = table.getName();
-                    if (FrontendConjunctsUtils.isFiltered(viewNameConjuncts, "VIEW_NAME", tableName)) {
+                List<? extends TableIf> tables = db.getTables();
+                for (TableIf table : tables) {
+                    if (FrontendConjunctsUtils.isFiltered(viewTypeConjuncts, "VIEW_TYPE", table.getType().name())) {
                         continue;
                     }
-                    MTMVRelation relation = ((MTMV) table).getRelation();
-                    Stream.concat(relation.getBaseTablesOneLevel().stream(), relation.getBaseViewsOneLevel().stream())
-                            .forEach(info -> {
-                                TRow trow = new TRow();
-                                trow.addToColumnValue(new TCell().setStringVal(InternalCatalog.INTERNAL_CATALOG_NAME));
-                                trow.addToColumnValue(new TCell().setStringVal(dbName));
-                                trow.addToColumnValue(new TCell().setStringVal(tableName));
-                                trow.addToColumnValue(new TCell().setStringVal(table.getType().name()));
-                                trow.addToColumnValue(new TCell().setStringVal(info.getCtlName()));
-                                trow.addToColumnValue(new TCell().setStringVal(info.getDbName()));
-                                trow.addToColumnValue(new TCell().setStringVal(info.getTableName()));
-                                trow.addToColumnValue(new TCell().setStringVal(info.getType()));
-                                dataBatch.add(trow);
-                            });
-                } else if (table instanceof View) {
-                    String tableName = table.getName();
-                    if (FrontendConjunctsUtils.isFiltered(viewNameConjuncts, "VIEW_NAME", tableName)) {
-                        continue;
-                    }
-                    String inlineViewDef = ((View) table).getInlineViewDef();
-                    ConnectContext ctx = new ConnectContext();
-                    try {
-                        ctx.setEnv(Env.getCurrentEnv());
+                    if (table instanceof MTMV) {
+                        String tableName = table.getName();
+                        if (FrontendConjunctsUtils.isFiltered(viewNameConjuncts, "VIEW_NAME", tableName)) {
+                            continue;
+                        }
+                        MTMVRelation relation = ((MTMV) table).getRelation();
+                        Stream.concat(relation.getBaseTablesOneLevel().stream(),
+                                        relation.getBaseViewsOneLevel().stream())
+                                .forEach(info -> {
+                                    TRow trow = new TRow();
+                                    trow.addToColumnValue(new TCell()
+                                            .setStringVal(InternalCatalog.INTERNAL_CATALOG_NAME));
+                                    trow.addToColumnValue(new TCell().setStringVal(dbName));
+                                    trow.addToColumnValue(new TCell().setStringVal(tableName));
+                                    trow.addToColumnValue(new TCell().setStringVal(table.getType().name()));
+                                    trow.addToColumnValue(new TCell().setStringVal(info.getCtlName()));
+                                    trow.addToColumnValue(new TCell().setStringVal(info.getDbName()));
+                                    trow.addToColumnValue(new TCell().setStringVal(info.getTableName()));
+                                    trow.addToColumnValue(new TCell().setStringVal(info.getType()));
+                                    dataBatch.add(trow);
+                                });
+                    } else if (table instanceof View) {
+                        String tableName = table.getName();
+                        if (FrontendConjunctsUtils.isFiltered(viewNameConjuncts, "VIEW_NAME", tableName)) {
+                            continue;
+                        }
+                        String inlineViewDef = ((View) table).getInlineViewDef();
+                        if (ctx == null) {
+                            ctx = new ConnectContext();
+                            ctx.setEnv(Env.getCurrentEnv());
+                        }
                         Map<List<String>, TableIf> tablesMap;
                         try {
                             tablesMap = PlanUtils.tableCollect(inlineViewDef, ctx);
@@ -915,10 +920,12 @@ public class MetadataGenerator {
                             trow.addToColumnValue(new TCell().setStringVal(tbl.getType().name()));
                             dataBatch.add(trow);
                         }
-                    } finally {
-                        ctx.cleanup();
                     }
                 }
+            }
+        } finally {
+            if (ctx != null) {
+                ctx.cleanup();
             }
         }
         result.setDataBatch(dataBatch);

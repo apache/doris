@@ -17,11 +17,13 @@
 
 package org.apache.doris.httpv2.rest;
 
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.load.GroupCommitManager;
 import org.apache.doris.load.StreamLoadHandler;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -37,11 +39,14 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.servlet.view.RedirectView;
 
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.Collections;
@@ -65,15 +70,42 @@ public class LoadActionTest {
         Config.stream_load_redirect_bounded_drain_max_idle_time_ms = 1000;
     }
 
-    @Test
-    public void testInheritLoadSelectionContextKeepsAdminWhenSourceIdentityIsNull() throws Exception {
-        ConnectContext source = new ConnectContext();
-        ConnectContext target = new ConnectContext();
-        target.setCurrentUserIdentity(UserIdentity.ADMIN);
-
-        invokeInheritLoadSelectionContext(source, target);
-
-        Assertions.assertSame(UserIdentity.ADMIN, target.getCurrentUserIdentity());
+    @ParameterizedTest
+    @CsvSource({"false,false", "false,true", "true,false", "true,true"})
+    public void testGroupCommitBorrowsRequestContext(boolean cloud, boolean fails) throws Exception {
+        Config.cloud_unique_id = cloud ? "cloud" : "";
+        ConnectContext context = Mockito.mock(ConnectContext.class);
+        Mockito.doCallRealMethod().when(context).setThreadLocalInfo();
+        context.setThreadLocalInfo();
+        Env env = Mockito.mock(Env.class);
+        GroupCommitManager manager = Mockito.mock(GroupCommitManager.class);
+        Mockito.when(env.getGroupCommitManager()).thenReturn(manager);
+        Backend backend = Mockito.mock(Backend.class);
+        DdlException selectionFailure = new DdlException("selection failed");
+        if (fails) {
+            Mockito.when(manager.selectBackendForGroupCommit(42L, context))
+                    .thenThrow(selectionFailure);
+        } else {
+            Mockito.when(manager.selectBackendForGroupCommit(42L, context)).thenReturn(backend);
+        }
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            if (fails) {
+                InvocationTargetException failure = Assertions.assertThrows(InvocationTargetException.class,
+                        () -> invokeSelectBackendForGroupCommit(new LoadAction(), "request_cluster", 42L));
+                Assertions.assertInstanceOf(LoadException.class, failure.getCause());
+                Assertions.assertSame(selectionFailure, failure.getCause().getCause());
+                Assertions.assertEquals(selectionFailure.getMessage(), failure.getCause().getMessage());
+            } else {
+                Assertions.assertSame(backend,
+                        invokeSelectBackendForGroupCommit(new LoadAction(), "request_cluster", 42L));
+            }
+        }
+        Mockito.verify(manager).selectBackendForGroupCommit(42L, context);
+        Mockito.verify(context, Mockito.times(cloud ? 1 : 0)).setCloudCluster("request_cluster");
+        Mockito.verify(context, Mockito.never()).cleanup();
+        Mockito.verify(context, Mockito.never()).requestClose(Mockito.any());
+        Assertions.assertSame(context, ConnectContext.get());
     }
 
     @Test
@@ -484,11 +516,12 @@ public class LoadActionTest {
         return method.invoke(loadAction, request, response, redirectAddr, isStreamLoad, dbName, tableName, label);
     }
 
-    private void invokeInheritLoadSelectionContext(ConnectContext source, ConnectContext target) throws Exception {
+    private Backend invokeSelectBackendForGroupCommit(LoadAction loadAction, String cluster, long tableId)
+            throws Exception {
         Method method = LoadAction.class.getDeclaredMethod(
-                "inheritLoadSelectionContext", ConnectContext.class, ConnectContext.class);
+                "selectBackendForGroupCommit", String.class, long.class);
         method.setAccessible(true);
-        method.invoke(null, source, target);
+        return (Backend) method.invoke(loadAction, cluster, tableId);
     }
 
     private Object invokeCreateRedirectResponse(LoadAction loadAction, HttpServletRequest request,

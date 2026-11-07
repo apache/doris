@@ -32,8 +32,6 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.qe.AutoCloseConnectContext;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService.Client;
 import org.apache.doris.thrift.TDownloadType;
@@ -731,11 +729,7 @@ public class CloudWarmUpJob implements Writable {
             cancel("Timeout", false);
             return;
         }
-        try (AutoCloseConnectContext scope = Config.isCloudMode()
-                ? new AutoCloseConnectContext(new ConnectContext()) : null) {
-            if (scope != null) {
-                scope.connectContext.setCloudCluster(dstClusterName);
-            }
+        try {
             switch (jobState) {
                 case PENDING:
                     runPendingJob();
