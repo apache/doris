@@ -31,6 +31,8 @@
 #include "runtime/index_policy/index_policy_mgr.h"
 #include "storage/index/inverted/analysis/inverted_index_parser.h"
 #include "storage/index/inverted/analysis/reader.h"
+#include "storage/index/inverted/analysis/scratch.h"
+#include "storage/index/inverted/analysis/token_batch.h"
 #include "storage/index/inverted/clucene/lucene_backed_text_analyzer.h"
 #include "util/defer_op.h"
 
@@ -376,6 +378,29 @@ TEST_F(AnalyzerTest, TestIndexCharFilterIsPartOfTheAnalyzer) {
               (std::vector<std::string> {"a", "b"}));
     EXPECT_EQ(terms(*InvertedIndexAnalyzer::create_analyzer_provider(&config)->get_analyzer()),
               (std::vector<std::string> {"a", "b"}));
+}
+
+// The char filter's stream keeps the filtered copy of a value until the next one. A long value's
+// copy does not stay behind a short value, whose copy fits in the string's inline buffer.
+TEST_F(AnalyzerTest, TestIndexCharFilterReleasesTheCopyOfALongValue) {
+    InvertedIndexAnalyzerConfig config;
+    config.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
+    config.char_filter_map = {
+            {INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE},
+            {INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "x"},
+            {INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " "}};
+    // A stream must not outlive the analyzer that made it.
+    const TextAnalyzerPtr analyzer = InvertedIndexAnalyzer::create_analyzer(&config);
+    const auto stream = analyzer->create_stream();
+    TokenBatch batch;
+    std::vector<TermInfo> terms;
+
+    // Filtered to 1 MiB of spaces, which make no token.
+    const std::string long_value(1U << 20, 'x');
+    InvertedIndexAnalyzer::get_analyse_result(long_value, *stream, batch, &terms);
+    EXPECT_GE(stream->reserved_bytes(), long_value.size());
+    InvertedIndexAnalyzer::get_analyse_result("axb", *stream, batch, &terms);
+    EXPECT_LT(stream->reserved_bytes(), ANALYZER_SCRATCH_HIGH_WATER_BYTES);
 }
 
 // A missing dictionary is an analyzer error for a query value too.

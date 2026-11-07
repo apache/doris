@@ -109,7 +109,8 @@ private:
     // _memory_reporter (delta-charged), same shape as the one above. A no-op for a writer that
     // does not analyze.
     void _report_analysis_capacity(bool release_all = false);
-    // Destroys the stream once its capacity is no longer reported.
+    // Destroys the stream and frees the batch once their capacity is no longer reported. After an
+    // analyzer error the batch can still hold the tokens of the row that failed.
     void _release_analysis();
     // Solves the density from what has been held back, applies it, and tokenizes the held-back
     // rows. Idempotent, and a no-op when the scheme is not gram family or the feature is off.

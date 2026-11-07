@@ -217,6 +217,36 @@ public:
         return std::make_unique<ThrowingTokenStream>();
     }
 };
+
+// A stream that hands over a batch with a 1 MiB term, then throws: an analyzer error in the middle
+// of a value, after the writer took some of its tokens.
+class LongTermThenThrowingTokenStream final
+        : public doris::segment_v2::inverted_index::TextTokenizer {
+public:
+    void reset(std::string_view /*text*/) override { _handed_over = false; }
+    bool next_batch(doris::segment_v2::inverted_index::TokenBatch& batch) override {
+        batch.clear();
+        if (_handed_over) {
+            throw doris::Exception(doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                                   "analyzer failure injected by test");
+        }
+        _handed_over = true;
+        batch.push_copy(std::string(1U << 20, 'a'), 1);
+        return true;
+    }
+    size_t reserved_bytes() const override { return 0; }
+
+private:
+    bool _handed_over = false;
+};
+
+class LongTermThenThrowingAnalyzer final : public doris::segment_v2::inverted_index::TextAnalyzer {
+public:
+    std::unique_ptr<doris::segment_v2::inverted_index::TextTokenStream> create_stream()
+            const override {
+        return std::make_unique<LongTermThenThrowingTokenStream>();
+    }
+};
 // Generic index_meta construction: push an arbitrary property table into a fresh TabletIndex, so
 // the gram-family detection tests can pass custom properties directly instead of hardcoding them
 // in the function body like the two dedicated helpers above.
@@ -636,6 +666,24 @@ TEST(SniiWriterFailureLatch, AnalyzerFailureDiscardsStateAndBlocksFinish) {
     EXPECT_EQ(writer.memory_reporter_for_test(), nullptr);
 }
 
+// The writer stops charging its analysis memory once an analyzer error is latched, so the batch,
+// which still holds the tokens the writer took from the failed row, goes with the stream.
+TEST(SniiWriterFailureLatch, AnalyzerFailureFreesThePartialBatch) {
+    doris::TabletIndex index_meta;
+    init_failure_index_meta(&index_meta, 92);
+    doris::segment_v2::SniiIndexColumnWriter writer(nullptr, &index_meta,
+                                                    doris::FieldType::OLAP_FIELD_TYPE_VARCHAR);
+    ASSERT_OK(writer.init());
+    writer.set_analysis_for_test(std::make_shared<LongTermThenThrowingAnalyzer>());
+
+    const doris::Slice value("a row whose analysis fails");
+    ASSERT_EQ(writer.add_values(reinterpret_cast<const uint8_t*>(&value), 1).code(),
+              doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR);
+    EXPECT_EQ(writer.stream_for_test(), nullptr);
+    EXPECT_EQ(writer._analysis_charged_bytes, 0);
+    EXPECT_EQ(writer._batch.capacity_bytes(), 0);
+}
+
 // The writer reads every row with the one stream init() made and one batch. Through the lowercase
 // normalizer a 2 MiB value is one 2 MiB term, so the batch grows far past the high water mark for
 // it; once the row is written the batch is back under the mark, and what the writer charges for its
@@ -666,8 +714,8 @@ TEST(SniiWriterAnalysis, BatchReturnsUnderTheHighWaterMarkAfterALongRow) {
     EXPECT_EQ(writer._analysis_charged_bytes, analysis_bytes());
 }
 
-// The stream lives from init() until finish() or close_on_error(): once the memory reporter no
-// longer charges its buffers, it goes too.
+// The stream and the batch live from init() until finish() or close_on_error(): once the memory
+// reporter no longer charges their buffers, they go too.
 TEST(SniiWriterAnalysis, StreamGoesWithFinishAndCloseOnError) {
     {
         doris::TabletIndex index_meta;
@@ -697,8 +745,10 @@ TEST(SniiWriterAnalysis, StreamGoesWithFinishAndCloseOnError) {
     ASSERT_OK(writer.init());
     const doris::Slice value("hello world");
     ASSERT_OK(writer.add_values(reinterpret_cast<const uint8_t*>(&value), 1));
+    ASSERT_GT(writer._batch.capacity_bytes(), 0);
     ASSERT_OK(writer.finish());
     EXPECT_EQ(writer.stream_for_test(), nullptr);
+    EXPECT_EQ(writer._batch.capacity_bytes(), 0);
     ASSERT_OK(index_writer.begin_close());
     ASSERT_OK(index_writer.finish_close());
     ASSERT_OK(fs->delete_directory(directory));

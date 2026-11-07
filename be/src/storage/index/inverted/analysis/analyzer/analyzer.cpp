@@ -44,6 +44,7 @@
 #include "storage/index/inverted/analysis/analyzer/kuromoji/kuromoji_normalize.h"
 #include "storage/index/inverted/analysis/char_filter/char_replace_char_filter_factory.h"
 #include "storage/index/inverted/analysis/gram/gram_scheme.h"
+#include "storage/index/inverted/analysis/scratch.h"
 #include "storage/index/inverted/analysis/token_filter/lower_case_filter.h"
 #include "storage/index/inverted/clucene/lucene_backed_text_analyzer.h"
 #include "util/string_util.h"
@@ -87,13 +88,16 @@ public:
             : _char_filters(char_filters), _in(std::move(in)) {}
 
     void reset(std::string_view text) override {
+        // Assigning a result short enough for the string's inline buffer keeps the buffer a long
+        // value grew, so release it first when it is above the high water mark.
+        release_oversized_scratch(_filtered);
         _filtered = InvertedIndexAnalyzer::filter_characters(*_char_filters, text);
         _in->reset(_filtered);
     }
 
     bool next_batch(TokenBatch& batch) override { return _in->next_batch(batch); }
 
-    // The filtered copy of the current value; every reset() replaces it with a new string.
+    // The filtered copy of the current value.
     size_t reserved_bytes() const override { return _filtered.capacity() + _in->reserved_bytes(); }
 
     void set_strict_utf8(bool strict) override { _in->set_strict_utf8(strict); }

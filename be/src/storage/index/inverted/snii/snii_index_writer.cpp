@@ -437,6 +437,7 @@ void SniiIndexColumnWriter::_report_analysis_capacity(bool release_all) {
 void SniiIndexColumnWriter::_release_analysis() {
     _gram_tokenizer = nullptr;
     _stream.reset();
+    _batch.release_all();
 }
 
 void SniiIndexColumnWriter::_report_encoded_norms_capacity(bool release_all) {
