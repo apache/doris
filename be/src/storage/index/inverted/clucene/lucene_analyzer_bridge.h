@@ -46,8 +46,9 @@ public:
     // parked value, exactly as DorisTokenizer::reset() promotes its pending reader today.
     void reset() override;
     lucene::analysis::Token* next(lucene::analysis::Token* token) override;
-    // invertField() closes the stream after every field, and the scalar path reuses it.
-    void close() override {}
+    // invertField() closes the stream after every field, also when next() threw, and the scalar
+    // path reuses it: the tokens of the value go, and the batch keeps at most the high water mark.
+    void close() override;
 
 private:
     std::unique_ptr<TextTokenStream> _stream;
