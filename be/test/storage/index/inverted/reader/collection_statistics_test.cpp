@@ -36,6 +36,7 @@
 #include "common/exception.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/primitive_type.h"
+#include "core/field.h"
 #include "exec/common/variant_util.h"
 #include "exprs/function/search/search_predicate_collector.h"
 #include "exprs/vexpr.h"
@@ -56,15 +57,20 @@
 #include "storage/index/inverted/common/string_helper.h"
 #include "storage/index/inverted/query/spi/fake_index_source.h"
 #include "storage/index/inverted/reader/predicate_collector.h"
+#include "storage/index/inverted/reader/scoring_delete_predicates.h"
 #include "storage/index/inverted/snii/format/phrase_bigram.h"
 #include "storage/index/inverted/snii/query/bm25_scorer.h"
 #include "storage/index/inverted/snii/snii_doris_adapter.h"
 #include "storage/index/inverted/snii/snii_query_test_util.h"
 #include "storage/index/inverted/snii/stats/snii_stats_provider.h"
 #include "storage/index/inverted/snii/writer/snii_compound_writer.h"
+#include "storage/iterators.h"
+#include "storage/row_cursor.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/rowset/rowset_reader.h"
+#include "storage/segment/segment.h"
+#include "storage/segment/test_segment_writer.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
 #include "testutil/mock/mock_runtime_state.h"
@@ -3626,4 +3632,160 @@ TEST(PrefixExpansionSetTest, KeepsTheSmallestTermsWhateverTheSegmentOrder) {
     EXPECT_EQ(three.limit(), 3);
 }
 
+} // namespace doris
+
+namespace doris {
+
+class ScoringDeletePredicatesTest : public testing::Test {
+protected:
+    void SetUp() override {
+        _path = "./ut_dir/scoring_delete_predicates/" +
+                std::string(testing::UnitTest::GetInstance()->current_test_info()->name());
+        ASSERT_TRUE(io::global_local_filesystem()->create_directory(_path).ok());
+        _schema = std::make_shared<TabletSchema>();
+        TabletColumn key;
+        key.set_unique_id(10);
+        key.set_name("id");
+        key.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+        key.set_is_key(true);
+        key.set_is_nullable(false);
+        key.set_length(4);
+        key.set_index_length(4);
+        _schema->append_column(key);
+        TabletColumn tag;
+        tag.set_unique_id(20);
+        tag.set_name("tag");
+        tag.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+        tag.set_is_nullable(true);
+        tag.set_length(65535);
+        tag.set_index_length(0);
+        _schema->append_column(tag);
+        _schema->set_storage_page_size(4096);
+
+        const auto file = _path + "/predicate_rows.dat";
+        auto fs = io::global_local_filesystem();
+        io::FileWriterPtr output;
+        ASSERT_TRUE(fs->create_file(file, &output).ok());
+        segment_v2::VerticalSegmentWriterOptions options;
+        segment_v2::TestVerticalSegmentWriter writer(output.get(), 7, _schema, nullptr, nullptr,
+                                                     options, nullptr);
+        ASSERT_TRUE(writer.init().ok());
+        RowCursor row;
+        ASSERT_TRUE(row.init_scan_key(_schema, std::vector<Field>(2, Field(TYPE_NULL))).ok());
+        for (int id = 0; id < kRows; ++id) {
+            row.mutable_field(0) = Field::create_field<TYPE_INT>(id);
+            row.mutable_field(1) = id % 7 == 0 ? Field(TYPE_NULL)
+                                               : Field::create_field<TYPE_STRING>(
+                                                         String(id % 2 == 0 ? "drop" : "keep"));
+            ASSERT_TRUE(writer.append_row(row).ok());
+        }
+        uint64_t index_size = 0;
+        uint64_t file_size = 0;
+        ASSERT_TRUE(writer.finalize_columns(&index_size).ok());
+        ASSERT_TRUE(writer.finalize_footer(&file_size).ok());
+        ASSERT_TRUE(output->close().ok());
+        RowsetId rowset_id;
+        rowset_id.init(123);
+        ASSERT_TRUE(segment_v2::Segment::open(fs, file, 123, 7, rowset_id, _schema,
+                                              io::FileReaderOptions {}, &_segment)
+                            .ok());
+    }
+
+    void TearDown() override {
+        _segment.reset();
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_path).ok());
+    }
+
+    RowsetMetaSharedPtr predicate(int64_t version, bool null_condition = false) {
+        auto meta = std::make_shared<RowsetMeta>();
+        meta->set_version({version, version});
+        meta->set_tablet_schema(_schema);
+        DeletePredicatePB predicate;
+        predicate.set_version(-1);
+        auto* tag = predicate.add_sub_predicates_v2();
+        tag->set_column_unique_id(20);
+        tag->set_column_name("tag");
+        tag->set_op(null_condition ? "IS" : "=");
+        tag->set_cond_value(null_condition ? "NULL" : "drop");
+        if (!null_condition) {
+            auto* id = predicate.add_sub_predicates_v2();
+            id->set_column_unique_id(10);
+            id->set_column_name("id");
+            id->set_op(">=");
+            id->set_cond_value("4090");
+        }
+        meta->set_delete_predicate(predicate);
+        return meta;
+    }
+
+    static constexpr int kRows = 5003;
+    std::string _path;
+    TabletSchemaSPtr _schema;
+    std::shared_ptr<segment_v2::Segment> _segment;
+    OlapReaderStatistics _stats;
+};
+
+TEST_F(ScoringDeletePredicatesTest, CompoundPredicateAcrossBatchesExcludesBitmapRows) {
+    ScoringDeletePredicates predicates;
+    ASSERT_TRUE(predicates.init({predicate(5)}, 5, _schema).ok());
+    StorageReadOptions options(_stats);
+    options.version = {4, 4};
+    roaring::Roaring excluded;
+    DorisVector<uint32_t> hidden;
+    excluded.add(4092);
+    excluded.add(1);
+    ASSERT_TRUE(predicates.collect(_segment, 4, options, nullptr, excluded, &hidden).ok());
+    uint64_t expected_count = 0;
+    for (int id = 0; id < kRows; ++id) {
+        const bool expected = id != 4092 && id >= 4090 && id % 2 == 0 && id % 7 != 0;
+        EXPECT_EQ(expected, std::ranges::binary_search(hidden, id)) << id;
+        expected_count += expected;
+    }
+    EXPECT_EQ(expected_count, hidden.size());
+}
+
+TEST_F(ScoringDeletePredicatesTest, DroppedColumnKeepsItsHistoricalUid) {
+    auto current = std::make_shared<TabletSchema>();
+    current->append_column(_schema->column(0));
+    TabletColumn replacement = _schema->column(1);
+    replacement.set_unique_id(30);
+    current->append_column(replacement);
+    ScoringDeletePredicates predicates;
+    ASSERT_TRUE(predicates.init({predicate(5)}, 5, current).ok());
+    StorageReadOptions options(_stats);
+    options.version = {4, 4};
+    roaring::Roaring excluded;
+    DorisVector<uint32_t> hidden;
+    ASSERT_TRUE(predicates.collect(_segment, 4, options, nullptr, excluded, &hidden).ok());
+    for (int id = 0; id < kRows; ++id) {
+        EXPECT_EQ(id >= 4090 && id % 2 == 0 && id % 7 != 0, std::ranges::binary_search(hidden, id))
+                << id;
+    }
+}
+
+TEST_F(ScoringDeletePredicatesTest, ReadVersionAndRowsetVersionBoundPredicateVisibility) {
+    const std::vector<RowsetMetaSharedPtr> history {predicate(5), predicate(7, true)};
+    StorageReadOptions options(_stats);
+    options.version = {4, 4};
+    ScoringDeletePredicates before_delete;
+    ASSERT_TRUE(before_delete.init(history, 4, _schema).ok());
+    EXPECT_TRUE(before_delete.empty());
+    roaring::Roaring excluded;
+    DorisVector<uint32_t> hidden;
+    ASSERT_TRUE(before_delete.collect(_segment, 4, options, nullptr, excluded, &hidden).ok());
+    EXPECT_TRUE(hidden.empty());
+
+    ScoringDeletePredicates after_delete;
+    ASSERT_TRUE(after_delete.init(history, 7, _schema).ok());
+    // A rowset inserted after the compound DELETE only sees the later IS NULL DELETE.
+    options.version = {6, 6};
+    ASSERT_TRUE(after_delete.collect(_segment, 6, options, nullptr, excluded, &hidden).ok());
+    for (int id = 0; id < kRows; ++id) {
+        EXPECT_EQ(id % 7 == 0, std::ranges::binary_search(hidden, id)) << id;
+    }
+    hidden.clear();
+    options.version = {7, 7};
+    ASSERT_TRUE(after_delete.collect(_segment, 7, options, nullptr, excluded, &hidden).ok());
+    EXPECT_TRUE(hidden.empty());
+}
 } // namespace doris
