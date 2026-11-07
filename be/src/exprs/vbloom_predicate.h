@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <memory>
 #include <string>
 
@@ -75,16 +76,25 @@ public:
     Status clone_node(VExprSPtr* cloned_expr) const override {
         DORIS_CHECK(cloned_expr != nullptr);
         auto cloned = VBloomPredicate::create_shared(clone_texpr_node());
-        cloned->set_filter(_filter);
+        cloned->_filter = _filter;
+        cloned->_digest_cache = _digest_cache;
         *cloned_expr = std::move(cloned);
         return Status::OK();
     }
 
+#ifdef BE_TEST
+    size_t TEST_digest_computations() const;
+#endif
+
 private:
+    struct DigestCache;
+
     Status _do_execute(VExprContext* context, const Block* block, const uint8_t* __restrict filter,
                        const Selector* selector, size_t count, ColumnPtr& result_column) const;
 
     std::shared_ptr<BloomFilterFuncBase> _filter;
+    // Scanner and file-local clones share the filter and its version-keyed digest cache.
+    std::shared_ptr<DigestCache> _digest_cache;
     inline static const std::string EXPR_NAME = "bloom_predicate";
 };
 } // namespace doris
