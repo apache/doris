@@ -1653,6 +1653,10 @@ DECLARE_mBool(enable_mow_compaction_correctness_check_core);
 DECLARE_mBool(enable_mow_compaction_correctness_check_fail);
 // rowid conversion correctness check when compaction for mow table
 DECLARE_mBool(enable_rowid_conversion_correctness_check);
+// Enable compression for eligible compactions above the dense-memory threshold.
+DECLARE_mBool(enable_compressed_rowid_conversion);
+// Nonnegative byte threshold for physical input rows * 8; 0 compresses any nonempty mapping.
+DECLARE_mInt64(compressed_rowid_conversion_threshold_bytes);
 // missing rows correctness check when compaction for mow table
 DECLARE_mBool(enable_missing_rows_correctness_check);
 // When the number of missing versions is more than this value, do not directly

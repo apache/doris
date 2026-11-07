@@ -592,6 +592,12 @@ Status SniiPostingCursor::init() {
                                   source_ordinal_);
     }
     source_mapping_ = rowid_conversion_->source_mapping(source_ordinal_);
+    if (!source_mapping_.is_dense()) {
+        if (rowid_workspace_ == nullptr) {
+            return Status::InvalidArgument("Compressed rowid posting cursor needs a workspace");
+        }
+        RETURN_IF_ERROR(read_context_->reserve_rowid_cursor());
+    }
     source_has_deletions_ = rowid_conversion_->source_has_deletions(source_ordinal_);
 
     RETURN_IF_ERROR(validate_entry_geometry());
@@ -805,6 +811,14 @@ Status SniiPostingCursor::map_decoded_chunk() {
     RETURN_IF_ERROR(
             workspace_->reserve_remapped(document_count, max_run_count, term_has_positions_));
 
+    auto lookup = [&](uint32_t row, RowIdConversionSource::Pair* destination) -> Status {
+        if (source_mapping_.is_dense()) {
+            *destination = source_mapping_.dense_values()[row];
+            return Status::OK();
+        }
+        return source_mapping_.get(row, read_context_->rowid_cursor_, *rowid_workspace_,
+                                   destination);
+    };
     auto append_live_document = [&](uint32_t segment, uint32_t docid, size_t live_docs) {
         if (runs.empty() || runs.back().destination_segment != segment) {
             if (!runs.empty()) {
@@ -832,10 +846,13 @@ Status SniiPostingCursor::map_decoded_chunk() {
         constexpr size_t kMapPrefetchDistance = 16;
         uint32_t current_segment = std::numeric_limits<uint32_t>::max();
         for (size_t ordinal = 0; ordinal < document_count; ++ordinal) {
-            if (ordinal + kMapPrefetchDistance < document_count) {
-                __builtin_prefetch(&source_mapping_[docids[ordinal + kMapPrefetchDistance]]);
+            if (source_mapping_.is_dense() && ordinal + kMapPrefetchDistance < document_count) {
+                __builtin_prefetch(
+                        &source_mapping_.dense_values()[docids[ordinal + kMapPrefetchDistance]]);
             }
-            const auto [segment, docid] = source_mapping_[docids[ordinal]];
+            RowIdConversionSource::Pair destination;
+            RETURN_IF_ERROR(lookup(docids[ordinal], &destination));
+            const auto [segment, docid] = destination;
             if (segment != current_segment) {
                 if (!runs.empty()) {
                     runs.back().document_end = static_cast<uint32_t>(ordinal);
@@ -849,7 +866,9 @@ Status SniiPostingCursor::map_decoded_chunk() {
         constexpr uint32_t kDeleted = std::numeric_limits<uint32_t>::max();
         size_t live_docs = 0;
         for (uint32_t source_docid : docids) {
-            const auto [segment, docid] = source_mapping_[source_docid];
+            RowIdConversionSource::Pair destination;
+            RETURN_IF_ERROR(lookup(source_docid, &destination));
+            const auto [segment, docid] = destination;
             if (segment != kDeleted) {
                 append_live_document(segment, docid, live_docs++);
             }
@@ -861,7 +880,9 @@ Status SniiPostingCursor::map_decoded_chunk() {
         size_t live_docs = 0;
         workspace_->position_offsets[0] = 0;
         for (size_t ordinal = 0; ordinal < docids.size(); ++ordinal) {
-            const auto [segment, docid] = source_mapping_[docids[ordinal]];
+            RowIdConversionSource::Pair destination;
+            RETURN_IF_ERROR(lookup(docids[ordinal], &destination));
+            const auto [segment, docid] = destination;
             if (segment == kDeleted) {
                 continue;
             }
